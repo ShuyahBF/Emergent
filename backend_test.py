@@ -222,7 +222,7 @@ class AccountingAPITester:
     def test_create_justification(self):
         """Test creating justification for a line"""
         if not hasattr(self, 'line_id') or not hasattr(self, 'test_line'):
-            self.log_test("Create Justification", False, "No line ID available")
+            self.log_test("Create Justification", False, "No line ID available (PDF parsing failed)")
             return False
         
         # Create justification details that match the line totals

@@ -151,11 +151,21 @@ class AccountingAPITester:
         return result is not None
 
     def test_document_upload(self):
-        """Test PDF document upload"""
-        pdf_content = self.create_test_pdf()
+        """Test PDF document upload with real test file"""
+        try:
+            # Try to use the real test PDF file first
+            with open('/tmp/test_comptable.pdf', 'rb') as f:
+                pdf_content = f.read()
+            filename = 'test_comptable.pdf'
+            print(f"   📄 Using real test PDF file ({len(pdf_content)} bytes)")
+        except FileNotFoundError:
+            # Fallback to created content
+            pdf_content = self.create_test_pdf()
+            filename = 'test_accounting.pdf'
+            print(f"   📄 Using generated test content ({len(pdf_content)} bytes)")
         
         files = {
-            'file': ('test_accounting.pdf', pdf_content, 'application/pdf')
+            'file': (filename, pdf_content, 'application/pdf')
         }
         
         result = self.run_test(
@@ -168,6 +178,8 @@ class AccountingAPITester:
         
         if result:
             self.document_id = result.get('id')
+            print(f"   📋 Document uploaded with ID: {self.document_id}")
+            print(f"   📊 Expected lines: {result.get('total_lines', 0)}")
             return True
         return False
 

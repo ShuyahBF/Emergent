@@ -154,56 +154,56 @@ def extract_text_with_ocr(pdf_bytes: bytes) -> str:
 def parse_accounting_lines(text: str) -> List[dict]:
     """Parse accounting lines from extracted text"""
     lines = []
+    
+    # Split text into logical lines
+    text_lines = text.split('\n')
+    
+    # Buffer to accumulate multi-line entries
+    buffer = []
     line_number = 0
     
-    # Patterns multiples pour détecter différents formats de lignes comptables
-    patterns = [
-        # Pattern 1: N° compte + Intitulé + 2 montants (débit et crédit)
-        r'([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+(\d{1,}[.,]?\d{0,2})\s+(\d{1,}[.,]?\d{0,2})',
-        # Pattern 2: N° compte + Intitulé + 1 montant
-        r'([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+(\d{1,}[.,]?\d{0,2})',
-    ]
-    
-    # Essayer chaque pattern
-    for pattern in patterns:
-        for match in re.finditer(pattern, text, re.MULTILINE):
+    for text_line in text_lines:
+        text_line = text_line.strip()
+        if not text_line:
+            continue
+            
+        # Skip headers
+        if any(header in text_line.lower() for header in ['compte', 'intitule', 'debit', 'credit', 'journal']):
+            continue
+        
+        buffer.append(text_line)
+        
+        # Check if we have a complete accounting entry (account number + label + amounts)
+        buffer_str = ' '.join(buffer)
+        
+        # Pattern: account number (3-15 digits) + text + 2 amounts
+        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)$', buffer_str)
+        
+        if match:
             line_number += 1
             account_number = match.group(1)
             label = match.group(2).strip()
             
-            # Nettoyer le label
-            label = ' '.join(label.split())
-            
             # Convertir les montants
-            amount1_str = match.group(3).replace(',', '.').replace(' ', '')
-            amount1 = float(amount1_str) if amount1_str else 0.0
-            
-            amount2 = 0.0
-            if len(match.groups()) >= 4 and match.group(4):
-                amount2_str = match.group(4).replace(',', '.').replace(' ', '')
-                amount2 = float(amount2_str) if amount2_str else 0.0
-            
-            # Déterminer si c'est débit ou crédit
-            if amount2 > 0:
-                debit = amount1
-                credit = amount2
-            else:
-                # Si un seul montant, on suppose que c'est un débit
-                debit = amount1
-                credit = 0.0
+            debit = float(match.group(3))
+            credit = float(match.group(4))
             
             total = debit if debit > 0 else credit
             
-            # Éviter les doublons
-            if not any(l['account_number'] == account_number and l['line_number'] == line_number for l in lines):
-                lines.append({
-                    "account_number": account_number,
-                    "label": label,
-                    "debit": debit,
-                    "credit": credit,
-                    "total": total,
-                    "line_number": line_number
-                })
+            lines.append({
+                "account_number": account_number,
+                "label": label,
+                "debit": debit,
+                "credit": credit,
+                "total": total,
+                "line_number": line_number
+            })
+            
+            # Clear buffer
+            buffer = []
+        elif len(buffer) > 10:
+            # Buffer too long, reset
+            buffer = []
     
     return lines
 

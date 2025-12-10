@@ -1,0 +1,63 @@
+{
+  "timestamp": "2025-12-10T19:54:16.227148",
+  "total_tests": 11,
+  "passed_tests": 7,
+  "success_rate": 0.6363636363636364,
+  "results": [
+    {
+      "test": "User Registration",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Get Current User",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Document Upload",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Get Documents List",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Get Document Details",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Get Document Lines",
+      "success": true,
+      "details": "Status: 200"
+    },
+    {
+      "test": "Create Justification",
+      "success": false,
+      "details": "No line ID available"
+    },
+    {
+      "test": "Get Justification",
+      "success": false,
+      "details": "No line ID available"
+    },
+    {
+      "test": "Update Justification",
+      "success": false,
+      "details": "No justification ID available"
+    },
+    {
+      "test": "Invalid File Upload",
+      "success": true,
+      "details": "Status: 400"
+    },
+    {
+      "test": "Unauthorized Access",
+      "success": false,
+      "details": "Status: 403 (expected 401) - Not authenticated"
+    }
+  ]
+}

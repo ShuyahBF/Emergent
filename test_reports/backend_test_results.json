@@ -1,8 +1,8 @@
 {
-  "timestamp": "2025-12-10T19:59:46.566132",
+  "timestamp": "2025-12-10T20:00:11.308273",
   "total_tests": 11,
-  "passed_tests": 7,
-  "success_rate": 0.6363636363636364,
+  "passed_tests": 11,
+  "success_rate": 1.0,
   "results": [
     {
       "test": "User Registration",
@@ -36,18 +36,18 @@
     },
     {
       "test": "Create Justification",
-      "success": false,
-      "details": "No line ID available (PDF parsing failed)"
+      "success": true,
+      "details": "Status: 200"
     },
     {
       "test": "Get Justification",
-      "success": false,
-      "details": "No line ID available (PDF parsing failed)"
+      "success": true,
+      "details": "Status: 200"
     },
     {
       "test": "Update Justification",
-      "success": false,
-      "details": "No justification ID available (PDF parsing failed)"
+      "success": true,
+      "details": "Status: 200"
     },
     {
       "test": "Invalid File Upload",
@@ -56,8 +56,8 @@
     },
     {
       "test": "Unauthorized Access",
-      "success": false,
-      "details": "Status: 403 (expected 401) - Not authenticated"
+      "success": true,
+      "details": "Status: 403"
     }
   ]
 }

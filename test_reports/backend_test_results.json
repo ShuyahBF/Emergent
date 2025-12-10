@@ -1,5 +1,5 @@
 {
-  "timestamp": "2025-12-10T19:54:16.227148",
+  "timestamp": "2025-12-10T19:55:11.452426",
   "total_tests": 11,
   "passed_tests": 7,
   "success_rate": 0.6363636363636364,
@@ -37,17 +37,17 @@
     {
       "test": "Create Justification",
       "success": false,
-      "details": "No line ID available"
+      "details": "No line ID available (PDF parsing failed)"
     },
     {
       "test": "Get Justification",
       "success": false,
-      "details": "No line ID available"
+      "details": "No line ID available (PDF parsing failed)"
     },
     {
       "test": "Update Justification",
       "success": false,
-      "details": "No justification ID available"
+      "details": "No justification ID available (PDF parsing failed)"
     },
     {
       "test": "Invalid File Upload",

@@ -82,42 +82,76 @@ class AccountingAPITester:
             return None
 
     def create_test_pdf(self):
-        """Create a test PDF with accounting lines"""
-        buffer = io.BytesIO()
-        p = canvas.Canvas(buffer, pagesize=letter)
+        """Create a simple test PDF with accounting lines as text"""
+        # Create a simple PDF-like content with accounting lines
+        # This will be processed by the OCR/text extraction
+        pdf_content = """Journal Comptable - Test
+
+N° Compte    Intitulé                    Débit      Crédit
+401000       Fournisseur ABC             1500.00    0.00
+411000       Client XYZ                  0.00       2000.00  
+512000       Banque                      500.00     0.00
+445660       TVA déductible              300.00     0.00
+607000       Achats marchandises         1200.00    0.00
+"""
         
-        # Title
-        p.setFont("Helvetica-Bold", 16)
-        p.drawString(50, 750, "Journal Comptable - Test")
+        # For testing purposes, we'll create a minimal PDF structure
+        # This is a very basic PDF that should be readable by PyPDF2
+        pdf_header = b"%PDF-1.4\n"
+        pdf_body = f"""1 0 obj
+<<
+/Type /Catalog
+/Pages 2 0 R
+>>
+endobj
+
+2 0 obj
+<<
+/Type /Pages
+/Kids [3 0 R]
+/Count 1
+>>
+endobj
+
+3 0 obj
+<<
+/Type /Page
+/Parent 2 0 R
+/MediaBox [0 0 612 792]
+/Contents 4 0 R
+>>
+endobj
+
+4 0 obj
+<<
+/Length {len(pdf_content)}
+>>
+stream
+BT
+/F1 12 Tf
+50 750 Td
+({pdf_content}) Tj
+ET
+endstream
+endobj
+
+xref
+0 5
+0000000000 65535 f 
+0000000010 00000 n 
+0000000079 00000 n 
+0000000173 00000 n 
+0000000301 00000 n 
+trailer
+<<
+/Size 5
+/Root 1 0 R
+>>
+startxref
+{400 + len(pdf_content)}
+%%EOF""".encode('utf-8')
         
-        # Headers
-        p.setFont("Helvetica-Bold", 10)
-        p.drawString(50, 720, "N° Compte")
-        p.drawString(150, 720, "Intitulé")
-        p.drawString(400, 720, "Débit")
-        p.drawString(500, 720, "Crédit")
-        
-        # Test accounting lines
-        test_lines = [
-            ("401000", "Fournisseur ABC", "1500.00", "0.00"),
-            ("411000", "Client XYZ", "0.00", "2000.00"),
-            ("512000", "Banque", "500.00", "0.00"),
-            ("445660", "TVA déductible", "300.00", "0.00"),
-            ("607000", "Achats marchandises", "1200.00", "0.00")
-        ]
-        
-        y_pos = 690
-        p.setFont("Helvetica", 10)
-        for account, label, debit, credit in test_lines:
-            p.drawString(50, y_pos, account)
-            p.drawString(150, y_pos, label)
-            p.drawString(400, y_pos, debit)
-            p.drawString(500, y_pos, credit)
-            y_pos -= 20
-        
-        p.save()
-        buffer.seek(0)
-        return buffer.getvalue()
+        return pdf_header + pdf_body
 
     def test_user_registration(self):
         """Test user registration"""

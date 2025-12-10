@@ -1,0 +1,133 @@
+{
+  "identity": {
+    "persona": "E1: The Anti-AI Designer",
+    "tone": "Professional, Swiss-Precision, High-Contrast, Trustworthy",
+    "mission": "Create a sober, professional accounting tool that feels like a high-end financial instrument, not a generic SaaS."
+  },
+  "typography": {
+    "headings": {
+      "font_family": "Manrope, sans-serif",
+      "weights": ["600", "800"],
+      "tracking": "-0.02em",
+      "usage": "Page titles, Section headers, Modal titles"
+    },
+    "body": {
+      "font_family": "IBM Plex Sans, sans-serif",
+      "weights": ["400", "500"],
+      "usage": "General text, labels, descriptions"
+    },
+    "data": {
+      "font_family": "JetBrains Mono, monospace",
+      "weights": ["400", "500"],
+      "usage": "Account numbers, Currency values, Totals, Table data"
+    }
+  },
+  "colors": {
+    "palette_name": "Swiss Financial Trust",
+    "mode": "light",
+    "background": {
+      "default": "#F8FAFC",
+      "paper": "#FFFFFF",
+      "subtle": "#F1F5F9"
+    },
+    "primary": {
+      "main": "#0F172A",
+      "hover": "#1E293B",
+      "text": "#FFFFFF"
+    },
+    "secondary": {
+      "main": "#E2E8F0",
+      "text": "#0F172A"
+    },
+    "accent": {
+      "success": "#10B981",
+      "error": "#EF4444",
+      "warning": "#F59E0B",
+      "info": "#3B82F6"
+    },
+    "text": {
+      "primary": "#0F172A",
+      "secondary": "#64748B",
+      "muted": "#94A3B8"
+    },
+    "border": {
+      "default": "#E2E8F0",
+      "active": "#94A3B8"
+    }
+  },
+  "visual_enhancers": {
+    "radius": "rounded-sm",
+    "shadows": {
+      "card": "0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1)",
+      "dropdown": "0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)",
+      "modal": "0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1)"
+    },
+    "borders": "1px solid #E2E8F0",
+    "glassmorphism": "backdrop-blur-md bg-white/80 border-b border-white/20"
+  },
+  "layout_strategy": {
+    "dashboard_grid": "Control Room Grid",
+    "spacing_scale": "Generous (p-6, p-8 for containers)",
+    "container_width": "max-w-7xl mx-auto",
+    "sidebar": "Fixed width (250px), border-r, bg-white",
+    "header": "Sticky top, glassmorphism, h-16"
+  },
+  "components": {
+    "buttons": {
+      "primary": "bg-primary text-primary-foreground hover:bg-primary/90 h-10 px-4 py-2 rounded-sm font-medium transition-all active:scale-95",
+      "secondary": "bg-secondary text-secondary-foreground hover:bg-secondary/80 h-10 px-4 py-2 rounded-sm font-medium transition-all active:scale-95",
+      "ghost": "hover:bg-accent hover:text-accent-foreground h-10 px-4 py-2 rounded-sm font-medium transition-all"
+    },
+    "cards": {
+      "style": "bg-white border border-border rounded-sm shadow-sm p-6",
+      "hover": "hover:shadow-md transition-shadow duration-200"
+    },
+    "tables": {
+      "header": "bg-muted/50 text-muted-foreground font-medium text-xs uppercase tracking-wider h-10",
+      "row": "border-b transition-colors hover:bg-muted/50 data-[state=selected]:bg-muted",
+      "cell": "p-4 align-middle [&:has([role=checkbox])]:pr-0 font-mono text-sm"
+    },
+    "inputs": {
+      "style": "flex h-10 w-full rounded-sm border border-input bg-background px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    }
+  },
+  "motion": {
+    "duration": "duration-200",
+    "ease": "ease-out",
+    "micro_interactions": "hover:translate-y-[-1px] active:translate-y-[0px]",
+    "page_transition": "animate-in fade-in slide-in-from-bottom-4 duration-500"
+  },
+  "image_urls": {
+    "login_background": {
+      "url": "https://images.unsplash.com/photo-1491183846256-33aec7637311?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1Nzl8MHwxfHNlYXJjaHwyfHxtaW5pbWFsaXN0JTIwYWJzdHJhY3QlMjBnZW9tZXRyaWMlMjB3aGl0ZSUyMGJhY2tncm91bmR8ZW58MHx8fHwxNzY1Mzk2MDkyfDA&ixlib=rb-4.1.0&q=85",
+      "description": "Minimalist white geometric structure for login page background",
+      "category": "background"
+    },
+    "dashboard_placeholder": {
+      "url": "https://images.unsplash.com/photo-1568226189232-d4baf2b86437?crop=entropy&cs=srgb&fm=jpg&ixid=M3w3NDk1NzZ8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBvZmZpY2UlMjB3b3Jrc3BhY2UlMjBibHVyfGVufDB8fHx8MTc2NTM5NjA5M3ww&ixlib=rb-4.1.0&q=85",
+      "description": "Blurred professional office background for empty states or modals",
+      "category": "placeholder"
+    }
+  },
+  "instructions_to_main_agent": [
+    "Implement the 'Control Room' grid for the main dashboard.",
+    "Use 'Manrope' for all headings and 'IBM Plex Sans' for body text.",
+    "Use 'JetBrains Mono' for ALL numerical data, account numbers, and financial totals.",
+    "Ensure high contrast for all text (WCAG AA compliant).",
+    "Use the provided image URLs for the login page and empty states.",
+    "Customize Shadcn components to have 'rounded-sm' (2px-4px) instead of default rounded-md/lg to fit the 'Swiss Professional' look.",
+    "Add 'data-testid' to all interactive elements.",
+    "Do NOT use gradients for backgrounds; use solid colors or subtle noise textures if needed.",
+    "Ensure the PDF viewer and justification table are the focal points of the application."
+  ],
+  "universal_guidelines": [
+    "Avoid generic 'AI slop' designs.",
+    "Use 2-3x more spacing than typical designs.",
+    "Every interaction needs micro-animations.",
+    "Do not use 'Inter' for headings.",
+    "Do not use generic centered layouts.",
+    "Create depth through layered design elements.",
+    "Use glass-morphism effects for sticky headers.",
+    "Never use transparent backgrounds without a blur or scrim."
+  ]
+}

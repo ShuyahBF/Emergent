@@ -266,7 +266,7 @@ class AccountingAPITester:
     def test_update_justification(self):
         """Test updating existing justification"""
         if not hasattr(self, 'justification_id') or not hasattr(self, 'test_line'):
-            self.log_test("Update Justification", False, "No justification ID available")
+            self.log_test("Update Justification", False, "No justification ID available (PDF parsing failed)")
             return False
         
         # Update with multiple detail lines

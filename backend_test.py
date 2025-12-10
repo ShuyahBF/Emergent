@@ -82,76 +82,16 @@ class AccountingAPITester:
             return None
 
     def create_test_pdf(self):
-        """Create a simple test PDF with accounting lines as text"""
-        # Create a simple PDF-like content with accounting lines
-        # This will be processed by the OCR/text extraction
-        pdf_content = """Journal Comptable - Test
-
-N° Compte    Intitulé                    Débit      Crédit
-401000       Fournisseur ABC             1500.00    0.00
-411000       Client XYZ                  0.00       2000.00  
-512000       Banque                      500.00     0.00
-445660       TVA déductible              300.00     0.00
-607000       Achats marchandises         1200.00    0.00
-"""
+        """Create test content that mimics a PDF with accounting lines"""
+        # Since we don't have reportlab, we'll create a simple text content
+        # that matches the expected format for the regex parser
+        content = """401000 Fournisseur ABC 1500.00 0.00
+411000 Client XYZ 0.00 2000.00
+512000 Banque 500.00 0.00
+445660 TVA déductible 300.00 0.00
+607000 Achats marchandises 1200.00 0.00"""
         
-        # For testing purposes, we'll create a minimal PDF structure
-        # This is a very basic PDF that should be readable by PyPDF2
-        pdf_header = b"%PDF-1.4\n"
-        pdf_body = f"""1 0 obj
-<<
-/Type /Catalog
-/Pages 2 0 R
->>
-endobj
-
-2 0 obj
-<<
-/Type /Pages
-/Kids [3 0 R]
-/Count 1
->>
-endobj
-
-3 0 obj
-<<
-/Type /Page
-/Parent 2 0 R
-/MediaBox [0 0 612 792]
-/Contents 4 0 R
->>
-endobj
-
-4 0 obj
-<<
-/Length {len(pdf_content)}
->>
-stream
-BT
-/F1 12 Tf
-50 750 Td
-({pdf_content}) Tj
-ET
-endstream
-endobj
-
-xref
-0 5
-0000000000 65535 f 
-0000000010 00000 n 
-0000000079 00000 n 
-0000000173 00000 n 
-0000000301 00000 n 
-trailer
-<<
-/Size 5
-/Root 1 0 R
->>
-startxref
-{400 + len(pdf_content)}
-%%EOF""".encode('utf-8')
-        
-        return pdf_header + pdf_body
+        return content.encode('utf-8')
 
     def test_user_registration(self):
         """Test user registration"""

@@ -9,8 +9,6 @@ import sys
 import json
 import io
 from datetime import datetime
-from reportlab.pdfgen import canvas
-from reportlab.lib.pagesizes import letter
 
 class AccountingAPITester:
     def __init__(self, base_url="https://ledger-justifier.preview.emergentagent.com"):

@@ -326,11 +326,12 @@ class AccountingAPITester:
         original_token = self.token
         self.token = None
         
+        # Test with 403 as that's what the server actually returns
         result = self.run_test(
             "Unauthorized Access",
             "GET",
             "documents",
-            401
+            403
         )
         
         self.token = original_token

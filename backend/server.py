@@ -156,38 +156,54 @@ def parse_accounting_lines(text: str) -> List[dict]:
     lines = []
     line_number = 0
     
-    # Pattern pour détecter les lignes comptables
-    # Format attendu: N° compte (jusqu'à 15 chiffres), Intitulé, Débit ou Crédit
-    pattern = r'([0-9]{1,15})\s+([^\d\n]+?)\s+(\d+[.,]\d+)\s*(\d+[.,]\d+)?'
+    # Patterns multiples pour détecter différents formats de lignes comptables
+    patterns = [
+        # Pattern 1: N° compte + Intitulé + 2 montants (débit et crédit)
+        r'([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+(\d{1,}[.,]?\d{0,2})\s+(\d{1,}[.,]?\d{0,2})',
+        # Pattern 2: N° compte + Intitulé + 1 montant
+        r'([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+(\d{1,}[.,]?\d{0,2})',
+    ]
     
-    for match in re.finditer(pattern, text):
-        line_number += 1
-        account_number = match.group(1)
-        label = match.group(2).strip()
-        
-        # Débit et crédit
-        amount1 = float(match.group(3).replace(',', '.').replace(' ', ''))
-        amount2 = float(match.group(4).replace(',', '.').replace(' ', '')) if match.group(4) else 0.0
-        
-        # Déterminer si c'est débit ou crédit
-        if amount2 > 0:
-            debit = amount1
-            credit = amount2
-        else:
-            # Si un seul montant, on suppose que c'est un débit
-            debit = amount1
-            credit = 0.0
-        
-        total = debit if debit > 0 else credit
-        
-        lines.append({
-            "account_number": account_number,
-            "label": label,
-            "debit": debit,
-            "credit": credit,
-            "total": total,
-            "line_number": line_number
-        })
+    # Essayer chaque pattern
+    for pattern in patterns:
+        for match in re.finditer(pattern, text, re.MULTILINE):
+            line_number += 1
+            account_number = match.group(1)
+            label = match.group(2).strip()
+            
+            # Nettoyer le label
+            label = ' '.join(label.split())
+            
+            # Convertir les montants
+            amount1_str = match.group(3).replace(',', '.').replace(' ', '')
+            amount1 = float(amount1_str) if amount1_str else 0.0
+            
+            amount2 = 0.0
+            if len(match.groups()) >= 4 and match.group(4):
+                amount2_str = match.group(4).replace(',', '.').replace(' ', '')
+                amount2 = float(amount2_str) if amount2_str else 0.0
+            
+            # Déterminer si c'est débit ou crédit
+            if amount2 > 0:
+                debit = amount1
+                credit = amount2
+            else:
+                # Si un seul montant, on suppose que c'est un débit
+                debit = amount1
+                credit = 0.0
+            
+            total = debit if debit > 0 else credit
+            
+            # Éviter les doublons
+            if not any(l['account_number'] == account_number and l['line_number'] == line_number for l in lines):
+                lines.append({
+                    "account_number": account_number,
+                    "label": label,
+                    "debit": debit,
+                    "credit": credit,
+                    "total": total,
+                    "line_number": line_number
+                })
     
     return lines
 

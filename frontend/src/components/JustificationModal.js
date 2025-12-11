@@ -224,6 +224,7 @@ export default function JustificationModal({ line, user, onClose }) {
                         value={detail.credit}
                         onChange={(e) => updateDetail(index, "credit", e.target.value)}
                         className="rounded-sm font-mono text-right"
+                        disabled={!canModify}
                       />
                     </div>
                     <Button

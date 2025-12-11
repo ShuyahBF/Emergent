@@ -82,7 +82,14 @@ export default function JustificationModal({ line, user, onClose }) {
     );
   };
 
+  const canModify = user.role === "modification" || user.role === "superviseur";
+
   const handleSave = async () => {
+    if (!canModify) {
+      toast.error("Vous n'avez pas la permission de modifier");
+      return;
+    }
+
     if (details.some(d => !d.label.trim())) {
       toast.error("Tous les intitulés doivent être remplis");
       return;

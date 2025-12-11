@@ -227,16 +227,18 @@ export default function JustificationModal({ line, user, onClose }) {
                         disabled={!canModify}
                       />
                     </div>
-                    <Button
-                      data-testid={`remove-detail-${index}`}
-                      onClick={() => removeDetail(index)}
-                      variant="ghost"
-                      size="sm"
-                      className="mt-6 rounded-sm hover:bg-red-50 hover:text-red-600"
-                      disabled={details.length === 1}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    {canModify && (
+                      <Button
+                        data-testid={`remove-detail-${index}`}
+                        onClick={() => removeDetail(index)}
+                        variant="ghost"
+                        size="sm"
+                        className="mt-6 rounded-sm hover:bg-red-50 hover:text-red-600"
+                        disabled={details.length === 1}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    )}
                   </div>
                 ))}
               </div>

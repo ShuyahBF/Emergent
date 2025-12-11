@@ -86,15 +86,28 @@ export default function Dashboard({ user, onLogout }) {
             <h1 className="text-xl font-bold text-slate-900">Justification Comptable</h1>
             <p className="text-xs text-slate-600">Bienvenue, {user.nom}</p>
           </div>
-          <Button
-            data-testid="logout-button"
-            onClick={onLogout}
-            variant="ghost"
-            className="rounded-sm hover:bg-slate-100"
-          >
-            <LogOut className="h-4 w-4 mr-2" />
-            Déconnexion
-          </Button>
+          <div className="flex items-center gap-2">
+            {user.role === "superviseur" && (
+              <Button
+                data-testid="settings-button"
+                onClick={() => navigate("/settings")}
+                variant="ghost"
+                className="rounded-sm hover:bg-slate-100"
+              >
+                <Settings className="h-4 w-4 mr-2" />
+                Paramètres
+              </Button>
+            )}
+            <Button
+              data-testid="logout-button"
+              onClick={onLogout}
+              variant="ghost"
+              className="rounded-sm hover:bg-slate-100"
+            >
+              <LogOut className="h-4 w-4 mr-2" />
+              Déconnexion
+            </Button>
+          </div>
         </div>
       </header>
 

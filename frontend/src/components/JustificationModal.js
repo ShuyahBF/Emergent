@@ -16,7 +16,7 @@ import { Plus, Trash2, Save, CheckCircle2, AlertCircle } from "lucide-react";
 const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
 const API = `${BACKEND_URL}/api`;
 
-export default function JustificationModal({ line, onClose }) {
+export default function JustificationModal({ line, user, onClose }) {
   const [details, setDetails] = useState([]);
   const [justificationId, setJustificationId] = useState(null);
   const [loading, setLoading] = useState(false);

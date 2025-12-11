@@ -292,23 +292,25 @@ export default function JustificationModal({ line, user, onClose }) {
                 variant="outline"
                 className="rounded-sm"
               >
-                Annuler
+                {canModify ? "Annuler" : "Fermer"}
               </Button>
-              <Button
-                data-testid="save-button"
-                onClick={handleSave}
-                disabled={saving}
-                className="rounded-sm bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all"
-              >
-                {saving ? (
-                  "Sauvegarde..."
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Sauvegarder
-                  </>
-                )}
-              </Button>
+              {canModify && (
+                <Button
+                  data-testid="save-button"
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="rounded-sm bg-slate-900 hover:bg-slate-800 active:scale-95 transition-all"
+                >
+                  {saving ? (
+                    "Sauvegarde..."
+                  ) : (
+                    <>
+                      <Save className="h-4 w-4 mr-2" />
+                      Sauvegarder
+                    </>
+                  )}
+                </Button>
+              )}
             </div>
           </div>
         )}

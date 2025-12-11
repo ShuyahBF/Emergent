@@ -252,7 +252,9 @@ async def register(user_data: UserRegister):
     if existing_user:
         raise HTTPException(status_code=400, detail="Email déjà enregistré")
     
-    role = "superviseur" if user_data.email == "jfrancois.ouoba@gmail.com" else "consultation"
+    # Liste des emails superviseurs
+    superviseur_emails = ["jfrancois.ouoba@gmail.com", "admin.test@comptable.fr"]
+    role = "superviseur" if user_data.email in superviseur_emails else "consultation"
     
     user_dict = {
         "id": str(uuid.uuid4()),

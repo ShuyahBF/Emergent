@@ -200,6 +200,7 @@ export default function JustificationModal({ line, user, onClose }) {
                         onChange={(e) => updateDetail(index, "label", e.target.value)}
                         placeholder="Description de la pièce"
                         className="rounded-sm"
+                        disabled={!canModify}
                       />
                     </div>
                     <div className="w-32">

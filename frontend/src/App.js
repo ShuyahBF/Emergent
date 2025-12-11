@@ -4,7 +4,12 @@ import { Toaster } from "@/components/ui/sonner";
 import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import DocumentViewer from "@/pages/DocumentViewer";
+import Settings from "@/pages/Settings";
 import "@/App.css";
+import axios from "axios";
+
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL;
+const API = `${BACKEND_URL}/api`;
 
 function App() {
   const [user, setUser] = useState(null);
@@ -26,7 +31,15 @@ function App() {
     setUser(userData);
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    try {
+      const token = localStorage.getItem("token");
+      await axios.post(`${API}/auth/logout`, {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+    } catch (error) {
+      console.error("Logout error:", error);
+    }
     localStorage.removeItem("token");
     localStorage.removeItem("user");
     setUser(null);
@@ -55,6 +68,10 @@ function App() {
           <Route
             path="/documents/:documentId"
             element={user ? <DocumentViewer user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
+          />
+          <Route
+            path="/settings"
+            element={user ? <Settings user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
           />
         </Routes>
       </BrowserRouter>

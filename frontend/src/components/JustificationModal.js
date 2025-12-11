@@ -171,16 +171,18 @@ export default function JustificationModal({ line, user, onClose }) {
             <div>
               <div className="flex items-center justify-between mb-4">
                 <h3 className="text-sm font-medium text-slate-700">Détails de justification</h3>
-                <Button
-                  data-testid="add-detail-button"
-                  onClick={addDetail}
-                  size="sm"
-                  variant="outline"
-                  className="rounded-sm"
-                >
-                  <Plus className="h-4 w-4 mr-2" />
-                  Ajouter une ligne
-                </Button>
+                {canModify && (
+                  <Button
+                    data-testid="add-detail-button"
+                    onClick={addDetail}
+                    size="sm"
+                    variant="outline"
+                    className="rounded-sm"
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Ajouter une ligne
+                  </Button>
+                )}
               </div>
 
               <div className="space-y-3">

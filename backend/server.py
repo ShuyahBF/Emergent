@@ -494,7 +494,8 @@ async def get_document_lines(
     document_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    doc = await db.documents.find_one({"id": document_id, "user_id": current_user.id})
+    # Base de données partagée : tous les utilisateurs peuvent voir toutes les lignes
+    doc = await db.documents.find_one({"id": document_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Document non trouvé")
     
@@ -504,6 +505,29 @@ async def get_document_lines(
     ).sort("line_number", 1).to_list(1000)
     
     return [AccountingLine(**line) for line in lines]
+
+@api_router.delete("/documents/{document_id}")
+async def delete_document(
+    document_id: str,
+    current_user: User = Depends(require_role(["modification", "superviseur"]))
+):
+    """Supprimer définitivement un document PDF et ses lignes associées"""
+    doc = await db.documents.find_one({"id": document_id})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document non trouvé")
+    
+    # Supprimer les lignes comptables associées
+    await db.accounting_lines.delete_many({"document_id": document_id})
+    
+    # Supprimer les justifications associées aux lignes
+    lines = await db.accounting_lines.find({"document_id": document_id}).to_list(1000)
+    for line in lines:
+        await db.justifications.delete_many({"line_id": line["id"]})
+    
+    # Supprimer le document
+    await db.documents.delete_one({"id": document_id})
+    
+    return {"message": "Document supprimé avec succès", "document_id": document_id}
 
 # Accounting Line Routes
 @api_router.put("/lines/{line_id}", response_model=AccountingLine)

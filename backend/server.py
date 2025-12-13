@@ -205,34 +205,44 @@ def extract_text_with_ocr(pdf_bytes: bytes) -> str:
         return ""
 
 def parse_accounting_lines(text: str) -> List[dict]:
-    """Parse accounting lines from extracted PDF text"""
+    """Parse accounting lines from extracted PDF text - Multiple formats supported"""
     lines = []
     text_lines = [line.strip() for line in text.split('\n') if line.strip()]
     
-    # Enlever les headers
-    text_lines = [line for line in text_lines if not any(header in line.lower() for header in ['compte', 'intitule', 'debit', 'credit', 'journal', 'achats', 'decembre', 'novembre'])]
+    # Enlever les headers communs
+    text_lines = [line for line in text_lines if not any(header in line.lower() for header in 
+                  ['compte', 'intitule', 'intitulé', 'libelle', 'libellé', 'debit', 'débit', 
+                   'credit', 'crédit', 'journal', 'achats', 'decembre', 'novembre', 'balance', 
+                   'solde', 'date', 'page', 'total'])]
     
     line_number = 0
     i = 0
     
+    # Méthode 1: Format ligne par ligne (chaque champ sur une ligne)
     while i < len(text_lines):
-        # Vérifier si c'est un numéro de compte
-        if re.match(r'^[0-9]{3,15}$', text_lines[i]):
+        current_line = text_lines[i]
+        
+        # Vérifier si c'est un numéro de compte (3 à 15 chiffres)
+        if re.match(r'^[0-9]{3,15}$', current_line):
             try:
-                account_number = text_lines[i]
+                account_number = current_line
                 label = text_lines[i + 1] if i + 1 < len(text_lines) else ""
                 debit_str = text_lines[i + 2] if i + 2 < len(text_lines) else "0"
                 credit_str = text_lines[i + 3] if i + 3 < len(text_lines) else "0"
                 
-                # Nettoyer les montants (enlever les espaces = séparateurs de milliers)
-                debit_str = debit_str.replace(' ', '').replace(',', '.')
-                credit_str = credit_str.replace(' ', '').replace(',', '.')
+                # Nettoyer les montants
+                debit_str = debit_str.replace(' ', '').replace(',', '.').replace('−', '-')
+                credit_str = credit_str.replace(' ', '').replace(',', '.').replace('−', '-')
                 
-                debit = float(debit_str) if debit_str and debit_str != '0' else 0.0
-                credit = float(credit_str) if credit_str and credit_str != '0' else 0.0
+                # Extraire uniquement les chiffres, points et signes
+                debit_match = re.search(r'[-]?[\d\s]+\.?\d*', debit_str)
+                credit_match = re.search(r'[-]?[\d\s]+\.?\d*', credit_str)
+                
+                debit = float(debit_match.group().replace(' ', '')) if debit_match else 0.0
+                credit = float(credit_match.group().replace(' ', '')) if credit_match else 0.0
                 
                 line_number += 1
-                total = debit if debit > 0 else credit
+                total = debit if debit != 0 else credit
                 
                 lines.append({
                     "account_number": account_number,
@@ -244,11 +254,39 @@ def parse_accounting_lines(text: str) -> List[dict]:
                     "line_number": line_number
                 })
                 
-                i += 4  # Passer aux 4 prochaines lignes
-            except (ValueError, IndexError):
-                i += 1
-        else:
-            i += 1
+                i += 4
+                continue
+            except (ValueError, IndexError, AttributeError):
+                pass
+        
+        # Méthode 2: Format sur une ligne (N° compte + label + montants)
+        # Pattern: 401000 Fournisseur ABC 1500.00 0.00 ou 401000 Fournisseur 1 500.00 0.00
+        pattern = r'^([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+([-]?[\d\s]+\.?\d*)\s+([-]?[\d\s]+\.?\d*)$'
+        match = re.match(pattern, current_line)
+        
+        if match:
+            line_number += 1
+            account_number = match.group(1)
+            label = match.group(2).strip()
+            
+            debit_str = match.group(3).replace(' ', '').replace(',', '.')
+            credit_str = match.group(4).replace(' ', '').replace(',', '.')
+            
+            debit = float(debit_str) if debit_str else 0.0
+            credit = float(credit_str) if credit_str else 0.0
+            total = debit if debit != 0 else credit
+            
+            lines.append({
+                "account_number": account_number,
+                "label": label,
+                "debit": debit,
+                "credit": credit,
+                "total": total,
+                "calculated_total": 0.0,
+                "line_number": line_number
+            })
+        
+        i += 1
     
     return lines
 

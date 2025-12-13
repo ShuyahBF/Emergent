@@ -18,6 +18,8 @@ from pdf2image import convert_from_bytes
 import re
 import io
 import httpx
+import secrets
+from email_service import send_verification_email
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')

@@ -588,15 +588,24 @@ async def update_line(
     if line_update.label is not None:
         update_data["label"] = line_update.label
     
+    # Logique corrigée : Si Débit>0 alors Crédit=0 et si Crédit>0 alors Débit=0
     if line_update.debit is not None:
-        update_data["debit"] = line_update.debit
-        update_data["credit"] = 0.0
-        update_data["total"] = line_update.debit
+        if line_update.debit > 0:
+            update_data["debit"] = line_update.debit
+            update_data["credit"] = 0.0
+            update_data["total"] = line_update.debit
+        else:
+            # Si débit = 0, ne pas toucher au crédit
+            update_data["debit"] = 0.0
     
     if line_update.credit is not None:
-        update_data["credit"] = line_update.credit
-        update_data["debit"] = 0.0
-        update_data["total"] = line_update.credit
+        if line_update.credit > 0:
+            update_data["credit"] = line_update.credit
+            update_data["debit"] = 0.0
+            update_data["total"] = line_update.credit
+        else:
+            # Si crédit = 0, ne pas toucher au débit
+            update_data["credit"] = 0.0
     
     if update_data:
         await db.accounting_lines.update_one(

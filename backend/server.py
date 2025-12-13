@@ -558,7 +558,8 @@ async def get_document_lines(
     document_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    doc = await db.documents.find_one({"id": document_id, "user_id": current_user.id})
+    # Base de données partagée : tous les utilisateurs peuvent voir toutes les lignes
+    doc = await db.documents.find_one({"id": document_id})
     if not doc:
         raise HTTPException(status_code=404, detail="Document non trouvé")
     

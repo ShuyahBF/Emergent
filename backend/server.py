@@ -124,6 +124,11 @@ class Settings(BaseModel):
         "pdf_imported": "",
         "pdf_exported": ""
     }
+    smtp_host: str = "smtp.gmail.com"
+    smtp_port: int = 587
+    smtp_user: str = ""
+    smtp_password: str = ""
+    frontend_url: str = ""
 
 class SettingsUpdate(BaseModel):
     site_title: Optional[str] = None

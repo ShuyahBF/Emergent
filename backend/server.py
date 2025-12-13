@@ -231,70 +231,65 @@ def parse_accounting_lines(text: str) -> List[dict]:
             filtered_lines.append(line)
     
     text_lines = filtered_lines
-    
     line_number = 0
-    i = 0
     
-    # Méthode 1: Format ligne par ligne (chaque champ sur une ligne)
-    while i < len(text_lines):
-        current_line = text_lines[i]
+    for current_line in text_lines:
+        # Format principal : une ligne avec N° compte + libellé + débit + crédit
+        # Exemple: 701109 VENTE M/SES /BBBOUTIC OUAG 15 000 15 000
         
-        # Vérifier si c'est un numéro de compte (3 à 15 chiffres)
-        if re.match(r'^[0-9]{3,15}$', current_line):
-            try:
-                account_number = current_line
-                label = text_lines[i + 1] if i + 1 < len(text_lines) else ""
-                debit_str = text_lines[i + 2] if i + 2 < len(text_lines) else "0"
-                credit_str = text_lines[i + 3] if i + 3 < len(text_lines) else "0"
-                
-                # Nettoyer les montants
-                debit_str = debit_str.replace(' ', '').replace(',', '.').replace('−', '-')
-                credit_str = credit_str.replace(' ', '').replace(',', '.').replace('−', '-')
-                
-                # Extraire uniquement les chiffres, points et signes
-                debit_match = re.search(r'[-]?[\d\s]+\.?\d*', debit_str)
-                credit_match = re.search(r'[-]?[\d\s]+\.?\d*', credit_str)
-                
-                debit = float(debit_match.group().replace(' ', '')) if debit_match else 0.0
-                credit = float(credit_match.group().replace(' ', '')) if credit_match else 0.0
-                
-                line_number += 1
-                total = debit if debit != 0 else credit
-                
-                lines.append({
-                    "account_number": account_number,
-                    "label": label,
-                    "debit": debit,
-                    "credit": credit,
-                    "total": total,
-                    "calculated_total": 0.0,
-                    "line_number": line_number
-                })
-                
-                i += 4
-                continue
-            except (ValueError, IndexError, AttributeError):
-                pass
-        
-        # Méthode 2: Format sur une ligne avec colonnes séparées par espaces multiples
-        # Exemple: 701109   VENTE M/SES /BBBOUTIC OUAG  15 000   15 000
-        # Split par 2+ espaces pour séparer les colonnes
         if re.match(r'^[0-9]{3,15}\s', current_line):
-            parts = re.split(r'\s{2,}', current_line.strip())
+            parts = current_line.split()
             
-            if len(parts) >= 3:
+            # Doit avoir au moins : compte + 1 mot libellé + 2 nombres (débit) + 2 nombres (crédit) = 6 parties minimum
+            if len(parts) >= 5 and re.match(r'^[0-9]{3,15}$', parts[0]):
                 try:
-                    account_number = parts[0].strip()
-                    label = parts[1].strip()
+                    account_number = parts[0]
                     
-                    # Les derniers éléments sont les montants
-                    amounts = [p.strip() for p in parts[2:]]
+                    # Stratégie : les montants sont à la fin, en format "15 000" (2 parties)
+                    # Les 4 dernières parties sont : débit1 débit2 crédit1 crédit2
+                    # Exemple: [..., '15', '000', '15', '000']
                     
-                    # Prendre les 2 premiers montants (débit et crédit)
+                    if len(parts) >= 5:
+                        # Le libellé est entre le compte et les 4 derniers éléments
+                        label_parts = parts[1:-4]
+                        debit_parts = parts[-4:-2]
+                        credit_parts = parts[-2:]
+                        
+                        label = ' '.join(label_parts)
+                        debit_str = ''.join(debit_parts).replace(' ', '')
+                        credit_str = ''.join(credit_parts).replace(' ', '')
+                        
+                        debit = float(debit_str) if debit_str else 0.0
+                        credit = float(credit_str) if credit_str else 0.0
+                        
+                        line_number += 1
+                        total = debit if debit != 0 else credit
+                        
+                        lines.append({
+                            "account_number": account_number,
+                            "label": label,
+                            "debit": debit,
+                            "credit": credit,
+                            "total": total,
+                            "calculated_total": 0.0,
+                            "line_number": line_number
+                        })
+                        continue
+                except (ValueError, IndexError):
+                    pass
+            
+            # Format alternatif : colonnes séparées par espaces multiples
+            parts_multi = re.split(r'\s{2,}', current_line.strip())
+            
+            if len(parts_multi) >= 3:
+                try:
+                    account_number = parts_multi[0].strip()
+                    label = parts_multi[1].strip()
+                    
+                    amounts = [p.strip() for p in parts_multi[2:]]
                     debit_str = amounts[0] if len(amounts) > 0 else "0"
                     credit_str = amounts[1] if len(amounts) > 1 else "0"
                     
-                    # Nettoyer et convertir
                     debit_str_clean = debit_str.replace(' ', '').replace(',', '.').replace('−', '-')
                     credit_str_clean = credit_str.replace(' ', '').replace(',', '.').replace('−', '-')
                     
@@ -313,12 +308,8 @@ def parse_accounting_lines(text: str) -> List[dict]:
                         "calculated_total": 0.0,
                         "line_number": line_number
                     })
-                    i += 1
-                    continue
                 except (ValueError, IndexError):
                     pass
-        
-        i += 1
     
     return lines
 

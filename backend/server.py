@@ -769,6 +769,22 @@ async def get_settings(current_user: User = Depends(require_role(["superviseur"]
         return Settings(**default_settings)
     return Settings(**settings)
 
+@api_router.get("/settings/public")
+async def get_public_settings():
+    \"\"\"Endpoint public pour récupérer le logo et le titre sans authentification\"\"\"
+    settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
+    if not settings:
+        return {
+            "site_title": "Justification Comptable",
+            "company_name": "Mon Entreprise",
+            "company_logo": ""
+        }
+    return {
+        "site_title": settings.get("site_title", "Justification Comptable"),
+        "company_name": settings.get("company_name", "Mon Entreprise"),
+        "company_logo": settings.get("company_logo", "")
+    }
+
 @api_router.put("/settings", response_model=Settings)
 async def update_settings(
     settings_update: SettingsUpdate,

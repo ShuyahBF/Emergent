@@ -788,6 +788,16 @@ async def update_settings(
         update_data["company_logo"] = settings_update.company_logo
     if settings_update.webhooks is not None:
         update_data["webhooks"] = settings_update.webhooks
+    if settings_update.smtp_host is not None:
+        update_data["smtp_host"] = settings_update.smtp_host
+    if settings_update.smtp_port is not None:
+        update_data["smtp_port"] = settings_update.smtp_port
+    if settings_update.smtp_user is not None:
+        update_data["smtp_user"] = settings_update.smtp_user
+    if settings_update.smtp_password is not None:
+        update_data["smtp_password"] = settings_update.smtp_password
+    if settings_update.frontend_url is not None:
+        update_data["frontend_url"] = settings_update.frontend_url
     
     if update_data:
         await db.settings.update_one(

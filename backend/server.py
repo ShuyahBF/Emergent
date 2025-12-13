@@ -492,15 +492,6 @@ async def delete_user(
     
     return {"message": "Compte désactivé avec succès", "user_id": user_id}
 
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    nom: str
-    role: str = "consultation"
-
-class UserPasswordUpdate(BaseModel):
-    password: str
-
 @api_router.post("/users/create")
 async def create_user_manual(
     user_data: UserCreate,

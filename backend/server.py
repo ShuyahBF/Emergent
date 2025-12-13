@@ -697,6 +697,58 @@ async def update_settings(
     updated_settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
     return Settings(**updated_settings)
 
+@api_router.get("/settings/public")
+async def get_public_settings():
+    """Endpoint public pour récupérer le logo et le titre sans authentification"""
+    settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
+    if not settings:
+        return {
+            "site_title": "Justification Comptable",
+            "company_name": "Mon Entreprise",
+            "company_logo": ""
+        }
+    return {
+        "site_title": settings.get("site_title", "Justification Comptable"),
+        "company_name": settings.get("company_name", "Mon Entreprise"),
+        "company_logo": settings.get("company_logo", "")
+    }
+
+@api_router.post("/documents/debug-pdf")
+async def debug_pdf_extraction(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user)
+):
+    """Endpoint de diagnostic pour voir le texte extrait du PDF"""
+    pdf_bytes = await file.read()
+    
+    # Extraction texte
+    text = extract_text_from_pdf(pdf_bytes)
+    text_length = len(text)
+    
+    # Extraction OCR si le texte est vide
+    ocr_text = ""
+    if not text.strip():
+        ocr_text = extract_text_with_ocr(pdf_bytes)
+    
+    # Parsing
+    lines = parse_accounting_lines(text if text.strip() else ocr_text)
+    
+    return {
+        "filename": file.filename,
+        "text_extraction": {
+            "method": "PyPDF2",
+            "length": text_length,
+            "preview": text[:500] if text else "Aucun texte extrait",
+            "lines_count": len(text.split('\n'))
+        },
+        "ocr_extraction": {
+            "used": not text.strip(),
+            "preview": ocr_text[:500] if ocr_text else "Non utilisé"
+        },
+        "parsed_lines": len(lines),
+        "sample_lines": lines[:3] if lines else []
+    }
+
 app.include_router(api_router)
 
 app.add_middleware(

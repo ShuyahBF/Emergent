@@ -74,6 +74,10 @@ function App() {
             path="/settings"
             element={user ? <Settings user={user} onLogout={handleLogout} /> : <Navigate to="/login" />}
           />
+          <Route
+            path="/verify-email/:token"
+            element={<VerifyEmail />}
+          />
         </Routes>
       </BrowserRouter>
       <Toaster position="top-right" />

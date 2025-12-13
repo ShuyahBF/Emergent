@@ -259,41 +259,47 @@ def parse_accounting_lines(text: str) -> List[dict]:
             except (ValueError, IndexError, AttributeError):
                 pass
         
-        # Méthode 2: Format sur une ligne (N° compte + label + montants)
+        # Méthode 2: Format sur une ligne avec colonnes séparées par espaces multiples
         # Exemple: 701109   VENTE M/SES /BBBOUTIC OUAG  15 000   15 000
-        # Pattern amélioré pour capturer les montants avec espaces
-        pattern = r'^([0-9]{3,15})\s+(.+?)\s+([-]?[\d\s]+\.?\d*)\s+([-]?[\d\s]+\.?\d*)\s*$'
-        match = re.match(pattern, current_line)
-        
-        if match:
-            account_number = match.group(1)
-            label = match.group(2).strip()
-            debit_str = match.group(3).strip()
-            credit_str = match.group(4).strip()
+        # Split par 2+ espaces pour séparer les colonnes
+        if re.match(r'^[0-9]{3,15}\s', current_line):
+            parts = re.split(r'\s{2,}', current_line.strip())
             
-            # Nettoyer et convertir les montants
-            try:
-                debit_str_clean = debit_str.replace(' ', '').replace(',', '.')
-                credit_str_clean = credit_str.replace(' ', '').replace(',', '.')
-                
-                debit = float(debit_str_clean) if debit_str_clean and debit_str_clean not in ['-', ''] else 0.0
-                credit = float(credit_str_clean) if credit_str_clean and credit_str_clean not in ['-', ''] else 0.0
-                
-                line_number += 1
-                total = debit if debit != 0 else credit
-                
-                lines.append({
-                    "account_number": account_number,
-                    "label": label,
-                    "debit": debit,
-                    "credit": credit,
-                    "total": total,
-                    "calculated_total": 0.0,
-                    "line_number": line_number
-                })
-            except ValueError:
-                # Si la conversion échoue, passer à la ligne suivante
-                pass
+            if len(parts) >= 3:
+                try:
+                    account_number = parts[0].strip()
+                    label = parts[1].strip()
+                    
+                    # Les derniers éléments sont les montants
+                    amounts = [p.strip() for p in parts[2:]]
+                    
+                    # Prendre les 2 premiers montants (débit et crédit)
+                    debit_str = amounts[0] if len(amounts) > 0 else "0"
+                    credit_str = amounts[1] if len(amounts) > 1 else "0"
+                    
+                    # Nettoyer et convertir
+                    debit_str_clean = debit_str.replace(' ', '').replace(',', '.').replace('−', '-')
+                    credit_str_clean = credit_str.replace(' ', '').replace(',', '.').replace('−', '-')
+                    
+                    debit = float(debit_str_clean) if debit_str_clean and debit_str_clean not in ['-', ''] else 0.0
+                    credit = float(credit_str_clean) if credit_str_clean and credit_str_clean not in ['-', ''] else 0.0
+                    
+                    line_number += 1
+                    total = debit if debit != 0 else credit
+                    
+                    lines.append({
+                        "account_number": account_number,
+                        "label": label,
+                        "debit": debit,
+                        "credit": credit,
+                        "total": total,
+                        "calculated_total": 0.0,
+                        "line_number": line_number
+                    })
+                    i += 1
+                    continue
+                except (ValueError, IndexError):
+                    pass
         
         i += 1
     

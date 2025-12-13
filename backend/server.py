@@ -269,7 +269,7 @@ def parse_accounting_lines(text: str) -> List[dict]:
     return lines
 
 # Auth Routes
-@api_router.post("/auth/register", response_model=Token)
+@api_router.post("/auth/register")
 async def register(user_data: UserRegister):
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
@@ -279,35 +279,54 @@ async def register(user_data: UserRegister):
     superviseur_emails = ["jfrancois.ouoba@gmail.com", "admin.test@comptable.fr"]
     role = "superviseur" if user_data.email in superviseur_emails else "consultation"
     
+    # Générer un token de vérification
+    verification_token = secrets.token_urlsafe(32)
+    
     user_dict = {
         "id": str(uuid.uuid4()),
         "email": user_data.email,
         "password_hash": hash_password(user_data.password),
         "nom": user_data.nom,
         "role": role,
+        "is_active": False,
+        "email_verified": False,
+        "email_verified_at": None,
+        "last_login": None,
+        "verification_token": verification_token,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.users.insert_one(user_dict)
-    access_token = create_access_token({"sub": user_dict["id"]})
     
-    user = User(
-        id=user_dict["id"],
-        email=user_dict["email"],
-        nom=user_dict["nom"],
-        role=user_dict["role"],
-        created_at=user_dict["created_at"]
-    )
-    
-    await trigger_webhook("login", {
-        "event": "user_registered",
-        "user_email": user.email,
-        "user_name": user.nom,
-        "user_role": user.role,
-        "timestamp": datetime.now(timezone.utc).isoformat()
+    # Envoyer l'email de vérification
+    try:
+        settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
+        if settings and settings.get('smtp_user') and settings.get('smtp_password'):
+            frontend_url = settings.get('frontend_url', 'http://localhost:3000')
+            verification_link = f\"{frontend_url}/verify-email/{verification_token}\"
+            
+            smtp_config = {
+                'smtp_host': settings.get('smtp_host', 'smtp.gmail.com'),
+                'smtp_port': settings.get('smtp_port', 587),
+                'smtp_user': settings.get('smtp_user'),
+                'smtp_password': settings.get('smtp_password')
+            }
+            
+            send_verification_email(user_data.email, verification_link, smtp_config)
+    except Exception as e:
+        logging.error(f\"Erreur lors de l'envoi de l'email de vérification: {e}\")\n    
+    await trigger_webhook(\"login\", {
+        \"event\": \"user_registered\",
+        \"user_email\": user_data.email,
+        \"user_name\": user_data.nom,
+        \"user_role\": role,
+        \"timestamp\": datetime.now(timezone.utc).isoformat()
     })
     
-    return Token(access_token=access_token, token_type="bearer", user=user)
+    return {
+        \"message\": \"Inscription réussie. Un email de vérification a été envoyé à votre adresse.\",
+        \"email\": user_data.email
+    }
 
 @api_router.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):

@@ -334,6 +334,19 @@ async def login(user_data: UserLogin):
     if not user or not verify_password(user_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
     
+    # Vérifier si le compte est activé
+    if not user.get("is_active", False):
+        raise HTTPException(
+            status_code=403, 
+            detail="Votre compte n'est pas encore activé. Veuillez vérifier votre email ou contacter un administrateur."
+        )
+    
+    # Mettre à jour last_login
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}}
+    )
+    
     access_token = create_access_token({"sub": user["id"]})
     
     user_obj = User(
@@ -341,6 +354,10 @@ async def login(user_data: UserLogin):
         email=user["email"],
         nom=user["nom"],
         role=user.get("role", "consultation"),
+        is_active=user.get("is_active", False),
+        email_verified=user.get("email_verified", False),
+        email_verified_at=user.get("email_verified_at"),
+        last_login=datetime.now(timezone.utc).isoformat(),
         created_at=user["created_at"]
     )
     

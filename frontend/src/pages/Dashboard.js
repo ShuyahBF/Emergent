@@ -182,33 +182,49 @@ export default function Dashboard({ user, onLogout }) {
                 <Card
                   key={doc.id}
                   data-testid={`document-card-${doc.id}`}
-                  className="border-slate-200 shadow-sm hover-lift cursor-pointer transition-all"
-                  onClick={() => navigate(`/documents/${doc.id}`)}
+                  className="border-slate-200 shadow-sm hover-lift transition-all relative"
                 >
-                  <CardHeader>
-                    <div className="flex items-start justify-between">
-                      <FileText className="h-10 w-10 text-slate-700" />
-                      <span className="inline-flex items-center gap-1 px-2 py-1 rounded-sm bg-green-50 text-green-700 text-xs font-medium">
-                        <CheckCircle2 className="h-3 w-3" />
-                        {doc.status === 'processed' ? 'Traité' : doc.status}
-                      </span>
-                    </div>
-                    <CardTitle className="text-base mt-4 truncate" title={doc.filename}>
-                      {doc.filename}
-                    </CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex items-center gap-2 text-slate-600">
-                        <Calendar className="h-4 w-4" />
-                        {formatDate(doc.upload_date)}
+                  {(user.role === "modification" || user.role === "superviseur") && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteDocument(doc.id, doc.filename);
+                      }}
+                      className="absolute top-2 right-2 p-2 rounded-sm bg-red-50 hover:bg-red-100 text-red-600 transition-colors z-10"
+                      title="Supprimer"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  )}
+                  <div 
+                    className="cursor-pointer"
+                    onClick={() => navigate(`/documents/${doc.id}`)}
+                  >
+                    <CardHeader>
+                      <div className="flex items-start justify-between">
+                        <FileText className="h-10 w-10 text-slate-700" />
+                        <span className="inline-flex items-center gap-1 px-2 py-1 rounded-sm bg-green-50 text-green-700 text-xs font-medium">
+                          <CheckCircle2 className="h-3 w-3" />
+                          {doc.status === 'processed' ? 'Traité' : doc.status}
+                        </span>
                       </div>
-                      <div className="flex items-center justify-between">
-                        <span className="text-slate-600">Lignes comptables:</span>
-                        <span className="font-mono font-medium text-slate-900">{doc.total_lines}</span>
+                      <CardTitle className="text-base mt-4 truncate" title={doc.filename}>
+                        {doc.filename}
+                      </CardTitle>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="space-y-2 text-sm">
+                        <div className="flex items-center gap-2 text-slate-600">
+                          <Calendar className="h-4 w-4" />
+                          {formatDate(doc.upload_date)}
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <span className="text-slate-600">Lignes comptables:</span>
+                          <span className="font-mono font-medium text-slate-900">{doc.total_lines}</span>
+                        </div>
                       </div>
-                    </div>
-                  </CardContent>
+                    </CardContent>
+                  </div>
                 </Card>
               ))}
             </div>

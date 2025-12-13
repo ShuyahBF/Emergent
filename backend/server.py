@@ -135,6 +135,11 @@ class SettingsUpdate(BaseModel):
     company_name: Optional[str] = None
     company_logo: Optional[str] = None
     webhooks: Optional[Dict[str, str]] = None
+    smtp_host: Optional[str] = None
+    smtp_port: Optional[int] = None
+    smtp_user: Optional[str] = None
+    smtp_password: Optional[str] = None
+    frontend_url: Optional[str] = None
 
 # Auth Functions
 def hash_password(password: str) -> str:

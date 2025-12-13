@@ -715,9 +715,10 @@ async def update_justification(
     
     just_before = just.copy()
     line = await db.accounting_lines.find_one({"id": just["line_id"]}, {"_id": 0})
-    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
+    # Base partagée : pas de vérification user_id
+    doc = await db.documents.find_one({"id": line["document_id"]})
     if not doc:
-        raise HTTPException(status_code=403, detail="Accès refusé")
+        raise HTTPException(status_code=404, detail="Document non trouvé")
     
     total_debit = sum(d.debit for d in justification_data.details)
     total_credit = sum(d.credit for d in justification_data.details)

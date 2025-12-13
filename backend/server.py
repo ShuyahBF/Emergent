@@ -205,50 +205,50 @@ def extract_text_with_ocr(pdf_bytes: bytes) -> str:
         return ""
 
 def parse_accounting_lines(text: str) -> List[dict]:
+    """Parse accounting lines from extracted PDF text"""
     lines = []
-    text_lines = text.split('\n')
-    buffer = []
-    line_number = 0
+    text_lines = [line.strip() for line in text.split('\n') if line.strip()]
     
-    for text_line in text_lines:
-        text_line = text_line.strip()
-        if not text_line:
-            continue
-            
-        if any(header in text_line.lower() for header in ['compte', 'intitule', 'debit', 'credit', 'journal']):
-            continue
-        
-        buffer.append(text_line)
-        buffer_str = ' '.join(buffer)
-        
-        # Pattern amélioré pour capturer les montants avec séparateurs de milliers (espaces)
-        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+([\d\s]+\.?\d*)\s+([\d\s]+\.?\d*)$', buffer_str)
-        
-        if match:
-            line_number += 1
-            account_number = match.group(1)
-            label = match.group(2).strip()
-            
-            # Nettoyer les montants : enlever les espaces (séparateurs de milliers)
-            debit_str = match.group(3).replace(' ', '').replace(',', '.')
-            credit_str = match.group(4).replace(' ', '').replace(',', '.')
-            
-            debit = float(debit_str) if debit_str else 0.0
-            credit = float(credit_str) if credit_str else 0.0
-            total = debit if debit > 0 else credit
-            
-            lines.append({
-                "account_number": account_number,
-                "label": label,
-                "debit": debit,
-                "credit": credit,
-                "total": total,
-                "calculated_total": 0.0,
-                "line_number": line_number
-            })
-            buffer = []
-        elif len(buffer) > 10:
-            buffer = []
+    # Enlever les headers
+    text_lines = [line for line in text_lines if not any(header in line.lower() for header in ['compte', 'intitule', 'debit', 'credit', 'journal', 'achats', 'decembre', 'novembre'])]
+    
+    line_number = 0
+    i = 0
+    
+    while i < len(text_lines):
+        # Vérifier si c'est un numéro de compte
+        if re.match(r'^[0-9]{3,15}$', text_lines[i]):
+            try:
+                account_number = text_lines[i]
+                label = text_lines[i + 1] if i + 1 < len(text_lines) else ""
+                debit_str = text_lines[i + 2] if i + 2 < len(text_lines) else "0"
+                credit_str = text_lines[i + 3] if i + 3 < len(text_lines) else "0"
+                
+                # Nettoyer les montants (enlever les espaces = séparateurs de milliers)
+                debit_str = debit_str.replace(' ', '').replace(',', '.')
+                credit_str = credit_str.replace(' ', '').replace(',', '.')
+                
+                debit = float(debit_str) if debit_str and debit_str != '0' else 0.0
+                credit = float(credit_str) if credit_str and credit_str != '0' else 0.0
+                
+                line_number += 1
+                total = debit if debit > 0 else credit
+                
+                lines.append({
+                    "account_number": account_number,
+                    "label": label,
+                    "debit": debit,
+                    "credit": credit,
+                    "total": total,
+                    "calculated_total": 0.0,
+                    "line_number": line_number
+                })
+                
+                i += 4  # Passer aux 4 prochaines lignes
+            except (ValueError, IndexError):
+                i += 1
+        else:
+            i += 1
     
     return lines
 

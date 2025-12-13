@@ -385,6 +385,28 @@ async def logout(current_user: User = Depends(get_current_user)):
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
+@api_router.get("/auth/verify-email/{token}")
+async def verify_email(token: str):
+    user = await db.users.find_one({"verification_token": token})
+    if not user:
+        raise HTTPException(status_code=400, detail="Token de vérification invalide ou expiré")
+    
+    # Mettre à jour le compte
+    await db.users.update_one(
+        {"id": user["id"]},
+        {"$set": {
+            "is_active": True,
+            "email_verified": True,
+            "email_verified_at": datetime.now(timezone.utc).isoformat(),
+            "verification_token": None
+        }}
+    )
+    
+    return {
+        "message": "Email vérifié avec succès. Votre compte est maintenant actif.",
+        "email": user["email"]
+    }
+
 # User Management Routes
 @api_router.get("/users", response_model=List[User])
 async def get_users(current_user: User = Depends(require_role(["superviseur"]))):

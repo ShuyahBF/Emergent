@@ -51,6 +51,10 @@ class User(BaseModel):
     email: str
     nom: str
     role: str = "consultation"
+    is_active: bool = False
+    email_verified: bool = False
+    email_verified_at: Optional[str] = None
+    last_login: Optional[str] = None
     created_at: str
 
 class UserRoleUpdate(BaseModel):

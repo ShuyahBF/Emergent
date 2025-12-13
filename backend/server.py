@@ -532,8 +532,9 @@ async def upload_document(
 
 @api_router.get("/documents", response_model=List[Document])
 async def get_documents(current_user: User = Depends(get_current_user)):
+    # Base de données partagée : tous les utilisateurs voient tous les documents
     docs = await db.documents.find(
-        {"user_id": current_user.id},
+        {},
         {"_id": 0}
     ).sort("upload_date", -1).to_list(100)
     return [Document(**doc) for doc in docs]

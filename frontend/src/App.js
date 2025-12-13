@@ -5,6 +5,7 @@ import Login from "@/pages/Login";
 import Dashboard from "@/pages/Dashboard";
 import DocumentViewer from "@/pages/DocumentViewer";
 import Settings from "@/pages/Settings";
+import VerifyEmail from "@/pages/VerifyEmail";
 import "@/App.css";
 import axios from "axios";
 

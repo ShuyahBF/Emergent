@@ -324,17 +324,17 @@ async def register(user_data: UserRegister):
             send_verification_email(user_data.email, verification_link, smtp_config)
     except Exception as e:
         logging.error(f"Erreur lors de l'envoi de l'email de vérification: {e}")\n    
-    await trigger_webhook(\"login\", {
-        \"event\": \"user_registered\",
-        \"user_email\": user_data.email,
-        \"user_name\": user_data.nom,
-        \"user_role\": role,
-        \"timestamp\": datetime.now(timezone.utc).isoformat()
+    await trigger_webhook("login", {
+        "event": "user_registered",
+        "user_email": user_data.email,
+        "user_name": user_data.nom,
+        "user_role": role,
+        "timestamp": datetime.now(timezone.utc).isoformat()
     })
     
     return {
-        \"message\": \"Inscription réussie. Un email de vérification a été envoyé à votre adresse.\",
-        \"email\": user_data.email
+        "message": "Inscription réussie. Un email de vérification a été envoyé à votre adresse.",
+        "email": user_data.email
     }
 
 @api_router.post("/auth/login", response_model=Token)

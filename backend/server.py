@@ -544,8 +544,9 @@ async def get_document(
     document_id: str,
     current_user: User = Depends(get_current_user)
 ):
+    # Base de données partagée : tous les utilisateurs peuvent voir tous les documents
     doc = await db.documents.find_one(
-        {"id": document_id, "user_id": current_user.id},
+        {"id": document_id},
         {"_id": 0}
     )
     if not doc:

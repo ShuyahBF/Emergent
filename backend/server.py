@@ -421,6 +421,99 @@ async def update_user_role(
     updated_user = await db.users.find_one({"id": user_id}, {"_id": 0})
     return User(**updated_user)
 
+@api_router.post("/users/{user_id}/activate")
+async def activate_user(
+    user_id: str,
+    current_user: User = Depends(require_role(["superviseur"]))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": True}}
+    )
+    
+    return {"message": "Compte activé avec succès", "user_id": user_id}
+
+@api_router.post("/users/{user_id}/deactivate")
+async def deactivate_user(
+    user_id: str,
+    current_user: User = Depends(require_role(["superviseur"]))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": False}}
+    )
+    
+    return {"message": "Compte désactivé avec succès", "user_id": user_id}
+
+@api_router.delete("/users/{user_id}")
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(require_role(["superviseur"]))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    # Désactiver le compte au lieu de le supprimer
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"is_active": False}}
+    )
+    
+    return {"message": "Compte désactivé avec succès", "user_id": user_id}
+
+@api_router.post("/users/create")
+async def create_user_manual(
+    user_data: UserCreate,
+    current_user: User = Depends(require_role(["superviseur"]))
+):
+    existing = await db.users.find_one({"email": user_data.email})
+    if existing:
+        raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
+    
+    user_dict = {
+        "id": str(uuid.uuid4()),
+        "email": user_data.email,
+        "password_hash": hash_password(user_data.password),
+        "nom": user_data.nom,
+        "role": user_data.role,
+        "is_active": True,
+        "email_verified": True,
+        "email_verified_at": datetime.now(timezone.utc).isoformat(),
+        "last_login": None,
+        "verification_token": None,
+        "created_at": datetime.now(timezone.utc).isoformat()
+    }
+    
+    await db.users.insert_one(user_dict)
+    
+    return {"message": "Utilisateur créé avec succès", "user_id": user_dict["id"]}
+
+@api_router.put("/users/{user_id}/password")
+async def update_user_password(
+    user_id: str,
+    password_data: UserPasswordUpdate,
+    current_user: User = Depends(require_role(["superviseur"]))
+):
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    
+    await db.users.update_one(
+        {"id": user_id},
+        {"$set": {"password_hash": hash_password(password_data.password)}}
+    )
+    
+    return {"message": "Mot de passe mis à jour avec succès", "user_id": user_id}
+
 # Document Routes
 @api_router.post("/documents", response_model=Document)
 async def upload_document(

@@ -34,6 +34,23 @@ export default function Dashboard({ user, onLogout }) {
     }
   };
 
+  const handleDeleteDocument = async (documentId, filename) => {
+    if (!window.confirm(`Êtes-vous sûr de vouloir supprimer définitivement "${filename}" ?`)) {
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      await axios.delete(`${API}/documents/${documentId}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success("Document supprimé");
+      fetchDocuments();
+    } catch (error) {
+      toast.error("Erreur lors de la suppression");
+    }
+  };
+
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;

@@ -80,7 +80,22 @@ export default function Login({ onLogin }) {
       </div>
 
       {/* Right Side - Form */}
-      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50">
+      <div className="flex-1 flex items-center justify-center p-8 bg-slate-50 relative">
+        {/* Logo en haut à droite */}
+        {settings?.company_logo && (
+          <div className="absolute top-8 right-8 flex items-center gap-3">
+            <img
+              src={settings.company_logo}
+              alt={settings.company_name || "Logo"}
+              className="h-12 w-auto object-contain"
+              onError={(e) => e.target.style.display = 'none'}
+            />
+            {settings.company_name && (
+              <span className="text-lg font-semibold text-slate-900">{settings.company_name}</span>
+            )}
+          </div>
+        )}
+        
         <Card className="w-full max-w-md shadow-lg border-slate-200">
           <CardHeader className="space-y-1">
             <CardTitle className="text-2xl font-bold">

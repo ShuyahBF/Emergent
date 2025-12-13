@@ -260,31 +260,40 @@ def parse_accounting_lines(text: str) -> List[dict]:
                 pass
         
         # Méthode 2: Format sur une ligne (N° compte + label + montants)
-        # Pattern: 401000 Fournisseur ABC 1500.00 0.00 ou 401000 Fournisseur 1 500.00 0.00
-        pattern = r'^([0-9]{3,15})\s+([A-Za-zÀ-ÿ\s\-\'\.]+?)\s+([-]?[\d\s]+\.?\d*)\s+([-]?[\d\s]+\.?\d*)$'
+        # Exemple: 701109   VENTE M/SES /BBBOUTIC OUAG  15 000   15 000
+        # Pattern amélioré pour capturer les montants avec espaces
+        pattern = r'^([0-9]{3,15})\s+(.+?)\s+([-]?[\d\s]+\.?\d*)\s+([-]?[\d\s]+\.?\d*)\s*$'
         match = re.match(pattern, current_line)
         
         if match:
-            line_number += 1
             account_number = match.group(1)
             label = match.group(2).strip()
+            debit_str = match.group(3).strip()
+            credit_str = match.group(4).strip()
             
-            debit_str = match.group(3).replace(' ', '').replace(',', '.')
-            credit_str = match.group(4).replace(' ', '').replace(',', '.')
-            
-            debit = float(debit_str) if debit_str else 0.0
-            credit = float(credit_str) if credit_str else 0.0
-            total = debit if debit != 0 else credit
-            
-            lines.append({
-                "account_number": account_number,
-                "label": label,
-                "debit": debit,
-                "credit": credit,
-                "total": total,
-                "calculated_total": 0.0,
-                "line_number": line_number
-            })
+            # Nettoyer et convertir les montants
+            try:
+                debit_str_clean = debit_str.replace(' ', '').replace(',', '.')
+                credit_str_clean = credit_str.replace(' ', '').replace(',', '.')
+                
+                debit = float(debit_str_clean) if debit_str_clean and debit_str_clean not in ['-', ''] else 0.0
+                credit = float(credit_str_clean) if credit_str_clean and credit_str_clean not in ['-', ''] else 0.0
+                
+                line_number += 1
+                total = debit if debit != 0 else credit
+                
+                lines.append({
+                    "account_number": account_number,
+                    "label": label,
+                    "debit": debit,
+                    "credit": credit,
+                    "total": total,
+                    "calculated_total": 0.0,
+                    "line_number": line_number
+                })
+            except ValueError:
+                # Si la conversion échoue, passer à la ligne suivante
+                pass
         
         i += 1
     

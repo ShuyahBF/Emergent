@@ -17,6 +17,20 @@ export default function Login({ onLogin }) {
     nom: ""
   });
   const [loading, setLoading] = useState(false);
+  const [settings, setSettings] = useState(null);
+
+  useEffect(() => {
+    // Récupérer les paramètres pour le logo
+    const fetchSettings = async () => {
+      try {
+        const response = await axios.get(`${API}/settings/public`);
+        setSettings(response.data);
+      } catch (error) {
+        // Silencieux
+      }
+    };
+    fetchSettings();
+  }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();

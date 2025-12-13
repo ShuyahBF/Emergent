@@ -323,7 +323,8 @@ async def register(user_data: UserRegister):
             
             send_verification_email(user_data.email, verification_link, smtp_config)
     except Exception as e:
-        logging.error(f"Erreur lors de l'envoi de l'email de vérification: {e}")\n    
+        logging.error(f"Erreur lors de l'envoi de l'email de vérification: {e}")
+    
     await trigger_webhook("login", {
         "event": "user_registered",
         "user_email": user_data.email,

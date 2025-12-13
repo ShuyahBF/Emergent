@@ -29,10 +29,18 @@ export default function Login({ onLogin }) {
         : { email: formData.email, password: formData.password };
 
       const response = await axios.post(endpoint, payload);
-      const { access_token, user } = response.data;
-
-      toast.success(isRegister ? "Compte créé avec succès" : "Connexion réussie");
-      onLogin(access_token, user);
+      
+      if (isRegister) {
+        // Inscription : afficher message et ne pas se connecter automatiquement
+        toast.success(response.data.message || "Inscription réussie. Vérifiez votre email pour activer votre compte.");
+        setIsRegister(false); // Retourner au formulaire de connexion
+        setFormData({ email: "", password: "", nom: "" });
+      } else {
+        // Connexion
+        const { access_token, user } = response.data;
+        toast.success("Connexion réussie");
+        onLogin(access_token, user);
+      }
     } catch (error) {
       const message = error.response?.data?.detail || "Une erreur est survenue";
       toast.error(message);

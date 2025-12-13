@@ -56,6 +56,15 @@ class User(BaseModel):
 class UserRoleUpdate(BaseModel):
     role: str
 
+class UserCreate(BaseModel):
+    email: EmailStr
+    password: str
+    nom: str
+    role: str = "consultation"
+
+class UserPasswordUpdate(BaseModel):
+    password: str
+
 class Token(BaseModel):
     access_token: str
     token_type: str

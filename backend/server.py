@@ -581,9 +581,10 @@ async def update_line(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
+    # Base partagée : pas de vérification user_id
+    doc = await db.documents.find_one({"id": line["document_id"]})
     if not doc:
-        raise HTTPException(status_code=403, detail="Accès refusé")
+        raise HTTPException(status_code=404, detail="Document non trouvé")
     
     line_before = line.copy()
     update_data = {}
@@ -641,9 +642,10 @@ async def create_justification(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
+    # Base partagée : pas de vérification user_id
+    doc = await db.documents.find_one({"id": line["document_id"]})
     if not doc:
-        raise HTTPException(status_code=403, detail="Accès refusé")
+        raise HTTPException(status_code=404, detail="Document non trouvé")
     
     total_debit = sum(d.debit for d in justification_data.details)
     total_credit = sum(d.credit for d in justification_data.details)
@@ -690,9 +692,10 @@ async def get_justification(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
+    # Base partagée : pas de vérification user_id
+    doc = await db.documents.find_one({"id": line["document_id"]})
     if not doc:
-        raise HTTPException(status_code=403, detail="Accès refusé")
+        raise HTTPException(status_code=404, detail="Document non trouvé")
     
     just = await db.justifications.find_one({"line_id": line_id}, {"_id": 0})
     

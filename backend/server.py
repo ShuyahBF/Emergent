@@ -18,8 +18,6 @@ from pdf2image import convert_from_bytes
 import re
 import io
 import httpx
-import secrets
-from email_service import send_verification_email
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -53,23 +51,10 @@ class User(BaseModel):
     email: str
     nom: str
     role: str = "consultation"
-    is_active: bool = False
-    email_verified: bool = False
-    email_verified_at: Optional[str] = None
-    last_login: Optional[str] = None
     created_at: str
 
 class UserRoleUpdate(BaseModel):
     role: str
-
-class UserCreate(BaseModel):
-    email: EmailStr
-    password: str
-    nom: str
-    role: str = "consultation"
-
-class UserPasswordUpdate(BaseModel):
-    password: str
 
 class Token(BaseModel):
     access_token: str
@@ -135,22 +120,12 @@ class Settings(BaseModel):
         "pdf_imported": "",
         "pdf_exported": ""
     }
-    smtp_host: str = "smtp.gmail.com"
-    smtp_port: int = 587
-    smtp_user: str = ""
-    smtp_password: str = ""
-    frontend_url: str = ""
 
 class SettingsUpdate(BaseModel):
     site_title: Optional[str] = None
     company_name: Optional[str] = None
     company_logo: Optional[str] = None
     webhooks: Optional[Dict[str, str]] = None
-    smtp_host: Optional[str] = None
-    smtp_port: Optional[int] = None
-    smtp_user: Optional[str] = None
-    smtp_password: Optional[str] = None
-    frontend_url: Optional[str] = None
 
 # Auth Functions
 def hash_password(password: str) -> str:
@@ -245,21 +220,14 @@ def parse_accounting_lines(text: str) -> List[dict]:
         
         buffer.append(text_line)
         buffer_str = ' '.join(buffer)
-        
-        # Pattern amélioré pour capturer les montants avec séparateurs de milliers
-        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+([\d\s]+\.?\d*)\s+([\d\s]+\.?\d*)$', buffer_str)
+        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)$', buffer_str)
         
         if match:
             line_number += 1
             account_number = match.group(1)
             label = match.group(2).strip()
-            
-            # Nettoyer les montants : enlever les espaces (séparateurs de milliers)
-            debit_str = match.group(3).replace(' ', '').replace(',', '.')
-            credit_str = match.group(4).replace(' ', '').replace(',', '.')
-            
-            debit = float(debit_str) if debit_str else 0.0
-            credit = float(credit_str) if credit_str else 0.0
+            debit = float(match.group(3))
+            credit = float(match.group(4))
             total = debit if debit > 0 else credit
             
             lines.append({
@@ -278,7 +246,7 @@ def parse_accounting_lines(text: str) -> List[dict]:
     return lines
 
 # Auth Routes
-@api_router.post("/auth/register")
+@api_router.post("/auth/register", response_model=Token)
 async def register(user_data: UserRegister):
     existing_user = await db.users.find_one({"email": user_data.email})
     if existing_user:
@@ -288,74 +256,41 @@ async def register(user_data: UserRegister):
     superviseur_emails = ["jfrancois.ouoba@gmail.com", "admin.test@comptable.fr"]
     role = "superviseur" if user_data.email in superviseur_emails else "consultation"
     
-    # Générer un token de vérification
-    verification_token = secrets.token_urlsafe(32)
-    
     user_dict = {
         "id": str(uuid.uuid4()),
         "email": user_data.email,
         "password_hash": hash_password(user_data.password),
         "nom": user_data.nom,
         "role": role,
-        "is_active": False,
-        "email_verified": False,
-        "email_verified_at": None,
-        "last_login": None,
-        "verification_token": verification_token,
         "created_at": datetime.now(timezone.utc).isoformat()
     }
     
     await db.users.insert_one(user_dict)
+    access_token = create_access_token({"sub": user_dict["id"]})
     
-    # Envoyer l'email de vérification
-    try:
-        settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
-        if settings and settings.get('smtp_user') and settings.get('smtp_password'):
-            frontend_url = settings.get('frontend_url', 'http://localhost:3000')
-            verification_link = f"{frontend_url}/verify-email/{verification_token}"
-            
-            smtp_config = {
-                'smtp_host': settings.get('smtp_host', 'smtp.gmail.com'),
-                'smtp_port': settings.get('smtp_port', 587),
-                'smtp_user': settings.get('smtp_user'),
-                'smtp_password': settings.get('smtp_password')
-            }
-            
-            send_verification_email(user_data.email, verification_link, smtp_config)
-    except Exception as e:
-        logging.error(f"Erreur lors de l'envoi de l'email de vérification: {e}")
+    user = User(
+        id=user_dict["id"],
+        email=user_dict["email"],
+        nom=user_dict["nom"],
+        role=user_dict["role"],
+        created_at=user_dict["created_at"]
+    )
     
     await trigger_webhook("login", {
         "event": "user_registered",
-        "user_email": user_data.email,
-        "user_name": user_data.nom,
-        "user_role": role,
+        "user_email": user.email,
+        "user_name": user.nom,
+        "user_role": user.role,
         "timestamp": datetime.now(timezone.utc).isoformat()
     })
     
-    return {
-        "message": "Inscription réussie. Un email de vérification a été envoyé à votre adresse.",
-        "email": user_data.email
-    }
+    return Token(access_token=access_token, token_type="bearer", user=user)
 
 @api_router.post("/auth/login", response_model=Token)
 async def login(user_data: UserLogin):
     user = await db.users.find_one({"email": user_data.email})
     if not user or not verify_password(user_data.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Email ou mot de passe incorrect")
-    
-    # Vérifier si le compte est activé
-    if not user.get("is_active", False):
-        raise HTTPException(
-            status_code=403, 
-            detail="Votre compte n'est pas encore activé. Veuillez vérifier votre email ou contacter un administrateur."
-        )
-    
-    # Mettre à jour last_login
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"last_login": datetime.now(timezone.utc).isoformat()}}
-    )
     
     access_token = create_access_token({"sub": user["id"]})
     
@@ -364,10 +299,6 @@ async def login(user_data: UserLogin):
         email=user["email"],
         nom=user["nom"],
         role=user.get("role", "consultation"),
-        is_active=user.get("is_active", False),
-        email_verified=user.get("email_verified", False),
-        email_verified_at=user.get("email_verified_at"),
-        last_login=datetime.now(timezone.utc).isoformat(),
         created_at=user["created_at"]
     )
     
@@ -395,28 +326,6 @@ async def logout(current_user: User = Depends(get_current_user)):
 async def get_me(current_user: User = Depends(get_current_user)):
     return current_user
 
-@api_router.get("/auth/verify-email/{token}")
-async def verify_email(token: str):
-    user = await db.users.find_one({"verification_token": token})
-    if not user:
-        raise HTTPException(status_code=400, detail="Token de vérification invalide ou expiré")
-    
-    # Mettre à jour le compte
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {
-            "is_active": True,
-            "email_verified": True,
-            "email_verified_at": datetime.now(timezone.utc).isoformat(),
-            "verification_token": None
-        }}
-    )
-    
-    return {
-        "message": "Email vérifié avec succès. Votre compte est maintenant actif.",
-        "email": user["email"]
-    }
-
 # User Management Routes
 @api_router.get("/users", response_model=List[User])
 async def get_users(current_user: User = Depends(require_role(["superviseur"]))):
@@ -443,102 +352,6 @@ async def update_user_role(
     
     updated_user = await db.users.find_one({"id": user_id}, {"_id": 0})
     return User(**updated_user)
-
-@api_router.post("/users/{user_id}/activate")
-async def activate_user(
-    user_id: str,
-    current_user: User = Depends(require_role(["superviseur"]))
-):
-    user = await db.users.find_one({"id": user_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"is_active": True}}
-    )
-    
-    return {"message": "Compte activé avec succès", "user_id": user_id}
-
-@api_router.post("/users/{user_id}/deactivate")
-async def deactivate_user(
-    user_id: str,
-    current_user: User = Depends(require_role(["superviseur"]))
-):
-    user = await db.users.find_one({"id": user_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"is_active": False}}
-    )
-    
-    return {"message": "Compte désactivé avec succès", "user_id": user_id}
-
-@api_router.delete("/users/{user_id}")
-async def delete_user(
-    user_id: str,
-    current_user: User = Depends(require_role(["superviseur"]))
-):
-    user = await db.users.find_one({"id": user_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    
-    # Désactiver le compte au lieu de le supprimer
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"is_active": False}}
-    )
-    
-    return {"message": "Compte désactivé avec succès", "user_id": user_id}
-
-@api_router.post("/users/create")
-async def create_user_manual(
-    user_data: UserCreate,
-    current_user: User = Depends(require_role(["superviseur"]))
-):
-    # Vérifier si l'utilisateur existe déjà
-    existing = await db.users.find_one({"email": user_data.email})
-    if existing:
-        raise HTTPException(status_code=400, detail="Cet email est déjà utilisé")
-    
-    # Créer l'utilisateur
-    user_dict = {
-        "id": str(uuid.uuid4()),
-        "email": user_data.email,
-        "password_hash": hash_password(user_data.password),
-        "nom": user_data.nom,
-        "role": user_data.role,
-        "is_active": True,
-        "email_verified": True,
-        "email_verified_at": datetime.now(timezone.utc).isoformat(),
-        "last_login": None,
-        "verification_token": None,
-        "created_at": datetime.now(timezone.utc).isoformat()
-    }
-    
-    await db.users.insert_one(user_dict)
-    
-    return {"message": "Utilisateur créé avec succès", "user_id": user_dict["id"]}
-
-@api_router.put("/users/{user_id}/password")
-async def update_user_password(
-    user_id: str,
-    password_data: UserPasswordUpdate,
-    current_user: User = Depends(require_role(["superviseur"]))
-):
-    user = await db.users.find_one({"id": user_id})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
-    
-    # Mettre à jour le mot de passe
-    await db.users.update_one(
-        {"id": user_id},
-        {"$set": {"password_hash": hash_password(password_data.password)}}
-    )
-    
-    return {"message": "Mot de passe mis à jour avec succès", "user_id": user_id}
 
 # Document Routes
 @api_router.post("/documents", response_model=Document)
@@ -589,9 +402,8 @@ async def upload_document(
 
 @api_router.get("/documents", response_model=List[Document])
 async def get_documents(current_user: User = Depends(get_current_user)):
-    # Base de données partagée : tous les utilisateurs voient tous les documents
     docs = await db.documents.find(
-        {},
+        {"user_id": current_user.id},
         {"_id": 0}
     ).sort("upload_date", -1).to_list(100)
     return [Document(**doc) for doc in docs]
@@ -601,9 +413,8 @@ async def get_document(
     document_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    # Base de données partagée : tous les utilisateurs peuvent voir tous les documents
     doc = await db.documents.find_one(
-        {"id": document_id},
+        {"id": document_id, "user_id": current_user.id},
         {"_id": 0}
     )
     if not doc:
@@ -615,8 +426,7 @@ async def get_document_lines(
     document_id: str,
     current_user: User = Depends(get_current_user)
 ):
-    # Base de données partagée : tous les utilisateurs peuvent voir toutes les lignes
-    doc = await db.documents.find_one({"id": document_id})
+    doc = await db.documents.find_one({"id": document_id, "user_id": current_user.id})
     if not doc:
         raise HTTPException(status_code=404, detail="Document non trouvé")
     
@@ -638,10 +448,9 @@ async def update_line(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    # Base partagée : pas de vérification user_id
-    doc = await db.documents.find_one({"id": line["document_id"]})
+    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
     if not doc:
-        raise HTTPException(status_code=404, detail="Document non trouvé")
+        raise HTTPException(status_code=403, detail="Accès refusé")
     
     line_before = line.copy()
     update_data = {}
@@ -649,24 +458,15 @@ async def update_line(
     if line_update.label is not None:
         update_data["label"] = line_update.label
     
-    # Logique corrigée : Si Débit>0 alors Crédit=0 et si Crédit>0 alors Débit=0
     if line_update.debit is not None:
-        if line_update.debit > 0:
-            update_data["debit"] = line_update.debit
-            update_data["credit"] = 0.0
-            update_data["total"] = line_update.debit
-        else:
-            # Si débit = 0, ne pas toucher au crédit
-            update_data["debit"] = 0.0
+        update_data["debit"] = line_update.debit
+        update_data["credit"] = 0.0
+        update_data["total"] = line_update.debit
     
     if line_update.credit is not None:
-        if line_update.credit > 0:
-            update_data["credit"] = line_update.credit
-            update_data["debit"] = 0.0
-            update_data["total"] = line_update.credit
-        else:
-            # Si crédit = 0, ne pas toucher au débit
-            update_data["credit"] = 0.0
+        update_data["credit"] = line_update.credit
+        update_data["debit"] = 0.0
+        update_data["total"] = line_update.credit
     
     if update_data:
         await db.accounting_lines.update_one(
@@ -699,10 +499,9 @@ async def create_justification(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    # Base partagée : pas de vérification user_id
-    doc = await db.documents.find_one({"id": line["document_id"]})
+    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
     if not doc:
-        raise HTTPException(status_code=404, detail="Document non trouvé")
+        raise HTTPException(status_code=403, detail="Accès refusé")
     
     total_debit = sum(d.debit for d in justification_data.details)
     total_credit = sum(d.credit for d in justification_data.details)
@@ -749,10 +548,9 @@ async def get_justification(
     if not line:
         raise HTTPException(status_code=404, detail="Ligne non trouvée")
     
-    # Base partagée : pas de vérification user_id
-    doc = await db.documents.find_one({"id": line["document_id"]})
+    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
     if not doc:
-        raise HTTPException(status_code=404, detail="Document non trouvé")
+        raise HTTPException(status_code=403, detail="Accès refusé")
     
     just = await db.justifications.find_one({"line_id": line_id}, {"_id": 0})
     
@@ -772,10 +570,9 @@ async def update_justification(
     
     just_before = just.copy()
     line = await db.accounting_lines.find_one({"id": just["line_id"]}, {"_id": 0})
-    # Base partagée : pas de vérification user_id
-    doc = await db.documents.find_one({"id": line["document_id"]})
+    doc = await db.documents.find_one({"id": line["document_id"], "user_id": current_user.id})
     if not doc:
-        raise HTTPException(status_code=404, detail="Document non trouvé")
+        raise HTTPException(status_code=403, detail="Accès refusé")
     
     total_debit = sum(d.debit for d in justification_data.details)
     total_credit = sum(d.credit for d in justification_data.details)
@@ -826,22 +623,6 @@ async def get_settings(current_user: User = Depends(require_role(["superviseur"]
         return Settings(**default_settings)
     return Settings(**settings)
 
-@api_router.get("/settings/public")
-async def get_public_settings():
-    \"\"\"Endpoint public pour récupérer le logo et le titre sans authentification\"\"\"
-    settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
-    if not settings:
-        return {
-            "site_title": "Justification Comptable",
-            "company_name": "Mon Entreprise",
-            "company_logo": ""
-        }
-    return {
-        "site_title": settings.get("site_title", "Justification Comptable"),
-        "company_name": settings.get("company_name", "Mon Entreprise"),
-        "company_logo": settings.get("company_logo", "")
-    }
-
 @api_router.put("/settings", response_model=Settings)
 async def update_settings(
     settings_update: SettingsUpdate,
@@ -861,16 +642,6 @@ async def update_settings(
         update_data["company_logo"] = settings_update.company_logo
     if settings_update.webhooks is not None:
         update_data["webhooks"] = settings_update.webhooks
-    if settings_update.smtp_host is not None:
-        update_data["smtp_host"] = settings_update.smtp_host
-    if settings_update.smtp_port is not None:
-        update_data["smtp_port"] = settings_update.smtp_port
-    if settings_update.smtp_user is not None:
-        update_data["smtp_user"] = settings_update.smtp_user
-    if settings_update.smtp_password is not None:
-        update_data["smtp_password"] = settings_update.smtp_password
-    if settings_update.frontend_url is not None:
-        update_data["frontend_url"] = settings_update.frontend_url
     
     if update_data:
         await db.settings.update_one(

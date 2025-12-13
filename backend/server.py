@@ -312,7 +312,7 @@ async def register(user_data: UserRegister):
         settings = await db.settings.find_one({"id": "site_settings"}, {"_id": 0})
         if settings and settings.get('smtp_user') and settings.get('smtp_password'):
             frontend_url = settings.get('frontend_url', 'http://localhost:3000')
-            verification_link = f\"{frontend_url}/verify-email/{verification_token}\"
+            verification_link = f"{frontend_url}/verify-email/{verification_token}"
             
             smtp_config = {
                 'smtp_host': settings.get('smtp_host', 'smtp.gmail.com'),
@@ -323,7 +323,7 @@ async def register(user_data: UserRegister):
             
             send_verification_email(user_data.email, verification_link, smtp_config)
     except Exception as e:
-        logging.error(f\"Erreur lors de l'envoi de l'email de vérification: {e}\")\n    
+        logging.error(f"Erreur lors de l'envoi de l'email de vérification: {e}")\n    
     await trigger_webhook(\"login\", {
         \"event\": \"user_registered\",
         \"user_email\": user_data.email,

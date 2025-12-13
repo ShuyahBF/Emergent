@@ -236,14 +236,21 @@ def parse_accounting_lines(text: str) -> List[dict]:
         
         buffer.append(text_line)
         buffer_str = ' '.join(buffer)
-        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+(\d+\.?\d*)\s+(\d+\.?\d*)$', buffer_str)
+        
+        # Pattern amélioré pour capturer les montants avec séparateurs de milliers
+        match = re.match(r'^([0-9]{3,15})\s+(.+?)\s+([\d\s]+\.?\d*)\s+([\d\s]+\.?\d*)$', buffer_str)
         
         if match:
             line_number += 1
             account_number = match.group(1)
             label = match.group(2).strip()
-            debit = float(match.group(3))
-            credit = float(match.group(4))
+            
+            # Nettoyer les montants : enlever les espaces (séparateurs de milliers)
+            debit_str = match.group(3).replace(' ', '').replace(',', '.')
+            credit_str = match.group(4).replace(' ', '').replace(',', '.')
+            
+            debit = float(debit_str) if debit_str else 0.0
+            credit = float(credit_str) if credit_str else 0.0
             total = debit if debit > 0 else credit
             
             lines.append({

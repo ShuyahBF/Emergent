@@ -209,11 +209,19 @@ def parse_accounting_lines(text: str) -> List[dict]:
     lines = []
     text_lines = [line.strip() for line in text.split('\n') if line.strip()]
     
-    # Enlever les headers communs
-    text_lines = [line for line in text_lines if not any(header in line.lower() for header in 
-                  ['compte', 'intitule', 'intitulé', 'libelle', 'libellé', 'debit', 'débit', 
-                   'credit', 'crédit', 'journal', 'achats', 'decembre', 'novembre', 'balance', 
-                   'solde', 'date', 'page', 'total'])]
+    # Enlever les headers communs (mais pas les lignes avec N° de compte)
+    filtered_lines = []
+    for line in text_lines:
+        # Si la ligne commence par un numéro de compte, la garder
+        if re.match(r'^[0-9]{3,15}\s', line):
+            filtered_lines.append(line)
+        # Sinon, vérifier si ce n'est pas un header
+        elif not any(header in line.lower() for header in 
+                    ['n° compte', 'n° cpte', 'numero compte', 'intitule', 'intitulé', 
+                     'libelle', 'libellé', 'debit', 'débit', 'credit', 'crédit', 'solde']):
+            filtered_lines.append(line)
+    
+    text_lines = filtered_lines
     
     line_number = 0
     i = 0

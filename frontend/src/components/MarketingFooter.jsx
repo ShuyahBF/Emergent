@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin, MessageCircle } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 
@@ -48,7 +48,10 @@ export default function MarketingFooter() {
           <ul className="space-y-2 text-sm">
             <li className="flex items-center gap-2"><Mail className="h-4 w-4 text-sawali-blue-light" /> {info?.email || "..."}</li>
             <li className="flex items-center gap-2"><Phone className="h-4 w-4 text-sawali-blue-light" /> {info?.phone || "..."}</li>
-            <li className="flex items-center gap-2"><MapPin className="h-4 w-4 text-sawali-blue-light" /> {info?.address || "..."}</li>
+            {info?.whatsapp && (
+              <li className="flex items-center gap-2"><MessageCircle className="h-4 w-4 text-emerald-400" /> WhatsApp : {info.whatsapp}</li>
+            )}
+            <li className="flex items-center gap-2"><MapPin className="h-4 w-4 text-sawali-blue-light" /> {[info?.address, info?.city, info?.country].filter(Boolean).join(", ") || "..."}</li>
           </ul>
         </div>
       </div>

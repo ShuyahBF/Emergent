@@ -250,4 +250,7 @@ class SettingsUpdate(BaseModel):
 
     company_email: Optional[str] = None
     company_phone: Optional[str] = None
+    company_whatsapp: Optional[str] = None
     company_address: Optional[str] = None
+    company_city: Optional[str] = None
+    company_country: Optional[str] = None

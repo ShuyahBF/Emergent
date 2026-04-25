@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote } from "lucide-react";
+import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote, Star, MapPin, User as UserIcon } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 
@@ -127,19 +127,40 @@ export default function Home() {
               </Link>
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {testimonials.map((t) => (
-                <article key={t.id} className="glow-card rounded-xl p-6 flex flex-col" data-testid={`home-testimonial-${t.id}`}>
-                  <div className="flex items-center justify-between">
-                    <Quote className="h-6 w-6 text-sawali-blue-light/70" />
-                    <span className="text-2xl font-display font-bold text-gradient-blue">{t.score}<span className="text-xs text-slate-500">/10</span></span>
-                  </div>
-                  {t.comment && <p className="mt-4 text-slate-200 text-sm leading-relaxed flex-1 line-clamp-4">"{t.comment}"</p>}
-                  <div className="mt-5 pt-4 border-t border-white/10">
-                    <p className="text-sm font-display font-semibold text-white">{t.client_name}</p>
-                    {t.client_company && <p className="text-xs text-sawali-blue-light">{t.client_company}</p>}
-                  </div>
-                </article>
-              ))}
+              {testimonials.map((t) => {
+                const place = [t.city, t.country].filter(Boolean).join(", ");
+                return (
+                  <article key={t.id} className="glow-card rounded-xl p-6 flex flex-col" data-testid={`home-testimonial-${t.id}`}>
+                    <div className="flex items-center justify-between">
+                      <Quote className="h-6 w-6 text-sawali-blue-light/70" />
+                      {t.rating_5 != null ? (
+                        <span className="inline-flex items-center gap-0.5">
+                          {[1, 2, 3, 4, 5].map((n) => (
+                            <Star key={n} className={`h-4 w-4 ${t.rating_5 >= n ? "fill-amber-400 text-amber-400" : "text-slate-600"}`} />
+                          ))}
+                        </span>
+                      ) : (
+                        <span className="text-2xl font-display font-bold text-gradient-blue">{t.score}<span className="text-xs text-slate-500">/10</span></span>
+                      )}
+                    </div>
+                    {t.comment && <p className="mt-4 text-slate-200 text-sm leading-relaxed flex-1 line-clamp-4">"{t.comment}"</p>}
+                    <div className="mt-5 pt-4 border-t border-white/10 flex items-center gap-3">
+                      {t.photo_url ? (
+                        <img src={t.photo_url} alt="" className="h-10 w-10 rounded-full object-cover ring-1 ring-white/20" />
+                      ) : (
+                        <div className="h-10 w-10 rounded-full bg-sawali-blue/15 ring-1 ring-sawali-blue/30 flex items-center justify-center">
+                          <UserIcon className="h-4 w-4 text-sawali-blue-light" />
+                        </div>
+                      )}
+                      <div className="min-w-0">
+                        <p className="text-sm font-display font-semibold text-white truncate">{t.client_name}</p>
+                        {t.client_company && <p className="text-xs text-sawali-blue-light truncate">{t.client_company}</p>}
+                        {place && <p className="text-[11px] text-slate-400 inline-flex items-center gap-1"><MapPin className="h-3 w-3" /> {place}</p>}
+                      </div>
+                    </div>
+                  </article>
+                );
+              })}
             </div>
           </div>
         </section>

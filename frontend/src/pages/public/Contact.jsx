@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Mail, Phone, MapPin, Send, CheckCircle2 } from "lucide-react";
+import { Mail, Phone, MapPin, Send, CheckCircle2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function Contact() {
@@ -34,7 +34,10 @@ export default function Contact() {
           <div className="mt-10 space-y-4 text-slate-300">
             <div className="flex items-center gap-3"><Mail className="h-5 w-5 text-sawali-blue-light" /> {info?.email}</div>
             <div className="flex items-center gap-3"><Phone className="h-5 w-5 text-sawali-blue-light" /> {info?.phone}</div>
-            <div className="flex items-center gap-3"><MapPin className="h-5 w-5 text-sawali-blue-light" /> {info?.address}</div>
+            {info?.whatsapp && (
+              <div className="flex items-center gap-3"><MessageCircle className="h-5 w-5 text-emerald-400" /> WhatsApp : {info.whatsapp}</div>
+            )}
+            <div className="flex items-center gap-3"><MapPin className="h-5 w-5 text-sawali-blue-light" /> {[info?.address, info?.city, info?.country].filter(Boolean).join(", ")}</div>
           </div>
         </div>
         <form onSubmit={submit} className="lg:col-span-3 glow-card rounded-2xl p-6 lg:p-8 space-y-4" data-testid="contact-form">

@@ -291,7 +291,10 @@ async def company_info():
         "tagline": "Software Engineering",
         "email": s.get("company_email") or "contact@sawalismartsystems.com",
         "phone": s.get("company_phone") or "+228 00 00 00 00",
+        "whatsapp": s.get("company_whatsapp") or "",
         "address": s.get("company_address") or "",
+        "city": s.get("company_city") or "",
+        "country": s.get("company_country") or "",
         "business_open_time": s.get("business_open_time", "09:00"),
         "business_close_time": s.get("business_close_time", "18:00"),
         "business_days": s.get("business_days", [0, 1, 2, 3, 4]),
@@ -953,6 +956,13 @@ async def submit_feedback(token: str, payload: dict):
     score = int(payload.get("score", -1))
     if not 0 <= score <= 10:
         raise HTTPException(status_code=400, detail="Score invalide (0-10)")
+    rating_5 = payload.get("rating_5")
+    if rating_5 is not None and rating_5 != "":
+        rating_5 = float(rating_5)
+        if not 0 <= rating_5 <= 5:
+            raise HTTPException(status_code=400, detail="Note /5 doit être entre 0 et 5")
+    else:
+        rating_5 = None
     comment = (payload.get("comment") or "").strip()
     allow_publish = bool(payload.get("allow_publish", True))
 
@@ -962,11 +972,16 @@ async def submit_feedback(token: str, payload: dict):
         "client_id": appt.get("client_id"),
         "client_name": appt["name"],
         "client_company": appt.get("company"),
+        "city": payload.get("city") or "",
+        "country": payload.get("country") or "",
+        "photo_url": payload.get("photo_url") or "",
         "subject": appt["subject"],
         "score": score,
+        "rating_5": rating_5,
         "comment": comment,
         "allow_publish": allow_publish,
         "status": "pending",  # admin must moderate before publishing
+        "source": "feedback",
         "created_at": _now(),
         "published_at": None,
     }
@@ -984,16 +999,79 @@ async def admin_list_testimonials(_: dict = Depends(get_current_admin)):
     return sorted(items, key=lambda x: x["created_at"], reverse=True)
 
 
+@api.post("/admin/testimonials", tags=["Admin"])
+async def admin_create_testimonial(payload: dict, _: dict = Depends(get_current_admin)):
+    """Création manuelle d'un témoignage par l'admin.
+
+    Champs : client_name (req), comment, score (0-10), rating_5 (1-5),
+    client_company, city, country, photo_url, subject, status (default published),
+    allow_publish (default True).
+    """
+    name = (payload.get("client_name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Identité requise")
+    score = int(payload.get("score", 10))
+    if not 0 <= score <= 10:
+        raise HTTPException(status_code=400, detail="Score doit être entre 0 et 10")
+    rating_5 = payload.get("rating_5")
+    if rating_5 is not None:
+        rating_5 = float(rating_5)
+        if not 0 <= rating_5 <= 5:
+            raise HTTPException(status_code=400, detail="Note /5 doit être entre 0 et 5")
+    status = payload.get("status", "published")
+    if status not in ("pending", "published", "hidden"):
+        status = "published"
+    doc = {
+        "id": _uuid(),
+        "appointment_id": None,
+        "client_id": payload.get("client_id"),
+        "client_name": name,
+        "client_company": payload.get("client_company") or "",
+        "city": payload.get("city") or "",
+        "country": payload.get("country") or "",
+        "photo_url": payload.get("photo_url") or "",
+        "subject": payload.get("subject") or "",
+        "score": score,
+        "rating_5": rating_5,
+        "comment": (payload.get("comment") or "").strip(),
+        "allow_publish": bool(payload.get("allow_publish", True)),
+        "status": status,
+        "source": "manual",
+        "created_at": _now(),
+        "published_at": _now() if status == "published" else None,
+    }
+    await db.testimonials.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
 @api.put("/admin/testimonials/{tid}", tags=["Admin"])
 async def admin_update_testimonial(tid: str, payload: dict, _: dict = Depends(get_current_admin)):
-    """Modère un témoignage. payload peut contenir : status (pending|published|hidden), comment (édition légère)."""
+    """Modère ou modifie un témoignage. Champs supportés : status, comment, client_name,
+    client_company, city, country, photo_url, score, rating_5, subject, allow_publish."""
     update = {}
+    for k in ("client_name", "client_company", "city", "country", "photo_url",
+              "comment", "subject", "allow_publish"):
+        if k in payload:
+            update[k] = payload[k]
+    if "score" in payload:
+        score = int(payload["score"])
+        if not 0 <= score <= 10:
+            raise HTTPException(status_code=400, detail="Score 0-10")
+        update["score"] = score
+    if "rating_5" in payload:
+        r = payload["rating_5"]
+        if r is None or r == "":
+            update["rating_5"] = None
+        else:
+            r = float(r)
+            if not 0 <= r <= 5:
+                raise HTTPException(status_code=400, detail="Note /5 doit être 0-5")
+            update["rating_5"] = r
     if "status" in payload and payload["status"] in ("pending", "published", "hidden"):
         update["status"] = payload["status"]
         if payload["status"] == "published":
             update["published_at"] = _now()
-    if "comment" in payload:
-        update["comment"] = payload["comment"]
     if not update:
         return {"ok": True}
     update["updated_at"] = _now()

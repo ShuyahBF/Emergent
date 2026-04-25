@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Quote, Star, TrendingUp } from "lucide-react";
+import { Quote, Star, TrendingUp, MapPin, User as UserIcon } from "lucide-react";
 
 export default function Testimonials() {
   const [items, setItems] = useState([]);
@@ -59,23 +59,49 @@ const NpsCard = ({ label, value, suffix = "", sub, icon: Icon, highlight }) => (
 );
 
 const Card = ({ t }) => {
-  const tone = t.score >= 9 ? "text-emerald-300" : t.score >= 7 ? "text-sky-300" : "text-amber-300";
+  const place = [t.city, t.country].filter(Boolean).join(", ");
   return (
     <article className="glow-card rounded-xl p-6 flex flex-col" data-testid={`testimonial-${t.id}`}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-start justify-between gap-3">
         <Quote className="h-7 w-7 text-sawali-blue-light/70" />
-        <span className={`text-2xl font-display font-bold ${tone}`}>{t.score}<span className="text-sm text-slate-500">/10</span></span>
+        {t.rating_5 != null ? (
+          <Stars value={t.rating_5} />
+        ) : (
+          <span className="text-2xl font-display font-bold text-gradient-blue">{t.score}<span className="text-sm text-slate-500">/10</span></span>
+        )}
       </div>
       {t.comment ? (
         <p className="mt-4 text-slate-200 leading-relaxed flex-1">"{t.comment}"</p>
       ) : (
         <p className="mt-4 text-slate-500 italic flex-1">Avis sans commentaire écrit.</p>
       )}
-      <div className="mt-5 pt-5 border-t border-white/10">
-        <p className="text-sm font-display font-semibold text-white">{t.client_name}</p>
-        {t.client_company && <p className="text-xs text-sawali-blue-light">{t.client_company}</p>}
-        {t.subject && <p className="text-xs text-slate-500 mt-1">À propos de : {t.subject}</p>}
+      <div className="mt-5 pt-5 border-t border-white/10 flex items-center gap-3">
+        {t.photo_url ? (
+          <img src={t.photo_url} alt="" className="h-11 w-11 rounded-full object-cover ring-1 ring-white/20" />
+        ) : (
+          <div className="h-11 w-11 rounded-full bg-sawali-blue/15 ring-1 ring-sawali-blue/30 flex items-center justify-center">
+            <UserIcon className="h-5 w-5 text-sawali-blue-light" />
+          </div>
+        )}
+        <div className="min-w-0">
+          <p className="text-sm font-display font-semibold text-white truncate">{t.client_name}</p>
+          {t.client_company && <p className="text-xs text-sawali-blue-light truncate">{t.client_company}</p>}
+          {place && (
+            <p className="text-[11px] text-slate-400 mt-0.5 inline-flex items-center gap-1">
+              <MapPin className="h-3 w-3" /> {place}
+            </p>
+          )}
+        </div>
       </div>
+      {t.subject && <p className="mt-3 text-[11px] text-slate-500">À propos de : {t.subject}</p>}
     </article>
   );
 };
+
+const Stars = ({ value }) => (
+  <span className="inline-flex items-center gap-0.5">
+    {[1, 2, 3, 4, 5].map((n) => (
+      <Star key={n} className={`h-4 w-4 ${value >= n ? "fill-amber-400 text-amber-400" : "text-slate-600"}`} />
+    ))}
+  </span>
+);

@@ -345,10 +345,16 @@ async def _check_slot_available(scheduled_at: str, duration_min: int) -> tuple[b
         return False, "Hors des heures ouvrables"
 
     end_dt = start_dt + timedelta(minutes=duration_min)
-    # Look for overlapping non-cancelled appointments
+    # Look for overlapping non-cancelled appointments within a 24h window
+    window_start = (start_dt - timedelta(days=1)).isoformat()
+    window_end = (end_dt + timedelta(days=1)).isoformat()
     existing = await db.appointments.find(
-        {"status": {"$in": ["pending", "confirmed"]}}, {"_id": 0}
-    ).to_list(2000)
+        {
+            "status": {"$in": ["pending", "confirmed"]},
+            "scheduled_at": {"$gte": window_start, "$lte": window_end},
+        },
+        {"_id": 0, "scheduled_at": 1, "duration_min": 1},
+    ).to_list(500)
     for a in existing:
         a_start = datetime.fromisoformat(a["scheduled_at"])
         if a_start.tzinfo is None:
@@ -392,10 +398,14 @@ async def availability(date: str = Query(..., description="YYYY-MM-DD")):
     start = day.replace(hour=oh, minute=om, second=0, microsecond=0)
     end = day.replace(hour=ch, minute=cm, second=0, microsecond=0)
 
-    # Pre-load taken intervals
+    # Pre-load taken intervals for the requested day only
     appts = await db.appointments.find(
-        {"status": {"$in": ["pending", "confirmed"]}}, {"_id": 0}
-    ).to_list(2000)
+        {
+            "status": {"$in": ["pending", "confirmed"]},
+            "scheduled_at": {"$gte": start.isoformat(), "$lte": end.isoformat()},
+        },
+        {"_id": 0, "scheduled_at": 1, "duration_min": 1},
+    ).to_list(500)
     intervals: list[tuple[datetime, datetime]] = []
     for a in appts:
         a_start = datetime.fromisoformat(a["scheduled_at"])

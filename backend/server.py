@@ -1187,6 +1187,113 @@ async def admin_delete_case_study(cs_id: str, _: dict = Depends(get_current_admi
 
 
 # ====================================================================
+# BLOG (Articles techniques)
+# ====================================================================
+@api.get("/blog", tags=["Public"])
+async def list_blog_posts(tag: Optional[str] = None):
+    q = {"is_published": True}
+    if tag:
+        q["tags"] = tag
+    items = await db.blog_posts.find(q, {"_id": 0, "body_html": 0}).to_list(500)
+    return sorted(items, key=lambda x: x.get("published_at") or x.get("created_at", ""), reverse=True)
+
+
+@api.get("/blog/tags", tags=["Public"])
+async def list_blog_tags():
+    items = await db.blog_posts.find({"is_published": True}, {"_id": 0, "tags": 1}).to_list(2000)
+    counts: dict[str, int] = {}
+    for it in items:
+        for t in it.get("tags") or []:
+            counts[t] = counts.get(t, 0) + 1
+    return [{"tag": k, "count": v} for k, v in sorted(counts.items(), key=lambda x: x[1], reverse=True)]
+
+
+@api.get("/blog/{slug}", tags=["Public"])
+async def get_blog_post(slug: str):
+    item = await db.blog_posts.find_one({"slug": slug, "is_published": True}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    await db.blog_posts.update_one({"slug": slug}, {"$inc": {"views": 1}})
+    item["views"] = (item.get("views") or 0) + 1
+    return item
+
+
+@api.get("/admin/blog", tags=["Admin"])
+async def admin_list_blog(_: dict = Depends(get_current_admin)):
+    items = await db.blog_posts.find({}, {"_id": 0, "body_html": 0}).to_list(2000)
+    return sorted(items, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+@api.get("/admin/blog/{post_id}", tags=["Admin"])
+async def admin_get_blog(post_id: str, _: dict = Depends(get_current_admin)):
+    item = await db.blog_posts.find_one({"id": post_id}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Article introuvable")
+    return item
+
+
+@api.post("/admin/blog", tags=["Admin"])
+async def admin_create_blog(payload: dict, _: dict = Depends(get_current_admin)):
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre requis")
+    slug = (payload.get("slug") or _slugify(title)).strip()
+    if await db.blog_posts.find_one({"slug": slug}):
+        slug = f"{slug}-{_uuid()[:6]}"
+    is_pub = bool(payload.get("is_published", True))
+    doc = {
+        "id": _uuid(),
+        "slug": slug,
+        "title": title,
+        "excerpt": payload.get("excerpt") or "",
+        "body_html": payload.get("body_html") or "",
+        "cover_image_url": payload.get("cover_image_url") or "",
+        "author_name": payload.get("author_name") or "Équipe SAWALI",
+        "author_role": payload.get("author_role") or "",
+        "author_photo_url": payload.get("author_photo_url") or "",
+        "tags": payload.get("tags") or [],
+        "reading_time_min": int(payload.get("reading_time_min") or 0),
+        "is_published": is_pub,
+        "featured": bool(payload.get("featured", False)),
+        "views": 0,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "published_at": _now() if is_pub else None,
+    }
+    await db.blog_posts.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/blog/{post_id}", tags=["Admin"])
+async def admin_update_blog(post_id: str, payload: dict, _: dict = Depends(get_current_admin)):
+    allowed = {"title", "slug", "excerpt", "body_html", "cover_image_url",
+               "author_name", "author_role", "author_photo_url",
+               "tags", "reading_time_min", "is_published", "featured"}
+    update = {k: v for k, v in payload.items() if k in allowed}
+    if "reading_time_min" in update:
+        try:
+            update["reading_time_min"] = int(update["reading_time_min"] or 0)
+        except Exception:
+            update.pop("reading_time_min")
+    if update.get("is_published"):
+        existing = await db.blog_posts.find_one({"id": post_id}, {"_id": 0})
+        if existing and not existing.get("published_at"):
+            update["published_at"] = _now()
+    if not update:
+        return {"ok": True}
+    update["updated_at"] = _now()
+    await db.blog_posts.update_one({"id": post_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/blog/{post_id}", tags=["Admin"])
+async def admin_delete_blog(post_id: str, _: dict = Depends(get_current_admin)):
+    await db.blog_posts.delete_one({"id": post_id})
+    return {"ok": True}
+
+
+# ====================================================================
 # REGISTER & STARTUP
 # ====================================================================
 app.include_router(api)

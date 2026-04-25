@@ -10,6 +10,7 @@ const links = [
   { to: "/specialisations", label: "Spécialisations" },
   { to: "/catalogue", label: "Catalogue" },
   { to: "/etudes-de-cas", label: "Études de cas" },
+  { to: "/blog", label: "Blog" },
   { to: "/temoignages", label: "Témoignages" },
   { to: "/rdv", label: "Demande RDV" },
   { to: "/contact", label: "Contact" },

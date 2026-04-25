@@ -61,7 +61,7 @@ export default function App() {
           <Route path="/catalogue" element={<PublicRoute><Catalogue /></PublicRoute>} />
           <Route path="/contact" element={<PublicRoute><Contact /></PublicRoute>} />
           <Route path="/rdv" element={<PublicRoute><RDV /></PublicRoute>} />
-          <Route path="/api-docs" element={<ApiDocs />} />
+          <Route path="/documentation" element={<ApiDocs />} />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />

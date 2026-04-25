@@ -39,7 +39,7 @@ export default function MarketingFooter() {
           <ul className="space-y-2 text-sm">
             <li><Link to="/login" className="hover:text-sawali-blue-light">Connexion client</Link></li>
             <li><Link to="/contact" className="hover:text-sawali-blue-light">Contact</Link></li>
-            <li><Link to="/api-docs" className="hover:text-sawali-blue-light">Documentation API</Link></li>
+            <li><Link to="/documentation" className="hover:text-sawali-blue-light">Documentation API</Link></li>
           </ul>
         </div>
         <div>

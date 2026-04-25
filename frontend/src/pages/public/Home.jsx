@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu } from "lucide-react";
+import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 
@@ -10,6 +10,8 @@ export default function Home() {
   const [home, setHome] = useState(null);
   const [exp, setExp] = useState(null);
   const [spec, setSpec] = useState(null);
+  const [testimonials, setTestimonials] = useState([]);
+  const [npsStats, setNpsStats] = useState(null);
 
   useEffect(() => {
     apiClient.get("/content").then((r) => {
@@ -18,6 +20,8 @@ export default function Home() {
       setExp(map.experience);
       setSpec(map.specialisations);
     }).catch(() => {});
+    apiClient.get("/testimonials").then((r) => setTestimonials(r.data.slice(0, 3))).catch(() => {});
+    apiClient.get("/testimonials/stats").then((r) => setNpsStats(r.data)).catch(() => {});
   }, []);
 
   const metrics = exp?.metadata?.metrics || [];
@@ -103,6 +107,43 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* TESTIMONIALS */}
+      {testimonials.length > 0 && (
+        <section className="py-24 bg-[#0a1730]" data-testid="home-testimonials">
+          <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+            <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
+              <div>
+                <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Voix de nos clients</p>
+                <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Ils témoignent</h2>
+                {npsStats && npsStats.count > 0 && (
+                  <p className="mt-2 text-sm text-slate-400">
+                    Score NPS : <span className="text-gradient-blue font-display font-bold text-lg">{npsStats.nps}</span> · Note moyenne : <span className="text-white">{npsStats.average_score}/10</span> · {npsStats.count} avis publiés
+                  </p>
+                )}
+              </div>
+              <Link to="/temoignages" className="text-sm text-sawali-blue-light hover:text-white inline-flex items-center gap-1">
+                Voir tous les avis <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {testimonials.map((t) => (
+                <article key={t.id} className="glow-card rounded-xl p-6 flex flex-col" data-testid={`home-testimonial-${t.id}`}>
+                  <div className="flex items-center justify-between">
+                    <Quote className="h-6 w-6 text-sawali-blue-light/70" />
+                    <span className="text-2xl font-display font-bold text-gradient-blue">{t.score}<span className="text-xs text-slate-500">/10</span></span>
+                  </div>
+                  {t.comment && <p className="mt-4 text-slate-200 text-sm leading-relaxed flex-1 line-clamp-4">"{t.comment}"</p>}
+                  <div className="mt-5 pt-4 border-t border-white/10">
+                    <p className="text-sm font-display font-semibold text-white">{t.client_name}</p>
+                    {t.client_company && <p className="text-xs text-sawali-blue-light">{t.client_company}</p>}
+                  </div>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       {/* CULTURE / OFFICE */}
       <section className="py-24" data-testid="home-culture">

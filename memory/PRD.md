@@ -18,11 +18,12 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Brand**: Deep Navy #0E1F3D + Electric Blue #1E90FF + White
 
 ## Implemented (2026-04-25)
-✅ Backend complet (53 endpoints, 100% tests pytest)
+✅ Backend complet (61 endpoints, tests pytest 100%)
 - Auth: login + reCAPTCHA + OTP + JWT + change password
 - Public: content, catalog, contact, availability, RDV public booking
 - Client portal: account, appointments, documents, interventions, users tracking
 - Admin: clients CRUD, appointments, interventions, documents (upload PDF/image), contents (CMS), settings, contacts, tracked-users
+- **Témoignages NPS** : auto feedback_token quand RDV passé en "completed", form public sur /feedback/:token, modération admin, stats NPS publiques (promoteurs/passifs/détracteurs)
 - Settings configurables : reCAPTCHA, SMTP, Google Calendar OAuth, business hours, slot duration, company info
 - Google Calendar OAuth flow (/admin/google/auth-url + callback) avec free/busy check + auto event creation
 - File upload + serving
@@ -30,10 +31,11 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - Auto Swagger docs + /api/api-routes meta endpoint
 
 ✅ Frontend complet (responsive PC/tablette/mobile)
-- Public: Home, Missions, Spécialisations, Catalogue, Contact, RDV (date strip + slot picker)
+- Public: Home (avec section témoignages preview), Missions, Spécialisations, Catalogue, Témoignages (avec dashboard NPS), Contact, RDV (date strip + slot picker)
+- Feedback NPS public sur /feedback/:token (échelle 0-10 + commentaire + opt-in publication)
 - Auth: Login + reCAPTCHA + OTP step (avec dev_otp banner si SMTP non configuré)
 - Portal client: Dashboard, Appointments, Documents (PDF viewer), Interventions, UsersTracking
-- Admin: Dashboard, Clients, Appointments, Interventions, Documents (upload + RTE), Contents (CMS), Settings, Contacts, TrackedUsers
+- Admin: Dashboard, Clients, Appointments, Interventions, Documents (upload + RTE), Contents (CMS), Settings, Contacts, TrackedUsers, **Testimonials (modération + génération de liens)**
 - Page /documentation listant tous les endpoints API
 
 ## Test Credentials

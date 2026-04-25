@@ -622,6 +622,12 @@ async def admin_update_appt(
 ):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     update["updated_at"] = _now()
+    # Auto-generate feedback token when status becomes "completed"
+    if update.get("status") == "completed":
+        existing = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+        if existing and not existing.get("feedback_token"):
+            update["feedback_token"] = generate_session_token()
+            update["feedback_status"] = "pending"
     await db.appointments.update_one({"id": appt_id}, {"$set": update})
     return {"ok": True}
 
@@ -884,6 +890,135 @@ async def list_api_routes():
         )
     routes.sort(key=lambda r: (r["tags"][0] if r["tags"] else "", r["path"]))
     return routes
+
+
+# ====================================================================
+# TESTIMONIALS / NPS Feedback
+# ====================================================================
+@api.get("/testimonials", tags=["Public"])
+async def list_published_testimonials():
+    """Liste les témoignages clients publiés (pour le site public)."""
+    items = await db.testimonials.find(
+        {"status": "published"}, {"_id": 0}
+    ).to_list(200)
+    return sorted(items, key=lambda x: x.get("published_at", x.get("created_at", "")), reverse=True)
+
+
+@api.get("/testimonials/stats", tags=["Public"])
+async def testimonials_stats():
+    """Statistiques NPS publiques (basées uniquement sur les témoignages publiés)."""
+    items = await db.testimonials.find({"status": "published"}, {"_id": 0}).to_list(500)
+    if not items:
+        return {"count": 0, "nps": None, "average_score": None, "promoters": 0, "passives": 0, "detractors": 0}
+    promoters = sum(1 for x in items if x["score"] >= 9)
+    passives = sum(1 for x in items if 7 <= x["score"] <= 8)
+    detractors = sum(1 for x in items if x["score"] <= 6)
+    total = len(items)
+    nps = round(((promoters - detractors) / total) * 100)
+    return {
+        "count": total,
+        "nps": nps,
+        "average_score": round(sum(x["score"] for x in items) / total, 1),
+        "promoters": promoters,
+        "passives": passives,
+        "detractors": detractors,
+    }
+
+
+@api.get("/feedback/{token}", tags=["Public"])
+async def get_feedback_form(token: str):
+    """Récupère les infos d'un RDV via son feedback_token (formulaire NPS public)."""
+    appt = await db.appointments.find_one({"feedback_token": token}, {"_id": 0})
+    if not appt:
+        raise HTTPException(status_code=404, detail="Lien invalide")
+    if appt.get("feedback_status") == "submitted":
+        raise HTTPException(status_code=400, detail="Avis déjà soumis pour ce rendez-vous")
+    return {
+        "appointment_id": appt["id"],
+        "client_name": appt["name"],
+        "company": appt.get("company"),
+        "subject": appt["subject"],
+        "scheduled_at": appt["scheduled_at"],
+    }
+
+
+@api.post("/feedback/{token}", tags=["Public"])
+async def submit_feedback(token: str, payload: dict):
+    """Soumet un témoignage NPS via le feedback_token. payload: {score:int, comment:str, allow_publish:bool}"""
+    appt = await db.appointments.find_one({"feedback_token": token}, {"_id": 0})
+    if not appt:
+        raise HTTPException(status_code=404, detail="Lien invalide")
+    if appt.get("feedback_status") == "submitted":
+        raise HTTPException(status_code=400, detail="Avis déjà soumis")
+    score = int(payload.get("score", -1))
+    if not 0 <= score <= 10:
+        raise HTTPException(status_code=400, detail="Score invalide (0-10)")
+    comment = (payload.get("comment") or "").strip()
+    allow_publish = bool(payload.get("allow_publish", True))
+
+    doc = {
+        "id": _uuid(),
+        "appointment_id": appt["id"],
+        "client_id": appt.get("client_id"),
+        "client_name": appt["name"],
+        "client_company": appt.get("company"),
+        "subject": appt["subject"],
+        "score": score,
+        "comment": comment,
+        "allow_publish": allow_publish,
+        "status": "pending",  # admin must moderate before publishing
+        "created_at": _now(),
+        "published_at": None,
+    }
+    await db.testimonials.insert_one(doc.copy())
+    await db.appointments.update_one(
+        {"id": appt["id"]}, {"$set": {"feedback_status": "submitted", "feedback_score": score}}
+    )
+    doc.pop("_id", None)
+    return {"ok": True, "id": doc["id"]}
+
+
+@api.get("/admin/testimonials", tags=["Admin"])
+async def admin_list_testimonials(_: dict = Depends(get_current_admin)):
+    items = await db.testimonials.find({}, {"_id": 0}).to_list(2000)
+    return sorted(items, key=lambda x: x["created_at"], reverse=True)
+
+
+@api.put("/admin/testimonials/{tid}", tags=["Admin"])
+async def admin_update_testimonial(tid: str, payload: dict, _: dict = Depends(get_current_admin)):
+    """Modère un témoignage. payload peut contenir : status (pending|published|hidden), comment (édition légère)."""
+    update = {}
+    if "status" in payload and payload["status"] in ("pending", "published", "hidden"):
+        update["status"] = payload["status"]
+        if payload["status"] == "published":
+            update["published_at"] = _now()
+    if "comment" in payload:
+        update["comment"] = payload["comment"]
+    if not update:
+        return {"ok": True}
+    update["updated_at"] = _now()
+    await db.testimonials.update_one({"id": tid}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/testimonials/{tid}", tags=["Admin"])
+async def admin_delete_testimonial(tid: str, _: dict = Depends(get_current_admin)):
+    await db.testimonials.delete_one({"id": tid})
+    return {"ok": True}
+
+
+@api.post("/admin/testimonials/request/{appt_id}", tags=["Admin"])
+async def admin_request_feedback(appt_id: str, _: dict = Depends(get_current_admin)):
+    """Génère/regénère un feedback_token pour un RDV (le admin peut ensuite copier le lien et l'envoyer)."""
+    appt = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    if not appt:
+        raise HTTPException(status_code=404, detail="RDV introuvable")
+    token = appt.get("feedback_token") or generate_session_token()
+    await db.appointments.update_one(
+        {"id": appt_id},
+        {"$set": {"feedback_token": token, "feedback_status": "pending", "updated_at": _now()}},
+    )
+    return {"ok": True, "feedback_token": token, "feedback_url": f"/feedback/{token}"}
 
 
 # ====================================================================

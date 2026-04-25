@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -24,6 +24,8 @@ const adminLinks = [
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },
   { to: "/admin/case-studies", label: "Études de cas", icon: Briefcase },
   { to: "/admin/blog", label: "Blog", icon: Newspaper },
+  { to: "/admin/newsletter", label: "Newsletter", icon: Send },
+  { to: "/admin/visits", label: "Trafic & Visites", icon: Activity },
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },

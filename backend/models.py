@@ -254,3 +254,9 @@ class SettingsUpdate(BaseModel):
     company_address: Optional[str] = None
     company_city: Optional[str] = None
     company_country: Optional[str] = None
+
+    # Visitor tracking external REST endpoint
+    tracking_enabled: Optional[bool] = None
+    tracking_base_url: Optional[str] = None
+    tracking_endpoint: Optional[str] = None  # e.g. /events/visit
+    tracking_auth_header: Optional[str] = None  # e.g. "Bearer xyz"

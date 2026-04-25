@@ -818,7 +818,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -1291,6 +1291,162 @@ async def admin_update_blog(post_id: str, payload: dict, _: dict = Depends(get_c
 async def admin_delete_blog(post_id: str, _: dict = Depends(get_current_admin)):
     await db.blog_posts.delete_one({"id": post_id})
     return {"ok": True}
+
+
+# ====================================================================
+# NEWSLETTER
+# ====================================================================
+@api.post("/newsletter/subscribe", tags=["Public"])
+async def newsletter_subscribe(payload: dict):
+    email = (payload.get("email") or "").strip().lower()
+    if not email or "@" not in email:
+        raise HTTPException(status_code=400, detail="Email invalide")
+    existing = await db.newsletter.find_one({"email": email})
+    if existing:
+        if existing.get("status") == "unsubscribed":
+            await db.newsletter.update_one({"email": email}, {"$set": {"status": "active", "resubscribed_at": _now()}})
+            return {"ok": True, "message": "Inscription réactivée"}
+        return {"ok": True, "message": "Déjà abonné"}
+    doc = {
+        "id": _uuid(),
+        "email": email,
+        "name": (payload.get("name") or "").strip(),
+        "source": payload.get("source") or "footer",
+        "status": "active",
+        "created_at": _now(),
+    }
+    await db.newsletter.insert_one(doc.copy())
+    return {"ok": True, "message": "Merci pour votre inscription !"}
+
+
+@api.post("/newsletter/unsubscribe", tags=["Public"])
+async def newsletter_unsubscribe(payload: dict):
+    email = (payload.get("email") or "").strip().lower()
+    await db.newsletter.update_one({"email": email}, {"$set": {"status": "unsubscribed", "unsubscribed_at": _now()}})
+    return {"ok": True}
+
+
+@api.get("/admin/newsletter", tags=["Admin"])
+async def admin_list_newsletter(_: dict = Depends(get_current_admin)):
+    items = await db.newsletter.find({}, {"_id": 0}).to_list(10000)
+    return sorted(items, key=lambda x: x["created_at"], reverse=True)
+
+
+@api.delete("/admin/newsletter/{sub_id}", tags=["Admin"])
+async def admin_delete_newsletter(sub_id: str, _: dict = Depends(get_current_admin)):
+    await db.newsletter.delete_one({"id": sub_id})
+    return {"ok": True}
+
+
+@api.get("/admin/newsletter/export", tags=["Admin"])
+async def admin_export_newsletter(_: dict = Depends(get_current_admin)):
+    """Export CSV de tous les abonnés (séparateur virgule)."""
+    items = await db.newsletter.find({}, {"_id": 0}).to_list(50000)
+    import io
+    import csv
+    from fastapi.responses import StreamingResponse
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["email", "name", "status", "source", "created_at"])
+    for it in sorted(items, key=lambda x: x["created_at"], reverse=True):
+        writer.writerow([it.get("email", ""), it.get("name", ""), it.get("status", ""), it.get("source", ""), it.get("created_at", "")])
+    buf.seek(0)
+    return StreamingResponse(
+        iter([buf.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=newsletter_subscribers.csv"},
+    )
+
+
+# ====================================================================
+# VISITOR TRACKING (with optional forward to external REST endpoint)
+# ====================================================================
+async def _resolve_geo(ip: str) -> dict:
+    """Resolve country/city from IP via free ip-api.com (rate-limited but no key)."""
+    if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")) or ip == "::1":
+        return {"country": "", "city": "", "region": ""}
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=5) as cli:
+            r = await cli.get(f"http://ip-api.com/json/{ip}?fields=country,regionName,city,status")
+            d = r.json()
+            if d.get("status") == "success":
+                return {"country": d.get("country", ""), "city": d.get("city", ""), "region": d.get("regionName", "")}
+    except Exception as e:
+        logger.warning("GeoIP lookup failed: %s", e)
+    return {"country": "", "city": "", "region": ""}
+
+
+@api.post("/track", tags=["Public"])
+async def track_visit(request: Request, payload: dict):
+    """Enregistre une visite et la transmet (si configuré) à l'API REST externe."""
+    # Resolve client IP
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
+    if not ip:
+        ip = request.headers.get("x-real-ip", "")
+    if not ip and request.client:
+        ip = request.client.host or ""
+
+    geo = await _resolve_geo(ip)
+    event = {
+        "id": _uuid(),
+        "datetime": _now(),
+        "ip": ip,
+        "country": geo["country"],
+        "city": geo["city"],
+        "region": geo["region"],
+        "page": payload.get("page") or "/",
+        "referrer": payload.get("referrer") or "",
+        "user_agent": request.headers.get("user-agent", ""),
+        "session_id": payload.get("session_id") or "",
+    }
+    # Store locally (capped)
+    await db.visits.insert_one(event.copy())
+    event.pop("_id", None)
+
+    # Optional forward to external REST endpoint
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if s.get("tracking_enabled") and s.get("tracking_base_url"):
+        forward_url = s["tracking_base_url"].rstrip("/") + "/" + (s.get("tracking_endpoint") or "").lstrip("/")
+        try:
+            import httpx
+            headers = {"Content-Type": "application/json"}
+            if s.get("tracking_auth_header"):
+                headers["Authorization"] = s["tracking_auth_header"]
+            async with httpx.AsyncClient(timeout=5) as cli:
+                await cli.post(forward_url, json=event, headers=headers)
+            event["forwarded"] = True
+        except Exception as e:
+            logger.warning("Tracking forward failed: %s", e)
+            event["forwarded"] = False
+    return {"ok": True, "id": event["id"], "geo": geo}
+
+
+@api.get("/admin/visits", tags=["Admin"])
+async def admin_list_visits(limit: int = 200, _: dict = Depends(get_current_admin)):
+    items = await db.visits.find({}, {"_id": 0}).to_list(limit)
+    return sorted(items, key=lambda x: x["datetime"], reverse=True)
+
+
+@api.get("/admin/visits/stats", tags=["Admin"])
+async def admin_visits_stats(_: dict = Depends(get_current_admin)):
+    items = await db.visits.find({}, {"_id": 0}).to_list(50000)
+    total = len(items)
+    countries: dict[str, int] = {}
+    pages: dict[str, int] = {}
+    for v in items:
+        c = v.get("country") or "Inconnu"
+        countries[c] = countries.get(c, 0) + 1
+        p = v.get("page") or "/"
+        pages[p] = pages.get(p, 0) + 1
+    top_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)[:10]
+    top_pages = sorted(pages.items(), key=lambda x: x[1], reverse=True)[:10]
+    return {
+        "total": total,
+        "unique_countries": len([c for c in countries if c != "Inconnu"]),
+        "top_countries": [{"country": k, "count": v} for k, v in top_countries],
+        "top_pages": [{"page": k, "count": v} for k, v in top_pages],
+    }
 
 
 # ====================================================================

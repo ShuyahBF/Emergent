@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2 } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -21,7 +21,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -127,6 +127,20 @@ export default function AdminSettings() {
           <Input label="Ville" value={s.company_city || ""} onChange={(v) => upd("company_city", v)} testid="company-city" />
           <Input label="Pays" value={s.company_country || ""} onChange={(v) => upd("company_country", v)} testid="company-country" />
         </div>
+      </Section>
+
+      <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
+        <p className="text-xs text-slate-500">
+          Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
+          Cette requête est transmise à votre service REST si l'option est activée.
+        </p>
+        <Toggle label="Activer le forwarding vers votre API REST externe" value={!!s.tracking_enabled} onChange={(v) => upd("tracking_enabled", v)} testid="toggle-tracking" />
+        <Input label="URL de base de votre API" value={s.tracking_base_url || ""} onChange={(v) => upd("tracking_base_url", v)} placeholder="https://api.votre-service.com" testid="tracking-base-url" />
+        <Input label="Point de terminaison (endpoint)" value={s.tracking_endpoint || ""} onChange={(v) => upd("tracking_endpoint", v)} placeholder="/events/visit" testid="tracking-endpoint" />
+        <Input label="En-tête d'authentification (optionnel)" value={s.tracking_auth_header || ""} onChange={(v) => upd("tracking_auth_header", v)} placeholder="Bearer xxxxxxxx" testid="tracking-auth" />
+        <p className="text-[11px] text-slate-500">
+          Format JSON envoyé : <code className="text-sawali-blue">{`{ id, datetime, ip, country, city, region, page, referrer, user_agent, session_id }`}</code>
+        </p>
       </Section>
 
       <button onClick={save} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-settings-btn">

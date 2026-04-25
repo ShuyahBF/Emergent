@@ -44,6 +44,10 @@ import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
 import AdminTestimonials from "@/pages/admin/AdminTestimonials";
 import AdminCaseStudies from "@/pages/admin/AdminCaseStudies";
 import AdminBlog from "@/pages/admin/AdminBlog";
+import AdminNewsletter from "@/pages/admin/AdminNewsletter";
+import AdminVisits from "@/pages/admin/AdminVisits";
+
+import RouteTracker from "@/components/RouteTracker";
 
 import ApiDocs from "@/pages/ApiDocs";
 
@@ -62,6 +66,7 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Toaster richColors position="top-right" />
+        <RouteTracker />
         <Routes>
           {/* Public marketing */}
           <Route path="/" element={<PublicRoute><Home /></PublicRoute>} />
@@ -103,6 +108,8 @@ export default function App() {
             <Route path="testimonials" element={<AdminTestimonials />} />
             <Route path="case-studies" element={<AdminCaseStudies />} />
             <Route path="blog" element={<AdminBlog />} />
+            <Route path="newsletter" element={<AdminNewsletter />} />
+            <Route path="visits" element={<AdminVisits />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

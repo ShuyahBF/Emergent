@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Mail, Phone, MapPin, MessageCircle } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
+import NewsletterForm from "@/components/NewsletterForm";
 
 export default function MarketingFooter() {
   const [info, setInfo] = useState(null);
@@ -11,6 +12,15 @@ export default function MarketingFooter() {
   }, []);
   return (
     <footer className="bg-[#050b18] text-slate-300 border-t border-white/10" data-testid="marketing-footer">
+      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 border-b border-white/5">
+        <div className="grid lg:grid-cols-2 gap-6 items-center">
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Newsletter</p>
+            <h3 className="mt-2 font-display font-bold text-white text-xl">Restez à la pointe de l'ingénierie logicielle.</h3>
+          </div>
+          <NewsletterForm />
+        </div>
+      </div>
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-14 grid gap-10 md:grid-cols-4">
         <div>
           <div className="flex items-center gap-3 mb-3">

@@ -1,0 +1,147 @@
+{
+  "project_context": {
+    "brand_name": "SAWALI SMART SYSTEMS",
+    "domain": "Software Engineering / B2B Corporate",
+    "theme_and_archetype": {
+      "archetype": "Archetype 4: Swiss & High-Contrast (Corporate Tech Variant)",
+      "theme_strategy": "Hybrid",
+      "marketing_site_theme": "Dark Mode (premium, technical, immersive)",
+      "client_portal_theme": "Light Mode (clean, data-focused, high legibility for documents and dashboards)",
+      "reasoning": "The brand's core identity revolves around deep navy and electric blue. For a software engineering firm, a dark mode marketing site commands authority and technical expertise. The client portal and admin panel must switch to a clean, high-contrast light theme to maximize readability for PDFs, data tables, and client accounts."
+    },
+    "language": "French (ALL UI elements, content, placeholders, and buttons MUST be in French)"
+  },
+  "color_palette": {
+    "brand_colors": {
+      "deep_navy": "#0E1F3D",
+      "deep_navy_darker": "#081226",
+      "electric_blue_primary": "#1E90FF",
+      "electric_blue_secondary": "#2BA4FF",
+      "cyan_accent": "#00E5FF",
+      "white": "#FFFFFF"
+    },
+    "marketing_theme_dark": {
+      "background": "#081226",
+      "surface": "#0E1F3D",
+      "surface_glass": "rgba(14, 31, 61, 0.7)",
+      "text_primary": "#FFFFFF",
+      "text_secondary": "#94A3B8",
+      "border": "rgba(30, 144, 255, 0.2)",
+      "primary_cta": "#1E90FF",
+      "primary_cta_hover": "#2BA4FF"
+    },
+    "portal_theme_light": {
+      "background": "#F8FAFC",
+      "surface": "#FFFFFF",
+      "text_primary": "#0F172A",
+      "text_secondary": "#475569",
+      "border": "#E2E8F0",
+      "primary_cta": "#1E90FF",
+      "primary_cta_hover": "#0E1F3D",
+      "sidebar_bg": "#0E1F3D",
+      "sidebar_text": "#FFFFFF"
+    }
+  },
+  "typography": {
+    "font_strategy": "The Anti-Default Rule applied. No Inter or Roboto.",
+    "headings": {
+      "font_family": "Space Grotesk, sans-serif",
+      "weight": "700 (Bold) for impact, 500 (Medium) for balance",
+      "letter_spacing": "tracking-tight",
+      "usage": "Provides a distinctive, technical, and modern software engineering aesthetic."
+    },
+    "body": {
+      "font_family": "Geist, sans-serif",
+      "weight": "400 (Regular) for readability",
+      "letter_spacing": "tracking-normal",
+      "usage": "Extremely clean and functional for heavy data grids, documentation, and paragraphs."
+    },
+    "scale_limits": {
+      "h1_hero": "text-4xl sm:text-5xl lg:text-6xl",
+      "h2_section": "text-2xl sm:text-3xl lg:text-4xl",
+      "h3_card": "text-xl sm:text-2xl",
+      "body_base": "text-base",
+      "labels": "text-sm uppercase tracking-[0.2em]"
+    }
+  },
+  "layout_and_spacing": {
+    "marketing_spacing": "Generous (p-8, p-12, py-24). Using bento grid layouts and overlapping asymmetric structures to avoid the standard template look.",
+    "portal_spacing": "Control Room Grid. Tight gaps (gap-4, gap-6) utilizing full width and height to maximize data density.",
+    "responsive_rules": "Mobile-first approach. grid-cols-1 on mobile, scaling up to md:grid-cols-2 or lg:grid-cols-12 based on the mode.",
+    "border_radius": "Subtle roundness: rounded-lg (8px) for buttons and cards. Avoid excessive pill-shapes."
+  },
+  "surface_strategies": {
+    "marketing_header": "Crystal Glassmorphism (backdrop-blur-xl bg-[#081226]/60 border-b border-white/10). Sticky z-50.",
+    "marketing_cards": "The Tracing Beam/Subtle Glow. Dark surfaces with 1px border border-[#1E90FF]/20 and subtle hover lift.",
+    "portal_dashboard": "Grid Borders and clean white surfaces. Use flat solid backgrounds with sharp 1px borders (border-border) rather than heavy drop shadows."
+  },
+  "motion_and_interactions": {
+    "hover_states": "All interactive elements MUST have visible hover states. E.g., hover:bg-[#2BA4FF] hover:text-white.",
+    "page_transitions": "Framer Motion staggered list entrances (0.1s delay per item).",
+    "scroll_animations": "Smooth reveal for marketing sections (translate-y-4 opacity-0 to translate-y-0 opacity-100 on scroll)."
+  },
+  "component_guidelines": {
+    "icons": "lucide-react (Standard choice) for portal; can mix in phosphor-icons for marketing sections.",
+    "ui_library_portal": "Shadcn/UI heavily utilized for the client portal (Data Table, Tabs, Dialog, DropdownMenu, Calendar, Select). Override default radii to match brand (rounded-lg).",
+    "ui_library_marketing": "Custom HTML/Tailwind for marketing. Avoid strict Shadcn cards to allow creative asymmetrical bento layouts.",
+    "forms_and_auth": "Use Shadcn Input, Form, and Checkbox. The login flow MUST include an OTP input (use Shadcn Input-OTP) and space for a reCAPTCHA widget.",
+    "testing_requirements": "All interactive/informational elements MUST include data-testid attributes (e.g., data-testid='login-submit-button')."
+  },
+  "page_blueprints": {
+    "marketing_public": {
+      "Hero_Accueil": "Full viewport height. Tech network background image overlaid with bg-[#081226]/70. Bold H1 heading, primary CTA (Demander un RDV), and secondary CTA (Espace Client).",
+      "Missions_Experience": "Bento grid layout highlighting company metrics, years of experience, and core software engineering values.",
+      "Specialisations_Catalogue": "Grid of services (Web, Mobile, AI, Systems). Interactive cards with hover effects revealing more details.",
+      "Contact_RDV": "Split layout. Left: Contact info and address. Right: Formularie de contact and RDV request with Shadcn Calendar integration."
+    },
+    "client_portal": {
+      "Auth_Flow": "Split screen. Left: Abstract software architecture background with logo. Right: Login form -> reCAPTCHA -> OTP verification step.",
+      "Dashboard_Etat": "Top-level KPI widgets (Account status, active projects). Sidebar navigation.",
+      "RDV_Management": "Calendar view displaying availability. Form to request/book a meeting.",
+      "Documentation": "Data table listing available software documentation (PDFs) with 'Download' or 'View' actions.",
+      "Historique_Interventions": "Detailed Shadcn Data Table showing past interventions, status, and assigned users."
+    },
+    "admin_panel": {
+      "Gestion_Clients": "CRUD interface for managing client accounts. Table with search and pagination.",
+      "Upload_Contenus": "Form for admins to upload PDFs/Docs with Rich Text editor for announcements.",
+      "Parametres": "Forms for Google Calendar credentials, reCAPTCHA keys, and SMTP configs."
+    }
+  },
+  "media_urls": {
+    "logo": {
+      "url": "https://customer-assets.emergentagent.com/job_sawali-portal/artifacts/2bjpkh5i_Autre%20Logo%20SAWALI.png",
+      "description": "SAWALI SMART SYSTEMS Official Logo (Deep Navy, Electric Blue, White)",
+      "usage": "Main navigation, footer, and Auth screen left panel."
+    },
+    "hero_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/f5f4c967-9a26-4200-ac87-54e70a760e75/images/5d6000a114f8b661acb85d1c59d6da49b753467afc3d11b9baa2290695b07dee.png",
+      "description": "Abstract 3D network lines and glowing nodes, electric blue glowing on deep navy blue background",
+      "usage": "Background image for the public Hero section. MUST apply heavy dark overlay to ensure text readability."
+    },
+    "auth_background": {
+      "url": "https://static.prod-images.emergentagent.com/jobs/f5f4c967-9a26-4200-ac87-54e70a760e75/images/bdcdc5a4ddc3a9765cccf134dfe51d7e3ebb7352f8e8e2bb5e1aff5f614b91e2.png",
+      "description": "Minimalist geometric software architecture, deep navy and cyan lighting",
+      "usage": "Background image for the left side of the authentication screen (Login/OTP portal)."
+    },
+    "office_culture": {
+      "url": "https://images.pexels.com/photos/20988575/pexels-photo-20988575.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Spacious corporate tech office floor",
+      "usage": "Use in the 'Experience' or 'About' section of the marketing site."
+    },
+    "software_code": {
+      "url": "https://images.pexels.com/photos/6424591/pexels-photo-6424591.jpeg?auto=compress&cs=tinysrgb&dpr=2&h=650&w=940",
+      "description": "Colorful lines of code on a computer screen",
+      "usage": "Use in the 'Spécialisations' or 'Catalogue' sections as a visual anchor."
+    }
+  },
+  "instructions_to_main_agent": [
+    "ALL UI text must be in French.",
+    "Implement Space Grotesk for headings and Geist for body text.",
+    "Ensure perfect transition between the Dark Theme (marketing side) and Light Theme (portal/admin side).",
+    "Use exact hex codes provided in color_palette. Apply electric blue as the primary interaction color.",
+    "Do not use generic placeholder images; rely strictly on the media_urls provided.",
+    "Enforce responsive design across all views. Ensure the client portal's sidebar is fully collapsible on mobile.",
+    "Implement robust data-testid attributes for every actionable element.",
+    "Use Shadcn UI for the portal's data density but stick to custom Tailwind classes for the marketing site to preserve creative freedom."
+  ]
+}

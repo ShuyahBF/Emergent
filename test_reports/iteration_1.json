@@ -1,0 +1,48 @@
+{
+  "summary": "First testing pass on SAWALI SMART SYSTEMS MVP. Backend: 22/22 pytest passed (health, public content, availability, contact, auth+OTP w/ dev_otp, admin clients CRUD, public RDV booking + 409 conflict, file upload+serve, content upsert, settings masked update, api-routes meta, GCal not configured returns 400). Frontend: 11/12 critical flows pass (home/nav/RDV booking/contact submit/admin login w/ dev_otp banner/admin clients page/admin settings sections). Only failure: /api-docs page is unreachable because ingress routes the /api prefix to backend, so React route '/api-docs' returns FastAPI 404 JSON instead of the documentation page.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ApiDocs page route",
+        "issue": "Navigating to /api-docs returns backend FastAPI 404 JSON ({\"detail\":\"Not Found\"}) instead of the React documentation page. The Kubernetes ingress forwards everything starting with /api to backend:8001, so /api-docs is captured by the backend prefix. Page is unreachable from the deployed URL.",
+        "selector": "/api-docs route",
+        "priority": "HIGH"
+      }
+    ],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_api.py",
+    "/app/test_reports/pytest/pytest_results.xml"
+  ],
+  "action_items": [
+    "Rename React route '/api-docs' to a non-/api path (e.g. '/docs', '/documentation' or '/api-documentation') so it is not swallowed by the backend ingress. Update App.js route, the ApiDocs.jsx file references and any internal links/buttons. The backend endpoint /api/api-routes can stay as-is.",
+    "Optionally seed a test client account in startup so the portal flow can be tested without admin creating a client first."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1040 lines - consider splitting into routers (auth, public, admin, portal) for maintainability.",
+    "auth_resend_otp uses query/body 'session_token' as a raw str function arg without a Pydantic model; FastAPI will treat it as a query parameter which is unusual for a POST. Consider switching to a Body model.",
+    "Public booking endpoint exposes full appointment doc (incl. internal fields) to anonymous user; consider filtering response.",
+    "_check_slot_available: when scheduled_at lacks timezone it's coerced to UTC silently; document expectation or accept tz-aware ISO only.",
+    "Admin settings GET masks secrets but PUT accepts empty strings which currently overwrite existing secrets to ''; consider treating empty string as 'no change'.",
+    "/api-docs frontend route conflicts with backend /api ingress prefix — naming choice should avoid /api* on the frontend."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_api.py (created)"
+  ],
+  "success_rate": {
+    "backend": "100% (22/22)",
+    "frontend": "92% (11/12)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (seeded). Test clients are created on the fly by the test suite and cleaned up via DELETE /api/admin/clients/{id}.",
+  "seed_data_creation": "None persisted; pytest fixtures cleanup created TEST_ clients. A few TEST_ contacts/appointments remain in DB (no cleanup endpoint).",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend is solid (all 22 pytest cases pass). Only one frontend regression to verify after fix: navigate to the renamed docs route on the deployed URL and confirm the React page renders the routes list returned by GET /api/api-routes. Use the existing test_sawali_api.py as regression; no need to rewrite. dev_otp is returned by /api/auth/login when SMTP not configured – use it as shown in _login_and_get_token helper.",
+  "rca of the issue": "RCA for /api-docs failure: Kubernetes ingress is configured to route any path with prefix /api to backend port 8001 (per CRITICAL RULES in environment). The React Router route path '/api-docs' shares this prefix, so the request never reaches the frontend container. Reproduction: open https://sawali-portal.preview.emergentagent.com/api-docs in a browser → response is FastAPI JSON {\"detail\":\"Not Found\"}. Mitigation: change the frontend route to '/docs' (or similar) in /app/frontend/src/App.js and update the link in /app/frontend/src/components/MarketingFooter.jsx (and any other reference). Backend endpoint name /api/api-routes is fine."
+}

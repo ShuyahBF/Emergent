@@ -1,0 +1,157 @@
+import React, { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
+import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu } from "lucide-react";
+import { apiClient } from "@/lib/api";
+import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
+
+const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
+
+export default function Home() {
+  const [home, setHome] = useState(null);
+  const [exp, setExp] = useState(null);
+  const [spec, setSpec] = useState(null);
+
+  useEffect(() => {
+    apiClient.get("/content").then((r) => {
+      const map = Object.fromEntries(r.data.map((c) => [c.slug, c]));
+      setHome(map.home_hero);
+      setExp(map.experience);
+      setSpec(map.specialisations);
+    }).catch(() => {});
+  }, []);
+
+  const metrics = exp?.metadata?.metrics || [];
+  const specs = spec?.metadata?.items || [];
+
+  return (
+    <>
+      {/* HERO */}
+      <section
+        className="relative min-h-[88vh] flex items-center overflow-hidden"
+        data-testid="home-hero"
+      >
+        <div className="absolute inset-0 -z-10">
+          <img src={HERO_BG} alt="" className="w-full h-full object-cover" />
+          <div className="absolute inset-0 bg-[#081226]/80" />
+          <div className="absolute inset-0 grid-bg opacity-50" />
+        </div>
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 grid lg:grid-cols-12 gap-10">
+          <div className="lg:col-span-7 animate-fade-up">
+            <div className="inline-flex items-center gap-2 rounded-full border border-sawali-blue/40 bg-sawali-blue/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-sawali-blue-light">
+              <Sparkles className="h-3 w-3" />
+              {home?.metadata?.kicker || "SAWALI · Software Engineering"}
+            </div>
+            <h1 className="mt-6 text-4xl sm:text-5xl lg:text-6xl font-display font-bold leading-[1.05] text-white">
+              {home?.title || "L'ingénierie logicielle au service de votre transformation."}
+            </h1>
+            <div
+              className="mt-6 max-w-2xl text-base sm:text-lg text-slate-300 prose-sawali"
+              dangerouslySetInnerHTML={{ __html: home?.body_html || "<p>Solutions sur-mesure, robustes et évolutives pour les entreprises africaines exigeantes.</p>" }}
+            />
+            <div className="mt-10 flex flex-wrap gap-3">
+              <Link to="/rdv" className="btn-electric inline-flex items-center gap-2 rounded-lg px-5 py-3 font-medium" data-testid="hero-cta-rdv">
+                Réserver un rendez-vous <ArrowRight className="h-4 w-4" />
+              </Link>
+              <Link to="/specialisations" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-white hover:bg-white/5 transition" data-testid="hero-cta-specs">
+                Découvrir nos spécialisations
+              </Link>
+              <Link to="/login" className="inline-flex items-center gap-2 rounded-lg border border-sawali-blue-light/40 px-5 py-3 text-sawali-blue-light hover:bg-sawali-blue/10 transition" data-testid="hero-cta-login">
+                <ShieldCheck className="h-4 w-4" /> Espace Client
+              </Link>
+            </div>
+          </div>
+
+          <div className="lg:col-span-5 grid grid-cols-2 gap-4 self-end">
+            {(metrics.length ? metrics : [
+              { label: "Années d'expérience", value: "10+" },
+              { label: "Projets livrés", value: "50+" },
+              { label: "Clients", value: "30+" },
+              { label: "Disponibilité", value: "24/7" },
+            ]).map((m, i) => (
+              <div key={i} className="glow-card rounded-xl p-5" data-testid={`hero-metric-${i}`}>
+                <div className="text-3xl sm:text-4xl font-display font-bold text-gradient-blue">{m.value}</div>
+                <div className="text-xs uppercase tracking-[0.2em] text-slate-400 mt-2">{m.label}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* SPECIALISATIONS PREVIEW */}
+      <section className="py-24 bg-[#0a1730]" data-testid="home-specialisations">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+          <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
+            <div>
+              <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Nos savoir-faire</p>
+              <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Spécialisations</h2>
+            </div>
+            <Link to="/specialisations" className="text-sm text-sawali-blue-light hover:text-white inline-flex items-center gap-1">
+              Voir tout <ArrowRight className="h-4 w-4" />
+            </Link>
+          </div>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {(specs.length ? specs : []).map((s, i) => {
+              const Icon = ICONS[s.icon] || Code2;
+              return (
+                <div key={i} className="glow-card rounded-xl p-6" data-testid={`spec-card-${i}`}>
+                  <Icon className="h-7 w-7 text-sawali-blue-light" />
+                  <h3 className="mt-4 text-lg font-display font-semibold text-white">{s.title}</h3>
+                  <p className="mt-2 text-sm text-slate-400 leading-relaxed">{s.desc}</p>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </section>
+
+      {/* CULTURE / OFFICE */}
+      <section className="py-24" data-testid="home-culture">
+        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 grid lg:grid-cols-2 gap-12 items-center">
+          <div className="relative rounded-2xl overflow-hidden border border-white/10">
+            <img src={OFFICE_IMG} alt="Studio SAWALI" className="w-full h-[420px] object-cover" />
+            <div className="absolute inset-0 bg-gradient-to-tr from-[#081226]/80 via-transparent to-transparent" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">L'expérience SAWALI</p>
+            <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Une équipe, une exigence : la qualité.</h2>
+            <p className="mt-5 text-slate-300 leading-relaxed">
+              Nous combinons rigueur d'ingénierie et proximité humaine. Chaque projet est suivi par un référent
+              dédié, livré avec une documentation claire et une supervision continue.
+            </p>
+            <div className="mt-8 grid grid-cols-2 gap-4">
+              {[
+                { k: "Méthodologie", v: "Agile + Code review systématique" },
+                { k: "Stack", v: "Web, Mobile, Cloud, IA" },
+                { k: "Support", v: "SLA & maintenance" },
+                { k: "Sécurité", v: "Bonnes pratiques OWASP" },
+              ].map((b, i) => (
+                <div key={i} className="rounded-lg border border-white/10 p-4 bg-white/[0.02]">
+                  <p className="text-[10px] uppercase tracking-[0.2em] text-sawali-blue-light">{b.k}</p>
+                  <p className="text-sm text-white mt-1">{b.v}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* CTA */}
+      <section className="py-20" data-testid="home-cta">
+        <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+          <div className="relative overflow-hidden rounded-2xl border border-sawali-blue/30 bg-gradient-to-br from-[#0E1F3D] to-[#081226] p-8 lg:p-12">
+            <div className="absolute -right-20 -bottom-20 h-72 w-72 rounded-full bg-sawali-blue/20 blur-3xl" />
+            <div className="relative grid lg:grid-cols-3 gap-6 items-center">
+              <div className="lg:col-span-2">
+                <h3 className="text-2xl lg:text-3xl font-display font-bold text-white">Un projet en tête ? Parlons-en.</h3>
+                <p className="mt-2 text-slate-300">Réservez un rendez-vous gratuit avec notre équipe d'ingénierie.</p>
+              </div>
+              <Link to="/rdv" className="btn-electric inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 font-medium" data-testid="cta-bottom-rdv">
+                Prendre rendez-vous <ArrowRight className="h-4 w-4" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+    </>
+  );
+}

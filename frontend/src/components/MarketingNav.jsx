@@ -9,6 +9,7 @@ const links = [
   { to: "/missions", label: "Missions" },
   { to: "/specialisations", label: "Spécialisations" },
   { to: "/catalogue", label: "Catalogue" },
+  { to: "/etudes-de-cas", label: "Études de cas" },
   { to: "/temoignages", label: "Témoignages" },
   { to: "/rdv", label: "Demande RDV" },
   { to: "/contact", label: "Contact" },

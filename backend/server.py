@@ -1100,6 +1100,93 @@ async def admin_request_feedback(appt_id: str, _: dict = Depends(get_current_adm
 
 
 # ====================================================================
+# CASE STUDIES (Études de cas)
+# ====================================================================
+@api.get("/case-studies", tags=["Public"])
+async def list_case_studies():
+    items = await db.case_studies.find({"is_published": True}, {"_id": 0}).to_list(500)
+    return sorted(items, key=lambda x: (not x.get("featured"), x.get("created_at", "")), reverse=False)
+
+
+@api.get("/case-studies/{slug}", tags=["Public"])
+async def get_case_study(slug: str):
+    item = await db.case_studies.find_one({"slug": slug, "is_published": True}, {"_id": 0})
+    if not item:
+        raise HTTPException(status_code=404, detail="Étude de cas introuvable")
+    return item
+
+
+@api.get("/admin/case-studies", tags=["Admin"])
+async def admin_list_case_studies(_: dict = Depends(get_current_admin)):
+    items = await db.case_studies.find({}, {"_id": 0}).to_list(2000)
+    return sorted(items, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+def _slugify(s: str) -> str:
+    import re
+    s = s.lower().strip()
+    s = re.sub(r"[^a-z0-9\s-]", "", s)
+    s = re.sub(r"[\s-]+", "-", s)
+    return s[:80] or _uuid()[:8]
+
+
+@api.post("/admin/case-studies", tags=["Admin"])
+async def admin_create_case_study(payload: dict, _: dict = Depends(get_current_admin)):
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre requis")
+    slug = (payload.get("slug") or _slugify(title)).strip()
+    # Ensure unique slug
+    if await db.case_studies.find_one({"slug": slug}):
+        slug = f"{slug}-{_uuid()[:6]}"
+    doc = {
+        "id": _uuid(),
+        "slug": slug,
+        "title": title,
+        "client_name": payload.get("client_name") or "",
+        "sector": payload.get("sector") or "",
+        "summary": payload.get("summary") or "",
+        "challenge": payload.get("challenge") or "",
+        "solution": payload.get("solution") or "",
+        "results": payload.get("results") or "",
+        "cover_image_url": payload.get("cover_image_url") or "",
+        "before_image_url": payload.get("before_image_url") or "",
+        "after_image_url": payload.get("after_image_url") or "",
+        "gallery": payload.get("gallery") or [],
+        "kpis": payload.get("kpis") or [],
+        "tags": payload.get("tags") or [],
+        "duration": payload.get("duration") or "",
+        "year": payload.get("year") or "",
+        "is_published": bool(payload.get("is_published", True)),
+        "featured": bool(payload.get("featured", False)),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.case_studies.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/case-studies/{cs_id}", tags=["Admin"])
+async def admin_update_case_study(cs_id: str, payload: dict, _: dict = Depends(get_current_admin)):
+    allowed = {"title", "slug", "client_name", "sector", "summary", "challenge", "solution",
+               "results", "cover_image_url", "before_image_url", "after_image_url",
+               "gallery", "kpis", "tags", "duration", "year", "is_published", "featured"}
+    update = {k: v for k, v in payload.items() if k in allowed}
+    if not update:
+        return {"ok": True}
+    update["updated_at"] = _now()
+    await db.case_studies.update_one({"id": cs_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/case-studies/{cs_id}", tags=["Admin"])
+async def admin_delete_case_study(cs_id: str, _: dict = Depends(get_current_admin)):
+    await db.case_studies.delete_one({"id": cs_id})
+    return {"ok": True}
+
+
+# ====================================================================
 # REGISTER & STARTUP
 # ====================================================================
 app.include_router(api)

@@ -16,6 +16,8 @@ import Contact from "@/pages/public/Contact";
 import RDV from "@/pages/public/RDV";
 import Testimonials from "@/pages/public/Testimonials";
 import Feedback from "@/pages/public/Feedback";
+import CaseStudies from "@/pages/public/CaseStudies";
+import CaseStudyDetail from "@/pages/public/CaseStudyDetail";
 
 // Auth
 import Login from "@/pages/auth/Login";
@@ -38,6 +40,7 @@ import AdminSettings from "@/pages/admin/AdminSettings";
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
 import AdminTestimonials from "@/pages/admin/AdminTestimonials";
+import AdminCaseStudies from "@/pages/admin/AdminCaseStudies";
 
 import ApiDocs from "@/pages/ApiDocs";
 
@@ -65,6 +68,8 @@ export default function App() {
           <Route path="/contact" element={<PublicRoute><Contact /></PublicRoute>} />
           <Route path="/rdv" element={<PublicRoute><RDV /></PublicRoute>} />
           <Route path="/temoignages" element={<PublicRoute><Testimonials /></PublicRoute>} />
+          <Route path="/etudes-de-cas" element={<PublicRoute><CaseStudies /></PublicRoute>} />
+          <Route path="/etudes-de-cas/:slug" element={<PublicRoute><CaseStudyDetail /></PublicRoute>} />
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/documentation" element={<ApiDocs />} />
 
@@ -91,6 +96,7 @@ export default function App() {
             <Route path="contacts" element={<AdminContacts />} />
             <Route path="tracked-users" element={<AdminTrackedUsers />} />
             <Route path="testimonials" element={<AdminTestimonials />} />
+            <Route path="case-studies" element={<AdminCaseStudies />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

@@ -35,6 +35,7 @@ class UserCreateAdmin(BaseModel):
     role: str = "client"  # client | admin
     phone: Optional[str] = None
     company: Optional[str] = None
+    client_code: Optional[str] = None  # short code, used for intervention numbering
     account_status: str = "active"
 
 
@@ -42,6 +43,7 @@ class UserUpdateAdmin(BaseModel):
     full_name: Optional[str] = None
     phone: Optional[str] = None
     company: Optional[str] = None
+    client_code: Optional[str] = None
     account_status: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
@@ -204,11 +206,14 @@ class ContactCreate(BaseModel):
 # ====================================================================
 # USERS TRACKING (sub-users of a client)
 # ====================================================================
+TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur"]
+
+
 class TrackedUserCreate(BaseModel):
     client_id: str
     name: str
     email: Optional[EmailStr] = None
-    role: Optional[str] = None
+    role: str = "Consultation"  # one of TRACKED_USER_ROLES
     department: Optional[str] = None
     last_seen: Optional[str] = None
     status: str = "active"
@@ -221,6 +226,12 @@ class TrackedUserUpdate(BaseModel):
     department: Optional[str] = None
     last_seen: Optional[str] = None
     status: Optional[str] = None
+
+
+class SaveContactAsTrackedUser(BaseModel):
+    client_id: str
+    role: str = "Consultation"
+    department: Optional[str] = None
 
 
 # ====================================================================
@@ -260,3 +271,11 @@ class SettingsUpdate(BaseModel):
     tracking_base_url: Optional[str] = None
     tracking_endpoint: Optional[str] = None  # e.g. /events/visit
     tracking_auth_header: Optional[str] = None  # e.g. "Bearer xyz"
+
+    # Intervention webhook (POST {base_url}/{action}/{client_code}/{intervention_number})
+    webhook_enabled: Optional[bool] = None
+    webhook_base_url: Optional[str] = None
+    webhook_auth_type: Optional[str] = None  # none | bearer | basic
+    webhook_token: Optional[str] = None  # for bearer
+    webhook_basic_user: Optional[str] = None
+    webhook_basic_pass: Optional[str] = None

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -21,7 +21,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -140,6 +140,37 @@ export default function AdminSettings() {
         <Input label="En-tête d'authentification (optionnel)" value={s.tracking_auth_header || ""} onChange={(v) => upd("tracking_auth_header", v)} placeholder="Bearer xxxxxxxx" testid="tracking-auth" />
         <p className="text-[11px] text-slate-500">
           Format JSON envoyé : <code className="text-sawali-blue">{`{ id, datetime, ip, country, city, region, page, referrer, user_agent, session_id }`}</code>
+        </p>
+      </Section>
+
+      <Section icon={Webhook} title="Webhook Interventions (REST API externe)">
+        <p className="text-xs text-slate-500">
+          À chaque création/mise à jour d'intervention, une requête <strong>POST</strong> est envoyée à
+          <code className="text-sawali-blue mx-1">{"{URL_de_base}/{action}/{client_code}/{numero_intervention}"}</code>.
+          <br />Exemple : <code className="text-sawali-blue">https://api.exemple.com/created/ACME/INT-2026-ACME-0001</code>.
+          Le corps JSON contient l'objet intervention complet.
+        </p>
+        <Toggle label="Activer le webhook" value={!!s.webhook_enabled} onChange={(v) => upd("webhook_enabled", v)} testid="toggle-webhook" />
+        <Input label="URL de base" value={s.webhook_base_url || ""} onChange={(v) => upd("webhook_base_url", v)} placeholder="https://api.votre-service.com" testid="webhook-base-url" />
+        <div>
+          <label className="block text-xs font-semibold mb-1">Authentification</label>
+          <select value={s.webhook_auth_type || "none"} onChange={(e) => upd("webhook_auth_type", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="webhook-auth-type">
+            <option value="none">Aucune</option>
+            <option value="bearer">Bearer Token (header Authorization)</option>
+            <option value="basic">Basic Auth (utilisateur + mot de passe)</option>
+          </select>
+        </div>
+        {s.webhook_auth_type === "bearer" && (
+          <Input label="Token Bearer" type="password" value={s.webhook_token || ""} onChange={(v) => upd("webhook_token", v)} placeholder={s.webhook_token === "********" ? "(défini)" : "ex. eyJhbGc..."} testid="webhook-token" />
+        )}
+        {s.webhook_auth_type === "basic" && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Utilisateur" value={s.webhook_basic_user || ""} onChange={(v) => upd("webhook_basic_user", v)} testid="webhook-basic-user" />
+            <Input label="Mot de passe" type="password" value={s.webhook_basic_pass || ""} onChange={(v) => upd("webhook_basic_pass", v)} placeholder={s.webhook_basic_pass === "********" ? "(défini)" : ""} testid="webhook-basic-pass" />
+          </div>
+        )}
+        <p className="text-[11px] text-slate-500">
+          Le code client est issu du champ <strong>Code client</strong> dans la fiche client (ou dérivé du nom de l'entreprise).
         </p>
       </Section>
 

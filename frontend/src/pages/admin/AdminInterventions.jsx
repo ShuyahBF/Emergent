@@ -55,21 +55,25 @@ export default function AdminInterventions() {
         <table className="w-full text-sm min-w-[760px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
+              <th className="text-left px-4 py-3">N°</th>
               <th className="text-left px-4 py-3">Client</th>
               <th className="text-left px-4 py-3">Titre</th>
               <th className="text-left px-4 py-3">Date</th>
               <th className="text-left px-4 py-3">Statut</th>
+              <th className="text-left px-4 py-3">Mis à jour</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Aucune intervention.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucune intervention.</td></tr>}
             {items.map((i) => (
               <tr key={i.id} className="border-t border-slate-100">
+                <td className="px-4 py-3 font-mono text-xs text-slate-700">{i.intervention_number || "-"}</td>
                 <td className="px-4 py-3">{clientName(i.client_id)}</td>
                 <td className="px-4 py-3">{i.title}</td>
                 <td className="px-4 py-3">{i.intervention_date && new Date(i.intervention_date).toLocaleDateString("fr-FR")}</td>
                 <td className="px-4 py-3">{i.status}</td>
+                <td className="px-4 py-3 text-slate-500 text-xs">{(i.updated_at || i.created_at) ? new Date(i.updated_at || i.created_at).toLocaleString("fr-FR") : "-"}</td>
                 <td className="px-4 py-3 text-right">
                   <button onClick={() => open(i)} className="text-slate-500 mr-3"><Edit className="h-4 w-4 inline" /></button>
                   <button onClick={() => del(i.id)} className="text-rose-600"><Trash2 className="h-4 w-4 inline" /></button>
@@ -84,7 +88,7 @@ export default function AdminInterventions() {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="font-display font-semibold">{editing?.id ? "Modifier" : "Nouvelle intervention"}</h3>
+              <h3 className="font-display font-semibold">{editing?.id ? `Modifier${editing?.intervention_number ? ` — ${editing.intervention_number}` : ""}` : "Nouvelle intervention"}</h3>
               <button onClick={close}><X className="h-4 w-4" /></button>
             </div>
             <form onSubmit={submit} className="p-4 space-y-3" data-testid="intervention-form">

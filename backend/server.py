@@ -12,13 +12,17 @@ for easy navigation. They are organized in sections:
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import uuid
+import asyncio
 import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional, List
+
+import httpx
 
 from fastapi import (
     FastAPI,
@@ -57,6 +61,8 @@ from models import (
     TrackedUserCreate,
     TrackedUserUpdate,
     SettingsUpdate,
+    SaveContactAsTrackedUser,
+    TRACKED_USER_ROLES,
     _uuid,
     _now,
 )
@@ -136,6 +142,83 @@ async def _get_settings_doc() -> dict:
     s.pop("_id", None)
     # mask sensitive values
     return s
+
+
+# ---- Email syntax validation (RFC 5322 simplified) ----
+_EMAIL_REGEX = re.compile(r"^[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}$")
+
+
+def is_valid_email_syntax(email: str) -> bool:
+    return bool(email and _EMAIL_REGEX.match(email.strip()))
+
+
+# ---- Intervention number generator (per client / year) ----
+def _slugify_code(value: str) -> str:
+    """Best-effort short uppercase slug for client code (max 8 chars)."""
+    if not value:
+        return "X"
+    cleaned = re.sub(r"[^A-Za-z0-9]+", "", value).upper()
+    return (cleaned or "X")[:8]
+
+
+async def _next_intervention_number(client_doc: dict) -> str:
+    """Generate INT-YYYY-CODE-NNNN, sequential per client/year."""
+    year = datetime.now(timezone.utc).year
+    code = (client_doc.get("client_code") or "").strip()
+    if not code:
+        code = _slugify_code(client_doc.get("company") or client_doc.get("full_name") or "X")
+    counter_id = f"intervention:{client_doc['id']}:{year}"
+    res = await db.counters.find_one_and_update(
+        {"_id": counter_id},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,  # pymongo: ReturnDocument.AFTER (constant value 1)
+    )
+    # motor's find_one_and_update may return doc directly; fall back to manual fetch
+    if res is None:
+        res = await db.counters.find_one({"_id": counter_id})
+    seq = (res or {}).get("seq", 1)
+    return f"INT-{year}-{code}-{seq:04d}"
+
+
+# ---- Intervention webhook ----
+async def _fire_intervention_webhook(action: str, intervention_doc: dict) -> None:
+    """Fire-and-forget POST to {base_url}/{action}/{client_code}/{number}.
+    Authentication options: none | bearer | basic.
+    Failures are logged but never raised.
+    """
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        if not s.get("webhook_enabled") or not s.get("webhook_base_url"):
+            return
+        client = await db.users.find_one({"id": intervention_doc.get("client_id")}, {"_id": 0})
+        if not client:
+            return
+        code = (client.get("client_code") or _slugify_code(client.get("company") or client.get("full_name") or "X"))
+        number = intervention_doc.get("intervention_number") or "unknown"
+        base = (s.get("webhook_base_url") or "").rstrip("/")
+        url = f"{base}/{action}/{code}/{number}"
+        headers = {"Content-Type": "application/json", "User-Agent": "SawaliWebhook/1.0"}
+        auth = None
+        atype = (s.get("webhook_auth_type") or "none").lower()
+        if atype == "bearer" and s.get("webhook_token"):
+            headers["Authorization"] = f"Bearer {s['webhook_token']}"
+        elif atype == "basic" and s.get("webhook_basic_user"):
+            auth = (s.get("webhook_basic_user") or "", s.get("webhook_basic_pass") or "")
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(url, json=intervention_doc, headers=headers, auth=auth)
+            logger.info("Intervention webhook %s %s -> %s", action, url, r.status_code)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Intervention webhook failed: %s", exc)
+
+
+def _fire_webhook_bg(action: str, intervention_doc: dict) -> None:
+    """Schedule webhook without awaiting it (fire and forget)."""
+    try:
+        asyncio.create_task(_fire_intervention_webhook(action, intervention_doc))
+    except RuntimeError:
+        # No running loop (shouldn't happen in FastAPI), ignore.
+        pass
 
 
 # ====================================================================
@@ -585,8 +668,10 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "role": payload.role,
         "phone": payload.phone,
         "company": payload.company,
+        "client_code": (payload.client_code or "").strip().upper() or None,
         "account_status": payload.account_status,
         "created_at": _now(),
+        "updated_at": _now(),
     }
     await db.users.insert_one(doc.copy())
     doc.pop("_id", None)
@@ -607,6 +692,8 @@ async def admin_update_client(
     client_id: str, payload: UserUpdateAdmin, _: dict = Depends(get_current_admin)
 ):
     update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "password"}
+    if "client_code" in update:
+        update["client_code"] = (update["client_code"] or "").strip().upper() or None
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     update["updated_at"] = _now()
@@ -664,9 +751,20 @@ async def admin_interventions(_: dict = Depends(get_current_admin)):
 async def admin_create_intervention(
     payload: InterventionCreate, _: dict = Depends(get_current_admin)
 ):
-    doc = {"id": _uuid(), **payload.model_dump(), "created_at": _now()}
+    client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    intervention_number = await _next_intervention_number(client)
+    doc = {
+        "id": _uuid(),
+        **payload.model_dump(),
+        "intervention_number": intervention_number,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
     await db.interventions.insert_one(doc.copy())
     doc.pop("_id", None)
+    _fire_webhook_bg("created", doc)
     return doc
 
 
@@ -677,6 +775,9 @@ async def admin_update_intervention(
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     update["updated_at"] = _now()
     await db.interventions.update_one({"id": int_id}, {"$set": update})
+    doc = await db.interventions.find_one({"id": int_id}, {"_id": 0})
+    if doc:
+        _fire_webhook_bg("updated", doc)
     return {"ok": True}
 
 
@@ -791,7 +892,14 @@ async def admin_tracked(client_id: Optional[str] = None, _: dict = Depends(get_c
 
 @api.post("/admin/tracked-users", tags=["Admin"])
 async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get_current_admin)):
-    doc = {"id": _uuid(), **payload.model_dump(), "created_at": _now()}
+    if payload.role and payload.role not in TRACKED_USER_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
+    if payload.email and not is_valid_email_syntax(str(payload.email)):
+        raise HTTPException(status_code=400, detail="Email invalide (syntaxe)")
+    client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    doc = {"id": _uuid(), **payload.model_dump(), "created_at": _now(), "updated_at": _now()}
     await db.tracked_users.insert_one(doc.copy())
     doc.pop("_id", None)
     return doc
@@ -800,6 +908,10 @@ async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get
 @api.put("/admin/tracked-users/{tu_id}", tags=["Admin"])
 async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict = Depends(get_current_admin)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "role" in update and update["role"] not in TRACKED_USER_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
+    if "email" in update and update["email"] and not is_valid_email_syntax(str(update["email"])):
+        raise HTTPException(status_code=400, detail="Email invalide (syntaxe)")
     update["updated_at"] = _now()
     await db.tracked_users.update_one({"id": tu_id}, {"$set": update})
     return {"ok": True}
@@ -820,6 +932,62 @@ async def admin_contacts(_: dict = Depends(get_current_admin)):
     return sorted(items, key=lambda x: x["created_at"], reverse=True)
 
 
+@api.post("/admin/contacts/{contact_id}/save-as-tracked-user", tags=["Admin"])
+async def admin_save_contact_as_tracked(
+    contact_id: str,
+    payload: SaveContactAsTrackedUser,
+    _: dict = Depends(get_current_admin),
+):
+    contact = await db.contacts.find_one({"id": contact_id}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Message introuvable")
+
+    email = (contact.get("email") or "").strip()
+    if not is_valid_email_syntax(email):
+        raise HTTPException(status_code=400, detail="Email du message invalide (syntaxe)")
+
+    if payload.role not in TRACKED_USER_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
+
+    client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+
+    # Avoid duplicate (same email + same client)
+    existing = await db.tracked_users.find_one(
+        {"email": email, "client_id": payload.client_id}, {"_id": 0}
+    )
+    if existing:
+        raise HTTPException(status_code=409, detail="Cet utilisateur est déjà enregistré pour ce client")
+
+    doc = {
+        "id": _uuid(),
+        "client_id": payload.client_id,
+        "name": contact.get("name") or email,
+        "email": email,
+        "role": payload.role,
+        "department": payload.department,
+        "phone": contact.get("phone"),
+        "company": contact.get("company"),
+        "status": "active",
+        "source_contact_id": contact_id,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.tracked_users.insert_one(doc.copy())
+    await db.contacts.update_one(
+        {"id": contact_id},
+        {"$set": {"saved_as_tracked_user_id": doc["id"], "updated_at": _now()}},
+    )
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/admin/meta/tracked-roles", tags=["Admin"])
+async def admin_tracked_roles(_: dict = Depends(get_current_admin)):
+    return {"roles": TRACKED_USER_ROLES}
+
+
 # ====================================================================
 # ADMIN - Settings
 # ====================================================================
@@ -828,7 +996,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))

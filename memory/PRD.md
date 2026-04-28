@@ -38,6 +38,16 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - Admin: Dashboard, Clients, Appointments, Interventions, Documents (upload + RTE), Contents (CMS), Settings, Contacts, TrackedUsers, **Testimonials (modération + génération de liens)**
 - Page /documentation listant tous les endpoints API
 
+## Implemented (2026-04-28) — Tracked Users + Webhooks update
+✅ Bug fix : 6 modales admin (Clients, Interventions, Tracked Users, Case Studies, Documents, Testimonials) qui ne s'ouvraient pas — refactor `editing` state → `isOpen` state séparé.
+✅ **Messages reçus → Utilisateur suivi** : bouton "Enregistrer" par message (POST /admin/contacts/{id}/save-as-tracked-user) avec modale (client + rôle + service). Validation email syntaxe (regex). Badge "Enregistré" si déjà fait.
+✅ **Rôles utilisateur suivi (enum)** : Consultation / Edition / Moderation / Administrateur / Superviseur. Validation backend. Liste exposée via GET /admin/meta/tracked-roles. Note UI : seul Superviseur a accès aux Paramètres (gating à appliquer côté front quand login tracked-user sera ouvert).
+✅ **Filtre + groupement par client** sur /admin/tracked-users. Colonne "Mis à jour".
+✅ **Code client** (`client_code`) sur les fiches clients (utilisé pour la numérotation des interventions).
+✅ **Numérotation des interventions** : `INT-AAAA-CODE-NNNN` séquentiel par (client_id, année). Compteurs dans `db.counters`.
+✅ **Webhook Interventions** : à chaque create/update, POST fire-and-forget vers `{base_url}/{action}/{client_code}/{numero}` avec body JSON intervention complète. Auth : Aucune | Bearer | Basic. UI dans /admin/settings.
+✅ **Horodatages** : `created_at` + `updated_at` sur Interventions, Clients, Tracked Users (les autres collections les avaient déjà).
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 

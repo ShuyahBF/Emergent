@@ -3,7 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Plus, Edit, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 
-const empty = { email: "", full_name: "", password: "", phone: "", company: "", account_status: "active", role: "client" };
+const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", account_status: "active", role: "client" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -97,6 +97,7 @@ export default function AdminClients() {
             <Input label={editing?.id ? "Mot de passe (laisser vide pour ne pas changer)" : "Mot de passe *"} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required={!editing?.id} />
             <Input label="Téléphone" value={form.phone || ""} onChange={(v) => setForm({ ...form, phone: v })} />
             <Input label="Entreprise" value={form.company || ""} onChange={(v) => setForm({ ...form, company: v })} />
+            <Input label="Code client (utilisé pour la numérotation des interventions, ex. ACME)" value={form.client_code || ""} onChange={(v) => setForm({ ...form, client_code: v.toUpperCase() })} />
             <div className="grid grid-cols-2 gap-3">
               <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />

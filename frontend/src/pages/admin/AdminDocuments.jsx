@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Upload, Trash2, Plus, X, FileText, Image as ImageIcon, Globe, Settings, Edit2, Check } from "lucide-react";
 import { toast } from "sonner";
+import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
 const empty = {
   title: "", description: "", category: "documentation",
@@ -63,8 +64,6 @@ export default function AdminDocuments() {
     await load();
   };
 
-  const labelOf = (slug) => categories.find((c) => c.slug === slug)?.label || slug;
-
   return (
     <div className="space-y-6" data-testid="admin-documents-page">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -98,7 +97,15 @@ export default function AdminDocuments() {
             </div>
             <div className="p-4">
               <div className="flex items-center gap-2 mb-1">
-                <span className="text-[10px] uppercase tracking-widest text-sawali-blue">{labelOf(it.category)}</span>
+                {(() => {
+                  const cat = categories.find((c) => c.slug === it.category);
+                  return (
+                    <span className="inline-flex items-center gap-1 text-[10px] uppercase tracking-widest" style={{ color: cat?.color || "#1E90FF" }}>
+                      {cat && <CategoryIcon name={cat.icon} color={cat.color} className="h-3 w-3" />}
+                      {cat?.label || it.category}
+                    </span>
+                  );
+                })()}
                 {it.is_public && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 rounded">Public</span>}
               </div>
               <h3 className="font-display font-semibold text-sm">{it.title}</h3>
@@ -213,9 +220,13 @@ const RichEditor = ({ value, onChange }) => {
 // ====================================================================
 const CategoryManager = ({ categories, onClose, onChanged }) => {
   const [newLabel, setNewLabel] = useState("");
+  const [newIcon, setNewIcon] = useState("FileText");
+  const [newColor, setNewColor] = useState("#1E90FF");
   const [editingId, setEditingId] = useState(null);
   const [editLabel, setEditLabel] = useState("");
   const [editSlug, setEditSlug] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [editColor, setEditColor] = useState("");
   const [busy, setBusy] = useState(false);
 
   const add = async (e) => {
@@ -223,21 +234,26 @@ const CategoryManager = ({ categories, onClose, onChanged }) => {
     if (!newLabel.trim()) return;
     setBusy(true);
     try {
-      await apiClient.post("/admin/document-categories", { label: newLabel.trim() });
+      await apiClient.post("/admin/document-categories", { label: newLabel.trim(), icon: newIcon, color: newColor });
       toast.success("Catégorie ajoutée");
-      setNewLabel("");
+      setNewLabel(""); setNewIcon("FileText"); setNewColor("#1E90FF");
       await onChanged();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
     finally { setBusy(false); }
   };
 
-  const startEdit = (c) => { setEditingId(c.id); setEditLabel(c.label); setEditSlug(c.slug); };
-  const cancelEdit = () => { setEditingId(null); setEditLabel(""); setEditSlug(""); };
+  const startEdit = (c) => {
+    setEditingId(c.id); setEditLabel(c.label); setEditSlug(c.slug);
+    setEditIcon(c.icon || "FileText"); setEditColor(c.color || "#1E90FF");
+  };
+  const cancelEdit = () => { setEditingId(null); setEditLabel(""); setEditSlug(""); setEditIcon(""); setEditColor(""); };
 
   const saveEdit = async () => {
     setBusy(true);
     try {
-      await apiClient.put(`/admin/document-categories/${editingId}`, { label: editLabel.trim(), slug: editSlug.trim() });
+      await apiClient.put(`/admin/document-categories/${editingId}`, {
+        label: editLabel.trim(), slug: editSlug.trim(), icon: editIcon, color: editColor,
+      });
       toast.success("Catégorie mise à jour");
       cancelEdit();
       await onChanged();
@@ -264,40 +280,49 @@ const CategoryManager = ({ categories, onClose, onChanged }) => {
           <button onClick={onClose}><X className="h-4 w-4" /></button>
         </div>
 
-        <div className="p-4 space-y-3">
+        <div className="p-4 space-y-4">
           <p className="text-xs text-slate-500">
             Les catégories par défaut <strong>(Catalogue, Documentation, Annonce)</strong> ne peuvent pas être supprimées,
-            mais leur libellé reste éditable. Ajoutez vos propres catégories selon vos besoins.
+            mais leur libellé/icône reste éditable.
           </p>
 
-          <form onSubmit={add} className="flex gap-2">
-            <input
-              value={newLabel}
-              onChange={(e) => setNewLabel(e.target.value)}
-              placeholder="Nouvelle catégorie (ex. Procédure qualité)"
-              className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:outline-none"
-              data-testid="new-category-input"
-            />
-            <button type="submit" disabled={busy || !newLabel.trim()} className="inline-flex items-center gap-1 rounded-lg bg-sawali-blue text-white px-3 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="add-category-btn">
-              <Plus className="h-4 w-4" /> Ajouter
-            </button>
+          <form onSubmit={add} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-slate-50/40">
+            <div className="flex items-center gap-2">
+              <CategoryIcon name={newIcon} color={newColor} className="h-5 w-5" />
+              <input
+                value={newLabel}
+                onChange={(e) => setNewLabel(e.target.value)}
+                placeholder="Nouvelle catégorie (ex. Procédure qualité)"
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:outline-none"
+                data-testid="new-category-input"
+              />
+              <button type="submit" disabled={busy || !newLabel.trim()} className="inline-flex items-center gap-1 rounded-lg bg-sawali-blue text-white px-3 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="add-category-btn">
+                <Plus className="h-4 w-4" /> Ajouter
+              </button>
+            </div>
+            <IconPicker value={newIcon} color={newColor} onChange={setNewIcon} onColorChange={setNewColor} />
           </form>
 
           <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
             {categories.length === 0 && <p className="p-4 text-sm text-slate-500">Chargement...</p>}
             {categories.map((c) => (
-              <div key={c.id} className="p-3 flex items-center gap-3" data-testid={`category-row-${c.id}`}>
+              <div key={c.id} className="p-3" data-testid={`category-row-${c.id}`}>
                 {editingId === c.id ? (
-                  <>
-                    <div className="flex-1 grid grid-cols-2 gap-2">
-                      <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="rounded border border-slate-300 px-2 py-1 text-sm" placeholder="Libellé" />
-                      <input value={editSlug} onChange={(e) => setEditSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))} className="rounded border border-slate-300 px-2 py-1 text-sm font-mono" placeholder="slug" />
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <CategoryIcon name={editIcon} color={editColor} className="h-5 w-5" />
+                      <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm" placeholder="Libellé" />
+                      <input value={editSlug} onChange={(e) => setEditSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))} className="w-32 rounded border border-slate-300 px-2 py-1 text-sm font-mono" placeholder="slug" />
+                      <button onClick={saveEdit} disabled={busy} className="text-emerald-600 hover:text-emerald-700"><Check className="h-4 w-4" /></button>
+                      <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
                     </div>
-                    <button onClick={saveEdit} disabled={busy} className="text-emerald-600 hover:text-emerald-700"><Check className="h-4 w-4" /></button>
-                    <button onClick={cancelEdit} className="text-slate-400 hover:text-slate-600"><X className="h-4 w-4" /></button>
-                  </>
+                    <IconPicker value={editIcon} color={editColor} onChange={setEditIcon} onColorChange={setEditColor} />
+                  </div>
                 ) : (
-                  <>
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center justify-center h-8 w-8 rounded-md flex-shrink-0" style={{ background: (c.color || "#1E90FF") + "20" }}>
+                      <CategoryIcon name={c.icon} color={c.color} className="h-4 w-4" />
+                    </span>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm font-medium truncate">
                         {c.label}
@@ -305,11 +330,11 @@ const CategoryManager = ({ categories, onClose, onChanged }) => {
                       </p>
                       <p className="text-xs text-slate-400 font-mono">{c.slug}</p>
                     </div>
-                    <button onClick={() => startEdit(c)} className="text-slate-400 hover:text-sawali-blue" title="Renommer"><Edit2 className="h-4 w-4" /></button>
+                    <button onClick={() => startEdit(c)} className="text-slate-400 hover:text-sawali-blue" title="Modifier"><Edit2 className="h-4 w-4" /></button>
                     {!c.is_default && (
                       <button onClick={() => remove(c)} className="text-slate-400 hover:text-rose-600" title="Supprimer"><Trash2 className="h-4 w-4" /></button>
                     )}
-                  </>
+                  </div>
                 )}
               </div>
             ))}

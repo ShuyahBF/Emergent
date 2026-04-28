@@ -64,6 +64,10 @@ from models import (
     SaveContactAsTrackedUser,
     DocumentCategoryCreate,
     DocumentCategoryUpdate,
+    ClientCategoryCreate,
+    ClientCategoryUpdate,
+    DeploymentCreate,
+    DeploymentUpdate,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -734,6 +738,9 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "phone": payload.phone,
         "company": payload.company,
         "client_code": (payload.client_code or "").strip().upper() or None,
+        "category_slug": payload.category_slug,
+        "country": payload.country,
+        "city": payload.city,
         "account_status": payload.account_status,
         "is_primary_client": False,
         "created_at": _now(),
@@ -931,9 +938,9 @@ async def admin_delete_document(doc_id: str, _: dict = Depends(get_current_admin
 
 # ---- Document categories CRUD ----
 DEFAULT_DOC_CATEGORIES = [
-    {"label": "Catalogue", "slug": "catalog", "is_default": True},
-    {"label": "Documentation", "slug": "documentation", "is_default": True},
-    {"label": "Annonce", "slug": "announcement", "is_default": True},
+    {"label": "Catalogue", "slug": "catalog", "is_default": True, "icon": "BookOpen", "color": "#1E90FF"},
+    {"label": "Documentation", "slug": "documentation", "is_default": True, "icon": "FileText", "color": "#0EA5E9"},
+    {"label": "Annonce", "slug": "announcement", "is_default": True, "icon": "Megaphone", "color": "#F59E0B"},
 ]
 
 
@@ -946,10 +953,17 @@ async def _ensure_default_categories():
                 "label": c["label"],
                 "slug": c["slug"],
                 "description": None,
+                "icon": c.get("icon"),
+                "color": c.get("color"),
                 "is_default": True,
                 "created_at": _now(),
                 "updated_at": _now(),
             })
+        elif not existing.get("icon"):
+            await db.document_categories.update_one(
+                {"slug": c["slug"]},
+                {"$set": {"icon": c.get("icon"), "color": c.get("color"), "updated_at": _now()}},
+            )
 
 
 @api.get("/admin/document-categories", tags=["Admin"])
@@ -972,6 +986,8 @@ async def admin_create_doc_category(payload: DocumentCategoryCreate, _: dict = D
         "label": label,
         "slug": slug,
         "description": payload.description,
+        "icon": payload.icon,
+        "color": payload.color,
         "is_default": bool(payload.is_default),
         "created_at": _now(),
         "updated_at": _now(),
@@ -1026,6 +1042,198 @@ async def public_doc_categories():
     await _ensure_default_categories()
     items = await db.document_categories.find({}, {"_id": 0}).sort("label", 1).to_list(500)
     return items
+
+
+# ====================================================================
+# CLIENT CATEGORIES (clinique, pharmacie, commerce, etc.)
+# ====================================================================
+DEFAULT_CLIENT_CATEGORIES = [
+    {"label": "Clinique", "slug": "clinique", "icon": "Cross", "color": "#EF4444"},
+    {"label": "Pharmacie", "slug": "pharmacie", "icon": "Pill", "color": "#10B981"},
+    {"label": "Commerce", "slug": "commerce", "icon": "Store", "color": "#3B82F6"},
+    {"label": "Alimentation", "slug": "alimentation", "icon": "UtensilsCrossed", "color": "#F59E0B"},
+    {"label": "Industrie", "slug": "industrie", "icon": "Factory", "color": "#6B7280"},
+    {"label": "Éducation", "slug": "education", "icon": "GraduationCap", "color": "#8B5CF6"},
+    {"label": "Bureautique", "slug": "bureautique", "icon": "Briefcase", "color": "#0EA5E9"},
+    {"label": "Autre", "slug": "autre", "icon": "Building2", "color": "#94A3B8"},
+]
+
+
+async def _ensure_default_client_categories():
+    for c in DEFAULT_CLIENT_CATEGORIES:
+        existing = await db.client_categories.find_one({"slug": c["slug"]})
+        if not existing:
+            await db.client_categories.insert_one({
+                "id": _uuid(),
+                "label": c["label"],
+                "slug": c["slug"],
+                "icon": c["icon"],
+                "color": c["color"],
+                "is_default": True,
+                "created_at": _now(),
+                "updated_at": _now(),
+            })
+
+
+@api.get("/admin/client-categories", tags=["Admin"])
+async def admin_list_client_categories(_: dict = Depends(get_current_admin)):
+    await _ensure_default_client_categories()
+    items = await db.client_categories.find({}, {"_id": 0}).sort("label", 1).to_list(500)
+    return items
+
+
+@api.post("/admin/client-categories", tags=["Admin"])
+async def admin_create_client_category(payload: ClientCategoryCreate, _: dict = Depends(get_current_admin)):
+    label = (payload.label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Libellé requis")
+    slug = (payload.slug or _category_slug(label)).strip().lower()
+    if await db.client_categories.find_one({"slug": slug}):
+        raise HTTPException(status_code=409, detail="Slug déjà utilisé")
+    doc = {
+        "id": _uuid(),
+        "label": label,
+        "slug": slug,
+        "icon": payload.icon,
+        "color": payload.color,
+        "is_default": bool(payload.is_default),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.client_categories.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/client-categories/{cat_id}", tags=["Admin"])
+async def admin_update_client_category(cat_id: str, payload: ClientCategoryUpdate, _: dict = Depends(get_current_admin)):
+    existing = await db.client_categories.find_one({"id": cat_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Catégorie introuvable")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "slug" in update:
+        update["slug"] = update["slug"].strip().lower()
+        if update["slug"] != existing["slug"]:
+            dup = await db.client_categories.find_one({"slug": update["slug"]})
+            if dup:
+                raise HTTPException(status_code=409, detail="Slug déjà utilisé")
+            await db.users.update_many(
+                {"category_slug": existing["slug"]},
+                {"$set": {"category_slug": update["slug"], "updated_at": _now()}},
+            )
+    update["updated_at"] = _now()
+    await db.client_categories.update_one({"id": cat_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/client-categories/{cat_id}", tags=["Admin"])
+async def admin_delete_client_category(cat_id: str, _: dict = Depends(get_current_admin)):
+    existing = await db.client_categories.find_one({"id": cat_id}, {"_id": 0})
+    if not existing:
+        return {"ok": True}
+    if existing.get("is_default"):
+        raise HTTPException(status_code=400, detail="Impossible de supprimer une catégorie par défaut")
+    used = await db.users.count_documents({"category_slug": existing["slug"]})
+    if used:
+        raise HTTPException(status_code=400, detail=f"Catégorie utilisée par {used} client(s).")
+    await db.client_categories.delete_one({"id": cat_id})
+    return {"ok": True}
+
+
+@api.get("/client-categories", tags=["Public"])
+async def public_client_categories():
+    await _ensure_default_client_categories()
+    items = await db.client_categories.find({}, {"_id": 0}).sort("label", 1).to_list(500)
+    return items
+
+
+# ====================================================================
+# DEPLOYMENTS — software installations by country/city
+# Composite key: (solution_name lower, country lower)
+# ====================================================================
+def _deployment_key(solution: str, country: str) -> str:
+    return f"{(solution or '').strip().lower()}|{(country or '').strip().lower()}"
+
+
+@api.get("/admin/deployments", tags=["Admin"])
+async def admin_list_deployments(_: dict = Depends(get_current_admin)):
+    items = await db.deployments.find({}, {"_id": 0}).sort([("country", 1), ("solution_name", 1)]).to_list(2000)
+    return items
+
+
+@api.post("/admin/deployments", tags=["Admin"])
+async def admin_create_deployment(payload: DeploymentCreate, _: dict = Depends(get_current_admin)):
+    if not payload.solution_name.strip() or not payload.country.strip():
+        raise HTTPException(status_code=400, detail="Solution et pays requis")
+    key = _deployment_key(payload.solution_name, payload.country)
+    if await db.deployments.find_one({"key": key}):
+        raise HTTPException(status_code=409, detail="Cette solution existe déjà pour ce pays — modifiez l'entrée existante")
+    doc = {
+        "id": _uuid(),
+        "key": key,
+        "solution_name": payload.solution_name.strip(),
+        "country": payload.country.strip(),
+        "city": (payload.city or "").strip() or None,
+        "installations": max(0, int(payload.installations or 0)),
+        "notes": payload.notes,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.deployments.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/deployments/{dep_id}", tags=["Admin"])
+async def admin_update_deployment(dep_id: str, payload: DeploymentUpdate, _: dict = Depends(get_current_admin)):
+    existing = await db.deployments.find_one({"id": dep_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Déploiement introuvable")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "solution_name" in update or "country" in update:
+        new_solution = update.get("solution_name", existing["solution_name"])
+        new_country = update.get("country", existing["country"])
+        new_key = _deployment_key(new_solution, new_country)
+        if new_key != existing.get("key"):
+            dup = await db.deployments.find_one({"key": new_key})
+            if dup and dup.get("id") != dep_id:
+                raise HTTPException(status_code=409, detail="Couple (solution, pays) déjà existant")
+            update["key"] = new_key
+    if "installations" in update:
+        update["installations"] = max(0, int(update["installations"]))
+    update["updated_at"] = _now()
+    await db.deployments.update_one({"id": dep_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/deployments/{dep_id}", tags=["Admin"])
+async def admin_delete_deployment(dep_id: str, _: dict = Depends(get_current_admin)):
+    await db.deployments.delete_one({"id": dep_id})
+    return {"ok": True}
+
+
+@api.get("/deployments", tags=["Public"])
+async def public_deployments():
+    """Public list, grouped by country, with all solutions and total installations.
+    Returns: [{country, total_installations, solutions: [{name, installations, city}]}]
+    """
+    items = await db.deployments.find({}, {"_id": 0}).to_list(2000)
+    grouped: dict = {}
+    for d in items:
+        c = (d.get("country") or "").strip()
+        if not c:
+            continue
+        if c not in grouped:
+            grouped[c] = {"country": c, "total_installations": 0, "solutions": []}
+        grouped[c]["solutions"].append({
+            "name": d.get("solution_name"),
+            "installations": int(d.get("installations") or 0),
+            "city": d.get("city"),
+        })
+        grouped[c]["total_installations"] += int(d.get("installations") or 0)
+    out = list(grouped.values())
+    out.sort(key=lambda x: x["total_installations"], reverse=True)
+    return out
 
 
 # ====================================================================

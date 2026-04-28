@@ -46,6 +46,7 @@ import AdminCaseStudies from "@/pages/admin/AdminCaseStudies";
 import AdminBlog from "@/pages/admin/AdminBlog";
 import AdminNewsletter from "@/pages/admin/AdminNewsletter";
 import AdminVisits from "@/pages/admin/AdminVisits";
+import AdminDeployments from "@/pages/admin/AdminDeployments";
 
 import RouteTracker from "@/components/RouteTracker";
 
@@ -110,6 +111,7 @@ export default function App() {
             <Route path="blog" element={<AdminBlog />} />
             <Route path="newsletter" element={<AdminNewsletter />} />
             <Route path="visits" element={<AdminVisits />} />
+            <Route path="deployments" element={<AdminDeployments />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

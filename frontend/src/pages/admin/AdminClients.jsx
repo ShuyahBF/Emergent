@@ -1,19 +1,28 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check } from "lucide-react";
 import { toast } from "sonner";
+import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", account_status: "active", role: "client" };
+const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", category_slug: "", country: "", city: "", account_status: "active", role: "client" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
+  const [categories, setCategories] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [loading, setLoading] = useState(false);
+  const [catManagerOpen, setCatManagerOpen] = useState(false);
 
   const load = () => apiClient.get("/admin/clients").then((r) => setItems(r.data));
-  useEffect(() => { load().catch(() => {}); }, []);
+  const loadCats = () => apiClient.get("/admin/client-categories").then((r) => setCategories(r.data));
+  useEffect(() => {
+    load().catch(() => {});
+    loadCats().catch(() => {});
+  }, []);
+
+  const catOf = (slug) => categories.find((c) => c.slug === slug);
 
   const open = (it = null) => {
     setEditing(it);
@@ -71,25 +80,31 @@ export default function AdminClients() {
           <h1 className="text-2xl font-display font-bold">Clients</h1>
           <p className="text-sm text-slate-500">Gérez les comptes des clients ayant accès au portail.</p>
         </div>
-        <button onClick={() => open()} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-client-button">
-          <Plus className="h-4 w-4" /> Nouveau client
-        </button>
+        <div className="flex items-center gap-2">
+          <button onClick={() => setCatManagerOpen(true)} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white text-slate-700 hover:border-sawali-blue hover:text-sawali-blue px-3.5 py-2 text-sm" data-testid="manage-client-categories-btn">
+            <Settings className="h-4 w-4" /> Catégories
+          </button>
+          <button onClick={() => open()} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-client-button">
+            <Plus className="h-4 w-4" /> Nouveau client
+          </button>
+        </div>
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
               <th className="text-left px-4 py-3">Nom</th>
               <th className="text-left px-4 py-3">Email</th>
-              <th className="text-left px-4 py-3">Entreprise</th>
+              <th className="text-left px-4 py-3">Catégorie</th>
+              <th className="text-left px-4 py-3">Pays</th>
               <th className="text-left px-4 py-3">Rôle</th>
               <th className="text-left px-4 py-3">Statut</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
             {items.map((c) => (
               <tr key={c.id} className={`border-t border-slate-100 ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`} data-testid={`client-row-${c.id}`}>
                 <td className="px-4 py-3 font-medium">
@@ -103,7 +118,24 @@ export default function AdminClients() {
                   </div>
                 </td>
                 <td className="px-4 py-3 text-slate-600">{c.email}</td>
-                <td className="px-4 py-3 text-slate-600">{c.company || "-"}</td>
+                <td className="px-4 py-3 text-slate-600">
+                  {(() => {
+                    const cat = catOf(c.category_slug);
+                    return cat ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded" style={{ background: (cat.color || "#1E90FF") + "15", color: cat.color || "#1E90FF" }}>
+                        <CategoryIcon name={cat.icon} color={cat.color} className="h-3 w-3" />
+                        {cat.label}
+                      </span>
+                    ) : (c.company || "-");
+                  })()}
+                </td>
+                <td className="px-4 py-3 text-slate-600 text-xs">
+                  {c.country ? (
+                    <span>{c.country}{c.city ? <span className="text-slate-400"> · {c.city}</span> : null}</span>
+                  ) : (
+                    <span className="text-slate-400">-</span>
+                  )}
+                </td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-0.5 rounded border ${c.role === "superviseur" ? "bg-sawali-blue/10 text-sawali-blue border-sawali-blue/30" : c.role === "admin" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>{c.role}</span>
                 </td>
@@ -138,6 +170,17 @@ export default function AdminClients() {
             <Input label="Téléphone" value={form.phone || ""} onChange={(v) => setForm({ ...form, phone: v })} />
             <Input label="Entreprise" value={form.company || ""} onChange={(v) => setForm({ ...form, company: v })} />
             <Input label="Code client (utilisé pour la numérotation des interventions, ex. ACME)" value={form.client_code || ""} onChange={(v) => setForm({ ...form, client_code: v.toUpperCase() })} />
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Catégorie</label>
+              <select value={form.category_slug || ""} onChange={(e) => setForm({ ...form, category_slug: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="client-category-select">
+                <option value="">— Aucune —</option>
+                {categories.map((c) => <option key={c.id} value={c.slug}>{c.label}</option>)}
+              </select>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Input label="Pays" value={form.country || ""} onChange={(v) => setForm({ ...form, country: v })} />
+              <Input label="Ville" value={form.city || ""} onChange={(v) => setForm({ ...form, city: v })} />
+            </div>
             <div className="grid grid-cols-2 gap-3">
               <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
@@ -148,9 +191,133 @@ export default function AdminClients() {
           </form>
         </Modal>
       )}
+
+      {catManagerOpen && (
+        <ClientCategoryManager
+          categories={categories}
+          onClose={() => setCatManagerOpen(false)}
+          onChanged={async () => { await loadCats(); await load(); }}
+        />
+      )}
     </div>
   );
 }
+
+const ClientCategoryManager = ({ categories, onClose, onChanged }) => {
+  const [newLabel, setNewLabel] = useState("");
+  const [newIcon, setNewIcon] = useState("Building2");
+  const [newColor, setNewColor] = useState("#1E90FF");
+  const [editingId, setEditingId] = useState(null);
+  const [editLabel, setEditLabel] = useState("");
+  const [editSlug, setEditSlug] = useState("");
+  const [editIcon, setEditIcon] = useState("");
+  const [editColor, setEditColor] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  const add = async (e) => {
+    e.preventDefault();
+    if (!newLabel.trim()) return;
+    setBusy(true);
+    try {
+      await apiClient.post("/admin/client-categories", { label: newLabel.trim(), icon: newIcon, color: newColor });
+      toast.success("Catégorie ajoutée");
+      setNewLabel(""); setNewIcon("Building2"); setNewColor("#1E90FF");
+      await onChanged();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+    finally { setBusy(false); }
+  };
+
+  const startEdit = (c) => {
+    setEditingId(c.id); setEditLabel(c.label); setEditSlug(c.slug);
+    setEditIcon(c.icon || "Building2"); setEditColor(c.color || "#1E90FF");
+  };
+  const cancelEdit = () => { setEditingId(null); };
+
+  const saveEdit = async () => {
+    setBusy(true);
+    try {
+      await apiClient.put(`/admin/client-categories/${editingId}`, {
+        label: editLabel.trim(), slug: editSlug.trim(), icon: editIcon, color: editColor,
+      });
+      toast.success("Catégorie mise à jour");
+      cancelEdit();
+      await onChanged();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+    finally { setBusy(false); }
+  };
+
+  const remove = async (c) => {
+    if (!window.confirm(`Supprimer "${c.label}" ?`)) return;
+    setBusy(true);
+    try {
+      await apiClient.delete(`/admin/client-categories/${c.id}`);
+      toast.success("Supprimée");
+      await onChanged();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-lg max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-display font-semibold">Catégories de clients</h3>
+          <button onClick={onClose}><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-4 space-y-4">
+          <p className="text-xs text-slate-500">
+            Ces catégories permettent de typer chaque client (clinique, pharmacie, commerce…) et d'afficher une icône personnalisable.
+          </p>
+          <form onSubmit={add} className="rounded-lg border border-slate-200 p-3 space-y-3 bg-slate-50/40">
+            <div className="flex items-center gap-2">
+              <CategoryIcon name={newIcon} color={newColor} className="h-5 w-5" />
+              <input value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="Nouvelle catégorie (ex. Hôpital)" className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="new-client-category-input" />
+              <button type="submit" disabled={busy || !newLabel.trim()} className="inline-flex items-center gap-1 rounded-lg bg-sawali-blue text-white px-3 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="add-client-category-btn">
+                <Plus className="h-4 w-4" /> Ajouter
+              </button>
+            </div>
+            <IconPicker value={newIcon} color={newColor} onChange={setNewIcon} onColorChange={setNewColor} />
+          </form>
+          <div className="rounded-lg border border-slate-200 divide-y divide-slate-100">
+            {categories.map((c) => (
+              <div key={c.id} className="p-3" data-testid={`client-category-row-${c.id}`}>
+                {editingId === c.id ? (
+                  <div className="space-y-3">
+                    <div className="flex items-center gap-2">
+                      <CategoryIcon name={editIcon} color={editColor} className="h-5 w-5" />
+                      <input value={editLabel} onChange={(e) => setEditLabel(e.target.value)} className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
+                      <input value={editSlug} onChange={(e) => setEditSlug(e.target.value.toLowerCase().replace(/\s+/g, "-"))} className="w-32 rounded border border-slate-300 px-2 py-1 text-sm font-mono" />
+                      <button onClick={saveEdit} disabled={busy} className="text-emerald-600"><Check className="h-4 w-4" /></button>
+                      <button onClick={cancelEdit} className="text-slate-400"><X className="h-4 w-4" /></button>
+                    </div>
+                    <IconPicker value={editIcon} color={editColor} onChange={setEditIcon} onColorChange={setEditColor} />
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-3">
+                    <span className="inline-flex items-center justify-center h-8 w-8 rounded-md flex-shrink-0" style={{ background: (c.color || "#1E90FF") + "20" }}>
+                      <CategoryIcon name={c.icon} color={c.color} className="h-4 w-4" />
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-medium truncate">
+                        {c.label}
+                        {c.is_default && <span className="ml-2 text-[10px] uppercase tracking-wider text-slate-400 bg-slate-100 rounded px-1.5 py-0.5">défaut</span>}
+                      </p>
+                      <p className="text-xs text-slate-400 font-mono">{c.slug}</p>
+                    </div>
+                    <button onClick={() => startEdit(c)} className="text-slate-400 hover:text-sawali-blue" title="Modifier"><Edit2 className="h-4 w-4" /></button>
+                    {!c.is_default && (
+                      <button onClick={() => remove(c)} className="text-slate-400 hover:text-rose-600" title="Supprimer"><Trash2 className="h-4 w-4" /></button>
+                    )}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Input = ({ label, type = "text", value, onChange, required }) => (
   <div>

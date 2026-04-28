@@ -62,6 +62,18 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Endpoint protégé portail : GET / PUT /me/admin-clients (le Superviseur voit/édite les comptes clients ayant role=admin). Dépendance `get_current_supervisor`.
   - Page portail Superviseur (/portal/admin-clients) : NON encore implémentée — backlog P1.
 
+## Implemented (2026-04-28) — Icônes personnalisables + Catégories Clients + Mappemonde déploiements
+✅ **IconPicker réutilisable** (`/components/IconPicker.jsx`) : 41 icônes lucide curatées (pictos métiers : Stethoscope, Pill, Store, Factory…) + palette 10 couleurs + sélecteur HTML natif pour couleur custom.
+✅ **Catégories de documents** : ajout `icon` + `color`. UI : picker visuel intégré dans la modale "Catégories". Affichage de l'icône colorée à côté du libellé sur chaque carte de document.
+✅ **Catégories de clients** (nouveau collection `client_categories`) : 8 catégories par défaut auto-seedées (Clinique, Pharmacie, Commerce, Alimentation, Industrie, Éducation, Bureautique, Autre) avec icône et couleur. CRUD complet via /admin/client-categories (admin) + /client-categories (public).
+✅ **Champs `category_slug` / `country` / `city`** ajoutés au modèle utilisateur. Affichés dans la table /admin/clients (colonnes Catégorie + Pays). Édition dans le formulaire client.
+✅ **Mappemonde "Déploiements"** :
+  - Modèle `deployments` avec clé composite (solution_name, country). Endpoints CRUD admin /admin/deployments + endpoint public groupé /deployments.
+  - Nouvelle page admin `/admin/deployments` (3 cartes statistiques + table CRUD). Lien dans la sidebar.
+  - Composant React `<DeploymentsMap>` sur la page d'accueil : SVG mondial via `@vnedyalk0v/react19-simple-maps` (compat React 19). TopoJSON local `/public/countries-110m.json` (110m simplified, 106KB) pour éviter les soucis SRI/CORS du fork.
+  - Marqueurs bleus avec rayon proportionnel au nombre d'installations. Tooltip flottant au survol affichant solution + nombre + ville.
+  - Curated set ~40 pays africains et internationaux pour le placement des marqueurs (centroides approximatifs). Fallback partiel sur première lettres si nom non trouvé.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 

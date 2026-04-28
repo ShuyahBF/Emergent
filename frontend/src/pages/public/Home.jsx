@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote, Star, MapPin, User as UserIcon } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
+import DeploymentsMap from "@/components/DeploymentsMap";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -107,6 +108,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* DEPLOYMENTS MAP */}
+      <DeploymentsMap />
 
       {/* TESTIMONIALS */}
       {testimonials.length > 0 && (

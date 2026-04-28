@@ -37,6 +37,9 @@ class UserCreateAdmin(BaseModel):
     phone: Optional[str] = None
     company: Optional[str] = None
     client_code: Optional[str] = None  # short code, used for intervention numbering
+    category_slug: Optional[str] = None  # slug of client_categories
+    country: Optional[str] = None
+    city: Optional[str] = None
     account_status: str = "active"
     is_primary_client: bool = False
 
@@ -46,6 +49,9 @@ class UserUpdateAdmin(BaseModel):
     phone: Optional[str] = None
     company: Optional[str] = None
     client_code: Optional[str] = None
+    category_slug: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
     account_status: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
@@ -62,6 +68,8 @@ class DocumentCategoryCreate(BaseModel):
     label: str
     slug: Optional[str] = None  # auto-generated if not provided
     description: Optional[str] = None
+    icon: Optional[str] = None  # lucide icon name (e.g. "FileText")
+    color: Optional[str] = None  # hex color (e.g. "#1E90FF")
     is_default: bool = False
 
 
@@ -69,7 +77,48 @@ class DocumentCategoryUpdate(BaseModel):
     label: Optional[str] = None
     slug: Optional[str] = None
     description: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
     is_default: Optional[bool] = None
+
+
+# ====================================================================
+# CLIENT CATEGORIES (clinique, pharmacie, commerce, alimentation, etc.)
+# ====================================================================
+class ClientCategoryCreate(BaseModel):
+    label: str
+    slug: Optional[str] = None
+    icon: Optional[str] = None  # lucide icon name
+    color: Optional[str] = None
+    is_default: bool = False
+
+
+class ClientCategoryUpdate(BaseModel):
+    label: Optional[str] = None
+    slug: Optional[str] = None
+    icon: Optional[str] = None
+    color: Optional[str] = None
+    is_default: Optional[bool] = None
+
+
+# ====================================================================
+# DEPLOYMENTS (software installations by country/city)
+# Composite key: (solution_name, country)
+# ====================================================================
+class DeploymentCreate(BaseModel):
+    solution_name: str
+    country: str
+    city: Optional[str] = None
+    installations: int = 1
+    notes: Optional[str] = None
+
+
+class DeploymentUpdate(BaseModel):
+    solution_name: Optional[str] = None
+    country: Optional[str] = None
+    city: Optional[str] = None
+    installations: Optional[int] = None
+    notes: Optional[str] = None
 
 
 # ====================================================================

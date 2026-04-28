@@ -8,6 +8,7 @@ const empty = { client_id: "", name: "", email: "", role: "", department: "", st
 export default function AdminTrackedUsers() {
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
 
@@ -16,8 +17,8 @@ export default function AdminTrackedUsers() {
     load().catch(() => {});
     apiClient.get("/admin/clients").then((r) => setClients(r.data));
   }, []);
-  const open = (it = null) => { setEditing(it); setForm(it ? { ...empty, ...it } : empty); };
-  const close = () => { setEditing(null); setForm(empty); };
+  const open = (it = null) => { setEditing(it); setForm(it ? { ...empty, ...it } : empty); setIsOpen(true); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
   const submit = async (e) => {
     e.preventDefault();
     try {
@@ -60,7 +61,7 @@ export default function AdminTrackedUsers() {
           </tbody>
         </table>
       </div>
-      {editing !== null && (
+      {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-md" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">

@@ -20,6 +20,7 @@ const empty = {
 export default function AdminTestimonials() {
   const [items, setItems] = useState([]);
   const [appts, setAppts] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [uploading, setUploading] = useState(false);
@@ -40,8 +41,9 @@ export default function AdminTestimonials() {
         city: it.city || "", country: it.country || "",
       });
     } else setForm(empty);
+    setIsOpen(true);
   };
-  const close = () => { setEditing(null); setForm(empty); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
 
   const upload = async (file) => {
     const fd = new FormData(); fd.append("file", file);
@@ -196,7 +198,7 @@ export default function AdminTestimonials() {
         })}
       </div>
 
-      {editing !== null && (
+      {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 overflow-y-auto" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-2xl my-8" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl">

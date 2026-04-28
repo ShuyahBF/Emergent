@@ -8,6 +8,7 @@ const empty = { client_id: "", title: "", description: "", status: "completed", 
 export default function AdminInterventions() {
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
 
@@ -20,8 +21,9 @@ export default function AdminInterventions() {
   const open = (it = null) => {
     setEditing(it);
     setForm(it ? { ...empty, ...it } : empty);
+    setIsOpen(true);
   };
-  const close = () => { setEditing(null); setForm(empty); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
 
   const submit = async (e) => {
     e.preventDefault();
@@ -78,7 +80,7 @@ export default function AdminInterventions() {
         </table>
       </div>
 
-      {editing !== null && (
+      {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-md max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">

@@ -7,6 +7,7 @@ const empty = { email: "", full_name: "", password: "", phone: "", company: "", 
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [loading, setLoading] = useState(false);
@@ -17,8 +18,9 @@ export default function AdminClients() {
   const open = (it = null) => {
     setEditing(it);
     setForm(it ? { ...empty, ...it, password: "" } : empty);
+    setIsOpen(true);
   };
-  const close = () => { setEditing(null); setForm(empty); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
 
   const submit = async (e) => {
     e.preventDefault(); setLoading(true);
@@ -87,7 +89,7 @@ export default function AdminClients() {
         </table>
       </div>
 
-      {editing !== null && (
+      {isOpen && (
         <Modal onClose={close} title={editing?.id ? "Modifier le client" : "Nouveau client"}>
           <form onSubmit={submit} className="space-y-3" data-testid="client-form">
             <Input label="Nom complet *" value={form.full_name} onChange={(v) => setForm({ ...form, full_name: v })} required />

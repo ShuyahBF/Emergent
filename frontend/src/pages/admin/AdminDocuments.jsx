@@ -12,6 +12,7 @@ const empty = {
 export default function AdminDocuments() {
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [uploading, setUploading] = useState(false);
@@ -25,8 +26,9 @@ export default function AdminDocuments() {
   const open = (it = null) => {
     setEditing(it);
     setForm(it ? { ...empty, ...it, client_id: it.client_id || "" } : empty);
+    setIsOpen(true);
   };
-  const close = () => { setEditing(null); setForm(empty); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
 
   const upload = async (file) => {
     const fd = new FormData(); fd.append("file", file);
@@ -94,7 +96,7 @@ export default function AdminDocuments() {
         {items.length === 0 && <p className="text-slate-500 col-span-full">Aucun document. Créez-en un.</p>}
       </div>
 
-      {editing !== null && (
+      {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-2xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b">

@@ -13,6 +13,7 @@ const empty = {
 
 export default function AdminCaseStudies() {
   const [items, setItems] = useState([]);
+  const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [tagInput, setTagInput] = useState("");
@@ -25,8 +26,9 @@ export default function AdminCaseStudies() {
     setEditing(it);
     setForm(it ? { ...empty, ...it, kpis: it.kpis || [], gallery: it.gallery || [], tags: it.tags || [] } : empty);
     setTagInput("");
+    setIsOpen(true);
   };
-  const close = () => { setEditing(null); setForm(empty); setTagInput(""); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); setTagInput(""); };
 
   const upload = async (file, field) => {
     const fd = new FormData(); fd.append("file", file);
@@ -112,7 +114,7 @@ export default function AdminCaseStudies() {
         ))}
       </div>
 
-      {editing !== null && (
+      {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 overflow-y-auto" onClick={close}>
           <div className="bg-white rounded-xl w-full max-w-3xl my-8" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white rounded-t-xl">

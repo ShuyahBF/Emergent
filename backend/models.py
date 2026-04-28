@@ -26,17 +26,19 @@ class UserPublic(BaseModel):
     company: Optional[str] = None
     account_status: str = "active"
     created_at: str
+    is_primary_client: Optional[bool] = False
 
 
 class UserCreateAdmin(BaseModel):
     email: EmailStr
     full_name: str
     password: str
-    role: str = "client"  # client | admin
+    role: str = "client"  # client | admin | superviseur
     phone: Optional[str] = None
     company: Optional[str] = None
     client_code: Optional[str] = None  # short code, used for intervention numbering
     account_status: str = "active"
+    is_primary_client: bool = False
 
 
 class UserUpdateAdmin(BaseModel):
@@ -47,6 +49,27 @@ class UserUpdateAdmin(BaseModel):
     account_status: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
+    is_primary_client: Optional[bool] = None
+
+
+USER_ROLES = ["client", "admin", "superviseur"]
+
+
+# ====================================================================
+# DOCUMENT CATEGORIES
+# ====================================================================
+class DocumentCategoryCreate(BaseModel):
+    label: str
+    slug: Optional[str] = None  # auto-generated if not provided
+    description: Optional[str] = None
+    is_default: bool = False
+
+
+class DocumentCategoryUpdate(BaseModel):
+    label: Optional[str] = None
+    slug: Optional[str] = None
+    description: Optional[str] = None
+    is_default: Optional[bool] = None
 
 
 # ====================================================================

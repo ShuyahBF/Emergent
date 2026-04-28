@@ -41,12 +41,26 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 ## Implemented (2026-04-28) — Tracked Users + Webhooks update
 ✅ Bug fix : 6 modales admin (Clients, Interventions, Tracked Users, Case Studies, Documents, Testimonials) qui ne s'ouvraient pas — refactor `editing` state → `isOpen` state séparé.
 ✅ **Messages reçus → Utilisateur suivi** : bouton "Enregistrer" par message (POST /admin/contacts/{id}/save-as-tracked-user) avec modale (client + rôle + service). Validation email syntaxe (regex). Badge "Enregistré" si déjà fait.
-✅ **Rôles utilisateur suivi (enum)** : Consultation / Edition / Moderation / Administrateur / Superviseur. Validation backend. Liste exposée via GET /admin/meta/tracked-roles. Note UI : seul Superviseur a accès aux Paramètres (gating à appliquer côté front quand login tracked-user sera ouvert).
+✅ **Rôles utilisateur suivi (enum)** : Consultation / Edition / Moderation / Administrateur / Superviseur. Validation backend. Liste exposée via GET /admin/meta/tracked-roles.
 ✅ **Filtre + groupement par client** sur /admin/tracked-users. Colonne "Mis à jour".
 ✅ **Code client** (`client_code`) sur les fiches clients (utilisé pour la numérotation des interventions).
 ✅ **Numérotation des interventions** : `INT-AAAA-CODE-NNNN` séquentiel par (client_id, année). Compteurs dans `db.counters`.
 ✅ **Webhook Interventions** : à chaque create/update, POST fire-and-forget vers `{base_url}/{action}/{client_code}/{numero}` avec body JSON intervention complète. Auth : Aucune | Bearer | Basic. UI dans /admin/settings.
 ✅ **Horodatages** : `created_at` + `updated_at` sur Interventions, Clients, Tracked Users (les autres collections les avaient déjà).
+
+## Implemented (2026-04-28) — Catégories documents éditables + Client Primaire (Superviseur)
+✅ **Catégories de documents éditables** (CRUD inline depuis /admin/documents) :
+  - Endpoints : GET/POST/PUT/DELETE /admin/document-categories + GET /document-categories (public).
+  - Auto-seed des 3 catégories par défaut : Catalogue (catalog), Documentation, Annonce (announcement) — non supprimables, libellés modifiables.
+  - Renommage du slug propage automatiquement à tous les documents existants.
+  - UI : bouton "Catégories" sur la page Documents → modale CRUD (ajout, édition libellé+slug, suppression sauf défaut, garde-fou "X documents l'utilisent").
+✅ **Client Primaire (Superviseur)** :
+  - Nouveau rôle `superviseur` ajouté à `users.role` (en plus de `client` et `admin`).
+  - Endpoints : POST /admin/clients/{id}/set-primary (force role=superviseur), POST /admin/clients/{id}/unset-primary (revert role=client).
+  - Un seul client primaire à la fois (les précédents sont automatiquement rétrogradés).
+  - UI : icône ★ dans la liste Clients, badge "superviseur", ligne en surbrillance bleutée. Bouton ★ pour set, ★̶ pour unset.
+  - Endpoint protégé portail : GET / PUT /me/admin-clients (le Superviseur voit/édite les comptes clients ayant role=admin). Dépendance `get_current_supervisor`.
+  - Page portail Superviseur (/portal/admin-clients) : NON encore implémentée — backlog P1.
 
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)

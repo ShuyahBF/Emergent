@@ -62,7 +62,10 @@ from models import (
     TrackedUserUpdate,
     SettingsUpdate,
     SaveContactAsTrackedUser,
+    DocumentCategoryCreate,
+    DocumentCategoryUpdate,
     TRACKED_USER_ROLES,
+    USER_ROLES,
     _uuid,
     _now,
 )
@@ -123,6 +126,7 @@ def _to_user_public(u: dict) -> dict:
         "company": u.get("company"),
         "account_status": u.get("account_status", "active"),
         "created_at": u["created_at"],
+        "is_primary_client": bool(u.get("is_primary_client", False)),
     }
 
 
@@ -219,6 +223,25 @@ def _fire_webhook_bg(action: str, intervention_doc: dict) -> None:
     except RuntimeError:
         # No running loop (shouldn't happen in FastAPI), ignore.
         pass
+
+
+# ---- Document category slugify ----
+def _category_slug(value: str) -> str:
+    s = re.sub(r"[^A-Za-z0-9]+", "-", (value or "").strip().lower()).strip("-")
+    return s or "categorie"
+
+
+# ---- Supervisor dependency (Primary client = role superviseur) ----
+async def get_current_supervisor(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") != "superviseur":
+        raise HTTPException(status_code=403, detail="Accès réservé au Superviseur")
+    return user
+
+
+async def get_admin_or_supervisor(user: dict = Depends(get_current_user)) -> dict:
+    if user.get("role") not in ("admin", "superviseur"):
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs")
+    return user
 
 
 # ====================================================================
@@ -647,11 +670,53 @@ async def me_users(user: dict = Depends(get_current_user)):
 
 
 # ====================================================================
+# PORTAIL SUPERVISEUR (Client Primaire) — gère les comptes "Admin client"
+# ====================================================================
+@api.get("/me/admin-clients", tags=["Portail Client"])
+async def supervisor_list_admin_clients(user: dict = Depends(get_current_supervisor)):
+    """Le client Primaire (Superviseur) voit tous les autres clients ayant le rôle 'admin'.
+    Note : les comptes 'admin' ici désignent des clients promus admin, pas l'admin SAWALI."""
+    # Match all users with role=admin OR role=client (so superviseur can manage every account
+    # except SAWALI's own super-admin marked specifically). For now we expose all role==admin
+    # client-promoted accounts.
+    users = await db.users.find(
+        {"role": "admin", "id": {"$ne": user["id"]}},
+        {"_id": 0, "password_hash": 0},
+    ).to_list(2000)
+    return users
+
+
+@api.put("/me/admin-clients/{target_id}", tags=["Portail Client"])
+async def supervisor_update_admin_client(
+    target_id: str,
+    payload: UserUpdateAdmin,
+    user: dict = Depends(get_current_supervisor),
+):
+    target = await db.users.find_one({"id": target_id}, {"_id": 0})
+    if not target or target.get("role") != "admin":
+        raise HTTPException(status_code=404, detail="Compte admin introuvable")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "password"}
+    if "client_code" in update:
+        update["client_code"] = (update["client_code"] or "").strip().upper() or None
+    # Superviseur cannot self-promote/demote: ignore is_primary_client/role tampering
+    update.pop("is_primary_client", None)
+    update.pop("role", None)
+    if payload.password:
+        update["password_hash"] = hash_password(payload.password)
+    update["updated_at"] = _now()
+    await db.users.update_one({"id": target_id}, {"$set": update})
+    return {"ok": True}
+
+
+# ====================================================================
 # ADMIN - Clients
 # ====================================================================
 @api.get("/admin/clients", tags=["Admin"])
 async def admin_list_clients(_: dict = Depends(get_current_admin)):
-    users = await db.users.find({"role": "client"}, {"_id": 0, "password_hash": 0}).to_list(2000)
+    users = await db.users.find(
+        {"role": {"$in": ["client", "superviseur"]}},
+        {"_id": 0, "password_hash": 0},
+    ).to_list(2000)
     return users
 
 
@@ -670,6 +735,7 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "company": payload.company,
         "client_code": (payload.client_code or "").strip().upper() or None,
         "account_status": payload.account_status,
+        "is_primary_client": False,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -703,8 +769,51 @@ async def admin_update_client(
 
 @api.delete("/admin/clients/{client_id}", tags=["Admin"])
 async def admin_delete_client(client_id: str, _: dict = Depends(get_current_admin)):
-    await db.users.delete_one({"id": client_id, "role": "client"})
+    await db.users.delete_one({"id": client_id, "role": {"$in": ["client", "superviseur"]}})
     return {"ok": True}
+
+
+@api.post("/admin/clients/{client_id}/set-primary", tags=["Admin"])
+async def admin_set_primary_client(client_id: str, _: dict = Depends(get_current_admin)):
+    """Designate ONE client as the primary site owner.
+    The primary client is automatically promoted to role=superviseur.
+    Any previous primary is unmarked and demoted back to role=client (unless admin).
+    """
+    target = await db.users.find_one({"id": client_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    if target.get("role") == "admin":
+        raise HTTPException(status_code=400, detail="Un compte admin SAWALI ne peut pas être désigné comme client primaire")
+
+    # Demote previous primary(ies)
+    previous_primaries = await db.users.find({"is_primary_client": True}, {"_id": 0}).to_list(50)
+    for prev in previous_primaries:
+        if prev["id"] == client_id:
+            continue
+        # Restore previous role if known, default to "client"
+        new_role = "client" if prev.get("role") == "superviseur" else prev.get("role", "client")
+        await db.users.update_one(
+            {"id": prev["id"]},
+            {"$set": {"is_primary_client": False, "role": new_role, "updated_at": _now()}},
+        )
+
+    await db.users.update_one(
+        {"id": client_id},
+        {"$set": {"is_primary_client": True, "role": "superviseur", "updated_at": _now()}},
+    )
+    return {"ok": True, "id": client_id, "role": "superviseur", "is_primary_client": True}
+
+
+@api.post("/admin/clients/{client_id}/unset-primary", tags=["Admin"])
+async def admin_unset_primary_client(client_id: str, _: dict = Depends(get_current_admin)):
+    target = await db.users.find_one({"id": client_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Compte introuvable")
+    await db.users.update_one(
+        {"id": client_id},
+        {"$set": {"is_primary_client": False, "role": "client", "updated_at": _now()}},
+    )
+    return {"ok": True, "id": client_id}
 
 
 # ====================================================================
@@ -818,6 +927,105 @@ async def admin_update_document(
 async def admin_delete_document(doc_id: str, _: dict = Depends(get_current_admin)):
     await db.documents.delete_one({"id": doc_id})
     return {"ok": True}
+
+
+# ---- Document categories CRUD ----
+DEFAULT_DOC_CATEGORIES = [
+    {"label": "Catalogue", "slug": "catalog", "is_default": True},
+    {"label": "Documentation", "slug": "documentation", "is_default": True},
+    {"label": "Annonce", "slug": "announcement", "is_default": True},
+]
+
+
+async def _ensure_default_categories():
+    for c in DEFAULT_DOC_CATEGORIES:
+        existing = await db.document_categories.find_one({"slug": c["slug"]})
+        if not existing:
+            await db.document_categories.insert_one({
+                "id": _uuid(),
+                "label": c["label"],
+                "slug": c["slug"],
+                "description": None,
+                "is_default": True,
+                "created_at": _now(),
+                "updated_at": _now(),
+            })
+
+
+@api.get("/admin/document-categories", tags=["Admin"])
+async def admin_list_doc_categories(_: dict = Depends(get_current_admin)):
+    await _ensure_default_categories()
+    items = await db.document_categories.find({}, {"_id": 0}).sort("label", 1).to_list(500)
+    return items
+
+
+@api.post("/admin/document-categories", tags=["Admin"])
+async def admin_create_doc_category(payload: DocumentCategoryCreate, _: dict = Depends(get_current_admin)):
+    label = (payload.label or "").strip()
+    if not label:
+        raise HTTPException(status_code=400, detail="Libellé requis")
+    slug = (payload.slug or _category_slug(label)).strip().lower()
+    if await db.document_categories.find_one({"slug": slug}):
+        raise HTTPException(status_code=409, detail="Slug déjà utilisé")
+    doc = {
+        "id": _uuid(),
+        "label": label,
+        "slug": slug,
+        "description": payload.description,
+        "is_default": bool(payload.is_default),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.document_categories.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/document-categories/{cat_id}", tags=["Admin"])
+async def admin_update_doc_category(cat_id: str, payload: DocumentCategoryUpdate, _: dict = Depends(get_current_admin)):
+    existing = await db.document_categories.find_one({"id": cat_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Catégorie introuvable")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "slug" in update:
+        update["slug"] = update["slug"].strip().lower()
+        if update["slug"] != existing["slug"]:
+            dup = await db.document_categories.find_one({"slug": update["slug"]})
+            if dup:
+                raise HTTPException(status_code=409, detail="Slug déjà utilisé")
+            # propagate slug renaming on existing documents
+            await db.documents.update_many(
+                {"category": existing["slug"]},
+                {"$set": {"category": update["slug"], "updated_at": _now()}},
+            )
+    update["updated_at"] = _now()
+    await db.document_categories.update_one({"id": cat_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/admin/document-categories/{cat_id}", tags=["Admin"])
+async def admin_delete_doc_category(cat_id: str, _: dict = Depends(get_current_admin)):
+    existing = await db.document_categories.find_one({"id": cat_id}, {"_id": 0})
+    if not existing:
+        return {"ok": True}
+    if existing.get("is_default"):
+        raise HTTPException(status_code=400, detail="Impossible de supprimer une catégorie par défaut")
+    used = await db.documents.count_documents({"category": existing["slug"]})
+    if used:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Catégorie utilisée par {used} document(s). Réaffectez-les avant suppression.",
+        )
+    await db.document_categories.delete_one({"id": cat_id})
+    return {"ok": True}
+
+
+# ---- Public list of categories (for client portal & public site) ----
+@api.get("/document-categories", tags=["Public"])
+async def public_doc_categories():
+    await _ensure_default_categories()
+    items = await db.document_categories.find({}, {"_id": 0}).sort("label", 1).to_list(500)
+    return items
 
 
 # ====================================================================

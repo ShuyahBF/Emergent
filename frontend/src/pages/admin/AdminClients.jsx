@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff } from "lucide-react";
 import { toast } from "sonner";
 
 const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", account_status: "active", role: "client" };
@@ -46,6 +46,24 @@ export default function AdminClients() {
     await load();
   };
 
+  const setPrimary = async (id) => {
+    if (!window.confirm("Désigner ce client comme Client Primaire ? Il sera automatiquement promu Superviseur.")) return;
+    try {
+      await apiClient.post(`/admin/clients/${id}/set-primary`);
+      toast.success("Client primaire défini");
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  const unsetPrimary = async (id) => {
+    if (!window.confirm("Retirer le statut Client Primaire ? Le rôle reviendra à 'Client'.")) return;
+    try {
+      await apiClient.post(`/admin/clients/${id}/unset-primary`);
+      toast.success("Statut retiré");
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-clients-page">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -59,27 +77,49 @@ export default function AdminClients() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[760px]">
+        <table className="w-full text-sm min-w-[860px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
               <th className="text-left px-4 py-3">Nom</th>
               <th className="text-left px-4 py-3">Email</th>
               <th className="text-left px-4 py-3">Entreprise</th>
+              <th className="text-left px-4 py-3">Rôle</th>
               <th className="text-left px-4 py-3">Statut</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
             {items.map((c) => (
-              <tr key={c.id} className="border-t border-slate-100" data-testid={`client-row-${c.id}`}>
-                <td className="px-4 py-3 font-medium">{c.full_name}</td>
+              <tr key={c.id} className={`border-t border-slate-100 ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`} data-testid={`client-row-${c.id}`}>
+                <td className="px-4 py-3 font-medium">
+                  <div className="flex items-center gap-2">
+                    {c.is_primary_client && (
+                      <span title="Client primaire (Superviseur)" className="inline-flex items-center justify-center text-amber-500">
+                        <Star className="h-4 w-4 fill-amber-400" />
+                      </span>
+                    )}
+                    <span>{c.full_name}</span>
+                  </div>
+                </td>
                 <td className="px-4 py-3 text-slate-600">{c.email}</td>
                 <td className="px-4 py-3 text-slate-600">{c.company || "-"}</td>
+                <td className="px-4 py-3">
+                  <span className={`text-xs px-2 py-0.5 rounded border ${c.role === "superviseur" ? "bg-sawali-blue/10 text-sawali-blue border-sawali-blue/30" : c.role === "admin" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>{c.role}</span>
+                </td>
                 <td className="px-4 py-3">
                   <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
                 </td>
                 <td className="px-4 py-3 text-right">
+                  {c.is_primary_client ? (
+                    <button onClick={() => unsetPrimary(c.id)} title="Retirer le statut primaire" className="text-amber-500 hover:text-amber-600 mr-3" data-testid={`unset-primary-${c.id}`}>
+                      <StarOff className="h-4 w-4 inline" />
+                    </button>
+                  ) : (
+                    <button onClick={() => setPrimary(c.id)} title="Désigner comme client primaire (Superviseur)" className="text-slate-400 hover:text-amber-500 mr-3" data-testid={`set-primary-${c.id}`}>
+                      <Star className="h-4 w-4 inline" />
+                    </button>
+                  )}
                   <button onClick={() => open(c)} className="text-slate-500 hover:text-sawali-blue mr-3" data-testid={`edit-client-${c.id}`}><Edit className="h-4 w-4 inline" /></button>
                   <button onClick={() => del(c.id)} className="text-slate-500 hover:text-rose-600" data-testid={`del-client-${c.id}`}><Trash2 className="h-4 w-4 inline" /></button>
                 </td>
@@ -99,7 +139,7 @@ export default function AdminClients() {
             <Input label="Entreprise" value={form.company || ""} onChange={(v) => setForm({ ...form, company: v })} />
             <Input label="Code client (utilisé pour la numérotation des interventions, ex. ACME)" value={form.client_code || ""} onChange={(v) => setForm({ ...form, client_code: v.toUpperCase() })} />
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin" }]} />
+              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
             </div>
             <button type="submit" disabled={loading} className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-client-button">

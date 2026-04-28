@@ -84,8 +84,14 @@ async def get_auth_url(redirect_uri: str) -> Optional[str]:
     if not s.get("google_client_id") or not s.get("google_client_secret"):
         return None
     flow = _build_oauth_flow(s["google_client_id"], s["google_client_secret"], redirect_uri)
+    # IMPORTANT:
+    #   - access_type=offline  -> required to receive a refresh_token
+    #   - prompt=consent       -> force Google to re-deliver refresh_token even after past grants
+    #   - DO NOT pass include_granted_scopes: it makes Google skip refresh_token issuance when
+    #     the scope was already granted (current bug we're fixing).
     url, _state = flow.authorization_url(
-        access_type="offline", prompt="consent", include_granted_scopes="true"
+        access_type="offline",
+        prompt="consent select_account",
     )
     return url
 
@@ -112,9 +118,13 @@ async def exchange_code(code: str, redirect_uri: str) -> dict:
         token = r.json()
 
     if "refresh_token" not in token:
-        # already authorized in past; refresh_token only delivered first time with prompt=consent
+        # If Google didn't return a refresh_token, it means the user has previously
+        # granted access to this OAuth client. We must force re-consent.
+        msg = token.get("error_description") or token.get("error") or ""
         raise RuntimeError(
-            "Aucun refresh_token reçu. Révoquez l'accès dans le compte Google puis recommencez."
+            "Aucun refresh_token reçu. Allez sur https://myaccount.google.com/permissions, "
+            "supprimez l'accès de cette app, puis recommencez. "
+            f"(Détail Google : {msg or 'OK mais pas de refresh_token'})"
         )
     update = {
         "google_refresh_token": token["refresh_token"],

@@ -3,62 +3,208 @@ import { ComposableMap, Geographies, Geography, Marker } from "@vnedyalk0v/react
 import { apiClient } from "@/lib/api";
 import { Globe2, MapPin } from "lucide-react";
 
-// Country -> approx [lng, lat] centroid (curated list, fallback for popular countries).
-// Used for placing the deployment marker. Add more entries as needed.
+// Country -> approx [lng, lat] centroid. Curated worldwide list. Add aliases (FR/EN) for matching.
 const COUNTRY_COORDS = {
-  "Burkina Faso": [-1.5616, 12.2383],
-  "Côte d'Ivoire": [-5.5471, 7.5400],
-  "Côte d Ivoire": [-5.5471, 7.5400],
-  "Cote d'Ivoire": [-5.5471, 7.5400],
-  "Mali": [-3.9962, 17.5707],
-  "Sénégal": [-14.4524, 14.4974],
-  "Senegal": [-14.4524, 14.4974],
-  "Niger": [8.0817, 17.6078],
-  "Togo": [0.8248, 8.6195],
-  "Bénin": [2.3158, 9.3077],
-  "Benin": [2.3158, 9.3077],
-  "Ghana": [-1.0232, 7.9465],
-  "Nigeria": [8.6753, 9.0820],
-  "Maroc": [-7.0926, 31.7917],
-  "Morocco": [-7.0926, 31.7917],
-  "Algérie": [1.6596, 28.0339],
-  "Algeria": [1.6596, 28.0339],
-  "Tunisie": [9.5375, 33.8869],
-  "Tunisia": [9.5375, 33.8869],
-  "Cameroun": [12.3547, 7.3697],
-  "Cameroon": [12.3547, 7.3697],
-  "Tchad": [18.7322, 15.4542],
-  "Chad": [18.7322, 15.4542],
-  "Gabon": [11.6094, -0.8037],
-  "Congo": [15.8277, -0.2280],
-  "RDC": [21.7587, -4.0383],
-  "Kenya": [37.9062, -0.0236],
-  "Éthiopie": [40.4897, 9.1450],
-  "Ethiopia": [40.4897, 9.1450],
-  "Afrique du Sud": [22.9375, -30.5595],
-  "South Africa": [22.9375, -30.5595],
-  "France": [2.2137, 46.2276],
-  "Belgique": [4.4699, 50.5039],
-  "Belgium": [4.4699, 50.5039],
-  "Suisse": [8.2275, 46.8182],
-  "Switzerland": [8.2275, 46.8182],
-  "Canada": [-106.3468, 56.1304],
-  "United States": [-95.7129, 37.0902],
-  "USA": [-95.7129, 37.0902],
-  "Brazil": [-51.9253, -14.2350],
-  "Brésil": [-51.9253, -14.2350],
+  // ==== Afrique ====
+  "Algérie": [1.66, 28.03], "Algeria": [1.66, 28.03],
+  "Angola": [17.87, -11.20],
+  "Bénin": [2.32, 9.31], "Benin": [2.32, 9.31],
+  "Botswana": [24.68, -22.33],
+  "Burkina Faso": [-1.56, 12.24],
+  "Burundi": [29.92, -3.37],
+  "Cameroun": [12.35, 7.37], "Cameroon": [12.35, 7.37],
+  "Cap-Vert": [-23.51, 16.00], "Cape Verde": [-23.51, 16.00],
+  "Centrafrique": [20.94, 6.61], "Central African Republic": [20.94, 6.61],
+  "Tchad": [18.73, 15.45], "Chad": [18.73, 15.45],
+  "Comores": [43.87, -11.65], "Comoros": [43.87, -11.65],
+  "Congo": [15.83, -0.23], "République du Congo": [15.83, -0.23],
+  "RDC": [21.76, -4.04], "République démocratique du Congo": [21.76, -4.04], "DRC": [21.76, -4.04],
+  "Côte d'Ivoire": [-5.55, 7.54], "Côte d Ivoire": [-5.55, 7.54], "Cote d'Ivoire": [-5.55, 7.54],
+  "Djibouti": [42.59, 11.83],
+  "Égypte": [30.80, 26.82], "Egypt": [30.80, 26.82],
+  "Guinée équatoriale": [10.27, 1.65], "Equatorial Guinea": [10.27, 1.65],
+  "Érythrée": [39.78, 15.18], "Eritrea": [39.78, 15.18],
+  "Eswatini": [31.47, -26.52], "Swaziland": [31.47, -26.52],
+  "Éthiopie": [40.49, 9.15], "Ethiopia": [40.49, 9.15],
+  "Gabon": [11.61, -0.80],
+  "Gambie": [-15.31, 13.44], "Gambia": [-15.31, 13.44],
+  "Ghana": [-1.02, 7.95],
+  "Guinée": [-9.70, 9.95], "Guinea": [-9.70, 9.95],
+  "Guinée-Bissau": [-15.18, 11.80], "Guinea-Bissau": [-15.18, 11.80],
+  "Kenya": [37.91, -0.02],
+  "Lesotho": [28.23, -29.61],
+  "Liberia": [-9.43, 6.43], "Libéria": [-9.43, 6.43],
+  "Libye": [17.23, 26.34], "Libya": [17.23, 26.34],
+  "Madagascar": [46.87, -18.77],
+  "Malawi": [34.30, -13.25],
+  "Mali": [-3.99, 17.57],
+  "Mauritanie": [-10.94, 21.00], "Mauritania": [-10.94, 21.00],
+  "Maurice": [57.55, -20.35], "Mauritius": [57.55, -20.35],
+  "Maroc": [-7.09, 31.79], "Morocco": [-7.09, 31.79],
+  "Mozambique": [35.53, -18.67],
+  "Namibie": [18.49, -22.96], "Namibia": [18.49, -22.96],
+  "Niger": [8.08, 17.61],
+  "Nigeria": [8.68, 9.08], "Nigéria": [8.68, 9.08],
+  "Rwanda": [29.87, -1.94],
+  "São Tomé-et-Príncipe": [6.61, 0.19], "Sao Tome and Principe": [6.61, 0.19],
+  "Sénégal": [-14.45, 14.50], "Senegal": [-14.45, 14.50],
+  "Seychelles": [55.49, -4.68],
+  "Sierra Leone": [-11.78, 8.46],
+  "Somalie": [46.20, 5.15], "Somalia": [46.20, 5.15],
+  "Afrique du Sud": [22.94, -30.56], "South Africa": [22.94, -30.56],
+  "Soudan du Sud": [31.31, 6.88], "South Sudan": [31.31, 6.88],
+  "Soudan": [30.22, 12.86], "Sudan": [30.22, 12.86],
+  "Tanzanie": [34.89, -6.37], "Tanzania": [34.89, -6.37],
+  "Togo": [0.82, 8.62],
+  "Tunisie": [9.54, 33.89], "Tunisia": [9.54, 33.89],
+  "Ouganda": [32.29, 1.37], "Uganda": [32.29, 1.37],
+  "Zambie": [27.85, -13.13], "Zambia": [27.85, -13.13],
+  "Zimbabwe": [29.15, -19.02],
+
+  // ==== Europe ====
+  "Albanie": [20.17, 41.15], "Albania": [20.17, 41.15],
+  "Allemagne": [10.45, 51.17], "Germany": [10.45, 51.17],
+  "Autriche": [14.55, 47.52], "Austria": [14.55, 47.52],
+  "Belgique": [4.47, 50.50], "Belgium": [4.47, 50.50],
+  "Biélorussie": [27.95, 53.71], "Belarus": [27.95, 53.71],
+  "Bosnie": [17.68, 43.92], "Bosnia and Herzegovina": [17.68, 43.92],
+  "Bulgarie": [25.49, 42.73], "Bulgaria": [25.49, 42.73],
+  "Croatie": [15.20, 45.10], "Croatia": [15.20, 45.10],
+  "Chypre": [33.43, 35.13], "Cyprus": [33.43, 35.13],
+  "Tchéquie": [15.47, 49.82], "Czech Republic": [15.47, 49.82], "Czechia": [15.47, 49.82],
+  "Danemark": [9.50, 56.26], "Denmark": [9.50, 56.26],
+  "Estonie": [25.01, 58.60], "Estonia": [25.01, 58.60],
+  "Finlande": [25.75, 61.92], "Finland": [25.75, 61.92],
+  "France": [2.21, 46.23],
+  "Grèce": [21.82, 39.07], "Greece": [21.82, 39.07],
+  "Hongrie": [19.50, 47.16], "Hungary": [19.50, 47.16],
+  "Islande": [-19.02, 64.96], "Iceland": [-19.02, 64.96],
+  "Irlande": [-8.24, 53.41], "Ireland": [-8.24, 53.41],
+  "Italie": [12.57, 41.87], "Italy": [12.57, 41.87],
+  "Lettonie": [24.60, 56.88], "Latvia": [24.60, 56.88],
+  "Lituanie": [23.88, 55.17], "Lithuania": [23.88, 55.17],
+  "Luxembourg": [6.13, 49.82],
+  "Malte": [14.38, 35.94], "Malta": [14.38, 35.94],
+  "Moldavie": [28.37, 47.41], "Moldova": [28.37, 47.41],
+  "Monaco": [7.41, 43.74],
+  "Pays-Bas": [5.29, 52.13], "Netherlands": [5.29, 52.13],
+  "Macédoine du Nord": [21.74, 41.61], "North Macedonia": [21.74, 41.61],
+  "Norvège": [8.47, 60.47], "Norway": [8.47, 60.47],
+  "Pologne": [19.15, 51.92], "Poland": [19.15, 51.92],
+  "Portugal": [-8.22, 39.40],
+  "Roumanie": [24.97, 45.94], "Romania": [24.97, 45.94],
+  "Russie": [105.32, 61.52], "Russia": [105.32, 61.52],
+  "Serbie": [21.01, 44.02], "Serbia": [21.01, 44.02],
+  "Slovaquie": [19.70, 48.67], "Slovakia": [19.70, 48.67],
+  "Slovénie": [14.99, 46.15], "Slovenia": [14.99, 46.15],
+  "Espagne": [-3.75, 40.46], "Spain": [-3.75, 40.46],
+  "Suède": [18.64, 60.13], "Sweden": [18.64, 60.13],
+  "Suisse": [8.23, 46.82], "Switzerland": [8.23, 46.82],
+  "Turquie": [35.24, 38.96], "Turkey": [35.24, 38.96],
+  "Ukraine": [31.17, 48.38],
+  "Royaume-Uni": [-3.44, 55.38], "United Kingdom": [-3.44, 55.38], "UK": [-3.44, 55.38],
+  "Vatican": [12.45, 41.90],
+
+  // ==== Amérique du Nord & Centrale & Caraïbes ====
+  "Canada": [-106.35, 56.13],
+  "Mexique": [-102.55, 23.63], "Mexico": [-102.55, 23.63],
+  "États-Unis": [-95.71, 37.09], "United States": [-95.71, 37.09], "USA": [-95.71, 37.09],
+  "Cuba": [-77.78, 21.52],
+  "République dominicaine": [-70.16, 18.74], "Dominican Republic": [-70.16, 18.74],
+  "Haïti": [-72.29, 18.97], "Haiti": [-72.29, 18.97],
+  "Jamaïque": [-77.30, 18.11], "Jamaica": [-77.30, 18.11],
+  "Bahamas": [-77.40, 25.03],
+  "Trinité-et-Tobago": [-61.22, 10.69], "Trinidad and Tobago": [-61.22, 10.69],
+  "Guatemala": [-90.23, 15.78],
+  "Honduras": [-86.24, 15.20],
+  "Salvador": [-88.90, 13.79], "El Salvador": [-88.90, 13.79],
+  "Nicaragua": [-85.21, 12.86],
+  "Costa Rica": [-83.75, 9.75],
+  "Panama": [-80.78, 8.54],
+  "Belize": [-88.50, 17.19],
+
+  // ==== Amérique du Sud ====
+  "Argentine": [-63.62, -38.42], "Argentina": [-63.62, -38.42],
+  "Bolivie": [-63.59, -16.29], "Bolivia": [-63.59, -16.29],
+  "Brésil": [-51.93, -14.24], "Brazil": [-51.93, -14.24],
+  "Chili": [-71.54, -35.68], "Chile": [-71.54, -35.68],
+  "Colombie": [-74.30, 4.57], "Colombia": [-74.30, 4.57],
+  "Équateur": [-78.18, -1.83], "Ecuador": [-78.18, -1.83],
+  "Guyana": [-58.93, 4.86], "Guyane": [-58.93, 4.86],
+  "Paraguay": [-58.44, -23.44],
+  "Pérou": [-75.02, -9.19], "Peru": [-75.02, -9.19],
+  "Suriname": [-56.03, 3.92],
+  "Uruguay": [-55.77, -32.52],
+  "Venezuela": [-66.59, 6.42],
+
+  // ==== Asie ====
+  "Afghanistan": [67.71, 33.94],
+  "Arménie": [45.04, 40.07], "Armenia": [45.04, 40.07],
+  "Azerbaïdjan": [47.58, 40.14], "Azerbaijan": [47.58, 40.14],
+  "Bahreïn": [50.55, 26.07], "Bahrain": [50.55, 26.07],
+  "Bangladesh": [90.36, 23.68],
+  "Bhoutan": [90.43, 27.51], "Bhutan": [90.43, 27.51],
+  "Brunei": [114.73, 4.54],
+  "Cambodge": [104.99, 12.57], "Cambodia": [104.99, 12.57],
+  "Chine": [104.20, 35.86], "China": [104.20, 35.86],
+  "Géorgie": [43.36, 42.32], "Georgia": [43.36, 42.32],
+  "Inde": [78.96, 20.59], "India": [78.96, 20.59],
+  "Indonésie": [113.92, -0.79], "Indonesia": [113.92, -0.79],
+  "Iran": [53.69, 32.43],
+  "Iraq": [43.68, 33.22], "Irak": [43.68, 33.22],
+  "Israël": [34.85, 31.05], "Israel": [34.85, 31.05],
+  "Japon": [138.25, 36.20], "Japan": [138.25, 36.20],
+  "Jordanie": [36.24, 30.59], "Jordan": [36.24, 30.59],
+  "Kazakhstan": [66.92, 48.02],
+  "Corée du Nord": [127.51, 40.34], "North Korea": [127.51, 40.34],
+  "Corée du Sud": [127.77, 35.91], "South Korea": [127.77, 35.91],
+  "Koweït": [47.48, 29.31], "Kuwait": [47.48, 29.31],
+  "Kirghizistan": [74.77, 41.20], "Kyrgyzstan": [74.77, 41.20],
+  "Laos": [102.50, 19.86],
+  "Liban": [35.86, 33.85], "Lebanon": [35.86, 33.85],
+  "Malaisie": [101.98, 4.21], "Malaysia": [101.98, 4.21],
+  "Maldives": [73.22, 3.20],
+  "Mongolie": [103.85, 46.86], "Mongolia": [103.85, 46.86],
+  "Myanmar": [95.96, 21.91], "Birmanie": [95.96, 21.91],
+  "Népal": [84.12, 28.39], "Nepal": [84.12, 28.39],
+  "Oman": [55.92, 21.51],
+  "Pakistan": [69.35, 30.38],
+  "Palestine": [35.23, 31.95],
+  "Philippines": [121.77, 12.88],
+  "Qatar": [51.18, 25.35],
+  "Arabie saoudite": [45.08, 23.89], "Saudi Arabia": [45.08, 23.89],
+  "Singapour": [103.82, 1.35], "Singapore": [103.82, 1.35],
+  "Sri Lanka": [80.77, 7.87],
+  "Syrie": [38.99, 34.80], "Syria": [38.99, 34.80],
+  "Taïwan": [120.96, 23.70], "Taiwan": [120.96, 23.70],
+  "Tadjikistan": [71.28, 38.86], "Tajikistan": [71.28, 38.86],
+  "Thaïlande": [100.99, 15.87], "Thailand": [100.99, 15.87],
+  "Timor oriental": [125.73, -8.87], "Timor-Leste": [125.73, -8.87],
+  "Turkménistan": [59.56, 38.97], "Turkmenistan": [59.56, 38.97],
+  "Émirats arabes unis": [53.85, 23.42], "United Arab Emirates": [53.85, 23.42], "UAE": [53.85, 23.42],
+  "Ouzbékistan": [64.59, 41.38], "Uzbekistan": [64.59, 41.38],
+  "Vietnam": [108.28, 14.06], "Viêt Nam": [108.28, 14.06],
+  "Yémen": [48.52, 15.55], "Yemen": [48.52, 15.55],
+
+  // ==== Océanie ====
+  "Australie": [133.78, -25.27], "Australia": [133.78, -25.27],
+  "Fidji": [179.41, -16.58], "Fiji": [179.41, -16.58],
+  "Nouvelle-Zélande": [174.89, -40.90], "New Zealand": [174.89, -40.90],
+  "Papouasie-Nouvelle-Guinée": [143.96, -6.31], "Papua New Guinea": [143.96, -6.31],
+  "Samoa": [-172.10, -13.76],
+  "Tonga": [-175.20, -21.18],
+  "Vanuatu": [166.96, -15.38],
 };
 
 function findCoords(country) {
   if (!country) return null;
-  // exact
   if (COUNTRY_COORDS[country]) return COUNTRY_COORDS[country];
-  // case insensitive
   const ci = Object.keys(COUNTRY_COORDS).find((k) => k.toLowerCase() === country.toLowerCase());
   if (ci) return COUNTRY_COORDS[ci];
-  // partial match
-  const partial = Object.keys(COUNTRY_COORDS).find((k) => k.toLowerCase().startsWith(country.toLowerCase().slice(0, 4)));
-  return partial ? COUNTRY_COORDS[partial] : null;
+  // Fallback : strip accents and compare
+  const norm = (s) => s.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+  const ni = Object.keys(COUNTRY_COORDS).find((k) => norm(k) === norm(country));
+  return ni ? COUNTRY_COORDS[ni] : null;
 }
 
 export default function DeploymentsMap() {
@@ -88,6 +234,39 @@ export default function DeploymentsMap() {
 
   const radius = (n) => Math.min(18, 4 + Math.sqrt(Math.max(1, n)) * 1.6);
 
+  // Auto-zoom : compute bounding box of all marker coordinates and pick a sensible scale + center.
+  // If no markers, default to world view.
+  const projectionConfig = useMemo(() => {
+    if (points.length === 0) {
+      return { rotate: [-10, 0, 0], scale: 145 };
+    }
+    const lngs = points.map((p) => p.coords[0]);
+    const lats = points.map((p) => p.coords[1]);
+    let minLng = Math.min(...lngs);
+    let maxLng = Math.max(...lngs);
+    let minLat = Math.min(...lats);
+    let maxLat = Math.max(...lats);
+    // Add padding around the bbox so markers aren't clipped at the edges
+    const padLng = Math.max(8, (maxLng - minLng) * 0.2);
+    const padLat = Math.max(6, (maxLat - minLat) * 0.2);
+    minLng -= padLng; maxLng += padLng;
+    minLat -= padLat; maxLat += padLat;
+    const centerLng = (minLng + maxLng) / 2;
+    const centerLat = (minLat + maxLat) / 2;
+    const lngSpan = Math.max(8, maxLng - minLng);
+    const latSpan = Math.max(6, maxLat - minLat);
+    // ComposableMap default 800x600. Empirically, for geoEqualEarth scale ≈ 800 / lngSpan * 1.1 (cap at 600 to avoid over-zoom on a single country).
+    const scale = Math.min(600, Math.max(120, Math.min(
+      (800 / lngSpan) * 55,
+      (600 / latSpan) * 55,
+    )));
+    return {
+      rotate: [-centerLng, 0, 0],
+      center: [0, centerLat],
+      scale,
+    };
+  }, [points]);
+
   return (
     <section className="relative bg-gradient-to-b from-slate-950 via-slate-900 to-slate-950 text-white py-20 sm:py-24" data-testid="deployments-section">
       <div className="absolute inset-0 opacity-[0.07] pointer-events-none"
@@ -109,7 +288,7 @@ export default function DeploymentsMap() {
 
         <div className="relative rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur p-2 sm:p-4" data-testid="deployments-map-container">
           <ComposableMap
-            projectionConfig={{ rotate: [-10, 0, 0], scale: 145 }}
+            projectionConfig={projectionConfig}
             style={{ width: "100%", height: "auto" }}
           >
             <Geographies geography={geo}>

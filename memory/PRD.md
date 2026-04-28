@@ -74,6 +74,11 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Marqueurs bleus avec rayon proportionnel au nombre d'installations. Tooltip flottant au survol affichant solution + nombre + ville.
   - Curated set ~40 pays africains et internationaux pour le placement des marqueurs (centroides approximatifs). Fallback partiel sur première lettres si nom non trouvé.
 
+## Implemented (2026-04-28) — Mappemonde mondiale + zoom automatique
+✅ **Couverture mondiale** : `COUNTRY_COORDS` étendu à ~140 pays (Afrique complète, Europe, Amériques, Asie, Océanie). Aliases FR/EN/avec accents pour matching robuste. Fallback intelligent sur normalisation NFD (accents).
+✅ **Zoom auto-adaptatif** : `projectionConfig` calcule dynamiquement `rotate` (centre lng), `center` (centre lat) et `scale` à partir du bounding box des marqueurs avec padding (~20% min). Si aucun déploiement, vue mondiale par défaut.
+✅ Testé : 2 marqueurs (Afrique de l'Ouest) → zoom serré ; 4 marqueurs (Burkina + Côte d'Ivoire + Maroc + France) → cadrage Europe-Afrique automatique.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 

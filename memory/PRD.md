@@ -77,7 +77,12 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 ## Implemented (2026-04-28) — Mappemonde mondiale + zoom automatique
 ✅ **Couverture mondiale** : `COUNTRY_COORDS` étendu à ~140 pays (Afrique complète, Europe, Amériques, Asie, Océanie). Aliases FR/EN/avec accents pour matching robuste. Fallback intelligent sur normalisation NFD (accents).
 ✅ **Zoom auto-adaptatif** : `projectionConfig` calcule dynamiquement `rotate` (centre lng), `center` (centre lat) et `scale` à partir du bounding box des marqueurs avec padding (~20% min). Si aucun déploiement, vue mondiale par défaut.
-✅ Testé : 2 marqueurs (Afrique de l'Ouest) → zoom serré ; 4 marqueurs (Burkina + Côte d'Ivoire + Maroc + France) → cadrage Europe-Afrique automatique.
+✅ **Marqueurs et tuiles cliquables** → modale détaillée par pays :
+  - Header : nom + total installations + nb villes + nb solutions
+  - Liste détaillée des solutions installées (nom, ville, date d'installation, compteur)
+  - Graphique d'évolution cumulative des installations dans le temps (recharts AreaChart avec dégradé bleu)
+  - Tooltip Recharts français au survol des points
+  - Backend public `/deployments` enrichi avec `created_at` + `updated_at` par solution
 
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)

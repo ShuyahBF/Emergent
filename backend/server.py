@@ -1215,7 +1215,7 @@ async def admin_delete_deployment(dep_id: str, _: dict = Depends(get_current_adm
 @api.get("/deployments", tags=["Public"])
 async def public_deployments():
     """Public list, grouped by country, with all solutions and total installations.
-    Returns: [{country, total_installations, solutions: [{name, installations, city}]}]
+    Returns: [{country, total_installations, solutions: [{name, installations, city, created_at, updated_at}]}]
     """
     items = await db.deployments.find({}, {"_id": 0}).to_list(2000)
     grouped: dict = {}
@@ -1229,6 +1229,8 @@ async def public_deployments():
             "name": d.get("solution_name"),
             "installations": int(d.get("installations") or 0),
             "city": d.get("city"),
+            "created_at": d.get("created_at"),
+            "updated_at": d.get("updated_at"),
         })
         grouped[c]["total_installations"] += int(d.get("installations") or 0)
     out = list(grouped.values())

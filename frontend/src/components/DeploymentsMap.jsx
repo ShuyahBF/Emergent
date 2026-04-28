@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { ComposableMap, Geographies, Geography, Marker } from "@vnedyalk0v/react19-simple-maps";
 import { apiClient } from "@/lib/api";
-import { Globe2, MapPin } from "lucide-react";
+import { Globe2, MapPin, X, Calendar } from "lucide-react";
+import { ResponsiveContainer, AreaChart, Area, XAxis, YAxis, Tooltip as RechartsTooltip, CartesianGrid } from "recharts";
 
 // Country -> approx [lng, lat] centroid. Curated worldwide list. Add aliases (FR/EN) for matching.
 const COUNTRY_COORDS = {
@@ -212,6 +213,7 @@ export default function DeploymentsMap() {
   const [geo, setGeo] = useState(null);
   const [hovered, setHovered] = useState(null); // {country, total, solutions}
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
+  const [selected, setSelected] = useState(null); // detailed modal: country object
 
   useEffect(() => {
     apiClient.get("/deployments").then((r) => setData(r.data)).catch(() => {});
@@ -317,23 +319,30 @@ export default function DeploymentsMap() {
                 }}
                 onMouseMove={(e) => setTooltipPos({ x: e.clientX, y: e.clientY })}
                 onMouseLeave={() => setHovered(null)}
+                onClick={() => { setHovered(null); setSelected(p); }}
               >
                 <circle r={radius(p.total_installations)} fill="#1E90FF" fillOpacity={0.4} stroke="#1E90FF" strokeWidth={1.2} className="cursor-pointer transition-all hover:fill-opacity-70" data-testid={`deployment-marker-${p.country}`} />
-                <circle r={3} fill="#fff" />
+                <circle r={3} fill="#fff" className="cursor-pointer pointer-events-none" />
               </Marker>
             ))}
           </ComposableMap>
 
-          {/* List of countries below the map */}
+          {/* List of countries below the map (clickable) */}
           {points.length > 0 && (
             <div className="mt-4 px-2 pb-2 grid sm:grid-cols-2 lg:grid-cols-3 gap-2 text-sm">
               {points.map((p) => (
-                <div key={p.country} className="flex items-center justify-between rounded-md border border-white/10 bg-slate-900/60 px-3 py-2" data-testid={`deployment-tile-${p.country}`}>
+                <button
+                  key={p.country}
+                  type="button"
+                  onClick={() => setSelected(p)}
+                  className="flex items-center justify-between rounded-md border border-white/10 bg-slate-900/60 px-3 py-2 text-left hover:border-sawali-blue/60 hover:bg-slate-800/80 transition"
+                  data-testid={`deployment-tile-${p.country}`}
+                >
                   <span className="inline-flex items-center gap-2 text-slate-200"><MapPin className="h-3.5 w-3.5 text-sawali-blue" />{p.country}</span>
-                  <span className="text-xs text-slate-400">
+                  <span className="text-xs text-slate-400 truncate ml-2">
                     {p.solutions.map((s) => `${s.name}: ${s.installations}`).join(" · ")}
                   </span>
-                </div>
+                </button>
               ))}
             </div>
           )}
@@ -345,7 +354,7 @@ export default function DeploymentsMap() {
         </div>
 
         {/* Hover tooltip (positioned in viewport coordinates) */}
-        {hovered && (
+        {hovered && !selected && (
           <div
             className="fixed z-50 rounded-lg border border-sawali-blue/40 bg-slate-900/95 backdrop-blur px-3 py-2 text-xs text-white shadow-2xl pointer-events-none"
             style={{ left: tooltipPos.x + 12, top: tooltipPos.y + 12, maxWidth: 260 }}
@@ -360,9 +369,130 @@ export default function DeploymentsMap() {
                 </li>
               ))}
             </ul>
+            <p className="mt-1.5 text-[10px] text-slate-500 italic">Cliquez pour voir les détails…</p>
           </div>
         )}
       </div>
+
+      {selected && <DetailModal country={selected} onClose={() => setSelected(null)} />}
     </section>
+  );
+}
+
+// ====================================================================
+// Country detail modal (clickable from marker or tile)
+// ====================================================================
+function DetailModal({ country, onClose }) {
+  // Cumulative timeline: sort solutions by created_at, build [{date, cumulative}] points.
+  const timeline = useMemo(() => {
+    const sols = (country.solutions || [])
+      .filter((s) => s.created_at)
+      .map((s) => ({ ...s, ts: new Date(s.created_at).getTime() }))
+      .sort((a, b) => a.ts - b.ts);
+    if (sols.length === 0) return [];
+    let cum = 0;
+    return sols.map((s) => {
+      cum += s.installations;
+      return {
+        date: new Date(s.ts).toLocaleDateString("fr-FR", { month: "short", year: "numeric" }),
+        rawDate: s.ts,
+        installations: cum,
+        added: s.installations,
+        solution: s.name,
+      };
+    });
+  }, [country]);
+
+  const totalCities = useMemo(() => {
+    return new Set((country.solutions || []).map((s) => s.city).filter(Boolean)).size;
+  }, [country]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm" onClick={onClose}>
+      <div className="bg-slate-900 border border-sawali-blue/30 rounded-2xl w-full max-w-3xl max-h-[90vh] overflow-auto text-white shadow-2xl"
+           onClick={(e) => e.stopPropagation()}
+           data-testid="deployment-detail-modal">
+        <div className="flex items-center justify-between p-5 border-b border-slate-800">
+          <div className="flex items-center gap-3">
+            <span className="inline-flex items-center justify-center h-10 w-10 rounded-full bg-sawali-blue/15 border border-sawali-blue/40">
+              <MapPin className="h-5 w-5 text-sawali-blue" />
+            </span>
+            <div>
+              <h3 className="text-xl font-display font-bold text-white">{country.country}</h3>
+              <p className="text-xs text-slate-400">
+                {country.total_installations} installation{country.total_installations > 1 ? "s" : ""}
+                {totalCities > 0 && ` · ${totalCities} ville${totalCities > 1 ? "s" : ""}`}
+                {" · "}{country.solutions?.length || 0} solution{(country.solutions?.length || 0) > 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-400 hover:text-white" data-testid="close-detail-modal">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-5 space-y-6">
+          {/* Solutions list */}
+          <div>
+            <h4 className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-3">Solutions installées</h4>
+            <div className="space-y-2">
+              {(country.solutions || []).map((s) => (
+                <div key={s.name + (s.city || "")} className="flex items-center justify-between rounded-lg border border-slate-800 bg-slate-950/40 px-4 py-3">
+                  <div>
+                    <p className="font-display font-semibold text-sm text-white">{s.name}</p>
+                    <p className="text-xs text-slate-400">
+                      {s.city ? <span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3" />{s.city}</span> : <span className="text-slate-500">Localisation non précisée</span>}
+                      {s.created_at && (
+                        <span className="ml-3 inline-flex items-center gap-1">
+                          <Calendar className="h-3 w-3" />
+                          {new Date(s.created_at).toLocaleDateString("fr-FR")}
+                        </span>
+                      )}
+                    </p>
+                  </div>
+                  <span className="text-2xl font-display font-bold text-sawali-blue">{s.installations}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Cumulative installations chart */}
+          {timeline.length >= 1 ? (
+            <div>
+              <h4 className="text-xs uppercase tracking-[0.2em] text-slate-500 mb-1">Évolution cumulative des installations</h4>
+              <p className="text-xs text-slate-400 mb-3">
+                {timeline.length === 1 ? "Une seule date d'installation enregistrée." : `${timeline.length} jalons sur ${Math.round((timeline[timeline.length - 1].rawDate - timeline[0].rawDate) / (1000 * 60 * 60 * 24))} jours.`}
+              </p>
+              <div className="h-56 -mx-2" data-testid="deployment-detail-chart">
+                <ResponsiveContainer width="100%" height="100%">
+                  <AreaChart data={timeline} margin={{ top: 10, right: 16, bottom: 0, left: -20 }}>
+                    <defs>
+                      <linearGradient id="depGrad" x1="0" y1="0" x2="0" y2="1">
+                        <stop offset="0%" stopColor="#1E90FF" stopOpacity={0.6} />
+                        <stop offset="100%" stopColor="#1E90FF" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid stroke="#1e293b" strokeDasharray="3 3" />
+                    <XAxis dataKey="date" stroke="#64748b" tick={{ fontSize: 11 }} />
+                    <YAxis stroke="#64748b" tick={{ fontSize: 11 }} allowDecimals={false} />
+                    <RechartsTooltip
+                      contentStyle={{ background: "#0f172a", border: "1px solid #1E90FF", borderRadius: 8, color: "#fff", fontSize: 12 }}
+                      labelStyle={{ color: "#94a3b8" }}
+                      formatter={(value, name, props) => {
+                        if (name === "installations") return [value, "Total cumulé"];
+                        return [value, name];
+                      }}
+                    />
+                    <Area type="monotone" dataKey="installations" stroke="#1E90FF" strokeWidth={2} fill="url(#depGrad)" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 italic">Aucune date d'installation enregistrée.</p>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }

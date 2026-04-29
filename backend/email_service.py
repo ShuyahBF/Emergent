@@ -1,4 +1,5 @@
 """SMTP email service using admin-configurable settings."""
+import asyncio
 import smtplib
 import ssl
 import logging
@@ -21,33 +22,47 @@ async def get_smtp_settings() -> dict:
     }
 
 
-async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "") -> bool:
-    """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured)."""
-    cfg = await get_smtp_settings()
-    if not cfg["host"] or not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
-        logger.warning("SMTP not configured. Skipping email to %s.", to_email)
-        return False
-
+def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str) -> bool:
+    """Blocking SMTP send. Always called via asyncio.to_thread + wait_for."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = cfg["from_email"]
     msg["To"] = to_email
     msg.set_content(text_body or "Veuillez activer HTML pour voir ce message.")
     msg.add_alternative(html_body, subtype="html")
+    if cfg["use_tls"]:
+        ctx = ssl.create_default_context()
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=5) as server:
+            server.starttls(context=ctx)
+            server.login(cfg["user"], cfg["password"])
+            server.send_message(msg)
+    else:
+        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=5) as server:
+            server.login(cfg["user"], cfg["password"])
+            server.send_message(msg)
+    return True
 
+
+async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "") -> bool:
+    """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured)."""
+    cfg = await get_smtp_settings()
+    if not cfg["host"] or not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
+        logger.warning("SMTP not configured. Skipping email to %s.", to_email)
+        return False
+    # Quick sanity checks to avoid hanging on obviously-wrong configs
+    if "@" not in (cfg["from_email"] or ""):
+        logger.warning("SMTP from_email looks invalid (%s). Skipping send.", cfg["from_email"])
+        return False
     try:
-        if cfg["use_tls"]:
-            ctx = ssl.create_default_context()
-            with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as server:
-                server.starttls(context=ctx)
-                server.login(cfg["user"], cfg["password"])
-                server.send_message(msg)
-        else:
-            with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=15) as server:
-                server.login(cfg["user"], cfg["password"])
-                server.send_message(msg)
-        return True
-    except Exception as e:
+        # Hard cap: never block the event loop more than ~6 seconds
+        return await asyncio.wait_for(
+            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body),
+            timeout=6.0,
+        )
+    except asyncio.TimeoutError:
+        logger.error("SMTP send timed out (>6s) for %s — skipping.", to_email)
+        return False
+    except Exception as e:  # noqa: BLE001
         logger.error("SMTP send failed: %s", e)
         return False
 

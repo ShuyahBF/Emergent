@@ -1678,6 +1678,19 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
         raise HTTPException(status_code=400, detail="Email invalide (syntaxe)")
     update["updated_at"] = _now()
     await db.tracked_users.update_one({"id": tu_id}, {"$set": update})
+    # Propagate role/name/email/status changes to the bridged users row, if any
+    tu_doc = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
+    if tu_doc and tu_doc.get("user_account_id"):
+        bridge_update = {"updated_at": _now()}
+        if "role" in update:
+            bridge_update["tracked_role"] = update["role"]
+        if "name" in update and update["name"]:
+            bridge_update["full_name"] = update["name"]
+        if "email" in update and update["email"]:
+            bridge_update["email"] = str(update["email"]).lower()
+        if "status" in update and update["status"]:
+            bridge_update["account_status"] = "active" if update["status"] == "active" else "inactive"
+        await db.users.update_one({"id": tu_doc["user_account_id"]}, {"$set": bridge_update})
     return {"ok": True}
 
 

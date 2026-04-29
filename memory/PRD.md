@@ -144,6 +144,21 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Pill 2 : compteur de visites avec icône œil, refresh toutes les 30s, ring accent bleu.
   - Style : backdrop-blur-md, `bg-[#0E1F3D]/70`, ring `sawali-blue/30`, ombre douce, responsive (date courte sur mobile).
 
+## Implemented (2026-04-29) — Itération 4 : RBAC tracked-roles + Rapports/Suivis/Interventions enrichis + Access Logs
+✅ **Rôles élevés (tracked) en self-service** : Modération / Administrateur / Superviseur peuvent désormais créer rapports, suivis et interventions depuis le portail (`/me/notes/{kind}` et `/me/interventions`).
+✅ **Suppression restreinte** : DELETE rapport/suivi/intervention réservé à Admin/Superviseur (incl. tracked Administrateur/Superviseur). 403 sinon.
+✅ **Suivis & interventions** : `client_id` et `event_date` (datetime-local) **requis** à la saisie. Rapports : seul l'horodatage automatique.
+✅ **Heure de descente** (`descent_time` HH:MM) paramétrable dans `/admin/settings`. Au-delà de descent_time + 1h, l'enregistrement de tout rapport/suivi/intervention renvoie HTTP 403 « verrouillé ».
+✅ **Auto-numéros** : `RPT-YYYY-NNNN`, `SUI-YYYY-NNNN`, `INT-YYYY-CODE-NNNN` (existant). IP du créateur enregistrée systématiquement.
+✅ **Galerie d'images** (max 10 par enregistrement) : uploader inline, miniatures sur la fiche, lightbox en clic. Endpoint portail `/me/upload` accessible aux rôles Modération+.
+✅ **Notation 5 étoiles** : seuls Admin/Superviseur peuvent noter. La note est **personnelle** (visible seulement par celui qui la pose). Endpoints `/me/ratings/{kind}/{target}` POST/DELETE. Listes décorées avec `my_rating`.
+✅ **Documents** : Modération+ voit + uploade tous les documents (cross-clients) via `/me/documents` ; suppression réservée Admin/Superviseur.
+✅ **Messages reçus** : page admin appelle désormais `/me/contacts/{id}/save-as-tracked-user` qui auto-génère un mot de passe (≥12 chars), crée le compte bridgé, **envoie l'email** (si SMTP configuré) et retourne le mot de passe à l'écran (copié dans le presse-papiers, toast 12s).
+✅ **Logs d'accès portail** : nouveau collection `access_logs` ; `PortalLayout` POST `/me/access-log` à chaque changement de route (module + page) ; nouvelle page `/admin/access-logs` avec recherche, stats top modules, et **export CSV**. Accès réservé Admin/Superviseur.
+✅ **Verrouillage 1h après création** des rapports/suivis : édition refusée 1h après `created_at` (Admin/Superviseur restent libres).
+✅ **Heures d'activité** : champs ouverture/fermeture déjà existants désormais explicitement labélisés et documentés ; nouveau champ « Heure de descente » à côté.
+✅ **RBAC propagé** : changement de rôle sur un tracked-user via PUT met à jour `users.tracked_role` du compte bridgé (correctif iter4).
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 - Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.

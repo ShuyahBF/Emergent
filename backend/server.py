@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import re
+import secrets
 import shutil
 import uuid
 import asyncio
@@ -73,6 +74,8 @@ from models import (
     UserNoteCreate,
     UserNoteUpdate,
     TrackedUserSetPassword,
+    RatingCreate,
+    AccessLogCreate,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -192,6 +195,8 @@ def _to_user_public(u: dict) -> dict:
         "created_at": u["created_at"],
         "is_primary_client": bool(u.get("is_primary_client", False)),
         "logo_url": u.get("logo_url"),
+        "tracked_role": u.get("tracked_role"),
+        "parent_client_id": u.get("parent_client_id"),
     }
 
 
@@ -328,6 +333,121 @@ def _fire_notes_webhook_bg(action: str, kind: str, note_doc: dict, user: dict) -
         asyncio.create_task(_fire_notes_webhook(action, kind, note_doc, user))
     except RuntimeError:
         pass
+
+
+# ====================================================================
+# Role-based access helpers
+# ====================================================================
+ELEVATED_TRACKED_ROLES = {"Moderation", "Administrateur", "Superviseur"}
+ADMIN_LEVEL_TRACKED_ROLES = {"Administrateur", "Superviseur"}
+
+
+def _user_tracked_role(user: dict) -> str:
+    return user.get("tracked_role") or ""
+
+
+def _is_admin_or_superviseur(user: dict) -> bool:
+    """Hard admin (users.role admin/superviseur) — bypasses everything."""
+    return user.get("role") in ("admin", "superviseur")
+
+
+def _is_elevated_creator(user: dict) -> bool:
+    """Can create rapports / suivis / interventions and access cross-client data."""
+    if _is_admin_or_superviseur(user):
+        return True
+    return _user_tracked_role(user) in ELEVATED_TRACKED_ROLES
+
+
+def _can_delete_records(user: dict) -> bool:
+    """Can delete reports / suivis / interventions: only role admin/superviseur or tracked Admin/Superviseur."""
+    if _is_admin_or_superviseur(user):
+        return True
+    return _user_tracked_role(user) in ADMIN_LEVEL_TRACKED_ROLES
+
+
+def _can_rate(user: dict) -> bool:
+    """Can post 5-star ratings on records."""
+    return _can_delete_records(user)
+
+
+def _can_consult_all_docs(user: dict) -> bool:
+    """Moderation+ can read/upload documents of all clients (but only Admin/Superviseur can delete)."""
+    return _is_elevated_creator(user)
+
+
+async def _check_descent_window(action_label: str = "enregistrement") -> None:
+    """Raise HTTP 403 if current time is past `descent_time + 1h`.
+    `descent_time` is a HH:MM stored in settings (today's reference). If unset, no check.
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    descent = (s.get("descent_time") or "").strip()
+    if not descent or ":" not in descent:
+        return  # No descent set → no enforcement
+    try:
+        hh, mm = descent.split(":", 1)
+        hh_i, mm_i = int(hh), int(mm)
+    except ValueError:
+        return
+    now = datetime.now(timezone.utc)
+    today_descent = now.replace(hour=hh_i, minute=mm_i, second=0, microsecond=0)
+    cutoff = today_descent + timedelta(hours=1)
+    if now > cutoff:
+        raise HTTPException(
+            status_code=403,
+            detail=f"L'{action_label} est verrouillé : la fenêtre d'1h après l'heure de descente ({descent}) est dépassée.",
+        )
+
+
+async def _next_simple_number(prefix: str) -> str:
+    """Generate {PREFIX}-YYYY-NNNN, sequential per kind/year."""
+    year = datetime.now(timezone.utc).year
+    counter_id = f"{prefix.lower()}:{year}"
+    res = await db.counters.find_one_and_update(
+        {"_id": counter_id},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    if res is None:
+        res = await db.counters.find_one({"_id": counter_id})
+    seq = (res or {}).get("seq", 1)
+    return f"{prefix}-{year}-{seq:04d}"
+
+
+def _validate_images(images, max_count: int = 10) -> list:
+    """Normalize and cap an attachment list. Each item should be {file_id, url, filename}."""
+    if not images:
+        return []
+    if not isinstance(images, list):
+        raise HTTPException(status_code=400, detail="Format des images invalide")
+    if len(images) > max_count:
+        raise HTTPException(status_code=400, detail=f"Maximum {max_count} images autorisées")
+    cleaned = []
+    for i, im in enumerate(images):
+        if not isinstance(im, dict):
+            raise HTTPException(status_code=400, detail=f"Image #{i + 1} mal formée")
+        cleaned.append({
+            "file_id": im.get("file_id"),
+            "url": im.get("url"),
+            "filename": im.get("filename"),
+        })
+    return cleaned
+
+
+async def _attach_my_rating(items: list, kind: str, user_id: str) -> list:
+    """Decorate each item with `my_rating` (the rating placed by the requesting user)."""
+    if not items:
+        return items
+    ids = [it.get("id") for it in items if it.get("id")]
+    cursor = db.ratings.find(
+        {"kind": kind, "target_id": {"$in": ids}, "rated_by_user_id": user_id},
+        {"_id": 0},
+    )
+    by_target = {r["target_id"]: r for r in await cursor.to_list(2000)}
+    for it in items:
+        rating = by_target.get(it.get("id"))
+        it["my_rating"] = {"stars": rating["stars"], "comment": rating.get("comment")} if rating else None
+    return items
 
 
 # ---- Document category slugify ----
@@ -776,21 +896,46 @@ async def me_create_appointment(
 
 @api.get("/me/documents", tags=["Portail Client"])
 async def me_documents(user: dict = Depends(get_current_user)):
-    items = await db.documents.find(
-        {"$or": [{"client_id": user["id"]}, {"is_public": True}]}, {"_id": 0}
-    ).to_list(500)
+    if _can_consult_all_docs(user):
+        # Moderation/Admin/Superviseur see ALL documents
+        items = await db.documents.find({}, {"_id": 0}).to_list(5000)
+    else:
+        # Resolve effective client id (tracked users → parent client)
+        effective_client_id = user.get("parent_client_id") or user["id"]
+        items = await db.documents.find(
+            {"$or": [{"client_id": effective_client_id}, {"is_public": True}]}, {"_id": 0}
+        ).to_list(500)
     return items
 
 
 @api.get("/me/interventions", tags=["Portail Client"])
 async def me_interventions(user: dict = Depends(get_current_user)):
-    items = await db.interventions.find({"client_id": user["id"]}, {"_id": 0}).to_list(1000)
-    return sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
+    if _is_elevated_creator(user):
+        items = await db.interventions.find({}, {"_id": 0}).to_list(2000)
+    else:
+        effective_client_id = user.get("parent_client_id") or user["id"]
+        items = await db.interventions.find({"client_id": effective_client_id}, {"_id": 0}).to_list(1000)
+    items = sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
+    return await _attach_my_rating(items, "interventions", user["id"])
 
 
 @api.get("/me/users", tags=["Portail Client"])
 async def me_users(user: dict = Depends(get_current_user)):
     items = await db.tracked_users.find({"client_id": user["id"]}, {"_id": 0}).to_list(2000)
+    return items
+
+
+@api.get("/me/clients", tags=["Portail Client"])
+async def me_clients_light(user: dict = Depends(get_current_user)):
+    """Minimal client list for elevated users (used in suivis/intervention forms).
+    Non-elevated users only see their own client record."""
+    if _is_elevated_creator(user):
+        cursor = db.users.find({"role": {"$in": ["client", "superviseur"]}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "client_code": 1})
+        items = await cursor.to_list(5000)
+    else:
+        effective_id = user.get("parent_client_id") or user["id"]
+        u = await db.users.find_one({"id": effective_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "client_code": 1})
+        items = [u] if u else []
     return items
 
 
@@ -987,16 +1132,25 @@ async def admin_interventions(_: dict = Depends(get_current_admin)):
 
 @api.post("/admin/interventions", tags=["Admin"])
 async def admin_create_intervention(
-    payload: InterventionCreate, _: dict = Depends(get_current_admin)
+    request: Request,
+    payload: InterventionCreate,
+    user: dict = Depends(get_current_admin),
 ):
+    await _check_descent_window(action_label="enregistrement")
     client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
     intervention_number = await _next_intervention_number(client)
+    images = _validate_images(payload.images, max_count=10)
     doc = {
         "id": _uuid(),
         **payload.model_dump(),
+        "images": images,
         "intervention_number": intervention_number,
+        "owner_id": user["id"],
+        "owner_email": user["email"],
+        "owner_role": user.get("role"),
+        "ip": _client_ip_from_request(request),
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -1771,24 +1925,57 @@ def _user_notes_collection(kind: str):
 @api.get("/me/notes/{kind}", tags=["Portail Client"])
 async def me_list_notes(kind: str, user: dict = Depends(get_current_user)):
     coll = _user_notes_collection(kind)
-    items = await coll.find({"owner_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(2000)
-    return items
+    if _is_elevated_creator(user):
+        # Admin / Superviseur / Moderation see ALL notes (cross-client visibility)
+        items = await coll.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    else:
+        items = await coll.find({"owner_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return await _attach_my_rating(items, kind, user["id"])
 
 
 @api.post("/me/notes/{kind}", tags=["Portail Client"])
-async def me_create_note(kind: str, payload: UserNoteCreate, user: dict = Depends(get_current_user)):
+async def me_create_note(
+    request: Request,
+    kind: str,
+    payload: UserNoteCreate,
+    user: dict = Depends(get_current_user),
+):
     coll = _user_notes_collection(kind)
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer un enregistrement")
+    await _check_descent_window(action_label="enregistrement")
+
     title = (payload.title or "").strip()
     if not title:
         raise HTTPException(status_code=400, detail="Titre requis")
+
+    # Suivis must specify the date and the client concerned
+    if kind == "suivis":
+        if not (payload.event_date and payload.event_date.strip()):
+            raise HTTPException(status_code=400, detail="Date de l'événement requise pour un suivi")
+        if not (payload.client_id and payload.client_id.strip()):
+            raise HTTPException(status_code=400, detail="Client concerné requis pour un suivi")
+
+    images = _validate_images(payload.images, max_count=10)
+    prefix = "RPT" if kind == "reports" else "SUI"
+    numero = await _next_simple_number(prefix)
+
     doc = {
         "id": _uuid(),
         "kind": kind,
+        "numero": numero,
         "owner_id": user["id"],
         "owner_email": user["email"],
+        "owner_name": user.get("full_name"),
+        "owner_role": user.get("tracked_role") or user.get("role"),
         "title": title,
         "content_html": payload.content_html or "",
         "tags": payload.tags or [],
+        "client_id": (payload.client_id or None) if kind == "suivis" else None,
+        "event_date": (payload.event_date or None) if kind == "suivis" else None,
+        "images": images,
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent"),
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -1799,12 +1986,31 @@ async def me_create_note(kind: str, payload: UserNoteCreate, user: dict = Depend
 
 
 @api.put("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
-async def me_update_note(kind: str, note_id: str, payload: UserNoteUpdate, user: dict = Depends(get_current_user)):
+async def me_update_note(
+    kind: str,
+    note_id: str,
+    payload: UserNoteUpdate,
+    user: dict = Depends(get_current_user),
+):
     coll = _user_notes_collection(kind)
-    existing = await coll.find_one({"id": note_id, "owner_id": user["id"]}, {"_id": 0})
+    existing = await coll.find_one({"id": note_id}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Note introuvable")
+    # Owner OR elevated user can edit
+    if existing.get("owner_id") != user["id"] and not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Modification non autorisée")
+    # 1h lock from creation (unless admin/superviseur which can always fix)
+    if not _is_admin_or_superviseur(user):
+        try:
+            created = datetime.fromisoformat(existing["created_at"])
+        except Exception:
+            created = datetime.now(timezone.utc)
+        if datetime.now(timezone.utc) > created + timedelta(hours=1):
+            raise HTTPException(status_code=403, detail="Modification verrouillée : la fenêtre d'1h après la création est dépassée")
+
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "images" in update:
+        update["images"] = _validate_images(update["images"], max_count=10)
     update["updated_at"] = _now()
     await coll.update_one({"id": note_id}, {"$set": update})
     refreshed = await coll.find_one({"id": note_id}, {"_id": 0}) or {**existing, **update}
@@ -1813,10 +2019,16 @@ async def me_update_note(kind: str, note_id: str, payload: UserNoteUpdate, user:
 
 
 @api.delete("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
-async def me_delete_note(kind: str, note_id: str, user: dict = Depends(get_current_user)):
+async def me_delete_note(
+    kind: str,
+    note_id: str,
+    user: dict = Depends(get_current_user),
+):
     coll = _user_notes_collection(kind)
-    existing = await coll.find_one({"id": note_id, "owner_id": user["id"]}, {"_id": 0})
-    res = await coll.delete_one({"id": note_id, "owner_id": user["id"]})
+    if not _can_delete_records(user):
+        raise HTTPException(status_code=403, detail="Suppression réservée aux rôles Administrateur / Superviseur")
+    existing = await coll.find_one({"id": note_id}, {"_id": 0})
+    res = await coll.delete_one({"id": note_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Note introuvable")
     if existing:
@@ -1826,15 +2038,375 @@ async def me_delete_note(kind: str, note_id: str, user: dict = Depends(get_curre
 
 @api.get("/me/notes-summary", tags=["Portail Client"])
 async def me_notes_summary(user: dict = Depends(get_current_user)):
-    """Returns counts and last update timestamps to display dashboard buttons."""
-    rep_count = await db.user_reports.count_documents({"owner_id": user["id"]})
-    sui_count = await db.user_suivis.count_documents({"owner_id": user["id"]})
-    rep_last = await db.user_reports.find_one({"owner_id": user["id"]}, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
-    sui_last = await db.user_suivis.find_one({"owner_id": user["id"]}, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    """Returns counts and last update timestamps to display dashboard buttons.
+    Elevated users see global counts (all notes); others see only their own.
+    """
+    base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
+    rep_count = await db.user_reports.count_documents(base)
+    sui_count = await db.user_suivis.count_documents(base)
+    rep_last = await db.user_reports.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    sui_last = await db.user_suivis.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
     return {
         "reports": {"count": rep_count, "last_updated": (rep_last or {}).get("updated_at")},
         "suivis": {"count": sui_count, "last_updated": (sui_last or {}).get("updated_at")},
     }
+
+
+# ====================================================================
+# PORTAL — Interventions (elevated users)
+# ====================================================================
+@api.post("/me/interventions", tags=["Portail Client"])
+async def me_create_intervention(
+    request: Request,
+    payload: InterventionCreate,
+    user: dict = Depends(get_current_user),
+):
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer une intervention")
+    await _check_descent_window(action_label="enregistrement")
+    client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    intervention_number = await _next_intervention_number(client)
+    images = _validate_images(payload.images, max_count=10)
+    doc = {
+        "id": _uuid(),
+        **payload.model_dump(),
+        "images": images,
+        "intervention_number": intervention_number,
+        "owner_id": user["id"],
+        "owner_email": user["email"],
+        "owner_name": user.get("full_name"),
+        "owner_role": user.get("tracked_role") or user.get("role"),
+        "ip": _client_ip_from_request(request),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.interventions.insert_one(doc.copy())
+    doc.pop("_id", None)
+    _fire_webhook_bg("created", doc)
+    return doc
+
+
+@api.delete("/me/interventions/{int_id}", tags=["Portail Client"])
+async def me_delete_intervention(int_id: str, user: dict = Depends(get_current_user)):
+    if not _can_delete_records(user):
+        raise HTTPException(status_code=403, detail="Suppression réservée aux rôles Administrateur / Superviseur")
+    res = await db.interventions.delete_one({"id": int_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Intervention introuvable")
+    return {"ok": True}
+
+
+# ====================================================================
+# PORTAL — Documents (Moderation+ can read all & upload, only Admin/Sup delete)
+# ====================================================================
+@api.post("/me/documents", tags=["Portail Client"])
+async def me_create_document(payload: DocumentCreate, user: dict = Depends(get_current_user)):
+    if not _can_consult_all_docs(user):
+        raise HTTPException(status_code=403, detail="Téléversement de document réservé aux rôles Modération / Administrateur / Superviseur")
+    doc = {"id": _uuid(), **payload.model_dump(), "uploaded_by_user_id": user["id"], "uploaded_by_email": user["email"], "created_at": _now()}
+    await db.documents.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/me/documents/{doc_id}", tags=["Portail Client"])
+async def me_delete_document(doc_id: str, user: dict = Depends(get_current_user)):
+    if not _can_delete_records(user):
+        raise HTTPException(status_code=403, detail="Suppression réservée aux rôles Administrateur / Superviseur")
+    res = await db.documents.delete_one({"id": doc_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Document introuvable")
+    return {"ok": True}
+
+
+# Portal-side file upload — same behaviour as /admin/upload but allowed for Moderation+
+@api.post("/me/upload", tags=["Portail Client"])
+async def me_upload(request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    if not _can_consult_all_docs(user):
+        raise HTTPException(status_code=403, detail="Téléversement réservé aux rôles Modération / Administrateur / Superviseur")
+    file_id = _uuid()
+    suffix = Path(file.filename or "").suffix.lower()
+    safe_name = f"{file_id}{suffix}"
+    target = UPLOAD_DIR / safe_name
+    with target.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    size = target.stat().st_size
+    file_doc = {
+        "id": file_id,
+        "filename": file.filename,
+        "stored_name": safe_name,
+        "extension": suffix.lstrip(".") if suffix else None,
+        "content_type": file.content_type or mimetypes.guess_type(file.filename or "")[0],
+        "size": size,
+        "url": f"/api/files/{file_id}",
+        "uploaded_at": _now(),
+        "uploaded_by_id": user.get("id"),
+        "uploaded_by_email": user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
+    }
+    await db.files.insert_one(file_doc.copy())
+    await db.document_logs.insert_one({
+        "id": _uuid(),
+        "event_type": "upload",
+        "file_id": file_id,
+        "filename": file.filename,
+        "extension": file_doc.get("extension"),
+        "size": size,
+        "user_id": user.get("id"),
+        "user_email": user.get("email"),
+        "ip": file_doc["uploaded_from_ip"],
+        "user_agent": request.headers.get("user-agent"),
+        "created_at": _now(),
+    })
+    file_doc.pop("_id", None)
+    return file_doc
+
+
+# ====================================================================
+# PORTAL — Contacts inbox (elevated users)
+# ====================================================================
+@api.get("/me/contacts", tags=["Portail Client"])
+async def me_contacts(user: dict = Depends(get_current_user)):
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Accès aux messages réservé aux rôles Modération / Administrateur / Superviseur")
+    items = await db.contacts.find({}, {"_id": 0}).to_list(5000)
+    return sorted(items, key=lambda x: x["created_at"], reverse=True)
+
+
+@api.post("/me/contacts/{contact_id}/save-as-tracked-user", tags=["Portail Client"])
+async def me_save_contact_as_tracked(
+    contact_id: str,
+    payload: SaveContactAsTrackedUser,
+    user: dict = Depends(get_current_user),
+):
+    """Same as /admin/contacts/{id}/save-as-tracked-user but also auto-generates a password,
+    creates a bridged users row, optionally emails the credentials, and returns the password.
+    """
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Accès réservé aux rôles Modération / Administrateur / Superviseur")
+    contact = await db.contacts.find_one({"id": contact_id}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Message introuvable")
+    email = (contact.get("email") or "").strip().lower()
+    if not is_valid_email_syntax(email):
+        raise HTTPException(status_code=400, detail="Email du message invalide (syntaxe)")
+    if payload.role not in TRACKED_USER_ROLES:
+        raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
+    client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+
+    existing = await db.tracked_users.find_one({"email": email, "client_id": payload.client_id}, {"_id": 0})
+    if existing:
+        raise HTTPException(status_code=409, detail="Cet utilisateur est déjà enregistré pour ce client")
+
+    # Create tracked user
+    tu_id = _uuid()
+    tu_doc = {
+        "id": tu_id,
+        "client_id": payload.client_id,
+        "name": contact.get("name") or email,
+        "email": email,
+        "role": payload.role,
+        "department": payload.department,
+        "phone": contact.get("phone"),
+        "company": contact.get("company"),
+        "status": "active",
+        "source_contact_id": contact_id,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.tracked_users.insert_one(tu_doc.copy())
+
+    # Auto-generate a strong password & bridge user
+    raw_pwd = secrets.token_urlsafe(9)
+    user_id = _uuid()
+    await db.users.insert_one({
+        "id": user_id,
+        "email": email,
+        "password_hash": hash_password(raw_pwd),
+        "full_name": tu_doc["name"],
+        "role": "client",
+        "phone": tu_doc.get("phone"),
+        "company": client.get("company"),
+        "logo_url": client.get("logo_url"),
+        "account_status": "active",
+        "tracked_user_id": tu_id,
+        "tracked_role": payload.role,
+        "parent_client_id": payload.client_id,
+        "created_at": _now(),
+        "updated_at": _now(),
+    })
+    await db.tracked_users.update_one(
+        {"id": tu_id},
+        {"$set": {"user_account_id": user_id, "has_password": True, "updated_at": _now()}},
+    )
+    await db.contacts.update_one(
+        {"id": contact_id},
+        {"$set": {"saved_as_tracked_user_id": tu_id, "updated_at": _now()}},
+    )
+
+    # Try to email the credentials (non-blocking, best-effort)
+    email_sent = False
+    try:
+        from email_service import send_email
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        site = s.get("company_email") or "support@sawalismartsystems.com"
+        text_body = (
+            f"Bonjour {tu_doc['name']},\n\n"
+            f"Un accès au portail SAWALI vient de vous être créé.\n\n"
+            f"Identifiant : {email}\n"
+            f"Mot de passe initial : {raw_pwd}\n\n"
+            f"Connectez-vous via /login. Vous pourrez le modifier depuis votre espace.\n\n"
+            f"— L'équipe {site}"
+        )
+        html_body = text_body.replace("\n", "<br>")
+        email_sent = await send_email(email, "Vos identifiants SAWALI", html_body, text_body)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Email tracked-user credentials failed: %s", exc)
+
+    tu_doc.pop("_id", None)
+    return {**tu_doc, "generated_password": raw_pwd, "email_sent": email_sent}
+
+
+# ====================================================================
+# RATINGS — 5-star rating on report / suivi / intervention (Admin/Sup only)
+# ====================================================================
+RATEABLE_KINDS = ("reports", "suivis", "interventions")
+
+
+@api.post("/me/ratings/{kind}/{target_id}", tags=["Portail Client"])
+async def me_rate(
+    kind: str,
+    target_id: str,
+    payload: RatingCreate,
+    user: dict = Depends(get_current_user),
+):
+    if kind not in RATEABLE_KINDS:
+        raise HTTPException(status_code=404, detail="Type non noté")
+    if not _can_rate(user):
+        raise HTTPException(status_code=403, detail="Notation réservée aux rôles Administrateur / Superviseur")
+    if not 1 <= payload.stars <= 5:
+        raise HTTPException(status_code=400, detail="Note invalide (1 à 5)")
+    coll = (db.user_reports if kind == "reports" else
+            db.user_suivis if kind == "suivis" else
+            db.interventions)
+    target = await coll.find_one({"id": target_id}, {"_id": 0})
+    if not target:
+        raise HTTPException(status_code=404, detail="Cible introuvable")
+    rating_doc = {
+        "id": _uuid(),
+        "kind": kind,
+        "target_id": target_id,
+        "rated_by_user_id": user["id"],
+        "rated_by_email": user["email"],
+        "stars": int(payload.stars),
+        "comment": (payload.comment or "").strip() or None,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    # Upsert: one rating per (rater, target)
+    await db.ratings.update_one(
+        {"kind": kind, "target_id": target_id, "rated_by_user_id": user["id"]},
+        {"$set": rating_doc},
+        upsert=True,
+    )
+    return {"ok": True, "stars": rating_doc["stars"]}
+
+
+@api.delete("/me/ratings/{kind}/{target_id}", tags=["Portail Client"])
+async def me_unrate(kind: str, target_id: str, user: dict = Depends(get_current_user)):
+    if not _can_rate(user):
+        raise HTTPException(status_code=403, detail="Notation réservée aux rôles Administrateur / Superviseur")
+    await db.ratings.delete_one(
+        {"kind": kind, "target_id": target_id, "rated_by_user_id": user["id"]}
+    )
+    return {"ok": True}
+
+
+# ====================================================================
+# ACCESS LOGS — every page access in client portal (admin/sup only to view)
+# ====================================================================
+@api.post("/me/access-log", tags=["Portail Client"])
+async def me_log_access(
+    request: Request,
+    payload: AccessLogCreate,
+    user: dict = Depends(get_current_user),
+):
+    """Records a portal page access. Called by the SPA on each route change."""
+    await db.access_logs.insert_one({
+        "id": _uuid(),
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "user_name": user.get("full_name"),
+        "role": user.get("role"),
+        "tracked_role": user.get("tracked_role"),
+        "module": (payload.module or "").strip()[:120],
+        "page": (payload.page or "").strip()[:255],
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent", "")[:500],
+        "created_at": _now(),
+    })
+    return {"ok": True}
+
+
+@api.get("/admin/access-logs", tags=["Admin"])
+async def admin_access_logs(
+    user_email: Optional[str] = None,
+    module: Optional[str] = None,
+    q: Optional[str] = None,
+    limit: int = 1000,
+    user: dict = Depends(get_current_user),
+):
+    if not _can_delete_records(user):
+        raise HTTPException(status_code=403, detail="Accès réservé aux rôles Administrateur / Superviseur")
+    query = {}
+    if user_email:
+        query["user_email"] = {"$regex": re.escape(user_email), "$options": "i"}
+    if module:
+        query["module"] = {"$regex": re.escape(module), "$options": "i"}
+    if q:
+        query["$or"] = [
+            {"user_email": {"$regex": re.escape(q), "$options": "i"}},
+            {"user_name": {"$regex": re.escape(q), "$options": "i"}},
+            {"module": {"$regex": re.escape(q), "$options": "i"}},
+            {"page": {"$regex": re.escape(q), "$options": "i"}},
+        ]
+    items = await db.access_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 10), 5000))
+    return items
+
+
+@api.get("/admin/access-logs/export.csv", tags=["Admin"])
+async def admin_access_logs_csv(
+    user_email: Optional[str] = None,
+    module: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    if not _can_delete_records(user):
+        raise HTTPException(status_code=403, detail="Accès réservé aux rôles Administrateur / Superviseur")
+    items = await admin_access_logs(user_email=user_email, module=module, q=None, limit=5000, user=user)
+    import csv
+    import io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "user_email", "user_name", "role", "tracked_role", "module", "page", "ip"])
+    for it in items:
+        writer.writerow([
+            it.get("created_at", ""),
+            it.get("user_email", ""),
+            it.get("user_name", ""),
+            it.get("role", ""),
+            it.get("tracked_role", ""),
+            it.get("module", ""),
+            it.get("page", ""),
+            it.get("ip", ""),
+        ])
+    return JSONResponse(
+        content={"csv": buf.getvalue()},
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 # ====================================================================

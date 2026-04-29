@@ -1,39 +1,80 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Navigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import {
-  Plus, Edit, Trash2, X, FileText, ClipboardList,
+  Plus, Edit, Trash2, X, FileText, ClipboardList, ImagePlus, Star, Lock, Calendar as CalIcon,
   Bold, Italic, Underline, Strikethrough,
   Heading2, Heading3, List, ListOrdered, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link as LinkIcon, Undo2, Redo2, Eraser, Code,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 
 const KIND_META = {
   reports: { label: "Rapports", singular: "rapport", icon: FileText, accent: "#1E90FF" },
   suivis: { label: "Suivis", singular: "suivi", icon: ClipboardList, accent: "#10B981" },
 };
 
-const empty = { title: "", content_html: "", tags: [] };
+const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [] };
+
+const ELEVATED_TRACKED = new Set(["Moderation", "Administrateur", "Superviseur"]);
+const ADMIN_LEVEL_TRACKED = new Set(["Administrateur", "Superviseur"]);
+
+function isElevated(user) {
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "superviseur") return true;
+  return ELEVATED_TRACKED.has(user.tracked_role);
+}
+function canDeleteOrRate(user) {
+  if (!user) return false;
+  if (user.role === "admin" || user.role === "superviseur") return true;
+  return ADMIN_LEVEL_TRACKED.has(user.tracked_role);
+}
+function isLockedForEdit(note, user) {
+  if (!note?.created_at) return false;
+  if (user?.role === "admin" || user?.role === "superviseur") return false;
+  const created = new Date(note.created_at).getTime();
+  return Date.now() > created + 3600 * 1000;
+}
 
 export default function UserNotesPage() {
   const { kind } = useParams();
+  const { user } = useAuth();
   const meta = KIND_META[kind];
   const [items, setItems] = useState([]);
+  const [clients, setClients] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [busy, setBusy] = useState(false);
+  const [activeImage, setActiveImage] = useState(null);
+
+  const elevated = isElevated(user);
+  const canDelete = canDeleteOrRate(user);
 
   const load = () => apiClient.get(`/me/notes/${kind}`).then((r) => setItems(r.data)).catch(() => {});
-  useEffect(() => { if (meta) load(); /* eslint-disable-next-line */ }, [kind]);
+  useEffect(() => {
+    if (!meta) return;
+    load();
+    if (kind === "suivis") {
+      // For suivis we need the client list (portal-friendly endpoint)
+      apiClient.get("/me/clients").then((r) => setClients(r.data)).catch(() => {});
+    }
+    // eslint-disable-next-line
+  }, [kind]);
 
   if (!meta) return <Navigate to="/portal" replace />;
 
   const open = (it = null) => {
     setEditing(it);
-    setForm(it ? { ...empty, ...it, tags: it.tags || [] } : empty);
+    setForm(it ? {
+      ...empty,
+      ...it,
+      tags: it.tags || [],
+      images: it.images || [],
+      event_date: it.event_date ? it.event_date.slice(0, 16) : "",
+    } : empty);
     setIsOpen(true);
   };
   const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
@@ -41,10 +82,21 @@ export default function UserNotesPage() {
   const submit = async (e) => {
     e.preventDefault();
     if (!form.title.trim()) { toast.error("Titre requis"); return; }
+    if (kind === "suivis") {
+      if (!form.client_id) { toast.error("Client requis pour un suivi"); return; }
+      if (!form.event_date) { toast.error("Date de l'événement requise pour un suivi"); return; }
+    }
     setBusy(true);
     try {
-      if (editing?.id) await apiClient.put(`/me/notes/${kind}/${editing.id}`, form);
-      else await apiClient.post(`/me/notes/${kind}`, form);
+      const payload = {
+        title: form.title,
+        content_html: form.content_html,
+        tags: form.tags,
+        images: form.images,
+        ...(kind === "suivis" ? { client_id: form.client_id, event_date: new Date(form.event_date).toISOString() } : {}),
+      };
+      if (editing?.id) await apiClient.put(`/me/notes/${kind}/${editing.id}`, payload);
+      else await apiClient.post(`/me/notes/${kind}`, payload);
       toast.success("Enregistré"); close(); await load();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
     finally { setBusy(false); }
@@ -55,7 +107,7 @@ export default function UserNotesPage() {
     try {
       await apiClient.delete(`/me/notes/${kind}/${id}`);
       toast.success("Supprimée"); await load();
-    } catch (err) { toast.error("Erreur"); }
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
   };
 
   const Icon = meta.icon;
@@ -68,46 +120,52 @@ export default function UserNotesPage() {
             <Icon className="h-6 w-6" style={{ color: meta.accent }} /> Mes {meta.label}
           </h1>
           <p className="text-sm text-slate-500">
-            Saisissez et conservez vos {meta.label.toLowerCase()} avec mise en forme. Horodatage automatique à chaque modification.
+            {kind === "suivis"
+              ? "Saisissez et conservez vos suivis (date + client requis). Numéro auto, IP enregistrée. Verrouillage après 1h."
+              : "Vos rapports sont horodatés automatiquement. Numéro auto. Édition limitée à 1h après création."}
           </p>
         </div>
-        <button
-          onClick={() => open()}
-          className="inline-flex items-center gap-2 rounded-lg text-white px-4 py-2 text-sm hover:opacity-90"
-          style={{ background: meta.accent }}
-          data-testid={`new-${kind}-btn`}
-        >
-          <Plus className="h-4 w-4" /> Nouveau {meta.singular}
-        </button>
+        {elevated && (
+          <button
+            onClick={() => open()}
+            className="inline-flex items-center gap-2 rounded-lg text-white px-4 py-2 text-sm hover:opacity-90"
+            style={{ background: meta.accent }}
+            data-testid={`new-${kind}-btn`}
+          >
+            <Plus className="h-4 w-4" /> Nouveau {meta.singular}
+          </button>
+        )}
       </div>
 
-      {items.length === 0 && (
-        <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500" data-testid={`empty-${kind}`}>
-          Aucun {meta.singular} encore enregistré. Cliquez sur « Nouveau {meta.singular} » pour commencer.
+      {!elevated && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          La création de {meta.label.toLowerCase()} est réservée aux rôles <strong>Modération</strong>, <strong>Administrateur</strong> ou <strong>Superviseur</strong>.
         </div>
       )}
 
-      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((n) => (
-          <article key={n.id} className="rounded-xl border border-slate-200 bg-white p-5 hover:border-sawali-blue/40 transition" data-testid={`note-${n.id}`}>
-            <h3 className="font-display font-semibold text-slate-900 truncate" title={n.title}>{n.title}</h3>
-            <div className="mt-2 text-sm text-slate-600 prose-sawali line-clamp-4" dangerouslySetInnerHTML={{ __html: n.content_html || "<p class=\"text-slate-400 italic\">Aucun contenu</p>" }} />
-            <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-              <span className="text-slate-400">
-                Modifié le {new Date(n.updated_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}
-              </span>
-              <div className="flex gap-2">
-                <button onClick={() => open(n)} className="text-slate-500 hover:text-sawali-blue inline-flex items-center gap-1" title="Modifier" data-testid={`edit-note-${n.id}`}>
-                  <Edit className="h-3.5 w-3.5" />
-                </button>
-                <button onClick={() => del(n.id)} className="text-slate-500 hover:text-rose-600 inline-flex items-center gap-1" title="Supprimer" data-testid={`delete-note-${n.id}`}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            </div>
-          </article>
-        ))}
-      </div>
+      {items.length === 0 ? (
+        <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500" data-testid={`empty-${kind}`}>
+          Aucun {meta.singular} encore enregistré.
+        </div>
+      ) : (
+        <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {items.map((n) => (
+            <NoteCard
+              key={n.id}
+              n={n}
+              kind={kind}
+              meta={meta}
+              user={user}
+              canDelete={canDelete}
+              clients={clients}
+              onEdit={() => open(n)}
+              onDelete={() => del(n.id)}
+              onRefresh={load}
+              onImage={(img) => setActiveImage(img)}
+            />
+          ))}
+        </div>
+      )}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
@@ -129,14 +187,43 @@ export default function UserNotesPage() {
                   data-testid="note-title-input"
                 />
               </div>
+
+              {kind === "suivis" && (
+                <div className="grid sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Client concerné *</label>
+                    <select
+                      required
+                      value={form.client_id}
+                      onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      data-testid="note-client-select"
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {clients.map((c) => <option key={c.id} value={c.id}>{c.full_name}{c.company ? ` — ${c.company}` : ""}</option>)}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1">Date & heure de l'événement *</label>
+                    <input
+                      type="datetime-local"
+                      required
+                      value={form.event_date}
+                      onChange={(e) => setForm({ ...form, event_date: e.target.value })}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                      data-testid="note-event-date"
+                    />
+                  </div>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold mb-1">Contenu</label>
-                <RichEditor
-                  value={form.content_html}
-                  onChange={(v) => setForm({ ...form, content_html: v })}
-                  accent={meta.accent}
-                />
+                <RichEditor value={form.content_html} onChange={(v) => setForm({ ...form, content_html: v })} accent={meta.accent} />
               </div>
+
+              <ImageUploader images={form.images} onChange={(images) => setForm({ ...form, images })} accent={meta.accent} />
+
               <button
                 type="submit"
                 disabled={busy}
@@ -150,6 +237,158 @@ export default function UserNotesPage() {
           </div>
         </div>
       )}
+
+      {activeImage && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85" onClick={() => setActiveImage(null)}>
+          <img src={activeImage} alt="" className="max-h-[90vh] max-w-[95vw] rounded-lg" onClick={(e) => e.stopPropagation()} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ====================================================================
+// Note card with rating UI
+// ====================================================================
+function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, onRefresh, onImage }) {
+  const locked = isLockedForEdit(n, user);
+  const clientName = useMemo(() => clients.find((c) => c.id === n.client_id)?.full_name || n.client_id, [clients, n.client_id]);
+
+  const setRating = async (stars) => {
+    try {
+      await apiClient.post(`/me/ratings/${kind}/${n.id}`, { stars });
+      toast.success(`Note ${stars}/5 enregistrée`);
+      await onRefresh();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+  const clearRating = async () => {
+    try {
+      await apiClient.delete(`/me/ratings/${kind}/${n.id}`);
+      await onRefresh();
+    } catch (err) { toast.error("Erreur"); }
+  };
+
+  return (
+    <article className="rounded-xl border border-slate-200 bg-white p-5 hover:border-sawali-blue/40 transition flex flex-col" data-testid={`note-${n.id}`}>
+      <div className="flex items-center justify-between gap-2 mb-2">
+        <span className="text-[10px] uppercase tracking-widest font-mono text-slate-500">{n.numero || "—"}</span>
+        {locked ? (
+          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400" title="Verrouillé (>1h après création)"><Lock className="h-3 w-3" /> verrouillé</span>
+        ) : null}
+      </div>
+      <h3 className="font-display font-semibold text-slate-900 truncate" title={n.title}>{n.title}</h3>
+      {kind === "suivis" && (
+        <div className="mt-1 text-xs text-slate-500 flex items-center gap-1.5 flex-wrap">
+          {n.event_date && <span className="inline-flex items-center gap-1"><CalIcon className="h-3 w-3" />{new Date(n.event_date).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</span>}
+          {n.client_id && <span className="px-1.5 py-0.5 bg-emerald-50 rounded">{clientName}</span>}
+        </div>
+      )}
+      <div className="mt-2 text-sm text-slate-600 prose-sawali line-clamp-4" dangerouslySetInnerHTML={{ __html: n.content_html || "<p class=\"text-slate-400 italic\">Aucun contenu</p>" }} />
+      {n.images && n.images.length > 0 && (
+        <div className="mt-3 flex flex-wrap gap-1">
+          {n.images.slice(0, 6).map((im, i) => (
+            <button key={i} onClick={() => onImage(absoluteImg(im.url))} className="block h-12 w-12 rounded overflow-hidden border border-slate-200 bg-slate-50">
+              <img src={absoluteImg(im.url)} alt="" className="h-full w-full object-cover" />
+            </button>
+          ))}
+          {n.images.length > 6 && <span className="text-[10px] text-slate-500 self-center px-1">+{n.images.length - 6}</span>}
+        </div>
+      )}
+      <div className="mt-3 flex items-center justify-between gap-2 text-xs">
+        <span className="text-slate-400 truncate">
+          {n.owner_email && <>par {n.owner_email}<br /></>}
+          {n.created_at && new Date(n.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+        </span>
+        <div className="flex gap-2 items-center">
+          {!locked && <button onClick={onEdit} className="text-slate-500 hover:text-sawali-blue" title="Modifier" data-testid={`edit-note-${n.id}`}><Edit className="h-3.5 w-3.5" /></button>}
+          {canDelete && <button onClick={onDelete} className="text-slate-500 hover:text-rose-600" title="Supprimer" data-testid={`delete-note-${n.id}`}><Trash2 className="h-3.5 w-3.5" /></button>}
+        </div>
+      </div>
+      {canDeleteOrRate(user) && (
+        <div className="mt-3 pt-2 border-t border-slate-100">
+          <RatingStars value={n.my_rating?.stars || 0} onChange={setRating} onClear={clearRating} />
+          {n.my_rating?.stars ? <span className="text-[10px] text-slate-400 ml-2">votre note</span> : null}
+        </div>
+      )}
+    </article>
+  );
+}
+
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+const absoluteImg = (u) => (!u ? "" : (u.startsWith("http") ? u : `${BACKEND}${u.startsWith("/") ? "" : "/"}${u}`));
+
+// ====================================================================
+// 5-star rater
+// ====================================================================
+function RatingStars({ value = 0, onChange, onClear }) {
+  return (
+    <div className="inline-flex items-center gap-0.5" data-testid="rating-stars">
+      {[1, 2, 3, 4, 5].map((s) => (
+        <button key={s} type="button" onClick={() => onChange(s)} className="p-0.5" title={`${s} étoile${s > 1 ? "s" : ""}`} data-testid={`star-${s}`}>
+          <Star className={`h-4 w-4 ${s <= value ? "fill-amber-400 text-amber-500" : "text-slate-300"}`} />
+        </button>
+      ))}
+      {value > 0 && (
+        <button type="button" onClick={onClear} className="ml-1 text-[10px] text-slate-400 hover:text-rose-500" title="Effacer">×</button>
+      )}
+    </div>
+  );
+}
+
+// ====================================================================
+// Image uploader (max 10)
+// ====================================================================
+function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
+  const inputRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const list = images || [];
+
+  const upload = async (files) => {
+    const remaining = 10 - list.length;
+    if (remaining <= 0) { toast.error("Maximum 10 images atteintes"); return; }
+    const todo = Array.from(files).slice(0, remaining);
+    setBusy(true);
+    try {
+      const next = [...list];
+      for (const f of todo) {
+        if (!f.type.startsWith("image/")) continue;
+        const fd = new FormData();
+        fd.append("file", f);
+        const r = await apiClient.post("/me/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+        next.push({ file_id: r.data.id, url: r.data.url, filename: r.data.filename });
+      }
+      onChange(next);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur upload"); }
+    finally { setBusy(false); if (inputRef.current) inputRef.current.value = ""; }
+  };
+
+  const remove = (i) => onChange(list.filter((_, idx) => idx !== i));
+
+  return (
+    <div>
+      <label className="block text-xs font-semibold mb-1">Images ({list.length}/10)</label>
+      <div className="flex flex-wrap gap-2">
+        {list.map((im, i) => (
+          <div key={i} className="relative h-16 w-16 rounded-md overflow-hidden border border-slate-200 bg-slate-50" data-testid={`note-img-${i}`}>
+            <img src={absoluteImg(im.url)} alt="" className="h-full w-full object-cover" />
+            <button type="button" onClick={() => remove(i)} className="absolute top-0 right-0 bg-black/60 text-white rounded-bl px-1 text-[10px]" title="Retirer">×</button>
+          </div>
+        ))}
+        {list.length < 10 && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => inputRef.current?.click()}
+            className="h-16 w-16 rounded-md border border-dashed border-slate-300 flex flex-col items-center justify-center text-[10px] text-slate-500 hover:border-sawali-blue hover:text-sawali-blue disabled:opacity-50"
+            style={{ borderColor: busy ? accent : undefined }}
+            data-testid="add-image-btn"
+          >
+            <ImagePlus className="h-4 w-4" />
+            {busy ? "..." : "Ajouter"}
+          </button>
+        )}
+      </div>
+      <input ref={inputRef} type="file" hidden multiple accept="image/*" onChange={(e) => e.target.files && upload(e.target.files)} />
     </div>
   );
 }
@@ -165,139 +404,74 @@ function RichEditor({ value, onChange, accent = "#1E90FF" }) {
   const [showColors, setShowColors] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
 
-  // Initialize once and only sync from prop if editor is empty (to avoid caret jumps)
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== (value || "")) {
-      const empty = !ref.current.innerHTML || ref.current.innerHTML === "<br>";
-      if (empty) ref.current.innerHTML = value || "";
+      const isEmpty = !ref.current.innerHTML || ref.current.innerHTML === "<br>";
+      if (isEmpty) ref.current.innerHTML = value || "";
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const emit = () => { if (ref.current) onChange(ref.current.innerHTML); };
+  const exec = (cmd, arg = null) => { ref.current?.focus(); document.execCommand(cmd, false, arg); emit(); };
+  const setLink = () => { const url = window.prompt("URL du lien :", "https://"); if (url) exec("createLink", url); };
 
-  const exec = (cmd, arg = null) => {
-    ref.current?.focus();
-    document.execCommand(cmd, false, arg);
-    emit();
-  };
-
-  const setLink = () => {
-    const url = window.prompt("URL du lien :", "https://");
-    if (!url) return;
-    exec("createLink", url);
-  };
-
-  const Btn = ({ onClick, title, active, children, testid }) => (
-    <button
-      type="button"
-      title={title}
-      onMouseDown={(e) => e.preventDefault()}
-      onClick={onClick}
-      className={`p-1.5 rounded hover:bg-slate-100 text-slate-600 ${active ? "bg-slate-200 text-slate-900" : ""}`}
-      data-testid={testid}
-    >
-      {children}
-    </button>
+  const Btn = ({ onClick, title, children, testid }) => (
+    <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" data-testid={testid}>{children}</button>
   );
 
   return (
     <div className="rounded-lg border border-slate-300 focus-within:border-sawali-blue overflow-hidden">
       <div className="flex items-center flex-wrap gap-0.5 border-b border-slate-200 bg-slate-50/60 px-2 py-1.5" data-testid="rte-toolbar">
-        <Btn onClick={() => exec("bold")} title="Gras (Ctrl+B)" testid="rte-bold"><Bold className="h-3.5 w-3.5" /></Btn>
-        <Btn onClick={() => exec("italic")} title="Italique (Ctrl+I)" testid="rte-italic"><Italic className="h-3.5 w-3.5" /></Btn>
+        <Btn onClick={() => exec("bold")} title="Gras" testid="rte-bold"><Bold className="h-3.5 w-3.5" /></Btn>
+        <Btn onClick={() => exec("italic")} title="Italique" testid="rte-italic"><Italic className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("underline")} title="Souligné" testid="rte-underline"><Underline className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("strikeThrough")} title="Barré" testid="rte-strike"><Strikethrough className="h-3.5 w-3.5" /></Btn>
-
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
         <Btn onClick={() => exec("formatBlock", "h2")} title="Titre" testid="rte-h2"><Heading2 className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("formatBlock", "h3")} title="Sous-titre" testid="rte-h3"><Heading3 className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("formatBlock", "blockquote")} title="Citation" testid="rte-quote"><Quote className="h-3.5 w-3.5" /></Btn>
-        <Btn onClick={() => exec("formatBlock", "pre")} title="Bloc de code" testid="rte-code"><Code className="h-3.5 w-3.5" /></Btn>
-
+        <Btn onClick={() => exec("formatBlock", "pre")} title="Code" testid="rte-code"><Code className="h-3.5 w-3.5" /></Btn>
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
         <Btn onClick={() => exec("insertUnorderedList")} title="Liste à puces" testid="rte-ul"><List className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("insertOrderedList")} title="Liste numérotée" testid="rte-ol"><ListOrdered className="h-3.5 w-3.5" /></Btn>
-
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
-        <Btn onClick={() => exec("justifyLeft")} title="Aligner à gauche" testid="rte-left"><AlignLeft className="h-3.5 w-3.5" /></Btn>
+        <Btn onClick={() => exec("justifyLeft")} title="Gauche" testid="rte-left"><AlignLeft className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("justifyCenter")} title="Centrer" testid="rte-center"><AlignCenter className="h-3.5 w-3.5" /></Btn>
-        <Btn onClick={() => exec("justifyRight")} title="Aligner à droite" testid="rte-right"><AlignRight className="h-3.5 w-3.5" /></Btn>
-
+        <Btn onClick={() => exec("justifyRight")} title="Droite" testid="rte-right"><AlignRight className="h-3.5 w-3.5" /></Btn>
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
         <div className="relative">
-          <Btn onClick={() => { setShowColors((v) => !v); setShowHighlights(false); }} title="Couleur de texte" testid="rte-color">
-            <span className="inline-flex flex-col items-center leading-none">
-              <span className="font-bold text-[10px]">A</span>
-              <span className="block w-3 h-0.5" style={{ background: accent }} />
-            </span>
+          <Btn onClick={() => { setShowColors((v) => !v); setShowHighlights(false); }} title="Couleur" testid="rte-color">
+            <span className="inline-flex flex-col items-center leading-none"><span className="font-bold text-[10px]">A</span><span className="block w-3 h-0.5" style={{ background: accent }} /></span>
           </Btn>
           {showColors && (
             <div className="absolute left-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-lg p-2 flex gap-1">
               {TEXT_COLORS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => { exec("foreColor", c); setShowColors(false); }}
-                  className="h-5 w-5 rounded-full border border-slate-200"
-                  style={{ background: c }}
-                  title={c}
-                />
+                <button key={c} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { exec("foreColor", c); setShowColors(false); }} className="h-5 w-5 rounded-full border border-slate-200" style={{ background: c }} title={c} />
               ))}
             </div>
           )}
         </div>
-
         <div className="relative">
           <Btn onClick={() => { setShowHighlights((v) => !v); setShowColors(false); }} title="Surlignage" testid="rte-highlight">
-            <span className="inline-flex flex-col items-center leading-none">
-              <span className="font-bold text-[10px]">H</span>
-              <span className="block w-3 h-0.5 bg-yellow-300" />
-            </span>
+            <span className="inline-flex flex-col items-center leading-none"><span className="font-bold text-[10px]">H</span><span className="block w-3 h-0.5 bg-yellow-300" /></span>
           </Btn>
           {showHighlights && (
             <div className="absolute left-0 top-full mt-1 z-10 bg-white border border-slate-200 rounded-lg shadow-lg p-2 flex gap-1">
               {HIGHLIGHTS.map((c) => (
-                <button
-                  key={c}
-                  type="button"
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => { exec("hiliteColor", c); setShowHighlights(false); }}
-                  className="h-5 w-5 rounded-full border border-slate-200"
-                  style={{ background: c === "transparent" ? "repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6px)" : c }}
-                  title={c}
-                />
+                <button key={c} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => { exec("hiliteColor", c); setShowHighlights(false); }} className="h-5 w-5 rounded-full border border-slate-200" style={{ background: c === "transparent" ? "repeating-linear-gradient(45deg,#fff,#fff 3px,#eee 3px,#eee 6px)" : c }} title={c} />
               ))}
             </div>
           )}
         </div>
-
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
-        <Btn onClick={setLink} title="Insérer un lien" testid="rte-link"><LinkIcon className="h-3.5 w-3.5" /></Btn>
-        <Btn onClick={() => exec("removeFormat")} title="Effacer la mise en forme" testid="rte-clear"><Eraser className="h-3.5 w-3.5" /></Btn>
-
+        <Btn onClick={setLink} title="Lien" testid="rte-link"><LinkIcon className="h-3.5 w-3.5" /></Btn>
+        <Btn onClick={() => exec("removeFormat")} title="Effacer" testid="rte-clear"><Eraser className="h-3.5 w-3.5" /></Btn>
         <span className="w-px h-5 bg-slate-200 mx-1" />
-
         <Btn onClick={() => exec("undo")} title="Annuler" testid="rte-undo"><Undo2 className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("redo")} title="Rétablir" testid="rte-redo"><Redo2 className="h-3.5 w-3.5" /></Btn>
       </div>
-
-      <div
-        ref={ref}
-        contentEditable
-        suppressContentEditableWarning
-        onInput={emit}
-        onBlur={emit}
-        className="prose-sawali min-h-[220px] max-h-[420px] overflow-auto px-3 py-2 text-sm focus:outline-none"
-        style={{ caretColor: accent }}
-        data-testid="rte-content"
-      />
+      <div ref={ref} contentEditable suppressContentEditableWarning onInput={emit} onBlur={emit} className="prose-sawali min-h-[180px] max-h-[360px] overflow-auto px-3 py-2 text-sm focus:outline-none" style={{ caretColor: accent }} data-testid="rte-content" />
     </div>
   );
 }

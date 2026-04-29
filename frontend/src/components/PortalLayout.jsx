@@ -1,8 +1,8 @@
 import React, { useEffect, useState } from "react";
-import { NavLink, useNavigate, Outlet, Link } from "react-router-dom";
+import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -36,6 +36,7 @@ const adminLinks = [
   { to: "/admin/visits", label: "Trafic & Visites", icon: Activity },
   { to: "/admin/deployments", label: "Déploiements", icon: Globe2 },
   { to: "/admin/blacklist", label: "Blacklist IP", icon: ShieldAlert },
+  { to: "/admin/access-logs", label: "Logs d'accès", icon: History },
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },
@@ -45,6 +46,7 @@ const adminLinks = [
 export default function PortalLayout({ admin = false }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [branding, setBranding] = useState(null);
   const links = admin ? adminLinks : clientLinks;
@@ -53,6 +55,18 @@ export default function PortalLayout({ admin = false }) {
     if (!user) navigate("/login");
     if (admin && user && user.role !== "admin") navigate("/portal");
   }, [user, admin, navigate]);
+
+  // Access log every page change for any logged-in portal user
+  useEffect(() => {
+    if (!user) return;
+    const path = location.pathname;
+    // Resolve a friendly module label from the matching link
+    const match = [...adminLinks, ...clientLinks].find((l) =>
+      l.end ? path === l.to : path === l.to || path.startsWith(l.to + "/")
+    );
+    const moduleLabel = match?.label || (path.startsWith("/admin") ? "Admin" : "Portail");
+    apiClient.post("/me/access-log", { module: moduleLabel, page: path }).catch(() => {});
+  }, [user, location.pathname]);
 
   useEffect(() => {
     // Fetch client branding (logo) only for non-admin (client portal)

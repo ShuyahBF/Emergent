@@ -49,6 +49,7 @@ import AdminNewsletter from "@/pages/admin/AdminNewsletter";
 import AdminVisits from "@/pages/admin/AdminVisits";
 import AdminDeployments from "@/pages/admin/AdminDeployments";
 import AdminBlacklist from "@/pages/admin/AdminBlacklist";
+import AdminAccessLogs from "@/pages/admin/AdminAccessLogs";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
@@ -117,6 +118,7 @@ export default function App() {
             <Route path="visits" element={<AdminVisits />} />
             <Route path="deployments" element={<AdminDeployments />} />
             <Route path="blacklist" element={<AdminBlacklist />} />
+            <Route path="access-logs" element={<AdminAccessLogs />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

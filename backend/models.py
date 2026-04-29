@@ -28,6 +28,8 @@ class UserPublic(BaseModel):
     created_at: str
     is_primary_client: Optional[bool] = False
     logo_url: Optional[str] = None
+    tracked_role: Optional[str] = None
+    parent_client_id: Optional[str] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -214,6 +216,7 @@ class InterventionCreate(BaseModel):
     technician: Optional[str] = None
     duration_hours: Optional[float] = None
     attachments: List[str] = []
+    images: Optional[List[dict]] = None  # [{file_id, url, filename}], max 10
 
 
 class InterventionUpdate(BaseModel):
@@ -224,6 +227,7 @@ class InterventionUpdate(BaseModel):
     technician: Optional[str] = None
     duration_hours: Optional[float] = None
     attachments: Optional[List[str]] = None
+    images: Optional[List[dict]] = None
 
 
 # ====================================================================
@@ -339,6 +343,7 @@ class SettingsUpdate(BaseModel):
 
     business_open_time: Optional[str] = None  # "09:00"
     business_close_time: Optional[str] = None  # "18:00"
+    descent_time: Optional[str] = None  # "08:00" — heure de descente sur site (cutoff = +1h pour create rapport/suivi/intervention)
     business_days: Optional[List[int]] = None  # 0=Mon ... 6=Sun
     slot_duration_min: Optional[int] = None
 
@@ -409,9 +414,25 @@ class UserNoteCreate(BaseModel):
     title: str
     content_html: Optional[str] = ""
     tags: Optional[List[str]] = None
+    client_id: Optional[str] = None  # required for suivis (validated server-side)
+    event_date: Optional[str] = None  # ISO datetime ; required for suivis
+    images: Optional[List[dict]] = None  # max 10
 
 
 class UserNoteUpdate(BaseModel):
     title: Optional[str] = None
     content_html: Optional[str] = None
     tags: Optional[List[str]] = None
+    client_id: Optional[str] = None
+    event_date: Optional[str] = None
+    images: Optional[List[dict]] = None
+
+
+class RatingCreate(BaseModel):
+    stars: int  # 1..5
+    comment: Optional[str] = None
+
+
+class AccessLogCreate(BaseModel):
+    module: str
+    page: Optional[str] = None

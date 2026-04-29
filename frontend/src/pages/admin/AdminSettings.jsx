@@ -97,11 +97,16 @@ export default function AdminSettings() {
       </Section>
 
       <Section icon={Calendar} title="Heures ouvrables / RDV">
-        <div className="grid sm:grid-cols-3 gap-3">
-          <Input label="Ouverture" type="time" value={s.business_open_time || "09:00"} onChange={(v) => upd("business_open_time", v)} testid="open-time" />
-          <Input label="Fermeture" type="time" value={s.business_close_time || "18:00"} onChange={(v) => upd("business_close_time", v)} testid="close-time" />
+        <div className="grid sm:grid-cols-4 gap-3">
+          <Input label="Ouverture activités" type="time" value={s.business_open_time || "09:00"} onChange={(v) => upd("business_open_time", v)} testid="open-time" />
+          <Input label="Fermeture activités" type="time" value={s.business_close_time || "18:00"} onChange={(v) => upd("business_close_time", v)} testid="close-time" />
+          <Input label="Heure de descente" type="time" value={s.descent_time || ""} onChange={(v) => upd("descent_time", v)} testid="descent-time" />
           <Input label="Durée créneau (min)" type="number" value={s.slot_duration_min || 30} onChange={(v) => upd("slot_duration_min", parseInt(v) || 30)} testid="slot-duration" />
         </div>
+        <p className="text-[11px] text-slate-500">
+          <strong>Heure de descente</strong> : seuil quotidien pour la création de Rapports / Suivis / Interventions.
+          Au-delà de <strong>1 heure</strong> après cette heure, l'enregistrement est refusé pour la journée. Laisser vide pour désactiver.
+        </p>
         <div className="flex flex-wrap gap-2 mt-2">
           {["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"].map((d, idx) => {
             const list = s.business_days || [];

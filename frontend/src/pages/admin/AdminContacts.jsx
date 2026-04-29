@@ -31,8 +31,15 @@ export default function AdminContacts() {
     if (!form.client_id) { toast.error("Sélectionnez un client"); return; }
     setSubmitting(true);
     try {
-      await apiClient.post(`/admin/contacts/${savingFor.id}/save-as-tracked-user`, form);
-      toast.success("Utilisateur suivi enregistré");
+      const r = await apiClient.post(`/me/contacts/${savingFor.id}/save-as-tracked-user`, form);
+      const pwd = r.data?.generated_password;
+      const sent = r.data?.email_sent;
+      if (pwd) {
+        try { await navigator.clipboard.writeText(pwd); } catch { /* ignore clipboard errors */ }
+        toast.success(`Utilisateur suivi créé · mot de passe : ${pwd} ${sent ? "(envoyé par email)" : "(à transmettre)"}`, { duration: 12000 });
+      } else {
+        toast.success("Utilisateur suivi enregistré");
+      }
       closeSave();
       await load();
     } catch (err) {

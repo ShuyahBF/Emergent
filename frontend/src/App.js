@@ -30,6 +30,7 @@ import ClientAppointments from "@/pages/portal/Appointments";
 import ClientDocuments from "@/pages/portal/Documents";
 import ClientInterventions from "@/pages/portal/Interventions";
 import ClientUsersTracking from "@/pages/portal/UsersTracking";
+import UserNotesPage from "@/pages/portal/UserNotes";
 
 // Admin
 import AdminDashboard from "@/pages/admin/AdminDashboard";
@@ -96,6 +97,7 @@ export default function App() {
             <Route path="documents" element={<ClientDocuments />} />
             <Route path="interventions" element={<ClientInterventions />} />
             <Route path="users" element={<ClientUsersTracking />} />
+            <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>
 
           {/* Admin */}

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -232,6 +232,18 @@ export default function AdminSettings() {
               placeholder="#0075E3"
             />
           </div>
+        </div>
+      </Section>
+
+      <Section icon={ClipboardList} title="Espace client : Rapports & Suivis">
+        <p className="text-xs text-slate-500">
+          Contrôle l'affichage des cartes <strong>Rapports</strong> et <strong>Suivis</strong> sur le tableau de bord
+          de l'espace client. Quand activées, les utilisateurs suivis peuvent saisir et conserver leurs notes avec
+          mise en forme (gras, listes, couleurs, etc.).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle label="Afficher la carte Rapports" value={s.show_reports_button !== false} onChange={(v) => upd("show_reports_button", v)} testid="toggle-show-reports" />
+          <Toggle label="Afficher la carte Suivis" value={s.show_suivis_button !== false} onChange={(v) => upd("show_suivis_button", v)} testid="toggle-show-suivis" />
         </div>
       </Section>
 

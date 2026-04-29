@@ -84,7 +84,7 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Tooltip Recharts français au survol des points
   - Backend public `/deployments` enrichi avec `created_at` + `updated_at` par solution
 
-## Implemented (2026-04-29) — Filtre solution + Blacklist IP + Vidéo Hero + Logo Client
+## Implemented (2026-04-29) — Filtre solution + Blacklist IP + Vidéo Hero + Logo Client + Assistant virtuel
 ✅ **Filtre par solution** sur la mappemonde : pills cliquables (Toutes / Aizenta / PharmaPlus / …) qui restreignent les marqueurs et recalculent stats + zoom auto.
 ✅ **Blacklist IP** :
   - Collection `blacklisted_ips` + middleware FastAPI sur tous les `/api/*` (sauf endpoints de gestion).
@@ -103,6 +103,14 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Endpoint `/me/branding` qui retourne le bon logo (logo client ou logo SAWALI).
   - Tracked-users héritent du logo de leur client_id (lookup par email → tracked_users → client).
   - Sidebar du portail (`PortalLayout`) affiche le logo client à la place de SAWALI quand un utilisateur de ce client est connecté.
+✅ **Assistant virtuel (chatbot Liluvine / JotForm)** :
+  - Bouton flottant bottom-right présent sur toutes les pages (public + portail) via `<VirtualAssistant>` racine dans App.js.
+  - Reproduit le comportement du snippet HTML : popup **responsive** (90% du viewport, capped 720×640), paramètre `parentURL=` ajouté automatiquement, fenêtre nommée pour réutilisation.
+  - **Bouton lui-même responsive** : icône seule 48×48 sur mobile (<640px), label visible à partir de tablette, padding et taille de texte qui croissent jusqu'à 4K.
+  - 4 paramètres dans /admin/settings : enabled, URL, label, couleur (color picker + champ hex).
+  - Bouton dismissible pour la session (sessionStorage) sans toucher à la config admin.
+  - Auto-seed des defaults à l'URL JotForm `0199e26b35a87a6ea156d196e3e180731e7d` + libellé "Liluvine — Support Technique" + couleur `#0075E3`.
+  - Backfill automatique au démarrage pour les bases existantes (n'écrase pas les overrides admin).
 
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)

@@ -365,6 +365,12 @@ class SettingsUpdate(BaseModel):
     hero_video_muted: Optional[bool] = None
     hero_video_poster_url: Optional[str] = None  # optional cover image
 
+    # Virtual assistant (JotForm or compatible popup chatbot)
+    assistant_enabled: Optional[bool] = None
+    assistant_url: Optional[str] = None  # external popup URL (e.g. JotForm agent)
+    assistant_label: Optional[str] = None  # button label
+    assistant_color: Optional[str] = None  # hex color for the floating button
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

@@ -477,6 +477,12 @@ async def company_info():
             "muted": bool(s.get("hero_video_muted", True)),
             "poster_url": s.get("hero_video_poster_url"),
         },
+        "assistant": {
+            "enabled": bool(s.get("assistant_enabled", False)),
+            "url": s.get("assistant_url"),
+            "label": s.get("assistant_label") or "Assistant Support",
+            "color": s.get("assistant_color") or "#0075E3",
+        },
     }
 
 
@@ -2215,7 +2221,8 @@ async def on_startup():
             logger.info("Initial admin seeded: %s", init_email)
 
     # Seed default settings
-    if not await db.settings.find_one({"_id": "global"}):
+    existing_settings = await db.settings.find_one({"_id": "global"})
+    if not existing_settings:
         await db.settings.insert_one(
             {
                 "_id": "global",
@@ -2229,8 +2236,24 @@ async def on_startup():
                 "company_phone": "+228 00 00 00 00",
                 "company_address": "Lomé, Togo",
                 "google_calendar_email": "sup.alphasofti@gmail.com",
+                "assistant_enabled": True,
+                "assistant_url": "https://agent.jotform.com/0199e26b35a87a6ea156d196e3e180731e7d?embedMode=popup",
+                "assistant_label": "Liluvine — Support Technique",
+                "assistant_color": "#0075E3",
             }
         )
+    else:
+        # Backfill assistant defaults if not present (existing installs)
+        update_fields = {}
+        if "assistant_url" not in existing_settings:
+            update_fields.update({
+                "assistant_enabled": True,
+                "assistant_url": "https://agent.jotform.com/0199e26b35a87a6ea156d196e3e180731e7d?embedMode=popup",
+                "assistant_label": "Liluvine — Support Technique",
+                "assistant_color": "#0075E3",
+            })
+        if update_fields:
+            await db.settings.update_one({"_id": "global"}, {"$set": update_fields})
 
     # Seed default contents (only if not present)
     defaults = [

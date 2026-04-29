@@ -48,6 +48,7 @@ import AdminNewsletter from "@/pages/admin/AdminNewsletter";
 import AdminVisits from "@/pages/admin/AdminVisits";
 import AdminDeployments from "@/pages/admin/AdminDeployments";
 import AdminBlacklist from "@/pages/admin/AdminBlacklist";
+import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
 
@@ -119,6 +120,7 @@ export default function App() {
 
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
+        <VirtualAssistant />
       </BrowserRouter>
     </AuthProvider>
   );

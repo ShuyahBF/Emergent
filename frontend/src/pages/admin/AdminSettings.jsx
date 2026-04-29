@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -191,6 +191,48 @@ export default function AdminSettings() {
         </div>
 
         <Input label="Image de couverture (URL, optionnel)" value={s.hero_video_poster_url || ""} onChange={(v) => upd("hero_video_poster_url", v)} placeholder="/api/files/xxx ou URL externe" />
+      </Section>
+
+      <Section icon={MessageCircle} title="Assistant virtuel (chatbot)">
+        <p className="text-xs text-slate-500">
+          Bouton flottant en bas à droite du site qui ouvre un chatbot externe (JotForm AI Agent ou compatible) pour
+          permettre aux visiteurs et clients de contacter le support. Compatible avec n'importe quelle URL d'agent qui
+          accepte un paramètre <code>parentURL</code>.
+        </p>
+        <Toggle label="Activer l'assistant" value={!!s.assistant_enabled} onChange={(v) => upd("assistant_enabled", v)} testid="toggle-assistant" />
+        <Input
+          label="URL de l'agent (popup)"
+          value={s.assistant_url || ""}
+          onChange={(v) => upd("assistant_url", v)}
+          placeholder="https://agent.jotform.com/xxxxx?embedMode=popup"
+          testid="assistant-url"
+        />
+        <Input
+          label="Libellé du bouton"
+          value={s.assistant_label || ""}
+          onChange={(v) => upd("assistant_label", v)}
+          placeholder="Liluvine — Support Technique"
+          testid="assistant-label"
+        />
+        <div>
+          <label className="block text-xs font-semibold mb-1">Couleur du bouton</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={s.assistant_color || "#0075E3"}
+              onChange={(e) => upd("assistant_color", e.target.value)}
+              className="h-10 w-12 rounded border border-slate-300 cursor-pointer"
+              data-testid="assistant-color"
+            />
+            <input
+              type="text"
+              value={s.assistant_color || "#0075E3"}
+              onChange={(e) => upd("assistant_color", e.target.value)}
+              className="rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono w-32"
+              placeholder="#0075E3"
+            />
+          </div>
+        </div>
       </Section>
 
       <Section icon={Webhook} title="Webhook Interventions (REST API externe)">

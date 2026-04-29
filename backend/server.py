@@ -16,6 +16,7 @@ import re
 import shutil
 import uuid
 import asyncio
+import ipaddress
 import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
@@ -68,6 +69,7 @@ from models import (
     ClientCategoryUpdate,
     DeploymentCreate,
     DeploymentUpdate,
+    BlacklistedIPCreate,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -117,6 +119,61 @@ app.add_middleware(
 )
 
 
+# Cached compiled blacklist networks; refreshed on every settings/blacklist change.
+_BLACKLIST_CACHE: dict = {"nets": [], "loaded": False}
+
+
+async def _reload_blacklist() -> None:
+    items = await db.blacklisted_ips.find({}, {"_id": 0}).to_list(5000)
+    nets = []
+    for it in items:
+        cidr = (it.get("cidr") or "").strip()
+        if not cidr:
+            continue
+        try:
+            if "/" in cidr:
+                nets.append(ipaddress.ip_network(cidr, strict=False))
+            else:
+                nets.append(ipaddress.ip_network(f"{cidr}/32" if "." in cidr else f"{cidr}/128", strict=False))
+        except ValueError:
+            continue
+    _BLACKLIST_CACHE["nets"] = nets
+    _BLACKLIST_CACHE["loaded"] = True
+
+
+def _client_ip_from_request(request) -> str:
+    # Trust X-Forwarded-For first hop (set by Kubernetes ingress)
+    xff = request.headers.get("x-forwarded-for") or request.headers.get("X-Forwarded-For")
+    if xff:
+        return xff.split(",")[0].strip()
+    return request.client.host if request.client else ""
+
+
+@app.middleware("http")
+async def ip_blacklist_middleware(request, call_next):
+    # Apply only to /api/* (the public site files & assets are served separately)
+    path = request.url.path or ""
+    if path.startswith("/api/") and not path.startswith("/api/admin/blacklisted-ips"):
+        if not _BLACKLIST_CACHE["loaded"]:
+            try:
+                await _reload_blacklist()
+            except Exception:  # noqa: BLE001
+                _BLACKLIST_CACHE["loaded"] = True  # don't block forever on first error
+        try:
+            client_ip = _client_ip_from_request(request)
+            if client_ip and _BLACKLIST_CACHE["nets"]:
+                ip_obj = ipaddress.ip_address(client_ip)
+                for net in _BLACKLIST_CACHE["nets"]:
+                    if ip_obj in net:
+                        return JSONResponse(
+                            status_code=403,
+                            content={"detail": "Adresse IP bloquée par l'administrateur."},
+                        )
+        except (ValueError, TypeError):
+            pass
+    return await call_next(request)
+
+
 # ====================================================================
 # Helpers
 # ====================================================================
@@ -131,6 +188,7 @@ def _to_user_public(u: dict) -> dict:
         "account_status": u.get("account_status", "active"),
         "created_at": u["created_at"],
         "is_primary_client": bool(u.get("is_primary_client", False)),
+        "logo_url": u.get("logo_url"),
     }
 
 
@@ -409,6 +467,16 @@ async def company_info():
         "business_close_time": s.get("business_close_time", "18:00"),
         "business_days": s.get("business_days", [0, 1, 2, 3, 4]),
         "slot_duration_min": s.get("slot_duration_min", 30),
+        "hero_video": {
+            "enabled": bool(s.get("hero_video_enabled", False)),
+            "url": s.get("hero_video_url"),
+            "title": s.get("hero_video_title"),
+            "description": s.get("hero_video_description"),
+            "autoplay": bool(s.get("hero_video_autoplay", True)),
+            "loop": bool(s.get("hero_video_loop", True)),
+            "muted": bool(s.get("hero_video_muted", True)),
+            "poster_url": s.get("hero_video_poster_url"),
+        },
     }
 
 
@@ -741,6 +809,7 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "category_slug": payload.category_slug,
         "country": payload.country,
         "city": payload.city,
+        "logo_url": payload.logo_url,
         "account_status": payload.account_status,
         "is_primary_client": False,
         "created_at": _now(),
@@ -1404,6 +1473,69 @@ async def admin_save_contact_as_tracked(
 @api.get("/admin/meta/tracked-roles", tags=["Admin"])
 async def admin_tracked_roles(_: dict = Depends(get_current_admin)):
     return {"roles": TRACKED_USER_ROLES}
+
+
+# ====================================================================
+# IP BLACKLIST (admin)
+# ====================================================================
+@api.get("/admin/blacklisted-ips", tags=["Admin"])
+async def admin_list_blacklist(_: dict = Depends(get_current_admin)):
+    items = await db.blacklisted_ips.find({}, {"_id": 0}).to_list(5000)
+    return sorted(items, key=lambda x: x.get("created_at", ""), reverse=True)
+
+
+@api.post("/admin/blacklisted-ips", tags=["Admin"])
+async def admin_add_blacklist(payload: BlacklistedIPCreate, _: dict = Depends(get_current_admin)):
+    cidr = (payload.cidr or "").strip()
+    if not cidr:
+        raise HTTPException(status_code=400, detail="IP/CIDR requis")
+    try:
+        ipaddress.ip_network(cidr if "/" in cidr else (f"{cidr}/32" if "." in cidr else f"{cidr}/128"), strict=False)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=f"IP/CIDR invalide : {exc}") from exc
+    existing = await db.blacklisted_ips.find_one({"cidr": cidr})
+    if existing:
+        raise HTTPException(status_code=409, detail="Cette entrée existe déjà")
+    doc = {
+        "id": _uuid(),
+        "cidr": cidr,
+        "reason": payload.reason,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.blacklisted_ips.insert_one(doc.copy())
+    await _reload_blacklist()
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/admin/blacklisted-ips/{ip_id}", tags=["Admin"])
+async def admin_delete_blacklist(ip_id: str, _: dict = Depends(get_current_admin)):
+    await db.blacklisted_ips.delete_one({"id": ip_id})
+    await _reload_blacklist()
+    return {"ok": True}
+
+
+# ====================================================================
+# PORTAL BRANDING — logo per client (used in sidebar)
+# ====================================================================
+@api.get("/me/branding", tags=["Portail Client"])
+async def me_branding(user: dict = Depends(get_current_user)):
+    """Return branding to display in the connected portal sidebar.
+    Tracked-users inherit from their client_id; clients/superviseurs use their own logo."""
+    logo_url = None
+    company = user.get("company")
+    if user.get("logo_url"):
+        logo_url = user["logo_url"]
+    else:
+        # Tracked users have no logo; look up parent client by tracked_users.client_id
+        tu = await db.tracked_users.find_one({"email": user.get("email")}, {"_id": 0})
+        if tu and tu.get("client_id"):
+            parent = await db.users.find_one({"id": tu["client_id"]}, {"_id": 0})
+            if parent:
+                logo_url = parent.get("logo_url")
+                company = parent.get("company") or company
+    return {"logo_url": logo_url, "company": company}
 
 
 # ====================================================================

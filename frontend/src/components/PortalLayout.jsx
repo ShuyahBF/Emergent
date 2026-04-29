@@ -2,10 +2,18 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
+import { apiClient } from "@/lib/api";
+
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+function absoluteUrl(u) {
+  if (!u) return u;
+  if (u.startsWith("http")) return u;
+  return `${BACKEND}${u.startsWith("/") ? "" : "/"}${u}`;
+}
 
 const clientLinks = [
   { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
@@ -27,6 +35,7 @@ const adminLinks = [
   { to: "/admin/newsletter", label: "Newsletter", icon: Send },
   { to: "/admin/visits", label: "Trafic & Visites", icon: Activity },
   { to: "/admin/deployments", label: "Déploiements", icon: Globe2 },
+  { to: "/admin/blacklist", label: "Blacklist IP", icon: ShieldAlert },
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },
@@ -37,6 +46,7 @@ export default function PortalLayout({ admin = false }) {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
+  const [branding, setBranding] = useState(null);
   const links = admin ? adminLinks : clientLinks;
 
   useEffect(() => {
@@ -44,16 +54,29 @@ export default function PortalLayout({ admin = false }) {
     if (admin && user && user.role !== "admin") navigate("/portal");
   }, [user, admin, navigate]);
 
+  useEffect(() => {
+    // Fetch client branding (logo) only for non-admin (client portal)
+    if (!admin && user) {
+      apiClient.get("/me/branding").then((r) => setBranding(r.data)).catch(() => {});
+    }
+  }, [admin, user]);
+
   if (!user) return null;
+
+  // For client portal : prefer client logo when available; admin always sees SAWALI brand.
+  const useClientLogo = !admin && branding?.logo_url;
+  const displayedLogo = useClientLogo ? absoluteUrl(branding.logo_url) : LOGO_URL;
+  const displayedName = useClientLogo ? (branding.company || user.company || user.full_name) : "SAWALI";
+  const displayedSubtitle = admin ? "Admin Console" : (useClientLogo ? "Espace Client" : "Espace Client");
 
   const SidebarContent = (
     <>
       <Link to="/" className="flex items-center gap-3 mb-8 px-2">
-        <img src={LOGO_URL} alt="SAWALI" className="h-10 w-10 rounded-md object-cover ring-1 ring-white/20" />
-        <div>
-          <p className="font-display font-bold text-white text-sm">SAWALI</p>
+        <img src={displayedLogo} alt={displayedName} className={`h-10 w-10 ${useClientLogo ? "rounded-md object-contain bg-white/95 p-1" : "rounded-md object-cover"} ring-1 ring-white/20`} />
+        <div className="min-w-0">
+          <p className="font-display font-bold text-white text-sm truncate" title={displayedName}>{displayedName}</p>
           <p className="text-[9px] uppercase tracking-[0.25em] text-sawali-blue-light">
-            {admin ? "Admin Console" : "Espace Client"}
+            {displayedSubtitle}
           </p>
         </div>
       </Link>

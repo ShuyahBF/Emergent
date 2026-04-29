@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -141,6 +141,56 @@ export default function AdminSettings() {
         <p className="text-[11px] text-slate-500">
           Format JSON envoyé : <code className="text-sawali-blue">{`{ id, datetime, ip, country, city, region, page, referrer, user_agent, session_id }`}</code>
         </p>
+      </Section>
+
+      <Section icon={Video} title="Vidéo de la page d'accueil">
+        <p className="text-xs text-slate-500">
+          Ajoutez une vidéo (MP4) qui s'affichera dans une section dédiée sur la page d'accueil, juste après le hero.
+          La vidéo est paramétrable (autoplay, boucle, son).
+        </p>
+        <Toggle label="Activer la section vidéo" value={!!s.hero_video_enabled} onChange={(v) => upd("hero_video_enabled", v)} testid="toggle-hero-video" />
+
+        <div>
+          <label className="block text-xs font-semibold mb-1">Fichier vidéo (MP4) *</label>
+          <label className="inline-flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-slate-300 px-4 py-3 text-sm text-slate-600 hover:border-sawali-blue">
+            <Upload className="h-4 w-4" /> {s.hero_video_url ? "Remplacer la vidéo" : "Choisir un fichier MP4"}
+            <input
+              type="file"
+              hidden
+              accept="video/mp4,video/webm,video/quicktime"
+              onChange={async (e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                if (file.size > 80 * 1024 * 1024) {
+                  toast.error("Fichier trop volumineux (max 80 Mo)");
+                  return;
+                }
+                const fd = new FormData(); fd.append("file", file);
+                try {
+                  const r = await apiClient.post("/admin/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                  upd("hero_video_url", r.data.url);
+                  toast.success("Vidéo téléversée");
+                } catch (err) { toast.error("Erreur upload vidéo"); }
+              }}
+              data-testid="hero-video-input"
+            />
+          </label>
+          {s.hero_video_url && <p className="text-xs text-slate-500 mt-1 break-all">URL : {s.hero_video_url}</p>}
+        </div>
+
+        <Input label="Titre de la section" value={s.hero_video_title || ""} onChange={(v) => upd("hero_video_title", v)} testid="hero-video-title" />
+        <div>
+          <label className="block text-xs font-semibold mb-1">Description</label>
+          <textarea rows={2} value={s.hero_video_description || ""} onChange={(e) => upd("hero_video_description", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="hero-video-description" />
+        </div>
+
+        <div className="grid sm:grid-cols-3 gap-3">
+          <Toggle label="Autoplay" value={s.hero_video_autoplay !== false} onChange={(v) => upd("hero_video_autoplay", v)} testid="toggle-hero-autoplay" />
+          <Toggle label="Boucle" value={s.hero_video_loop !== false} onChange={(v) => upd("hero_video_loop", v)} testid="toggle-hero-loop" />
+          <Toggle label="Muet" value={s.hero_video_muted !== false} onChange={(v) => upd("hero_video_muted", v)} testid="toggle-hero-muted" />
+        </div>
+
+        <Input label="Image de couverture (URL, optionnel)" value={s.hero_video_poster_url || ""} onChange={(v) => upd("hero_video_poster_url", v)} placeholder="/api/files/xxx ou URL externe" />
       </Section>
 
       <Section icon={Webhook} title="Webhook Interventions (REST API externe)">

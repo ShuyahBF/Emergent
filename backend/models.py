@@ -27,6 +27,7 @@ class UserPublic(BaseModel):
     account_status: str = "active"
     created_at: str
     is_primary_client: Optional[bool] = False
+    logo_url: Optional[str] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -40,6 +41,7 @@ class UserCreateAdmin(BaseModel):
     category_slug: Optional[str] = None  # slug of client_categories
     country: Optional[str] = None
     city: Optional[str] = None
+    logo_url: Optional[str] = None
     account_status: str = "active"
     is_primary_client: bool = False
 
@@ -52,6 +54,7 @@ class UserUpdateAdmin(BaseModel):
     category_slug: Optional[str] = None
     country: Optional[str] = None
     city: Optional[str] = None
+    logo_url: Optional[str] = None
     account_status: Optional[str] = None
     role: Optional[str] = None
     password: Optional[str] = None
@@ -351,3 +354,18 @@ class SettingsUpdate(BaseModel):
     webhook_token: Optional[str] = None  # for bearer
     webhook_basic_user: Optional[str] = None
     webhook_basic_pass: Optional[str] = None
+
+    # Hero video on public homepage
+    hero_video_enabled: Optional[bool] = None
+    hero_video_url: Optional[str] = None  # uploaded MP4 url e.g. /uploads/xxx.mp4
+    hero_video_title: Optional[str] = None
+    hero_video_description: Optional[str] = None
+    hero_video_autoplay: Optional[bool] = None
+    hero_video_loop: Optional[bool] = None
+    hero_video_muted: Optional[bool] = None
+    hero_video_poster_url: Optional[str] = None  # optional cover image
+
+
+class BlacklistedIPCreate(BaseModel):
+    cidr: str  # supports single IP or CIDR like 192.168.1.0/24
+    reason: Optional[str] = None

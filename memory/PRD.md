@@ -84,6 +84,26 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Tooltip Recharts français au survol des points
   - Backend public `/deployments` enrichi avec `created_at` + `updated_at` par solution
 
+## Implemented (2026-04-29) — Filtre solution + Blacklist IP + Vidéo Hero + Logo Client
+✅ **Filtre par solution** sur la mappemonde : pills cliquables (Toutes / Aizenta / PharmaPlus / …) qui restreignent les marqueurs et recalculent stats + zoom auto.
+✅ **Blacklist IP** :
+  - Collection `blacklisted_ips` + middleware FastAPI sur tous les `/api/*` (sauf endpoints de gestion).
+  - Supporte IP simples (`192.168.1.42`) et plages CIDR (`10.0.0.0/24`). Validation `ipaddress`.
+  - Trust X-Forwarded-For (Kubernetes ingress).
+  - Cache des CIDRs en mémoire, rechargé à chaque add/delete.
+  - Page admin `/admin/blacklist` : formulaire + table CRUD avec motif optionnel.
+✅ **Vidéo Hero paramétrable** :
+  - 8 nouveaux champs sur Settings : `hero_video_enabled`, `hero_video_url`, `hero_video_title`, `hero_video_description`, `hero_video_autoplay`, `hero_video_loop`, `hero_video_muted`, `hero_video_poster_url`.
+  - Upload MP4 (max 80 Mo) via `/admin/upload` existant.
+  - Composant `<HeroVideoSection>` sur la page d'accueil entre Hero et Mappemonde, ne s'affiche que si `enabled` + `url`.
+  - UI dans /admin/settings (section "Vidéo de la page d'accueil").
+  - Endpoint public `/company-info` enrichi avec `hero_video`.
+✅ **Logo client + sidebar portail** :
+  - Champ `logo_url` sur User (upload via fiche client admin).
+  - Endpoint `/me/branding` qui retourne le bon logo (logo client ou logo SAWALI).
+  - Tracked-users héritent du logo de leur client_id (lookup par email → tracked_users → client).
+  - Sidebar du portail (`PortalLayout`) affiche le logo client à la place de SAWALI quand un utilisateur de ce client est connecté.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 

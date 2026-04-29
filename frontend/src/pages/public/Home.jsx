@@ -4,6 +4,7 @@ import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2,
 import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 import DeploymentsMap from "@/components/DeploymentsMap";
+import HeroVideoSection from "@/components/HeroVideoSection";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -108,6 +109,9 @@ export default function Home() {
           </div>
         </div>
       </section>
+
+      {/* HERO VIDEO SECTION (parametrable) */}
+      <HeroVideoSection />
 
       {/* DEPLOYMENTS MAP */}
       <DeploymentsMap />

@@ -1,10 +1,10 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", category_slug: "", country: "", city: "", account_status: "active", role: "client" };
+const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -180,6 +180,37 @@ export default function AdminClients() {
             <div className="grid grid-cols-2 gap-3">
               <Input label="Pays" value={form.country || ""} onChange={(v) => setForm({ ...form, country: v })} />
               <Input label="Ville" value={form.city || ""} onChange={(v) => setForm({ ...form, city: v })} />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Logo du client (image)</label>
+              <div className="flex items-center gap-3">
+                {form.logo_url && (
+                  <img src={form.logo_url} alt="Logo" className="h-12 w-12 rounded border border-slate-200 object-contain bg-slate-50" />
+                )}
+                <label className="inline-flex items-center gap-2 cursor-pointer rounded-lg border border-dashed border-slate-300 px-3 py-2 text-xs text-slate-600 hover:border-sawali-blue">
+                  <Upload className="h-3.5 w-3.5" /> {form.logo_url ? "Remplacer" : "Téléverser un logo"}
+                  <input
+                    type="file"
+                    hidden
+                    accept="image/*"
+                    onChange={async (e) => {
+                      const file = e.target.files?.[0];
+                      if (!file) return;
+                      const fd = new FormData(); fd.append("file", file);
+                      try {
+                        const r = await apiClient.post("/admin/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                        setForm((prev) => ({ ...prev, logo_url: r.data.url }));
+                        toast.success("Logo téléversé");
+                      } catch (err) { toast.error("Erreur upload"); }
+                    }}
+                    data-testid="client-logo-input"
+                  />
+                </label>
+                {form.logo_url && (
+                  <button type="button" onClick={() => setForm({ ...form, logo_url: "" })} className="text-xs text-rose-600 hover:underline">Retirer</button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] text-slate-500">Affiché dans la sidebar du portail à la place du logo SAWALI quand l'utilisateur de ce client est connecté.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }]} />

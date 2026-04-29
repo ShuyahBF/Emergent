@@ -214,25 +214,47 @@ export default function DeploymentsMap() {
   const [hovered, setHovered] = useState(null); // {country, total, solutions}
   const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 });
   const [selected, setSelected] = useState(null); // detailed modal: country object
+  const [solutionFilter, setSolutionFilter] = useState("all");
 
   useEffect(() => {
     apiClient.get("/deployments").then((r) => setData(r.data)).catch(() => {});
     fetch("/countries-110m.json").then((r) => r.json()).then(setGeo).catch(() => {});
   }, []);
 
-  const points = useMemo(() => {
-    return data
-      .map((d) => ({ ...d, coords: findCoords(d.country) }))
-      .filter((d) => Array.isArray(d.coords));
-  }, [data]);
-
-  const totalCountries = data.length;
-  const totalInstalls = data.reduce((s, d) => s + (d.total_installations || 0), 0);
-  const totalSolutions = useMemo(() => {
+  // Build sorted unique solution list (for filter dropdown)
+  const allSolutions = useMemo(() => {
     const set = new Set();
     data.forEach((d) => d.solutions.forEach((s) => set.add(s.name)));
-    return set.size;
+    return Array.from(set).sort();
   }, [data]);
+
+  // Filtered data: when a solution is picked, only keep countries having it,
+  // and only its solution rows (so totals reflect that single solution).
+  const filteredData = useMemo(() => {
+    if (solutionFilter === "all") return data;
+    return data
+      .map((d) => {
+        const sols = d.solutions.filter((s) => s.name === solutionFilter);
+        if (sols.length === 0) return null;
+        const total = sols.reduce((sum, s) => sum + (s.installations || 0), 0);
+        return { ...d, solutions: sols, total_installations: total };
+      })
+      .filter(Boolean);
+  }, [data, solutionFilter]);
+
+  const points = useMemo(() => {
+    return filteredData
+      .map((d) => ({ ...d, coords: findCoords(d.country) }))
+      .filter((d) => Array.isArray(d.coords));
+  }, [filteredData]);
+
+  const totalCountries = filteredData.length;
+  const totalInstalls = filteredData.reduce((s, d) => s + (d.total_installations || 0), 0);
+  const totalSolutions = useMemo(() => {
+    const set = new Set();
+    filteredData.forEach((d) => d.solutions.forEach((s) => set.add(s.name)));
+    return set.size;
+  }, [filteredData]);
 
   const radius = (n) => Math.min(18, 4 + Math.sqrt(Math.max(1, n)) * 1.6);
 
@@ -277,7 +299,7 @@ export default function DeploymentsMap() {
         <div className="flex items-center gap-2 text-xs uppercase tracking-[0.3em] text-sawali-blue mb-3">
           <Globe2 className="h-4 w-4" /> Déploiements à travers le monde
         </div>
-        <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
+        <div className="flex items-end justify-between flex-wrap gap-6 mb-6">
           <h2 className="text-4xl sm:text-5xl font-display font-bold tracking-tight max-w-2xl">
             Nos solutions, déjà <span className="text-sawali-blue">déployées sur 3 continents</span>.
           </h2>
@@ -287,6 +309,31 @@ export default function DeploymentsMap() {
             <div><p className="text-3xl font-display font-bold">{totalSolutions}</p><p className="text-slate-400 text-xs uppercase tracking-widest">Solutions</p></div>
           </div>
         </div>
+
+        {allSolutions.length > 1 && (
+          <div className="flex items-center gap-2 mb-4 flex-wrap" data-testid="deployment-solution-filter">
+            <span className="text-xs uppercase tracking-widest text-slate-500">Filtrer par solution :</span>
+            <button
+              type="button"
+              onClick={() => setSolutionFilter("all")}
+              className={`text-xs px-3 py-1 rounded-full border transition ${solutionFilter === "all" ? "bg-sawali-blue text-white border-sawali-blue" : "bg-transparent text-slate-300 border-white/15 hover:border-sawali-blue/60"}`}
+              data-testid="filter-all"
+            >
+              Toutes ({data.reduce((sum, d) => sum + d.total_installations, 0)})
+            </button>
+            {allSolutions.map((s) => (
+              <button
+                key={s}
+                type="button"
+                onClick={() => setSolutionFilter(s)}
+                className={`text-xs px-3 py-1 rounded-full border transition ${solutionFilter === s ? "bg-sawali-blue text-white border-sawali-blue" : "bg-transparent text-slate-300 border-white/15 hover:border-sawali-blue/60"}`}
+                data-testid={`filter-${s}`}
+              >
+                {s}
+              </button>
+            ))}
+          </div>
+        )}
 
         <div className="relative rounded-2xl border border-white/10 bg-slate-900/40 backdrop-blur p-2 sm:p-4" data-testid="deployments-map-container">
           <ComposableMap

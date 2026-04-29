@@ -112,10 +112,32 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - Auto-seed des defaults à l'URL JotForm `0199e26b35a87a6ea156d196e3e180731e7d` + libellé "Liluvine — Support Technique" + couleur `#0075E3`.
   - Backfill automatique au démarrage pour les bases existantes (n'écrase pas les overrides admin).
 
+## Implemented (2026-04-29) — Rapports & Suivis (WYSIWYG) + Document logs + File icons + Tracked-user passwords + Notes webhook
+✅ **Rapports & Suivis** dans l'espace utilisateur :
+  - Endpoints `/me/notes/{kind}` (GET/POST/PUT/DELETE) + `/me/notes-summary` (compteurs).
+  - Page `/portal/notes/:kind` et `/admin/notes/:kind` avec un éditeur **WYSIWYG complet** (contentEditable + execCommand) : gras, italique, souligné, barré, h2/h3, citation, code, listes (puces/numérotées), alignement, couleurs de texte, surlignage, lien, undo/redo, effacer la mise en forme.
+  - **Cartes Rapports/Suivis** ajoutées sur le tableau de bord client ET admin (compteurs + dernière mise à jour).
+  - Toggles d'affichage dans /admin/settings (`show_reports_button`, `show_suivis_button`).
+✅ **Historique de téléchargement** par document :
+  - Collection `document_logs` enregistre upload + download (file_id, user_id, ip, durée, user-agent).
+  - Endpoint admin `/admin/document-logs?file_id=...` + modale "Historique" dans /admin/documents avec compteurs et tableau (date, utilisateur, IP, durée).
+✅ **Icônes par type de fichier** : librairie `/lib/fileIcons.js` étendue à 50+ extensions (PDF, Word, Excel, PowerPoint, images, audio, vidéo, archives, code, eBooks, CAD, design Apple iWork). Affichage automatique avec couleur dédiée + extension .EXT en sous-titre. Le clic sur l'icône télécharge le fichier.
+✅ **Mot de passe pour utilisateur suivi** :
+  - Endpoint `/admin/tracked-users/{id}/set-password` qui crée un pont vers la collection `users` (role=client) et permet le login via /auth/login + OTP standard.
+  - Endpoint `/admin/tracked-users/{id}/revoke-password` pour révoquer l'accès.
+  - UI dans /admin/tracked-users : icône clé, modale `password-dialog` avec générateur, copy-to-clipboard, validation 8+ chars, indicateur "Activé/Aucun" dans la table.
+✅ **Webhook Rapports & Suivis** :
+  - Settings `notes_webhook_*` (enabled, url, auth_type none/bearer/basic, token, basic_user, basic_pass).
+  - À chaque create/update/delete de note → POST fire-and-forget `{url}/{action}/{kind}/{note_id}` avec body JSON {action, kind, note, author, fired_at}.
+  - UI Section "Webhook Rapports & Suivis" dans /admin/settings.
+✅ **Bonus** : safeguard server-side qui ignore "********" lors d'un PUT /admin/settings pour éviter d'écraser les secrets masqués (smtp_password, google_client_secret, recaptcha_secret_key, webhook_token, webhook_basic_pass, notes_webhook_token, notes_webhook_basic_pass, tracking_auth_header).
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
+- Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.
 
 ## Backlog (P1/P2)
+- P1 : Refactor `server.py` (~2700 lignes) en routers `/app/backend/routes/` (auth, public, admin, portal, files).
 - P1 : Connecter SMTP (Gmail App Password) pour réellement envoyer les OTP
 - P1 : Connecter Google reCAPTCHA (créer clés site/secret)
 - P1 : Connecter Google Calendar (créer projet GCP, OAuth 2.0 client, autoriser le compte sup.alphasofti@gmail.com)

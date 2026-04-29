@@ -1855,6 +1855,15 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
 @api.put("/admin/settings", tags=["Admin"])
 async def admin_update_settings(payload: SettingsUpdate, _: dict = Depends(get_current_admin)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Treat the masking placeholder as "no change" for sensitive fields
+    SECRET_FIELDS = (
+        "smtp_password", "google_client_secret", "recaptcha_secret_key",
+        "tracking_auth_header", "webhook_token", "webhook_basic_pass",
+        "notes_webhook_token", "notes_webhook_basic_pass",
+    )
+    for k in SECRET_FIELDS:
+        if update.get(k) == "********":
+            update.pop(k, None)
     if not update:
         return {"ok": True}
     update["updated_at"] = _now()

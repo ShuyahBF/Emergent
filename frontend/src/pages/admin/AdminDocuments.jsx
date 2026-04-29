@@ -43,7 +43,14 @@ export default function AdminDocuments() {
       const r = await apiClient.post("/admin/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
       const ct = (r.data.content_type || "").toLowerCase();
       const ft = ct.startsWith("image/") ? "image" : ct.includes("pdf") ? "pdf" : "file";
-      setForm((prev) => ({ ...prev, file_id: r.data.id, file_url: r.data.url, file_type: ft }));
+      setForm((prev) => ({
+        ...prev,
+        file_id: r.data.id,
+        file_url: r.data.url,
+        file_type: ft,
+        filename: r.data.filename,
+        file_extension: r.data.extension,
+      }));
       toast.success("Fichier téléversé");
     } catch (err) { toast.error("Erreur upload"); }
     finally { setUploading(false); }
@@ -98,7 +105,7 @@ export default function AdminDocuments() {
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
         {items.map((it) => {
-          const fi = getFileIcon(it.file_url || it.filename);
+          const fi = getFileIcon(it.file_extension || it.filename || it.file_url);
           const Icn = fi.icon;
           return (
           <div key={it.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid={`admin-doc-${it.id}`}>

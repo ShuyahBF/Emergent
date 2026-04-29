@@ -1,0 +1,45 @@
+{
+  "summary": "Iteration 3 testing of SAWALI: tracked-user passwords (set/revoke + bridged login), Notes webhook fire-and-forget, Settings masking for new secrets, Documents filename/extension, Admin Dashboard Rapports/Suivis cards, Notes RTE editor and PasswordDialog. Backend: 8/8 new pytest cases pass + 22/22 iteration-1 regression still pass (30/30 = 100%). Frontend (Playwright via deployed URL https://sawali-portal.preview.emergentagent.com): all 4 critical flows pass — admin dashboard renders admin-notes-section with admin-reports-btn / admin-suivis-btn, /admin/notes/reports renders notes-reports-page with full rte-toolbar (rte-bold, rte-italic, rte-h2, rte-ul, rte-ol, rte-color, rte-link, rte-undo, rte-content) and save-note-btn working (note created and deleted via UI); /admin/settings exposes toggle-notes-webhook + notes-webhook-url + notes-webhook-auth-type; /admin/tracked-users opens password-dialog with password-input + save-password-btn; /admin/documents loads with new-doc-btn. No regressions detected.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "PUT /api/admin/settings", "issue": "Sending the literal string '********' for any masked secret will OVERWRITE the stored secret with '********' (no protection). The current PRD test only covers 'PUT another field only' which is fine, but UI must be careful not to send the masked placeholder back to the server."},
+      {"endpoint": "POST /api/me/notes/{kind}", "issue": "Webhook fire-and-forget — admin role is allowed to call /me/notes/* (acceptable for now). Confirmed via backend logs 'Notes webhook created/updated/deleted ... -> <status>'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter3.py",
+    "/app/backend/tests/test_sawali_api.py",
+    "/app/test_reports/pytest/pytest_iter3.xml"
+  ],
+  "action_items": [
+    "Optional: in admin_update_settings, treat '********' as 'no change' for sensitive fields (smtp_password, google_client_secret, recaptcha_secret_key, webhook_token, webhook_basic_pass, notes_webhook_token, notes_webhook_basic_pass) to prevent UI accidentally overwriting them with the mask placeholder.",
+    "Optional: still address the iteration-1 finding — frontend route /api-docs is captured by Kubernetes /api ingress; rename to /docs or /api-documentation.",
+    "Optional: split server.py (now ~2647 lines) into routers (auth, public, admin, portal, files) for maintainability."
+  ],
+  "critical_code_review_comments": [
+    "server.py is now 2647 lines — exceeds the >700-line threshold; should be split into routers.",
+    "_fire_notes_webhook builds URL as {base}/{action}/{kind}/{id}; with httpbin.org/post + suffix, request becomes /post/created/reports/<id> which httpbin returns 404 for. Logging still works (status code logged) but the helper might want to honor exact URL when path already contains a route.",
+    "admin_set_tracked_password creates/updates a row in users with role='client' regardless of tracked-user role; consider preserving tracked_role for future RBAC differentiation.",
+    "Settings PUT never strips the '********' masking placeholder, so a naive admin UI roundtrip can clobber secrets — recommended to add a server-side guard.",
+    "DocumentCreate accepts file_extension/filename without validation — extension is taken as-is (e.g. user-supplied '.exe' or empty string). Consider deriving extension from filename server-side."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter3.py (created)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 new + 22/22 regression = 30/30)",
+    "frontend": "100% (4/4 critical flows: dashboard cards, notes editor + save/delete, settings webhook section, password dialog)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (seeded). Tracked-user logins are created on the fly through POST /api/admin/tracked-users + /set-password and cleaned up via DELETE /api/admin/tracked-users/{id} (which also drops the bridged users row).",
+  "seed_data_creation": "Tests create + cleanup TEST_ prefixed clients, tracked-users and documents. Notes created via webhook test are deleted at end. A few TEST_ contacts/appointments from iteration 1 may persist (no admin cleanup endpoint).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Use tests/test_sawali_iter3.py as regression for the new features (set-password / revoke / webhook / masking / documents filename). Tracked-user role enum has changed to {Consultation, Edition, Moderation, Administrateur, Superviseur} — older 'Technicien' value is rejected (400). Do NOT use *.test domains for emails (rejected by EmailStr); use @example.com. To bypass the OTP flow in browser tests, login through page.evaluate fetch + inject access_token into localStorage('sawali_token'). The webhook helper logs lines matching /Notes webhook (created|updated|deleted)/ in /var/log/supervisor/backend.err.log.",
+  "rca of the issue": "No new bug encountered. Initial test failures during scaffolding were on test-side only: (a) email validator rejects pseudo-TLD '.test' so I switched to '@example.com'; (b) tracked-user role enum no longer contains 'Technicien' so I used 'Consultation'. Both fixed locally in the test file."
+}

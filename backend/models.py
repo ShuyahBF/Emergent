@@ -236,6 +236,8 @@ class DocumentCreate(BaseModel):
     file_id: Optional[str] = None
     file_url: Optional[str] = None
     file_type: Optional[str] = None  # pdf|image|text|html
+    filename: Optional[str] = None
+    file_extension: Optional[str] = None
     body_html: Optional[str] = None  # for text/html docs
     client_id: Optional[str] = None  # null = public/all clients
     is_public: bool = False
@@ -249,6 +251,8 @@ class DocumentUpdate(BaseModel):
     file_id: Optional[str] = None
     file_url: Optional[str] = None
     file_type: Optional[str] = None
+    filename: Optional[str] = None
+    file_extension: Optional[str] = None
     body_html: Optional[str] = None
     client_id: Optional[str] = None
     is_public: Optional[bool] = None
@@ -307,6 +311,10 @@ class SaveContactAsTrackedUser(BaseModel):
     client_id: str
     role: str = "Consultation"
     department: Optional[str] = None
+
+
+class TrackedUserSetPassword(BaseModel):
+    password: str  # raw, will be bcrypted
 
 
 # ====================================================================
@@ -374,6 +382,14 @@ class SettingsUpdate(BaseModel):
     # Portal feature toggles
     show_reports_button: Optional[bool] = None
     show_suivis_button: Optional[bool] = None
+
+    # Notes webhook (POST on every report/suivi create/update/delete)
+    notes_webhook_enabled: Optional[bool] = None
+    notes_webhook_url: Optional[str] = None
+    notes_webhook_auth_type: Optional[str] = None  # none | bearer | basic
+    notes_webhook_token: Optional[str] = None
+    notes_webhook_basic_user: Optional[str] = None
+    notes_webhook_basic_pass: Optional[str] = None
 
 
 class BlacklistedIPCreate(BaseModel):

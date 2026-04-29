@@ -50,13 +50,34 @@ const EXT_MAP = {
   // Code / text
   txt: { icon: FileText, color: "#6B7280" },
   md: { icon: FileText, color: "#6B7280" },
+  log: { icon: FileText, color: "#64748B" },
   json: { icon: FileCode, color: "#0EA5E9" },
   xml: { icon: FileCode, color: "#0EA5E9" },
+  yml: { icon: FileCode, color: "#0EA5E9" },
+  yaml: { icon: FileCode, color: "#0EA5E9" },
+  toml: { icon: FileCode, color: "#0EA5E9" },
   js: { icon: FileCode, color: "#F59E0B" },
+  jsx: { icon: FileCode, color: "#F59E0B" },
   ts: { icon: FileCode, color: "#0EA5E9" },
+  tsx: { icon: FileCode, color: "#0EA5E9" },
   py: { icon: FileCode, color: "#1E90FF" },
+  sh: { icon: FileCode, color: "#22C55E" },
+  bash: { icon: FileCode, color: "#22C55E" },
+  sql: { icon: FileCode, color: "#9333EA" },
   html: { icon: FileCode, color: "#F97316" },
   css: { icon: FileCode, color: "#3B82F6" },
+  // E-books & Office (Apple/Google)
+  epub: { icon: FileType, color: "#059669" },
+  mobi: { icon: FileType, color: "#059669" },
+  pages: { icon: FileText, color: "#1D4ED8" },
+  numbers: { icon: FileSpreadsheet, color: "#16A34A" },
+  key: { icon: Presentation, color: "#EA580C" },
+  // CAD & vectors
+  dwg: { icon: FileCode, color: "#DC2626" },
+  dxf: { icon: FileCode, color: "#DC2626" },
+  ai: { icon: FileImage, color: "#F97316" },
+  psd: { icon: FileImage, color: "#0EA5E9" },
+  indd: { icon: FileImage, color: "#EC4899" },
 };
 
 export function extensionFromUrl(url) {

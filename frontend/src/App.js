@@ -117,6 +117,7 @@ export default function App() {
             <Route path="visits" element={<AdminVisits />} />
             <Route path="deployments" element={<AdminDeployments />} />
             <Route path="blacklist" element={<AdminBlacklist />} />
+            <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>
 

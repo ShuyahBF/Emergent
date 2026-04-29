@@ -21,7 +21,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -276,6 +276,35 @@ export default function AdminSettings() {
         <p className="text-[11px] text-slate-500">
           Le code client est issu du champ <strong>Code client</strong> dans la fiche client (ou dérivé du nom de l'entreprise).
         </p>
+      </Section>
+
+      <Section icon={Webhook} title="Webhook Rapports & Suivis (REST API externe)">
+        <p className="text-xs text-slate-500">
+          À chaque création / modification / suppression d'un <strong>Rapport</strong> ou <strong>Suivi</strong>,
+          une requête <strong>POST</strong> est envoyée à
+          <code className="text-sawali-blue mx-1">{"{URL}/{action}/{kind}/{note_id}"}</code>.
+          <br />Actions : <code>created</code>, <code>updated</code>, <code>deleted</code>. Kind : <code>reports</code> ou <code>suivis</code>.
+          Le corps JSON contient la note complète + l'auteur (id, email, rôle).
+        </p>
+        <Toggle label="Activer le webhook Notes" value={!!s.notes_webhook_enabled} onChange={(v) => upd("notes_webhook_enabled", v)} testid="toggle-notes-webhook" />
+        <Input label="URL de base" value={s.notes_webhook_url || ""} onChange={(v) => upd("notes_webhook_url", v)} placeholder="https://api.votre-service.com/sawali/notes" testid="notes-webhook-url" />
+        <div>
+          <label className="block text-xs font-semibold mb-1">Authentification</label>
+          <select value={s.notes_webhook_auth_type || "none"} onChange={(e) => upd("notes_webhook_auth_type", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="notes-webhook-auth-type">
+            <option value="none">Aucune</option>
+            <option value="bearer">Bearer Token</option>
+            <option value="basic">Basic Auth</option>
+          </select>
+        </div>
+        {s.notes_webhook_auth_type === "bearer" && (
+          <Input label="Token Bearer" type="password" value={s.notes_webhook_token || ""} onChange={(v) => upd("notes_webhook_token", v)} placeholder={s.notes_webhook_token === "********" ? "(défini)" : ""} testid="notes-webhook-token" />
+        )}
+        {s.notes_webhook_auth_type === "basic" && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Utilisateur" value={s.notes_webhook_basic_user || ""} onChange={(v) => upd("notes_webhook_basic_user", v)} testid="notes-webhook-basic-user" />
+            <Input label="Mot de passe" type="password" value={s.notes_webhook_basic_pass || ""} onChange={(v) => upd("notes_webhook_basic_pass", v)} placeholder={s.notes_webhook_basic_pass === "********" ? "(défini)" : ""} testid="notes-webhook-basic-pass" />
+          </div>
+        )}
       </Section>
 
       <button onClick={save} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-settings-btn">

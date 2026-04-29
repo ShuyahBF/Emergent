@@ -72,6 +72,7 @@ from models import (
     BlacklistedIPCreate,
     UserNoteCreate,
     UserNoteUpdate,
+    TrackedUserSetPassword,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -286,6 +287,46 @@ def _fire_webhook_bg(action: str, intervention_doc: dict) -> None:
         asyncio.create_task(_fire_intervention_webhook(action, intervention_doc))
     except RuntimeError:
         # No running loop (shouldn't happen in FastAPI), ignore.
+        pass
+
+
+async def _fire_notes_webhook(action: str, kind: str, note_doc: dict, user: dict) -> None:
+    """Fire-and-forget POST when a Rapport/Suivi is created/updated/deleted.
+
+    URL pattern: {notes_webhook_url}/{action}/{kind}/{note_id}
+    Body: full note doc + author block.
+    """
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        if not s.get("notes_webhook_enabled") or not s.get("notes_webhook_url"):
+            return
+        base = (s.get("notes_webhook_url") or "").rstrip("/")
+        url = f"{base}/{action}/{kind}/{note_doc.get('id', 'unknown')}"
+        headers = {"Content-Type": "application/json", "User-Agent": "SawaliNotesWebhook/1.0"}
+        auth = None
+        atype = (s.get("notes_webhook_auth_type") or "none").lower()
+        if atype == "bearer" and s.get("notes_webhook_token"):
+            headers["Authorization"] = f"Bearer {s['notes_webhook_token']}"
+        elif atype == "basic" and s.get("notes_webhook_basic_user"):
+            auth = (s.get("notes_webhook_basic_user") or "", s.get("notes_webhook_basic_pass") or "")
+        body = {
+            "action": action,
+            "kind": kind,
+            "note": note_doc,
+            "author": {"id": user.get("id"), "email": user.get("email"), "full_name": user.get("full_name"), "role": user.get("role")},
+            "fired_at": _now(),
+        }
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(url, json=body, headers=headers, auth=auth)
+            logger.info("Notes webhook %s %s -> %s", action, url, r.status_code)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Notes webhook failed: %s", exc)
+
+
+def _fire_notes_webhook_bg(action: str, kind: str, note_doc: dict, user: dict) -> None:
+    try:
+        asyncio.create_task(_fire_notes_webhook(action, kind, note_doc, user))
+    except RuntimeError:
         pass
 
 
@@ -1488,7 +1529,105 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
 
 @api.delete("/admin/tracked-users/{tu_id}", tags=["Admin"])
 async def admin_delete_tracked(tu_id: str, _: dict = Depends(get_current_admin)):
+    tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
     await db.tracked_users.delete_one({"id": tu_id})
+    # Also remove the bridged users row (if any) so the email can no longer log in
+    if tu and tu.get("user_account_id"):
+        await db.users.delete_one({"id": tu["user_account_id"]})
+    return {"ok": True}
+
+
+@api.post("/admin/tracked-users/{tu_id}/set-password", tags=["Admin"])
+async def admin_set_tracked_password(
+    tu_id: str,
+    payload: TrackedUserSetPassword,
+    _: dict = Depends(get_current_admin),
+):
+    """Provision (or reset) a login for a tracked user.
+
+    Creates/updates a row in `users` (role=client, account_status=active) bridged via
+    `tracked_user_id`. The tracked user can then log in with their email + this password
+    through the standard /auth/login → OTP flow.
+    """
+    if not payload.password or len(payload.password) < 8:
+        raise HTTPException(status_code=400, detail="Mot de passe trop court (min 8 caractères)")
+    tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
+    if not tu:
+        raise HTTPException(status_code=404, detail="Utilisateur suivi introuvable")
+    email = (tu.get("email") or "").strip().lower()
+    if not email or not is_valid_email_syntax(email):
+        raise HTTPException(status_code=400, detail="L'utilisateur suivi doit avoir un email valide pour se connecter")
+
+    # Make sure email is not already used by another (non-bridged) account
+    other = await db.users.find_one({"email": email}, {"_id": 0})
+    if other and other.get("tracked_user_id") and other.get("tracked_user_id") != tu_id:
+        raise HTTPException(status_code=409, detail="Email déjà associé à un autre utilisateur suivi")
+    if other and not other.get("tracked_user_id"):
+        raise HTTPException(status_code=409, detail="Email déjà utilisé par un compte client/admin existant")
+
+    # Resolve parent client to inherit company/logo
+    parent = await db.users.find_one({"id": tu.get("client_id")}, {"_id": 0}) or {}
+    pwd_hash = hash_password(payload.password)
+
+    if other:
+        # Update existing bridged users row
+        await db.users.update_one(
+            {"id": other["id"]},
+            {"$set": {
+                "password_hash": pwd_hash,
+                "full_name": tu.get("name") or other.get("full_name"),
+                "phone": tu.get("phone") or other.get("phone"),
+                "company": parent.get("company") or other.get("company"),
+                "logo_url": parent.get("logo_url"),
+                "tracked_user_id": tu_id,
+                "tracked_role": tu.get("role"),
+                "parent_client_id": tu.get("client_id"),
+                "account_status": "active",
+                "updated_at": _now(),
+            }},
+        )
+        user_id = other["id"]
+    else:
+        user_id = _uuid()
+        await db.users.insert_one({
+            "id": user_id,
+            "email": email,
+            "password_hash": pwd_hash,
+            "full_name": tu.get("name") or email.split("@")[0],
+            "role": "client",
+            "phone": tu.get("phone"),
+            "company": parent.get("company"),
+            "logo_url": parent.get("logo_url"),
+            "account_status": "active",
+            "tracked_user_id": tu_id,
+            "tracked_role": tu.get("role"),
+            "parent_client_id": tu.get("client_id"),
+            "created_at": _now(),
+            "updated_at": _now(),
+        })
+
+    await db.tracked_users.update_one(
+        {"id": tu_id},
+        {"$set": {
+            "user_account_id": user_id,
+            "has_password": True,
+            "updated_at": _now(),
+        }},
+    )
+    return {"ok": True, "user_id": user_id, "email": email}
+
+
+@api.post("/admin/tracked-users/{tu_id}/revoke-password", tags=["Admin"])
+async def admin_revoke_tracked_password(tu_id: str, _: dict = Depends(get_current_admin)):
+    tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
+    if not tu:
+        raise HTTPException(status_code=404, detail="Utilisateur suivi introuvable")
+    if tu.get("user_account_id"):
+        await db.users.delete_one({"id": tu["user_account_id"]})
+    await db.tracked_users.update_one(
+        {"id": tu_id},
+        {"$set": {"user_account_id": None, "has_password": False, "updated_at": _now()}},
+    )
     return {"ok": True}
 
 
@@ -1655,6 +1794,7 @@ async def me_create_note(kind: str, payload: UserNoteCreate, user: dict = Depend
     }
     await coll.insert_one(doc.copy())
     doc.pop("_id", None)
+    _fire_notes_webhook_bg("created", kind, doc, user)
     return doc
 
 
@@ -1667,15 +1807,20 @@ async def me_update_note(kind: str, note_id: str, payload: UserNoteUpdate, user:
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     update["updated_at"] = _now()
     await coll.update_one({"id": note_id}, {"$set": update})
+    refreshed = await coll.find_one({"id": note_id}, {"_id": 0}) or {**existing, **update}
+    _fire_notes_webhook_bg("updated", kind, refreshed, user)
     return {"ok": True}
 
 
 @api.delete("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
 async def me_delete_note(kind: str, note_id: str, user: dict = Depends(get_current_user)):
     coll = _user_notes_collection(kind)
+    existing = await coll.find_one({"id": note_id, "owner_id": user["id"]}, {"_id": 0})
     res = await coll.delete_one({"id": note_id, "owner_id": user["id"]})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Note introuvable")
+    if existing:
+        _fire_notes_webhook_bg("deleted", kind, existing, user)
     return {"ok": True}
 
 
@@ -1700,7 +1845,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))

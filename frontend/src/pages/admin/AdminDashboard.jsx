@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Users, Calendar, FileText, Wrench, Inbox } from "lucide-react";
+import { Link } from "react-router-dom";
+import { Users, Calendar, FileText, Wrench, Inbox, ClipboardList, ArrowRight } from "lucide-react";
 
 const Card = ({ icon: Icon, label, value, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -16,8 +17,31 @@ const Card = ({ icon: Icon, label, value, testid }) => (
   </div>
 );
 
+const NoteCard = ({ to, label, accent, count, lastUpdated, icon: Icon, testid }) => (
+  <Link
+    to={to}
+    className="group rounded-xl border border-slate-200 bg-white p-5 hover:border-current transition flex items-start gap-4"
+    data-testid={testid}
+  >
+    <div className="h-12 w-12 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: accent + "18" }}>
+      <Icon className="h-6 w-6" style={{ color: accent }} />
+    </div>
+    <div className="flex-1 min-w-0">
+      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Mes {label}</p>
+      <p className="text-3xl font-display font-bold text-slate-900 leading-tight">{count}</p>
+      <p className="text-[11px] text-slate-500 mt-1 truncate">
+        {lastUpdated ? `Dernière mise à jour : ${new Date(lastUpdated).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}` : "Aucun enregistrement"}
+      </p>
+    </div>
+    <ArrowRight className="h-4 w-4" style={{ color: accent }} />
+  </Link>
+);
+
 export default function AdminDashboard() {
   const [stats, setStats] = useState({ clients: 0, appointments: 0, documents: 0, interventions: 0, contacts: 0 });
+  const [notes, setNotes] = useState({ reports: { count: 0, last_updated: null }, suivis: { count: 0, last_updated: null } });
+  const [features, setFeatures] = useState({ show_reports_button: true, show_suivis_button: true });
+
   useEffect(() => {
     Promise.all([
       apiClient.get("/admin/clients"),
@@ -25,8 +49,16 @@ export default function AdminDashboard() {
       apiClient.get("/admin/documents"),
       apiClient.get("/admin/interventions"),
       apiClient.get("/admin/contacts"),
-    ]).then(([c, a, d, i, ct]) => setStats({ clients: c.data.length, appointments: a.data.length, documents: d.data.length, interventions: i.data.length, contacts: ct.data.length })).catch(() => {});
+    ]).then(([c, a, d, i, ct]) => setStats({
+      clients: c.data.length, appointments: a.data.length, documents: d.data.length,
+      interventions: i.data.length, contacts: ct.data.length,
+    })).catch(() => {});
+    apiClient.get("/me/notes-summary").then((r) => setNotes(r.data)).catch(() => {});
+    apiClient.get("/company-info").then((r) => {
+      if (r.data?.portal_features) setFeatures(r.data.portal_features);
+    }).catch(() => {});
   }, []);
+
   return (
     <div className="space-y-6" data-testid="admin-dashboard">
       <div>
@@ -41,6 +73,17 @@ export default function AdminDashboard() {
         <Card icon={Wrench} label="Interventions" value={stats.interventions} testid="admin-stat-interventions" />
         <Card icon={Inbox} label="Messages" value={stats.contacts} testid="admin-stat-contacts" />
       </div>
+
+      {(features.show_reports_button || features.show_suivis_button) && (
+        <div className="grid sm:grid-cols-2 gap-4" data-testid="admin-notes-section">
+          {features.show_reports_button && (
+            <NoteCard to="/admin/notes/reports" label="rapports" accent="#1E90FF" count={notes.reports.count} lastUpdated={notes.reports.last_updated} icon={FileText} testid="admin-reports-btn" />
+          )}
+          {features.show_suivis_button && (
+            <NoteCard to="/admin/notes/suivis" label="suivis" accent="#10B981" count={notes.suivis.count} lastUpdated={notes.suivis.last_updated} icon={ClipboardList} testid="admin-suivis-btn" />
+          )}
+        </div>
+      )}
     </div>
   );
 }

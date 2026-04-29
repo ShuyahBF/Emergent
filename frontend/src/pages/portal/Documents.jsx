@@ -24,7 +24,7 @@ export default function ClientDocuments() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((it) => {
-            const fi = getFileIcon(it.file_url || it.filename);
+            const fi = getFileIcon(it.file_extension || it.filename || it.file_url);
             const Icn = fi.icon;
             const fileUrl = url(it);
             return (

@@ -2496,6 +2496,31 @@ async def public_visit_count():
     return {"enabled": True, "count": max(0, real + offset)}
 
 
+@api.get("/visits/trend", tags=["Public"])
+async def public_visit_trend(days: int = 7):
+    """Daily visit counts for the last N days (default 7), oldest first.
+    Used by the homepage ticker sparkline.
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if s.get("visits_counter_enabled") is False:
+        return {"enabled": False, "days": []}
+    days = max(2, min(days, 30))
+    today = datetime.now(timezone.utc).date()
+    start = today - timedelta(days=days - 1)
+    cursor = db.visits.find(
+        {"datetime": {"$gte": start.isoformat()}},
+        {"_id": 0, "datetime": 1},
+    )
+    items = await cursor.to_list(50000)
+    buckets = {(start + timedelta(days=i)).isoformat(): 0 for i in range(days)}
+    for v in items:
+        dt = (v.get("datetime") or "")[:10]
+        if dt in buckets:
+            buckets[dt] += 1
+    series = [{"date": k, "count": v} for k, v in sorted(buckets.items())]
+    return {"enabled": True, "days": series, "total": sum(b["count"] for b in series)}
+
+
 @api.post("/admin/visits/reset", tags=["Admin"])
 async def admin_reset_visit_counter(_: dict = Depends(get_current_admin)):
     """Resets the publicly displayed counter to zero (real visits remain in DB)."""

@@ -391,6 +391,10 @@ class SettingsUpdate(BaseModel):
     notes_webhook_basic_user: Optional[str] = None
     notes_webhook_basic_pass: Optional[str] = None
 
+    # Public visit counter on homepage
+    visits_counter_enabled: Optional[bool] = None
+    visits_counter_offset: Optional[int] = None  # Added to real count (can be negative to reset)
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

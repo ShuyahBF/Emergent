@@ -5,6 +5,7 @@ import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 import DeploymentsMap from "@/components/DeploymentsMap";
 import HeroVideoSection from "@/components/HeroVideoSection";
+import HomeStatsTicker from "@/components/HomeStatsTicker";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -43,6 +44,9 @@ export default function Home() {
         </div>
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-24 grid lg:grid-cols-12 gap-10">
           <div className="lg:col-span-7 animate-fade-up">
+            <div className="mb-5">
+              <HomeStatsTicker />
+            </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-sawali-blue/40 bg-sawali-blue/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-sawali-blue-light">
               <Sparkles className="h-3 w-3" />
               {home?.metadata?.kicker || "SAWALI · Software Engineering"}

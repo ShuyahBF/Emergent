@@ -132,6 +132,18 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - UI Section "Webhook Rapports & Suivis" dans /admin/settings.
 ✅ **Bonus** : safeguard server-side qui ignore "********" lors d'un PUT /admin/settings pour éviter d'écraser les secrets masqués (smtp_password, google_client_secret, recaptcha_secret_key, webhook_token, webhook_basic_pass, notes_webhook_token, notes_webhook_basic_pass, tracking_auth_header).
 
+## Implemented (2026-04-29) — Compteur de visites + Horloge live sur Home
+✅ **Compteur de visites** sur la page d'accueil publique :
+  - Endpoint public `GET /api/visits/count` → `{enabled, count}` où count = visites réelles + offset.
+  - Endpoint admin `POST /api/admin/visits/reset` qui règle l'offset à `-(real_count)` pour afficher 0.
+  - Settings : `visits_counter_enabled` (toggle) + `visits_counter_offset` (offset manuel modifiable).
+  - UI admin : section "Compteur de visites" dans /admin/settings avec toggle + champ offset + bouton "Réinitialiser à 0".
+✅ **Horloge live + ticker glass-morphism** sur la page d'accueil :
+  - Composant `<HomeStatsTicker>` (top du hero, au-dessus du kicker SAWALI).
+  - Pill 1 : date complète + heure mise à jour chaque seconde (capitalize, `tabular-nums`).
+  - Pill 2 : compteur de visites avec icône œil, refresh toutes les 30s, ring accent bleu.
+  - Style : backdrop-blur-md, `bg-[#0E1F3D]/70`, ring `sawali-blue/30`, ombre douce, responsive (date courte sur mobile).
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 - Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.

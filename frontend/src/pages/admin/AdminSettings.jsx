@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -235,8 +235,7 @@ export default function AdminSettings() {
         </div>
       </Section>
 
-      <Section icon={ClipboardList} title="Espace client : Rapports & Suivis">
-        <p className="text-xs text-slate-500">
+      <Section icon={ClipboardList} title="Espace client : Rapports & Suivis">        <p className="text-xs text-slate-500">
           Contrôle l'affichage des cartes <strong>Rapports</strong> et <strong>Suivis</strong> sur le tableau de bord
           de l'espace client. Quand activées, les utilisateurs suivis peuvent saisir et conserver leurs notes avec
           mise en forme (gras, listes, couleurs, etc.).
@@ -245,6 +244,48 @@ export default function AdminSettings() {
           <Toggle label="Afficher la carte Rapports" value={s.show_reports_button !== false} onChange={(v) => upd("show_reports_button", v)} testid="toggle-show-reports" />
           <Toggle label="Afficher la carte Suivis" value={s.show_suivis_button !== false} onChange={(v) => upd("show_suivis_button", v)} testid="toggle-show-suivis" />
         </div>
+      </Section>
+
+      <Section icon={Activity} title="Compteur de visites (page d'accueil)">
+        <p className="text-xs text-slate-500">
+          Affiche le nombre total de visites sur la page d'accueil publique. Le compteur est incrémenté
+          automatiquement à chaque chargement de page. Vous pouvez le réinitialiser à zéro à tout moment
+          (les visites historiques restent enregistrées en base pour les statistiques /admin/visits).
+        </p>
+        <Toggle
+          label="Afficher le compteur sur la page d'accueil"
+          value={s.visits_counter_enabled !== false}
+          onChange={(v) => upd("visits_counter_enabled", v)}
+          testid="toggle-visits-counter"
+        />
+        <div className="grid sm:grid-cols-2 gap-3 items-end">
+          <Input
+            label="Décalage manuel (offset)"
+            type="number"
+            value={s.visits_counter_offset ?? 0}
+            onChange={(v) => upd("visits_counter_offset", parseInt(v || "0", 10))}
+            placeholder="0"
+            testid="visits-counter-offset"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              if (!window.confirm("Réinitialiser le compteur affiché à 0 ?")) return;
+              try {
+                await apiClient.post("/admin/visits/reset");
+                toast.success("Compteur remis à zéro");
+                await load();
+              } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+            }}
+            className="inline-flex items-center justify-center gap-2 rounded-lg border border-rose-300 bg-rose-50 text-rose-700 px-4 py-2 text-sm hover:bg-rose-100"
+            data-testid="reset-visits-btn"
+          >
+            <RotateCcw className="h-4 w-4" /> Réinitialiser à 0
+          </button>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Le compteur affiché = visites réelles + offset. Réinitialiser règle l'offset à <code>-(visites_actuelles)</code>.
+        </p>
       </Section>
 
       <Section icon={Webhook} title="Webhook Interventions (REST API externe)">

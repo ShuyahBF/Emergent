@@ -2485,6 +2485,29 @@ async def admin_visits_stats(_: dict = Depends(get_current_admin)):
     }
 
 
+@api.get("/visits/count", tags=["Public"])
+async def public_visit_count():
+    """Total visit counter for the public homepage. Includes admin-tunable offset."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if s.get("visits_counter_enabled") is False:
+        return {"enabled": False, "count": 0}
+    real = await db.visits.count_documents({})
+    offset = int(s.get("visits_counter_offset") or 0)
+    return {"enabled": True, "count": max(0, real + offset)}
+
+
+@api.post("/admin/visits/reset", tags=["Admin"])
+async def admin_reset_visit_counter(_: dict = Depends(get_current_admin)):
+    """Resets the publicly displayed counter to zero (real visits remain in DB)."""
+    real = await db.visits.count_documents({})
+    await db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {"visits_counter_offset": -real, "updated_at": _now()}},
+        upsert=True,
+    )
+    return {"ok": True, "displayed_count": 0, "real_count": real}
+
+
 # ====================================================================
 # REGISTER & STARTUP
 # ====================================================================

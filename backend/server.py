@@ -70,6 +70,8 @@ from models import (
     DeploymentCreate,
     DeploymentUpdate,
     BlacklistedIPCreate,
+    UserNoteCreate,
+    UserNoteUpdate,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -482,6 +484,10 @@ async def company_info():
             "url": s.get("assistant_url"),
             "label": s.get("assistant_label") or "Assistant Support",
             "color": s.get("assistant_color") or "#0075E3",
+        },
+        "portal_features": {
+            "show_reports_button": bool(s.get("show_reports_button", True)),
+            "show_suivis_button": bool(s.get("show_suivis_button", True)),
         },
     }
 
@@ -1317,7 +1323,7 @@ async def public_deployments():
 # ADMIN - File upload
 # ====================================================================
 @api.post("/admin/upload", tags=["Admin"])
-async def admin_upload(file: UploadFile = File(...), _: dict = Depends(get_current_admin)):
+async def admin_upload(request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_admin)):
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
@@ -1329,25 +1335,95 @@ async def admin_upload(file: UploadFile = File(...), _: dict = Depends(get_curre
         "id": file_id,
         "filename": file.filename,
         "stored_name": safe_name,
+        "extension": suffix.lstrip(".") if suffix else None,
         "content_type": file.content_type or mimetypes.guess_type(file.filename or "")[0],
         "size": size,
         "url": f"/api/files/{file_id}",
         "uploaded_at": _now(),
+        "uploaded_by_id": user.get("id"),
+        "uploaded_by_email": user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
     }
     await db.files.insert_one(file_doc.copy())
+    # Mirror into document_logs for centralized auditing
+    await db.document_logs.insert_one({
+        "id": _uuid(),
+        "event_type": "upload",
+        "file_id": file_id,
+        "filename": file.filename,
+        "extension": file_doc.get("extension"),
+        "size": size,
+        "user_id": user.get("id"),
+        "user_email": user.get("email"),
+        "ip": file_doc["uploaded_from_ip"],
+        "user_agent": request.headers.get("user-agent"),
+        "created_at": _now(),
+    })
     file_doc.pop("_id", None)
     return file_doc
 
 
 @api.get("/files/{file_id}", tags=["Public"])
-async def serve_file(file_id: str):
+async def serve_file(request: Request, file_id: str):
     meta = await db.files.find_one({"id": file_id}, {"_id": 0})
     if not meta:
         raise HTTPException(status_code=404, detail="Fichier introuvable")
     path = UPLOAD_DIR / meta["stored_name"]
     if not path.exists():
         raise HTTPException(status_code=404, detail="Fichier introuvable")
-    return FileResponse(path, media_type=meta.get("content_type") or "application/octet-stream", filename=meta.get("filename"))
+    # Try to identify the downloader via Authorization header (silent, optional)
+    user_id = None
+    user_email = None
+    auth_header = request.headers.get("authorization") or ""
+    if auth_header.startswith("Bearer "):
+        try:
+            from auth import decode_token  # local import to avoid cycle if any
+            token_data = decode_token(auth_header.split(" ", 1)[1])
+            if token_data and token_data.get("sub"):
+                u = await db.users.find_one({"id": token_data["sub"]}, {"_id": 0, "password_hash": 0})
+                if u:
+                    user_id = u["id"]
+                    user_email = u["email"]
+        except Exception:  # noqa: BLE001
+            pass
+    started = datetime.now(timezone.utc)
+    started_ts = started.timestamp()
+    response = FileResponse(
+        path,
+        media_type=meta.get("content_type") or "application/octet-stream",
+        filename=meta.get("filename"),
+    )
+    # Fire-and-forget log of the download (duration is approximate as we log before streaming)
+    async def _log_download():
+        try:
+            await db.document_logs.insert_one({
+                "id": _uuid(),
+                "event_type": "download",
+                "file_id": file_id,
+                "filename": meta.get("filename"),
+                "extension": meta.get("extension"),
+                "size": meta.get("size"),
+                "user_id": user_id,
+                "user_email": user_email,
+                "ip": _client_ip_from_request(request),
+                "user_agent": request.headers.get("user-agent"),
+                "duration_ms": int((datetime.now(timezone.utc).timestamp() - started_ts) * 1000),
+                "created_at": _now(),
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("download log failed: %s", exc)
+    asyncio.create_task(_log_download())
+    return response
+
+
+@api.get("/admin/document-logs", tags=["Admin"])
+async def admin_document_logs(file_id: Optional[str] = None, _: dict = Depends(get_current_admin)):
+    """Returns combined upload + download history. Admin only."""
+    query = {}
+    if file_id:
+        query["file_id"] = file_id
+    items = await db.document_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return items
 
 
 # ====================================================================
@@ -1542,6 +1618,78 @@ async def me_branding(user: dict = Depends(get_current_user)):
                 logo_url = parent.get("logo_url")
                 company = parent.get("company") or company
     return {"logo_url": logo_url, "company": company}
+
+
+# ====================================================================
+# USER NOTES — Rapports & Suivis
+# ====================================================================
+def _user_notes_collection(kind: str):
+    if kind not in ("reports", "suivis"):
+        raise HTTPException(status_code=404, detail="Type inconnu")
+    return db.user_reports if kind == "reports" else db.user_suivis
+
+
+@api.get("/me/notes/{kind}", tags=["Portail Client"])
+async def me_list_notes(kind: str, user: dict = Depends(get_current_user)):
+    coll = _user_notes_collection(kind)
+    items = await coll.find({"owner_id": user["id"]}, {"_id": 0}).sort("updated_at", -1).to_list(2000)
+    return items
+
+
+@api.post("/me/notes/{kind}", tags=["Portail Client"])
+async def me_create_note(kind: str, payload: UserNoteCreate, user: dict = Depends(get_current_user)):
+    coll = _user_notes_collection(kind)
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre requis")
+    doc = {
+        "id": _uuid(),
+        "kind": kind,
+        "owner_id": user["id"],
+        "owner_email": user["email"],
+        "title": title,
+        "content_html": payload.content_html or "",
+        "tags": payload.tags or [],
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await coll.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
+async def me_update_note(kind: str, note_id: str, payload: UserNoteUpdate, user: dict = Depends(get_current_user)):
+    coll = _user_notes_collection(kind)
+    existing = await coll.find_one({"id": note_id, "owner_id": user["id"]}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Note introuvable")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update["updated_at"] = _now()
+    await coll.update_one({"id": note_id}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
+async def me_delete_note(kind: str, note_id: str, user: dict = Depends(get_current_user)):
+    coll = _user_notes_collection(kind)
+    res = await coll.delete_one({"id": note_id, "owner_id": user["id"]})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Note introuvable")
+    return {"ok": True}
+
+
+@api.get("/me/notes-summary", tags=["Portail Client"])
+async def me_notes_summary(user: dict = Depends(get_current_user)):
+    """Returns counts and last update timestamps to display dashboard buttons."""
+    rep_count = await db.user_reports.count_documents({"owner_id": user["id"]})
+    sui_count = await db.user_suivis.count_documents({"owner_id": user["id"]})
+    rep_last = await db.user_reports.find_one({"owner_id": user["id"]}, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    sui_last = await db.user_suivis.find_one({"owner_id": user["id"]}, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    return {
+        "reports": {"count": rep_count, "last_updated": (rep_last or {}).get("updated_at")},
+        "suivis": {"count": sui_count, "last_updated": (sui_last or {}).get("updated_at")},
+    }
 
 
 # ====================================================================

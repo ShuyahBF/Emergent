@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Upload, Trash2, Plus, X, FileText, Image as ImageIcon, Globe, Settings, Edit2, Check } from "lucide-react";
+import { Upload, Trash2, Plus, X, FileText, Image as ImageIcon, Globe, Settings, Edit2, Check, History, Download as DownloadIcon } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
+import { getFileIcon, absoluteFileUrl } from "@/lib/fileIcons";
 
 const empty = {
   title: "", description: "", category: "documentation",
@@ -64,6 +65,15 @@ export default function AdminDocuments() {
     await load();
   };
 
+  const [logsFor, setLogsFor] = useState(null); // {document, logs}
+
+  const openLogs = async (doc) => {
+    try {
+      const r = await apiClient.get("/admin/document-logs", { params: { file_id: doc.file_id } });
+      setLogsFor({ document: doc, logs: r.data });
+    } catch (err) { toast.error("Erreur chargement historique"); }
+  };
+
   return (
     <div className="space-y-6" data-testid="admin-documents-page">
       <div className="flex items-center justify-between flex-wrap gap-4">
@@ -87,13 +97,28 @@ export default function AdminDocuments() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {items.map((it) => (
+        {items.map((it) => {
+          const fi = getFileIcon(it.file_url || it.filename);
+          const Icn = fi.icon;
+          return (
           <div key={it.id} className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid={`admin-doc-${it.id}`}>
-            <div className="h-32 bg-slate-50 flex items-center justify-center">
+            <div className="h-32 bg-slate-50 flex items-center justify-center relative">
               {it.cover_image_url ? <img src={it.cover_image_url} alt="" className="h-full w-full object-cover" /> :
-                it.file_type === "image" ? <ImageIcon className="h-8 w-8 text-slate-400" /> :
-                it.body_html ? <Globe className="h-8 w-8 text-slate-400" /> :
-                <FileText className="h-8 w-8 text-slate-400" />}
+                it.body_html && !it.file_url ? <Globe className="h-10 w-10 text-slate-400" /> :
+                it.file_url ? (
+                  <a
+                    href={absoluteFileUrl(it.file_url)}
+                    target="_blank"
+                    rel="noopener"
+                    download
+                    title={`Télécharger ${it.filename || it.title}`}
+                    className="flex flex-col items-center gap-1 hover:scale-110 transition-transform"
+                    data-testid={`doc-download-${it.id}`}
+                  >
+                    <Icn className="h-12 w-12" color={fi.color} strokeWidth={1.6} />
+                    {fi.ext && <span className="text-[10px] uppercase tracking-widest font-mono text-slate-500">.{fi.ext}</span>}
+                  </a>
+                ) : <FileText className="h-10 w-10 text-slate-400" />}
             </div>
             <div className="p-4">
               <div className="flex items-center gap-2 mb-1">
@@ -108,16 +133,24 @@ export default function AdminDocuments() {
                 })()}
                 {it.is_public && <span className="text-[10px] bg-emerald-100 text-emerald-700 px-2 rounded">Public</span>}
               </div>
-              <h3 className="font-display font-semibold text-sm">{it.title}</h3>
-              <div className="mt-3 flex gap-3 text-xs">
+              <h3 className="font-display font-semibold text-sm truncate" title={it.title}>{it.title}</h3>
+              <div className="mt-3 flex flex-wrap gap-3 text-xs">
                 <button onClick={() => open(it)} className="text-sawali-blue hover:underline">Modifier</button>
-                <button onClick={() => del(it.id)} className="text-rose-600 hover:underline">Supprimer</button>
+                {it.file_url && (
+                  <button onClick={() => openLogs(it)} className="inline-flex items-center gap-1 text-slate-600 hover:text-sawali-blue" data-testid={`doc-history-${it.id}`}>
+                    <History className="h-3 w-3" /> Historique
+                  </button>
+                )}
+                <button onClick={() => del(it.id)} className="text-rose-600 hover:underline ml-auto">Supprimer</button>
               </div>
             </div>
           </div>
-        ))}
+          );
+        })}
         {items.length === 0 && <p className="text-slate-500 col-span-full">Aucun document. Créez-en un.</p>}
       </div>
+
+      {logsFor && <DocumentLogsModal data={logsFor} onClose={() => setLogsFor(null)} />}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>
@@ -187,6 +220,64 @@ export default function AdminDocuments() {
     </div>
   );
 }
+
+const DocumentLogsModal = ({ data, onClose }) => {
+  const { document, logs } = data;
+  const uploads = logs.filter((l) => l.event_type === "upload");
+  const downloads = logs.filter((l) => l.event_type === "download");
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[90vh] overflow-auto" onClick={(e) => e.stopPropagation()} data-testid="doc-logs-modal">
+        <div className="flex items-center justify-between p-4 border-b">
+          <div>
+            <h3 className="font-display font-semibold">Historique du document</h3>
+            <p className="text-xs text-slate-500 truncate">{document.title}</p>
+          </div>
+          <button onClick={onClose}><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-4 space-y-5">
+          <div className="grid grid-cols-2 gap-3">
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Téléversements</p>
+              <p className="text-2xl font-display font-bold">{uploads.length}</p>
+            </div>
+            <div className="rounded-lg border border-slate-200 p-3">
+              <p className="text-[10px] uppercase tracking-widest text-slate-500">Téléchargements</p>
+              <p className="text-2xl font-display font-bold">{downloads.length}</p>
+            </div>
+          </div>
+          <div className="overflow-x-auto rounded-lg border border-slate-200">
+            <table className="w-full text-xs min-w-[640px]">
+              <thead className="bg-slate-50 text-[10px] uppercase tracking-widest text-slate-600">
+                <tr>
+                  <th className="text-left px-3 py-2">Type</th>
+                  <th className="text-left px-3 py-2">Date</th>
+                  <th className="text-left px-3 py-2">Utilisateur</th>
+                  <th className="text-left px-3 py-2">IP</th>
+                  <th className="text-left px-3 py-2">Durée</th>
+                </tr>
+              </thead>
+              <tbody>
+                {logs.length === 0 && <tr><td colSpan={5} className="px-3 py-6 text-center text-slate-500">Aucun événement.</td></tr>}
+                {logs.map((l) => (
+                  <tr key={l.id} className="border-t border-slate-100" data-testid={`log-${l.id}`}>
+                    <td className="px-3 py-2">
+                      <span className={`text-[10px] px-2 py-0.5 rounded uppercase tracking-wider ${l.event_type === "upload" ? "bg-emerald-100 text-emerald-700" : "bg-blue-100 text-blue-700"}`}>{l.event_type}</span>
+                    </td>
+                    <td className="px-3 py-2 text-slate-700">{new Date(l.created_at).toLocaleString("fr-FR")}</td>
+                    <td className="px-3 py-2 text-slate-600">{l.user_email || <span className="text-slate-400">anonyme</span>}</td>
+                    <td className="px-3 py-2 font-mono text-slate-500">{l.ip || "-"}</td>
+                    <td className="px-3 py-2 text-slate-500">{l.duration_ms != null ? `${l.duration_ms} ms` : "-"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 const Input = ({ label, value, onChange, required, type = "text" }) => (
   <div>

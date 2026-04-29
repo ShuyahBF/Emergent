@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
-import { Calendar, Wrench, FileText, Users, ArrowRight, CheckCircle2, Clock } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -18,10 +18,38 @@ const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   </div>
 );
 
+const NoteCard = ({ to, label, accent, count, lastUpdated, icon: Icon, testid }) => (
+  <Link
+    to={to}
+    className="group rounded-xl border border-slate-200 bg-white p-5 hover:border-current transition flex items-start gap-4"
+    style={{ "--brand": accent }}
+    data-testid={testid}
+  >
+    <div className="h-12 w-12 rounded-lg flex items-center justify-center flex-shrink-0" style={{ background: accent + "18" }}>
+      <Icon className="h-6 w-6" style={{ color: accent }} />
+    </div>
+    <div className="flex-1 min-w-0">
+      <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Mes {label}</p>
+      <p className="text-3xl font-display font-bold text-slate-900 leading-tight">{count}</p>
+      <p className="text-[11px] text-slate-500 mt-1 truncate">
+        {lastUpdated ? `Dernière mise à jour : ${new Date(lastUpdated).toLocaleDateString("fr-FR", { day: "2-digit", month: "short", year: "numeric" })}` : "Aucun enregistrement"}
+      </p>
+    </div>
+    <ArrowRight className="h-4 w-4 text-slate-400 group-hover:translate-x-1 transition-transform" style={{ color: accent }} />
+  </Link>
+);
+
 export default function ClientDashboard() {
   const [data, setData] = useState(null);
+  const [notes, setNotes] = useState({ reports: { count: 0, last_updated: null }, suivis: { count: 0, last_updated: null } });
+  const [features, setFeatures] = useState({ show_reports_button: true, show_suivis_button: true });
+
   useEffect(() => {
     apiClient.get("/me/account").then((r) => setData(r.data)).catch(() => {});
+    apiClient.get("/me/notes-summary").then((r) => setNotes(r.data)).catch(() => {});
+    apiClient.get("/company-info").then((r) => {
+      if (r.data?.portal_features) setFeatures(r.data.portal_features);
+    }).catch(() => {});
   }, []);
   if (!data) return <p className="text-slate-500">Chargement...</p>;
 
@@ -45,6 +73,17 @@ export default function ClientDashboard() {
         <StatCard icon={FileText} label="Documents" value={s.documents} testid="stat-documents" />
         <StatCard icon={CheckCircle2} label="Statut" value={data.user.account_status === "active" ? "Actif" : "Inactif"} testid="stat-status" />
       </div>
+
+      {(features.show_reports_button || features.show_suivis_button) && (
+        <div className="grid sm:grid-cols-2 gap-4" data-testid="dashboard-notes-section">
+          {features.show_reports_button && (
+            <NoteCard to="/portal/notes/reports" label="rapports" accent="#1E90FF" count={notes.reports.count} lastUpdated={notes.reports.last_updated} icon={FileText} testid="dashboard-reports-btn" />
+          )}
+          {features.show_suivis_button && (
+            <NoteCard to="/portal/notes/suivis" label="suivis" accent="#10B981" count={notes.suivis.count} lastUpdated={notes.suivis.last_updated} icon={ClipboardList} testid="dashboard-suivis-btn" />
+          )}
+        </div>
+      )}
 
       <div className="grid lg:grid-cols-2 gap-6">
         <div className="rounded-xl border border-slate-200 bg-white p-6" data-testid="recent-appointments">

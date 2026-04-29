@@ -371,7 +371,27 @@ class SettingsUpdate(BaseModel):
     assistant_label: Optional[str] = None  # button label
     assistant_color: Optional[str] = None  # hex color for the floating button
 
+    # Portal feature toggles
+    show_reports_button: Optional[bool] = None
+    show_suivis_button: Optional[bool] = None
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24
     reason: Optional[str] = None
+
+
+# ====================================================================
+# REPORTS & SUIVIS — user-authored notes with rich text content
+# Stored per authenticated user (client / superviseur / admin / tracked-user via portal)
+# ====================================================================
+class UserNoteCreate(BaseModel):
+    title: str
+    content_html: Optional[str] = ""
+    tags: Optional[List[str]] = None
+
+
+class UserNoteUpdate(BaseModel):
+    title: Optional[str] = None
+    content_html: Optional[str] = None
+    tags: Optional[List[str]] = None

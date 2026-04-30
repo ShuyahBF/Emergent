@@ -53,6 +53,7 @@ export default function MarketingFooter() {
             <li><Link to="/login" className="hover:text-sawali-blue-light">Connexion client</Link></li>
             <li><Link to="/contact" className="hover:text-sawali-blue-light">Contact</Link></li>
             <li><Link to="/documentation" className="hover:text-sawali-blue-light">Documentation API</Link></li>
+            <li><Link to="/uptime" className="hover:text-sawali-blue-light">État des services</Link></li>
           </ul>
         </div>
         <div>

@@ -1,6 +1,7 @@
 import React from "react";
 import MarketingNav from "@/components/MarketingNav";
 import MarketingFooter from "@/components/MarketingFooter";
+import StatusPill from "@/components/StatusPill";
 
 export default function MarketingLayout({ children }) {
   return (
@@ -8,6 +9,7 @@ export default function MarketingLayout({ children }) {
       <MarketingNav />
       <main className="flex-1">{children}</main>
       <MarketingFooter />
+      <StatusPill />
     </div>
   );
 }

@@ -33,6 +33,13 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-04-30 — Itération 12 : StatusPill (trust seal public)
+✅ Composant `<StatusPill>` flottant bottom-left sur toutes les pages publiques (via MarketingLayout).
+✅ Polling 60s sur `/api/public/status?window_hours=24` — dot pulsant vert (≥99%), amber (≥95%) ou rouge (<95%) + libellé + uptime %.
+✅ Click → ouvre `/uptime`. Dismissible pour la session via sessionStorage. Responsive (mobile : dot + % seuls, label masqué).
+✅ Lien "État des services" ajouté dans le footer (section Espaces).
+✅ Style glass-morphism cohérent avec HomeStatsTicker. Ne conflit pas avec l'assistant Liluvine (bottom-right).
+
 ### 2026-04-30 — Itération 11 : Uptime Monitor multi-endpoints + Page publique /uptime
 ✅ 5 sondes (db_ping, api_health, api_company_info, api_visits_count, auth_login_endpoint) exécutées en parallèle (`asyncio.gather`) chaque heure à H:05 (cron Africa/Abidjan).
 ✅ Persistence dans `db.uptime_checks` (capped 720 entrées). Stats : uptime % par sonde + global, durée moyenne, timeline des 168 derniers points.

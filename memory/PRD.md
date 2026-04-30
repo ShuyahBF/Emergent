@@ -194,6 +194,24 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
   - `<ImageUploader>` renommé conceptuellement → accepte désormais images, PDF, Word, Excel, PowerPoint, TXT, CSV (max 25 Mo, max 10).
   - `<AttachmentThumb>` : preview <img> pour les images, sinon icône colorée + extension via `getFileIcon()`.
 
+## Implemented (2026-04-30) — Itération 7 : Dashboard santé + alertes + API générique
+✅ **Dashboard `/admin/health`** (super-admin uniquement, sidebar `superAdminOnly`) :
+  - Stats sur `api_traces` : total, erreurs ≥ 400, taux d'erreur, durée moyenne, **histogramme par heure**, top endpoints en erreur, top utilisateurs.
+  - Sélecteur de fenêtre (1 h / 6 h / 24 h / 3 j / 7 j / 14 j).
+  - Boutons : « Test alerte » (envoi email/webhook fictif immédiat) et « Hebdo maintenant » (déclenche le digest sans attendre vendredi).
+✅ **Alertes temps réel** : à chaque insertion d'une ligne `api_traces` avec `status >= 400`, le backend déclenche **email + webhook** (fire-and-forget, sémaphore à 5 pour éviter les bursts). Toggle `health_realtime_enabled`.
+✅ **Rapport hebdomadaire** : APScheduler avec cron `Vendredi 05:00 Africa/Abidjan` → email HTML + webhook avec stats des 7 derniers jours, top endpoints, top users. Toggle `health_weekly_enabled`.
+✅ **Settings dans `/admin/settings`** : section « Santé applicative » avec toggles + URL webhook + auth bearer/basic + email destinataire (par défaut super-admin) + secrets masqués/protégés.
+✅ **API REST générique** `GET /api/admin/db/{collection}` (super-admin uniquement, 30+ collections whitelistées) avec filtres dynamiques :
+  - `key=value` (booléens et entiers auto-coercés)
+  - `key__regex=pattern` (case-insensitive)
+  - `key__gte`, `key__lte`, `key__gt`, `key__lt`, `key__ne`
+  - `limit`, `sort_by`, `sort_dir`
+  - **Redaction automatique** des champs sensibles (password_hash, tokens, secrets…) → `[REDACTED]`.
+  - `GET /api/admin/db` liste toutes les collections autorisées avec leur count.
+✅ **Tests** : 13/13 backend pytest + 3/3 flows critiques frontend (dashboard, settings, RBAC sidebar).
+✅ **Hardening** : sémaphore `asyncio.Semaphore(5)` sur `_fire_health_realtime` pour borner la concurrence en cas d'avalanche d'erreurs.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 - Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.

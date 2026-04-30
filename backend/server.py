@@ -2444,6 +2444,7 @@ SUPER_ADMIN_EMAIL = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsy
 TRACE_MAX_BODY_CHARS = 8000
 
 _scheduler = None  # APScheduler instance (set up in on_startup)
+_health_webhook_semaphore = asyncio.Semaphore(5)  # cap concurrent realtime webhooks during error bursts
 TRACE_SENSITIVE_KEYS_RE = re.compile(
     r"(password|passwd|secret|token|api[_-]?key|recaptcha|otp|code|session_token|"
     r"smtp_password|smtp_user|api_basic_pass|webhook_token|webhook_basic_pass|"
@@ -2622,39 +2623,40 @@ async def _fire_health_webhook(payload: dict) -> bool:
 
 
 async def _fire_health_realtime(trace_doc: dict) -> None:
-    try:
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        if not s.get("health_realtime_enabled"):
-            return
-        recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
-        body = {
-            "type": "api_trace_error",
-            "fired_at": _now(),
-            "trace": {k: trace_doc.get(k) for k in (
-                "id", "method", "url", "status", "user_email", "module",
-                "duration_ms", "error", "request_body", "response_body", "ip", "created_at",
-            )},
-        }
-        await _fire_health_webhook(body)
+    async with _health_webhook_semaphore:
         try:
-            from email_service import send_email
-            subject = f"[SAWALI ALERT] {trace_doc.get('method')} {trace_doc.get('url')} -> HTTP {trace_doc.get('status')}"
-            html = (
-                f"<div style='font-family:Arial,sans-serif;'>"
-                f"<h3 style='color:#EF4444'>Erreur API détectée</h3>"
-                f"<p style='color:#475569;font-size:13px;'>{trace_doc.get('user_email')} · {trace_doc.get('created_at')}</p>"
-                f"<p><code>{trace_doc.get('method')} {trace_doc.get('url')}</code> → "
-                f"<strong style='color:#EF4444'>HTTP {trace_doc.get('status')}</strong> ({trace_doc.get('duration_ms')} ms)</p>"
-                f"<pre style='background:#0F172A;color:#7DD3FC;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('request_body') or '')[:1500]}</pre>"
-                f"<pre style='background:#0F172A;color:#FCA5A5;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('response_body') or '')[:1500]}</pre>"
-                f"</div>"
-            )
-            text = f"Erreur API: {trace_doc.get('method')} {trace_doc.get('url')} HTTP {trace_doc.get('status')} par {trace_doc.get('user_email')}"
-            await send_email(recipient, subject, html, text)
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            if not s.get("health_realtime_enabled"):
+                return
+            recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+            body = {
+                "type": "api_trace_error",
+                "fired_at": _now(),
+                "trace": {k: trace_doc.get(k) for k in (
+                    "id", "method", "url", "status", "user_email", "module",
+                    "duration_ms", "error", "request_body", "response_body", "ip", "created_at",
+                )},
+            }
+            await _fire_health_webhook(body)
+            try:
+                from email_service import send_email
+                subject = f"[SAWALI ALERT] {trace_doc.get('method')} {trace_doc.get('url')} -> HTTP {trace_doc.get('status')}"
+                html = (
+                    f"<div style='font-family:Arial,sans-serif;'>"
+                    f"<h3 style='color:#EF4444'>Erreur API détectée</h3>"
+                    f"<p style='color:#475569;font-size:13px;'>{trace_doc.get('user_email')} · {trace_doc.get('created_at')}</p>"
+                    f"<p><code>{trace_doc.get('method')} {trace_doc.get('url')}</code> → "
+                    f"<strong style='color:#EF4444'>HTTP {trace_doc.get('status')}</strong> ({trace_doc.get('duration_ms')} ms)</p>"
+                    f"<pre style='background:#0F172A;color:#7DD3FC;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('request_body') or '')[:1500]}</pre>"
+                    f"<pre style='background:#0F172A;color:#FCA5A5;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('response_body') or '')[:1500]}</pre>"
+                    f"</div>"
+                )
+                text = f"Erreur API: {trace_doc.get('method')} {trace_doc.get('url')} HTTP {trace_doc.get('status')} par {trace_doc.get('user_email')}"
+                await send_email(recipient, subject, html, text)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Health realtime email failed: %s", exc)
         except Exception as exc:  # noqa: BLE001
-            logger.warning("Health realtime email failed: %s", exc)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("Health realtime alert failed: %s", exc)
+            logger.warning("Health realtime alert failed: %s", exc)
 
 
 async def _build_health_stats(window_hours: int = 24) -> dict:

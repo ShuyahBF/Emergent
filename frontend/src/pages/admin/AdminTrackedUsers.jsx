@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "lucide-react";
 import { toast } from "sonner";
+import PasswordInput from "@/components/PasswordInput";
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur"];
 const empty = { client_id: "", name: "", email: "", role: "Consultation", department: "", status: "active" };
@@ -260,13 +261,13 @@ function PasswordDialog({ user, onClose, onSaved }) {
           <div>
             <label className="block text-xs font-semibold mb-1">Mot de passe (min 8 caractères) *</label>
             <div className="flex gap-2">
-              <input
-                type="text"
+              <PasswordInput
                 value={pwd}
                 onChange={(e) => setPwd(e.target.value)}
                 className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono focus:border-sawali-blue focus:outline-none"
                 placeholder="ex. M0nC0deS3cur1se"
-                data-testid="password-input"
+                autoComplete="new-password"
+                testid="password-input"
                 autoFocus
               />
               <button type="button" onClick={generate} className="rounded-lg border border-slate-300 px-3 py-2 text-xs hover:border-sawali-blue hover:text-sawali-blue" title="Générer">⟲</button>

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Plus, Edit, Trash2, X, GraduationCap, Settings as SettingsIcon, Users, Layers, Coins, Power } from "lucide-react";
 import { toast } from "sonner";
+import PasswordInput from "@/components/PasswordInput";
 
 const STATE_BADGES = {
   inscription: "bg-slate-100 text-slate-700",
@@ -252,11 +253,11 @@ function ModulesPanel({ fid, onClose }) {
                     <option value="none">Aucune</option><option value="bearer">Bearer Token</option><option value="basic">Basic Auth</option>
                   </select>
                 </Field>
-                {modForm.api_auth_type === "bearer" && <Field label="Token"><input type="password" value={modForm.api_token || ""} onChange={(e) => setModForm({ ...modForm, api_token: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></Field>}
+                {modForm.api_auth_type === "bearer" && <Field label="Token"><PasswordInput value={modForm.api_token || ""} onChange={(e) => setModForm({ ...modForm, api_token: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autoComplete="off" /></Field>}
                 {modForm.api_auth_type === "basic" && (
                   <div className="grid grid-cols-2 gap-2">
                     <Field label="Utilisateur"><input value={modForm.api_basic_user || ""} onChange={(e) => setModForm({ ...modForm, api_basic_user: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></Field>
-                    <Field label="Mot de passe"><input type="password" value={modForm.api_basic_pass || ""} onChange={(e) => setModForm({ ...modForm, api_basic_pass: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></Field>
+                    <Field label="Mot de passe"><PasswordInput value={modForm.api_basic_pass || ""} onChange={(e) => setModForm({ ...modForm, api_basic_pass: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" autoComplete="off" /></Field>
                   </div>
                 )}
               </div>

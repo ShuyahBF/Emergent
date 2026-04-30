@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -39,6 +39,7 @@ const adminLinks = [
   { to: "/admin/deployments", label: "Déploiements", icon: Globe2 },
   { to: "/admin/blacklist", label: "Blacklist IP", icon: ShieldAlert },
   { to: "/admin/access-logs", label: "Logs d'accès", icon: History },
+  { to: "/admin/api-traces", label: "Traces API (debug)", icon: Bug, superAdminOnly: true },
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },
@@ -52,7 +53,10 @@ export default function PortalLayout({ admin = false }) {
   const [open, setOpen] = useState(false);
   const [branding, setBranding] = useState(null);
   const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
-  const links = (admin ? adminLinks : clientLinks).filter((l) => !l.trackedOnly || isTracked);
+  const isSuperAdmin = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  const links = (admin ? adminLinks : clientLinks)
+    .filter((l) => !l.trackedOnly || isTracked)
+    .filter((l) => !l.superAdminOnly || isSuperAdmin);
 
   useEffect(() => {
     if (!user) navigate("/login");

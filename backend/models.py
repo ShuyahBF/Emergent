@@ -1,6 +1,6 @@
 """Pydantic models for SAWALI SMART SYSTEMS API."""
 from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional, List, Any
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import uuid
 
@@ -437,6 +437,17 @@ class RatingCreate(BaseModel):
 class AccessLogCreate(BaseModel):
     module: str
     page: Optional[str] = None
+
+
+class ApiTraceCreate(BaseModel):
+    method: str
+    url: str
+    status: int
+    request_body: Optional[Any] = None
+    response_body: Optional[Any] = None
+    duration_ms: Optional[int] = None
+    module: Optional[str] = None  # frontend route label
+    error: Optional[str] = None
 
 
 

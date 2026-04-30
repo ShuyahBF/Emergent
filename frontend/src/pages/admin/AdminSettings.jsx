@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw } from "lucide-react";
+import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
 export default function AdminSettings() {
@@ -369,7 +370,18 @@ const Section = ({ icon: Icon, title, children }) => (
 const Input = ({ label, value, onChange, type = "text", placeholder, testid }) => (
   <div>
     <label className="block text-xs font-semibold mb-1">{label}</label>
-    <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={testid} />
+    {type === "password" ? (
+      <PasswordInput
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+        autoComplete="new-password"
+        testid={testid}
+      />
+    ) : (
+      <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={testid} />
+    )}
   </div>
 );
 const Toggle = ({ label, value, onChange, testid }) => (

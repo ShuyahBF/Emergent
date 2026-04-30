@@ -77,6 +77,7 @@ from models import (
     TrackedUserSetPassword,
     RatingCreate,
     AccessLogCreate,
+    ApiTraceCreate,
     FormationCreate,
     FormationUpdate,
     FormationModuleCreate,
@@ -2433,6 +2434,132 @@ async def admin_access_logs_csv(
         content={"csv": buf.getvalue()},
         headers={"Cache-Control": "no-store"},
     )
+
+
+# ====================================================================
+# API TRACE — frontend axios interceptor logs every mutating call here.
+# Only the seeded super-admin (admin@sawalismartsystems.com) can read.
+# ====================================================================
+SUPER_ADMIN_EMAIL = "admin@sawalismartsystems.com"
+TRACE_MAX_BODY_CHARS = 8000
+
+
+def _truncate_for_trace(value):
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (dict, list)):
+            s = json.dumps(value, ensure_ascii=False, default=str)
+        else:
+            s = str(value)
+    except Exception:
+        s = repr(value)
+    if len(s) > TRACE_MAX_BODY_CHARS:
+        return s[:TRACE_MAX_BODY_CHARS] + f"... (truncated, {len(s)} chars)"
+    return s
+
+
+@api.post("/me/api-trace", tags=["Portail Client"])
+async def me_api_trace(
+    request: Request,
+    payload: ApiTraceCreate,
+    user: dict = Depends(get_current_user),
+):
+    """Records one API call from the frontend (mutations only, set up by the axios interceptor)."""
+    doc = {
+        "id": _uuid(),
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "user_name": user.get("full_name"),
+        "role": user.get("role"),
+        "tracked_role": user.get("tracked_role"),
+        "method": (payload.method or "").upper()[:10],
+        "url": (payload.url or "")[:512],
+        "status": int(payload.status or 0),
+        "request_body": _truncate_for_trace(payload.request_body),
+        "response_body": _truncate_for_trace(payload.response_body),
+        "duration_ms": int(payload.duration_ms or 0),
+        "module": (payload.module or "")[:120],
+        "error": (payload.error or "")[:500] if payload.error else None,
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent", "")[:500],
+        "created_at": _now(),
+    }
+    await db.api_traces.insert_one(doc.copy())
+    return {"ok": True}
+
+
+def _ensure_super_admin(user: dict) -> None:
+    if (user.get("email") or "").lower() != SUPER_ADMIN_EMAIL:
+        raise HTTPException(status_code=403, detail="Accès réservé au superviseur principal")
+
+
+@api.get("/admin/api-traces", tags=["Admin"])
+async def admin_api_traces(
+    user_email: Optional[str] = None,
+    method: Optional[str] = None,
+    status: Optional[int] = None,
+    q: Optional[str] = None,
+    only_errors: bool = False,
+    limit: int = 1000,
+    user: dict = Depends(get_current_user),
+):
+    _ensure_super_admin(user)
+    query = {}
+    if user_email:
+        query["user_email"] = {"$regex": re.escape(user_email), "$options": "i"}
+    if method:
+        query["method"] = method.upper()
+    if status:
+        query["status"] = int(status)
+    if only_errors:
+        query["status"] = {"$gte": 400}
+    if q:
+        query["$or"] = [
+            {"user_email": {"$regex": re.escape(q), "$options": "i"}},
+            {"url": {"$regex": re.escape(q), "$options": "i"}},
+            {"module": {"$regex": re.escape(q), "$options": "i"}},
+            {"request_body": {"$regex": re.escape(q), "$options": "i"}},
+            {"response_body": {"$regex": re.escape(q), "$options": "i"}},
+        ]
+    items = await db.api_traces.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 10), 5000))
+    return items
+
+
+@api.delete("/admin/api-traces", tags=["Admin"])
+async def admin_clear_api_traces(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    res = await db.api_traces.delete_many({})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+@api.get("/admin/api-traces/export.csv", tags=["Admin"])
+async def admin_api_traces_csv(
+    user_email: Optional[str] = None,
+    method: Optional[str] = None,
+    only_errors: bool = False,
+    user: dict = Depends(get_current_user),
+):
+    _ensure_super_admin(user)
+    items = await admin_api_traces(
+        user_email=user_email, method=method, status=None, q=None,
+        only_errors=only_errors, limit=5000, user=user,
+    )
+    import csv
+    import io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["created_at", "user_email", "method", "url", "status", "duration_ms", "module", "ip", "request_body", "response_body", "error"])
+    for it in items:
+        writer.writerow([
+            it.get("created_at", ""), it.get("user_email", ""), it.get("method", ""),
+            it.get("url", ""), it.get("status", ""), it.get("duration_ms", ""),
+            it.get("module", ""), it.get("ip", ""),
+            (it.get("request_body") or "")[:1000],
+            (it.get("response_body") or "")[:1000],
+            it.get("error") or "",
+        ])
+    return JSONResponse(content={"csv": buf.getvalue()}, headers={"Cache-Control": "no-store"})
 
 
 # ====================================================================

@@ -1,0 +1,35 @@
+{
+  "summary": "Iteration 6 SAWALI (PasswordInput eye + API traces admin panel + PDF uploads) — BACKEND 8/8 pytest pass (4.47s) against https://sawali-portal.preview.emergentagent.com. FRONTEND 6/6 critical flows pass: (1) login-password-eye toggles input.type between password<->text, (2) super-admin sidebar shows 'Traces API (debug)' link -> /admin/api-traces renders admin-api-traces-page with traces-export + traces-clear buttons and stats (total/errors); clicking a tr[data-testid^='trace-'] opens trace-detail-modal, (3) stealth toast 'Opération effectuée avec succès' is captured alongside the specific 'Enregistré' toast right after POST /api/admin/formations (so both coexist as designed), (4) AdminSettings smtp-password-eye present; webhook-token-eye, notes-webhook-token-eye, webhook-basic-pass-eye, notes-webhook-basic-pass-eye ARE wired (Input wrapper delegates type=password to PasswordInput) — they render conditionally when webhook_enabled/notes_webhook_enabled is true + auth_type matches (this is by design, verified in source), (5) /portal/notes/reports -> 'Nouveau rapport' modal has input[type=file] with accept containing 'application/pdf' plus Word/Excel/PPT/text; uploading a PDF via set_input_files renders a note-attachment as an <a> with PDF icon (NO <img> tag) and a '.PDF' label in the thumbnail — confirmed visually, (6) backend anti-noise / anti-recursion: /me/access-log and /me/api-trace entries never appear in admin/api-traces. Super-admin RBAC enforced: a second admin (created via /admin/clients role=admin) gets 403 'Accès réservé au superviseur principal' on /admin/api-traces. Filters only_errors=true and method=POST work; export.csv returns {csv} with header 'created_at,user_email,method,url,status,...'. DELETE /admin/api-traces returns {ok:true, deleted:N}. /me/upload accepts PDF → {extension:'pdf', content_type:'application/pdf', url:/api/files/{id}} and file is downloadable. PDF file_id persists on POST /me/notes/reports.images and is returned by GET /me/notes/reports. No bugs found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter6.py",
+    "/app/test_reports/pytest/pytest_iter6.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is now ~3785 lines (grew again since iter5's 3657). The refactor into routers (auth/admin/portal/files/notes/ratings/access_logs/formations/api_traces) keeps being recommended.",
+    "_truncate_for_trace is fine for size control, but request_body/response_body are stored as stringified payloads — sensitive fields (tokens, passwords) posted by the FE interceptor may land in the api_traces collection verbatim. Consider FE-side redaction for known keys (password, token, secret) before recordTrace(), or a server-side denylist on /me/api-trace.",
+    "SUPER_ADMIN_EMAIL is hardcoded in server.py (line 2443). Works today but tie-breaks deployment flexibility — moving it to an env var (e.g. SUPER_ADMIN_EMAIL) with fallback would be safer.",
+    "AdminApiTraces.jsx uses server-side query 'q' for search (good), but no pagination is exposed — limit caps at 5000. For production volumes, add a 'load more' or date-range filter.",
+    "UserNotes.jsx line 382 (_validate_images) still uses the key 'images' for all attachments. The model conceptually represents 'attachments' now — renaming on a future sweep (API field stays for BC, FE rename only) would reduce confusion. Not a bug — documentation debt only.",
+    "Toast duration 1500 ms for the stealth toast is tight — automated tests must capture via MutationObserver (as this suite does) rather than post-fact DOM polling, which was initially brittle."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter6.py (created — 8 pytest cases)"
+  ],
+  "success_rate": {
+    "backend": "100% (8/8 iter6)",
+    "frontend": "100% (6/6 critical iter6 flows: login-eye, admin/api-traces page+modal+sidebar, stealth toast, settings smtp eye, PDF accept on notes modal, PDF-as-icon attachment render)"
+  },
+  "test_credentials": "Super-admin: admin@sawalismartsystems.com / Admin@Sawali2026 (auto-seeded). A fresh 'admin2' is created/destroyed per test class via /admin/clients role=admin to prove the 403 path on /admin/api-traces.",
+  "seed_data_creation": "All test rows are prefixed TEST_iter6_* (formations, notes, traces, uploaded files) and either deleted explicitly after each test (formations, notes, admin2) or cleared collectively by DELETE /admin/api-traces. Files on disk (/api/files/{id}) are NOT garbage-collected — they remain in UPLOAD_DIR, but documents.files rows survive (by design; same behaviour as iter5). No impact on subsequent runs.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/test_sawali_iter6.py as iter6 regression. The stealth toast is best asserted via MutationObserver on document.body (installed BEFORE clicking submit), not page.locator('.sonner-toast') — Sonner removes the toast in ~1500ms. For PDF upload in the portal modal, use page.locator('[data-testid=\"note-form\"] input[type=file]').set_input_files(path) — the real button add-image-btn is a styled label that triggers the hidden input. Test credentials unchanged (admin@sawalismartsystems.com / Admin@Sawali2026). To bypass the OTP UI: POST /api/auth/login + /api/auth/verify-otp via page.evaluate (dev_otp is returned when SMTP is off) then seed localStorage['sawali_token'] + ['sawali_user']. The conditional eye-testids (webhook-token-eye, notes-webhook-token-eye, webhook-basic-pass-eye, notes-webhook-basic-pass-eye) only render when toggle-webhook / toggle-notes-webhook is ON and auth_type is bearer/basic respectively — not a bug.",
+  "rca of the issue": "n/a — no issues found in iteration 6."
+}

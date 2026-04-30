@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, Navigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import {
-  Plus, Edit, Trash2, X, FileText, ClipboardList, ImagePlus, Star, Lock, Calendar as CalIcon,
+  Plus, Edit, Trash2, X, FileText, ClipboardList, ImagePlus, Star, Lock, Calendar as CalIcon, Paperclip,
   Bold, Italic, Underline, Strikethrough,
   Heading2, Heading3, List, ListOrdered, Quote,
   AlignLeft, AlignCenter, AlignRight,
@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
+import { getFileIcon } from "@/lib/fileIcons";
 
 const KIND_META = {
   reports: { label: "Rapports", singular: "rapport", icon: FileText, accent: "#1E90FF" },
@@ -286,11 +287,7 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, o
       <div className="mt-2 text-sm text-slate-600 prose-sawali line-clamp-4" dangerouslySetInnerHTML={{ __html: n.content_html || "<p class=\"text-slate-400 italic\">Aucun contenu</p>" }} />
       {n.images && n.images.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1">
-          {n.images.slice(0, 6).map((im, i) => (
-            <button key={i} onClick={() => onImage(absoluteImg(im.url))} className="block h-12 w-12 rounded overflow-hidden border border-slate-200 bg-slate-50">
-              <img src={absoluteImg(im.url)} alt="" className="h-full w-full object-cover" />
-            </button>
-          ))}
+          {n.images.slice(0, 6).map((im, i) => <AttachmentThumb key={i} im={im} onOpen={() => onImage(absoluteImg(im.url))} />)}
           {n.images.length > 6 && <span className="text-[10px] text-slate-500 self-center px-1">+{n.images.length - 6}</span>}
         </div>
       )}
@@ -336,8 +333,45 @@ function RatingStars({ value = 0, onChange, onClear }) {
 }
 
 // ====================================================================
-// Image uploader (max 10)
+// Attachment thumbnail (image preview or file-icon for non-images)
 // ====================================================================
+function isImageFile(im) {
+  if (!im) return false;
+  const url = (im.url || "").toLowerCase();
+  const name = (im.filename || "").toLowerCase();
+  return /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)(\?|$)/.test(url) || /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg)$/.test(name);
+}
+
+function AttachmentThumb({ im, onOpen, onRemove, size = 48 }) {
+  const isImg = isImageFile(im);
+  const fi = getFileIcon(im.filename || im.url);
+  const Icn = fi.icon;
+  const url = absoluteImg(im.url);
+  return (
+    <div className="relative flex-shrink-0" style={{ height: size, width: size }} data-testid="note-attachment">
+      {isImg ? (
+        <button onClick={onOpen} className="block h-full w-full rounded overflow-hidden border border-slate-200 bg-slate-50">
+          <img src={url} alt="" className="h-full w-full object-cover" />
+        </button>
+      ) : (
+        <a href={url} target="_blank" rel="noreferrer" download={im.filename} className="flex h-full w-full flex-col items-center justify-center rounded border border-slate-200 bg-white text-slate-700 hover:border-sawali-blue" title={im.filename || "Document"}>
+          <Icn className="h-5 w-5" style={{ color: fi.color }} />
+          <span className="text-[8px] uppercase mt-0.5 font-mono">{(im.filename || "").split(".").pop()?.slice(0, 4) || "doc"}</span>
+        </a>
+      )}
+      {onRemove && (
+        <button type="button" onClick={onRemove} className="absolute top-0 right-0 bg-black/60 text-white rounded-bl px-1 text-[10px]" title="Retirer">×</button>
+      )}
+    </div>
+  );
+}
+
+// ====================================================================
+// Attachment uploader (max 10) — images + PDFs + Office docs
+// ====================================================================
+const ACCEPTED_TYPES = "image/*,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain,text/csv";
+const MAX_SIZE_BYTES = 25 * 1024 * 1024; // 25 MB per file
+
 function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
   const inputRef = useRef(null);
   const [busy, setBusy] = useState(false);
@@ -345,17 +379,17 @@ function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
 
   const upload = async (files) => {
     const remaining = 10 - list.length;
-    if (remaining <= 0) { toast.error("Maximum 10 images atteintes"); return; }
+    if (remaining <= 0) { toast.error("Maximum 10 pièces jointes atteintes"); return; }
     const todo = Array.from(files).slice(0, remaining);
     setBusy(true);
     try {
       const next = [...list];
       for (const f of todo) {
-        if (!f.type.startsWith("image/")) continue;
+        if (f.size > MAX_SIZE_BYTES) { toast.error(`${f.name} dépasse 25 Mo`); continue; }
         const fd = new FormData();
         fd.append("file", f);
         const r = await apiClient.post("/me/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-        next.push({ file_id: r.data.id, url: r.data.url, filename: r.data.filename });
+        next.push({ file_id: r.data.id, url: r.data.url, filename: r.data.filename, content_type: r.data.content_type });
       }
       onChange(next);
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur upload"); }
@@ -366,14 +400,9 @@ function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
 
   return (
     <div>
-      <label className="block text-xs font-semibold mb-1">Images ({list.length}/10)</label>
+      <label className="block text-xs font-semibold mb-1 flex items-center gap-1.5"><Paperclip className="h-3 w-3" /> Pièces jointes ({list.length}/10)<span className="font-normal text-slate-500">— images, PDF, Word, Excel, PPT</span></label>
       <div className="flex flex-wrap gap-2">
-        {list.map((im, i) => (
-          <div key={i} className="relative h-16 w-16 rounded-md overflow-hidden border border-slate-200 bg-slate-50" data-testid={`note-img-${i}`}>
-            <img src={absoluteImg(im.url)} alt="" className="h-full w-full object-cover" />
-            <button type="button" onClick={() => remove(i)} className="absolute top-0 right-0 bg-black/60 text-white rounded-bl px-1 text-[10px]" title="Retirer">×</button>
-          </div>
-        ))}
+        {list.map((im, i) => <AttachmentThumb key={i} im={im} size={64} onOpen={() => window.open(absoluteImg(im.url), "_blank")} onRemove={() => remove(i)} />)}
         {list.length < 10 && (
           <button
             type="button"
@@ -388,7 +417,7 @@ function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
           </button>
         )}
       </div>
-      <input ref={inputRef} type="file" hidden multiple accept="image/*" onChange={(e) => e.target.files && upload(e.target.files)} />
+      <input ref={inputRef} type="file" hidden multiple accept={ACCEPTED_TYPES} onChange={(e) => e.target.files && upload(e.target.files)} />
     </div>
   );
 }

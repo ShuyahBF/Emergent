@@ -29,6 +29,7 @@ class UserPublic(BaseModel):
     is_primary_client: Optional[bool] = False
     logo_url: Optional[str] = None
     tracked_role: Optional[str] = None
+    tracked_user_id: Optional[str] = None
     parent_client_id: Optional[str] = None
 
 

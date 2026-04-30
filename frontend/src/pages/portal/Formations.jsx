@@ -22,7 +22,7 @@ export function FormationsList() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [busy, setBusy] = useState(null);
-  const isTracked = !!user?.tracked_user_id;
+  const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
 
   const load = () => apiClient.get("/me/formations").then((r) => setItems(r.data)).catch(() => {});
   useEffect(() => { load(); }, []);

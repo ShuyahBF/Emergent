@@ -204,6 +204,7 @@ def _to_user_public(u: dict) -> dict:
         "is_primary_client": bool(u.get("is_primary_client", False)),
         "logo_url": u.get("logo_url"),
         "tracked_role": u.get("tracked_role"),
+        "tracked_user_id": u.get("tracked_user_id"),
         "parent_client_id": u.get("parent_client_id"),
     }
 

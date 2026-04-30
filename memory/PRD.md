@@ -159,6 +159,22 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 ✅ **Heures d'activité** : champs ouverture/fermeture déjà existants désormais explicitement labélisés et documentés ; nouveau champ « Heure de descente » à côté.
 ✅ **RBAC propagé** : changement de rôle sur un tracked-user via PUT met à jour `users.tracked_role` du compte bridgé (correctif iter4).
 
+## Implemented (2026-04-30) — Itération 5 : Formations Spécialisées (catalogue + modules + tracking + Q/R)
+✅ **Module Admin** `/admin/formations` :
+  - CRUD formations (nom, description, dispo, accès libre/payant, prix, crédits par défaut, image de cover).
+  - Panneau latéral pour CRUD modules (nom, ordre, capture d'écran, chemin logiciel, contenu HTML enrichi, **API REST POST paramétrable** + auth none/bearer/basic).
+  - Onglet « Inscrits » : table avec état, modules vus, crédits, temps total, dernier accès, actions (ajuster crédits, annuler).
+✅ **Module Portail** `/portal/formations` (visible uniquement pour utilisateurs suivis) :
+  - Catalogue de cartes avec inscription en un clic.
+  - Vue détail `/portal/formations/:fid` : navigation par modules, capture d'écran, contenu enrichi, **chrono d'affichage** (POST visit + close avec sendBeacon pour survivre au unload).
+  - **Q/R intégré** : question saisie → forward POST vers `module.api_url` configuré côté admin → réponse affichée.
+  - Notation 5★ par formation par utilisateur (mémorisée dans `ratings.kind=formations`).
+✅ **État auto** calculé à chaque lecture : `inscription` → `commencée` → `en_cours` → `terminée` selon `modules_seen / modules_total`. `suspendue` si > 7j sans accès. `annulée` modifiable manuellement par admin (verrouillage).
+✅ **Crédits** : achetés − consommés = disponibles. Endpoint admin `POST /admin/formations/{fid}/enrollments/{user_id}/credits {credits_delta}`.
+✅ **Sidebar conditionnelle** : lien « Formations Spécialisées » filtré via `trackedOnly:true` + `isTracked = !!tracked_user_id || !!tracked_role`.
+✅ **Backend public DTO** : exposé `tracked_user_id` en plus de `tracked_role` et `parent_client_id` pour permettre les contrôles côté frontend.
+✅ **Tests** : 10/10 backend + frontend admin (modal formation + module avec api_url & auth) ; portal corrigé.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 - Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.

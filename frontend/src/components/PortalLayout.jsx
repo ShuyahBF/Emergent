@@ -51,7 +51,7 @@ export default function PortalLayout({ admin = false }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [branding, setBranding] = useState(null);
-  const isTracked = !!user?.tracked_user_id;
+  const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
   const links = (admin ? adminLinks : clientLinks).filter((l) => !l.trackedOnly || isTracked);
 
   useEffect(() => {

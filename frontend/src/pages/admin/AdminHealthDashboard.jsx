@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Activity, AlertCircle, Clock, Mail, Send, RefreshCw, AlertTriangle } from "lucide-react";
+import { Activity, AlertCircle, Clock, Mail, Send, RefreshCw, AlertTriangle, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function AdminHealthDashboard() {
   const [stats, setStats] = useState(null);
   const [windowH, setWindowH] = useState(24);
   const [loading, setLoading] = useState(false);
+  const [authCheck, setAuthCheck] = useState(null);
+  const [authHistory, setAuthHistory] = useState([]);
+  const [authRunning, setAuthRunning] = useState(false);
 
   const load = async (w = windowH) => {
     setLoading(true);
@@ -16,7 +19,28 @@ export default function AdminHealthDashboard() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
     finally { setLoading(false); }
   };
-  useEffect(() => { load().catch(() => {}); /* eslint-disable-next-line */ }, []);
+  const loadAuth = async () => {
+    try {
+      const [latest, history] = await Promise.all([
+        apiClient.get("/admin/health/auth-check/latest"),
+        apiClient.get("/admin/health/auth-check/history?limit=24"),
+      ]);
+      setAuthCheck(latest.data);
+      setAuthHistory(history.data || []);
+    } catch { /* silent */ }
+  };
+  useEffect(() => { load().catch(() => {}); loadAuth(); /* eslint-disable-next-line */ }, []);
+
+  const runAuthCheck = async () => {
+    setAuthRunning(true);
+    try {
+      const r = await apiClient.post("/admin/health/auth-check");
+      setAuthCheck(r.data);
+      await loadAuth();
+      toast.success(r.data.ok ? `Auth Check OK (${r.data.total_duration_ms} ms)` : `Auth Check FAIL — ${r.data.steps.filter(s => !s.ok).length} étape(s) en erreur`);
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+    finally { setAuthRunning(false); }
+  };
 
   const testEmail = async () => {
     try { const r = await apiClient.post("/admin/health/test-email"); toast.success(`Test envoyé à ${r.data.recipient}`); }
@@ -51,6 +75,14 @@ export default function AdminHealthDashboard() {
           </button>
         </div>
       </div>
+
+      {/* Auth Checker banner — top of page so it's the first thing the super-admin sees */}
+      <AuthCheckerBanner
+        check={authCheck}
+        history={authHistory}
+        running={authRunning}
+        onRun={runAuthCheck}
+      />
 
       {!stats ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500">Chargement…</div>
@@ -127,3 +159,104 @@ const Card = ({ title, children }) => (
     {children}
   </div>
 );
+
+// =====================================================================
+// AuthCheckerBanner — surfaces the result of the periodic auth probe.
+// Reverse-chrono dots show the last 24 runs (green = ok, red = fail).
+// =====================================================================
+const AuthCheckerBanner = ({ check, history, running, onRun }) => {
+  if (!check) {
+    return (
+      <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-center gap-3" data-testid="auth-checker-banner">
+        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+        <span className="text-sm text-slate-500">Chargement de l'état du flow d'authentification…</span>
+      </div>
+    );
+  }
+
+  const neverRun = check.never_run;
+  const ok = !!check.ok;
+  const failedSteps = (check.steps || []).filter((s) => !s.ok);
+  const tone = neverRun ? "amber" : ok ? "emerald" : "rose";
+  const palette = {
+    emerald: { bg: "bg-emerald-50", border: "border-emerald-200", text: "text-emerald-700", dot: "bg-emerald-500", icon: ShieldCheck },
+    rose: { bg: "bg-rose-50", border: "border-rose-300", text: "text-rose-700", dot: "bg-rose-500", icon: ShieldAlert },
+    amber: { bg: "bg-amber-50", border: "border-amber-200", text: "text-amber-700", dot: "bg-amber-500", icon: AlertCircle },
+  }[tone];
+  const Icon = palette.icon;
+
+  return (
+    <div className={`rounded-xl border ${palette.border} ${palette.bg} p-5`} data-testid="auth-checker-banner">
+      <div className="flex items-start justify-between gap-4 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className={`h-10 w-10 rounded-lg ${palette.dot} flex items-center justify-center flex-shrink-0`}>
+            <Icon className="h-5 w-5 text-white" />
+          </div>
+          <div>
+            <p className="text-xs uppercase tracking-[0.2em] text-slate-500">Auth Checker</p>
+            <h2 className={`text-lg font-display font-bold ${palette.text}`} data-testid="auth-checker-status">
+              {neverRun
+                ? "En attente du premier contrôle"
+                : ok
+                  ? "Flow de connexion sain"
+                  : `Flow de connexion CASSÉ — ${failedSteps.length} étape(s) en erreur`}
+            </h2>
+            {!neverRun && (
+              <p className="text-xs text-slate-600 mt-1">
+                Dernier contrôle : <strong>{new Date(check.created_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</strong>
+                {" · "}{check.total_duration_ms} ms
+                {" · "}déclenché par <code className="bg-white/60 px-1 rounded">{check.triggered_by}</code>
+              </p>
+            )}
+          </div>
+        </div>
+        <button
+          onClick={onRun}
+          disabled={running}
+          className="inline-flex items-center gap-2 rounded-lg bg-slate-900 text-white px-3.5 py-2 text-sm hover:bg-slate-800 disabled:opacity-50"
+          data-testid="auth-checker-run"
+        >
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          Vérifier maintenant
+        </button>
+      </div>
+
+      {/* Step breakdown for the latest run */}
+      {!neverRun && (
+        <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2" data-testid="auth-checker-steps">
+          {(check.steps || []).map((s) => (
+            <div
+              key={s.name}
+              className={`rounded-lg border ${s.ok ? "border-emerald-200 bg-white" : "border-rose-300 bg-rose-50"} px-3 py-2`}
+              title={s.error || ""}
+            >
+              <div className="flex items-center gap-2">
+                <span className={`h-2 w-2 rounded-full ${s.ok ? "bg-emerald-500" : "bg-rose-500"}`} />
+                <span className="text-xs font-mono text-slate-700">{s.name}</span>
+              </div>
+              <p className={`text-[11px] mt-1 ${s.ok ? "text-slate-500" : "text-rose-700"} truncate`}>
+                {s.ok ? `${s.duration_ms} ms` : (s.error || "Erreur")}
+              </p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* History dots (last 24 runs, oldest → newest left to right) */}
+      {history?.length > 0 && (
+        <div className="mt-4 flex items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.2em] text-slate-500">24 derniers contrôles</span>
+          <div className="flex gap-1" data-testid="auth-checker-history">
+            {[...history].reverse().map((h) => (
+              <span
+                key={h.id}
+                className={`h-2.5 w-2.5 rounded-full ${h.ok ? "bg-emerald-500" : "bg-rose-500"}`}
+                title={`${new Date(h.created_at).toLocaleString("fr-FR")} — ${h.ok ? "OK" : "FAIL"} (${h.total_duration_ms} ms)`}
+              />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

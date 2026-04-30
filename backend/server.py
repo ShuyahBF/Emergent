@@ -2801,6 +2801,165 @@ async def admin_health_run_weekly_now(user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ====================================================================
+# AUTH CHECKER — periodic end-to-end probe of the login flow.
+# Catches regressions like JWT secret rotation, deleted admin user,
+# corrupted password hash, broken /auth/me handler, etc.
+# ====================================================================
+async def _run_auth_check(triggered_by: str = "manual") -> dict:
+    """Run a 4-step probe of the auth pipeline. Never raises — always returns a dict."""
+    started = datetime.now(timezone.utc)
+    steps: list[dict] = []
+    overall_ok = True
+
+    async def _step(name: str, coro):
+        nonlocal overall_ok
+        t0 = datetime.now(timezone.utc)
+        try:
+            result = await coro
+            duration = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+            steps.append({"name": name, "ok": True, "duration_ms": duration, "error": None, "info": result})
+            return result
+        except Exception as exc:  # noqa: BLE001
+            duration = int((datetime.now(timezone.utc) - t0).total_seconds() * 1000)
+            steps.append({"name": name, "ok": False, "duration_ms": duration, "error": str(exc)[:300], "info": None})
+            overall_ok = False
+            return None
+
+    # Step 1 — admin user exists in DB
+    async def _check_admin_exists():
+        admin = await db.users.find_one({"email": SUPER_ADMIN_EMAIL}, {"_id": 0, "id": 1, "role": 1, "password_hash": 1})
+        if not admin:
+            raise RuntimeError(f"Super-admin '{SUPER_ADMIN_EMAIL}' introuvable en base")
+        if admin.get("role") != "admin":
+            raise RuntimeError(f"Super-admin a le mauvais role: {admin.get('role')}")
+        if not admin.get("password_hash"):
+            raise RuntimeError("Hash mot de passe vide")
+        return {"id": admin["id"], "role": admin["role"]}
+
+    admin_info = await _step("admin_user_exists", _check_admin_exists())
+
+    # Step 2 — JWT mint + decode roundtrip
+    async def _check_jwt_roundtrip():
+        if not admin_info:
+            raise RuntimeError("Étape précédente échouée")
+        from auth import decode_token
+        token = create_access_token(admin_info["id"], admin_info["role"])
+        if not token or len(token) < 20:
+            raise RuntimeError("Token vide ou trop court")
+        payload = decode_token(token)
+        if payload.get("sub") != admin_info["id"] or payload.get("role") != "admin":
+            raise RuntimeError(f"Payload incorrect: {payload}")
+        return {"token_len": len(token), "exp": payload.get("exp")}
+
+    jwt_info = await _step("jwt_mint_decode", _check_jwt_roundtrip())
+
+    # Step 3 — HTTP call to /api/auth/me (full middleware stack)
+    async def _check_auth_me_http():
+        if not admin_info:
+            raise RuntimeError("Étape précédente échouée")
+        token = create_access_token(admin_info["id"], admin_info["role"])
+        async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+            r = await http.get("/api/auth/me", headers={"Authorization": f"Bearer {token}"})
+            if r.status_code != 200:
+                raise RuntimeError(f"/auth/me HTTP {r.status_code}: {r.text[:200]}")
+            data = r.json()
+            if (data.get("email") or "").lower() != SUPER_ADMIN_EMAIL:
+                raise RuntimeError(f"/auth/me retourne le mauvais user: {data.get('email')}")
+            return {"http": r.status_code, "email": data.get("email")}
+
+    await _step("auth_me_http", _check_auth_me_http())
+
+    # Step 4 — POST /api/auth/login with empty payload should return 4xx (proves wiring)
+    async def _check_login_endpoint_responsive():
+        async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+            r = await http.post("/api/auth/login", json={})
+            if r.status_code >= 500:
+                raise RuntimeError(f"/auth/login HTTP {r.status_code}: {r.text[:200]}")
+            return {"http": r.status_code}
+
+    await _step("login_endpoint_responsive", _check_login_endpoint_responsive())
+
+    finished = datetime.now(timezone.utc)
+    total_duration = int((finished - started).total_seconds() * 1000)
+    result = {
+        "id": _uuid(),
+        "ok": overall_ok,
+        "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
+        "total_duration_ms": total_duration,
+        "steps": steps,
+        "triggered_by": triggered_by,
+        "created_at": _now(),
+    }
+    # Persist (capped to last 200 results)
+    try:
+        await db.auth_checks.insert_one(result.copy())
+        # Trim collection to keep it small
+        count = await db.auth_checks.count_documents({})
+        if count > 200:
+            old = await db.auth_checks.find({}, {"_id": 0, "id": 1}).sort("created_at", 1).limit(count - 200).to_list(50)
+            if old:
+                await db.auth_checks.delete_many({"id": {"$in": [o["id"] for o in old]}})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("auth_check persist failed: %s", exc)
+
+    # Fire alert if failed and toggle is on
+    if not overall_ok:
+        try:
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            if s.get("health_auth_check_enabled"):
+                await _fire_health_webhook({"type": "auth_check_failed", "fired_at": _now(), "result": result})
+                try:
+                    from email_service import send_email
+                    recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+                    failed_steps = [s for s in steps if not s["ok"]]
+                    rows = "".join(
+                        f"<tr><td style='padding:4px 8px;font-family:monospace;'>{s['name']}</td>"
+                        f"<td style='padding:4px 8px;color:#EF4444'>{s['error'] or '—'}</td></tr>"
+                        for s in failed_steps
+                    )
+                    html = (
+                        f"<div style='font-family:Arial,sans-serif;'>"
+                        f"<h3 style='color:#EF4444'>🚨 Auth Checker — échec détecté</h3>"
+                        f"<p style='color:#475569;font-size:13px;'>Déclenché : <strong>{triggered_by}</strong> · {finished.isoformat()}</p>"
+                        f"<p>Durée totale : {total_duration} ms · {len(failed_steps)} étape(s) en erreur sur {len(steps)}.</p>"
+                        f"<table style='border-collapse:collapse;width:100%;border:1px solid #E2E8F0;'>"
+                        f"<tr style='background:#F8FAFC;'><th style='padding:4px 8px;text-align:left;'>Étape</th>"
+                        f"<th style='padding:4px 8px;text-align:left;'>Erreur</th></tr>{rows}</table>"
+                        f"<p style='color:#94A3B8;font-size:11px;margin-top:24px;'>Le flux de connexion est cassé. Vérifiez immédiatement /admin/health.</p>"
+                        f"</div>"
+                    )
+                    text = f"AUTH FAIL — {len(failed_steps)} step(s): " + ", ".join(s["name"] for s in failed_steps)
+                    await send_email(recipient, "[SAWALI ALERT] Auth Checker — échec détecté", html, text)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Auth check email failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Auth check alert pipeline failed: %s", exc)
+
+    return result
+
+
+@api.post("/admin/health/auth-check", tags=["Admin"])
+async def admin_health_auth_check_now(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    return await _run_auth_check(triggered_by=f"manual:{user['email']}")
+
+
+@api.get("/admin/health/auth-check/history", tags=["Admin"])
+async def admin_health_auth_check_history(limit: int = 24, user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    items = await db.auth_checks.find({}, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 200))
+    return items
+
+
+@api.get("/admin/health/auth-check/latest", tags=["Admin"])
+async def admin_health_auth_check_latest(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    item = await db.auth_checks.find_one({}, {"_id": 0}, sort=[("created_at", -1)])
+    return item or {"ok": None, "never_run": True}
+
+
 # Generic DB query
 ALLOWED_COLLECTIONS = {
     "users", "tracked_users", "appointments", "documents", "interventions",
@@ -2809,7 +2968,7 @@ ALLOWED_COLLECTIONS = {
     "settings", "user_reports", "user_suivis", "ratings",
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
-    "otps", "counters",
+    "otps", "counters", "auth_checks",
 }
 
 
@@ -4127,8 +4286,19 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            # Hourly auth checker — only fires alert if health_auth_check_enabled is on,
+            # but always persists the result to db.auth_checks for the dashboard banner.
+            async def _scheduled_auth_check():
+                await _run_auth_check(triggered_by="cron:hourly")
+            _scheduler.add_job(
+                _scheduled_auth_check,
+                CronTrigger(minute=0, timezone="Africa/Abidjan"),
+                id="auth_checker_hourly",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
             _scheduler.start()
-            logger.info("Scheduler started — weekly digest scheduled for Fri 05:00 Africa/Abidjan")
+            logger.info("Scheduler started — weekly digest Fri 05:00 + auth check every hour (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Scheduler init failed: %s", exc)
 

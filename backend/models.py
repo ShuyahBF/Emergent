@@ -401,6 +401,17 @@ class SettingsUpdate(BaseModel):
     visits_counter_enabled: Optional[bool] = None
     visits_counter_offset: Optional[int] = None  # Added to real count (can be negative to reset)
 
+    # Health monitoring (api_traces email/webhook reporting)
+    health_realtime_enabled: Optional[bool] = None  # email + webhook on each error trace
+    health_weekly_enabled: Optional[bool] = None  # weekly digest on Friday 05:00
+    health_webhook_url: Optional[str] = None
+    health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
+    health_webhook_token: Optional[str] = None
+    health_webhook_basic_user: Optional[str] = None
+    health_webhook_basic_pass: Optional[str] = None
+    health_email_to: Optional[str] = None  # default: SUPER_ADMIN_EMAIL
+    health_timezone: Optional[str] = None  # default Africa/Abidjan
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
@@ -22,7 +22,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -291,6 +291,39 @@ export default function AdminSettings() {
         </div>
         <p className="text-[11px] text-slate-500">
           Le compteur affiché = visites réelles + offset. Réinitialiser règle l'offset à <code>-(visites_actuelles)</code>.
+        </p>
+      </Section>
+
+      <Section icon={Activity} title="Santé applicative — Alertes & rapports">
+        <p className="text-xs text-slate-500">
+          Active l'envoi automatique d'alertes lors d'erreurs API et le rapport hebdomadaire (vendredi 05:00 Africa/Abidjan).
+          Réservé au superviseur principal.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle label="Alertes temps réel (erreurs ≥ 400)" value={!!s.health_realtime_enabled} onChange={(v) => upd("health_realtime_enabled", v)} testid="toggle-health-realtime" />
+          <Toggle label="Rapport hebdomadaire (Vendredi 05:00)" value={!!s.health_weekly_enabled} onChange={(v) => upd("health_weekly_enabled", v)} testid="toggle-health-weekly" />
+        </div>
+        <Input label="Email destinataire (laisser vide = superviseur)" value={s.health_email_to || ""} onChange={(v) => upd("health_email_to", v)} placeholder="admin@sawalismartsystems.com" testid="health-email-to" />
+        <Input label="Webhook URL" value={s.health_webhook_url || ""} onChange={(v) => upd("health_webhook_url", v)} placeholder="https://votre-service.com/sawali/health" testid="health-webhook-url" />
+        <div>
+          <label className="block text-xs font-semibold mb-1">Authentification webhook</label>
+          <select value={s.health_webhook_auth_type || "none"} onChange={(e) => upd("health_webhook_auth_type", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="health-webhook-auth-type">
+            <option value="none">Aucune</option>
+            <option value="bearer">Bearer Token</option>
+            <option value="basic">Basic Auth</option>
+          </select>
+        </div>
+        {s.health_webhook_auth_type === "bearer" && (
+          <Input label="Token Bearer" type="password" value={s.health_webhook_token || ""} onChange={(v) => upd("health_webhook_token", v)} placeholder={s.health_webhook_token === "********" ? "(défini)" : ""} testid="health-webhook-token" />
+        )}
+        {s.health_webhook_auth_type === "basic" && (
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input label="Utilisateur" value={s.health_webhook_basic_user || ""} onChange={(v) => upd("health_webhook_basic_user", v)} testid="health-webhook-basic-user" />
+            <Input label="Mot de passe" type="password" value={s.health_webhook_basic_pass || ""} onChange={(v) => upd("health_webhook_basic_pass", v)} placeholder={s.health_webhook_basic_pass === "********" ? "(défini)" : ""} testid="health-webhook-basic-pass" />
+          </div>
+        )}
+        <p className="text-[11px] text-slate-500">
+          → Ouvrir <Link to="/admin/health" className="text-sawali-blue underline">/admin/health</Link> pour le dashboard temps réel et les boutons « Test alerte / Hebdo maintenant ».
         </p>
       </Section>
 

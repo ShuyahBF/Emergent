@@ -2442,6 +2442,8 @@ async def admin_access_logs_csv(
 # ====================================================================
 SUPER_ADMIN_EMAIL = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsystems.com").lower()
 TRACE_MAX_BODY_CHARS = 8000
+
+_scheduler = None  # APScheduler instance (set up in on_startup)
 TRACE_SENSITIVE_KEYS_RE = re.compile(
     r"(password|passwd|secret|token|api[_-]?key|recaptcha|otp|code|session_token|"
     r"smtp_password|smtp_user|api_basic_pass|webhook_token|webhook_basic_pass|"
@@ -2512,6 +2514,12 @@ async def me_api_trace(
         "created_at": _now(),
     }
     await db.api_traces.insert_one(doc.copy())
+    # Fire real-time alert (only on error rows, never block the request)
+    try:
+        if doc["status"] >= 400:
+            asyncio.create_task(_fire_health_realtime(doc))
+    except RuntimeError:
+        pass
     return {"ok": True}
 
 
@@ -2589,6 +2597,275 @@ async def admin_api_traces_csv(
 
 
 # ====================================================================
+# HEALTH MONITORING — real-time alerts + weekly digest + generic DB query
+# ====================================================================
+async def _fire_health_webhook(payload: dict) -> bool:
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    url = (s.get("health_webhook_url") or "").strip()
+    if not url:
+        return False
+    headers = {"Content-Type": "application/json", "User-Agent": "SawaliHealth/1.0"}
+    auth = None
+    atype = (s.get("health_webhook_auth_type") or "none").lower()
+    if atype == "bearer" and s.get("health_webhook_token"):
+        headers["Authorization"] = f"Bearer {s['health_webhook_token']}"
+    elif atype == "basic":
+        auth = (s.get("health_webhook_basic_user") or "", s.get("health_webhook_basic_pass") or "")
+    try:
+        async with httpx.AsyncClient(timeout=8.0) as http:
+            r = await http.post(url, json=payload, headers=headers, auth=auth)
+            logger.info("Health webhook %s -> %s", url, r.status_code)
+            return 200 <= r.status_code < 300
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Health webhook failed: %s", exc)
+        return False
+
+
+async def _fire_health_realtime(trace_doc: dict) -> None:
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        if not s.get("health_realtime_enabled"):
+            return
+        recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+        body = {
+            "type": "api_trace_error",
+            "fired_at": _now(),
+            "trace": {k: trace_doc.get(k) for k in (
+                "id", "method", "url", "status", "user_email", "module",
+                "duration_ms", "error", "request_body", "response_body", "ip", "created_at",
+            )},
+        }
+        await _fire_health_webhook(body)
+        try:
+            from email_service import send_email
+            subject = f"[SAWALI ALERT] {trace_doc.get('method')} {trace_doc.get('url')} -> HTTP {trace_doc.get('status')}"
+            html = (
+                f"<div style='font-family:Arial,sans-serif;'>"
+                f"<h3 style='color:#EF4444'>Erreur API détectée</h3>"
+                f"<p style='color:#475569;font-size:13px;'>{trace_doc.get('user_email')} · {trace_doc.get('created_at')}</p>"
+                f"<p><code>{trace_doc.get('method')} {trace_doc.get('url')}</code> → "
+                f"<strong style='color:#EF4444'>HTTP {trace_doc.get('status')}</strong> ({trace_doc.get('duration_ms')} ms)</p>"
+                f"<pre style='background:#0F172A;color:#7DD3FC;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('request_body') or '')[:1500]}</pre>"
+                f"<pre style='background:#0F172A;color:#FCA5A5;padding:10px;border-radius:6px;font-size:11px;'>{(trace_doc.get('response_body') or '')[:1500]}</pre>"
+                f"</div>"
+            )
+            text = f"Erreur API: {trace_doc.get('method')} {trace_doc.get('url')} HTTP {trace_doc.get('status')} par {trace_doc.get('user_email')}"
+            await send_email(recipient, subject, html, text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Health realtime email failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Health realtime alert failed: %s", exc)
+
+
+async def _build_health_stats(window_hours: int = 24) -> dict:
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+    base = {"created_at": {"$gte": cutoff}}
+    total = await db.api_traces.count_documents(base)
+    errors = await db.api_traces.count_documents({**base, "status": {"$gte": 400}})
+    rate = (errors / total * 100) if total else 0.0
+    top_errors = await db.api_traces.aggregate([
+        {"$match": {**base, "status": {"$gte": 400}}},
+        {"$group": {"_id": {"method": "$method", "url": "$url"}, "count": {"$sum": 1}, "last_status": {"$last": "$status"}}},
+        {"$sort": {"count": -1}}, {"$limit": 10},
+    ]).to_list(50)
+    top_users = await db.api_traces.aggregate([
+        {"$match": base},
+        {"$group": {"_id": "$user_email", "count": {"$sum": 1}, "errors": {"$sum": {"$cond": [{"$gte": ["$status", 400]}, 1, 0]}}}},
+        {"$sort": {"count": -1}}, {"$limit": 10},
+    ]).to_list(50)
+    hourly = await db.api_traces.aggregate([
+        {"$match": base},
+        {"$project": {"hour": {"$substr": ["$created_at", 0, 13]}, "is_err": {"$cond": [{"$gte": ["$status", 400]}, 1, 0]}}},
+        {"$group": {"_id": "$hour", "total": {"$sum": 1}, "errors": {"$sum": "$is_err"}}},
+        {"$sort": {"_id": 1}},
+    ]).to_list(96)
+    avg_duration = 0
+    if total:
+        agg = await db.api_traces.aggregate([
+            {"$match": base}, {"$group": {"_id": None, "avg": {"$avg": "$duration_ms"}}},
+        ]).to_list(1)
+        avg_duration = int((agg[0]["avg"] if agg else 0) or 0)
+    return {
+        "window_hours": window_hours,
+        "total": total,
+        "errors": errors,
+        "error_rate": round(rate, 2),
+        "avg_duration_ms": avg_duration,
+        "top_errors": [{"method": e["_id"]["method"], "url": e["_id"]["url"], "count": e["count"], "last_status": e.get("last_status")} for e in top_errors],
+        "top_users": [{"email": u["_id"], "total": u["count"], "errors": u.get("errors", 0)} for u in top_users],
+        "hourly": [{"hour": h["_id"], "total": h["total"], "errors": h["errors"]} for h in hourly],
+    }
+
+
+@api.get("/admin/health-stats", tags=["Admin"])
+async def admin_health_stats(window_hours: int = 24, user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    window_hours = max(1, min(int(window_hours or 24), 24 * 14))
+    return await _build_health_stats(window_hours)
+
+
+@api.post("/admin/health/test-email", tags=["Admin"])
+async def admin_health_test_email(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+    fake_trace = {
+        "id": _uuid(), "method": "POST", "url": "/api/test", "status": 500,
+        "user_email": user["email"], "module": "test",
+        "duration_ms": 42, "error": "Test alert (manual trigger)",
+        "request_body": "{}", "response_body": "{}", "ip": "127.0.0.1",
+        "created_at": _now(),
+    }
+    asyncio.create_task(_fire_health_realtime(fake_trace))
+    return {"ok": True, "recipient": recipient}
+
+
+async def _send_weekly_digest():
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        if not s.get("health_weekly_enabled"):
+            return
+        stats = await _build_health_stats(window_hours=24 * 7)
+        recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+        await _fire_health_webhook({"type": "weekly_digest", "fired_at": _now(), "stats": stats})
+        try:
+            from email_service import send_email
+            subject = f"[SAWALI] Rapport hebdo santé — {datetime.now(timezone.utc).date().isoformat()}"
+            top_err_html = "".join(
+                f"<tr><td style='padding:4px 8px;font-family:monospace;'>{e['method']} {e['url']}</td><td style='padding:4px 8px;text-align:right;'>{e['count']}</td></tr>"
+                for e in stats["top_errors"][:5]
+            ) or "<tr><td colspan='2' style='padding:6px 8px;color:#64748B;'>Aucune erreur — bravo !</td></tr>"
+            top_user_html = "".join(
+                f"<tr><td style='padding:4px 8px;'>{u['email']}</td><td style='padding:4px 8px;text-align:right;'>{u['total']}</td><td style='padding:4px 8px;text-align:right;color:{'#EF4444' if u['errors'] else '#94A3B8'}'>{u['errors']}</td></tr>"
+                for u in stats["top_users"][:5]
+            )
+            html = (
+                f"<div style='font-family:Arial,sans-serif;max-width:640px;'>"
+                f"<h2 style='color:#1E90FF;'>Rapport hebdo santé applicative — SAWALI</h2>"
+                f"<p style='color:#475569;font-size:13px;'>Synthèse des 7 derniers jours.</p>"
+                f"<p>Total: <strong>{stats['total']}</strong> · Erreurs: "
+                f"<strong style='color:{'#EF4444' if stats['errors'] else '#10B981'}'>{stats['errors']}</strong> · "
+                f"Taux: <strong>{stats['error_rate']}%</strong> · Durée moy.: {stats['avg_duration_ms']} ms</p>"
+                f"<h3 style='font-size:14px;'>Top endpoints en erreur</h3>"
+                f"<table style='border-collapse:collapse;width:100%;border:1px solid #E2E8F0;'>{top_err_html}</table>"
+                f"<h3 style='font-size:14px;margin-top:18px;'>Top utilisateurs</h3>"
+                f"<table style='border-collapse:collapse;width:100%;border:1px solid #E2E8F0;'>"
+                f"<tr style='background:#F8FAFC;'><th style='padding:4px 8px;text-align:left;'>Email</th>"
+                f"<th style='padding:4px 8px;text-align:right;'>Actions</th>"
+                f"<th style='padding:4px 8px;text-align:right;'>Erreurs</th></tr>"
+                f"{top_user_html}</table>"
+                f"<p style='color:#94A3B8;font-size:11px;margin-top:24px;'>Généré automatiquement chaque vendredi à 05:00 (Africa/Abidjan).</p>"
+                f"</div>"
+            )
+            text = f"Hebdo SAWALI — {stats['total']} actions, {stats['errors']} erreurs ({stats['error_rate']}%)."
+            await send_email(recipient, subject, html, text)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Weekly digest email failed: %s", exc)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Weekly digest failed: %s", exc)
+
+
+@api.post("/admin/health/run-weekly-now", tags=["Admin"])
+async def admin_health_run_weekly_now(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    await _send_weekly_digest()
+    return {"ok": True}
+
+
+# Generic DB query
+ALLOWED_COLLECTIONS = {
+    "users", "tracked_users", "appointments", "documents", "interventions",
+    "contacts", "deployments", "blacklist", "client_categories", "document_categories",
+    "case_studies", "blog_posts", "newsletter_subscribers", "testimonials",
+    "settings", "user_reports", "user_suivis", "ratings",
+    "access_logs", "api_traces", "visits", "document_logs", "files",
+    "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
+    "otps", "counters",
+}
+
+
+@api.get("/admin/db", tags=["Admin"])
+async def admin_list_collections(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    out = []
+    for c in sorted(ALLOWED_COLLECTIONS):
+        try:
+            count = await getattr(db, c).estimated_document_count()
+        except Exception:
+            count = None
+        out.append({"name": c, "count": count})
+    return out
+
+
+@api.get("/admin/db/{collection}", tags=["Admin"])
+async def admin_query_collection(
+    collection: str,
+    request: Request,
+    limit: int = 200,
+    sort_by: Optional[str] = None,
+    sort_dir: int = -1,
+    user: dict = Depends(get_current_user),
+):
+    """Generic JSON query over any whitelisted collection.
+
+    Supports special suffixes on filter keys:
+      - `key__regex=pattern` (case-insensitive)
+      - `key__gte=...` `key__lte=...` `key__gt=...` `key__lt=...` `key__ne=...`
+      - `key=value` (exact match; booleans and integers auto-coerced)
+    Reserved query params: `limit`, `sort_by`, `sort_dir`.
+    """
+    _ensure_super_admin(user)
+    if collection not in ALLOWED_COLLECTIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Collection non autorisée. Valeurs : {', '.join(sorted(ALLOWED_COLLECTIONS))}",
+        )
+    OP_MAP = {"gte": "$gte", "lte": "$lte", "gt": "$gt", "lt": "$lt", "ne": "$ne"}
+
+    def _coerce(v: str):
+        if v.lower() in ("true", "false"):
+            return v.lower() == "true"
+        try:
+            return int(v)
+        except ValueError:
+            try:
+                return float(v)
+            except ValueError:
+                return v
+
+    query: dict = {}
+    for key, value in request.query_params.items():
+        if key in ("limit", "sort_by", "sort_dir"):
+            continue
+        if "__" in key:
+            field, op = key.split("__", 1)
+            if op == "regex":
+                query.setdefault(field, {})["$regex"] = re.escape(value)
+                query[field]["$options"] = "i"
+            elif op in OP_MAP:
+                query.setdefault(field, {})[OP_MAP[op]] = _coerce(value)
+            else:
+                query[field] = value
+        else:
+            query[key] = _coerce(value)
+    coll = getattr(db, collection)
+    cursor = coll.find(query, {"_id": 0})
+    if sort_by:
+        cursor = cursor.sort(sort_by, int(sort_dir))
+    items = await cursor.to_list(min(max(int(limit), 1), 5000))
+    items = [_redact_sensitive(it) for it in items]
+    total = await coll.count_documents(query)
+    return {
+        "collection": collection,
+        "total_matched": total,
+        "returned": len(items),
+        "limit": limit,
+        "items": items,
+    }
+
+
+
+# ====================================================================
 # ADMIN - Settings
 # ====================================================================
 @api.get("/admin/settings", tags=["Admin"])
@@ -2596,7 +2873,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -2611,6 +2888,7 @@ async def admin_update_settings(payload: SettingsUpdate, _: dict = Depends(get_c
         "smtp_password", "google_client_secret", "recaptcha_secret_key",
         "tracking_auth_header", "webhook_token", "webhook_basic_pass",
         "notes_webhook_token", "notes_webhook_basic_pass",
+        "health_webhook_token", "health_webhook_basic_pass",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -3654,6 +3932,8 @@ async def on_startup():
     await db.appointments.create_index("scheduled_at")
     await db.documents.create_index("category")
     await db.contents.create_index("slug", unique=True)
+    await db.api_traces.create_index("created_at")
+    await db.api_traces.create_index("status")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")
@@ -3804,7 +4084,30 @@ async def on_startup():
             }
             await db.contents.insert_one(d_doc.copy())
 
+    # ---------- Scheduler ----------
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+        from apscheduler.triggers.cron import CronTrigger
+        global _scheduler
+        if _scheduler is None:
+            _scheduler = AsyncIOScheduler(timezone="Africa/Abidjan")
+            _scheduler.add_job(
+                _send_weekly_digest,
+                CronTrigger(day_of_week="fri", hour=5, minute=0, timezone="Africa/Abidjan"),
+                id="health_weekly_digest",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            _scheduler.start()
+            logger.info("Scheduler started — weekly digest scheduled for Fri 05:00 Africa/Abidjan")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Scheduler init failed: %s", exc)
+
 
 @app.on_event("shutdown")
 async def on_shutdown():
-    pass
+    try:
+        if _scheduler is not None:
+            _scheduler.shutdown(wait=False)
+    except Exception:  # noqa: BLE001
+        pass

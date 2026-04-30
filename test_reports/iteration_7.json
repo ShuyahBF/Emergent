@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 7 SAWALI (Application Health Dashboard + realtime email/webhook + weekly Friday 05:00 Africa/Abidjan digest + generic /admin/db/{collection} JSON query). BACKEND 13/13 pytest pass (5.67s) against https://sawali-portal.preview.emergentagent.com. FRONTEND 3 critical flows pass: (1) /admin/health renders admin-health-page with all 4 stats (health-stat-total=7 / health-stat-errors=2 / health-stat-rate=28.57% / health-stat-duration=18 ms), health-refresh works, health-test-email and health-run-weekly trigger success toasts ('Test envoyé à admin@sawalismartsystems.com' + stealth 'Opération effectuée avec succès'), window selector (1h/24h/7j = 168h) reloads, health-hourly / health-top-errors / health-top-users panels rendered. (2) /admin/settings section Santé applicative exposes toggle-health-realtime, toggle-health-weekly, health-email-to, health-webhook-url, health-webhook-auth-type. (3) Sidebar RBAC: 'Santé applicative' link visible for admin@sawalismartsystems.com (super-admin) and HIDDEN for a second admin created via /admin/clients role=admin — confirmed visually + via DOM scan.\n\nBackend verified: GET /api/admin/health-stats?window_hours=24 returns {window_hours,total,errors,error_rate,avg_duration_ms,top_errors[],top_users[],hourly[]} for super-admin, 403 for other admin. POST /admin/health/test-email → 200 {ok:true,recipient}. After PUT /admin/settings {health_realtime_enabled:true, health_webhook_url:'https://httpbin.org/post'}, POST /me/api-trace status=500 fires webhook — backend log shows 'Health webhook https://httpbin.org/post -> 200' (fire-and-forget, non-blocking). POST /admin/health/run-weekly-now → 200. GET /admin/db lists 20+ whitelisted collections with counts. GET /admin/db/users?role=admin filters correctly AND password_hash is REDACTED to '[REDACTED]' as documented (security-by-default via _redact_sensitive keyword matching on 'password'/'token'/etc — NOT A BUG, explicitly intended). GET /admin/db/api_traces?status__gte=400&sort_by=created_at&sort_dir=-1&limit=10 works with string→int coercion (status field is int, all items status>=400). GET /admin/db/api_traces?method__regex=POST filters via re.escape case-insensitive. GET /admin/db/INVALID_COLLECTION → 400 'Collection non autorisée'. /admin/db/users with non-super-admin → 403. Scheduler startup log 'Scheduler started — weekly digest scheduled for Fri 05:00 Africa/Abidjan' present in /var/log/supervisor/backend*.log. No bugs found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter7.py",
+    "/app/test_reports/pytest/pytest_iter7.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py now ~4114 lines (was 3785 at iter6). The APScheduler bootstrap + health helpers + generic /admin/db router add ~330 lines. The longstanding recommendation to split server.py into routers (auth/admin/portal/files/notes/ratings/access_logs/formations/api_traces/health/db) is increasingly urgent — a single file this large is a maintenance risk and slow to test/reload.",
+    "The generic /admin/db/{collection} endpoint is POWERFUL but relies on a hardcoded ALLOWED_COLLECTIONS set (server.py ~line 2779). Adding a new collection requires code edit + redeploy. Consider: (a) a settings-driven allowlist (read from admin UI), OR (b) an explicit per-collection projection config so new collections can opt-in with a default-deny projection (today they return EVERY field minus _id).",
+    "_redact_sensitive matches *any* key containing 'password' — which correctly redacts password_hash but will also redact legitimate fields named e.g. 'password_policy_version'. This is acceptable today (no such fields exist) but should be documented as a known heuristic.",
+    "status__gte coercion uses _coerce which tries int then float then str. This is fine for /admin/db/api_traces but it means ambiguous strings like '2024' on a text field will be silently coerced to int 2024 → possibly matching nothing. Consider accepting a '__type' hint (e.g., status__gte__int=400) for typed queries on heterogeneous fields.",
+    "_fire_health_webhook uses httpx.AsyncClient with no timeout pool cap — when many 500s burst (e.g., outage), fire-and-forget tasks could spawn unbounded concurrent webhook calls. Add a bounded semaphore (e.g., asyncio.Semaphore(5)) inside _fire_health_realtime to protect the event loop.",
+    "APScheduler starts inside FastAPI on_startup; if Uvicorn spawns multiple workers (it won't in Emergent supervisor today, but might in prod), the weekly digest will fire N times (once per worker). Guard with a leader-election flag in settings doc (atomic findOneAndUpdate with ttl) or a flag in env.",
+    "Frontend AdminHealthDashboard.jsx: window selector is a native <select>, not the shadcn Select component — minor design inconsistency with the rest of admin which uses shadcn. Not blocking.",
+    "The 'Santé applicative' sidebar link uses superAdminOnly:true flag — RBAC is client-side only (the backend enforcement via _ensure_super_admin is correct and authoritative). No change needed; just noting defense-in-depth is already in place."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter7.py (created — 13 pytest cases across 4 classes: TestHealthStats, TestHealthNotifications, TestAdminDb, TestScheduler)"
+  ],
+  "success_rate": {
+    "backend": "100% (13/13 iter7)",
+    "frontend": "100% (3/3 critical iter7 flows: health dashboard stats+actions+window selector, settings Santé applicative section, sidebar superAdminOnly RBAC)"
+  },
+  "test_credentials": "Super-admin: admin@sawalismartsystems.com / Admin@Sawali2026 (unchanged). A fresh admin2 is created/destroyed per test run via POST /admin/clients role=admin to prove the 403 path on /admin/health-stats and /admin/db/users and the sidebar hide on /admin.",
+  "seed_data_creation": "Tests create two synthetic api_traces (TEST_iter7 synthetic 500 / TEST_iter7 coerce) via /me/api-trace to guarantee at least one row with status>=400 for the coercion test. These are not cleaned up individually — they co-exist with real traces. The iter7 webhook test toggles health_realtime_enabled=true + health_webhook_url=https://httpbin.org/post then restores health_realtime_enabled=false + health_webhook_url='' at the end (test_cleanup_disable_realtime) to avoid polluting subsequent runs. admin2 user created in /admin/clients is deleted after.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/test_sawali_iter7.py. Webhook proof is in backend logs: grep 'Health webhook' /var/log/supervisor/backend*.log. The generic /admin/db endpoint accepts ALL query_params except limit/sort_by/sort_dir as filters — booleans/ints are auto-coerced via _coerce. password_hash redaction on /admin/db/users is BY DESIGN (confirmed in agent-to-agent note) — do not treat as a bug. The scheduler runs at Fri 05:00 Africa/Abidjan; to trigger immediately for testing use POST /admin/health/run-weekly-now. Frontend /admin/health window selector currently values the dropdown in hours (1, 24, 168). For RBAC sidebar test, seed localStorage['sawali_token']+'sawali_user' with a non-super-admin JWT then navigate to /admin and scan for /Sant[ée] applicative/i — should be absent.",
+  "rca of the issue": "n/a — no issues found in iteration 7."
+}

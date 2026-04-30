@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
-import { Link } from "react-router-dom";
-import { Activity, Globe, Database, ShieldCheck, ArrowLeft, RefreshCw, AlertTriangle, AlertOctagon, Info, Clock, CheckCircle2 } from "lucide-react";
+import { Link, useSearchParams } from "react-router-dom";
+import { Activity, Globe, Database, ShieldCheck, ArrowLeft, RefreshCw, AlertTriangle, AlertOctagon, Info, Clock, CheckCircle2, Mail, Bell } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -33,6 +33,20 @@ export default function StatusPage() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [windowH, setWindowH] = useState(168);
+  const [params, setParams] = useSearchParams();
+  const subStatus = params.get("subscribe");
+
+  // Auto-clear the subscribe query param after showing the toast
+  useEffect(() => {
+    if (subStatus) {
+      const t = setTimeout(() => {
+        const next = new URLSearchParams(params);
+        next.delete("subscribe");
+        setParams(next, { replace: true });
+      }, 6000);
+      return () => clearTimeout(t);
+    }
+  }, [subStatus, params, setParams]);
 
   const load = async (w = windowH) => {
     setLoading(true);
@@ -80,6 +94,11 @@ export default function StatusPage() {
       </header>
 
       <main className="max-w-5xl mx-auto px-6 py-10">
+        {/* Subscription feedback banner */}
+        {subStatus && (
+          <SubscribeFeedback status={subStatus} />
+        )}
+
         {/* Overall banner */}
         <div className={`rounded-2xl ${palette.bg} ring-2 ${palette.ring} p-8 mb-8`} data-testid="status-overall-banner">
           <div className="flex items-center justify-between flex-wrap gap-4">
@@ -168,6 +187,9 @@ export default function StatusPage() {
             </ul>
           )}
         </div>
+
+        {/* Email subscription */}
+        <SubscribeForm />
 
         <p className="text-center text-[11px] text-slate-500 mt-8">
           Sondes exécutées chaque heure · {data?.stats?.samples || 0} relevé(s) · dernière mise à jour {data?.stats?.generated_at ? new Date(data.stats.generated_at).toLocaleString("fr-FR") : "—"}
@@ -268,5 +290,104 @@ const IncidentItem = ({ item }) => {
         </div>
       </div>
     </li>
+  );
+};
+
+
+// Inline banner shown when the user comes back from the email confirm/unsubscribe link
+const SubscribeFeedback = ({ status }) => {
+  const map = {
+    confirmed: { tone: "emerald", title: "Abonnement confirmé !", text: "Vous serez notifié par email à chaque ouverture et résolution d'incident." },
+    ok: { tone: "emerald", title: "Désabonnement effectué", text: "Vous ne recevrez plus de notifications d'incidents SAWALI." },
+    invalid: { tone: "rose", title: "Lien invalide ou expiré", text: "Le lien ne correspond à aucun abonnement actif." },
+  }[status];
+  if (!map) return null;
+  const tone = { emerald: { bg: "bg-emerald-500/15", ring: "ring-emerald-400/40", text: "text-emerald-200" }, rose: { bg: "bg-rose-500/15", ring: "ring-rose-400/40", text: "text-rose-200" } }[map.tone];
+  return (
+    <div className={`mb-6 rounded-xl ${tone.bg} ring-1 ${tone.ring} p-4`} data-testid="subscribe-feedback" data-status={status}>
+      <p className={`text-sm font-semibold ${tone.text}`}>{map.title}</p>
+      <p className="text-xs text-slate-200 mt-1">{map.text}</p>
+    </div>
+  );
+};
+
+// Email subscription form. Double opt-in — confirmation link sent by email.
+const SubscribeForm = () => {
+  const [email, setEmail] = useState("");
+  const [state, setState] = useState("idle"); // idle | loading | success | error
+  const [msg, setMsg] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!email.trim()) return;
+    setState("loading");
+    setMsg("");
+    try {
+      const r = await axios.post(`${API}/public/incidents/subscribe`, { email: email.trim().toLowerCase() });
+      if (r.data?.already_subscribed) {
+        setState("success");
+        setMsg("Vous êtes déjà abonné à cet email. Aucune action supplémentaire requise.");
+      } else if (r.data?.confirmation_resent) {
+        setState("success");
+        setMsg("Lien de confirmation renvoyé. Vérifiez votre boîte mail.");
+      } else {
+        setState("success");
+        setMsg("Vérifiez votre boîte mail pour confirmer votre abonnement.");
+      }
+      setEmail("");
+    } catch (err) {
+      setState("error");
+      setMsg(err?.response?.data?.detail || "Erreur — veuillez réessayer.");
+    }
+  };
+
+  return (
+    <div className="mt-6 rounded-2xl bg-gradient-to-br from-sawali-blue/15 to-white/5 ring-1 ring-sawali-blue/40 p-6" data-testid="subscribe-form-section">
+      <div className="flex items-start gap-4 flex-wrap">
+        <div className="h-11 w-11 rounded-xl bg-sawali-blue/30 flex items-center justify-center flex-shrink-0">
+          <Bell className="h-5 w-5 text-sawali-blue-light" />
+        </div>
+        <div className="flex-1 min-w-[260px]">
+          <h2 className="text-lg font-display font-bold mb-1">Soyez prévenu des incidents</h2>
+          <p className="text-sm text-slate-300 mb-4">
+            Recevez un email à chaque ouverture et résolution d'incident. Vous pouvez vous désabonner à tout moment.
+          </p>
+          <form onSubmit={submit} className="flex flex-wrap gap-2" data-testid="subscribe-form">
+            <div className="relative flex-1 min-w-[220px]">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
+              <input
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="vous@entreprise.com"
+                disabled={state === "loading"}
+                className="w-full rounded-lg bg-white/10 border border-white/20 text-white placeholder:text-slate-400 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/30 disabled:opacity-50"
+                data-testid="subscribe-email-input"
+              />
+            </div>
+            <button
+              type="submit"
+              disabled={state === "loading"}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition disabled:opacity-50"
+              data-testid="subscribe-submit"
+            >
+              {state === "loading" ? "Envoi…" : "S'abonner"}
+            </button>
+          </form>
+          {msg && (
+            <p
+              className={`text-xs mt-3 ${state === "error" ? "text-rose-300" : "text-emerald-300"}`}
+              data-testid="subscribe-message"
+            >
+              {msg}
+            </p>
+          )}
+          <p className="text-[10px] text-slate-400 mt-3">
+            Double opt-in : un email de confirmation vous sera envoyé. Aucune autre communication ne vous sera adressée.
+          </p>
+        </div>
+      </div>
+    </div>
   );
 };

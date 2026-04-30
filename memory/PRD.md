@@ -33,6 +33,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-04-30 — Itération 15 : Abonnement email aux incidents (double opt-in + broadcast)
+✅ Collection `incident_subscribers` (DB Explorer whitelisted) avec `confirmation_token` + `unsubscribe_token` uniques par abonné.
+✅ 5 endpoints :
+  - `POST /public/incidents/subscribe` (envoie email de confirmation — gère déjà-abonné + renvoi)
+  - `GET /public/incidents/confirm?token=...` → redirect `/uptime?subscribe=confirmed`
+  - `GET /public/incidents/unsubscribe?token=...` → redirect `/uptime?subscribe=ok`
+  - `GET /admin/incident-subscribers` (avec compteur confirmed)
+  - `DELETE /admin/incident-subscribers/{id}`
+✅ Hook automatique dans `admin_update_settings` : sur `off→on` (incident ouvert) et `on→off` (résolu), broadcast email personnalisé à chaque abonné confirmé avec sévérité colorée, durée, lien `/uptime` + **lien de désabonnement unique**. Sémaphore 10 pour borner les bursts.
+✅ Frontend `/uptime` : composant `<SubscribeForm>` (gradient bleu sawali, double opt-in expliqué, états idle/loading/success/error) + `<SubscribeFeedback>` qui affiche banner emerald/rose après confirm/unsubscribe (auto-clear 6s via setSearchParams).
+✅ Validation : email syntaxique côté backend (Pydantic `EmailStr` + regex), gestion des cas déjà-abonné/non-confirmé/confirmation-renvoyée.
+
 ### 2026-04-30 — Itération 14 : Historique des incidents (timeline complète)
 ✅ Hook dans `admin_update_settings` qui détecte 3 transitions :
   - off → on : crée un nouvel incident `ongoing` avec `created_by`

@@ -41,6 +41,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
+from pydantic import BaseModel, EmailStr
 
 from db import db, serialize, serialize_many
 from models import (
@@ -3157,7 +3158,7 @@ ALLOWED_COLLECTIONS = {
     "settings", "user_reports", "user_suivis", "ratings",
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
-    "otps", "counters", "auth_checks", "uptime_checks", "incidents",
+    "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
 }
 
 
@@ -3285,7 +3286,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         editor = (user.get("email") or "").lower() or None
         # off → on : open a new incident
         if not prev_enabled and next_enabled:
-            await db.incidents.insert_one({
+            new_incident = {
                 "id": _uuid(),
                 "severity": update.get("incident_banner_severity") or prev.get("incident_banner_severity") or "warning",
                 "message": update.get("incident_banner_message") or prev.get("incident_banner_message") or "",
@@ -3298,7 +3299,9 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
                 "updates": [],
                 "created_by": editor,
                 "resolved_by": None,
-            })
+            }
+            await db.incidents.insert_one(new_incident.copy())
+            asyncio.create_task(_broadcast_incident_to_subscribers("opened", new_incident))
         # on → off : resolve the latest open incident
         elif prev_enabled and not next_enabled:
             ongoing = await db.incidents.find_one({"status": "ongoing"}, sort=[("started_at", -1)])
@@ -3306,10 +3309,13 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
                 started = datetime.fromisoformat(ongoing["started_at"]) if isinstance(ongoing["started_at"], str) else ongoing["started_at"]
                 resolved_at = datetime.now(timezone.utc)
                 duration = int((resolved_at - started).total_seconds() / 60)
+                resolved_doc = {**ongoing, "status": "resolved", "resolved_at": resolved_at.isoformat(), "duration_minutes": duration, "resolved_by": editor}
                 await db.incidents.update_one(
                     {"id": ongoing["id"]},
                     {"$set": {"status": "resolved", "resolved_at": resolved_at.isoformat(), "duration_minutes": duration, "resolved_by": editor}},
                 )
+                resolved_doc.pop("_id", None)
+                asyncio.create_task(_broadcast_incident_to_subscribers("resolved", resolved_doc))
         # ongoing edit : append an update entry to the latest open incident
         elif prev_enabled and next_enabled:
             content_changed = any(f in update for f in ("incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label"))
@@ -3372,6 +3378,168 @@ async def public_list_incidents(limit: int = 30):
          "status": 1, "started_at": 1, "resolved_at": 1, "duration_minutes": 1, "updates": 1},
     ).sort("started_at", -1).to_list(min(max(limit, 1), 100))
     return items
+
+
+# ====================================================================
+# INCIDENT SUBSCRIBERS — public can subscribe to email notifications.
+# Double opt-in: subscription is only active after email confirmation.
+# ====================================================================
+class IncidentSubscribeRequest(BaseModel):
+    email: EmailStr
+
+
+def _public_url() -> str:
+    """Best-effort base URL for confirmation/unsubscribe links in emails."""
+    return (PUBLIC_BASE_URL or "").rstrip("/")
+
+
+async def _send_subscriber_confirmation(email: str, confirm_token: str) -> None:
+    try:
+        from email_service import send_email
+        link = f"{_public_url()}/api/public/incidents/confirm?token={confirm_token}"
+        html = (
+            f"<div style='font-family:Arial,sans-serif;max-width:480px;'>"
+            f"<h2 style='color:#1E90FF;'>SAWALI — Confirmation d'abonnement</h2>"
+            f"<p>Bonjour,</p>"
+            f"<p>Vous recevrez les notifications d'incidents de SAWALI SMART SYSTEMS sur cet email "
+            f"après avoir cliqué sur le lien ci-dessous :</p>"
+            f"<p><a href='{link}' style='display:inline-block;background:#1E90FF;color:white;"
+            f"padding:10px 18px;border-radius:6px;text-decoration:none;font-weight:bold;'>"
+            f"Confirmer mon abonnement</a></p>"
+            f"<p style='color:#94A3B8;font-size:11px;margin-top:24px;'>"
+            f"Si vous n'avez pas demandé cet abonnement, vous pouvez ignorer cet email.</p>"
+            f"</div>"
+        )
+        text = f"Confirmez votre abonnement aux notifications SAWALI : {link}"
+        await send_email(email, "[SAWALI] Confirmez votre abonnement aux notifications", html, text)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Subscriber confirmation email failed: %s", exc)
+
+
+async def _broadcast_incident_to_subscribers(action: str, incident: dict) -> None:
+    """Send email to all confirmed subscribers when an incident is opened or resolved."""
+    try:
+        subs = await db.incident_subscribers.find({"confirmed": True}, {"_id": 0, "email": 1, "unsubscribe_token": 1}).to_list(2000)
+        if not subs:
+            return
+        from email_service import send_email
+        sev = (incident.get("severity") or "warning").lower()
+        sev_label = {"info": "Info", "warning": "Avertissement", "critical": "Critique"}.get(sev, sev)
+        sev_color = {"info": "#0EA5E9", "warning": "#F59E0B", "critical": "#EF4444"}.get(sev, "#F59E0B")
+        if action == "opened":
+            subject = f"[SAWALI] Incident en cours — {sev_label}"
+            headline = "Un incident est en cours"
+            timeline_html = f"<p><strong>Démarré :</strong> {incident.get('started_at')}</p>"
+        else:  # resolved
+            subject = f"[SAWALI] Incident résolu — {sev_label}"
+            headline = "Incident résolu"
+            duration = incident.get("duration_minutes")
+            if duration is None:
+                dur_str = "—"
+            elif duration < 1:
+                dur_str = "moins d'une minute"
+            elif duration < 60:
+                dur_str = f"{duration} min"
+            else:
+                dur_str = f"{duration // 60} h {duration % 60} min"
+            timeline_html = (
+                f"<p><strong>Durée totale :</strong> {dur_str}</p>"
+                f"<p><strong>Résolu :</strong> {incident.get('resolved_at')}</p>"
+            )
+        # Send one personalized email per subscriber (so unsubscribe link is unique)
+        sem = asyncio.Semaphore(10)
+        async def _send_one(sub):
+            async with sem:
+                unsub = f"{_public_url()}/api/public/incidents/unsubscribe?token={sub.get('unsubscribe_token','')}"
+                html = (
+                    f"<div style='font-family:Arial,sans-serif;max-width:560px;'>"
+                    f"<div style='background:{sev_color};color:white;padding:12px 16px;border-radius:6px 6px 0 0;'>"
+                    f"<strong style='text-transform:uppercase;letter-spacing:.1em;font-size:11px;'>{sev_label}</strong>"
+                    f"<h2 style='margin:6px 0 0 0;font-size:18px;'>{headline}</h2></div>"
+                    f"<div style='border:1px solid #E2E8F0;border-top:0;padding:18px;border-radius:0 0 6px 6px;'>"
+                    f"<p style='font-size:15px;color:#0F172A;'>{(incident.get('message') or '')[:1000]}</p>"
+                    f"{timeline_html}"
+                    f"<p style='margin-top:18px;'><a href='{_public_url()}/uptime' style='color:#1E90FF;'>Voir le détail sur la page de statut →</a></p>"
+                    f"<p style='color:#94A3B8;font-size:11px;margin-top:32px;border-top:1px solid #E2E8F0;padding-top:12px;'>"
+                    f"Vous recevez cet email car vous êtes abonné aux notifications d'incidents SAWALI."
+                    f" <a href='{unsub}' style='color:#94A3B8;'>Se désabonner</a></p>"
+                    f"</div></div>"
+                )
+                text = f"{headline} ({sev_label}): {(incident.get('message') or '')[:300]} — {_public_url()}/uptime"
+                try:
+                    await send_email(sub["email"], subject, html, text)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Subscriber broadcast to %s failed: %s", sub.get("email"), exc)
+        await asyncio.gather(*[_send_one(s) for s in subs])
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Incident broadcast pipeline failed: %s", exc)
+
+
+@api.post("/public/incidents/subscribe", tags=["Public"])
+async def public_subscribe_to_incidents(payload: IncidentSubscribeRequest):
+    email = payload.email.strip().lower()
+    if not is_valid_email_syntax(email):
+        raise HTTPException(status_code=400, detail="Email invalide")
+    existing = await db.incident_subscribers.find_one({"email": email})
+    if existing:
+        if existing.get("confirmed"):
+            return {"ok": True, "already_subscribed": True}
+        # Resend confirmation
+        token = existing.get("confirmation_token") or secrets.token_urlsafe(24)
+        await db.incident_subscribers.update_one({"email": email}, {"$set": {"confirmation_token": token}})
+        asyncio.create_task(_send_subscriber_confirmation(email, token))
+        return {"ok": True, "confirmation_resent": True}
+    confirm_token = secrets.token_urlsafe(24)
+    unsubscribe_token = secrets.token_urlsafe(24)
+    await db.incident_subscribers.insert_one({
+        "id": _uuid(),
+        "email": email,
+        "confirmed": False,
+        "confirmation_token": confirm_token,
+        "unsubscribe_token": unsubscribe_token,
+        "subscribed_at": _now(),
+        "confirmed_at": None,
+    })
+    asyncio.create_task(_send_subscriber_confirmation(email, confirm_token))
+    return {"ok": True}
+
+
+@api.get("/public/incidents/confirm", tags=["Public"])
+async def public_confirm_subscription(token: str):
+    sub = await db.incident_subscribers.find_one({"confirmation_token": token})
+    if not sub:
+        return RedirectResponse(url=f"{_public_url()}/uptime?subscribe=invalid")
+    if not sub.get("confirmed"):
+        await db.incident_subscribers.update_one(
+            {"id": sub["id"]},
+            {"$set": {"confirmed": True, "confirmed_at": _now()}, "$unset": {"confirmation_token": ""}},
+        )
+    return RedirectResponse(url=f"{_public_url()}/uptime?subscribe=confirmed")
+
+
+@api.get("/public/incidents/unsubscribe", tags=["Public"])
+async def public_unsubscribe(token: str):
+    res = await db.incident_subscribers.delete_one({"unsubscribe_token": token})
+    suffix = "ok" if res.deleted_count else "invalid"
+    return RedirectResponse(url=f"{_public_url()}/uptime?subscribe={suffix}")
+
+
+@api.get("/admin/incident-subscribers", tags=["Admin"])
+async def admin_list_subscribers(_: dict = Depends(get_current_admin)):
+    items = await db.incident_subscribers.find(
+        {},
+        {"_id": 0, "id": 1, "email": 1, "confirmed": 1, "subscribed_at": 1, "confirmed_at": 1},
+    ).sort("subscribed_at", -1).to_list(2000)
+    confirmed = sum(1 for s in items if s.get("confirmed"))
+    return {"total": len(items), "confirmed": confirmed, "items": items}
+
+
+@api.delete("/admin/incident-subscribers/{sub_id}", tags=["Admin"])
+async def admin_delete_subscriber(sub_id: str, _: dict = Depends(get_current_admin)):
+    res = await db.incident_subscribers.delete_one({"id": sub_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Abonné introuvable")
+    return {"ok": True}
 
 
 # ----- Google Calendar OAuth admin endpoints -----

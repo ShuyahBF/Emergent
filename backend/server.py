@@ -2440,8 +2440,32 @@ async def admin_access_logs_csv(
 # API TRACE — frontend axios interceptor logs every mutating call here.
 # Only the seeded super-admin (admin@sawalismartsystems.com) can read.
 # ====================================================================
-SUPER_ADMIN_EMAIL = "admin@sawalismartsystems.com"
+SUPER_ADMIN_EMAIL = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsystems.com").lower()
 TRACE_MAX_BODY_CHARS = 8000
+TRACE_SENSITIVE_KEYS_RE = re.compile(
+    r"(password|passwd|secret|token|api[_-]?key|recaptcha|otp|code|session_token|"
+    r"smtp_password|smtp_user|api_basic_pass|webhook_token|webhook_basic_pass|"
+    r"notes_webhook_token|notes_webhook_basic_pass)",
+    re.IGNORECASE,
+)
+
+
+def _redact_sensitive(value):
+    """Server-side redaction guard (in case the FE didn't redact)."""
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except Exception:
+            return value
+        return json.dumps(_redact_sensitive(parsed), ensure_ascii=False, default=str)
+    if isinstance(value, list):
+        return [_redact_sensitive(v) for v in value]
+    if isinstance(value, dict):
+        return {
+            k: ("[REDACTED]" if TRACE_SENSITIVE_KEYS_RE.search(k) else _redact_sensitive(v))
+            for k, v in value.items()
+        }
+    return value
 
 
 def _truncate_for_trace(value):
@@ -2466,6 +2490,8 @@ async def me_api_trace(
     user: dict = Depends(get_current_user),
 ):
     """Records one API call from the frontend (mutations only, set up by the axios interceptor)."""
+    safe_req = _redact_sensitive(payload.request_body)
+    safe_resp = _redact_sensitive(payload.response_body)
     doc = {
         "id": _uuid(),
         "user_id": user["id"],
@@ -2476,8 +2502,8 @@ async def me_api_trace(
         "method": (payload.method or "").upper()[:10],
         "url": (payload.url or "")[:512],
         "status": int(payload.status or 0),
-        "request_body": _truncate_for_trace(payload.request_body),
-        "response_body": _truncate_for_trace(payload.response_body),
+        "request_body": _truncate_for_trace(safe_req),
+        "response_body": _truncate_for_trace(safe_resp),
         "duration_ms": int(payload.duration_ms or 0),
         "module": (payload.module or "")[:120],
         "error": (payload.error or "")[:500] if payload.error else None,

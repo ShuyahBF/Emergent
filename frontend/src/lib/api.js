@@ -48,17 +48,43 @@ const truncate = (v, n = 4000) => {
   } catch { return String(v).slice(0, n); }
 };
 
+// =====================================================================
+// Redact sensitive keys before sending to the trace endpoint.
+// Matches password, token, secret, api_key (and common variants).
+// =====================================================================
+const SENSITIVE_RE = /(password|passwd|secret|token|api[_-]?key|recaptcha|otp|code|session_token|smtp_password|smtp_user|api_basic_pass|webhook_token|webhook_basic_pass|notes_webhook_token|notes_webhook_basic_pass)/i;
+
+const redact = (value) => {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(redact);
+  if (typeof value === "object") {
+    const out = {};
+    for (const [k, v] of Object.entries(value)) {
+      out[k] = SENSITIVE_RE.test(k) ? "[REDACTED]" : redact(v);
+    }
+    return out;
+  }
+  return value;
+};
+
 const recordTrace = (cfg, status, responseBody, errorMsg) => {
   if (!isTraced(cfg)) return;
   const start = cfg?.metadata?.startTime || Date.now();
   const duration = Date.now() - start;
+  // Parse string bodies before redacting (axios may send already-stringified data)
+  let reqRaw = cfg.data;
+  if (typeof reqRaw === "string") {
+    try { reqRaw = JSON.parse(reqRaw); } catch { /* keep as string */ }
+  }
+  const safeReq = typeof reqRaw === "string" ? reqRaw : redact(reqRaw);
+  const safeResp = typeof responseBody === "string" ? responseBody : redact(responseBody);
   const body = {
     method: (cfg.method || "").toUpperCase(),
     url: cfg.url || "",
     status,
     duration_ms: duration,
-    request_body: typeof cfg.data === "string" ? truncate(cfg.data) : truncate(cfg.data),
-    response_body: truncate(responseBody),
+    request_body: truncate(safeReq),
+    response_body: truncate(safeResp),
     module: typeof window !== "undefined" ? window.location.pathname : null,
     error: errorMsg || null,
   };

@@ -175,6 +175,25 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 ✅ **Backend public DTO** : exposé `tracked_user_id` en plus de `tracked_role` et `parent_client_id` pour permettre les contrôles côté frontend.
 ✅ **Tests** : 10/10 backend + frontend admin (modal formation + module avec api_url & auth) ; portal corrigé.
 
+## Implemented (2026-04-30) — Itération 6 : PasswordInput + Traces API + PDF dans Rapports/Suivis
+✅ **Composant `<PasswordInput>`** réutilisable avec œil cliquable (Eye/EyeOff de Lucide). Utilisé sur :
+  - `/login` (mot de passe)
+  - `/admin/settings` (smtp_password, webhook_token, webhook_basic_pass, notes_webhook_token, notes_webhook_basic_pass — via wrapper Input)
+  - `/admin/tracked-users` (modale set-password)
+  - `/admin/formations` (api_token, api_basic_pass)
+✅ **Traces API** — backend collection `api_traces` :
+  - `POST /me/api-trace` (auth) reçoit chaque requête mutante (POST/PUT/PATCH/DELETE) capturée par l'axios interceptor.
+  - `GET /admin/api-traces` (super-admin uniquement, contrôlé via `SUPER_ADMIN_EMAIL` env, fallback `admin@sawalismartsystems.com`) avec filtres `q`, `method`, `only_errors`, `user_email`.
+  - `GET /admin/api-traces/export.csv` export CSV.
+  - `DELETE /admin/api-traces` purge globale.
+  - **Redaction des secrets** : `password`, `passwd`, `secret`, `token`, `api_key`, `recaptcha`, `otp`, `code`, `session_token`, `webhook_*`, `smtp_password`, etc. → remplacés par `[REDACTED]` (côté frontend ET côté backend en double sécurité).
+  - Endpoints filtrés (skip) : `/me/access-log`, `/me/api-trace` (anti-récursion), `/track`, `/visits/count|trend`, `/auth/captcha-config`, `/me/formations/*` (visit/close).
+  - **Toast furtif** « Opération effectuée avec succès » (1.5 s) sur chaque succès 2xx (sauf endpoints noisy + `/auth/login|verify-otp|resend-otp` déjà toastés).
+  - Page `/admin/api-traces` (sidebar visible uniquement pour le super-admin) avec table, stats (total, erreurs, utilisateurs, durée moyenne), modal détail avec body JSON pretty-printed (request + response).
+✅ **PDF + autres documents dans Rapports/Suivis** :
+  - `<ImageUploader>` renommé conceptuellement → accepte désormais images, PDF, Word, Excel, PowerPoint, TXT, CSV (max 25 Mo, max 10).
+  - `<AttachmentThumb>` : preview <img> pour les images, sinon icône colorée + extension via `getFileIcon()`.
+
 ## Test Credentials
 - Admin: `admin@sawalismartsystems.com` / `Admin@Sawali2026` (auto-seeded)
 - Tracked users : créer puis utiliser /admin/tracked-users → bouton "clé" pour définir un mot de passe → login via /login standard.

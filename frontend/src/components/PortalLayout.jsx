@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -21,6 +21,7 @@ const clientLinks = [
   { to: "/portal/documents", label: "Documentation", icon: FileText },
   { to: "/portal/interventions", label: "Historique interventions", icon: Wrench },
   { to: "/portal/users", label: "Suivi utilisateurs", icon: Users },
+  { to: "/portal/formations", label: "Formations Spécialisées", icon: GraduationCap, trackedOnly: true },
 ];
 
 const adminLinks = [
@@ -29,6 +30,7 @@ const adminLinks = [
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar },
   { to: "/admin/interventions", label: "Interventions", icon: Wrench },
   { to: "/admin/documents", label: "Documents", icon: FileText },
+  { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },
   { to: "/admin/case-studies", label: "Études de cas", icon: Briefcase },
   { to: "/admin/blog", label: "Blog", icon: Newspaper },
@@ -49,7 +51,8 @@ export default function PortalLayout({ admin = false }) {
   const location = useLocation();
   const [open, setOpen] = useState(false);
   const [branding, setBranding] = useState(null);
-  const links = admin ? adminLinks : clientLinks;
+  const isTracked = !!user?.tracked_user_id;
+  const links = (admin ? adminLinks : clientLinks).filter((l) => !l.trackedOnly || isTracked);
 
   useEffect(() => {
     if (!user) navigate("/login");

@@ -50,6 +50,8 @@ import AdminVisits from "@/pages/admin/AdminVisits";
 import AdminDeployments from "@/pages/admin/AdminDeployments";
 import AdminBlacklist from "@/pages/admin/AdminBlacklist";
 import AdminAccessLogs from "@/pages/admin/AdminAccessLogs";
+import AdminFormations from "@/pages/admin/AdminFormations";
+import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
@@ -98,6 +100,8 @@ export default function App() {
             <Route path="documents" element={<ClientDocuments />} />
             <Route path="interventions" element={<ClientInterventions />} />
             <Route path="users" element={<ClientUsersTracking />} />
+            <Route path="formations" element={<FormationsList />} />
+            <Route path="formations/:fid" element={<FormationDetail />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>
 
@@ -119,6 +123,7 @@ export default function App() {
             <Route path="deployments" element={<AdminDeployments />} />
             <Route path="blacklist" element={<AdminBlacklist />} />
             <Route path="access-logs" element={<AdminAccessLogs />} />
+            <Route path="formations" element={<AdminFormations />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

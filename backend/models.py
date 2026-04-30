@@ -436,3 +436,66 @@ class RatingCreate(BaseModel):
 class AccessLogCreate(BaseModel):
     module: str
     page: Optional[str] = None
+
+
+
+# ====================================================================
+# FORMATIONS (Specialized Trainings)
+# ====================================================================
+class FormationCreate(BaseModel):
+    name: str
+    description: Optional[str] = None
+    available: bool = True
+    access: str = "free"  # free | paid
+    price: Optional[float] = None
+    default_credits: int = 0  # credits granted on enrollment
+    cover_image_url: Optional[str] = None
+
+
+class FormationUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    available: Optional[bool] = None
+    access: Optional[str] = None
+    price: Optional[float] = None
+    default_credits: Optional[int] = None
+    cover_image_url: Optional[str] = None
+
+
+class FormationModuleCreate(BaseModel):
+    name: str
+    order: int = 0
+    screenshot_url: Optional[str] = None
+    software_path: Optional[str] = None
+    content_html: Optional[str] = ""
+    api_url: Optional[str] = None  # external REST POST endpoint for Q/A
+    api_auth_type: Optional[str] = "none"  # none | bearer | basic
+    api_token: Optional[str] = None
+    api_basic_user: Optional[str] = None
+    api_basic_pass: Optional[str] = None
+
+
+class FormationModuleUpdate(BaseModel):
+    name: Optional[str] = None
+    order: Optional[int] = None
+    screenshot_url: Optional[str] = None
+    software_path: Optional[str] = None
+    content_html: Optional[str] = None
+    api_url: Optional[str] = None
+    api_auth_type: Optional[str] = None
+    api_token: Optional[str] = None
+    api_basic_user: Optional[str] = None
+    api_basic_pass: Optional[str] = None
+
+
+class FormationCreditsUpdate(BaseModel):
+    credits_delta: int  # positive to add, negative to remove
+
+
+class FormationStateUpdate(BaseModel):
+    state: str  # only "annulée" allowed for admins to set manually
+
+
+class FormationModuleQuestion(BaseModel):
+    question: str
+    payload: Optional[dict] = None  # extra fields forwarded to the module's api_url

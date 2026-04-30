@@ -1,0 +1,44 @@
+{
+  "summary": "Iteration 5 SAWALI Formations Spécialisées — 10/10 backend pytest cases pass against deployed URL https://sawali-portal.preview.emergentagent.com (9.11s). Backend validated: admin CRUD formations (modules_count + enrolled_count + cascade delete drops modules), admin CRUD modules (api_url + bearer/basic auth fields), portal RBAC (regular client → 403 list & enroll, admin → 200 list, tracked-user → 200 list & enroll with credits_purchased=default_credits), visit/close flow (POST visit returns visit_id, modules_seen contains mid, GET /me/formations/{fid} returns enrollment.state='terminée' when seen=total=1; close returns duration_ms ≥ 0 and total_time_ms incremented), Q/R proxy via httpbin.org/post (echoes back the question forwarded; without api_url → 400), admin credits adjust (+20 → credits_purchased grew from 3 to 23) and state='annulée' lock (state stays 'annulée' even after a fresh visit), ratings: tracked user POST /api/me/ratings/formations/{fid} {stars:4} → 200 and GET /me/formations.my_rating={stars:4}. Admin frontend (/admin/formations) verified end-to-end: admin-formations-page renders, new-formation-btn opens formation-form, submit shows 'Enregistré' toast and the new card with manage-formation-{id} button which opens the side panel + new-module-btn → module-form including api_url + auth select fields. PORTAL FRONTEND BUG FOUND: the sidebar link 'Formations Spécialisées' and the per-card 'enroll-{fid}' button are gated on `user?.tracked_user_id`, but /api/auth/login (and /api/auth/me) do NOT return that field — only `tracked_role` and `parent_client_id`. Result: a tracked-user (verified Moderation, parent_client_id set) does NOT see the sidebar link and sees 'Inscription réservée aux utilisateurs suivis' instead of an enroll button on every card. Backend logic itself works (curl POST enroll with the same JWT returns 200). All admin / non-tracked-user paths render correctly.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "PortalLayout.jsx (line 54) + Formations.jsx (line 25)", "issue": "isTracked = !!user?.tracked_user_id but the backend public-user DTO (server.py _public_user, ~line 195) only exposes tracked_role + parent_client_id. tracked_user_id is never returned, so isTracked is always false, hiding the 'Formations Spécialisées' sidebar link and replacing the enroll-{fid} button with the 'Inscription réservée…' italic text for the very tracked users for whom the feature is intended.", "selector": "[data-testid=\"sidebar-link--portal-formations\"], [data-testid^=\"enroll-\"]", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Tracked-user → /portal/formations enrollment", "issue": "Because the FE never enables enroll buttons for tracked users, the user cannot reach /portal/formations/{fid}, the visit/close/ask flow, or the rating UI from the browser, even though all backend endpoints are correct. The full feature is therefore unusable from the deployed UI for any tracked user.", "affected_selectors": ["[data-testid=\"sidebar-link--portal-formations\"]", "[data-testid^=\"enroll-\"]", "[data-testid^=\"open-formation-\"]", "[data-testid=\"formation-detail-page\"]", "[data-testid^=\"module-tab-\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter5.py",
+    "/app/test_reports/pytest/pytest_iter5.xml"
+  ],
+  "action_items": [
+    "FIX (HIGH): in /app/frontend/src/components/PortalLayout.jsx line 54 and /app/frontend/src/pages/portal/Formations.jsx line 25, change `const isTracked = !!user?.tracked_user_id;` to `const isTracked = !!user?.tracked_role || !!user?.tracked_user_id || !!user?.parent_client_id;` (whichever combination matches the backend semantics — the simplest is `!!user?.tracked_role`, since the backend sets tracked_role on the bridged users row whenever set-password is called). Alternative: extend backend _public_user (server.py ~line 195) to include `tracked_user_id: u.get('tracked_user_id')` so the FE check stays as-is.",
+    "After fix, re-run the tracked-user UI flow: sidebar should show 'Formations Spécialisées', /portal/formations should render enroll-{fid}, then open-formation-{fid} should land on /portal/formations/{fid} with module-tab-{mid}.",
+    "(Optional, carried over from iter3/iter4) split server.py — now ~3657 lines — into routers."
+  ],
+  "critical_code_review_comments": [
+    "FE/BE field mismatch (tracked_user_id never serialised) silently disables the entire Formations Spécialisées feature in the portal — pure functional bug, must be fixed before iteration 5 can ship.",
+    "Formations.jsx duplicates the same isTracked derivation as PortalLayout.jsx — extract to a hook (e.g. useUser().isTracked) so the next field rename only touches one place.",
+    "FormationStateUpdate.state docstring says 'only annulée allowed' but the endpoint accepts ('annulée','en_cours','suspendue'); tighten with Literal[...] in pydantic for clearer 422s.",
+    "FormationModuleQuestion has no length cap on question — consider max_length=2000 to bound the proxied payload to httpbin / customer APIs.",
+    "/me/formations/{fid}/modules/{mid}/visit/{visit_id}/close silently returns ok:true when the visit is missing — consider returning 404 to surface client-side bugs instead of masking them.",
+    "_formation_state_from_progress treats 'suspendue' as a derived state from inactivity but the visit endpoint does NOT call _refresh_enrollment_state, so a fresh visit will not auto-clear 'suspendue' until the next /me/formations[/{fid}] read recomputes it — works today because reads recompute, but worth calling out.",
+    "server.py grew from 3276 → 3657 lines with formations endpoints; please split into routers (auth/admin/portal/files/notes/ratings/access_logs/formations)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter5.py (created)"
+  ],
+  "success_rate": {
+    "backend": "100% (10/10 iter5)",
+    "frontend": "Admin: 100% (admin-formations-page + new-formation-btn + formation-form + manage-formation-{id} + new-module-btn + module-form with api_url & auth fields). Portal/tracked-user: 0% — sidebar link + enroll buttons hidden due to FE field mismatch."
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (seeded). Tracked-user logins are created via POST /api/admin/tracked-users + /set-password (Tracked@Iter5-2026 used in tests) and dropped via DELETE.",
+  "seed_data_creation": "All TEST_iter5_* clients, tracked-users, formations, modules, enrollments, visits and ratings are cleaned up by per-test fixtures + cascade DELETE on the formation. No leftovers expected.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/test_sawali_iter5.py as iter5 regression. The httpbin.org/post test is rate-limit-tolerant (skips on 502). To bypass OTP UI, call /api/auth/login + /api/auth/verify-otp via page.evaluate (dev_otp returned when SMTP off) and seed localStorage['sawali_token'] + ['sawali_user']. Tracked-user visibility check on the FE hinges on user.tracked_role (post-fix) — assert sidebar-link--portal-formations + enroll-{fid} after the FE change. The admin formation creation modal’s submit button is the [type=submit] inside [data-testid='formation-form']; the module modal exposes api_url field plus an Authentication select (Aucune / Bearer / Basic).",
+  "rca of the issue": "PortalLayout.jsx and Formations.jsx both read `user?.tracked_user_id`, but the backend's _public_user serializer (server.py ~line 195) only emits `tracked_role` and `parent_client_id`; the underlying users row DOES carry tracked_user_id (set in /admin/tracked-users/{tu_id}/set-password and /me/contacts/{id}/save-as-tracked-user) but it is never sent to the client. Reproduction: admin POST /api/admin/clients → POST /api/admin/tracked-users → /set-password → login as that email → user JSON has tracked_role='Moderation', parent_client_id set, tracked_user_id absent → /portal sidebar omits 'Formations Spécialisées' and /portal/formations renders 'Inscription réservée aux utilisateurs suivis' on every card. Fix: either (a) add `tracked_user_id: u.get('tracked_user_id')` to _public_user (one-line backend fix, no FE change), or (b) replace the FE check with `!!user?.tracked_role`. Recommend option (a) since other places (e.g. analytics, future role logic) may need the id too."
+}

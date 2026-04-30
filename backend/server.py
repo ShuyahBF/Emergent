@@ -18,6 +18,7 @@ import shutil
 import uuid
 import asyncio
 import ipaddress
+import json
 import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
@@ -76,6 +77,13 @@ from models import (
     TrackedUserSetPassword,
     RatingCreate,
     AccessLogCreate,
+    FormationCreate,
+    FormationUpdate,
+    FormationModuleCreate,
+    FormationModuleUpdate,
+    FormationCreditsUpdate,
+    FormationStateUpdate,
+    FormationModuleQuestion,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -2287,7 +2295,7 @@ async def me_save_contact_as_tracked(
 # ====================================================================
 # RATINGS — 5-star rating on report / suivi / intervention (Admin/Sup only)
 # ====================================================================
-RATEABLE_KINDS = ("reports", "suivis", "interventions")
+RATEABLE_KINDS = ("reports", "suivis", "interventions", "formations")
 
 
 @api.post("/me/ratings/{kind}/{target_id}", tags=["Portail Client"])
@@ -2299,13 +2307,17 @@ async def me_rate(
 ):
     if kind not in RATEABLE_KINDS:
         raise HTTPException(status_code=404, detail="Type non noté")
-    if not _can_rate(user):
-        raise HTTPException(status_code=403, detail="Notation réservée aux rôles Administrateur / Superviseur")
+    if not _can_rate(user) and not (kind == "formations" and _is_tracked_user(user)):
+        raise HTTPException(status_code=403, detail="Notation non autorisée")
     if not 1 <= payload.stars <= 5:
         raise HTTPException(status_code=400, detail="Note invalide (1 à 5)")
-    coll = (db.user_reports if kind == "reports" else
-            db.user_suivis if kind == "suivis" else
-            db.interventions)
+    coll_map = {
+        "reports": db.user_reports,
+        "suivis": db.user_suivis,
+        "interventions": db.interventions,
+        "formations": db.formations,
+    }
+    coll = coll_map[kind]
     target = await coll.find_one({"id": target_id}, {"_id": 0})
     if not target:
         raise HTTPException(status_code=404, detail="Cible introuvable")
@@ -3116,6 +3128,362 @@ async def admin_reset_visit_counter(_: dict = Depends(get_current_admin)):
         upsert=True,
     )
     return {"ok": True, "displayed_count": 0, "real_count": real}
+
+
+# ====================================================================
+# FORMATIONS — admin CRUD + tracked-user portal access
+# ====================================================================
+def _is_tracked_user(user: dict) -> bool:
+    return bool(user.get("tracked_user_id"))
+
+
+def _formation_state_from_progress(modules_total: int, modules_seen: int, last_access_iso: Optional[str], current_state: Optional[str]) -> str:
+    """Compute the formation state from the user's progress.
+
+    Rules :
+    - "annulée" set by admin → never auto-changed back.
+    - 0 module seen → "inscription".
+    - 1 ≤ seen < total/2 → "commencée".
+    - total/2 ≤ seen < total → "en_cours".
+    - seen >= total → "terminée".
+    - 7+ days since last_access → "suspendue" (unless terminée or annulée).
+    """
+    if current_state == "annulée":
+        return "annulée"
+    if modules_total <= 0:
+        return current_state or "inscription"
+    if modules_seen <= 0:
+        new = "inscription"
+    elif modules_seen >= modules_total:
+        new = "terminée"
+    elif modules_seen < max(1, modules_total // 2):
+        new = "commencée"
+    else:
+        new = "en_cours"
+    if new not in ("terminée", "annulée") and last_access_iso:
+        try:
+            last = datetime.fromisoformat(last_access_iso)
+            if (datetime.now(timezone.utc) - last).total_seconds() > 7 * 24 * 3600:
+                new = "suspendue"
+        except Exception:
+            pass
+    return new
+
+
+async def _refresh_enrollment_state(enr: dict) -> dict:
+    """Recompute state + counts; returns enrollment with refreshed values (without DB write)."""
+    modules_total = await db.formation_modules.count_documents({"formation_id": enr["formation_id"]})
+    seen = set(enr.get("modules_seen") or [])
+    modules_seen = len(seen)
+    new_state = _formation_state_from_progress(modules_total, modules_seen, enr.get("last_access"), enr.get("state"))
+    enr["modules_total"] = modules_total
+    enr["modules_seen_count"] = modules_seen
+    enr["state"] = new_state
+    return enr
+
+
+@api.get("/admin/formations", tags=["Admin"])
+async def admin_list_formations(_: dict = Depends(get_current_admin)):
+    items = await db.formations.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    for it in items:
+        it["modules_count"] = await db.formation_modules.count_documents({"formation_id": it["id"]})
+        it["enrolled_count"] = await db.formation_enrollments.count_documents({"formation_id": it["id"]})
+    return items
+
+
+@api.post("/admin/formations", tags=["Admin"])
+async def admin_create_formation(payload: FormationCreate, user: dict = Depends(get_current_admin)):
+    doc = {"id": _uuid(), **payload.model_dump(), "created_by_id": user["id"], "created_at": _now(), "updated_at": _now()}
+    await db.formations.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/formations/{fid}", tags=["Admin"])
+async def admin_update_formation(fid: str, payload: FormationUpdate, _: dict = Depends(get_current_admin)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update["updated_at"] = _now()
+    res = await db.formations.update_one({"id": fid}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Formation introuvable")
+    return {"ok": True}
+
+
+@api.delete("/admin/formations/{fid}", tags=["Admin"])
+async def admin_delete_formation(fid: str, _: dict = Depends(get_current_admin)):
+    await db.formations.delete_one({"id": fid})
+    await db.formation_modules.delete_many({"formation_id": fid})
+    await db.formation_enrollments.delete_many({"formation_id": fid})
+    await db.formation_visits.delete_many({"formation_id": fid})
+    return {"ok": True}
+
+
+# Modules
+@api.get("/admin/formations/{fid}/modules", tags=["Admin"])
+async def admin_list_modules(fid: str, _: dict = Depends(get_current_admin)):
+    items = await db.formation_modules.find({"formation_id": fid}, {"_id": 0}).sort("order", 1).to_list(500)
+    return items
+
+
+@api.post("/admin/formations/{fid}/modules", tags=["Admin"])
+async def admin_create_module(fid: str, payload: FormationModuleCreate, _: dict = Depends(get_current_admin)):
+    formation = await db.formations.find_one({"id": fid}, {"_id": 0})
+    if not formation:
+        raise HTTPException(status_code=404, detail="Formation introuvable")
+    doc = {"id": _uuid(), "formation_id": fid, **payload.model_dump(), "created_at": _now(), "updated_at": _now()}
+    await db.formation_modules.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/formations/{fid}/modules/{mid}", tags=["Admin"])
+async def admin_update_module(fid: str, mid: str, payload: FormationModuleUpdate, _: dict = Depends(get_current_admin)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update["updated_at"] = _now()
+    res = await db.formation_modules.update_one({"id": mid, "formation_id": fid}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Module introuvable")
+    return {"ok": True}
+
+
+@api.delete("/admin/formations/{fid}/modules/{mid}", tags=["Admin"])
+async def admin_delete_module(fid: str, mid: str, _: dict = Depends(get_current_admin)):
+    await db.formation_modules.delete_one({"id": mid, "formation_id": fid})
+    return {"ok": True}
+
+
+@api.get("/admin/formations/{fid}/enrollments", tags=["Admin"])
+async def admin_list_enrollments(fid: str, _: dict = Depends(get_current_admin)):
+    items = await db.formation_enrollments.find({"formation_id": fid}, {"_id": 0}).to_list(5000)
+    for it in items:
+        await _refresh_enrollment_state(it)
+    return items
+
+
+@api.post("/admin/formations/{fid}/enrollments/{user_id}/credits", tags=["Admin"])
+async def admin_adjust_credits(fid: str, user_id: str, payload: FormationCreditsUpdate, _: dict = Depends(get_current_admin)):
+    enr = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user_id}, {"_id": 0})
+    if not enr:
+        raise HTTPException(status_code=404, detail="Inscription introuvable")
+    delta = int(payload.credits_delta)
+    new_purchased = max(0, int(enr.get("credits_purchased") or 0) + max(delta, 0))
+    new_consumed = int(enr.get("credits_consumed") or 0)
+    if delta < 0:
+        new_consumed = max(0, new_consumed + abs(delta))  # interpret negative as "consume"
+    await db.formation_enrollments.update_one(
+        {"id": enr["id"]},
+        {"$set": {
+            "credits_purchased": new_purchased,
+            "credits_consumed": new_consumed,
+            "credits_available": max(0, new_purchased - new_consumed),
+            "updated_at": _now(),
+        }},
+    )
+    return {"ok": True}
+
+
+@api.post("/admin/formations/{fid}/enrollments/{user_id}/state", tags=["Admin"])
+async def admin_set_enrollment_state(fid: str, user_id: str, payload: FormationStateUpdate, _: dict = Depends(get_current_admin)):
+    if payload.state not in ("annulée", "en_cours", "suspendue"):
+        raise HTTPException(status_code=400, detail="État manuel autorisé : annulée, en_cours, suspendue")
+    res = await db.formation_enrollments.update_one(
+        {"formation_id": fid, "user_id": user_id},
+        {"$set": {"state": payload.state, "updated_at": _now()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Inscription introuvable")
+    return {"ok": True}
+
+
+# ====================================================================
+# PORTAL — Formations (tracked users, plus elevated cross-view)
+# ====================================================================
+@api.get("/me/formations", tags=["Portail Client"])
+async def me_list_formations(user: dict = Depends(get_current_user)):
+    if not (_is_tracked_user(user) or _is_elevated_creator(user)):
+        raise HTTPException(status_code=403, detail="Accès réservé aux utilisateurs suivis")
+    formations = await db.formations.find({}, {"_id": 0}).sort("name", 1).to_list(500)
+    out = []
+    for f in formations:
+        if not f.get("available") and not _is_elevated_creator(user):
+            continue
+        modules_total = await db.formation_modules.count_documents({"formation_id": f["id"]})
+        enr = await db.formation_enrollments.find_one({"formation_id": f["id"], "user_id": user["id"]}, {"_id": 0})
+        if enr:
+            enr = await _refresh_enrollment_state(enr)
+        rating = await db.ratings.find_one(
+            {"kind": "formations", "target_id": f["id"], "rated_by_user_id": user["id"]}, {"_id": 0}
+        )
+        out.append({
+            **f,
+            "modules_total": modules_total,
+            "enrollment": enr,
+            "my_rating": ({"stars": rating["stars"], "comment": rating.get("comment")} if rating else None),
+        })
+    return out
+
+
+@api.post("/me/formations/{fid}/enroll", tags=["Portail Client"])
+async def me_enroll_formation(fid: str, user: dict = Depends(get_current_user)):
+    if not _is_tracked_user(user):
+        raise HTTPException(status_code=403, detail="Inscription réservée aux utilisateurs suivis")
+    formation = await db.formations.find_one({"id": fid}, {"_id": 0})
+    if not formation or not formation.get("available", True):
+        raise HTTPException(status_code=404, detail="Formation indisponible")
+    existing = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user["id"]}, {"_id": 0})
+    if existing:
+        return existing
+    doc = {
+        "id": _uuid(),
+        "formation_id": fid,
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "user_name": user.get("full_name"),
+        "state": "inscription",
+        "credits_purchased": int(formation.get("default_credits") or 0),
+        "credits_consumed": 0,
+        "credits_available": int(formation.get("default_credits") or 0),
+        "modules_seen": [],
+        "total_time_ms": 0,
+        "last_access": None,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.formation_enrollments.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/me/formations/{fid}", tags=["Portail Client"])
+async def me_get_formation(fid: str, user: dict = Depends(get_current_user)):
+    formation = await db.formations.find_one({"id": fid}, {"_id": 0})
+    if not formation:
+        raise HTTPException(status_code=404, detail="Formation introuvable")
+    if not (_is_tracked_user(user) or _is_elevated_creator(user)):
+        raise HTTPException(status_code=403, detail="Accès réservé")
+    modules = await db.formation_modules.find({"formation_id": fid}, {"_id": 0}).sort("order", 1).to_list(500)
+    enr = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user["id"]}, {"_id": 0})
+    if enr:
+        enr = await _refresh_enrollment_state(enr)
+    return {"formation": formation, "modules": modules, "enrollment": enr}
+
+
+@api.post("/me/formations/{fid}/modules/{mid}/visit", tags=["Portail Client"])
+async def me_visit_module(fid: str, mid: str, request: Request, user: dict = Depends(get_current_user)):
+    """Mark a module as visited (call when the page is OPENED)."""
+    if not _is_tracked_user(user):
+        raise HTTPException(status_code=403, detail="Réservé aux utilisateurs suivis")
+    enr = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user["id"]}, {"_id": 0})
+    if not enr:
+        raise HTTPException(status_code=404, detail="Inscription requise")
+    visit_id = _uuid()
+    await db.formation_visits.insert_one({
+        "id": visit_id,
+        "enrollment_id": enr["id"],
+        "user_id": user["id"],
+        "formation_id": fid,
+        "module_id": mid,
+        "opened_at": _now(),
+        "closed_at": None,
+        "duration_ms": 0,
+        "ip": _client_ip_from_request(request),
+    })
+    seen = set(enr.get("modules_seen") or [])
+    seen.add(mid)
+    await db.formation_enrollments.update_one(
+        {"id": enr["id"]},
+        {"$set": {
+            "modules_seen": list(seen),
+            "last_access": _now(),
+            "updated_at": _now(),
+        }},
+    )
+    return {"visit_id": visit_id}
+
+
+@api.post("/me/formations/{fid}/modules/{mid}/visit/{visit_id}/close", tags=["Portail Client"])
+async def me_close_visit(fid: str, mid: str, visit_id: str, user: dict = Depends(get_current_user)):
+    """Records the duration once the user leaves the module."""
+    visit = await db.formation_visits.find_one({"id": visit_id, "user_id": user["id"]}, {"_id": 0})
+    if not visit:
+        return {"ok": True}  # silently ignore
+    if visit.get("closed_at"):
+        return {"ok": True}
+    try:
+        opened = datetime.fromisoformat(visit["opened_at"])
+        duration_ms = int((datetime.now(timezone.utc) - opened).total_seconds() * 1000)
+    except Exception:
+        duration_ms = 0
+    duration_ms = max(0, min(duration_ms, 4 * 3600 * 1000))  # cap at 4h to avoid runaway tabs
+    await db.formation_visits.update_one(
+        {"id": visit_id},
+        {"$set": {"closed_at": _now(), "duration_ms": duration_ms}},
+    )
+    await db.formation_enrollments.update_one(
+        {"formation_id": fid, "user_id": user["id"]},
+        {"$inc": {"total_time_ms": duration_ms}, "$set": {"updated_at": _now()}},
+    )
+    return {"ok": True, "duration_ms": duration_ms}
+
+
+@api.post("/me/formations/{fid}/modules/{mid}/ask", tags=["Portail Client"])
+async def me_module_ask(fid: str, mid: str, payload: FormationModuleQuestion, user: dict = Depends(get_current_user)):
+    """Forwards the user's question to the module's external REST API as configured by the admin."""
+    if not _is_tracked_user(user):
+        raise HTTPException(status_code=403, detail="Réservé aux utilisateurs suivis")
+    module = await db.formation_modules.find_one({"id": mid, "formation_id": fid}, {"_id": 0})
+    if not module:
+        raise HTTPException(status_code=404, detail="Module introuvable")
+    api_url = (module.get("api_url") or "").strip()
+    if not api_url:
+        raise HTTPException(status_code=400, detail="Aucune API configurée pour ce module")
+
+    headers = {"Content-Type": "application/json", "User-Agent": "SawaliFormationsClient/1.0"}
+    auth = None
+    atype = (module.get("api_auth_type") or "none").lower()
+    if atype == "bearer" and module.get("api_token"):
+        headers["Authorization"] = f"Bearer {module['api_token']}"
+    elif atype == "basic":
+        auth = (module.get("api_basic_user") or "", module.get("api_basic_pass") or "")
+
+    body = {
+        "question": (payload.question or "").strip(),
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "formation_id": fid,
+        "module_id": mid,
+        **(payload.payload or {}),
+    }
+    response_text = None
+    status = 0
+    try:
+        async with httpx.AsyncClient(timeout=20.0) as http:
+            r = await http.post(api_url, json=body, headers=headers, auth=auth)
+            status = r.status_code
+            response_text = r.text
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Formation module ask failed: %s", exc)
+        raise HTTPException(status_code=502, detail=f"Appel API distant échoué : {exc}") from exc
+
+    qa_doc = {
+        "id": _uuid(),
+        "formation_id": fid,
+        "module_id": mid,
+        "user_id": user["id"],
+        "user_email": user["email"],
+        "question": body["question"],
+        "response_text": response_text,
+        "response_status": status,
+        "created_at": _now(),
+    }
+    await db.formation_qa.insert_one(qa_doc.copy())
+    qa_doc.pop("_id", None)
+
+    # Try to interpret JSON
+    try:
+        return {"status": status, "response": json.loads(response_text), "id": qa_doc["id"]}
+    except Exception:
+        return {"status": status, "response": response_text, "id": qa_doc["id"]}
 
 
 # ====================================================================

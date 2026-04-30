@@ -1,0 +1,39 @@
+{
+  "summary": "Iteration 8 SAWALI (admin DB Explorer + author/q filters on notes) — all tests passing. BACKEND 11/11 pytest pass (2.32s) against https://sawali-portal.preview.emergentagent.com. Coverage: GET /api/me/notes/reports?author=admin@sawalismartsystems.com filters by owner_email (case-insensitive regex) → only that author's items returned. ?q=alpha_<marker> finds in title; ?q=iter8beta finds in tags array; ?q='body TEST_iter8_alpha_<marker>' finds in content_html. ?author=X&q=Y combines correctly via $and+$or. GET /api/me/notes/reports/authors returns [{email,name,count}] sorted by count desc. /admin/db/api_traces?method__regex=GET works (case-insensitive regex). /admin/db/users?email=admin@... gives exact match. /admin/db/api_traces?sort_dir=1 returns ascending. FRONTEND 4 critical flows pass: (1) /admin/db-explorer accessible for super-admin, collection select=api_traces populates 8 rows, Eye opens db-detail-modal with pretty JSON (newlines), filter status>=400 reduces to 2 rows, regex method=POST returns 6 rows. (2) page.expect_download() succeeds for Export CSV with separator ',' AND ':' AND Export JSON — all 3 downloads start with correct filenames (api_traces-2026-04-30.csv / .json). (3) Non-super-admin (role=admin but not admin@sawalismartsystems.com) → sidebar HIDES 'Explorateur DB' link, GET /api/admin/db returns 403. (4) /admin/notes/reports & /admin/notes/suivis show notes-filters-{kind} bar with notes-filter-author dropdown (populated with distinct authors + count), notes-filter-q input, notes-filter-apply button. notes-filter-clear is HIDDEN initially and APPEARS only when a filter is active; clicking it clears both filterAuthor and filterQ. No bugs found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/db-explorer", "issues": ["Le sélecteur de délimiteur d'export et le sélecteur de direction de tri utilisent <select> natif au lieu du composant shadcn Select — incohérence mineure de design avec le reste du back-office. Non bloquant."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter8.py",
+    "/app/test_reports/pytest/pytest_iter8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "AdminDbExplorer.jsx ligne 71 : `filename = ...${sep === ':' ? 'csv' : 'csv'}` — ternaire identique sur les deux branches, le séparateur ':' ne change pas l'extension. Cosmetic : envisager '.txt' pour ':' ou '.tsv' selon le séparateur réel (sinon le code est mort).",
+    "AdminDbExplorer.jsx ligne 27 : `const k = f.op === 'eq' ? f.key : `${f.key}__${f.op}`;` — si l'utilisateur saisit déjà un suffixe (ex: 'status__gte') dans le champ clé puis sélectionne op=eq, on génère 'status__gte' utilisé en match exact, ce qui silencieusement ne renverra rien. À documenter ou valider côté UI.",
+    "server.py me_list_notes : le filtre `q` cherche dans `tags` via regex, ce qui marche grâce à MongoDB qui applique automatiquement le regex à chaque élément du tableau — OK mais à documenter pour les futurs mainteneurs (comportement non-évident).",
+    "AdminDbExplorer.jsx : aucune indication visuelle que les champs sensibles sont masqués (`[REDACTED]`) — un petit badge ou tooltip informant l'utilisateur que certaines colonnes sont automatiquement filtrées améliorerait la transparence.",
+    "Le composant filtre dans UserNotes.jsx déclenche `setTimeout(load, 0)` sur changement d'auteur, mais la saisie dans `notes-filter-q` n'a PAS de debounce et ne déclenche le rechargement qu'au submit. C'est cohérent avec le bouton Filtrer mais incohérent avec le comportement du select auteur (auto-apply). À harmoniser : soit auto-apply partout (avec debounce 300ms sur q), soit submit-only partout.",
+    "`me_list_note_authors` retourne TOUS les owner_email distincts pour les utilisateurs élevés (admin/superviseur). Si la base contient des centaines d'auteurs, la liste déroulante deviendra ingérable. Considérer un input search (combobox) au-delà de 30 auteurs.",
+    "server.py reste à 4143 lignes — recommandation déjà donnée à l'iter7 : split en routers (auth/admin/portal/files/notes/ratings/db). Aucun changement structurel cette itération.",
+    "Le filtre auteur côté backend matche via `{$regex: re.escape(author), $options: 'i'}` sur owner_email. Si on passe `?author=adm` cela retournera tous les emails contenant 'adm' (substring match). C'est probablement intentionnel pour une recherche partielle, mais le frontend envoie l'email exact depuis le dropdown — donc `==` (eq) suffirait et serait plus rapide. Le regex global ouvre une porte à des perfs dégradées sur grosses collections."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter8.py (created — 11 pytest cases across 3 classes: TestMeNotesFilters, TestMeNotesAuthors, TestAdminDbFilters)"
+  ],
+  "success_rate": {
+    "backend": "100% (11/11 iter8)",
+    "frontend": "100% (4/4 critical iter8 flows: db-explorer super-admin full flow, exports CSV+JSON via page.expect_download, RBAC non-super-admin hides link + returns 403, notes filters reports+suivis with author/q/apply/clear)"
+  },
+  "test_credentials": "Super-admin: admin@sawalismartsystems.com / Admin@Sawali2026 (unchanged). A second admin (test_iter8_admin_<uuid>@example.org) is created/destroyed per test run for the RBAC 403 test.",
+  "seed_data_creation": "Backend tests seed 2 reports per run via POST /api/me/notes/reports (titles TEST_iter8_alpha_<marker> + TEST_iter8_beta_<marker>) and clean them up via the seed_reports fixture teardown. Frontend test creates a 2nd admin via /admin/clients then deletes it at the end. Note: the previous backend run's seeded reports may leave residual rating documents on user_reports collection which are not cleaned individually but co-exist harmlessly with production data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Reuse /app/backend/tests/test_sawali_iter8.py — runs in 2.3s. Frontend pattern: login via fetch /api/auth/login + /api/auth/verify-otp (dev_otp returned because SMTP unconfigured), then localStorage.setItem('sawali_token', ...) + 'sawali_user' before navigating to protected routes. The admin DB Explorer page uses a NATIVE <select> for collection picker (not shadcn) so use page.select_option(). Export downloads use Blob+<a download> client-side — page.expect_download() captures them. Console hydration warnings about <span> inside <option> are caused by Emergent's runtime instrumentation injecting wrappers — NOT a real bug, ignore. The notes-filter-author dropdown shows '<name> (<count>)' format from /me/notes/{kind}/authors aggregation. Two API calls fire on /admin/notes/{kind} mount: /me/notes/{kind} (list) + /me/notes/{kind}/authors (dropdown).",
+  "rca of the issue": "n/a — no issues found in iteration 8."
+}

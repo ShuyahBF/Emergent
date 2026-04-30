@@ -44,6 +44,9 @@ export default function UserNotesPage() {
   const { user } = useAuth();
   const meta = KIND_META[kind];
   const [items, setItems] = useState([]);
+  const [authors, setAuthors] = useState([]);
+  const [filterAuthor, setFilterAuthor] = useState("");
+  const [filterQ, setFilterQ] = useState("");
   const [clients, setClients] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -54,12 +57,17 @@ export default function UserNotesPage() {
   const elevated = isElevated(user);
   const canDelete = canDeleteOrRate(user);
 
-  const load = () => apiClient.get(`/me/notes/${kind}`).then((r) => setItems(r.data)).catch(() => {});
+  const load = () => apiClient.get(`/me/notes/${kind}`, {
+    params: {
+      author: filterAuthor || undefined,
+      q: filterQ || undefined,
+    },
+  }).then((r) => setItems(r.data)).catch(() => {});
   useEffect(() => {
     if (!meta) return;
     load();
+    apiClient.get(`/me/notes/${kind}/authors`).then((r) => setAuthors(r.data)).catch(() => {});
     if (kind === "suivis") {
-      // For suivis we need the client list (portal-friendly endpoint)
       apiClient.get("/me/clients").then((r) => setClients(r.data)).catch(() => {});
     }
     // eslint-disable-next-line
@@ -143,6 +151,32 @@ export default function UserNotesPage() {
           La création de {meta.label.toLowerCase()} est réservée aux rôles <strong>Modération</strong>, <strong>Administrateur</strong> ou <strong>Superviseur</strong>.
         </div>
       )}
+
+      <form onSubmit={(e) => { e.preventDefault(); load(); }} className="flex flex-wrap items-center gap-2 rounded-xl border border-slate-200 bg-white p-3" data-testid={`notes-filters-${kind}`}>
+        <select
+          value={filterAuthor}
+          onChange={(e) => { setFilterAuthor(e.target.value); setTimeout(load, 0); }}
+          className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+          data-testid="notes-filter-author"
+        >
+          <option value="">Tous les auteurs</option>
+          {authors.map((a) => <option key={a.email} value={a.email}>{a.name || a.email} ({a.count})</option>)}
+        </select>
+        <div className="flex-1 min-w-[200px] relative">
+          <input
+            value={filterQ}
+            onChange={(e) => setFilterQ(e.target.value)}
+            placeholder="Recherche dans titre, contenu, numéro, tags…"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:outline-none"
+            data-testid="notes-filter-q"
+          />
+        </div>
+        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="notes-filter-apply">Filtrer</button>
+        {(filterAuthor || filterQ) && (
+          <button type="button" onClick={() => { setFilterAuthor(""); setFilterQ(""); setTimeout(load, 0); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-rose-300 hover:text-rose-600" data-testid="notes-filter-clear">Effacer</button>
+        )}
+        <span className="text-xs text-slate-500 ml-auto">{items.length} résultat{items.length > 1 ? "s" : ""}</span>
+      </form>
 
       {items.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500" data-testid={`empty-${kind}`}>

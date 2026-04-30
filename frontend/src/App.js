@@ -52,6 +52,7 @@ import AdminBlacklist from "@/pages/admin/AdminBlacklist";
 import AdminAccessLogs from "@/pages/admin/AdminAccessLogs";
 import AdminApiTraces from "@/pages/admin/AdminApiTraces";
 import AdminHealthDashboard from "@/pages/admin/AdminHealthDashboard";
+import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
@@ -127,6 +128,7 @@ export default function App() {
             <Route path="access-logs" element={<AdminAccessLogs />} />
             <Route path="api-traces" element={<AdminApiTraces />} />
             <Route path="health" element={<AdminHealthDashboard />} />
+            <Route path="db-explorer" element={<AdminDbExplorer />} />
             <Route path="formations" element={<AdminFormations />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />

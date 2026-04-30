@@ -1946,14 +1946,41 @@ def _user_notes_collection(kind: str):
 
 
 @api.get("/me/notes/{kind}", tags=["Portail Client"])
-async def me_list_notes(kind: str, user: dict = Depends(get_current_user)):
+async def me_list_notes(
+    kind: str,
+    author: Optional[str] = None,
+    q: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
     coll = _user_notes_collection(kind)
-    if _is_elevated_creator(user):
-        # Admin / Superviseur / Moderation see ALL notes (cross-client visibility)
-        items = await coll.find({}, {"_id": 0}).sort("created_at", -1).to_list(2000)
-    else:
-        items = await coll.find({"owner_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
+    query = dict(base)
+    if author:
+        query["owner_email"] = {"$regex": re.escape(author), "$options": "i"}
+    if q:
+        rx = {"$regex": re.escape(q), "$options": "i"}
+        query["$or"] = [
+            {"title": rx},
+            {"content_html": rx},
+            {"numero": rx},
+            {"tags": rx},
+        ]
+    items = await coll.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return await _attach_my_rating(items, kind, user["id"])
+
+
+@api.get("/me/notes/{kind}/authors", tags=["Portail Client"])
+async def me_list_note_authors(kind: str, user: dict = Depends(get_current_user)):
+    """Distinct authors for the kind — used to populate the filter dropdown."""
+    coll = _user_notes_collection(kind)
+    base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
+    pipeline = [
+        {"$match": base},
+        {"$group": {"_id": "$owner_email", "name": {"$last": "$owner_name"}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+    ]
+    items = await coll.aggregate(pipeline).to_list(500)
+    return [{"email": a["_id"], "name": a.get("name"), "count": a["count"]} for a in items if a.get("_id")]
 
 
 @api.post("/me/notes/{kind}", tags=["Portail Client"])

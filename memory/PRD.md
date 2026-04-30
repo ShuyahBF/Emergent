@@ -33,6 +33,22 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-04-30 — Itération 14 : Historique des incidents (timeline complète)
+✅ Hook dans `admin_update_settings` qui détecte 3 transitions :
+  - off → on : crée un nouvel incident `ongoing` avec `created_by`
+  - on → off : marque `resolved`, calcule `duration_minutes`, enregistre `resolved_by`
+  - on → on (edit) : append une `update` (ts, severity, message, by) à la timeline
+✅ Collection `incidents` (whitelistée DB Explorer) avec id, severity, message, status, started_at, resolved_at, duration_minutes, updates[], created_by, resolved_by.
+✅ Endpoints publics + admin :
+  - `GET /api/public/incidents?limit=30` (no auth)
+  - `GET /api/admin/incidents` + `DELETE /api/admin/incidents/{id}` + `GET /api/admin/incidents/export.csv`
+✅ Section "Historique des incidents" sur `/uptime` avec composant `<IncidentItem>` :
+  - Tag sévérité (icônes Info/AlertTriangle/AlertOctagon)
+  - Badge "En cours" (pulse) ou "Résolu" (avec check)
+  - Durée formatée (< 1 min, X h Y min)
+  - Timeline verticale des updates (dots bleus + dot vert pour la résolution)
+✅ Validé e2e : transitions on→on (edit)→off génèrent l'incident attendu avec sa timeline complète.
+
 ### 2026-04-30 — Itération 13 : Bandeau d'incident éditable (public + portail)
 ✅ 5 champs settings (`incident_banner_enabled`, `_severity` info/warning/critical, `_message`, `_link_url`, `_link_label`) + auto-stamp `_updated_at` quand le contenu change.
 ✅ Exposé dans `/api/company-info` (public, pas d'auth requise).

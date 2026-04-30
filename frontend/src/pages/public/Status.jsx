@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import axios from "axios";
 import { Link } from "react-router-dom";
-import { Activity, Globe, Database, ShieldCheck, ArrowLeft, RefreshCw } from "lucide-react";
+import { Activity, Globe, Database, ShieldCheck, ArrowLeft, RefreshCw, AlertTriangle, AlertOctagon, Info, Clock, CheckCircle2 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
@@ -14,16 +14,35 @@ const PROBE_ICONS = {
   auth_login_endpoint: ShieldCheck,
 };
 
+const SEVERITY_META = {
+  info: { Icon: Info, ring: "ring-sky-400/40", text: "text-sky-300", bg: "bg-sky-500/10", label: "Info" },
+  warning: { Icon: AlertTriangle, ring: "ring-amber-400/40", text: "text-amber-300", bg: "bg-amber-500/10", label: "Avertissement" },
+  critical: { Icon: AlertOctagon, ring: "ring-rose-400/40", text: "text-rose-300", bg: "bg-rose-500/10", label: "Critique" },
+};
+
+const formatDuration = (mins) => {
+  if (mins === null || mins === undefined) return "—";
+  if (mins < 1) return "< 1 min";
+  if (mins < 60) return `${mins} min`;
+  const h = Math.floor(mins / 60), m = mins % 60;
+  return m === 0 ? `${h} h` : `${h} h ${m} min`;
+};
+
 export default function StatusPage() {
   const [data, setData] = useState(null);
+  const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(false);
   const [windowH, setWindowH] = useState(168);
 
   const load = async (w = windowH) => {
     setLoading(true);
     try {
-      const r = await axios.get(`${API}/public/status?window_hours=${w}`);
-      setData(r.data);
+      const [s, inc] = await Promise.all([
+        axios.get(`${API}/public/status?window_hours=${w}`),
+        axios.get(`${API}/public/incidents?limit=30`),
+      ]);
+      setData(s.data);
+      setIncidents(inc.data || []);
     } catch { /* noop */ }
     finally { setLoading(false); }
   };
@@ -135,6 +154,21 @@ export default function StatusPage() {
           )}
         </div>
 
+        {/* Incident history */}
+        <div className="rounded-2xl bg-white/5 ring-1 ring-white/10 p-6 mt-6" data-testid="incident-history">
+          <h2 className="text-xs uppercase tracking-[0.3em] text-slate-400 mb-4">Historique des incidents</h2>
+          {!incidents?.length ? (
+            <div className="text-center py-12 text-slate-400 text-sm">
+              <CheckCircle2 className="h-6 w-6 mx-auto mb-2 text-emerald-400" />
+              Aucun incident enregistré. Tous les services ont fonctionné normalement.
+            </div>
+          ) : (
+            <ul className="space-y-4" data-testid="incident-history-list">
+              {incidents.map((it) => <IncidentItem key={it.id} item={it} />)}
+            </ul>
+          )}
+        </div>
+
         <p className="text-center text-[11px] text-slate-500 mt-8">
           Sondes exécutées chaque heure · {data?.stats?.samples || 0} relevé(s) · dernière mise à jour {data?.stats?.generated_at ? new Date(data.stats.generated_at).toLocaleString("fr-FR") : "—"}
         </p>
@@ -158,5 +192,81 @@ const Sparkline = ({ timeline }) => {
         />
       ))}
     </div>
+  );
+};
+
+// Single incident card with severity tag, timeline, and updates
+const IncidentItem = ({ item }) => {
+  const meta = SEVERITY_META[item.severity] || SEVERITY_META.warning;
+  const Icon = meta.Icon;
+  const ongoing = item.status === "ongoing";
+  return (
+    <li
+      className={`rounded-xl ring-1 ${meta.ring} ${meta.bg} p-5`}
+      data-testid={`incident-item-${item.id}`}
+      data-severity={item.severity}
+      data-status={item.status}
+    >
+      <div className="flex items-start gap-3">
+        <Icon className={`h-5 w-5 flex-shrink-0 ${meta.text}`} />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap mb-2">
+            <span className={`text-[10px] uppercase tracking-[0.2em] font-bold ${meta.text}`}>{meta.label}</span>
+            {ongoing ? (
+              <span className="text-[10px] uppercase tracking-[0.2em] font-bold bg-rose-500/20 text-rose-200 px-2 py-0.5 rounded-full animate-pulse">En cours</span>
+            ) : (
+              <span className="text-[10px] uppercase tracking-[0.2em] font-bold bg-emerald-500/20 text-emerald-200 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                <CheckCircle2 className="h-3 w-3" /> Résolu
+              </span>
+            )}
+            <span className="text-[11px] text-slate-400 inline-flex items-center gap-1">
+              <Clock className="h-3 w-3" />
+              {new Date(item.started_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
+            </span>
+            {!ongoing && (
+              <span className="text-[11px] text-slate-400">
+                · Durée : <strong className="text-slate-200">{formatDuration(item.duration_minutes)}</strong>
+              </span>
+            )}
+          </div>
+          <p className="text-sm text-slate-100 leading-relaxed">{item.message}</p>
+          {item.link_url && (
+            <a
+              href={item.link_url}
+              target={item.link_url.startsWith("http") ? "_blank" : undefined}
+              rel="noreferrer"
+              className="text-xs text-sawali-blue-light underline mt-1 inline-block"
+            >
+              {item.link_label || "En savoir plus"} →
+            </a>
+          )}
+          {/* Timeline of updates */}
+          {item.updates?.length > 0 && (
+            <ol className="mt-3 border-l-2 border-white/10 pl-4 space-y-2" data-testid="incident-updates">
+              {item.updates.map((u, idx) => (
+                <li key={idx} className="relative">
+                  <span className="absolute -left-[19px] top-1 h-2 w-2 rounded-full bg-sawali-blue ring-2 ring-[#0E1F3D]" />
+                  <p className="text-[11px] text-slate-400">
+                    {new Date(u.ts).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}
+                    {u.severity && u.severity !== item.severity && (
+                      <span className="ml-2 text-[10px] uppercase font-bold">→ {u.severity}</span>
+                    )}
+                  </p>
+                  <p className="text-sm text-slate-200">{u.message}</p>
+                </li>
+              ))}
+              {!ongoing && item.resolved_at && (
+                <li className="relative">
+                  <span className="absolute -left-[19px] top-1 h-2 w-2 rounded-full bg-emerald-400 ring-2 ring-[#0E1F3D]" />
+                  <p className="text-[11px] text-emerald-300 font-semibold">
+                    {new Date(item.resolved_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })} · Incident résolu
+                  </p>
+                </li>
+              )}
+            </ol>
+          )}
+        </div>
+      </div>
+    </li>
   );
 };

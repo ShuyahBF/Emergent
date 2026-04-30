@@ -3157,7 +3157,7 @@ ALLOWED_COLLECTIONS = {
     "settings", "user_reports", "user_suivis", "ratings",
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
-    "otps", "counters", "auth_checks", "uptime_checks",
+    "otps", "counters", "auth_checks", "uptime_checks", "incidents",
 }
 
 
@@ -3258,7 +3258,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
 
 
 @api.put("/admin/settings", tags=["Admin"])
-async def admin_update_settings(payload: SettingsUpdate, _: dict = Depends(get_current_admin)):
+async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(get_current_admin)):
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     # Treat the masking placeholder as "no change" for sensitive fields
     SECRET_FIELDS = (
@@ -3275,10 +3275,103 @@ async def admin_update_settings(payload: SettingsUpdate, _: dict = Depends(get_c
     update["updated_at"] = _now()
     # Stamp incident_banner_updated_at whenever any banner field changes
     BANNER_FIELDS = ("incident_banner_enabled", "incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label")
-    if any(f in update for f in BANNER_FIELDS):
+    banner_touched = any(f in update for f in BANNER_FIELDS)
+    if banner_touched:
         update["incident_banner_updated_at"] = _now()
+        # Snapshot previous state to detect transitions
+        prev = await db.settings.find_one({"_id": "global"}) or {}
+        prev_enabled = bool(prev.get("incident_banner_enabled", False))
+        next_enabled = bool(update.get("incident_banner_enabled", prev_enabled))
+        editor = (user.get("email") or "").lower() or None
+        # off → on : open a new incident
+        if not prev_enabled and next_enabled:
+            await db.incidents.insert_one({
+                "id": _uuid(),
+                "severity": update.get("incident_banner_severity") or prev.get("incident_banner_severity") or "warning",
+                "message": update.get("incident_banner_message") or prev.get("incident_banner_message") or "",
+                "link_url": update.get("incident_banner_link_url") or prev.get("incident_banner_link_url") or "",
+                "link_label": update.get("incident_banner_link_label") or prev.get("incident_banner_link_label") or "",
+                "status": "ongoing",
+                "started_at": _now(),
+                "resolved_at": None,
+                "duration_minutes": None,
+                "updates": [],
+                "created_by": editor,
+                "resolved_by": None,
+            })
+        # on → off : resolve the latest open incident
+        elif prev_enabled and not next_enabled:
+            ongoing = await db.incidents.find_one({"status": "ongoing"}, sort=[("started_at", -1)])
+            if ongoing:
+                started = datetime.fromisoformat(ongoing["started_at"]) if isinstance(ongoing["started_at"], str) else ongoing["started_at"]
+                resolved_at = datetime.now(timezone.utc)
+                duration = int((resolved_at - started).total_seconds() / 60)
+                await db.incidents.update_one(
+                    {"id": ongoing["id"]},
+                    {"$set": {"status": "resolved", "resolved_at": resolved_at.isoformat(), "duration_minutes": duration, "resolved_by": editor}},
+                )
+        # ongoing edit : append an update entry to the latest open incident
+        elif prev_enabled and next_enabled:
+            content_changed = any(f in update for f in ("incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label"))
+            if content_changed:
+                ongoing = await db.incidents.find_one({"status": "ongoing"}, sort=[("started_at", -1)])
+                if ongoing:
+                    await db.incidents.update_one(
+                        {"id": ongoing["id"]},
+                        {"$push": {"updates": {
+                            "ts": _now(),
+                            "severity": update.get("incident_banner_severity") or ongoing.get("severity"),
+                            "message": update.get("incident_banner_message") or ongoing.get("message"),
+                            "by": editor,
+                        }}},
+                    )
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
     return {"ok": True}
+
+
+# ----- Incident history -----
+@api.get("/admin/incidents", tags=["Admin"])
+async def admin_list_incidents(limit: int = 200, _: dict = Depends(get_current_admin)):
+    items = await db.incidents.find({}, {"_id": 0}).sort("started_at", -1).to_list(min(max(limit, 1), 1000))
+    return items
+
+
+@api.delete("/admin/incidents/{incident_id}", tags=["Admin"])
+async def admin_delete_incident(incident_id: str, _: dict = Depends(get_current_admin)):
+    res = await db.incidents.delete_one({"id": incident_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Incident introuvable")
+    return {"ok": True}
+
+
+@api.get("/admin/incidents/export.csv", tags=["Admin"])
+async def admin_export_incidents_csv(_: dict = Depends(get_current_admin)):
+    items = await db.incidents.find({}, {"_id": 0}).sort("started_at", -1).to_list(2000)
+    import csv, io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(["started_at", "resolved_at", "duration_minutes", "severity", "status", "message", "link_url", "created_by", "resolved_by", "updates_count"])
+    for it in items:
+        writer.writerow([
+            it.get("started_at", ""), it.get("resolved_at") or "",
+            it.get("duration_minutes") if it.get("duration_minutes") is not None else "",
+            it.get("severity", ""), it.get("status", ""),
+            (it.get("message") or "")[:500], it.get("link_url") or "",
+            it.get("created_by") or "", it.get("resolved_by") or "",
+            len(it.get("updates") or []),
+        ])
+    return JSONResponse(content={"csv": buf.getvalue()}, headers={"Cache-Control": "no-store"})
+
+
+@api.get("/public/incidents", tags=["Public"])
+async def public_list_incidents(limit: int = 30):
+    """Public timeline of incidents (resolved + ongoing). Used by /uptime page."""
+    items = await db.incidents.find(
+        {},
+        {"_id": 0, "id": 1, "severity": 1, "message": 1, "link_url": 1, "link_label": 1,
+         "status": 1, "started_at": 1, "resolved_at": 1, "duration_minutes": 1, "updates": 1},
+    ).sort("started_at", -1).to_list(min(max(limit, 1), 100))
+    return items
 
 
 # ----- Google Calendar OAuth admin endpoints -----

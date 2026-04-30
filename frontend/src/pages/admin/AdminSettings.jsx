@@ -294,6 +294,54 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      <Section icon={AlertCircle} title="Bandeau d'incident (public + portail)">
+        <p className="text-xs text-slate-500">
+          Affiche un bandeau collant en haut de toutes les pages publiques ET du portail client lorsqu'un incident est en cours
+          ou qu'une maintenance est planifiée. Le bandeau est dismissible côté visiteur jusqu'à la prochaine modification.
+        </p>
+        <Toggle label="Activer le bandeau" value={!!s.incident_banner_enabled} onChange={(v) => upd("incident_banner_enabled", v)} testid="toggle-incident-banner" />
+        <div className="grid sm:grid-cols-3 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1">Sévérité</label>
+            <select
+              value={s.incident_banner_severity || "warning"}
+              onChange={(e) => upd("incident_banner_severity", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="incident-banner-severity"
+            >
+              <option value="info">Info (bleu)</option>
+              <option value="warning">Avertissement (orange)</option>
+              <option value="critical">Critique (rouge)</option>
+            </select>
+          </div>
+          <Input label="Libellé du lien (optionnel)" value={s.incident_banner_link_label || ""} onChange={(v) => upd("incident_banner_link_label", v)} placeholder="Plus de détails" testid="incident-banner-link-label" />
+          <Input label="URL du lien (optionnel)" value={s.incident_banner_link_url || ""} onChange={(v) => upd("incident_banner_link_url", v)} placeholder="/uptime ou https://..." testid="incident-banner-link-url" />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold mb-1">Message <span className="text-slate-400">(visible par tous les visiteurs)</span></label>
+          <textarea
+            value={s.incident_banner_message || ""}
+            onChange={(e) => upd("incident_banner_message", e.target.value)}
+            rows={2}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
+            placeholder="Maintenance planifiée le 30/04 de 22h à 23h GMT — accès au portail interrompu."
+            data-testid="incident-banner-message-input"
+          />
+        </div>
+        {/* Live preview */}
+        {s.incident_banner_enabled && s.incident_banner_message && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50 p-3" data-testid="incident-banner-preview">
+            <p className="text-[10px] uppercase tracking-[0.2em] text-slate-500 mb-2">Aperçu en direct</p>
+            <BannerPreview
+              severity={s.incident_banner_severity || "warning"}
+              message={s.incident_banner_message}
+              linkLabel={s.incident_banner_link_label}
+              linkUrl={s.incident_banner_link_url}
+            />
+          </div>
+        )}
+      </Section>
+
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">
         <p className="text-xs text-slate-500">
           Active l'envoi automatique d'alertes lors d'erreurs API et le rapport hebdomadaire (vendredi 05:00 Africa/Abidjan).
@@ -425,3 +473,25 @@ const Toggle = ({ label, value, onChange, testid }) => (
     {label}
   </label>
 );
+
+// Live preview of the incident banner — mirrors IncidentBanner.jsx visuals
+const BannerPreview = ({ severity, message, linkLabel, linkUrl }) => {
+  const palette = {
+    info: { bg: "bg-sky-500", text: "text-white" },
+    warning: { bg: "bg-amber-500", text: "text-slate-900" },
+    critical: { bg: "bg-rose-600", text: "text-white" },
+  }[severity] || { bg: "bg-amber-500", text: "text-slate-900" };
+  return (
+    <div className={`rounded ${palette.bg} ${palette.text} px-3 py-2 text-sm flex items-center gap-2`}>
+      <AlertCircle className="h-4 w-4 flex-shrink-0" />
+      <span className="flex-1">
+        {message}
+        {linkUrl && (
+          <span className="ml-2 underline decoration-2 underline-offset-2 font-semibold">
+            {linkLabel || "En savoir plus"} →
+          </span>
+        )}
+      </span>
+    </div>
+  );
+};

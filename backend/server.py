@@ -660,6 +660,14 @@ async def company_info():
             "show_reports_button": bool(s.get("show_reports_button", True)),
             "show_suivis_button": bool(s.get("show_suivis_button", True)),
         },
+        "incident_banner": {
+            "enabled": bool(s.get("incident_banner_enabled", False)),
+            "severity": s.get("incident_banner_severity") or "warning",
+            "message": s.get("incident_banner_message") or "",
+            "link_url": s.get("incident_banner_link_url") or "",
+            "link_label": s.get("incident_banner_link_label") or "",
+            "updated_at": s.get("incident_banner_updated_at"),
+        },
     }
 
 
@@ -3265,6 +3273,10 @@ async def admin_update_settings(payload: SettingsUpdate, _: dict = Depends(get_c
     if not update:
         return {"ok": True}
     update["updated_at"] = _now()
+    # Stamp incident_banner_updated_at whenever any banner field changes
+    BANNER_FIELDS = ("incident_banner_enabled", "incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label")
+    if any(f in update for f in BANNER_FIELDS):
+        update["incident_banner_updated_at"] = _now()
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
     return {"ok": True}
 

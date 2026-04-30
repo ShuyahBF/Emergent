@@ -406,6 +406,12 @@ class SettingsUpdate(BaseModel):
     health_weekly_enabled: Optional[bool] = None  # weekly digest on Friday 05:00
     health_auth_check_enabled: Optional[bool] = None  # alert if hourly auth probe fails
     health_uptime_alerts_enabled: Optional[bool] = None  # alert if any hourly uptime probe fails
+    # Incident banner — public sticky bar at top of marketing pages
+    incident_banner_enabled: Optional[bool] = None
+    incident_banner_severity: Optional[str] = None  # info | warning | critical
+    incident_banner_message: Optional[str] = None
+    incident_banner_link_url: Optional[str] = None
+    incident_banner_link_label: Optional[str] = None
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

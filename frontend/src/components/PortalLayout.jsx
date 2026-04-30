@@ -7,6 +7,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
+import IncidentBanner from "@/components/IncidentBanner";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 function absoluteUrl(u) {
@@ -155,6 +156,7 @@ export default function PortalLayout({ admin = false }) {
       )}
 
       <div className="flex-1 flex flex-col min-w-0">
+        <IncidentBanner />
         <header className="lg:hidden sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
           <button onClick={() => setOpen(true)} aria-label="Menu" data-testid="portal-menu-toggle">
             <Menu className="h-5 w-5" />

@@ -33,6 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-04-30 — Itération 13 : Bandeau d'incident éditable (public + portail)
+✅ 5 champs settings (`incident_banner_enabled`, `_severity` info/warning/critical, `_message`, `_link_url`, `_link_label`) + auto-stamp `_updated_at` quand le contenu change.
+✅ Exposé dans `/api/company-info` (public, pas d'auth requise).
+✅ Composant `<IncidentBanner>` ajouté à MarketingLayout ET PortalLayout (sticky en haut, au-dessus du nav).
+✅ 3 sévérités avec palettes dédiées (info=sky, warning=amber, critical=rose), icônes Info/AlertTriangle/AlertOctagon.
+✅ Dismiss session liée à `incident_banner_updated_at` : un nouveau message ré-apparaît auto pour ceux qui avaient masqué l'ancien.
+✅ Re-fetch toutes les 2 min pour propager les changements sans recharger la page.
+✅ Section "Bandeau d'incident" dans `/admin/settings` avec aperçu en direct (BannerPreview).
+
 ### 2026-04-30 — Itération 12 : StatusPill (trust seal public)
 ✅ Composant `<StatusPill>` flottant bottom-left sur toutes les pages publiques (via MarketingLayout).
 ✅ Polling 60s sur `/api/public/status?window_hours=24` — dot pulsant vert (≥99%), amber (≥95%) ou rouge (<95%) + libellé + uptime %.

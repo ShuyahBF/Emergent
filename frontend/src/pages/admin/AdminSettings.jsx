@@ -299,10 +299,11 @@ export default function AdminSettings() {
           Active l'envoi automatique d'alertes lors d'erreurs API et le rapport hebdomadaire (vendredi 05:00 Africa/Abidjan).
           Réservé au superviseur principal.
         </p>
-        <div className="grid sm:grid-cols-3 gap-3">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
           <Toggle label="Alertes temps réel (erreurs ≥ 400)" value={!!s.health_realtime_enabled} onChange={(v) => upd("health_realtime_enabled", v)} testid="toggle-health-realtime" />
           <Toggle label="Rapport hebdomadaire (Vendredi 05:00)" value={!!s.health_weekly_enabled} onChange={(v) => upd("health_weekly_enabled", v)} testid="toggle-health-weekly" />
           <Toggle label="Auth Checker (alerte si flow login cassé)" value={!!s.health_auth_check_enabled} onChange={(v) => upd("health_auth_check_enabled", v)} testid="toggle-health-auth-check" />
+          <Toggle label="Uptime Monitor (alerte si service indisponible)" value={!!s.health_uptime_alerts_enabled} onChange={(v) => upd("health_uptime_alerts_enabled", v)} testid="toggle-health-uptime" />
         </div>
         <Input label="Email destinataire (laisser vide = superviseur)" value={s.health_email_to || ""} onChange={(v) => upd("health_email_to", v)} placeholder="admin@sawalismartsystems.com" testid="health-email-to" />
         <Input label="Webhook URL" value={s.health_webhook_url || ""} onChange={(v) => upd("health_webhook_url", v)} placeholder="https://votre-service.com/sawali/health" testid="health-webhook-url" />

@@ -33,6 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-04-30 — Itération 11 : Uptime Monitor multi-endpoints + Page publique /uptime
+✅ 5 sondes (db_ping, api_health, api_company_info, api_visits_count, auth_login_endpoint) exécutées en parallèle (`asyncio.gather`) chaque heure à H:05 (cron Africa/Abidjan).
+✅ Persistence dans `db.uptime_checks` (capped 720 entrées). Stats : uptime % par sonde + global, durée moyenne, timeline des 168 derniers points.
+✅ Alerte email + webhook conditionnée par `health_uptime_alerts_enabled` (si une sonde échoue).
+✅ Section `<UptimeMonitorSection>` ajoutée sur `/admin/health` : sparkline horizontal par sonde, uptime %, latence moyenne, sélecteur fenêtre 24h/3j/7j/30j, bouton "Exécuter maintenant".
+✅ **Page publique `/uptime`** (NB: `/status` est intercepté par l'ingress Kubernetes — réservé pour healthcheck) : design dark theme, auto-refresh 60s, sondes publiques uniquement (l'endpoint admin /auth/login est masqué). Partageable avec les clients pour SLA visibility.
+✅ Endpoints : `POST /admin/health/uptime/run-now`, `GET /admin/health/uptime/stats`, **`GET /public/status`** (public).
+✅ Collection `uptime_checks` whitelistée dans le DB Explorer.
+
 ### 2026-04-30 — Itération 10 : Auth Checker (sentinelle horaire du flow login)
 ✅ Sonde horaire 4 étapes (admin_user_exists → jwt_mint_decode → auth_me_http → login_endpoint_responsive) exécutée par APScheduler chaque heure (Africa/Abidjan).
 ✅ Persistence dans `db.auth_checks` (capped 200 entrées). Endpoints : `POST /admin/health/auth-check`, `GET /admin/health/auth-check/latest`, `GET /admin/health/auth-check/history`.

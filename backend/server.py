@@ -2960,6 +2960,187 @@ async def admin_health_auth_check_latest(user: dict = Depends(get_current_user))
     return item or {"ok": None, "never_run": True}
 
 
+# ====================================================================
+# UPTIME MONITOR — multi-endpoint availability probes (hourly cron)
+# Powers both the admin dashboard and the public /status page.
+# ====================================================================
+UPTIME_PROBES = [
+    {"key": "db_ping", "label": "Base de données", "kind": "db", "public": True},
+    {"key": "api_health", "label": "API publique", "kind": "http", "method": "GET", "path": "/api/health", "expect": 200, "public": True},
+    {"key": "api_company_info", "label": "Contenu CMS", "kind": "http", "method": "GET", "path": "/api/company-info", "expect": 200, "public": True},
+    {"key": "api_visits_count", "label": "Compteur de visites", "kind": "http", "method": "GET", "path": "/api/visits/count", "expect": 200, "public": True},
+    {"key": "auth_login_endpoint", "label": "Endpoint /auth/login", "kind": "http", "method": "POST", "path": "/api/auth/login", "expect_max": 499, "public": False},
+]
+
+
+async def _probe_one(probe: dict) -> dict:
+    """Execute a single probe. Returns {key, label, ok, duration_ms, error, status}."""
+    started = datetime.now(timezone.utc)
+    try:
+        if probe["kind"] == "db":
+            await asyncio.wait_for(db.users.find_one({}, {"_id": 1}), timeout=5.0)
+            duration = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+            return {"key": probe["key"], "label": probe["label"], "ok": True, "duration_ms": duration, "error": None, "status": "OK"}
+        elif probe["kind"] == "http":
+            async with httpx.AsyncClient(timeout=5.0, base_url="http://127.0.0.1:8001") as http:
+                if probe["method"] == "GET":
+                    r = await http.get(probe["path"])
+                else:
+                    r = await http.post(probe["path"], json={})
+                duration = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+                expect = probe.get("expect")
+                expect_max = probe.get("expect_max")
+                ok = (r.status_code == expect) if expect else (r.status_code <= expect_max)
+                return {
+                    "key": probe["key"], "label": probe["label"], "ok": ok,
+                    "duration_ms": duration, "error": None if ok else f"HTTP {r.status_code}",
+                    "status": str(r.status_code),
+                }
+    except Exception as exc:  # noqa: BLE001
+        duration = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        return {"key": probe["key"], "label": probe["label"], "ok": False, "duration_ms": duration, "error": str(exc)[:200], "status": "ERR"}
+
+
+async def _run_uptime_probes(triggered_by: str = "manual") -> dict:
+    """Run all configured probes, persist a single document, fire alert if any failed."""
+    started = datetime.now(timezone.utc)
+    probes = await asyncio.gather(*[_probe_one(p) for p in UPTIME_PROBES])
+    finished = datetime.now(timezone.utc)
+    overall_ok = all(p["ok"] for p in probes)
+    doc = {
+        "id": _uuid(),
+        "ok": overall_ok,
+        "started_at": started.isoformat(),
+        "finished_at": finished.isoformat(),
+        "total_duration_ms": int((finished - started).total_seconds() * 1000),
+        "probes": list(probes),
+        "triggered_by": triggered_by,
+        "created_at": _now(),
+    }
+    try:
+        await db.uptime_checks.insert_one(doc.copy())
+        # Trim — keep last 30 days × 24 = 720 max
+        count = await db.uptime_checks.count_documents({})
+        if count > 800:
+            old = await db.uptime_checks.find({}, {"_id": 0, "id": 1}).sort("created_at", 1).limit(count - 720).to_list(200)
+            if old:
+                await db.uptime_checks.delete_many({"id": {"$in": [o["id"] for o in old]}})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("uptime_check persist failed: %s", exc)
+
+    # Fire alert if any probe failed and feature is enabled
+    if not overall_ok:
+        try:
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            if s.get("health_uptime_alerts_enabled"):
+                failed = [p for p in probes if not p["ok"]]
+                payload = {"type": "uptime_failed", "fired_at": _now(), "result": doc}
+                await _fire_health_webhook(payload)
+                try:
+                    from email_service import send_email
+                    recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+                    rows = "".join(
+                        f"<tr><td style='padding:4px 8px;font-family:monospace;'>{p['label']}</td>"
+                        f"<td style='padding:4px 8px;color:#EF4444'>{p['error'] or p['status']}</td>"
+                        f"<td style='padding:4px 8px;text-align:right;'>{p['duration_ms']} ms</td></tr>"
+                        for p in failed
+                    )
+                    html = (
+                        f"<div style='font-family:Arial,sans-serif;'>"
+                        f"<h3 style='color:#EF4444'>🚨 Uptime Monitor — services indisponibles</h3>"
+                        f"<p>{len(failed)} sonde(s) en échec sur {len(probes)} à {finished.isoformat()}.</p>"
+                        f"<table style='border-collapse:collapse;width:100%;border:1px solid #E2E8F0;'>"
+                        f"<tr style='background:#F8FAFC;'><th style='padding:4px 8px;text-align:left;'>Service</th>"
+                        f"<th style='padding:4px 8px;text-align:left;'>Erreur</th>"
+                        f"<th style='padding:4px 8px;text-align:right;'>Latence</th></tr>{rows}</table>"
+                        f"</div>"
+                    )
+                    text = f"UPTIME FAIL — {len(failed)} probe(s): " + ", ".join(p["key"] for p in failed)
+                    await send_email(recipient, "[SAWALI ALERT] Uptime — services indisponibles", html, text)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Uptime alert email failed: %s", exc)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Uptime alert pipeline failed: %s", exc)
+    return doc
+
+
+async def _build_uptime_stats(window_hours: int = 24 * 7, public_only: bool = False) -> dict:
+    """Aggregate uptime per probe over the last `window_hours`."""
+    cutoff = (datetime.now(timezone.utc) - timedelta(hours=window_hours)).isoformat()
+    docs = await db.uptime_checks.find({"created_at": {"$gte": cutoff}}, {"_id": 0}).sort("created_at", 1).to_list(2000)
+    visible_keys = {p["key"] for p in UPTIME_PROBES if (not public_only or p.get("public"))}
+    per_probe: dict[str, dict] = {}
+    for p in UPTIME_PROBES:
+        if p["key"] not in visible_keys:
+            continue
+        per_probe[p["key"]] = {
+            "key": p["key"], "label": p["label"], "total": 0, "ok": 0, "fail": 0,
+            "avg_duration_ms": 0, "last_status": None, "last_error": None, "last_at": None,
+            "timeline": [],  # [{ts, ok, duration_ms}]
+        }
+    durations: dict[str, list[int]] = {k: [] for k in per_probe}
+    for d in docs:
+        for p in d.get("probes", []):
+            k = p.get("key")
+            if k not in per_probe:
+                continue
+            per_probe[k]["total"] += 1
+            if p.get("ok"):
+                per_probe[k]["ok"] += 1
+            else:
+                per_probe[k]["fail"] += 1
+            durations[k].append(p.get("duration_ms") or 0)
+            per_probe[k]["last_status"] = p.get("status")
+            per_probe[k]["last_error"] = p.get("error")
+            per_probe[k]["last_at"] = d.get("created_at")
+            per_probe[k]["timeline"].append({
+                "ts": d.get("created_at"),
+                "ok": bool(p.get("ok")),
+                "duration_ms": p.get("duration_ms"),
+            })
+    for k, v in per_probe.items():
+        v["avg_duration_ms"] = int(sum(durations[k]) / len(durations[k])) if durations[k] else 0
+        v["uptime_pct"] = round((v["ok"] / v["total"] * 100) if v["total"] else 100.0, 2)
+        # cap timeline to last 168 points (7d hourly) for payload size
+        v["timeline"] = v["timeline"][-168:]
+    overall_total = sum(v["total"] for v in per_probe.values())
+    overall_ok = sum(v["ok"] for v in per_probe.values())
+    overall_pct = round((overall_ok / overall_total * 100) if overall_total else 100.0, 2)
+    return {
+        "window_hours": window_hours,
+        "overall_uptime_pct": overall_pct,
+        "samples": len(docs),
+        "probes": list(per_probe.values()),
+        "generated_at": _now(),
+    }
+
+
+@api.post("/admin/health/uptime/run-now", tags=["Admin"])
+async def admin_health_uptime_run_now(user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    return await _run_uptime_probes(triggered_by=f"manual:{user['email']}")
+
+
+@api.get("/admin/health/uptime/stats", tags=["Admin"])
+async def admin_health_uptime_stats(window_hours: int = 168, user: dict = Depends(get_current_user)):
+    _ensure_super_admin(user)
+    window_hours = max(1, min(int(window_hours or 168), 24 * 30))
+    return await _build_uptime_stats(window_hours, public_only=False)
+
+
+@api.get("/public/status", tags=["Public"])
+async def public_status(window_hours: int = 168):
+    """Public status page data (anyone can fetch). Only public-flagged probes."""
+    window_hours = max(1, min(int(window_hours or 168), 24 * 30))
+    stats = await _build_uptime_stats(window_hours, public_only=True)
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "company": s.get("company_name") or "SAWALI SMART SYSTEMS",
+        "logo_url": s.get("company_logo_url"),
+        "stats": stats,
+    }
+
+
 # Generic DB query
 ALLOWED_COLLECTIONS = {
     "users", "tracked_users", "appointments", "documents", "interventions",
@@ -2968,7 +3149,7 @@ ALLOWED_COLLECTIONS = {
     "settings", "user_reports", "user_suivis", "ratings",
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
-    "otps", "counters", "auth_checks",
+    "otps", "counters", "auth_checks", "uptime_checks",
 }
 
 
@@ -4297,8 +4478,18 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=600,
             )
+            # Hourly uptime monitor — multi-endpoint probes (db + public APIs).
+            async def _scheduled_uptime():
+                await _run_uptime_probes(triggered_by="cron:hourly")
+            _scheduler.add_job(
+                _scheduled_uptime,
+                CronTrigger(minute=5, timezone="Africa/Abidjan"),  # offset 5min from auth check
+                id="uptime_monitor_hourly",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
             _scheduler.start()
-            logger.info("Scheduler started — weekly digest Fri 05:00 + auth check every hour (Africa/Abidjan)")
+            logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Scheduler init failed: %s", exc)
 

@@ -405,6 +405,7 @@ class SettingsUpdate(BaseModel):
     health_realtime_enabled: Optional[bool] = None  # email + webhook on each error trace
     health_weekly_enabled: Optional[bool] = None  # weekly digest on Friday 05:00
     health_auth_check_enabled: Optional[bool] = None  # alert if hourly auth probe fails
+    health_uptime_alerts_enabled: Optional[bool] = None  # alert if any hourly uptime probe fails
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Activity, AlertCircle, Clock, Mail, Send, RefreshCw, AlertTriangle, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import UptimeMonitorSection from "@/components/UptimeMonitorSection";
 
 export default function AdminHealthDashboard() {
   const [stats, setStats] = useState(null);
@@ -83,6 +84,9 @@ export default function AdminHealthDashboard() {
         running={authRunning}
         onRun={runAuthCheck}
       />
+
+      {/* Multi-endpoint uptime monitor (DB + public APIs) */}
+      <UptimeMonitorSection />
 
       {!stats ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500">Chargement…</div>

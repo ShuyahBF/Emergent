@@ -20,6 +20,7 @@ import CaseStudies from "@/pages/public/CaseStudies";
 import CaseStudyDetail from "@/pages/public/CaseStudyDetail";
 import Blog from "@/pages/public/Blog";
 import BlogPost from "@/pages/public/BlogPost";
+import StatusPage from "@/pages/public/Status";
 
 // Auth
 import Login from "@/pages/auth/Login";
@@ -91,6 +92,7 @@ export default function App() {
           <Route path="/blog" element={<PublicRoute><Blog /></PublicRoute>} />
           <Route path="/blog/:slug" element={<PublicRoute><BlogPost /></PublicRoute>} />
           <Route path="/feedback/:token" element={<Feedback />} />
+          <Route path="/uptime" element={<StatusPage />} />
           <Route path="/documentation" element={<ApiDocs />} />
 
           {/* Auth */}

@@ -23,9 +23,14 @@ const TRACE_SKIP_PATTERNS = [
   "/track",
   "/visits/count",
   "/visits/trend",
-  "/auth/captcha-config",
+  "/auth/", // Skip ALL auth endpoints — they fire before localStorage has the token
+            // (would cause /me/api-trace to be called without auth → 401 → forced logout race)
   "/me/formations/", // visit/close happens silently
 ];
+
+// Paths that should NEVER trigger a forced logout on 401, even if the user is logged in.
+// These are telemetry/non-critical and a 401 here must not wipe the session.
+const NO_LOGOUT_ON_401 = ["/me/api-trace", "/me/access-log", "/track"];
 const TOAST_SKIP_PATTERNS = [
   ...TRACE_SKIP_PATTERNS,
   "/auth/login",      // login page already toasts
@@ -120,11 +125,16 @@ apiClient.interceptors.response.use(
       const status = err?.response?.status || 0;
       recordTrace(err?.config || {}, status, err?.response?.data, err?.message);
     } catch { /* noop */ }
-    if (err?.response?.status === 401 && !err.config?.url?.includes("/auth/")) {
-      localStorage.removeItem("sawali_token");
-      localStorage.removeItem("sawali_user");
-      if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
-        window.location.href = "/login";
+    if (err?.response?.status === 401) {
+      const url = err.config?.url || "";
+      const isAuthEndpoint = url.includes("/auth/");
+      const isTelemetry = NO_LOGOUT_ON_401.some((p) => url.includes(p));
+      if (!isAuthEndpoint && !isTelemetry) {
+        localStorage.removeItem("sawali_token");
+        localStorage.removeItem("sawali_user");
+        if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+          window.location.href = "/login";
+        }
       }
     }
     return Promise.reject(err);

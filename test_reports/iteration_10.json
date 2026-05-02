@@ -1,0 +1,37 @@
+{
+  "summary": "Iteration 10 SAWALI — RETEST of two fixes from iter9. BACKEND: 13/13 pytest pass (2.57s) against https://sawali-portal.preview.emergentagent.com using existing /app/backend/tests/test_sawali_iter9.py (no edits needed). The previously failing test_date_range_today_includes_seed now PASSES — admin GET /api/me/forms/{fid}/analytics?date_from=<today>&date_to=<tomorrow> returns submissions>=2 (1 anon FR + 1 admin auth) confirming the .isoformat() fix in _submissions_analytics, me_forms_analytics_global per-form aggregate, and me_form_analytics_csv match builder. test_date_from_future_empties_series still correctly returns 0 submissions / empty series for a +7d future date_from. test_global_date_filter_applied still returns 0 for +30d future. All previously passing tests (TestGlobalAnalytics, TestSubmissionSeed, TestAccessControl, TestCSVExport) remain green. FRONTEND: Admin (admin@sawalismartsystems.com) login via OTP dev flow + JWT in localStorage works. /portal/forms now renders 2 per-card 'Stats' buttons (data-testid=form-analytics-000fde72-... and data-testid=form-analytics-b3a1b168-...) — confirming me_list_forms now sets is_mine=True for admin role. forms-global-analytics-btn still present. Clicking the per-card Stats button navigates to /portal/forms/<id>/analytics, the detail page renders (form-analytics-detail-page visible), and the analytics-export-csv-btn triggers an actual file download with suggested_filename=FORM-SAWALISM-0004-submissions.csv. CSV export hardening (content-type guard) is in place — happy path still works; defensive branch was not exercised here (no auth-failure scenario in this run).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/portal/forms/{fid}/analytics", "issues": ["Recharts still emits 'width(-1) and height(-1) of chart should be greater than 0' console warnings when the series is empty during initial render — cosmetic, carried over from iter9."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter9.py",
+    "/app/test_reports/pytest/pytest_iter10.xml"
+  ],
+  "action_items": [
+    "(Optional) Silence Recharts width(-1) warnings by guarding ResponsiveContainer behind a (data.length>0) check or giving the chart a fixed minHeight — purely cosmetic.",
+    "(Observation, not blocker) On /portal/forms admin sees per-card 'Stats' button (data-testid=form-analytics-*) and 'Partager' (form-share-*) but no 'form-edit-*' selector matched — the edit affordance might use a different data-testid (e.g. button rendered as a Link to /portal/forms/<id>/edit). Worth double-checking that admin can also EDIT and DELETE forms from this list now that is_mine=True is honored."
+  ],
+  "critical_code_review_comments": [
+    "server.py _submissions_analytics: now correctly converts date_from/date_to to ISO strings before $gte/$lte. Because models.py:_now() still returns ISO-format strings (not BSON Date), all three query sites (detail, global per-form aggregate, CSV) must keep the .isoformat() conversion in lock-step. Consider extracting a small helper `_iso_range(date_from, date_to) -> dict` to DRY these three places and avoid future drift.",
+    "Long-term: migrate _now() to return a real datetime + run a one-shot script to convert existing form_submissions.created_at strings to BSON Date — this would let Mongo use proper Date indexes and remove the lexicographic-only sort dependency.",
+    "me_list_forms admin override (is_mine=True for role==admin) is correct for the dashboard UX, but be aware that any UI guard that uses is_mine to gate destructive actions (DELETE form, transfer ownership) now allows admin to act on every form — that's the desired admin behavior, but ensure the backend authorization on those endpoints is also admin-aware (and not relying solely on the client returning is_mine).",
+    "FormAnalyticsDetail.jsx exportCsv: content-type check is good; if response.ok is false, ensure the toast shows the parsed error message (not just a generic string) so users can self-diagnose 401/403 vs 500.",
+    "server.py remains ~5847 lines — split into routers (auth/admin/portal/forms/analytics/db) is still recommended (carry-over from iter7-9)."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (13/13 pytest cases — including the previously failing test_date_range_today_includes_seed)",
+    "frontend": "100% on the 4 retested flows: admin login + token, /portal/forms shows per-card Stats buttons, click-through navigates to detail page, CSV export download triggers correct filename"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (OTP dev flow). A secondary client user is auto-created and cleaned up per pytest session for the 403 access-control tests.",
+  "seed_data_creation": "Test session creates (via admin) 1 public form + 1 private form (TEST_iter9_*) and submits 1 anonymous (geo.country=France) + 1 authenticated admin submission on the public form, then best-effort deletes the forms in teardown. Submission docs may persist if no cascade.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Both iter9 issues are fixed and verified. /app/backend/tests/test_sawali_iter9.py (13 tests, ~2.6s) is the regression suite for Form Analytics. For frontend, admin login + localStorage('sawali_token','sawali_user') still works; admin now sees data-testid=form-analytics-<id> on every card on /portal/forms. Form id 000fde72-c143-4b31-b9c7-5fd8ebbf54fb (FORM-SAWALISM-0004) and b3a1b168-4877-41ca-8aea-6814e5d92f00 are stable across runs and usable as fixtures. Cosmetic Recharts width(-1) warnings can be ignored.",
+  "rca of the issue": "(historical from iter9, now resolved) Date-filter bug: form_submissions.created_at is stored as ISO string (models.py:_now() returns datetime.isoformat()), so passing datetime objects to Mongo $gte/$lte never matched (BSON type ordering String=2 < Date=9). Fix applied in iter10: server.py _submissions_analytics, me_forms_analytics_global per-form aggregate, and me_form_analytics_csv now call .isoformat() on the date boundaries before building the Mongo query. ISO-8601 Z-format sorts lexicographically == chronologically so string $gte/$lte works correctly. Verified by test_date_range_today_includes_seed asserting submissions>=2 for [today, tomorrow]. Admin Stats button: me_list_forms now short-circuits is_mine=True when user.role=='admin' so the FormsList per-card actions render for the admin account."
+}

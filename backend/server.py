@@ -4460,7 +4460,11 @@ async def me_list_forms(user: dict = Depends(get_current_user)):
     items = await db.forms.find(query, {"_id": 0, "pages": 0}).sort("created_at", -1).to_list(500)
     # Tag each form so the UI can distinguish mine vs public-imported
     for it in items:
-        it["is_mine"] = it.get("client_id") == client_scope
+        if user.get("role") == "admin":
+            # Admin sees everything as "mine" (full edit/stats/share/delete rights)
+            it["is_mine"] = True
+        else:
+            it["is_mine"] = it.get("client_id") == client_scope
     return items
 
 
@@ -4695,9 +4699,9 @@ async def _submissions_analytics(match: dict, date_from: Optional[datetime], dat
     """Common aggregation pipeline used by global + per-form analytics."""
     range_q = {}
     if date_from:
-        range_q["$gte"] = date_from
+        range_q["$gte"] = date_from.isoformat()
     if date_to:
-        range_q["$lte"] = date_to
+        range_q["$lte"] = date_to.isoformat()
     if range_q:
         match = {**match, "created_at": range_q}
 
@@ -4790,8 +4794,8 @@ async def me_forms_analytics_global(
     per_form_match: Dict[str, Any] = {"form_id": {"$in": form_ids}}
     if df or dt:
         rng: Dict[str, Any] = {}
-        if df: rng["$gte"] = df
-        if dt: rng["$lte"] = dt
+        if df: rng["$gte"] = df.isoformat()
+        if dt: rng["$lte"] = dt.isoformat()
         per_form_match["created_at"] = rng
     cursor = db.form_submissions.aggregate([
         {"$match": per_form_match},
@@ -4887,8 +4891,8 @@ async def me_form_analytics_csv(
     dt = _parse_date(date_to)
     match: Dict[str, Any] = {"form_id": form_id}
     rng: Dict[str, Any] = {}
-    if df: rng["$gte"] = df
-    if dt: rng["$lte"] = dt
+    if df: rng["$gte"] = df.isoformat()
+    if dt: rng["$lte"] = dt.isoformat()
     if rng:
         match["created_at"] = rng
 

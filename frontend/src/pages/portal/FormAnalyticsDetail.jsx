@@ -69,7 +69,14 @@ export default function FormAnalyticsDetail() {
       const token = localStorage.getItem("sawali_token");
       const url = `${API}/me/forms/${fid}/analytics/export.csv?date_from=${dateFrom}&date_to=${dateTo}`;
       const resp = await fetch(url, { headers: { Authorization: `Bearer ${token}` } });
-      if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+      if (!resp.ok) {
+        const msg = await resp.text();
+        throw new Error(`HTTP ${resp.status} — ${msg.slice(0, 120)}`);
+      }
+      const ct = resp.headers.get("content-type") || "";
+      if (!ct.includes("csv")) {
+        throw new Error("Réponse inattendue du serveur");
+      }
       const blob = await resp.blob();
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);

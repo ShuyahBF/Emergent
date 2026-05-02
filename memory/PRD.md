@@ -33,7 +33,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-04-30 — Itération 15 : Abonnement email aux incidents (double opt-in + broadcast)
+### 2026-05-02 — Itération 16 : Performance fix critique (lenteurs login + navigation)
+✅ **Bug** : `/api/track` (appelé à chaque navigation) bloquait jusqu'à 5s en attendant la géolocalisation IP via `ip-api.com` (rate-limited). Sous charge, les requêtes s'empilaient et bloquaient la file asyncio, ralentissant TOUT.
+✅ **Fix géo non-bloquant** :
+  - Geolocalisation déplacée en `asyncio.create_task` (post-réponse) → patch du document MongoDB en background.
+  - Cache IP en mémoire (5000 entrées) → 1 seul appel par IP unique.
+  - Timeout ip-api.com : 5s → 1.5s.
+✅ **Forward externe non-bloquant** : si `tracking_enabled`, le POST vers le webhook externe configuré part aussi en background — ne bloque plus jamais `/track`.
+✅ **Index MongoDB ajoutés** (idempotents) sur 13 collections : visits.datetime, visits.session_id, otps.expires_at, auth_checks.created_at, uptime_checks.created_at, incidents.started_at, incident_subscribers.email/tokens, user_notes (compound user_id+kind), interventions.client_id, access_logs.created_at, document_logs (compound), users.id, appointments.client_id, documents.client_id.
+✅ **`/admin/visits/stats` optimisé** : aggregation MongoDB native (group + sort + limit) au lieu de charger 50000 docs en mémoire Python.
+✅ Latences mesurées : `/track` 50-300ms (avant : jusqu'à 5000ms), `/admin/visits/stats` ~100ms (avant : plusieurs secondes), tous les autres endpoints 90-120ms.
+
+### 2026-05-02 — Itération 15 : Abonnement email aux incidents (double opt-in + broadcast)
 ✅ Collection `incident_subscribers` (DB Explorer whitelisted) avec `confirmation_token` + `unsubscribe_token` uniques par abonné.
 ✅ 5 endpoints :
   - `POST /public/incidents/subscribe` (envoie email de confirmation — gère déjà-abonné + renvoi)

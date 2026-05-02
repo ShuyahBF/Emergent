@@ -4175,22 +4175,26 @@ async def admin_list_visits(limit: int = 200, _: dict = Depends(get_current_admi
 
 @api.get("/admin/visits/stats", tags=["Admin"])
 async def admin_visits_stats(_: dict = Depends(get_current_admin)):
-    items = await db.visits.find({}, {"_id": 0}).to_list(50000)
-    total = len(items)
-    countries: dict[str, int] = {}
-    pages: dict[str, int] = {}
-    for v in items:
-        c = v.get("country") or "Inconnu"
-        countries[c] = countries.get(c, 0) + 1
-        p = v.get("page") or "/"
-        pages[p] = pages.get(p, 0) + 1
-    top_countries = sorted(countries.items(), key=lambda x: x[1], reverse=True)[:10]
-    top_pages = sorted(pages.items(), key=lambda x: x[1], reverse=True)[:10]
+    # Use Mongo aggregation instead of loading 50k docs into Python.
+    pipeline_country = [
+        {"$group": {"_id": {"$ifNull": ["$country", "Inconnu"]}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10},
+    ]
+    pipeline_pages = [
+        {"$group": {"_id": {"$ifNull": ["$page", "/"]}, "count": {"$sum": 1}}},
+        {"$sort": {"count": -1}},
+        {"$limit": 10},
+    ]
+    total_doc = await db.visits.estimated_document_count()
+    countries = await db.visits.aggregate(pipeline_country).to_list(20)
+    pages = await db.visits.aggregate(pipeline_pages).to_list(20)
+    unique_countries = await db.visits.distinct("country", {"country": {"$nin": [None, ""]}})
     return {
-        "total": total,
-        "unique_countries": len([c for c in countries if c != "Inconnu"]),
-        "top_countries": [{"country": k, "count": v} for k, v in top_countries],
-        "top_pages": [{"page": k, "count": v} for k, v in top_pages],
+        "total": total_doc,
+        "unique_countries": len([c for c in unique_countries if c]),
+        "top_countries": [{"country": c["_id"] or "Inconnu", "count": c["count"]} for c in countries],
+        "top_pages": [{"page": p["_id"] or "/", "count": p["count"]} for p in pages],
     }
 
 
@@ -4606,14 +4610,42 @@ app.include_router(api)
 
 @app.on_event("startup")
 async def on_startup():
-    # Indexes
+    # Indexes — critical for performance as collections grow.
+    # New indexes are added on every startup (idempotent).
     await db.users.create_index("email", unique=True)
+    await db.users.create_index("id")
     await db.otps.create_index("session_token")
+    await db.otps.create_index("expires_at")
     await db.appointments.create_index("scheduled_at")
+    await db.appointments.create_index("client_id")
     await db.documents.create_index("category")
+    await db.documents.create_index("client_id")
     await db.contents.create_index("slug", unique=True)
     await db.api_traces.create_index("created_at")
     await db.api_traces.create_index("status")
+    # Visit tracking — hot path, queried by date + page
+    await db.visits.create_index("datetime")
+    await db.visits.create_index("session_id")
+    # Health & uptime monitor — queried by created_at sort
+    await db.auth_checks.create_index("created_at")
+    await db.uptime_checks.create_index("created_at")
+    # Incidents
+    await db.incidents.create_index("started_at")
+    await db.incidents.create_index("status")
+    await db.incident_subscribers.create_index("email", unique=True)
+    await db.incident_subscribers.create_index("confirmation_token")
+    await db.incident_subscribers.create_index("unsubscribe_token")
+    # User notes (rapports/suivis) — queried by user_id + kind + event_date
+    await db.user_notes.create_index([("user_id", 1), ("kind", 1)])
+    await db.user_notes.create_index("event_date")
+    # Interventions
+    await db.interventions.create_index("client_id")
+    await db.interventions.create_index("created_at")
+    # Access logs
+    await db.access_logs.create_index("created_at")
+    await db.access_logs.create_index("user_email")
+    # Document logs
+    await db.document_logs.create_index([("document_id", 1), ("created_at", -1)])
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")

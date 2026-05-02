@@ -33,6 +33,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-02 — Itération 21 : Form Analytics Dashboard (global + per-form)
+✅ Backend : 3 nouveaux endpoints `GET /api/me/forms-analytics` (global), `GET /api/me/forms/{id}/analytics` (détail), `GET /api/me/forms/{id}/analytics/export.csv` (export).
+✅ Agrégation sans pipeline complexe : série temporelle par jour UTC, top auteurs, pays (via `geo.country`), auth vs anonyme, completion rate (soumissions / uses_count), 10 dernières soumissions.
+✅ Scope : admin voit tout, client voit ses formulaires. `_require_owner_or_admin` enforce l'accès detail + CSV (403/404 corrects).
+✅ CSV : UTF-8 BOM pour Excel, header dynamique `[id, date, auteur, type, email, pays, ville, ip, <labels des champs>]`, 1 ligne par soumission.
+✅ Fix filtres de dates : `.isoformat()` sur les bornes avant `$gte/$lte` (car `created_at` est stocké en ISO string par `_now()`).
+✅ Fix admin `is_mine` : me_list_forms court-circuite à `True` pour les admins → boutons Stats/Éditer/Partager/Supprimer visibles sur toutes les cartes.
+✅ Frontend : 2 nouvelles pages React `FormsAnalytics.jsx` (global) et `FormAnalyticsDetail.jsx` (par formulaire), layout Shadcn-like, courbes Recharts (AreaChart + PieChart), barres horizontales pour les pays, KPI cards, quick-range (7j/30j/90j/1an), date pickers.
+✅ Bouton "Analytics global" sur /portal/forms + bouton "Stats" par carte avec navigation vers `/portal/forms/:fid/analytics`.
+✅ Export CSV côté front via `fetch` avec header `Authorization` + content-type guard + toast d'erreur explicite.
+✅ Tests : 13/13 pytest passent (`/app/backend/tests/test_sawali_iter9.py`) + flows frontend validés (nav, KPI, timeseries, pie, pays, CSV download).
+
 ### 2026-05-02 — Itération 20 : Formulaires publics partageables (QR + URL courte)
 ✅ Endpoints publics (no auth) : `GET /public/forms/{id}` + `POST /public/forms/{id}/submission`. Fonctionnent uniquement si `is_public=True`.
 ✅ Index unique contourné pour les anonymes : `user_id = anon-{uuid[:8]}` → plusieurs soumissions depuis le même lien possible.

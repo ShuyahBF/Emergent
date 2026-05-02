@@ -412,6 +412,13 @@ class SettingsUpdate(BaseModel):
     incident_banner_message: Optional[str] = None
     incident_banner_link_url: Optional[str] = None
     incident_banner_link_label: Optional[str] = None
+    # WhatsApp Business (Meta Cloud API) — global credentials
+    wa_business_account_id: Optional[str] = None    # WABA ID
+    wa_phone_number_id: Optional[str] = None         # Phone Number ID (not the number itself)
+    wa_access_token: Optional[str] = None            # Permanent System User access token
+    wa_app_id: Optional[str] = None                  # Meta App ID (webhook verification)
+    wa_verify_token: Optional[str] = None            # Shared secret for webhook GET verification
+    wa_default_language: Optional[str] = None        # Default template language code (e.g. 'fr')
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

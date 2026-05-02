@@ -342,6 +342,22 @@ export default function AdminSettings() {
         )}
       </Section>
 
+      <Section icon={MessageCircle} title="WhatsApp Business API (Meta Cloud)">
+        <p className="text-xs text-slate-500">
+          Configuration globale. Tous les clients utilisent ce compte WhatsApp Business (Meta Business Portfolio).
+          Les templates doivent être créés et approuvés dans Meta Business Suite &rarr; WhatsApp &rarr; Templates de messages.
+          <a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noreferrer" className="text-sawali-blue underline ml-1">Ouvrir Meta Business Suite →</a>
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Input label="WhatsApp Business Account ID (WABA)" value={s.wa_business_account_id || ""} onChange={(v) => upd("wa_business_account_id", v)} placeholder="102xxxxxxxxxxx" testid="wa-waba-id" />
+          <Input label="Phone Number ID" value={s.wa_phone_number_id || ""} onChange={(v) => upd("wa_phone_number_id", v)} placeholder="10xxxxxxxxxxxxx" testid="wa-phone-number-id" />
+          <Input label="Meta App ID" value={s.wa_app_id || ""} onChange={(v) => upd("wa_app_id", v)} placeholder="App ID (facebook developers)" testid="wa-app-id" />
+          <Input label="Langue par défaut (ex: fr, en_US)" value={s.wa_default_language || "fr"} onChange={(v) => upd("wa_default_language", v)} placeholder="fr" testid="wa-default-language" />
+        </div>
+        <PasswordInput label="System User Access Token (permanent)" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
+        <PasswordInput label="Webhook Verify Token (secret partagé)" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
+      </Section>
+
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">
         <p className="text-xs text-slate-500">
           Active l'envoi automatique d'alertes lors d'erreurs API et le rapport hebdomadaire (vendredi 05:00 Africa/Abidjan).

@@ -33,6 +33,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-02 — Itération 19 : Phases 5/4/3 complètes (badges, formulaires, répertoire+WhatsApp)
+✅ **Phase 5 — Badges de notifications** : collection `user_module_visits` (unique par user+module), endpoints `GET /me/notifications/counts` + `POST /me/notifications/mark-seen`. 14 modules couverts (RDV, docs, interventions, rapports, suivis, formations + 8 admin). Frontend : fetch au mount/navigation/90s, affichage badge rouge (ring glass), auto mark-seen quand on navigue sur la page correspondante. Validé : admin_clients 6→0 après mark-seen.
+✅ **Phase 4 — Formulaires dynamiques** : modèles FormField/FormPage/FormCreate/Update. Endpoints CRUD `/me/forms`, `/me/forms/{id}/import` (clone public form), `/me/forms/{id}/submission` (get/post avec auto-increment revisions_count), `/me/forms/{id}/submissions` (list pour owner/admin). Auto-numérotation `FORM-{client_code}-{NNNN}`. Frontend 3 pages : FormsList (catalogue avec filtre mine/public/all), FormEditor (12 types champs, multi-pages, grille 12 cols, toggle public/privé, reorder ↑↓), FormRunner (auto-prefill, géoloc, 3 boutons réinit/save/CSV, navigation pages).
+✅ **Phase 3 — Répertoire + WhatsApp Business API Meta** : 
+  - Settings admin (nouvelle section) : WABA ID, Phone Number ID, App ID, Access Token (masked), Verify Token (masked), langue par défaut.
+  - Endpoints contacts : `GET/POST/PUT/DELETE /me/contacts` avec scope owner + shared dans client.
+  - Endpoint WhatsApp : `POST /me/whatsapp/send` (appelle Graph API v21.0 avec template + language + components). `GET /me/whatsapp/history`. `GET /admin/whatsapp/templates` (liste templates approuvés).
+  - Frontend `/portal/contacts` : table complète, modal d'édition (nom, société, tél, whatsapp, email, tags, partagé), modal WhatsApp (dropdown templates + envoi + résultat inline).
+  - RBAC : envoi WhatsApp réservé aux rôles élevés (Modérateur/Admin/Superviseur) + client principal.
+  - Collection `directory_contacts` + `whatsapp_messages` (log tentatives avec ok/status/message_id/error) indexées + whitelistées DB Explorer.
+✅ Menu sidebar enrichi : "Formulaires", "Répertoire & WhatsApp" ajoutés. Badges rouges visibles (ex: Mes rendez-vous **3**, Trafic & Visites **99+**, Messages reçus **6**).
+
 ### 2026-05-02 — Itération 18 : Phase 2 — Liens externes cryptés (deep-links JWT 15min)
 ✅ JWT signé séparé (`LINK_JWT_SECRET` env) pour ne pas confondre avec l'auth JWT. Actions supportées : `login`, `rdv`, `appointments`, `document`, `intervention`, `contact`, `dashboard`, `formations`, `note`, `status`.
 ✅ 3 endpoints : `POST /integrations/build-link` (admin), `GET /integrations/link-actions` (admin), `GET /integrations/resolve-link?t=<jwt>` (public).

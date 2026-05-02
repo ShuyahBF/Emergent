@@ -23,7 +23,7 @@ import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, List
+from typing import Optional, List, Any, Dict
 
 import httpx
 
@@ -3201,6 +3201,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages",
 }
 
 
@@ -3293,7 +3294,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -3309,6 +3310,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "tracking_auth_header", "webhook_token", "webhook_basic_pass",
         "notes_webhook_token", "notes_webhook_basic_pass",
         "health_webhook_token", "health_webhook_basic_pass",
+        "wa_access_token", "wa_verify_token",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -4108,6 +4110,536 @@ async def admin_export_newsletter(_: dict = Depends(get_current_admin)):
 
 
 # ====================================================================
+# PHASE 5 — Notification badges on menu links
+# For each module, count items created/updated since the user last visited
+# that module's page. Uses collection `user_module_visits` ({user_id, module, last_visited_at}).
+# ====================================================================
+MODULE_COUNT_QUERIES = {
+    # (module_key, collection, date_field, user_scope_field)
+    # user_scope_field == "owner_id" means filter where field == user['id']
+    # user_scope_field == "client_id" means use user's client_id (or self if client)
+    "appointments": ("appointments", "created_at", "client_id"),
+    "documents": ("documents", "created_at", "client_id"),
+    "interventions": ("interventions", "created_at", "client_id"),
+    "reports": ("user_notes_reports", "created_at", "owner_id"),
+    "suivis": ("user_notes_suivis", "created_at", "owner_id"),
+    "formations": ("formation_enrollments", "created_at", "user_id"),
+    # Admin-only
+    "admin_clients": ("users", "created_at", "_ADMIN_"),
+    "admin_appointments": ("appointments", "created_at", "_ADMIN_"),
+    "admin_interventions": ("interventions", "created_at", "_ADMIN_"),
+    "admin_contacts": ("contacts", "created_at", "_ADMIN_"),
+    "admin_testimonials": ("testimonials", "created_at", "_ADMIN_"),
+    "admin_visits": ("visits", "datetime", "_ADMIN_"),
+    "admin_access_logs": ("access_logs", "created_at", "_ADMIN_"),
+    "admin_api_traces": ("api_traces", "created_at", "_ADMIN_"),
+}
+
+
+async def _resolve_client_id(user: dict) -> Optional[str]:
+    """Return the client_id scope for a user: themselves if role=client, or parent_client_id if tracked."""
+    if user.get("role") == "client":
+        return user.get("id")
+    if user.get("role") == "admin":
+        return None  # admin has no client scope
+    # tracked user — find the parent client
+    return user.get("parent_client_id") or user.get("client_id")
+
+
+@api.get("/me/notifications/counts", tags=["Portail Client"])
+async def me_notifications_counts(user: dict = Depends(get_current_user)):
+    """Return the count of new items per module since the user last visited that module."""
+    now = datetime.now(timezone.utc)
+    # Default lookback window: 30 days for modules the user has never visited
+    default_since = (now - timedelta(days=30)).isoformat()
+
+    visits_cursor = db.user_module_visits.find({"user_id": user["id"]}, {"_id": 0, "module": 1, "last_visited_at": 1})
+    visits = {v["module"]: v["last_visited_at"] async for v in visits_cursor}
+
+    is_admin = user.get("role") == "admin"
+    client_scope = await _resolve_client_id(user)
+    counts: dict[str, int] = {}
+
+    async def _count(module_key: str, spec: tuple) -> int:
+        coll_name, date_field, scope = spec
+        since = visits.get(module_key, default_since)
+        query: dict = {date_field: {"$gt": since}}
+        if scope == "_ADMIN_":
+            if not is_admin:
+                return 0
+        elif scope == "owner_id":
+            query["owner_id"] = user["id"]
+        elif scope == "user_id":
+            query["user_id"] = user["id"]
+        elif scope == "client_id":
+            if client_scope is None and not is_admin:
+                return 0
+            if client_scope:
+                query["client_id"] = client_scope
+        try:
+            return await db[coll_name].count_documents(query)
+        except Exception:
+            return 0
+
+    for key, spec in MODULE_COUNT_QUERIES.items():
+        counts[key] = await _count(key, spec)
+    return {"counts": counts, "generated_at": _now()}
+
+
+class MarkSeenRequest(BaseModel):
+    module: str
+
+
+# ====================================================================
+# PHASE 3 — WhatsApp Business API (Meta / Facebook Business Portfolio)
+# Sends approved TEMPLATE messages via Meta Graph API /v{version}/{phone-number-id}/messages
+# Credentials configured globally by super-admin in /admin/settings.
+# ====================================================================
+WA_GRAPH_VERSION = "v21.0"  # Meta Graph API version (update as Meta ships new)
+
+
+async def _wa_send_template(to_e164: str, template_name: str, language_code: str = "fr", components: Optional[list] = None) -> dict:
+    """Send a WhatsApp template message. Returns {ok, status, message_id, error, raw}."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    phone_number_id = s.get("wa_phone_number_id")
+    if not access_token or not phone_number_id:
+        return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to_e164.lstrip("+").replace(" ", "").replace("-", ""),
+        "type": "template",
+        "template": {"name": template_name, "language": {"code": language_code}},
+    }
+    if components:
+        body["template"]["components"] = components
+    try:
+        async with httpx.AsyncClient(timeout=12) as http:
+            r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:2000]}
+            if r.status_code < 300:
+                mid = None
+                if isinstance(raw, dict) and raw.get("messages"):
+                    mid = raw["messages"][0].get("id")
+                return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
+            err_msg = None
+            if isinstance(raw, dict):
+                err_msg = (raw.get("error") or {}).get("message") or str(raw)[:500]
+            return {"ok": False, "status": r.status_code, "message_id": None, "error": err_msg or f"HTTP {r.status_code}", "raw": raw}
+    except httpx.TimeoutException:
+        return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
+
+
+# ----- Directory of contacts (per client) -----
+class ContactCreate(BaseModel):
+    name: str
+    phone: Optional[str] = ""
+    whatsapp: Optional[str] = ""
+    email: Optional[str] = ""
+    company: Optional[str] = ""
+    notes: Optional[str] = ""
+    tags: Optional[List[str]] = []
+    shared: bool = False
+
+
+class ContactUpdate(BaseModel):
+    name: Optional[str] = None
+    phone: Optional[str] = None
+    whatsapp: Optional[str] = None
+    email: Optional[str] = None
+    company: Optional[str] = None
+    notes: Optional[str] = None
+    tags: Optional[List[str]] = None
+    shared: Optional[bool] = None
+
+
+@api.get("/me/contacts", tags=["Portail Client"])
+async def me_list_contacts(user: dict = Depends(get_current_user)):
+    """List contacts: owned by me + shared within my client scope."""
+    client_scope = (user.get("client_id") or user.get("id"))
+    query = {"$or": [
+        {"client_id": client_scope, "owner_id": user["id"]},
+        {"client_id": client_scope, "shared": True},
+    ]}
+    items = await db.directory_contacts.find(query, {"_id": 0}).sort("name", 1).to_list(2000)
+    return items
+
+
+@api.post("/me/contacts", tags=["Portail Client"])
+async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_current_user)):
+    client_scope = (user.get("client_id") or user.get("id"))
+    doc = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "owner_id": user["id"],
+        "owner_label": user.get("full_name") or user.get("email"),
+        **payload.model_dump(),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.directory_contacts.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/me/contacts/{cid}", tags=["Portail Client"])
+async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depends(get_current_user)):
+    existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Modification non autorisée")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update["updated_at"] = _now()
+    await db.directory_contacts.update_one({"id": cid}, {"$set": update})
+    return {"ok": True}
+
+
+@api.delete("/me/contacts/{cid}", tags=["Portail Client"])
+async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
+    existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
+    if existing and existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Suppression non autorisée")
+    await db.directory_contacts.delete_one({"id": cid})
+    return {"ok": True}
+
+
+# ----- Send WhatsApp from portal -----
+class WhatsAppSendRequest(BaseModel):
+    to: str  # E.164 phone number (contact's whatsapp field, or tracked-user's phone)
+    template_name: str
+    language_code: Optional[str] = "fr"
+    components: Optional[list] = None  # Template variables (body, header, button params)
+    contact_id: Optional[str] = None
+    tracked_user_id: Optional[str] = None
+
+
+@api.post("/me/whatsapp/send", tags=["Portail Client"])
+async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(get_current_user)):
+    # RBAC: elevated roles only (Moderator/Admin/Superviseur) + the main client account
+    if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
+    to = (payload.to or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+    result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
+    # Log the attempt
+    client_scope = (user.get("client_id") or user.get("id"))
+    log = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "sender_id": user["id"],
+        "sender_label": user.get("full_name") or user.get("email"),
+        "to": to,
+        "template_name": payload.template_name,
+        "language_code": payload.language_code,
+        "contact_id": payload.contact_id,
+        "tracked_user_id": payload.tracked_user_id,
+        "ok": result["ok"],
+        "status": result["status"],
+        "message_id": result["message_id"],
+        "error": result.get("error"),
+        "created_at": _now(),
+    }
+    try: await db.whatsapp_messages.insert_one(log.copy())
+    except Exception: pass
+    log.pop("_id", None)
+    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
+
+
+@api.get("/me/whatsapp/history", tags=["Portail Client"])
+async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current_user)):
+    client_scope = (user.get("client_id") or user.get("id"))
+    query = {"client_id": client_scope} if user.get("role") != "admin" else {}
+    items = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
+    return items
+
+
+@api.get("/admin/whatsapp/templates", tags=["Admin"])
+async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
+    """List approved templates from the configured WABA."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    waba_id = s.get("wa_business_account_id")
+    if not access_token or not waba_id:
+        return {"configured": False, "items": []}
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates?limit=100"
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            if r.status_code >= 300:
+                return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
+            d = r.json()
+            return {"configured": True, "items": d.get("data") or []}
+    except Exception as exc:  # noqa: BLE001
+        return {"configured": True, "items": [], "error": str(exc)[:200]}
+
+
+# ====================================================================
+# PHASE 4 — Dynamic Forms (Google Forms-like)
+# Structure :
+#   forms : {id, client_id, number, title, description, is_public, pages, created_by_id, created_by_label, created_at, updated_at, uses_count, revisions_count}
+#     pages : [{id, title, fields:[{id, type, label, required, options?, placeholder?, col_start, col_span, row}]}]
+#   form_submissions : {id, form_id, client_id, user_id, user_label, data, geo, created_at, updated_at, revisions_count}
+# ====================================================================
+FIELD_TYPES = {"text", "textarea", "number", "boolean", "select", "multiselect", "date", "datetime", "email", "tel", "url", "location"}
+
+
+class FormField(BaseModel):
+    id: str
+    type: str
+    label: str
+    required: bool = False
+    options: Optional[List[str]] = None
+    placeholder: Optional[str] = None
+    default_value: Optional[Any] = None
+    # Position inside a 12-column responsive grid
+    col_start: int = 1      # 1..12
+    col_span: int = 12      # 1..12 (col_start + col_span <= 13)
+    row: int = 0
+
+
+class FormPage(BaseModel):
+    id: str
+    title: str = "Page"
+    fields: List[FormField] = []
+
+
+class FormCreate(BaseModel):
+    title: str
+    description: Optional[str] = ""
+    is_public: bool = False
+    pages: Optional[List[FormPage]] = None
+
+
+class FormUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    is_public: Optional[bool] = None
+    pages: Optional[List[FormPage]] = None
+
+
+async def _next_form_number(client_code: str) -> int:
+    res = await db.counters.find_one_and_update(
+        {"_id": f"form_{client_code}"},
+        {"$inc": {"value": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    return (res or {}).get("value", 1)
+
+
+def _form_serialize(doc: dict) -> dict:
+    if not doc:
+        return doc
+    doc.pop("_id", None)
+    return doc
+
+
+async def _require_owner_or_admin(form: dict, user: dict) -> None:
+    if user.get("role") == "admin":
+        return
+    if form.get("client_id") != (user.get("client_id") or user.get("id")):
+        raise HTTPException(status_code=403, detail="Formulaire non accessible")
+
+
+@api.get("/me/forms", tags=["Formulaires"])
+async def me_list_forms(user: dict = Depends(get_current_user)):
+    """List forms: all of the user's client + all public forms from other clients."""
+    client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else None
+    if user.get("role") == "admin":
+        query = {}
+    else:
+        query = {"$or": [{"client_id": client_scope}, {"is_public": True}]}
+    items = await db.forms.find(query, {"_id": 0, "pages": 0}).sort("created_at", -1).to_list(500)
+    # Tag each form so the UI can distinguish mine vs public-imported
+    for it in items:
+        it["is_mine"] = it.get("client_id") == client_scope
+    return items
+
+
+@api.post("/me/forms", tags=["Formulaires"])
+async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_user)):
+    client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
+    client = await db.users.find_one({"id": client_scope}, {"_id": 0, "client_code": 1, "company": 1, "full_name": 1})
+    code = (client or {}).get("client_code") or _slugify_code((client or {}).get("company") or (client or {}).get("full_name") or "X")
+    number = await _next_form_number(code)
+    doc = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "client_code": code,
+        "number": f"FORM-{code}-{number:04d}",
+        "title": payload.title,
+        "description": payload.description or "",
+        "is_public": payload.is_public,
+        "pages": [p.model_dump() for p in (payload.pages or [FormPage(id=_uuid(), title="Page 1", fields=[])])],
+        "created_by_id": user["id"],
+        "created_by_label": user.get("full_name") or user.get("email"),
+        "created_at": _now(),
+        "updated_at": _now(),
+        "uses_count": 0,
+    }
+    await db.forms.insert_one(doc.copy())
+    return _form_serialize(doc)
+
+
+@api.get("/me/forms/{form_id}", tags=["Formulaires"])
+async def me_get_form(form_id: str, user: dict = Depends(get_current_user)):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    client_scope = (user.get("client_id") or user.get("id"))
+    is_public = form.get("is_public")
+    is_mine = form.get("client_id") == client_scope
+    if user.get("role") != "admin" and not is_public and not is_mine:
+        raise HTTPException(status_code=403, detail="Formulaire non accessible")
+    form["is_mine"] = is_mine
+    return form
+
+
+@api.put("/me/forms/{form_id}", tags=["Formulaires"])
+async def me_update_form(form_id: str, payload: FormUpdate, user: dict = Depends(get_current_user)):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    await _require_owner_or_admin(form, user)
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "pages" in update:
+        update["pages"] = [p if isinstance(p, dict) else p.model_dump() for p in update["pages"]]
+    update["updated_at"] = _now()
+    await db.forms.update_one({"id": form_id}, {"$set": update})
+    refreshed = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    return _form_serialize(refreshed)
+
+
+@api.delete("/me/forms/{form_id}", tags=["Formulaires"])
+async def me_delete_form(form_id: str, user: dict = Depends(get_current_user)):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        return {"ok": True}
+    await _require_owner_or_admin(form, user)
+    await db.forms.delete_one({"id": form_id})
+    await db.form_submissions.delete_many({"form_id": form_id})
+    return {"ok": True}
+
+
+@api.post("/me/forms/{form_id}/import", tags=["Formulaires"])
+async def me_import_form(form_id: str, user: dict = Depends(get_current_user)):
+    """Duplicate a public form into the current client's scope (numbered & owned by them)."""
+    src = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not src:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    if not src.get("is_public") and src.get("client_id") != (user.get("client_id") or user.get("id")) and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Ce formulaire n'est pas public")
+    client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
+    client = await db.users.find_one({"id": client_scope}, {"_id": 0, "client_code": 1, "company": 1, "full_name": 1})
+    code = (client or {}).get("client_code") or _slugify_code((client or {}).get("company") or (client or {}).get("full_name") or "X")
+    number = await _next_form_number(code)
+    dup = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "client_code": code,
+        "number": f"FORM-{code}-{number:04d}",
+        "title": f"{src['title']} (importé)",
+        "description": src.get("description") or "",
+        "is_public": False,
+        "pages": src.get("pages") or [],
+        "created_by_id": user["id"],
+        "created_by_label": user.get("full_name") or user.get("email"),
+        "imported_from": src["id"],
+        "created_at": _now(),
+        "updated_at": _now(),
+        "uses_count": 0,
+    }
+    await db.forms.insert_one(dup.copy())
+    return _form_serialize(dup)
+
+
+# ----- Form submissions (one per user per form — auto-alimentation on reopen) -----
+class SubmissionSave(BaseModel):
+    data: Dict[str, Any]
+    geo: Optional[Dict[str, Any]] = None
+
+
+@api.get("/me/forms/{form_id}/submission", tags=["Formulaires"])
+async def me_get_my_submission(form_id: str, user: dict = Depends(get_current_user)):
+    """Return the current user's submission for the form (or an empty stub)."""
+    sub = await db.form_submissions.find_one(
+        {"form_id": form_id, "user_id": user["id"]}, {"_id": 0}
+    )
+    return sub or {"form_id": form_id, "user_id": user["id"], "data": {}, "revisions_count": 0}
+
+
+@api.post("/me/forms/{form_id}/submission", tags=["Formulaires"])
+async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict = Depends(get_current_user)):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0, "client_id": 1, "uses_count": 1})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    existing = await db.form_submissions.find_one({"form_id": form_id, "user_id": user["id"]}, {"_id": 0})
+    if existing:
+        update = {
+            "data": payload.data,
+            "geo": payload.geo,
+            "updated_at": _now(),
+            "revisions_count": (existing.get("revisions_count") or 0) + 1,
+            "user_label": user.get("full_name") or user.get("email"),
+        }
+        await db.form_submissions.update_one({"id": existing["id"]}, {"$set": update})
+        refreshed = await db.form_submissions.find_one({"id": existing["id"]}, {"_id": 0})
+        return refreshed
+    doc = {
+        "id": _uuid(),
+        "form_id": form_id,
+        "client_id": form.get("client_id"),
+        "user_id": user["id"],
+        "user_label": user.get("full_name") or user.get("email"),
+        "data": payload.data,
+        "geo": payload.geo,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "revisions_count": 1,
+    }
+    await db.form_submissions.insert_one(doc.copy())
+    await db.forms.update_one({"id": form_id}, {"$inc": {"uses_count": 1}})
+    doc.pop("_id", None)
+    return doc
+
+
+@api.get("/me/forms/{form_id}/submissions", tags=["Formulaires"])
+async def me_list_form_submissions(form_id: str, user: dict = Depends(get_current_user)):
+    """List all submissions for a form — owner/admin only."""
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    await _require_owner_or_admin(form, user)
+    items = await db.form_submissions.find({"form_id": form_id}, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    return {"form": {"id": form["id"], "title": form.get("title"), "pages": form.get("pages") or []}, "items": items}
+
+
+# ====================================================================
+# PHASE 5 — Notification badges on menu links
+
+
+@api.post("/me/notifications/mark-seen", tags=["Portail Client"])
+async def me_notifications_mark_seen(payload: MarkSeenRequest, user: dict = Depends(get_current_user)):
+    """Mark a module as visited (resets its badge counter to 0)."""
+    if payload.module not in MODULE_COUNT_QUERIES:
+        raise HTTPException(status_code=400, detail=f"Module inconnu : {payload.module}")
+    await db.user_module_visits.update_one(
+        {"user_id": user["id"], "module": payload.module},
+        {"$set": {"last_visited_at": _now()}},
+        upsert=True,
+    )
+    return {"ok": True}
+
+
+# ====================================================================
 # PHASE 2 — Deep-links cryptés pour intégrations externes (Windows apps)
 # URL pattern : {PUBLIC_BASE_URL}/launch?t=<jwt>
 # Token claims : {action, client_code, username, target_id?, iat, exp}
@@ -4783,6 +5315,19 @@ async def on_startup():
     await db.access_logs.create_index("user_email")
     # Document logs
     await db.document_logs.create_index([("document_id", 1), ("created_at", -1)])
+    # Notification badges — lookup by (user_id, module)
+    await db.user_module_visits.create_index([("user_id", 1), ("module", 1)], unique=True)
+    # Dynamic forms (Phase 4)
+    await db.forms.create_index("client_id")
+    await db.forms.create_index("is_public")
+    await db.forms.create_index("created_at")
+    await db.form_submissions.create_index([("form_id", 1), ("user_id", 1)], unique=True)
+    await db.form_submissions.create_index("client_id")
+    # Directory & WhatsApp (Phase 3)
+    await db.directory_contacts.create_index("client_id")
+    await db.directory_contacts.create_index([("client_id", 1), ("owner_id", 1)])
+    await db.whatsapp_messages.create_index("client_id")
+    await db.whatsapp_messages.create_index("created_at")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")

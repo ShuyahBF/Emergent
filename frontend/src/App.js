@@ -57,6 +57,10 @@ import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
 import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
 import Launch from "@/pages/public/Launch";
+import FormsList from "@/pages/portal/FormsList";
+import FormEditor from "@/pages/portal/FormEditor";
+import FormRunner from "@/pages/portal/FormRunner";
+import Contacts from "@/pages/portal/Contacts";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -112,6 +116,10 @@ export default function App() {
             <Route path="users" element={<ClientUsersTracking />} />
             <Route path="formations" element={<FormationsList />} />
             <Route path="formations/:fid" element={<FormationDetail />} />
+            <Route path="forms" element={<FormsList />} />
+            <Route path="forms/:fid/edit" element={<FormEditor />} />
+            <Route path="forms/:fid/fill" element={<FormRunner />} />
+            <Route path="contacts" element={<Contacts />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>
 

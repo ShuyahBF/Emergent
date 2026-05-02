@@ -267,22 +267,26 @@ async def _next_intervention_number(client_doc: dict) -> str:
 
 
 # ---- Intervention webhook ----
-async def _fire_intervention_webhook(action: str, intervention_doc: dict) -> None:
-    """Fire-and-forget POST to {base_url}/{action}/{client_code}/{number}.
-    Authentication options: none | bearer | basic.
-    Failures are logged but never raised.
+async def _fire_intervention_webhook(action: str, intervention_doc: dict) -> dict:
+    """POST to {base_url}/{action}/{client_code}/{number}.
+    Returns a result dict {enabled, fired, ok, status, url, body, error} — never raises.
+    Synchronous: awaits the response so the caller can surface the real status.
     """
+    result: dict = {"enabled": False, "fired": False, "ok": None, "status": None, "url": None, "body": None, "error": None}
     try:
         s = await db.settings.find_one({"_id": "global"}) or {}
         if not s.get("webhook_enabled") or not s.get("webhook_base_url"):
-            return
+            return result
+        result["enabled"] = True
         client = await db.users.find_one({"id": intervention_doc.get("client_id")}, {"_id": 0})
         if not client:
-            return
+            result["error"] = "Client introuvable"
+            return result
         code = (client.get("client_code") or _slugify_code(client.get("company") or client.get("full_name") or "X"))
         number = intervention_doc.get("intervention_number") or "unknown"
         base = (s.get("webhook_base_url") or "").rstrip("/")
         url = f"{base}/{action}/{code}/{number}"
+        result["url"] = url
         headers = {"Content-Type": "application/json", "User-Agent": "SawaliWebhook/1.0"}
         auth = None
         atype = (s.get("webhook_auth_type") or "none").lower()
@@ -292,32 +296,43 @@ async def _fire_intervention_webhook(action: str, intervention_doc: dict) -> Non
             auth = (s.get("webhook_basic_user") or "", s.get("webhook_basic_pass") or "")
         async with httpx.AsyncClient(timeout=8.0) as http:
             r = await http.post(url, json=intervention_doc, headers=headers, auth=auth)
+            result["fired"] = True
+            result["status"] = r.status_code
+            # Best-effort body extraction
+            try:
+                result["body"] = r.json()
+            except Exception:
+                result["body"] = (r.text or "")[:2000]
+            result["ok"] = 200 <= r.status_code < 300
             logger.info("Intervention webhook %s %s -> %s", action, url, r.status_code)
+    except httpx.TimeoutException:
+        result["error"] = "Délai dépassé (timeout 8s)"
+        logger.warning("Intervention webhook timeout")
     except Exception as exc:  # noqa: BLE001
+        result["error"] = str(exc)[:500]
         logger.warning("Intervention webhook failed: %s", exc)
+    return result
 
 
-def _fire_webhook_bg(action: str, intervention_doc: dict) -> None:
-    """Schedule webhook without awaiting it (fire and forget)."""
-    try:
-        asyncio.create_task(_fire_intervention_webhook(action, intervention_doc))
-    except RuntimeError:
-        # No running loop (shouldn't happen in FastAPI), ignore.
-        pass
+async def _fire_notes_webhook(action: str, kind: str, note_doc: dict, user: dict) -> dict:
+    """POST when a Rapport/Suivi is created/updated/deleted.
 
-
-async def _fire_notes_webhook(action: str, kind: str, note_doc: dict, user: dict) -> None:
-    """Fire-and-forget POST when a Rapport/Suivi is created/updated/deleted.
-
-    URL pattern: {notes_webhook_url}/{action}/{kind}/{note_id}
-    Body: full note doc + author block.
+    URL pattern: {notes_webhook_url}/{action}/{kind_fr}/{note_id}
+    where kind_fr is 'rapport' (singular French) for reports and 'suivi' for suivis.
+    Returns a result dict {enabled, fired, ok, status, url, body, error}.
     """
+    result: dict = {"enabled": False, "fired": False, "ok": None, "status": None, "url": None, "body": None, "error": None}
     try:
         s = await db.settings.find_one({"_id": "global"}) or {}
         if not s.get("notes_webhook_enabled") or not s.get("notes_webhook_url"):
-            return
+            return result
+        result["enabled"] = True
+        # Map internal plural English kind → French singular as expected by
+        # downstream REST consumers: "reports" → "rapport", "suivis" → "suivi"
+        kind_fr = "rapport" if kind == "reports" else ("suivi" if kind == "suivis" else kind)
         base = (s.get("notes_webhook_url") or "").rstrip("/")
-        url = f"{base}/{action}/{kind}/{note_doc.get('id', 'unknown')}"
+        url = f"{base}/{action}/{kind_fr}/{note_doc.get('id', 'unknown')}"
+        result["url"] = url
         headers = {"Content-Type": "application/json", "User-Agent": "SawaliNotesWebhook/1.0"}
         auth = None
         atype = (s.get("notes_webhook_auth_type") or "none").lower()
@@ -327,16 +342,36 @@ async def _fire_notes_webhook(action: str, kind: str, note_doc: dict, user: dict
             auth = (s.get("notes_webhook_basic_user") or "", s.get("notes_webhook_basic_pass") or "")
         body = {
             "action": action,
-            "kind": kind,
+            "kind": kind_fr,
             "note": note_doc,
             "author": {"id": user.get("id"), "email": user.get("email"), "full_name": user.get("full_name"), "role": user.get("role")},
             "fired_at": _now(),
         }
         async with httpx.AsyncClient(timeout=8.0) as http:
             r = await http.post(url, json=body, headers=headers, auth=auth)
+            result["fired"] = True
+            result["status"] = r.status_code
+            try:
+                result["body"] = r.json()
+            except Exception:
+                result["body"] = (r.text or "")[:2000]
+            result["ok"] = 200 <= r.status_code < 300
             logger.info("Notes webhook %s %s -> %s", action, url, r.status_code)
+    except httpx.TimeoutException:
+        result["error"] = "Délai dépassé (timeout 8s)"
+        logger.warning("Notes webhook timeout")
     except Exception as exc:  # noqa: BLE001
+        result["error"] = str(exc)[:500]
         logger.warning("Notes webhook failed: %s", exc)
+    return result
+
+
+def _fire_webhook_bg(action: str, intervention_doc: dict) -> None:
+    """Kept for backwards compatibility — triggers fire-and-forget without result."""
+    try:
+        asyncio.create_task(_fire_intervention_webhook(action, intervention_doc))
+    except RuntimeError:
+        pass
 
 
 def _fire_notes_webhook_bg(action: str, kind: str, note_doc: dict, user: dict) -> None:
@@ -1175,7 +1210,8 @@ async def admin_create_intervention(
     }
     await db.interventions.insert_one(doc.copy())
     doc.pop("_id", None)
-    _fire_webhook_bg("created", doc)
+    webhook_result = await _fire_intervention_webhook("created", doc)
+    doc["webhook_result"] = webhook_result
     return doc
 
 
@@ -1187,9 +1223,10 @@ async def admin_update_intervention(
     update["updated_at"] = _now()
     await db.interventions.update_one({"id": int_id}, {"$set": update})
     doc = await db.interventions.find_one({"id": int_id}, {"_id": 0})
+    webhook_result = None
     if doc:
-        _fire_webhook_bg("updated", doc)
-    return {"ok": True}
+        webhook_result = await _fire_intervention_webhook("updated", doc)
+    return {"ok": True, "webhook_result": webhook_result}
 
 
 @api.delete("/admin/interventions/{int_id}", tags=["Admin"])
@@ -2040,7 +2077,10 @@ async def me_create_note(
     }
     await coll.insert_one(doc.copy())
     doc.pop("_id", None)
-    _fire_notes_webhook_bg("created", kind, doc, user)
+    # Await the webhook synchronously so the real upstream status can be
+    # returned to the caller (and displayed via popup on the frontend).
+    webhook_result = await _fire_notes_webhook("created", kind, doc, user)
+    doc["webhook_result"] = webhook_result
     return doc
 
 
@@ -2073,8 +2113,8 @@ async def me_update_note(
     update["updated_at"] = _now()
     await coll.update_one({"id": note_id}, {"$set": update})
     refreshed = await coll.find_one({"id": note_id}, {"_id": 0}) or {**existing, **update}
-    _fire_notes_webhook_bg("updated", kind, refreshed, user)
-    return {"ok": True}
+    webhook_result = await _fire_notes_webhook("updated", kind, refreshed, user)
+    return {"ok": True, "webhook_result": webhook_result}
 
 
 @api.delete("/me/notes/{kind}/{note_id}", tags=["Portail Client"])
@@ -2091,7 +2131,8 @@ async def me_delete_note(
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Note introuvable")
     if existing:
-        _fire_notes_webhook_bg("deleted", kind, existing, user)
+        webhook_result = await _fire_notes_webhook("deleted", kind, existing, user)
+        return {"ok": True, "webhook_result": webhook_result}
     return {"ok": True}
 
 
@@ -2143,7 +2184,8 @@ async def me_create_intervention(
     }
     await db.interventions.insert_one(doc.copy())
     doc.pop("_id", None)
-    _fire_webhook_bg("created", doc)
+    webhook_result = await _fire_intervention_webhook("created", doc)
+    doc["webhook_result"] = webhook_result
     return doc
 
 

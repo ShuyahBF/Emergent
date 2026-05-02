@@ -117,6 +117,15 @@ apiClient.interceptors.response.use(
         // Pages that already raise their own toast will simply stack a second one — accepted.
         try { toast.success("Opération effectuée avec succès", { duration: 1500 }); } catch { /* noop */ }
       }
+      // Surface the upstream webhook result (if any) as a centered modal.
+      // Only show when the webhook is enabled — silent otherwise.
+      const wr = r?.data?.webhook_result;
+      if (wr && wr.enabled) {
+        // Dynamic import to avoid a circular dep between api.js ↔ WebhookResultModal.jsx
+        import("@/components/WebhookResultModal").then((mod) => {
+          mod.showWebhookResult(wr);
+        }).catch(() => { /* noop */ });
+      }
     } catch { /* noop */ }
     return r;
   },

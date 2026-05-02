@@ -59,6 +59,7 @@ import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
 import RouteTracker from "@/components/RouteTracker";
+import WebhookResultModal from "@/components/WebhookResultModal";
 
 import ApiDocs from "@/pages/ApiDocs";
 
@@ -77,6 +78,7 @@ export default function App() {
     <AuthProvider>
       <BrowserRouter>
         <Toaster richColors position="top-right" />
+        <WebhookResultModal />
         <RouteTracker />
         <Routes>
           {/* Public marketing */}

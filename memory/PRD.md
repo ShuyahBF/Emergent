@@ -33,6 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-02 — Itération 17 : Phase 1 — Fix webhooks POST API REST (kind singulier français + vrais codes HTTP + popup)
+✅ **Bug kind pluriel anglais** : URLs webhook construisaient `.../reports/...` et `.../suivis/...` (valeurs internes). Désormais mappées en français singulier : `reports` → `rapport`, `suivis` → `suivi` (naturel pour les API clientes).
+✅ **Bug tous les 200** : webhooks étaient fire-and-forget (`asyncio.create_task`) donc l'API répondait 200 instantanément sans attendre la réponse. Désormais **synchrones** (timeout 8s) et retournent `{enabled, fired, ok, status, url, body, error}` dans la réponse API du POST/PUT/DELETE.
+✅ Composant `<WebhookResultModal>` monté globalement dans App.js : écoute l'event `sawali:webhook-result` et affiche popup centrée (backdrop flou, design vert/rouge selon status, URL, code HTTP, body JSON formaté, erreur, bouton copier).
+✅ Axios intercepteur dans `lib/api.js` détecte `webhook_result.enabled` dans toute réponse et dispatche le CustomEvent automatiquement — zéro modification requise dans les pages métier existantes.
+✅ Endpoints impactés : `POST /me/notes/{kind}`, `PUT /me/notes/{kind}/{id}`, `DELETE /me/notes/{kind}/{id}`, `POST /admin/interventions`, `PUT /admin/interventions/{id}`, `POST /me/interventions`.
+✅ Validé via curl (backend renvoie bien webhook_result) + screenshot (modal rouge "HTTP 500" avec tous les détails).
+
 ### 2026-05-02 — Itération 16 : Performance fix critique (lenteurs login + navigation)
 ✅ **Bug** : `/api/track` (appelé à chaque navigation) bloquait jusqu'à 5s en attendant la géolocalisation IP via `ip-api.com` (rate-limited). Sous charge, les requêtes s'empilaient et bloquaient la file asyncio, ralentissant TOUT.
 ✅ **Fix géo non-bloquant** :

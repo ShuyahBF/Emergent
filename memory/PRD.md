@@ -33,6 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-02 — Itération 18 : Phase 2 — Liens externes cryptés (deep-links JWT 15min)
+✅ JWT signé séparé (`LINK_JWT_SECRET` env) pour ne pas confondre avec l'auth JWT. Actions supportées : `login`, `rdv`, `appointments`, `document`, `intervention`, `contact`, `dashboard`, `formations`, `note`, `status`.
+✅ 3 endpoints : `POST /integrations/build-link` (admin), `GET /integrations/link-actions` (admin), `GET /integrations/resolve-link?t=<jwt>` (public).
+✅ Page `/launch?t=<jwt>` : décode le token, redirige vers la bonne route selon `action`, stash les claims en sessionStorage pour que Login pré-remplisse email + toast informatif.
+✅ UI admin `/admin/integration-links` (super-admin) avec sélecteur action/TTL (5min → 24h), code client, username, target_id, bouton "Générer" → aperçu URL + token JWT + copy-to-clipboard.
+✅ Menu sidebar : entrée "🔗 Liens cryptés" ajoutée.
+✅ Validé via curl : token 300s généré + resolve-link retourne `{valid:true, action:'rdv', client_code:'ACME-001', ...}`, token invalide retourne `{valid:false, reason:'invalid'}`.
+
 ### 2026-05-02 — Itération 17 : Phase 1 — Fix webhooks POST API REST (kind singulier français + vrais codes HTTP + popup)
 ✅ **Bug kind pluriel anglais** : URLs webhook construisaient `.../reports/...` et `.../suivis/...` (valeurs internes). Désormais mappées en français singulier : `reports` → `rapport`, `suivis` → `suivi` (naturel pour les API clientes).
 ✅ **Bug tous les 200** : webhooks étaient fire-and-forget (`asyncio.create_task`) donc l'API répondait 200 instantanément sans attendre la réponse. Désormais **synchrones** (timeout 8s) et retournent `{enabled, fired, ok, status, url, body, error}` dans la réponse API du POST/PUT/DELETE.

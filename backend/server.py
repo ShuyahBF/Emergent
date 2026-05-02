@@ -4108,6 +4108,101 @@ async def admin_export_newsletter(_: dict = Depends(get_current_admin)):
 
 
 # ====================================================================
+# PHASE 2 — Deep-links cryptés pour intégrations externes (Windows apps)
+# URL pattern : {PUBLIC_BASE_URL}/launch?t=<jwt>
+# Token claims : {action, client_code, username, target_id?, iat, exp}
+# Signed with LINK_JWT_SECRET (separate from auth JWT to avoid token confusion).
+# ====================================================================
+import jwt as _pyjwt_links
+
+LINK_JWT_SECRET = os.environ.get("LINK_JWT_SECRET") or (os.environ.get("JWT_SECRET", "fallback-insecure") + "-link")
+LINK_JWT_ALGO = "HS256"
+LINK_DEFAULT_TTL_SECONDS = 15 * 60  # 15 minutes
+LINK_ACTIONS = {
+    "login": "Connexion au portail",
+    "rdv": "Demande / prise de RDV",
+    "appointments": "Liste des RDV",
+    "document": "Espace documents",
+    "intervention": "Espace interventions",
+    "contact": "Formulaire de contact",
+    "dashboard": "Tableau de bord portail",
+    "formations": "Formations spécialisées",
+    "note": "Rapports et suivis",
+    "status": "Page d'état /uptime",
+}
+
+
+class BuildLinkRequest(BaseModel):
+    action: str
+    client_code: Optional[str] = None
+    username: Optional[str] = None
+    target_id: Optional[str] = None
+    ttl_seconds: Optional[int] = None
+
+
+@api.get("/integrations/link-actions", tags=["Admin"])
+async def integrations_link_actions(_: dict = Depends(get_current_admin)):
+    """List the supported deep-link actions for the admin UI dropdown."""
+    return [{"value": k, "label": v} for k, v in LINK_ACTIONS.items()]
+
+
+@api.post("/integrations/build-link", tags=["Admin"])
+async def integrations_build_link(payload: BuildLinkRequest, _: dict = Depends(get_current_admin)):
+    action = (payload.action or "").strip().lower()
+    if action not in LINK_ACTIONS:
+        raise HTTPException(status_code=400, detail=f"Action inconnue. Options : {', '.join(LINK_ACTIONS.keys())}")
+    ttl = payload.ttl_seconds if payload.ttl_seconds and payload.ttl_seconds > 0 else LINK_DEFAULT_TTL_SECONDS
+    ttl = min(ttl, 24 * 3600)  # hard cap 24h to prevent abuse
+    now = int(datetime.now(timezone.utc).timestamp())
+    claims = {
+        "action": action,
+        "client_code": (payload.client_code or "").strip() or None,
+        "username": (payload.username or "").strip() or None,
+        "target_id": (payload.target_id or "").strip() or None,
+        "iat": now,
+        "exp": now + ttl,
+    }
+    token = _pyjwt_links.encode(claims, LINK_JWT_SECRET, algorithm=LINK_JWT_ALGO)
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    # When PUBLIC_BASE_URL is not configured, still return the path — the admin
+    # UI will prepend window.location.origin client-side.
+    url = f"{base}/launch?t={token}" if base else f"/launch?t={token}"
+    return {
+        "token": token,
+        "url": url,
+        "expires_at": datetime.fromtimestamp(claims["exp"], tz=timezone.utc).isoformat(),
+        "ttl_seconds": ttl,
+        "action": action,
+        "action_label": LINK_ACTIONS[action],
+    }
+
+
+@api.get("/integrations/resolve-link", tags=["Public"])
+async def integrations_resolve_link(t: str):
+    """Public endpoint — decode a link token, return its claims so the SPA
+    can redirect the user to the right route. Never raises on bad tokens;
+    returns {valid: false, reason}."""
+    try:
+        claims = _pyjwt_links.decode(t, LINK_JWT_SECRET, algorithms=[LINK_JWT_ALGO])
+    except _pyjwt_links.ExpiredSignatureError:
+        return {"valid": False, "reason": "expired"}
+    except Exception:
+        return {"valid": False, "reason": "invalid"}
+    action = claims.get("action")
+    if action not in LINK_ACTIONS:
+        return {"valid": False, "reason": "invalid_action"}
+    return {
+        "valid": True,
+        "action": action,
+        "action_label": LINK_ACTIONS[action],
+        "client_code": claims.get("client_code"),
+        "username": claims.get("username"),
+        "target_id": claims.get("target_id"),
+        "expires_at": datetime.fromtimestamp(claims["exp"], tz=timezone.utc).isoformat() if claims.get("exp") else None,
+    }
+
+
+# ====================================================================
 # VISITOR TRACKING (with optional forward to external REST endpoint)
 # ====================================================================
 # In-memory cache for geo lookups — avoids hitting ip-api.com on every

@@ -25,6 +25,21 @@ export default function Login() {
     if (user) navigate(user.role === "admin" ? "/admin" : "/portal");
   }, [user, navigate]);
 
+  // Deep-link auto-prefill : if the user arrived via /launch?t=..., the Launch
+  // page has stashed the decoded claims in sessionStorage — consume them once.
+  useEffect(() => {
+    try {
+      const raw = sessionStorage.getItem("sawali_launch_claims");
+      if (!raw) return;
+      const claims = JSON.parse(raw);
+      if (claims?.username) setEmail(claims.username);
+      sessionStorage.removeItem("sawali_launch_claims");
+      if (claims?.action === "login") {
+        toast.info(`Lien sécurisé reçu (${claims.client_code || "—"}). Merci de saisir votre mot de passe.`);
+      }
+    } catch { /* noop */ }
+  }, []);
+
   useEffect(() => {
     apiClient.get("/auth/captcha-config").then((r) => setCaptchaCfg(r.data)).catch(() => {});
   }, []);

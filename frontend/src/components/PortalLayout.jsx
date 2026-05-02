@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -43,6 +43,7 @@ const adminLinks = [
   { to: "/admin/api-traces", label: "Traces API (debug)", icon: Bug, superAdminOnly: true },
   { to: "/admin/health", label: "Santé applicative", icon: HeartPulse, superAdminOnly: true },
   { to: "/admin/db-explorer", label: "Explorateur DB", icon: Database, superAdminOnly: true },
+  { to: "/admin/integration-links", label: "Liens cryptés", icon: Link2, superAdminOnly: true },
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },

@@ -55,6 +55,8 @@ import AdminApiTraces from "@/pages/admin/AdminApiTraces";
 import AdminHealthDashboard from "@/pages/admin/AdminHealthDashboard";
 import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
+import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
+import Launch from "@/pages/public/Launch";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -95,6 +97,7 @@ export default function App() {
           <Route path="/blog/:slug" element={<PublicRoute><BlogPost /></PublicRoute>} />
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/uptime" element={<StatusPage />} />
+          <Route path="/launch" element={<Launch />} />
           <Route path="/documentation" element={<ApiDocs />} />
 
           {/* Auth */}
@@ -134,6 +137,7 @@ export default function App() {
             <Route path="health" element={<AdminHealthDashboard />} />
             <Route path="db-explorer" element={<AdminDbExplorer />} />
             <Route path="formations" element={<AdminFormations />} />
+            <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

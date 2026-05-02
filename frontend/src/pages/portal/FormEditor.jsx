@@ -2,7 +2,8 @@ import React, { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, ArrowLeft, Globe, Lock, GripVertical, PlayCircle } from "lucide-react";
+import { Save, Plus, Trash2, ArrowLeft, Globe, Lock, GripVertical, PlayCircle, Share2 } from "lucide-react";
+import ShareFormModal from "@/components/ShareFormModal";
 
 const FIELD_TYPES = [
   { v: "text", l: "Texte court" }, { v: "textarea", l: "Texte long" },
@@ -20,6 +21,7 @@ export default function FormEditor() {
   const [form, setForm] = useState(null);
   const [saving, setSaving] = useState(false);
   const [activePage, setActivePage] = useState(0);
+  const [showShare, setShowShare] = useState(false);
 
   useEffect(() => {
     apiClient.get(`/me/forms/${fid}`).then((r) => setForm(r.data)).catch(() => toast.error("Formulaire introuvable"));
@@ -65,8 +67,13 @@ export default function FormEditor() {
         <code className="text-[11px] font-mono bg-slate-100 px-2 py-0.5 rounded">{form.number}</code>
         <div className="flex-1" />
         <button onClick={() => navigate(`/portal/forms/${fid}/fill`)} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-3 py-2" data-testid="form-preview-btn"><PlayCircle className="h-4 w-4" /> Aperçu</button>
+        {form.is_public && (
+          <button onClick={() => setShowShare(true)} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2" data-testid="form-share-btn"><Share2 className="h-4 w-4" /> Partager</button>
+        )}
         <button onClick={save} disabled={saving} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="form-save-btn"><Save className="h-4 w-4" /> {saving ? "Sauvegarde…" : "Sauvegarder"}</button>
       </div>
+
+      {showShare && <ShareFormModal form={form} onClose={() => setShowShare(false)} />}
 
       <div className="rounded-xl border border-slate-200 bg-white p-5 space-y-3">
         <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} className="w-full text-2xl font-display font-bold focus:outline-none" placeholder="Titre du formulaire" data-testid="form-title-input" />

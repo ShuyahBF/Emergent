@@ -4622,6 +4622,53 @@ async def me_list_form_submissions(form_id: str, user: dict = Depends(get_curren
     return {"form": {"id": form["id"], "title": form.get("title"), "pages": form.get("pages") or []}, "items": items}
 
 
+# ----- Public (anonymous) form fill — only for is_public forms -----
+class PublicSubmissionRequest(BaseModel):
+    data: Dict[str, Any]
+    geo: Optional[Dict[str, Any]] = None
+    respondent_name: Optional[str] = None
+    respondent_email: Optional[str] = None
+
+
+@api.get("/public/forms/{form_id}", tags=["Public"])
+async def public_get_form(form_id: str):
+    """Fetch a public form anonymously — only works when `is_public=True`."""
+    form = await db.forms.find_one(
+        {"id": form_id, "is_public": True},
+        {"_id": 0, "id": 1, "number": 1, "title": 1, "description": 1, "pages": 1, "client_code": 1},
+    )
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable ou non public")
+    return form
+
+
+@api.post("/public/forms/{form_id}/submission", tags=["Public"])
+async def public_submit_form(form_id: str, payload: PublicSubmissionRequest, request: Request):
+    form = await db.forms.find_one({"id": form_id, "is_public": True}, {"_id": 0, "client_id": 1})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable ou non public")
+    ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
+    doc = {
+        "id": _uuid(),
+        "form_id": form_id,
+        "client_id": form.get("client_id"),
+        "user_id": f"anon-{_uuid()[:8]}",  # unique per submission so we bypass the (form_id,user_id) unique index
+        "user_label": (payload.respondent_name or payload.respondent_email or f"Anonyme · {ip}")[:120],
+        "data": payload.data,
+        "geo": payload.geo,
+        "respondent_email": payload.respondent_email,
+        "anonymous": True,
+        "source_ip": ip,
+        "created_at": _now(),
+        "updated_at": _now(),
+        "revisions_count": 1,
+    }
+    await db.form_submissions.insert_one(doc.copy())
+    await db.forms.update_one({"id": form_id}, {"$inc": {"uses_count": 1}})
+    return {"ok": True, "id": doc["id"]}
+
+
+
 # ====================================================================
 # PHASE 5 — Notification badges on menu links
 

@@ -2,14 +2,16 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download } from "lucide-react";
+import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2 } from "lucide-react";
+import ShareFormModal from "@/components/ShareFormModal";
 
 // Form catalogue : user's forms + public forms from other clients
 export default function FormsList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
-  const [filter, setFilter] = useState("mine"); // mine | public | all
+  const [filter, setFilter] = useState("mine");
+  const [shareForm, setShareForm] = useState(null);
   const navigate = useNavigate();
 
   const load = async () => {
@@ -104,6 +106,9 @@ export default function FormsList() {
                 {f.is_mine ? (
                   <>
                     <Link to={`/portal/forms/${f.id}/edit`} className="inline-flex items-center gap-1 text-[11px] rounded bg-slate-900 text-white px-2.5 py-1.5 hover:bg-slate-800"><Edit className="h-3.5 w-3.5" /> Éditer</Link>
+                    {f.is_public && (
+                      <button onClick={() => setShareForm(f)} className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2.5 py-1.5 hover:bg-emerald-700" data-testid={`form-share-${f.id}`} title="Partager publiquement"><Share2 className="h-3.5 w-3.5" /> Partager</button>
+                    )}
                     <button onClick={() => del(f.id)} className="inline-flex items-center gap-1 text-[11px] rounded bg-rose-500 text-white px-2.5 py-1.5 hover:bg-rose-600" data-testid={`form-delete-${f.id}`}><Trash2 className="h-3.5 w-3.5" /></button>
                   </>
                 ) : (
@@ -114,6 +119,8 @@ export default function FormsList() {
           ))}
         </div>
       )}
+
+      {shareForm && <ShareFormModal form={shareForm} onClose={() => setShareForm(null)} />}
     </div>
   );
 }

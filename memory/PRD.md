@@ -33,6 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-02 — Itération 20 : Formulaires publics partageables (QR + URL courte)
+✅ Endpoints publics (no auth) : `GET /public/forms/{id}` + `POST /public/forms/{id}/submission`. Fonctionnent uniquement si `is_public=True`.
+✅ Index unique contourné pour les anonymes : `user_id = anon-{uuid[:8]}` → plusieurs soumissions depuis le même lien possible.
+✅ Tracking IP source + nom/email optionnels du répondant + géolocalisation + timestamps complets.
+✅ Page publique `/f/{fid}` (PublicForm.jsx) : dark theme SAWALI, grille 12 colonnes respectée, validation required côté client, success screen avec CheckCircle, multi-pages + navigation Précédent/Suivant.
+✅ Composant `<ShareFormModal>` (QR 240×240 via api.qrserver.com + URL copyable + download PNG + open in new tab), accessible depuis FormsList (bouton "Partager" sur les formulaires publics) et FormEditor (bouton vert dans la barre d'outils).
+✅ Validé e2e : toggle is_public → bouton Partager apparaît → modal avec QR/URL → scan/clic → formulaire public accessible → soumission anonyme OK (2/2 succès).
+
 ### 2026-05-02 — Itération 19 : Phases 5/4/3 complètes (badges, formulaires, répertoire+WhatsApp)
 ✅ **Phase 5 — Badges de notifications** : collection `user_module_visits` (unique par user+module), endpoints `GET /me/notifications/counts` + `POST /me/notifications/mark-seen`. 14 modules couverts (RDV, docs, interventions, rapports, suivis, formations + 8 admin). Frontend : fetch au mount/navigation/90s, affichage badge rouge (ring glass), auto mark-seen quand on navigue sur la page correspondante. Validé : admin_clients 6→0 après mark-seen.
 ✅ **Phase 4 — Formulaires dynamiques** : modèles FormField/FormPage/FormCreate/Update. Endpoints CRUD `/me/forms`, `/me/forms/{id}/import` (clone public form), `/me/forms/{id}/submission` (get/post avec auto-increment revisions_count), `/me/forms/{id}/submissions` (list pour owner/admin). Auto-numérotation `FORM-{client_code}-{NNNN}`. Frontend 3 pages : FormsList (catalogue avec filtre mine/public/all), FormEditor (12 types champs, multi-pages, grille 12 cols, toggle public/privé, reorder ↑↓), FormRunner (auto-prefill, géoloc, 3 boutons réinit/save/CSV, navigation pages).

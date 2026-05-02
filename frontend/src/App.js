@@ -61,6 +61,7 @@ import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
 import FormRunner from "@/pages/portal/FormRunner";
 import Contacts from "@/pages/portal/Contacts";
+import PublicForm from "@/pages/public/PublicForm";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -102,6 +103,7 @@ export default function App() {
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/uptime" element={<StatusPage />} />
           <Route path="/launch" element={<Launch />} />
+          <Route path="/f/:fid" element={<PublicForm />} />
           <Route path="/documentation" element={<ApiDocs />} />
 
           {/* Auth */}

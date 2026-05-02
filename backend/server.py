@@ -4068,25 +4068,57 @@ async def admin_export_newsletter(_: dict = Depends(get_current_admin)):
 # ====================================================================
 # VISITOR TRACKING (with optional forward to external REST endpoint)
 # ====================================================================
+# In-memory cache for geo lookups — avoids hitting ip-api.com on every
+# request and surviving short outages.
+_GEO_CACHE: dict[str, dict] = {}
+_GEO_CACHE_MAX = 5000
+
+
 async def _resolve_geo(ip: str) -> dict:
     """Resolve country/city from IP via free ip-api.com (rate-limited but no key)."""
     if not ip or ip.startswith(("127.", "10.", "192.168.", "172.")) or ip == "::1":
         return {"country": "", "city": "", "region": ""}
+    if ip in _GEO_CACHE:
+        return _GEO_CACHE[ip]
     try:
         import httpx
-        async with httpx.AsyncClient(timeout=5) as cli:
+        # Aggressive 1.5 s timeout — ip-api.com is best-effort, we never want it
+        # to block the request pipeline.
+        async with httpx.AsyncClient(timeout=1.5) as cli:
             r = await cli.get(f"http://ip-api.com/json/{ip}?fields=country,regionName,city,status")
             d = r.json()
             if d.get("status") == "success":
-                return {"country": d.get("country", ""), "city": d.get("city", ""), "region": d.get("regionName", "")}
+                geo = {"country": d.get("country", ""), "city": d.get("city", ""), "region": d.get("regionName", "")}
+                # Trivial LRU-ish: drop a random entry if cache is full
+                if len(_GEO_CACHE) >= _GEO_CACHE_MAX:
+                    try:
+                        _GEO_CACHE.pop(next(iter(_GEO_CACHE)))
+                    except StopIteration:
+                        pass
+                _GEO_CACHE[ip] = geo
+                return geo
     except Exception as e:
-        logger.warning("GeoIP lookup failed: %s", e)
-    return {"country": "", "city": "", "region": ""}
+        logger.warning("GeoIP lookup failed for %s: %s", ip, e)
+    fallback = {"country": "", "city": "", "region": ""}
+    _GEO_CACHE[ip] = fallback  # cache miss too — avoid retrying broken IPs
+    return fallback
+
+
+async def _enrich_visit_geo(visit_id: str, ip: str) -> None:
+    """Resolve geo info AFTER the response has been sent and patch the visit document."""
+    geo = await _resolve_geo(ip)
+    if geo.get("country") or geo.get("city"):
+        try:
+            await db.visits.update_one({"id": visit_id}, {"$set": geo})
+        except Exception as e:
+            logger.warning("Geo enrichment write failed for %s: %s", visit_id, e)
 
 
 @api.post("/track", tags=["Public"])
 async def track_visit(request: Request, payload: dict):
-    """Enregistre une visite et la transmet (si configuré) à l'API REST externe."""
+    """Enregistre une visite et la transmet (si configuré) à l'API REST externe.
+    Geo enrichment is performed in the background so /track always returns instantly.
+    """
     # Resolve client IP
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip()
     if not ip:
@@ -4094,7 +4126,8 @@ async def track_visit(request: Request, payload: dict):
     if not ip and request.client:
         ip = request.client.host or ""
 
-    geo = await _resolve_geo(ip)
+    # Use cached geo if known, otherwise blank — we'll fill in async.
+    geo = _GEO_CACHE.get(ip) or {"country": "", "city": "", "region": ""}
     event = {
         "id": _uuid(),
         "datetime": _now(),
@@ -4111,21 +4144,26 @@ async def track_visit(request: Request, payload: dict):
     await db.visits.insert_one(event.copy())
     event.pop("_id", None)
 
-    # Optional forward to external REST endpoint
+    # Schedule geo enrichment in background only when needed (fire-and-forget)
+    if ip and not (geo.get("country") or geo.get("city")):
+        asyncio.create_task(_enrich_visit_geo(event["id"], ip))
+
+    # Optional forward to external REST endpoint — fire-and-forget so a slow
+    # third-party never blocks /track from returning.
     s = await db.settings.find_one({"_id": "global"}) or {}
     if s.get("tracking_enabled") and s.get("tracking_base_url"):
         forward_url = s["tracking_base_url"].rstrip("/") + "/" + (s.get("tracking_endpoint") or "").lstrip("/")
-        try:
-            import httpx
-            headers = {"Content-Type": "application/json"}
-            if s.get("tracking_auth_header"):
-                headers["Authorization"] = s["tracking_auth_header"]
-            async with httpx.AsyncClient(timeout=5) as cli:
-                await cli.post(forward_url, json=event, headers=headers)
-            event["forwarded"] = True
-        except Exception as e:
-            logger.warning("Tracking forward failed: %s", e)
-            event["forwarded"] = False
+        async def _fwd():
+            try:
+                import httpx
+                headers = {"Content-Type": "application/json"}
+                if s.get("tracking_auth_header"):
+                    headers["Authorization"] = s["tracking_auth_header"]
+                async with httpx.AsyncClient(timeout=3) as cli:
+                    await cli.post(forward_url, json=event, headers=headers)
+            except Exception as e:
+                logger.warning("Tracking forward failed: %s", e)
+        asyncio.create_task(_fwd())
     return {"ok": True, "id": event["id"], "geo": geo}
 
 

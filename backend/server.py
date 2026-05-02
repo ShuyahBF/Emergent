@@ -38,7 +38,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr
@@ -4667,6 +4667,277 @@ async def public_submit_form(form_id: str, payload: PublicSubmissionRequest, req
     await db.forms.update_one({"id": form_id}, {"$inc": {"uses_count": 1}})
     return {"ok": True, "id": doc["id"]}
 
+
+# ====================================================================
+# PHASE 4b — Form Analytics Dashboard (global + per-form)
+# ====================================================================
+def _parse_date(v: Optional[str]) -> Optional[datetime]:
+    if not v:
+        return None
+    try:
+        # Accept YYYY-MM-DD or full ISO
+        if len(v) == 10:
+            return datetime.strptime(v, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        return datetime.fromisoformat(v.replace("Z", "+00:00"))
+    except Exception:
+        return None
+
+
+def _analytics_scope_query(user: dict, admin_all: bool = True) -> dict:
+    """Scope forms/submissions to current client unless admin asks for global."""
+    if user.get("role") == "admin" and admin_all:
+        return {}
+    cid = user.get("client_id") or user.get("id")
+    return {"client_id": cid}
+
+
+async def _submissions_analytics(match: dict, date_from: Optional[datetime], date_to: Optional[datetime]) -> dict:
+    """Common aggregation pipeline used by global + per-form analytics."""
+    range_q = {}
+    if date_from:
+        range_q["$gte"] = date_from
+    if date_to:
+        range_q["$lte"] = date_to
+    if range_q:
+        match = {**match, "created_at": range_q}
+
+    subs = await db.form_submissions.find(
+        match,
+        {"_id": 0, "id": 1, "form_id": 1, "user_id": 1, "user_label": 1,
+         "anonymous": 1, "created_at": 1, "geo": 1, "source_ip": 1, "respondent_email": 1},
+    ).to_list(10000)
+
+    # Time-series: group per day (UTC)
+    by_day: Dict[str, int] = {}
+    auth_count = 0
+    anon_count = 0
+    by_country: Dict[str, int] = {}
+    by_author: Dict[str, Dict[str, Any]] = {}
+
+    for s in subs:
+        ts = s.get("created_at")
+        if isinstance(ts, datetime):
+            day_key = ts.astimezone(timezone.utc).strftime("%Y-%m-%d")
+        else:
+            day_key = (str(ts) or "")[:10] or "unknown"
+        by_day[day_key] = by_day.get(day_key, 0) + 1
+
+        if s.get("anonymous"):
+            anon_count += 1
+        else:
+            auth_count += 1
+            label = s.get("user_label") or s.get("user_id") or "—"
+            node = by_author.setdefault(label, {"label": label, "count": 0})
+            node["count"] += 1
+
+        geo = s.get("geo") or {}
+        country = (geo.get("country") or geo.get("country_name") or "").strip() or "Inconnu"
+        by_country[country] = by_country.get(country, 0) + 1
+
+    # Sort series by date ascending
+    series = [{"date": d, "count": by_day[d]} for d in sorted(by_day.keys())]
+    top_authors = sorted(by_author.values(), key=lambda x: x["count"], reverse=True)[:10]
+    country_list = sorted(
+        [{"country": k, "count": v} for k, v in by_country.items()],
+        key=lambda x: x["count"], reverse=True,
+    )
+
+    return {
+        "total_submissions": len(subs),
+        "auth_count": auth_count,
+        "anon_count": anon_count,
+        "series": series,
+        "top_authors": top_authors,
+        "by_country": country_list,
+    }
+
+
+@api.get("/me/forms-analytics", tags=["Formulaires"])
+async def me_forms_analytics_global(
+    user: dict = Depends(get_current_user),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
+    """Global analytics across all forms the user can see.
+    - Admin : tous les formulaires.
+    - Client : tous ses formulaires.
+    """
+    df = _parse_date(date_from)
+    dt = _parse_date(date_to)
+
+    forms_scope = _analytics_scope_query(user)
+    forms = await db.forms.find(
+        forms_scope,
+        {"_id": 0, "id": 1, "number": 1, "title": 1, "is_public": 1, "uses_count": 1, "created_at": 1, "client_code": 1},
+    ).to_list(5000)
+    form_ids = [f["id"] for f in forms]
+
+    if not form_ids:
+        return {
+            "scope": "global",
+            "total_forms": 0,
+            "total_views": 0,
+            "public_count": 0,
+            "private_count": 0,
+            "submissions": await _submissions_analytics({"form_id": {"$in": []}}, df, dt),
+            "top_forms": [],
+        }
+
+    agg = await _submissions_analytics({"form_id": {"$in": form_ids}}, df, dt)
+
+    # Top forms by submissions
+    sub_counts: Dict[str, int] = {}
+    per_form_match: Dict[str, Any] = {"form_id": {"$in": form_ids}}
+    if df or dt:
+        rng: Dict[str, Any] = {}
+        if df: rng["$gte"] = df
+        if dt: rng["$lte"] = dt
+        per_form_match["created_at"] = rng
+    cursor = db.form_submissions.aggregate([
+        {"$match": per_form_match},
+        {"$group": {"_id": "$form_id", "count": {"$sum": 1}}},
+    ])
+    async for r in cursor:
+        sub_counts[r["_id"]] = r["count"]
+
+    top_forms = sorted(
+        [{
+            "id": f["id"],
+            "number": f.get("number"),
+            "title": f.get("title"),
+            "is_public": bool(f.get("is_public")),
+            "views": int(f.get("uses_count") or 0),
+            "submissions": int(sub_counts.get(f["id"], 0)),
+        } for f in forms],
+        key=lambda x: x["submissions"], reverse=True,
+    )[:10]
+
+    return {
+        "scope": "global",
+        "total_forms": len(forms),
+        "total_views": sum(int(f.get("uses_count") or 0) for f in forms),
+        "public_count": sum(1 for f in forms if f.get("is_public")),
+        "private_count": sum(1 for f in forms if not f.get("is_public")),
+        "submissions": agg,
+        "top_forms": top_forms,
+    }
+
+
+@api.get("/me/forms/{form_id}/analytics", tags=["Formulaires"])
+async def me_form_analytics_detail(
+    form_id: str,
+    user: dict = Depends(get_current_user),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    await _require_owner_or_admin(form, user)
+
+    df = _parse_date(date_from)
+    dt = _parse_date(date_to)
+
+    agg = await _submissions_analytics({"form_id": form_id}, df, dt)
+    views = int(form.get("uses_count") or 0)
+    submissions = agg["total_submissions"]
+    completion_rate = round((submissions / views) * 100, 1) if views > 0 else (100.0 if submissions > 0 else 0.0)
+
+    # Most recent 10 submissions (trimmed)
+    recent = await db.form_submissions.find(
+        {"form_id": form_id},
+        {"_id": 0, "id": 1, "user_label": 1, "anonymous": 1, "created_at": 1, "geo": 1, "respondent_email": 1},
+    ).sort("created_at", -1).limit(10).to_list(10)
+
+    return {
+        "scope": "form",
+        "form": {
+            "id": form["id"],
+            "number": form.get("number"),
+            "title": form.get("title"),
+            "is_public": bool(form.get("is_public")),
+            "created_at": form.get("created_at"),
+        },
+        "views": views,
+        "submissions": submissions,
+        "completion_rate": completion_rate,
+        "auth_count": agg["auth_count"],
+        "anon_count": agg["anon_count"],
+        "series": agg["series"],
+        "by_country": agg["by_country"],
+        "top_authors": agg["top_authors"],
+        "recent": recent,
+    }
+
+
+@api.get("/me/forms/{form_id}/analytics/export.csv", tags=["Formulaires"])
+async def me_form_analytics_csv(
+    form_id: str,
+    user: dict = Depends(get_current_user),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+):
+    """CSV export of all submissions for a form (flat answers + metadata)."""
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    await _require_owner_or_admin(form, user)
+
+    df = _parse_date(date_from)
+    dt = _parse_date(date_to)
+    match: Dict[str, Any] = {"form_id": form_id}
+    rng: Dict[str, Any] = {}
+    if df: rng["$gte"] = df
+    if dt: rng["$lte"] = dt
+    if rng:
+        match["created_at"] = rng
+
+    # Collect all field labels from pages
+    labels: List[tuple] = []  # (field_id, label)
+    seen = set()
+    for page in (form.get("pages") or []):
+        for field in (page.get("fields") or []):
+            fid = field.get("id")
+            if fid and fid not in seen:
+                seen.add(fid)
+                labels.append((fid, field.get("label") or fid))
+
+    subs = await db.form_submissions.find(match, {"_id": 0}).sort("created_at", 1).to_list(10000)
+
+    import csv, io
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    header = ["id", "date", "auteur", "type", "email", "pays", "ville", "ip"] + [lab for _, lab in labels]
+    writer.writerow(header)
+    for s in subs:
+        data = s.get("data") or {}
+        geo = s.get("geo") or {}
+        ts = s.get("created_at")
+        ts_str = ts.isoformat() if isinstance(ts, datetime) else str(ts or "")
+        row = [
+            s.get("id", ""),
+            ts_str,
+            s.get("user_label", ""),
+            "Anonyme" if s.get("anonymous") else "Authentifié",
+            s.get("respondent_email") or "",
+            geo.get("country") or geo.get("country_name") or "",
+            geo.get("city") or "",
+            s.get("source_ip") or "",
+        ]
+        for fid, _ in labels:
+            v = data.get(fid, "")
+            if isinstance(v, (list, dict)):
+                v = json.dumps(v, ensure_ascii=False)
+            row.append(v)
+        writer.writerow(row)
+
+    csv_bytes = buf.getvalue().encode("utf-8-sig")  # BOM for Excel
+    filename = f"{(form.get('number') or form_id)}-submissions.csv"
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ====================================================================

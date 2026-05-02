@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2 } from "lucide-react";
+import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3 } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 
 // Form catalogue : user's forms + public forms from other clients
@@ -68,6 +68,16 @@ export default function FormsList() {
         </button>
       </div>
 
+      <div className="flex items-center gap-2 flex-wrap">
+        <Link
+          to="/portal/forms/analytics"
+          className="inline-flex items-center gap-2 rounded-lg border border-sawali-blue/30 bg-sawali-blue/5 text-sawali-blue px-3 py-1.5 text-xs hover:bg-sawali-blue hover:text-white transition"
+          data-testid="forms-global-analytics-btn"
+        >
+          <BarChart3 className="h-3.5 w-3.5" /> Analytics global
+        </Link>
+      </div>
+
       <div className="flex gap-2 border-b border-slate-200">
         {[["mine", "Mes formulaires"], ["public", "Formulaires publics"], ["all", "Tous"]].map(([k, l]) => (
           <button
@@ -106,6 +116,7 @@ export default function FormsList() {
                 {f.is_mine ? (
                   <>
                     <Link to={`/portal/forms/${f.id}/edit`} className="inline-flex items-center gap-1 text-[11px] rounded bg-slate-900 text-white px-2.5 py-1.5 hover:bg-slate-800"><Edit className="h-3.5 w-3.5" /> Éditer</Link>
+                    <Link to={`/portal/forms/${f.id}/analytics`} className="inline-flex items-center gap-1 text-[11px] rounded bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700" data-testid={`form-analytics-${f.id}`} title="Analytics du formulaire"><BarChart3 className="h-3.5 w-3.5" /> Stats</Link>
                     {f.is_public && (
                       <button onClick={() => setShareForm(f)} className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2.5 py-1.5 hover:bg-emerald-700" data-testid={`form-share-${f.id}`} title="Partager publiquement"><Share2 className="h-3.5 w-3.5" /> Partager</button>
                     )}

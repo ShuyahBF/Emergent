@@ -60,6 +60,8 @@ import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
 import FormRunner from "@/pages/portal/FormRunner";
+import FormsAnalytics from "@/pages/portal/FormsAnalytics";
+import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
 import Contacts from "@/pages/portal/Contacts";
 import PublicForm from "@/pages/public/PublicForm";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
@@ -119,8 +121,10 @@ export default function App() {
             <Route path="formations" element={<FormationsList />} />
             <Route path="formations/:fid" element={<FormationDetail />} />
             <Route path="forms" element={<FormsList />} />
+            <Route path="forms/analytics" element={<FormsAnalytics />} />
             <Route path="forms/:fid/edit" element={<FormEditor />} />
             <Route path="forms/:fid/fill" element={<FormRunner />} />
+            <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
             <Route path="contacts" element={<Contacts />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>

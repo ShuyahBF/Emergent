@@ -1111,10 +1111,10 @@ async def admin_get_client(client_id: str, _: dict = Depends(get_current_admin))
 async def admin_client_timeline(
     client_id: str,
     limit: int = 200,
-    types: Optional[str] = None,  # CSV of: appointment,intervention,whatsapp,form,document
+    types: Optional[str] = None,  # CSV of: appointment,intervention,whatsapp,form,document,note,task
     _: dict = Depends(get_current_admin),
 ):
-    """Unified CRM timeline for a client — aggregates events from 5 collections.
+    """Unified CRM timeline for a client — aggregates events from 7 collections.
 
     Each event has shape: {id, type, ts, title, summary, status?, link?, payload}
     Sorted by ts DESC. Optional `types` filter (CSV)."""
@@ -1122,7 +1122,7 @@ async def admin_client_timeline(
     if not user:
         raise HTTPException(status_code=404, detail="Client introuvable")
 
-    wanted = {t.strip() for t in (types or "appointment,intervention,whatsapp,form,document").split(",") if t.strip()}
+    wanted = {t.strip() for t in (types or "appointment,intervention,whatsapp,form,document,note,task").split(",") if t.strip()}
     events: List[Dict[str, Any]] = []
 
     # 1) Appointments
@@ -1225,11 +1225,51 @@ async def admin_client_timeline(
         except Exception:
             pass
 
+    # 6) Notes (free-text by admin/commercial)
+    if "note" in wanted:
+        notes = await db.client_notes.find(
+            {"client_id": client_id},
+            {"_id": 0},
+        ).sort("created_at", -1).limit(limit).to_list(limit)
+        for n in notes:
+            preview = (n.get("text") or "").strip()
+            events.append({
+                "id": n["id"],
+                "type": "note",
+                "ts": n.get("created_at"),
+                "title": f"Note de {n.get('author_label') or 'Admin'}",
+                "summary": preview[:160] + ("…" if len(preview) > 160 else ""),
+                "status": "note",
+                "payload": n,
+            })
+
+    # 7) Tasks (todos with optional due date + WhatsApp reminder)
+    if "task" in wanted:
+        tasks = await db.client_tasks.find(
+            {"client_id": client_id},
+            {"_id": 0},
+        ).sort("due_at", -1).limit(limit).to_list(limit)
+        for t in tasks:
+            due = t.get("due_at")
+            events.append({
+                "id": t["id"],
+                "type": "task",
+                "ts": due or t.get("created_at"),
+                "title": t.get("title") or "Tâche",
+                "summary": (
+                    f"Échéance: {due or 'aucune'} · "
+                    f"{'Terminée' if t.get('status') == 'done' else 'À faire'}"
+                    + (" · 🔔 rappel WhatsApp" if t.get("remind_via_whatsapp") else "")
+                ),
+                "status": "completed" if t.get("status") == "done" else "open",
+                "payload": t,
+            })
+
     # Sort DESC by ts (string ISO sorts naturally)
     events.sort(key=lambda x: (x.get("ts") or ""), reverse=True)
     events = events[:limit]
 
-    counts = {"appointment": 0, "intervention": 0, "whatsapp": 0, "form": 0, "document": 0}
+    counts = {"appointment": 0, "intervention": 0, "whatsapp": 0, "form": 0, "document": 0, "note": 0, "task": 0}
     for e in events:
         counts[e["type"]] = counts.get(e["type"], 0) + 1
 
@@ -1250,6 +1290,183 @@ async def admin_client_timeline(
         "counts": counts,
         "total": len(events),
     }
+
+
+# ====================================================================
+# CRM — Notes & Tasks per client
+# ====================================================================
+class ClientNoteCreate(BaseModel):
+    text: str
+
+
+class ClientTaskCreate(BaseModel):
+    title: str
+    description: Optional[str] = None
+    due_at: Optional[str] = None  # ISO-8601 (date or datetime)
+    remind_via_whatsapp: bool = False
+
+
+class ClientTaskUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    due_at: Optional[str] = None
+    status: Optional[str] = None  # 'open' | 'done'
+    remind_via_whatsapp: Optional[bool] = None
+
+
+async def _ensure_client_exists(client_id: str) -> dict:
+    user = await db.users.find_one({"id": client_id}, {"_id": 0, "full_name": 1, "company": 1, "phone": 1, "email": 1})
+    if not user:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    return user
+
+
+# ----- Notes -----
+@api.get("/admin/clients/{client_id}/notes", tags=["Admin"])
+async def admin_list_notes(client_id: str, _: dict = Depends(get_current_admin)):
+    await _ensure_client_exists(client_id)
+    return await db.client_notes.find({"client_id": client_id}, {"_id": 0}).sort("created_at", -1).to_list(500)
+
+
+@api.post("/admin/clients/{client_id}/notes", tags=["Admin"])
+async def admin_create_note(
+    client_id: str, payload: ClientNoteCreate, admin_user: dict = Depends(get_current_admin)
+):
+    await _ensure_client_exists(client_id)
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Le texte de la note est requis")
+    if len(text) > 5000:
+        raise HTTPException(status_code=400, detail="Note trop longue (5000 caractères max)")
+    doc = {
+        "id": _uuid(),
+        "client_id": client_id,
+        "text": text,
+        "author_id": admin_user["id"],
+        "author_label": admin_user.get("full_name") or admin_user.get("email"),
+        "created_at": _now(),
+    }
+    await db.client_notes.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/admin/clients/{client_id}/notes/{nid}", tags=["Admin"])
+async def admin_delete_note(client_id: str, nid: str, _: dict = Depends(get_current_admin)):
+    res = await db.client_notes.delete_one({"id": nid, "client_id": client_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Note introuvable")
+    return {"ok": True}
+
+
+# ----- Tasks -----
+@api.get("/admin/clients/{client_id}/tasks", tags=["Admin"])
+async def admin_list_tasks(client_id: str, _: dict = Depends(get_current_admin)):
+    await _ensure_client_exists(client_id)
+    return await db.client_tasks.find({"client_id": client_id}, {"_id": 0}).sort("due_at", 1).to_list(500)
+
+
+@api.post("/admin/clients/{client_id}/tasks", tags=["Admin"])
+async def admin_create_task(
+    client_id: str, payload: ClientTaskCreate, admin_user: dict = Depends(get_current_admin)
+):
+    await _ensure_client_exists(client_id)
+    title = (payload.title or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Titre de la tâche requis")
+    due_iso: Optional[str] = None
+    if payload.due_at:
+        try:
+            d = datetime.fromisoformat(payload.due_at.replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            due_iso = d.isoformat()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Date d'échéance invalide")
+    doc = {
+        "id": _uuid(),
+        "client_id": client_id,
+        "title": title,
+        "description": (payload.description or "").strip() or None,
+        "due_at": due_iso,
+        "status": "open",
+        "remind_via_whatsapp": bool(payload.remind_via_whatsapp),
+        "reminder_sent_at": None,
+        "author_id": admin_user["id"],
+        "author_label": admin_user.get("full_name") or admin_user.get("email"),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.client_tasks.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/clients/{client_id}/tasks/{tid}", tags=["Admin"])
+async def admin_update_task(
+    client_id: str, tid: str, payload: ClientTaskUpdate, _: dict = Depends(get_current_admin)
+):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if "status" in update and update["status"] not in ("open", "done"):
+        raise HTTPException(status_code=400, detail="Statut invalide (open|done)")
+    if "due_at" in update and update["due_at"]:
+        try:
+            d = datetime.fromisoformat(update["due_at"].replace("Z", "+00:00"))
+            if d.tzinfo is None:
+                d = d.replace(tzinfo=timezone.utc)
+            update["due_at"] = d.isoformat()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Date d'échéance invalide")
+    if not update:
+        return {"ok": True}
+    update["updated_at"] = _now()
+    res = await db.client_tasks.update_one({"id": tid, "client_id": client_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Tâche introuvable")
+    refreshed = await db.client_tasks.find_one({"id": tid, "client_id": client_id}, {"_id": 0})
+    return refreshed
+
+
+@api.delete("/admin/clients/{client_id}/tasks/{tid}", tags=["Admin"])
+async def admin_delete_task(client_id: str, tid: str, _: dict = Depends(get_current_admin)):
+    res = await db.client_tasks.delete_one({"id": tid, "client_id": client_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Tâche introuvable")
+    return {"ok": True}
+
+
+async def _task_reminder_cron():
+    """Hourly cron: tasks with remind_via_whatsapp=true + due in [now, now+1h] + not yet reminded.
+    Emits a 'task.reminder' event so admins can hook a WhatsApp template via /admin/automations."""
+    now_utc = datetime.now(timezone.utc)
+    win_end = (now_utc + timedelta(hours=1)).isoformat()
+    tasks = await db.client_tasks.find(
+        {
+            "remind_via_whatsapp": True,
+            "status": "open",
+            "due_at": {"$gte": now_utc.isoformat(), "$lte": win_end},
+            "reminder_sent_at": None,
+        },
+        {"_id": 0},
+    ).to_list(200)
+    for t in tasks:
+        try:
+            await _emit_event("task.reminder", {
+                "client_id": t.get("client_id"),
+                "extra_ctx": {
+                    "task_title": t.get("title") or "",
+                    "task_due": t.get("due_at") or "",
+                },
+            })
+        except Exception:
+            pass
+        try:
+            await db.client_tasks.update_one(
+                {"id": t["id"]},
+                {"$set": {"reminder_sent_at": _now()}},
+            )
+        except Exception:
+            pass
 
 
 @api.put("/admin/clients/{client_id}", tags=["Admin"])
@@ -3394,7 +3611,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks",
 }
 
 
@@ -4940,6 +5157,7 @@ SUPPORTED_AUTOMATION_EVENTS = {
     "appointment.reminder",
     "intervention.created",
     "client.created",
+    "task.reminder",
 }
 
 
@@ -4984,6 +5202,8 @@ async def admin_automation_events(_: dict = Depends(get_current_admin)):
              "description": "Notification au client lorsqu'une intervention est enregistrée."},
             {"value": "client.created", "label": "Nouveau client",
              "description": "Message de bienvenue à un client fraîchement créé."},
+            {"value": "task.reminder", "label": "Rappel de tâche",
+             "description": "Rappel WhatsApp envoyé 1h avant l'échéance d'une tâche client (cron horaire)."},
         ]
     }
 
@@ -6669,6 +6889,10 @@ async def on_startup():
     await db.whatsapp_schedules.create_index("scheduled_at")
     await db.automations.create_index("event")
     await db.automations.create_index("enabled")
+    await db.client_notes.create_index("client_id")
+    await db.client_tasks.create_index("client_id")
+    await db.client_tasks.create_index("status")
+    await db.client_tasks.create_index("due_at")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")
@@ -6867,6 +7091,14 @@ async def on_startup():
                 _appointment_reminder_cron,
                 CronTrigger(minute=15, timezone="Africa/Abidjan"),
                 id="appointment_reminder_hourly",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
+            # Hourly task reminders (1h window before due_at).
+            _scheduler.add_job(
+                _task_reminder_cron,
+                CronTrigger(minute=20, timezone="Africa/Abidjan"),
+                id="task_reminder_hourly",
                 replace_existing=True,
                 misfire_grace_time=600,
             )

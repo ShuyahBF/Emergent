@@ -125,8 +125,11 @@ class TestEventsEndpoint:
         body = r.json()
         assert "events" in body and isinstance(body["events"], list)
         values = {e["value"] for e in body["events"]}
-        assert values == {"appointment.created", "appointment.reminder",
-                          "intervention.created", "client.created"}
+        # iter14 baseline: these 4 events must always be present
+        # (iter17 added 'task.reminder' → allow superset)
+        required = {"appointment.created", "appointment.reminder",
+                    "intervention.created", "client.created"}
+        assert required.issubset(values), f"missing required events: {required - values}"
         for e in body["events"]:
             assert "label" in e and "description" in e
             assert e["label"] and e["description"]

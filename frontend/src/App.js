@@ -57,6 +57,7 @@ import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
 import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
 import AdminMessaging from "@/pages/admin/AdminMessaging";
+import AdminAutomations from "@/pages/admin/AdminAutomations";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -158,6 +159,7 @@ export default function App() {
             <Route path="forms/:fid/fill" element={<FormRunner />} />
             <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
             <Route path="messaging" element={<AdminMessaging />} />
+            <Route path="automations" element={<AdminAutomations />} />
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />

@@ -945,6 +945,23 @@ async def me_create_appointment(
     doc["gcal_event_id"] = event_id
     await db.appointments.insert_one(doc.copy())
     doc.pop("_id", None)
+    # Fire automation: appointment.created
+    try:
+        sched_human = doc["scheduled_at"]
+        try:
+            sched_human = datetime.fromisoformat(doc["scheduled_at"].replace("Z", "+00:00")).strftime("%d/%m/%Y à %Hh%M")
+        except Exception:
+            pass
+        asyncio.create_task(_emit_event("appointment.created", {
+            "client_id": user["id"],
+            "phone": user.get("phone"),
+            "extra_ctx": {
+                "appointment_date": sched_human,
+                "appointment_subject": doc.get("subject") or "",
+            },
+        }))
+    except Exception:
+        pass
     return doc
 
 
@@ -1070,6 +1087,15 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
     await db.users.insert_one(doc.copy())
     doc.pop("_id", None)
     doc.pop("password_hash", None)
+    # Fire automation: client.created
+    try:
+        asyncio.create_task(_emit_event("client.created", {
+            "client_id": doc["id"],
+            "phone": doc.get("phone"),
+            "extra_ctx": {},
+        }))
+    except Exception:
+        pass
     return doc
 
 
@@ -1212,6 +1238,17 @@ async def admin_create_intervention(
     doc.pop("_id", None)
     webhook_result = await _fire_intervention_webhook("created", doc)
     doc["webhook_result"] = webhook_result
+    # Fire automation: intervention.created (admin)
+    try:
+        asyncio.create_task(_emit_event("intervention.created", {
+            "client_id": payload.client_id,
+            "extra_ctx": {
+                "intervention_number": doc.get("intervention_number") or "",
+                "intervention_subject": doc.get("subject") or doc.get("title") or "",
+            },
+        }))
+    except Exception:
+        pass
     return doc
 
 
@@ -2186,6 +2223,17 @@ async def me_create_intervention(
     doc.pop("_id", None)
     webhook_result = await _fire_intervention_webhook("created", doc)
     doc["webhook_result"] = webhook_result
+    # Fire automation: intervention.created (portal client)
+    try:
+        asyncio.create_task(_emit_event("intervention.created", {
+            "client_id": payload.client_id,
+            "extra_ctx": {
+                "intervention_number": doc.get("intervention_number") or "",
+                "intervention_subject": doc.get("subject") or doc.get("title") or "",
+            },
+        }))
+    except Exception:
+        pass
     return doc
 
 
@@ -3201,7 +3249,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations",
 }
 
 
@@ -4610,6 +4658,289 @@ async def admin_messaging_variable_tokens(_: dict = Depends(get_current_admin)):
             {"token": "{{tomorrow}}", "label": "Date de demain", "example": (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%d/%m/%Y")},
         ]
     }
+
+
+# ====================================================================
+# AUTOMATIONS — Triggered WhatsApp messages on system events
+# Supported events: appointment.created, appointment.reminder,
+#                   intervention.created, client.created
+# Recipient strategy: 'event_target' → resolve phone from event payload
+#                     (typically client_id → users.phone OR tracked_user)
+# ====================================================================
+SUPPORTED_AUTOMATION_EVENTS = {
+    "appointment.created",
+    "appointment.reminder",
+    "intervention.created",
+    "client.created",
+}
+
+
+class AutomationCreate(BaseModel):
+    title: str
+    event: str
+    template_name: str
+    language_code: Optional[str] = "fr"
+    variables: Optional[List[str]] = None
+    delay_minutes: int = 0      # 0 = immédiat ; >0 = planifié
+    target: str = "event_target"  # placeholder for future targets (e.g. fixed phone)
+    target_phone: Optional[str] = None  # used when target='fixed'
+    enabled: bool = True
+
+
+class AutomationUpdate(BaseModel):
+    title: Optional[str] = None
+    template_name: Optional[str] = None
+    language_code: Optional[str] = None
+    variables: Optional[List[str]] = None
+    delay_minutes: Optional[int] = None
+    target: Optional[str] = None
+    target_phone: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@api.get("/admin/automations", tags=["Admin"])
+async def admin_list_automations(_: dict = Depends(get_current_admin)):
+    items = await db.automations.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api.get("/admin/automations/events", tags=["Admin"])
+async def admin_automation_events(_: dict = Depends(get_current_admin)):
+    return {
+        "events": [
+            {"value": "appointment.created", "label": "RDV créé",
+             "description": "Confirmation immédiate envoyée au client après création d'un RDV."},
+            {"value": "appointment.reminder", "label": "Rappel RDV (J-1)",
+             "description": "Rappel automatique envoyé 24h avant l'heure du RDV (cron horaire)."},
+            {"value": "intervention.created", "label": "Intervention créée",
+             "description": "Notification au client lorsqu'une intervention est enregistrée."},
+            {"value": "client.created", "label": "Nouveau client",
+             "description": "Message de bienvenue à un client fraîchement créé."},
+        ]
+    }
+
+
+@api.post("/admin/automations", tags=["Admin"])
+async def admin_create_automation(payload: AutomationCreate, admin_user: dict = Depends(get_current_admin)):
+    if payload.event not in SUPPORTED_AUTOMATION_EVENTS:
+        raise HTTPException(status_code=400, detail=f"Événement non supporté. Valeurs : {sorted(SUPPORTED_AUTOMATION_EVENTS)}")
+    if not payload.template_name.strip():
+        raise HTTPException(status_code=400, detail="Template requis")
+    if (payload.delay_minutes or 0) < 0:
+        raise HTTPException(status_code=400, detail="delay_minutes doit être ≥ 0")
+    if payload.target == "fixed" and not (payload.target_phone or "").strip():
+        raise HTTPException(status_code=400, detail="target_phone requis quand target='fixed'")
+    doc = {
+        "id": _uuid(),
+        **payload.model_dump(),
+        "created_by_id": admin_user["id"],
+        "created_by_label": admin_user.get("full_name") or admin_user.get("email"),
+        "created_at": _now(),
+        "updated_at": _now(),
+        "trigger_count": 0,
+    }
+    await db.automations.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/automations/{aid}", tags=["Admin"])
+async def admin_update_automation(aid: str, payload: AutomationUpdate, _: dict = Depends(get_current_admin)):
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    if not update:
+        return {"ok": True}
+    update["updated_at"] = _now()
+    res = await db.automations.update_one({"id": aid}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Automation introuvable")
+    refreshed = await db.automations.find_one({"id": aid}, {"_id": 0})
+    return refreshed
+
+
+@api.delete("/admin/automations/{aid}", tags=["Admin"])
+async def admin_delete_automation(aid: str, _: dict = Depends(get_current_admin)):
+    res = await db.automations.delete_one({"id": aid})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Automation introuvable")
+    return {"ok": True}
+
+
+async def _emit_event(event: str, target: dict) -> None:
+    """Fire-and-forget : exécute toutes les automations actives pour cet event.
+
+    target dict supports the following keys (best-effort; missing → blank in templates):
+      - client_id: str  → resolves via db.users (provides full_name, company, phone, email, client_code)
+      - tracked_user_id: str → resolves via db.tracked_users (provides full_name, phone, email)
+      - phone: str (fallback if no id given)
+      - extra_ctx: dict (additional substitution tokens, e.g. {"appointment_date": "..."})
+    """
+    if event not in SUPPORTED_AUTOMATION_EVENTS:
+        return
+    automations = await db.automations.find(
+        {"event": event, "enabled": True}, {"_id": 0}
+    ).to_list(50)
+    if not automations:
+        return
+
+    # Resolve user_doc + phone once for the whole event
+    user_doc: Optional[dict] = None
+    phone = (target.get("phone") or "").strip()
+    label: Optional[str] = None
+    kind = "raw"
+    rid: Optional[str] = None
+    if target.get("client_id"):
+        rid = target["client_id"]
+        kind = "client"
+        u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
+        if u:
+            user_doc = u
+            phone = phone or (u.get("phone") or "").strip()
+            label = u.get("company") or u.get("full_name") or u.get("email")
+    elif target.get("tracked_user_id"):
+        rid = target["tracked_user_id"]
+        kind = "tracked"
+        t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
+        if t:
+            user_doc = t
+            phone = phone or (t.get("phone") or "").strip()
+            label = t.get("full_name") or t.get("name") or t.get("email")
+    label = label or phone or "—"
+
+    for au in automations:
+        # Choose recipient
+        if (au.get("target") or "event_target") == "fixed":
+            to_phone = (au.get("target_phone") or "").strip()
+            ctx_phone = to_phone
+            ctx_label = to_phone or "Fixed"
+            ctx_user_doc = None
+            ctx_kind = "raw"
+            ctx_rid = None
+        else:
+            to_phone = phone
+            ctx_phone = phone
+            ctx_label = label
+            ctx_user_doc = user_doc
+            ctx_kind = kind
+            ctx_rid = rid
+
+        if not to_phone:
+            # Skipped silently (cannot send) but still log a tracking row
+            try:
+                await db.whatsapp_messages.insert_one({
+                    "id": _uuid(),
+                    "client_id": ctx_rid if ctx_kind == "client" else None,
+                    "tracked_user_id": ctx_rid if ctx_kind == "tracked" else None,
+                    "to": "",
+                    "template_name": au["template_name"],
+                    "language_code": au.get("language_code"),
+                    "recipient_kind": ctx_kind,
+                    "recipient_label": ctx_label,
+                    "automation_id": au["id"],
+                    "automation_event": event,
+                    "ok": False,
+                    "status": None,
+                    "message_id": None,
+                    "error": "Pas de numéro de téléphone",
+                    "created_at": _now(),
+                })
+            except Exception:
+                pass
+            continue
+
+        # Build per-recipient ctx + components
+        base_ctx = _build_recipient_ctx(ctx_kind, ctx_user_doc, ctx_phone, ctx_label)
+        for k, v in (target.get("extra_ctx") or {}).items():
+            base_ctx[k] = str(v) if v is not None else ""
+        components = _build_components(au.get("variables"), base_ctx)
+        delay = int(au.get("delay_minutes") or 0)
+
+        if delay > 0:
+            # Schedule for later — leverage the existing whatsapp_schedules pipeline
+            sched_at = (datetime.now(timezone.utc) + timedelta(minutes=delay)).isoformat()
+            await db.whatsapp_schedules.insert_one({
+                "id": _uuid(),
+                "title": f"Auto: {au.get('title') or au['template_name']}",
+                "recipients": [{"kind": ctx_kind, "id": ctx_rid, "phone": to_phone, "label": ctx_label}],
+                "template_name": au["template_name"],
+                "language_code": au.get("language_code") or "fr",
+                "components": None,
+                "variables": au.get("variables"),
+                "scheduled_at": sched_at,
+                "status": "pending",
+                "result_summary": None,
+                "automation_id": au["id"],
+                "automation_event": event,
+                "extra_ctx": target.get("extra_ctx") or {},
+                "created_by_id": "automation",
+                "created_by_label": f"Automation: {au.get('title') or au['template_name']}",
+                "created_at": _now(),
+                "updated_at": _now(),
+            })
+        else:
+            try:
+                wr = await _wa_send_template(to_phone, au["template_name"], au.get("language_code") or "fr", components)
+            except Exception as exc:  # noqa: BLE001
+                wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
+            try:
+                await db.whatsapp_messages.insert_one({
+                    "id": _uuid(),
+                    "client_id": ctx_rid if ctx_kind == "client" else None,
+                    "tracked_user_id": ctx_rid if ctx_kind == "tracked" else None,
+                    "to": to_phone,
+                    "template_name": au["template_name"],
+                    "language_code": au.get("language_code"),
+                    "recipient_kind": ctx_kind,
+                    "recipient_label": ctx_label,
+                    "automation_id": au["id"],
+                    "automation_event": event,
+                    "ok": wr["ok"],
+                    "status": wr["status"],
+                    "message_id": wr["message_id"],
+                    "error": wr.get("error"),
+                    "created_at": _now(),
+                })
+            except Exception:
+                pass
+
+        # Counter (fire-and-forget)
+        try:
+            await db.automations.update_one({"id": au["id"]}, {"$inc": {"trigger_count": 1}})
+        except Exception:
+            pass
+
+
+async def _appointment_reminder_cron():
+    """Hourly cron: find appointments scheduled in (now+23h, now+25h) window and emit reminders."""
+    now_utc = datetime.now(timezone.utc)
+    win_start = (now_utc + timedelta(hours=23)).isoformat()
+    win_end = (now_utc + timedelta(hours=25)).isoformat()
+    appts = await db.appointments.find(
+        {"scheduled_at": {"$gte": win_start, "$lte": win_end},
+         "status": {"$nin": ["cancelled", "rejected"]},
+         "reminder_sent_at": {"$exists": False}},
+        {"_id": 0, "id": 1, "client_id": 1, "scheduled_at": 1, "subject": 1, "phone": 1},
+    ).to_list(200)
+    for ap in appts:
+        try:
+            sched_dt = datetime.fromisoformat(ap["scheduled_at"].replace("Z", "+00:00"))
+            sched_human = sched_dt.strftime("%d/%m/%Y à %Hh%M")
+        except Exception:
+            sched_human = ap.get("scheduled_at") or ""
+        await _emit_event("appointment.reminder", {
+            "client_id": ap.get("client_id"),
+            "phone": ap.get("phone"),
+            "extra_ctx": {
+                "appointment_date": sched_human,
+                "appointment_subject": ap.get("subject") or "",
+            },
+        })
+        try:
+            await db.appointments.update_one(
+                {"id": ap["id"]},
+                {"$set": {"reminder_sent_at": _now()}},
+            )
+        except Exception:
+            pass
 
 
 # ====================================================================
@@ -6068,6 +6399,8 @@ async def on_startup():
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")
     await db.whatsapp_schedules.create_index("scheduled_at")
+    await db.automations.create_index("event")
+    await db.automations.create_index("enabled")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")
@@ -6260,6 +6593,14 @@ async def on_startup():
                 id="whatsapp_scheduler_minutely",
                 replace_existing=True,
                 misfire_grace_time=120,
+            )
+            # Hourly appointment reminders (J-1 window).
+            _scheduler.add_job(
+                _appointment_reminder_cron,
+                CronTrigger(minute=15, timezone="Africa/Abidjan"),
+                id="appointment_reminder_hourly",
+                replace_existing=True,
+                misfire_grace_time=600,
             )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")

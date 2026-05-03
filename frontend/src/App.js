@@ -59,6 +59,7 @@ import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
 import AdminMessaging from "@/pages/admin/AdminMessaging";
 import AdminAutomations from "@/pages/admin/AdminAutomations";
 import AdminWaTemplates from "@/pages/admin/AdminWaTemplates";
+import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -136,6 +137,7 @@ export default function App() {
           <Route path="/admin" element={<Protected admin><PortalLayout admin /></Protected>}>
             <Route index element={<AdminDashboard />} />
             <Route path="clients" element={<AdminClients />} />
+            <Route path="clients/:id/timeline" element={<AdminClientTimeline />} />
             <Route path="appointments" element={<AdminAppointments />} />
             <Route path="interventions" element={<AdminInterventions />} />
             <Route path="documents" element={<AdminDocuments />} />

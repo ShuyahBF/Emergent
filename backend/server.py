@@ -1107,6 +1107,151 @@ async def admin_get_client(client_id: str, _: dict = Depends(get_current_admin))
     return u
 
 
+@api.get("/admin/clients/{client_id}/timeline", tags=["Admin"])
+async def admin_client_timeline(
+    client_id: str,
+    limit: int = 200,
+    types: Optional[str] = None,  # CSV of: appointment,intervention,whatsapp,form,document
+    _: dict = Depends(get_current_admin),
+):
+    """Unified CRM timeline for a client — aggregates events from 5 collections.
+
+    Each event has shape: {id, type, ts, title, summary, status?, link?, payload}
+    Sorted by ts DESC. Optional `types` filter (CSV)."""
+    user = await db.users.find_one({"id": client_id}, {"_id": 0, "password_hash": 0})
+    if not user:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+
+    wanted = {t.strip() for t in (types or "appointment,intervention,whatsapp,form,document").split(",") if t.strip()}
+    events: List[Dict[str, Any]] = []
+
+    # 1) Appointments
+    if "appointment" in wanted:
+        appts = await db.appointments.find(
+            {"client_id": client_id},
+            {"_id": 0, "id": 1, "scheduled_at": 1, "subject": 1, "status": 1, "duration_minutes": 1, "created_at": 1},
+        ).sort("scheduled_at", -1).limit(limit).to_list(limit)
+        for ap in appts:
+            events.append({
+                "id": ap["id"],
+                "type": "appointment",
+                "ts": ap.get("scheduled_at") or ap.get("created_at"),
+                "title": ap.get("subject") or "Rendez-vous",
+                "summary": f"Statut: {ap.get('status') or 'planifié'} · Durée: {ap.get('duration_minutes') or 30} min",
+                "status": ap.get("status"),
+                "payload": ap,
+            })
+
+    # 2) Interventions
+    if "intervention" in wanted:
+        ints = await db.interventions.find(
+            {"client_id": client_id},
+            {"_id": 0, "id": 1, "intervention_date": 1, "intervention_number": 1, "title": 1,
+             "subject": 1, "type": 1, "status": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(limit).to_list(limit)
+        for it in ints:
+            events.append({
+                "id": it["id"],
+                "type": "intervention",
+                "ts": it.get("intervention_date") or it.get("created_at"),
+                "title": f"{it.get('intervention_number') or ''} — {it.get('subject') or it.get('title') or 'Intervention'}".strip(" —"),
+                "summary": f"Type: {it.get('type') or '—'} · Statut: {it.get('status') or '—'}",
+                "status": it.get("status"),
+                "payload": it,
+            })
+
+    # 3) WhatsApp messages (sent + received logs already use client_id)
+    if "whatsapp" in wanted:
+        msgs = await db.whatsapp_messages.find(
+            {"client_id": client_id},
+            {"_id": 0, "id": 1, "to": 1, "template_name": 1, "ok": 1, "status": 1,
+             "error": 1, "recipient_label": 1, "automation_event": 1, "bulk": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(limit).to_list(limit)
+        for m in msgs:
+            kind_label = "Auto" if m.get("automation_event") else ("Groupé" if m.get("bulk") else "Manuel")
+            events.append({
+                "id": m["id"],
+                "type": "whatsapp",
+                "ts": m.get("created_at"),
+                "title": f"WhatsApp · {m.get('template_name') or '—'}",
+                "summary": f"{kind_label} · {('OK' if m.get('ok') else (m.get('error') or 'KO'))[:80]}",
+                "status": "ok" if m.get("ok") else "ko",
+                "payload": m,
+            })
+
+    # 4) Form submissions
+    if "form" in wanted:
+        subs = await db.form_submissions.find(
+            {"client_id": client_id},
+            {"_id": 0, "id": 1, "form_id": 1, "user_label": 1, "anonymous": 1, "respondent_email": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(limit).to_list(limit)
+        # Resolve form titles in batch
+        form_ids = list({s.get("form_id") for s in subs if s.get("form_id")})
+        forms_by_id: Dict[str, str] = {}
+        if form_ids:
+            f_docs = await db.forms.find(
+                {"id": {"$in": form_ids}}, {"_id": 0, "id": 1, "title": 1, "number": 1}
+            ).to_list(len(form_ids))
+            forms_by_id = {f["id"]: f"{f.get('number') or ''} — {f.get('title') or '—'}".strip(" —") for f in f_docs}
+        for s in subs:
+            events.append({
+                "id": s["id"],
+                "type": "form",
+                "ts": s.get("created_at"),
+                "title": forms_by_id.get(s.get("form_id") or "") or "Soumission formulaire",
+                "summary": f"Auteur: {s.get('user_label') or '—'}{' · anonyme' if s.get('anonymous') else ''}",
+                "status": "submitted",
+                "payload": s,
+            })
+
+    # 5) Documents (uploaded by client or shared with client)
+    if "document" in wanted:
+        try:
+            docs = await db.documents.find(
+                {"$or": [{"client_id": client_id}, {"owner_id": client_id}, {"uploaded_by": client_id}]},
+                {"_id": 0, "id": 1, "name": 1, "category": 1, "size": 1, "created_at": 1, "uploaded_by_label": 1},
+            ).sort("created_at", -1).limit(limit).to_list(limit)
+            for d in docs:
+                size_kb = round((d.get("size") or 0) / 1024)
+                events.append({
+                    "id": d["id"],
+                    "type": "document",
+                    "ts": d.get("created_at"),
+                    "title": d.get("name") or "Document",
+                    "summary": f"{d.get('category') or 'Document'} · {size_kb} Ko · par {d.get('uploaded_by_label') or '—'}",
+                    "status": "uploaded",
+                    "payload": d,
+                })
+        except Exception:
+            pass
+
+    # Sort DESC by ts (string ISO sorts naturally)
+    events.sort(key=lambda x: (x.get("ts") or ""), reverse=True)
+    events = events[:limit]
+
+    counts = {"appointment": 0, "intervention": 0, "whatsapp": 0, "form": 0, "document": 0}
+    for e in events:
+        counts[e["type"]] = counts.get(e["type"], 0) + 1
+
+    return {
+        "client": {
+            "id": user["id"],
+            "full_name": user.get("full_name"),
+            "company": user.get("company"),
+            "email": user.get("email"),
+            "phone": user.get("phone"),
+            "client_code": user.get("client_code"),
+            "country": user.get("country"),
+            "city": user.get("city"),
+            "account_status": user.get("account_status"),
+            "created_at": user.get("created_at"),
+        },
+        "events": events,
+        "counts": counts,
+        "total": len(events),
+    }
+
+
 @api.put("/admin/clients/{client_id}", tags=["Admin"])
 async def admin_update_client(
     client_id: str, payload: UserUpdateAdmin, _: dict = Depends(get_current_admin)

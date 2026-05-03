@@ -354,8 +354,8 @@ export default function AdminSettings() {
           <Input label="Meta App ID" value={s.wa_app_id || ""} onChange={(v) => upd("wa_app_id", v)} placeholder="App ID (facebook developers)" testid="wa-app-id" />
           <Input label="Langue par défaut (ex: fr, en_US)" value={s.wa_default_language || "fr"} onChange={(v) => upd("wa_default_language", v)} placeholder="fr" testid="wa-default-language" />
         </div>
-        <PasswordInput label="System User Access Token (permanent)" value={s.wa_access_token || ""} onChange={(e) => upd("wa_access_token", e.target.value)} placeholder={s.wa_access_token === "********" ? "(défini)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
-        <PasswordInput label="Webhook Verify Token (secret partagé)" value={s.wa_verify_token || ""} onChange={(e) => upd("wa_verify_token", e.target.value)} placeholder={s.wa_verify_token === "********" ? "(défini)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
+        <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
+        <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
       </Section>
 
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">
@@ -466,13 +466,19 @@ const Section = ({ icon: Icon, title, children }) => (
     {children}
   </div>
 );
-const Input = ({ label, value, onChange, type = "text", placeholder, testid }) => (
+const Input = ({ label, value, onChange, type = "text", placeholder, testid }) => {
+  const handleFocus = (e) => {
+    // If value is the masked sentinel, clear it on focus so the user can type a new one
+    if (value === "********") onChange("");
+  };
+  return (
   <div>
     <label className="block text-xs font-semibold mb-1">{label}</label>
     {type === "password" ? (
       <PasswordInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
+        onFocus={handleFocus}
         placeholder={placeholder}
         className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
         autoComplete="new-password"
@@ -482,7 +488,8 @@ const Input = ({ label, value, onChange, type = "text", placeholder, testid }) =
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={testid} />
     )}
   </div>
-);
+  );
+};
 const Toggle = ({ label, value, onChange, testid }) => (
   <label className="flex items-center gap-3 text-sm">
     <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} data-testid={testid} />

@@ -2,19 +2,21 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings, CalendarClock, Trash2, Loader2,
+  MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings, CalendarClock, Trash2, Loader2, Wand2, Eye,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 /*
   Admin → Messagerie WhatsApp
-  Sélection multi : clients + utilisateurs suivis → template Meta approuvé → envoi groupé immédiat ou planifié.
+  Sélection multi : clients + utilisateurs suivis → template Meta approuvé → envoi groupé immédiat ou planifié,
+  avec variables dynamiques personnalisées par destinataire ({{full_name}}, {{company}}, {{today}}…).
 */
 export default function AdminMessaging() {
   const [audience, setAudience] = useState({ clients: [], tracked_users: [] });
   const [templates, setTemplates] = useState({ configured: false, items: [], error: null });
   const [history, setHistory] = useState([]);
   const [schedules, setSchedules] = useState([]);
+  const [tokens, setTokens] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
   const [scheduling, setScheduling] = useState(false);
@@ -24,6 +26,8 @@ export default function AdminMessaging() {
   const [selected, setSelected] = useState({}); // `${kind}:${id}` → true
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("fr");
+  const [variables, setVariables] = useState([]); // positional body variables
+  const [showPreview, setShowPreview] = useState(false);
   const [schedDate, setSchedDate] = useState("");
   const [schedTime, setSchedTime] = useState("");
   const [schedTitle, setSchedTitle] = useState("");
@@ -31,16 +35,18 @@ export default function AdminMessaging() {
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [aud, tpl, hist, sch] = await Promise.all([
+      const [aud, tpl, hist, sch, tok] = await Promise.all([
         apiClient.get("/admin/messaging/audience"),
         apiClient.get("/admin/whatsapp/templates"),
         apiClient.get("/admin/messaging/history", { params: { limit: 200 } }),
         apiClient.get("/admin/messaging/schedules"),
+        apiClient.get("/admin/messaging/variable-tokens"),
       ]);
       setAudience(aud.data || { clients: [], tracked_users: [] });
       setTemplates(tpl.data || { configured: false, items: [] });
       setHistory(hist.data || []);
       setSchedules(sch.data || []);
+      setTokens(tok.data?.tokens || []);
       // Preselect first approved template
       const first = (tpl.data?.items || []).find((t) => (t.status || "").toUpperCase() === "APPROVED");
       if (first && !template) {
@@ -112,6 +118,83 @@ export default function AdminMessaging() {
 
   const approved = (templates.items || []).filter((t) => (t.status || "").toUpperCase() === "APPROVED");
 
+  // Find the approved template details (components with body / placeholders) to render variable inputs
+  const selectedTemplate = useMemo(
+    () => approved.find((t) => t.name === template) || null,
+    [approved, template]
+  );
+
+  // Parse the template's body component for {{N}} placeholders. Number = count of unique numeric tokens.
+  const { bodyText, varCount } = useMemo(() => {
+    if (!selectedTemplate) return { bodyText: "", varCount: 0 };
+    const bodyComp = (selectedTemplate.components || []).find(
+      (c) => (c.type || "").toUpperCase() === "BODY"
+    );
+    const text = bodyComp?.text || "";
+    const matches = [...text.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10));
+    const max = matches.length ? Math.max(...matches) : 0;
+    return { bodyText: text, varCount: max };
+  }, [selectedTemplate]);
+
+  // Sync variables array length to varCount when template changes
+  useEffect(() => {
+    setVariables((prev) => {
+      const next = [...prev];
+      if (next.length < varCount) {
+        while (next.length < varCount) next.push("");
+      } else if (next.length > varCount) {
+        next.length = varCount;
+      }
+      return next;
+    });
+  }, [varCount]);
+
+  const updateVar = (i, val) => {
+    setVariables((prev) => {
+      const n = [...prev];
+      n[i] = val;
+      return n;
+    });
+  };
+
+  const insertToken = (i, token) => {
+    setVariables((prev) => {
+      const n = [...prev];
+      n[i] = (n[i] || "") + token;
+      return n;
+    });
+  };
+
+  // Live preview using the first selected recipient (or "—" placeholder context)
+  const previewBody = useMemo(() => {
+    if (!bodyText) return "";
+    let text = bodyText;
+    const ctx = (() => {
+      const r = selectedList[0];
+      const today = new Date();
+      const tomorrow = new Date(today.getTime() + 86400000);
+      const fmt = (d) => d.toLocaleDateString("fr-FR");
+      if (!r) {
+        return { full_name: "[Nom]", company: "[Société]", phone: "[Tél]", email: "[Email]", client_code: "[Code]", today: fmt(today), tomorrow: fmt(tomorrow) };
+      }
+      return {
+        full_name: r.full_name || "",
+        company: r.company || r.client_label || "",
+        phone: r.phone || "",
+        email: r.email || "",
+        client_code: r.client_code || "",
+        today: fmt(today),
+        tomorrow: fmt(tomorrow),
+      };
+    })();
+    // Substitute the user-supplied recipes first into Meta {{N}} placeholders
+    variables.forEach((v, i) => {
+      const rendered = (v || "").replace(/\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g, (_, k) => ctx[k.toLowerCase()] ?? "");
+      text = text.replace(new RegExp(`\\{\\{\\s*${i + 1}\\s*\\}\\}`, "g"), rendered);
+    });
+    return text;
+  }, [bodyText, variables, selectedList]);
+
   const send = async () => {
     if (selectedList.length === 0) {
       toast.error("Sélectionnez au moins un destinataire");
@@ -128,6 +211,7 @@ export default function AdminMessaging() {
         recipients: selectedList.map((x) => ({ kind: x.kind, id: x.id, phone: x.phone, label: x.full_name })),
         template_name: template,
         language_code: language || "fr",
+        variables: variables.length > 0 ? variables : undefined,
       });
       const { sent_ok = 0, sent_ko = 0, skipped = [] } = r.data || {};
       if (sent_ok > 0 && sent_ko === 0) {
@@ -179,6 +263,7 @@ export default function AdminMessaging() {
         recipients: selectedList.map((x) => ({ kind: x.kind, id: x.id, phone: x.phone, label: x.full_name })),
         template_name: template,
         language_code: language || "fr",
+        variables: variables.length > 0 ? variables : undefined,
         scheduled_at: local.toISOString(),
       });
       toast.success(`Planifié pour ${local.toLocaleString("fr-FR")}`);
@@ -301,6 +386,93 @@ export default function AdminMessaging() {
             {sending ? "Envoi…" : `Envoyer à ${selectedList.length}`}
           </button>
         </div>
+
+        {/* Variables dynamiques */}
+        {selectedTemplate && (
+          <div className="mt-4 pt-4 border-t border-slate-200" data-testid="messaging-variables-section">
+            <div className="flex items-center justify-between gap-2 mb-2 flex-wrap">
+              <div className="flex items-center gap-2">
+                <Wand2 className="h-4 w-4 text-amber-600" />
+                <h3 className="text-sm font-display font-semibold text-slate-800">
+                  Variables dynamiques
+                  {varCount > 0 ? (
+                    <span className="ml-2 text-[11px] text-slate-500">({varCount} variable{varCount > 1 ? "s" : ""} détectée{varCount > 1 ? "s" : ""} dans le template)</span>
+                  ) : (
+                    <span className="ml-2 text-[11px] text-slate-500">(aucune variable dans ce template)</span>
+                  )}
+                </h3>
+              </div>
+              {selectedList.length > 0 && (
+                <button
+                  type="button"
+                  onClick={() => setShowPreview((s) => !s)}
+                  className="inline-flex items-center gap-1 text-[11px] rounded border border-slate-300 px-2 py-1 hover:bg-slate-50"
+                  data-testid="messaging-preview-toggle"
+                >
+                  <Eye className="h-3 w-3" /> {showPreview ? "Masquer aperçu" : "Aperçu"}
+                </button>
+              )}
+            </div>
+
+            {bodyText && (
+              <div className="text-[11px] text-slate-500 italic mb-3 rounded bg-slate-50 border border-slate-200 px-3 py-2 whitespace-pre-line">
+                <strong className="not-italic text-slate-600">Corps du template Meta :</strong>
+                <br />{bodyText}
+              </div>
+            )}
+
+            {varCount > 0 ? (
+              <div className="space-y-3">
+                {Array.from({ length: varCount }).map((_, i) => (
+                  <div key={i} className="grid md:grid-cols-[120px_1fr_auto] gap-2 items-center" data-testid={`messaging-variable-row-${i + 1}`}>
+                    <label className="text-[11px] uppercase tracking-wider text-slate-500 font-mono">
+                      {`{{${i + 1}}}`}
+                    </label>
+                    <input
+                      value={variables[i] || ""}
+                      onChange={(e) => updateVar(i, e.target.value)}
+                      placeholder="Texte statique ou tokens (ex: Bonjour {{full_name}})"
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                      data-testid={`messaging-variable-input-${i + 1}`}
+                    />
+                    <select
+                      onChange={(e) => {
+                        const tk = e.target.value;
+                        if (tk) {
+                          insertToken(i, tk);
+                          e.target.value = "";
+                        }
+                      }}
+                      className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+                      data-testid={`messaging-variable-token-picker-${i + 1}`}
+                      defaultValue=""
+                    >
+                      <option value="">+ Insérer…</option>
+                      {tokens.map((t) => (
+                        <option key={t.token} value={t.token} title={t.example}>
+                          {t.label} {t.token}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-slate-400 italic">
+                Ce template Meta n'a pas de variables (placeholders <code className="font-mono">{"{{1}}"}</code>, <code className="font-mono">{"{{2}}"}</code>…).
+              </p>
+            )}
+
+            {showPreview && previewBody && selectedList.length > 0 && (
+              <div className="mt-3 rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-900" data-testid="messaging-preview">
+                <p className="text-[10px] uppercase tracking-wider text-emerald-700 mb-1">
+                  Aperçu pour <strong>{selectedList[0].full_name || selectedList[0].phone}</strong>
+                </p>
+                <p className="whitespace-pre-line">{previewBody}</p>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Planification */}
         <div className="mt-4 pt-4 border-t border-slate-200">

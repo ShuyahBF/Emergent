@@ -4236,6 +4236,55 @@ async def _wa_send_template(to_e164: str, template_name: str, language_code: str
         return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
 
 
+# ---------- Dynamic-variable templating for WhatsApp templates ----------
+# Each entry in `variables` is a free-text string that may contain tokens
+# like {{full_name}}, {{company}}, {{phone}}, {{email}}, {{client_code}},
+# {{today}}, {{tomorrow}}. At send time they are resolved against the
+# recipient's profile. Positional → mapped to body parameters {{1}} {{2}}…
+SUPPORTED_VAR_TOKENS = {"full_name", "company", "phone", "email", "client_code", "today", "tomorrow"}
+
+_VAR_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
+
+
+def _render_variable(value: str, ctx: Dict[str, str]) -> str:
+    """Replace {{token}} occurrences in `value` using ctx. Unknown tokens are left blank."""
+    if not value:
+        return ""
+
+    def _repl(m):
+        key = m.group(1).lower()
+        if key in ctx:
+            return ctx[key] or ""
+        return ""  # unknown token → blank to avoid sending literal "{{x}}"
+
+    return _VAR_TOKEN_RE.sub(_repl, value)
+
+
+def _build_recipient_ctx(kind: str, user_doc: Optional[dict], phone: str, label: Optional[str]) -> Dict[str, str]:
+    """Build a substitution context dict from a resolved user/tracked-user doc."""
+    u = user_doc or {}
+    today = datetime.now(timezone.utc).date()
+    tomorrow = today + timedelta(days=1)
+    return {
+        "full_name": (u.get("full_name") or u.get("name") or label or "").strip(),
+        "company": (u.get("company") or "").strip(),
+        "phone": phone or (u.get("phone") or "").strip(),
+        "email": (u.get("email") or "").strip(),
+        "client_code": (u.get("client_code") or "").strip(),
+        "today": today.strftime("%d/%m/%Y"),
+        "tomorrow": tomorrow.strftime("%d/%m/%Y"),
+    }
+
+
+def _build_components(variables: Optional[List[str]], ctx: Dict[str, str]) -> Optional[list]:
+    """Build Meta template `components` array from positional body variables.
+    Returns None when no variables (caller passes None to Meta)."""
+    if not variables:
+        return None
+    params = [{"type": "text", "text": _render_variable(v, ctx)} for v in variables]
+    return [{"type": "body", "parameters": params}]
+
+
 # ----- Directory of contacts (per client) -----
 class ContactCreate(BaseModel):
     name: str
@@ -4439,6 +4488,7 @@ class AdminBulkSendRequest(BaseModel):
     template_name: str
     language_code: Optional[str] = "fr"
     components: Optional[list] = None
+    variables: Optional[List[str]] = None  # Positional body-variable recipes with {{token}} tokens
 
 
 @api.post("/admin/messaging/bulk-send", tags=["Admin"])
@@ -4452,26 +4502,29 @@ async def admin_messaging_bulk_send(
     if not payload.template_name:
         raise HTTPException(status_code=400, detail="Template requis")
 
-    # Resolve each recipient into an E.164 phone
+    # Resolve each recipient into an E.164 phone + user doc for variable context
     resolved = []
     for r in payload.recipients:
         kind = (r.get("kind") or "").lower()
         rid = r.get("id")
         phone = (r.get("phone") or "").strip()
         label = r.get("label")
+        user_doc: Optional[dict] = None
         if kind == "client" and rid:
-            u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1})
-            if u and not phone:
-                phone = (u.get("phone") or "").strip()
+            u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
             if u:
+                user_doc = u
+                if not phone:
+                    phone = (u.get("phone") or "").strip()
                 label = label or u.get("company") or u.get("full_name") or u.get("email")
         elif kind == "tracked" and rid:
-            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
-            if t and not phone:
-                phone = (t.get("phone") or "").strip()
+            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1, "client_id": 1})
             if t:
+                user_doc = t
+                if not phone:
+                    phone = (t.get("phone") or "").strip()
                 label = label or t.get("full_name") or t.get("name") or t.get("email")
-        resolved.append({"kind": kind or "raw", "id": rid, "phone": phone, "label": label or phone or "—"})
+        resolved.append({"kind": kind or "raw", "id": rid, "phone": phone, "label": label or phone or "—", "user_doc": user_doc})
 
     # Validate phones (basic)
     to_send = [x for x in resolved if x["phone"]]
@@ -4480,8 +4533,14 @@ async def admin_messaging_bulk_send(
     # Send sequentially to avoid burst rate-limits (Meta Cloud ~80 msg/s max)
     results = []
     for x in to_send:
+        # Build per-recipient components from either the static `components` or dynamic `variables`
+        if payload.variables:
+            ctx = _build_recipient_ctx(x["kind"], x["user_doc"], x["phone"], x["label"])
+            components = _build_components(payload.variables, ctx)
+        else:
+            components = payload.components
         try:
-            r = await _wa_send_template(x["phone"], payload.template_name, payload.language_code or "fr", payload.components)
+            r = await _wa_send_template(x["phone"], payload.template_name, payload.language_code or "fr", components)
         except Exception as exc:  # noqa: BLE001
             r = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
         log = {
@@ -4536,6 +4595,23 @@ async def admin_messaging_history(
     return items
 
 
+@api.get("/admin/messaging/variable-tokens", tags=["Admin"])
+async def admin_messaging_variable_tokens(_: dict = Depends(get_current_admin)):
+    """List of substitution tokens the admin can insert into template variables.
+    Resolved per-recipient at send time from the client or tracked-user profile."""
+    return {
+        "tokens": [
+            {"token": "{{full_name}}", "label": "Nom complet", "example": "Jean Dupont"},
+            {"token": "{{company}}", "label": "Société", "example": "Acme Corp"},
+            {"token": "{{phone}}", "label": "Téléphone", "example": "+225 01 23 45 67"},
+            {"token": "{{email}}", "label": "Email", "example": "client@example.com"},
+            {"token": "{{client_code}}", "label": "Code client", "example": "ACME"},
+            {"token": "{{today}}", "label": "Date du jour", "example": datetime.now(timezone.utc).strftime("%d/%m/%Y")},
+            {"token": "{{tomorrow}}", "label": "Date de demain", "example": (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%d/%m/%Y")},
+        ]
+    }
+
+
 # ====================================================================
 # ADMIN — Envois WhatsApp planifiés (scheduler minute-based)
 # ====================================================================
@@ -4545,6 +4621,7 @@ class AdminScheduleCreate(BaseModel):
     template_name: str
     language_code: Optional[str] = "fr"
     components: Optional[list] = None
+    variables: Optional[List[str]] = None  # Positional body-variable recipes
     scheduled_at: str  # ISO-8601 UTC, e.g. "2026-05-10T14:30:00+00:00"
 
 
@@ -4581,6 +4658,7 @@ async def admin_create_schedule(
         "template_name": payload.template_name,
         "language_code": payload.language_code or "fr",
         "components": payload.components,
+        "variables": payload.variables,
         "scheduled_at": sched.isoformat(),
         "status": "pending",
         "result_summary": None,
@@ -4630,28 +4708,41 @@ async def _run_scheduled_whatsapp():
             # Resolve + send (same logic as bulk-send, simplified)
             results = []
             skipped = []
+            variables = sc.get("variables") or []
+            static_components = sc.get("components")
             for r in (sc.get("recipients") or []):
                 kind = (r.get("kind") or "").lower()
                 rid = r.get("id")
                 phone = (r.get("phone") or "").strip()
                 label = r.get("label")
-                if kind == "client" and rid and not phone:
-                    u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "company": 1, "email": 1})
+                user_doc: Optional[dict] = None
+                if kind == "client" and rid:
+                    u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "company": 1, "email": 1, "client_code": 1})
                     if u:
-                        phone = (u.get("phone") or "").strip()
+                        user_doc = u
+                        if not phone:
+                            phone = (u.get("phone") or "").strip()
                         label = label or u.get("company") or u.get("full_name") or u.get("email")
-                elif kind == "tracked" and rid and not phone:
+                elif kind == "tracked" and rid:
                     t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
                     if t:
-                        phone = (t.get("phone") or "").strip()
+                        user_doc = t
+                        if not phone:
+                            phone = (t.get("phone") or "").strip()
                         label = label or t.get("full_name") or t.get("name") or t.get("email")
                 label = label or phone or "—"
                 if not phone:
                     skipped.append({"label": label, "reason": "Pas de numéro de téléphone"})
                     continue
+                # Per-recipient dynamic components
+                if variables:
+                    ctx = _build_recipient_ctx(kind, user_doc, phone, label)
+                    components = _build_components(variables, ctx)
+                else:
+                    components = static_components
                 try:
                     wr = await _wa_send_template(
-                        phone, sc["template_name"], sc.get("language_code") or "fr", sc.get("components"),
+                        phone, sc["template_name"], sc.get("language_code") or "fr", components,
                     )
                 except Exception as exc:  # noqa: BLE001
                     wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}

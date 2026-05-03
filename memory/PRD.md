@@ -33,6 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 24 : Variables dynamiques pour templates WhatsApp
+✅ Backend : 4 helpers réutilisables — `_VAR_TOKEN_RE`, `_render_variable(value, ctx)`, `_build_recipient_ctx(kind, user_doc, phone, label)` (retourne `{full_name, company, phone, email, client_code, today, tomorrow}`), `_build_components(variables, ctx)` qui produit `[{type:'body', parameters:[{type:'text', text:rendered}, …]}]` ou `None`.
+✅ Backend : `AdminBulkSendRequest.variables` + `AdminScheduleCreate.variables` (`Optional[List[str]]`). Bulk-send et runner cron substituent les tokens **par destinataire** au moment de l'envoi.
+✅ Endpoint `GET /api/admin/messaging/variable-tokens` → liste les 7 tokens disponibles avec libellé FR + exemple (auto-renseigne le picker frontend).
+✅ Frontend `AdminMessaging.jsx` : nouvelle section "Variables dynamiques" qui détecte automatiquement les `{{N}}` du body Meta du template sélectionné, affiche un input par variable + un dropdown "+ Insérer…" pour insérer un token. Bouton "Aperçu" qui rend le message final pour le 1er destinataire sélectionné.
+✅ Tests : 21/21 pytest iter13 + 47/47 cumulé (iter11+iter12+iter13). `test_sawali_iter13.py` couvre helpers unit + `/variable-tokens` endpoint + bulk-send avec variables monkeypatch capturant les `components` résolus + scheduler runner avec variables. `conftest.py` mutualise un event_loop session-scope pour stabiliser motor.
+✅ Test harness fix : remplacé `asyncio.run(...)` par `event_loop.run_until_complete(...)` dans iter12 + iter13 pour éviter le motor loop-binding error en cumulé.
+
 ### 2026-05-03 — Itération 23 : Planification d'envois WhatsApp
 ✅ Backend : `whatsapp_schedules` collection + 3 endpoints admin
 - `GET /api/admin/messaging/schedules` (liste, admin-only).

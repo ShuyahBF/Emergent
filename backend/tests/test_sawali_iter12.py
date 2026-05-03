@@ -226,7 +226,7 @@ class TestDeleteSchedule:
 
 # ---------- 4) _run_scheduled_whatsapp runner (in-process) ----------------
 class TestRunner:
-    def test_runner_drains_past_pending(self, admin_h):
+    def test_runner_drains_past_pending(self, admin_h, event_loop):
         """Insert past-dated pending schedule with a phone recipient, run runner once,
         verify status=failed (Meta not configured) and result_summary populated."""
         sys.path.insert(0, "/app/backend")
@@ -254,7 +254,7 @@ class TestRunner:
         }
         _sync_db.whatsapp_schedules.insert_one(doc.copy())
         try:
-            asyncio.run(server._run_scheduled_whatsapp())
+            event_loop.run_until_complete(server._run_scheduled_whatsapp())
 
             after = _sync_db.whatsapp_schedules.find_one({"id": sid}, {"_id": 0})
             assert after is not None, "schedule disappeared"
@@ -283,7 +283,7 @@ class TestRunner:
             assert msg.get("to") == phone
             assert msg.get("recipient_kind") == "raw"
             # Re-running runner does NOT re-process (status no longer 'pending')
-            asyncio.run(server._run_scheduled_whatsapp())
+            event_loop.run_until_complete(server._run_scheduled_whatsapp())
             after2 = _sync_db.whatsapp_schedules.find_one({"id": sid}, {"_id": 0})
             assert after2["status"] == after["status"]
         finally:

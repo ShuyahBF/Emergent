@@ -33,6 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 28 : Notes & Tâches CRM par client
+✅ Backend : 2 nouvelles collections `client_notes` et `client_tasks`. 7 endpoints admin (3 notes : list/create/delete ; 4 tasks : list/create/update/delete). Validation : note text required + ≤5000 car. ; task title required + due_at ISO valide + status ∈ {open, done}. Auteur (admin) capturé sur création.
+✅ Timeline élargie : 7 types désormais (ajout `note` + `task`), counts dict élargi, filtres CSV pré-query intacts. Notes affichent un preview 160 car. ; tasks affichent due_at + statut + flag rappel WhatsApp.
+✅ Nouvel événement automation `task.reminder` (SUPPORTED_AUTOMATION_EVENTS étendu). Cron horaire `_task_reminder_cron` (minute=20) qui scanne les tâches `remind_via_whatsapp=true` + `due_at ∈ [now, now+1h]` + `reminder_sent_at=None`, émet l'event puis stamp `reminder_sent_at` (idempotent — pas de double rappel).
+✅ Frontend `AdminClientTimeline.jsx` : 2 panels côte à côte au-dessus de la timeline. Notes panel (amber, textarea + add). Tasks panel (fuchsia, title + date + time + checkbox "Rappel WhatsApp 1h avant" + add). Toggle done avec line-through, overdue rose-tinted, suppression avec confirmation. 7 filtres pills colorés (Note amber + Tâche fuchsia ajoutés).
+✅ Polish UX (post-test) : boutons delete passent de `opacity-0` à `opacity-60` pour améliorer la découvrabilité tactile.
+✅ Tests : 24/24 pytest iter17 + 108/108 cumulé (iter12+13+14+15+16+17, ~23s). Couvre auth, validation, CRUD complet, timeline avec note/task, automation event, cron idempotent (1ère invocation envoie + stamp, 2e invocation no-op). Frontend create→toggle→delete e2e validé. Test iter14 corrigé (`issubset` au lieu d'égalité stricte sur les events).
+
 ### 2026-05-03 — Itération 27 : Timeline CRM unifiée par client
 ✅ Backend : `GET /api/admin/clients/{id}/timeline?types=...&limit=...` (admin-only). Aggregator unifié sur 5 collections (`appointments`, `interventions`, `whatsapp_messages`, `form_submissions`, `documents`). Chaque event normalisé en `{id, type, ts, title, summary, status?, payload}`, tri ISO desc, filtres pré-query par CSV de types, counts calculés après le cap pour refléter ce qui est retourné. 404 sur client inconnu, batch lookup des forms pour résoudre les titres.
 ✅ Frontend `AdminClientTimeline.jsx` : route `/admin/clients/:id/timeline`. Header client (logo, email, téléphone, code, ville/pays), 5 filtres pills colorés avec compteurs (RDV bleu, Intervention orange, WhatsApp emerald, Formulaire sky, Document slate), groupement par mois avec barre verticale + markers ronds colorés, status pills (emerald/rose/slate selon le statut), bouton "Retour aux clients".

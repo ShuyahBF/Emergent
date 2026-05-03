@@ -274,7 +274,7 @@ function NotesPanel({ clientId, notes, onChange }) {
               </span>
               <button
                 onClick={() => remove(n.id)}
-                className="opacity-0 group-hover:opacity-100 transition text-rose-500 hover:text-rose-700"
+                className="text-slate-400 hover:text-rose-600 transition opacity-60 group-hover:opacity-100"
                 data-testid={`note-delete-${n.id}`}
               >
                 <Trash2 className="h-3 w-3" />
@@ -407,7 +407,7 @@ function TasksPanel({ clientId, tasks, onChange }) {
                 </div>
                 <button
                   onClick={() => remove(t.id)}
-                  className="opacity-0 group-hover:opacity-100 transition text-rose-500 hover:text-rose-700"
+                  className="text-slate-400 hover:text-rose-600 transition opacity-60 group-hover:opacity-100"
                   data-testid={`task-delete-${t.id}`}
                 >
                   <Trash2 className="h-3 w-3" />

@@ -354,8 +354,8 @@ export default function AdminSettings() {
           <Input label="Meta App ID" value={s.wa_app_id || ""} onChange={(v) => upd("wa_app_id", v)} placeholder="App ID (facebook developers)" testid="wa-app-id" />
           <Input label="Langue par défaut (ex: fr, en_US)" value={s.wa_default_language || "fr"} onChange={(v) => upd("wa_default_language", v)} placeholder="fr" testid="wa-default-language" />
         </div>
-        <PasswordInput label="System User Access Token (permanent)" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
-        <PasswordInput label="Webhook Verify Token (secret partagé)" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
+        <PasswordInput label="System User Access Token (permanent)" value={s.wa_access_token || ""} onChange={(e) => upd("wa_access_token", e.target.value)} placeholder={s.wa_access_token === "********" ? "(défini)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
+        <PasswordInput label="Webhook Verify Token (secret partagé)" value={s.wa_verify_token || ""} onChange={(e) => upd("wa_verify_token", e.target.value)} placeholder={s.wa_verify_token === "********" ? "(défini)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
       </Section>
 
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">

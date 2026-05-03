@@ -33,6 +33,13 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 26 : Éditeur de templates Meta WhatsApp
+✅ Backend : 2 nouveaux endpoints admin
+- `POST /api/admin/whatsapp/templates` (name + language + category + body_text + body_examples + header_text + footer_text). Ordre de validation strict : name regex `^[a-z0-9_]{2,512}$` (auto-lowercase) → catégorie {UTILITY, MARKETING, AUTHENTICATION} → body requis + ≤1024 car. → exemples si `{{N}}` détectés → header/footer ≤60 car. → enfin check Meta config. Soumission via Graph API v21.0 avec components correctement formés (HEADER, BODY+example, FOOTER).
+- `DELETE /api/admin/whatsapp/templates/{name}` — supprime toutes les langues du template via Graph API.
+✅ Frontend `AdminWaTemplates.jsx` (`/admin/whatsapp-templates`) : liste avec stats par statut (APPROVED/PENDING/REJECTED), filtres pills, modal de création avec auto-transform du nom (lowercase + underscores), détection live des `{{N}}` qui spawn les inputs d'exemples (Meta exige des valeurs réelles), aperçu live coloré, modal de prévisualisation pour chaque template existant. Lien sidebar admin "Templates WhatsApp" (icône FileEdit).
+✅ Tests : 20/20 pytest iter15 + 70/70 cumulé (iter12+13+14+15, ~17s). Couvre validation 400, ordre input-first, happy-path POST + DELETE avec monkeypatch httpx.AsyncClient capturant la requête envoyée à Meta, frontend modal complet (10 data-testids vérifiés), auto-transform du nom, toast d'erreur quand exemples manquants.
+
 ### 2026-05-03 — Itération 25 : Automations CRM (WhatsApp triggered)
 ✅ Backend : nouvelle collection `automations` + 5 endpoints admin (`GET /events`, GET liste, POST, PUT, DELETE).
 ✅ 4 événements supportés : `appointment.created`, `appointment.reminder` (J-1 cron horaire), `intervention.created`, `client.created`.

@@ -4393,7 +4393,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
          "phone": 1, "account_status": 1, "client_code": 1, "country": 1, "city": 1},
     ).to_list(3000)
     tracked = await db.tracked_users.find(
-        {}, {"_id": 0, "id": 1, "full_name": 1, "email": 1, "phone": 1,
+        {}, {"_id": 0, "id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1,
              "client_id": 1, "role": 1, "status": 1},
     ).to_list(5000)
     # Build client lookup for tracked-users labels
@@ -4422,7 +4422,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
         tracked_rows.append({
             "kind": "tracked",
             "id": t["id"],
-            "full_name": t.get("full_name") or "—",
+            "full_name": t.get("full_name") or t.get("name") or "—",
             "email": t.get("email"),
             "client_id": t.get("client_id"),
             "client_label": client_map.get(t.get("client_id") or "") or "—",
@@ -4466,11 +4466,11 @@ async def admin_messaging_bulk_send(
             if u:
                 label = label or u.get("company") or u.get("full_name") or u.get("email")
         elif kind == "tracked" and rid:
-            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1})
+            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
             if t and not phone:
                 phone = (t.get("phone") or "").strip()
             if t:
-                label = label or t.get("full_name") or t.get("email")
+                label = label or t.get("full_name") or t.get("name") or t.get("email")
         resolved.append({"kind": kind or "raw", "id": rid, "phone": phone, "label": label or phone or "—"})
 
     # Validate phones (basic)

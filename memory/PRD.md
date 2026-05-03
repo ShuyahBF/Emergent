@@ -33,6 +33,19 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 22 : Admin Formulaires + Messagerie WhatsApp groupée
+✅ Sidebar admin : 2 nouveaux liens — "Formulaires" (`/admin/forms`) et "Messagerie WhatsApp" (`/admin/messaging`). Les routes Admin réutilisent les composants existants (FormsList, FormEditor, FormRunner, FormsAnalytics, FormAnalyticsDetail).
+✅ Backend : 3 nouveaux endpoints admin
+- `GET /api/admin/messaging/audience` → liste unifiée des clients + utilisateurs suivis avec `has_phone` pour filtrer les candidats à l'envoi.
+- `POST /api/admin/messaging/bulk-send` → envoi groupé d'un template Meta à N destinataires ({kind:client|tracked|raw, id?, phone?}); retourne `{requested, sent_ok, sent_ko, skipped, results}`. Log complet dans `whatsapp_messages` avec `bulk=true`, `recipient_kind`, `recipient_label`.
+- `GET /api/admin/messaging/history?limit=200` → historique d'envois (admin voit tout).
+✅ Frontend `AdminMessaging.jsx` : onglets Clients/Utilisateurs suivis, recherche, sélection multi + "Tout sélectionner (avec tél.)", dropdown des templates Meta approuvés, langue, bouton "Envoyer à N". Barre d'envoi toujours rendue (désactivée tant que Meta n'est pas configurée + tooltip explicatif).
+✅ Gate UX : bandeau jaune vers `/admin/settings` si WhatsApp non configuré (WABA ID / Phone Number ID / Token / App ID manquants).
+✅ Historique complet (200 derniers) avec badge "groupé", statut OK/KO et erreur au survol.
+✅ Fix : `TrackedUserCreate` / `TrackedUserUpdate` acceptent désormais `phone` (parité avec le contact→tracked-user path). Le formulaire admin `/admin/tracked-users` a un champ "Téléphone (WhatsApp)".
+✅ Fix : audience endpoint lit maintenant `name` OU `full_name` (tracked_users stocke `name`, le résolveur tombait sur "—").
+✅ Tests : 14/14 pytest (test_sawali_iter11.py, 4.2s) — tous les nouveaux endpoints admin + régression `/me/whatsapp/*` verts ; frontend 100% après fix barre d'envoi toujours rendue.
+
 ### 2026-05-02 — Itération 21 : Form Analytics Dashboard (global + per-form)
 ✅ Backend : 3 nouveaux endpoints `GET /api/me/forms-analytics` (global), `GET /api/me/forms/{id}/analytics` (détail), `GET /api/me/forms/{id}/analytics/export.csv` (export).
 ✅ Agrégation sans pipeline complexe : série temporelle par jour UTC, top auteurs, pays (via `geo.country`), auth vs anonyme, completion rate (soumissions / uses_count), 10 dernières soumissions.

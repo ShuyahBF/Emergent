@@ -297,6 +297,7 @@ class TrackedUserCreate(BaseModel):
     client_id: str
     name: str
     email: Optional[EmailStr] = None
+    phone: Optional[str] = None
     role: str = "Consultation"  # one of TRACKED_USER_ROLES
     department: Optional[str] = None
     last_seen: Optional[str] = None
@@ -306,6 +307,7 @@ class TrackedUserCreate(BaseModel):
 class TrackedUserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
+    phone: Optional[str] = None
     role: Optional[str] = None
     department: Optional[str] = None
     last_seen: Optional[str] = None

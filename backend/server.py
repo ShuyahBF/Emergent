@@ -4478,6 +4478,129 @@ async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
         return {"configured": True, "items": [], "error": str(exc)[:200]}
 
 
+# ---------- Templates: create / delete (Meta submission flow) ----------
+WA_TEMPLATE_CATEGORIES = {"UTILITY", "MARKETING", "AUTHENTICATION"}
+_TEMPLATE_NAME_RE = re.compile(r"^[a-z0-9_]{2,512}$")
+
+
+class WaTemplateCreate(BaseModel):
+    name: str
+    language: str = "fr"
+    category: str = "UTILITY"
+    body_text: str  # Required by Meta. May contain {{1}}, {{2}}…
+    body_examples: Optional[List[str]] = None  # Required when body has variables, len must match max({{N}})
+    header_text: Optional[str] = None  # Optional plain-text header
+    footer_text: Optional[str] = None  # Optional footer (max 60 chars per Meta)
+
+
+def _count_body_vars(body: str) -> int:
+    matches = [int(m.group(1)) for m in re.finditer(r"\{\{\s*(\d+)\s*\}\}", body or "")]
+    return max(matches) if matches else 0
+
+
+@api.post("/admin/whatsapp/templates", tags=["Admin"])
+async def admin_create_wa_template(payload: WaTemplateCreate, _: dict = Depends(get_current_admin)):
+    """Submit a new template to Meta for approval.
+    Per Meta: name must be lowercase letters/digits/underscores, body is mandatory,
+    {{1}}…{{N}} placeholders need example values."""
+    name = (payload.name or "").strip().lower()
+    if not _TEMPLATE_NAME_RE.match(name):
+        raise HTTPException(status_code=400, detail="Nom invalide : minuscules, chiffres et _ uniquement (2-512 caractères)")
+    category = (payload.category or "UTILITY").upper()
+    if category not in WA_TEMPLATE_CATEGORIES:
+        raise HTTPException(status_code=400, detail=f"Catégorie invalide. Valeurs : {sorted(WA_TEMPLATE_CATEGORIES)}")
+    body = (payload.body_text or "").strip()
+    if not body:
+        raise HTTPException(status_code=400, detail="Le corps du template est requis")
+    if len(body) > 1024:
+        raise HTTPException(status_code=400, detail="Corps trop long (1024 caractères max)")
+    n_vars = _count_body_vars(body)
+    examples = payload.body_examples or []
+    if n_vars > 0 and len(examples) < n_vars:
+        raise HTTPException(status_code=400, detail=f"Exemples manquants : {n_vars} variable(s) détectée(s), {len(examples)} fournie(s)")
+    if payload.header_text and len(payload.header_text.strip()) > 60:
+        raise HTTPException(status_code=400, detail="Header trop long (60 caractères max)")
+    if payload.footer_text and len(payload.footer_text.strip()) > 60:
+        raise HTTPException(status_code=400, detail="Footer trop long (60 caractères max)")
+
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    waba_id = s.get("wa_business_account_id")
+    if not access_token or not waba_id:
+        raise HTTPException(status_code=400, detail="WhatsApp non configuré (renseignez WABA ID et Access Token dans Paramètres)")
+
+    components: List[Dict[str, Any]] = []
+    if payload.header_text:
+        components.append({"type": "HEADER", "format": "TEXT", "text": payload.header_text.strip()})
+    body_comp: Dict[str, Any] = {"type": "BODY", "text": body}
+    if n_vars > 0:
+        body_comp["example"] = {"body_text": [examples[:n_vars]]}
+    components.append(body_comp)
+    if payload.footer_text:
+        components.append({"type": "FOOTER", "text": payload.footer_text.strip()})
+
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates"
+    body_payload = {
+        "name": name,
+        "language": payload.language or "fr",
+        "category": category,
+        "components": components,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.post(
+                url,
+                json=body_payload,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:2000]}
+            if r.status_code >= 300:
+                err = (raw.get("error") or {}).get("message") if isinstance(raw, dict) else None
+                raise HTTPException(status_code=r.status_code, detail=err or f"Échec Meta HTTP {r.status_code}")
+            return {
+                "ok": True,
+                "name": name,
+                "language": body_payload["language"],
+                "category": category,
+                "id": raw.get("id"),
+                "status": raw.get("status") or "PENDING",
+                "raw": raw,
+            }
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timeout Meta")
+
+
+@api.delete("/admin/whatsapp/templates/{name}", tags=["Admin"])
+async def admin_delete_wa_template(name: str, _: dict = Depends(get_current_admin)):
+    """Delete a template by name (deletes ALL languages of this name on the WABA)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    waba_id = s.get("wa_business_account_id")
+    if not access_token or not waba_id:
+        raise HTTPException(status_code=400, detail="WhatsApp non configuré")
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates"
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.delete(
+                url,
+                headers={"Authorization": f"Bearer {access_token}"},
+                params={"name": name},
+            )
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:1000]}
+            if r.status_code >= 300:
+                err = (raw.get("error") or {}).get("message") if isinstance(raw, dict) else None
+                raise HTTPException(status_code=r.status_code, detail=err or f"Échec Meta HTTP {r.status_code}")
+            return {"ok": True, "name": name, "raw": raw}
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Timeout Meta")
+
+
 # ====================================================================
 # ADMIN — Messagerie WhatsApp groupée (clients + tracked users)
 # ====================================================================

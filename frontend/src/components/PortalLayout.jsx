@@ -37,6 +37,7 @@ const adminLinks = [
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/forms", label: "Formulaires", icon: FileEdit },
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
+  { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },

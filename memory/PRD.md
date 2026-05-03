@@ -33,6 +33,12 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 27 : Timeline CRM unifiée par client
+✅ Backend : `GET /api/admin/clients/{id}/timeline?types=...&limit=...` (admin-only). Aggregator unifié sur 5 collections (`appointments`, `interventions`, `whatsapp_messages`, `form_submissions`, `documents`). Chaque event normalisé en `{id, type, ts, title, summary, status?, payload}`, tri ISO desc, filtres pré-query par CSV de types, counts calculés après le cap pour refléter ce qui est retourné. 404 sur client inconnu, batch lookup des forms pour résoudre les titres.
+✅ Frontend `AdminClientTimeline.jsx` : route `/admin/clients/:id/timeline`. Header client (logo, email, téléphone, code, ville/pays), 5 filtres pills colorés avec compteurs (RDV bleu, Intervention orange, WhatsApp emerald, Formulaire sky, Document slate), groupement par mois avec barre verticale + markers ronds colorés, status pills (emerald/rose/slate selon le statut), bouton "Retour aux clients".
+✅ Bouton "Timeline" (icône Activity) ajouté dans `/admin/clients` sur chaque ligne (testid `timeline-client-<id>`).
+✅ Tests : 11/11 pytest iter16 + 84/84 cumulé (iter12+13+14+15+16, ~20s). Couvre auth (401/403), shape body, 5 collections sources, sort ISO desc, filtres pré-query, limit, 404. Frontend bouton dans table, 5 filtres avec toggle, navigation back, rendering complet avec 2 interventions seedées.
+
 ### 2026-05-03 — Itération 26 : Éditeur de templates Meta WhatsApp
 ✅ Backend : 2 nouveaux endpoints admin
 - `POST /api/admin/whatsapp/templates` (name + language + category + body_text + body_examples + header_text + footer_text). Ordre de validation strict : name regex `^[a-z0-9_]{2,512}$` (auto-lowercase) → catégorie {UTILITY, MARKETING, AUTHENTICATION} → body requis + ≤1024 car. → exemples si `{{N}}` détectés → header/footer ≤60 car. → enfin check Meta config. Soumission via Graph API v21.0 avec components correctement formés (HEADER, BODY+example, FOOTER).

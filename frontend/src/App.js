@@ -56,6 +56,7 @@ import AdminHealthDashboard from "@/pages/admin/AdminHealthDashboard";
 import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
 import AdminIntegrationLinks from "@/pages/admin/AdminIntegrationLinks";
+import AdminMessaging from "@/pages/admin/AdminMessaging";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -151,6 +152,12 @@ export default function App() {
             <Route path="health" element={<AdminHealthDashboard />} />
             <Route path="db-explorer" element={<AdminDbExplorer />} />
             <Route path="formations" element={<AdminFormations />} />
+            <Route path="forms" element={<FormsList />} />
+            <Route path="forms/analytics" element={<FormsAnalytics />} />
+            <Route path="forms/:fid/edit" element={<FormEditor />} />
+            <Route path="forms/:fid/fill" element={<FormRunner />} />
+            <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
+            <Route path="messaging" element={<AdminMessaging />} />
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />

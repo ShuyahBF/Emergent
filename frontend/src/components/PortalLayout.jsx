@@ -35,6 +35,8 @@ const adminLinks = [
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar, module: "admin_appointments" },
   { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions" },
   { to: "/admin/documents", label: "Documents", icon: FileText },
+  { to: "/admin/forms", label: "Formulaires", icon: FileEdit },
+  { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },
   { to: "/admin/case-studies", label: "Études de cas", icon: Briefcase },

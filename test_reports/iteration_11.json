@@ -1,0 +1,46 @@
+{
+  "summary": "Iter11 SAWALI — NEW Admin Messagerie WhatsApp module + admin Forms routes. BACKEND: 14/14 pytest pass (4.17s) against https://sawali-portal.preview.emergentagent.com via /app/backend/tests/test_sawali_iter11.py. Coverage: GET /api/admin/messaging/audience (401 no auth, 403 non-admin, 200 admin returns {clients[], tracked_users[]} with kind/id/full_name/email/phone/has_phone and tracked rows include client_label) ✓; POST /api/admin/messaging/bulk-send validations (401 no auth, 403 non-admin, 400 empty recipients, 400 empty template_name) ✓; bulk-send happy paths with Meta NOT configured: explicit phone returns ok=false with error containing 'configur' ✓, recipient with empty phone goes to skipped[] (not results[]) with reason 'Pas de numéro de téléphone' ✓, kind=tracked is resolved from tracked_users collection and logs into whatsapp_messages with bulk=true, recipient_kind='tracked', tracked_user_id=<id>, to=<phone> (verified via /api/admin/messaging/history) ✓; GET /api/admin/messaging/history returns 200 list desc-sorted by created_at for admin and 403 for non-admin ✓; regression /api/me/whatsapp/history (200 list) and /api/me/whatsapp/send (422 on missing 'to') still work ✓. FRONTEND: admin login + JWT in localStorage works; sidebar shows BOTH new links (data-testid sidebar-link--admin-forms → /admin/forms, sidebar-link--admin-messaging → /admin/messaging) ✓. /admin/forms renders forms-list-page with 2 per-card form-analytics-* buttons + global forms-global-analytics-btn ✓. /admin/forms/analytics renders the global analytics page ✓. /admin/messaging renders admin-messaging-page with messaging-config-card (warning since Meta NOT configured), messaging-search, messaging-toggle-all, and messaging-history (tbody) ✓.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "AdminMessaging", "issue": "When Meta WhatsApp is NOT configured, the entire send bar (messaging-template-select, messaging-language, messaging-send-btn) is hidden behind the warning card via an else-branch (lines 174-223 of AdminMessaging.jsx). This means the spec assertion 'Selecting a client with a phone enables Envoyer à N button + click without template shows toast and does NOT call API' CANNOT be exercised in the current test environment because those controls don't render. Consider always rendering the send controls but disabling them with a tooltip 'Configurez WhatsApp d\\u2019abord' when not configured — that gives a better UX and keeps the spec testable.", "selector": "[data-testid=messaging-send-btn]", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/forms/analytics", "issues": ["Recharts still emits 4x 'width(-1) and height(-1)' console warnings on initial empty-series render — cosmetic, carry-over from iter9/iter10."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter11.py",
+    "/app/test_reports/pytest/pytest_iter11.xml"
+  ],
+  "action_items": [
+    "(MEDIUM) AdminMessaging.jsx: render the send bar (template/language/send-btn) ALWAYS — disable + add a small inline hint when Meta not configured — instead of hiding it inside an else branch. This keeps the UX consistent and makes the 'select-then-send' flow testable in any environment.",
+    "(LOW) Tracked-user creation API gap: POST /api/admin/tracked-users (TrackedUserCreate) does NOT accept a 'phone' field, so admins cannot directly create a tracked user with a phone — only the Contact-saved-as-tracked-user path persists phone. The audience endpoint relies on tracked_users.phone, so add phone to TrackedUserCreate/TrackedUserUpdate (models.py:296-312) for full feature symmetry.",
+    "(LOW) After my bulk-send tests against /admin/clients with hard-failing fixtures, two 'Iter11 Parent' rows remained in audience (visible in screenshot) — confirming our DELETE /api/admin/clients teardown succeeded, but those were created by an earlier failing fixture run. Consider a cron-style cleanup or stricter unique-email constraint to flag stale TEST_/Iter11_ fixtures.",
+    "(LOW, cosmetic) Wrap Recharts ResponsiveContainer in a (data.length>0) guard or set explicit minHeight to silence the width(-1)/height(-1) warnings on /admin/forms/analytics."
+  ],
+  "critical_code_review_comments": [
+    "server.py admin_messaging_bulk_send (4444-4527) is correct but ~85 lines of imperative code; consider extracting _resolve_recipient(r) and _log_send(...) helpers to keep the route slim. Also: the recipient loop is sequential (good for Meta rate-limits ~80 msg/s) but blocks the request thread for large fan-outs — for >50 recipients consider switching to a background task and a polling-based result channel.",
+    "Inconsistent skipped[] schema vs results[] schema: skipped items have {label, reason}, results have {label, phone, kind, ok, status, message_id, error}. Frontend must handle two shapes. Consider unifying as {label, phone?, kind?, status:'skipped'|'sent'|'failed', reason?|error?}.",
+    "admin_messaging_audience reads users WHERE role IN ['client','superviseur'] but bulk-send resolves kind='client' against ANY users.id — minor inconsistency: an admin could be passed as kind='client' and bypass the audience filter. Either tighten the resolver query (role:'client') or document that 'client' here means 'any user-id recipient'.",
+    "TrackedUserCreate (models.py:296) is missing 'phone' field even though tracked_users docs DO carry phone (set via the contacts-bridge path). The API to add a phone-only tracked user is only the Contact→save-as-tracked path. Add 'phone: Optional[str]=None' to TrackedUserCreate/Update for parity.",
+    "AdminMessaging.jsx: send-bar visibility is gated on Meta-configured (the else branch starts at 174). Recommend rendering the bar always with disabled state + a small subtitle, so the messaging-send-btn data-testid is queryable in tests regardless of config — this is a recurring testability concern and matches the iter11 spec assertion.",
+    "server.py is now ~6006 lines — split into routers (auth/admin/portal/forms/analytics/whatsapp/db) recommended. Carry-over from iter7-10."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter11.py (NEW — 14 tests)",
+    "/app/test_reports/pytest/pytest_iter11.xml (NEW)",
+    "/app/test_reports/iteration_11.json (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100% (14/14 pytest cases for the new admin messaging module + regression on /me/whatsapp)",
+    "frontend": "92% — sidebar links, /admin/forms (2 per-card stats + global), /admin/forms/analytics, /admin/messaging (page + config-card + search + toggle-all + history) all PASS. The send-bar selectors (messaging-template-select / messaging-language / messaging-send-btn) and the 'select client → click send without template → toast' flow could NOT be exercised because the send bar is conditionally rendered only when Meta is configured (which is the documented mocked-API state)."
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (OTP dev flow — body returns dev_otp). Secondary client + phoneless client + tracked-user fixture are auto-created and torn down by pytest session.",
+  "seed_data_creation": "Each pytest session creates: 1 secondary client, 1 phoneless client, 1 parent client + 1 contact + 1 tracked-user (via /admin/contacts/{id}/save-as-tracked-user — the only path that persists phone on tracked_users). All deleted in teardown. whatsapp_messages docs persist (no cascade). Two stale 'Iter11 Parent' rows from earlier failing fixtures remain in audience — main agent can clean via DELETE /api/admin/clients/{id} or rely on next CI cleanup.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite for the Admin Messagerie WhatsApp module is /app/backend/tests/test_sawali_iter11.py (14 tests, ~4.2s). Reuses admin OTP-dev login like iter9/10. The tracked-user-with-phone fixture uses POST /api/contact then POST /api/admin/contacts/{id}/save-as-tracked-user because TrackedUserCreate currently does NOT accept a phone field — keep this path until that gap is closed. Frontend admin token+localStorage flow remains the same; new sidebar links work. The send-bar (template/language/send-btn) is hidden when WhatsApp is not configured — to fully exercise the 'select → toast on no template' flow you must either (a) configure Meta WABA/Phone/Token in /admin/settings or (b) ask the main agent to refactor AdminMessaging.jsx to always render the bar in disabled state.",
+  "rca of the issue": "Not a bug — feature gap noted: when Meta is unconfigured, AdminMessaging.jsx renders ONLY the warning card and HIDES messaging-template-select / messaging-language / messaging-send-btn (else branch at line 174). The iter11 spec assumed those selectors coexist with the warning card. Suggested fix: always render the send bar; disable it with a small notice when !configured. Also TrackedUserCreate is missing a 'phone' field — the only working path to set tracked phone is admin save-as-tracked-user from a contact. Add phone:Optional[str]=None to TrackedUserCreate/Update."
+}

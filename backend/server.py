@@ -4382,6 +4382,161 @@ async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
 
 
 # ====================================================================
+# ADMIN — Messagerie WhatsApp groupée (clients + tracked users)
+# ====================================================================
+@api.get("/admin/messaging/audience", tags=["Admin"])
+async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
+    """Return all contactable recipients (clients with phone/whatsapp + tracked users with phone)."""
+    users = await db.users.find(
+        {"role": {"$in": ["client", "superviseur"]}},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1, "company": 1,
+         "phone": 1, "account_status": 1, "client_code": 1, "country": 1, "city": 1},
+    ).to_list(3000)
+    tracked = await db.tracked_users.find(
+        {}, {"_id": 0, "id": 1, "full_name": 1, "email": 1, "phone": 1,
+             "client_id": 1, "role": 1, "status": 1},
+    ).to_list(5000)
+    # Build client lookup for tracked-users labels
+    client_map = {u["id"]: (u.get("company") or u.get("full_name") or u.get("email")) for u in users}
+
+    clients_rows = []
+    for u in users:
+        phone = (u.get("phone") or "").strip()
+        clients_rows.append({
+            "kind": "client",
+            "id": u["id"],
+            "full_name": u.get("full_name") or "—",
+            "email": u.get("email"),
+            "company": u.get("company") or "",
+            "phone": phone,
+            "client_code": u.get("client_code"),
+            "country": u.get("country"),
+            "city": u.get("city"),
+            "account_status": u.get("account_status"),
+            "has_phone": bool(phone),
+        })
+
+    tracked_rows = []
+    for t in tracked:
+        phone = (t.get("phone") or "").strip()
+        tracked_rows.append({
+            "kind": "tracked",
+            "id": t["id"],
+            "full_name": t.get("full_name") or "—",
+            "email": t.get("email"),
+            "client_id": t.get("client_id"),
+            "client_label": client_map.get(t.get("client_id") or "") or "—",
+            "phone": phone,
+            "role": t.get("role"),
+            "status": t.get("status"),
+            "has_phone": bool(phone),
+        })
+    return {"clients": clients_rows, "tracked_users": tracked_rows}
+
+
+class AdminBulkSendRequest(BaseModel):
+    recipients: List[Dict[str, Any]]  # [{kind:'client'|'tracked'|'raw', id?, phone?}]
+    template_name: str
+    language_code: Optional[str] = "fr"
+    components: Optional[list] = None
+
+
+@api.post("/admin/messaging/bulk-send", tags=["Admin"])
+async def admin_messaging_bulk_send(
+    payload: AdminBulkSendRequest,
+    admin_user: dict = Depends(get_current_admin),
+):
+    """Send the same WhatsApp template to a list of recipients. Returns a per-recipient result."""
+    if not payload.recipients:
+        raise HTTPException(status_code=400, detail="Aucun destinataire")
+    if not payload.template_name:
+        raise HTTPException(status_code=400, detail="Template requis")
+
+    # Resolve each recipient into an E.164 phone
+    resolved = []
+    for r in payload.recipients:
+        kind = (r.get("kind") or "").lower()
+        rid = r.get("id")
+        phone = (r.get("phone") or "").strip()
+        label = r.get("label")
+        if kind == "client" and rid:
+            u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1})
+            if u and not phone:
+                phone = (u.get("phone") or "").strip()
+            if u:
+                label = label or u.get("company") or u.get("full_name") or u.get("email")
+        elif kind == "tracked" and rid:
+            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1})
+            if t and not phone:
+                phone = (t.get("phone") or "").strip()
+            if t:
+                label = label or t.get("full_name") or t.get("email")
+        resolved.append({"kind": kind or "raw", "id": rid, "phone": phone, "label": label or phone or "—"})
+
+    # Validate phones (basic)
+    to_send = [x for x in resolved if x["phone"]]
+    skipped = [x for x in resolved if not x["phone"]]
+
+    # Send sequentially to avoid burst rate-limits (Meta Cloud ~80 msg/s max)
+    results = []
+    for x in to_send:
+        try:
+            r = await _wa_send_template(x["phone"], payload.template_name, payload.language_code or "fr", payload.components)
+        except Exception as exc:  # noqa: BLE001
+            r = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
+        log = {
+            "id": _uuid(),
+            "client_id": x.get("id") if x.get("kind") == "client" else None,
+            "sender_id": admin_user["id"],
+            "sender_label": admin_user.get("full_name") or admin_user.get("email"),
+            "to": x["phone"],
+            "template_name": payload.template_name,
+            "language_code": payload.language_code,
+            "contact_id": None,
+            "tracked_user_id": x.get("id") if x.get("kind") == "tracked" else None,
+            "recipient_kind": x.get("kind"),
+            "recipient_label": x.get("label"),
+            "bulk": True,
+            "ok": r["ok"],
+            "status": r["status"],
+            "message_id": r["message_id"],
+            "error": r.get("error"),
+            "created_at": _now(),
+        }
+        try:
+            await db.whatsapp_messages.insert_one(log.copy())
+        except Exception:
+            pass
+        results.append({
+            "label": x["label"],
+            "phone": x["phone"],
+            "kind": x["kind"],
+            "ok": r["ok"],
+            "status": r["status"],
+            "message_id": r["message_id"],
+            "error": r.get("error"),
+        })
+
+    sent_ok = sum(1 for r in results if r["ok"])
+    return {
+        "requested": len(payload.recipients),
+        "sent_ok": sent_ok,
+        "sent_ko": len(results) - sent_ok,
+        "skipped": [{"label": s["label"], "reason": "Pas de numéro de téléphone"} for s in skipped],
+        "results": results,
+    }
+
+
+@api.get("/admin/messaging/history", tags=["Admin"])
+async def admin_messaging_history(
+    limit: int = 200,
+    _: dict = Depends(get_current_admin),
+):
+    items = await db.whatsapp_messages.find({}, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 1000))
+    return items
+
+
+# ====================================================================
 # PHASE 4 — Dynamic Forms (Google Forms-like)
 # Structure :
 #   forms : {id, client_id, number, title, description, is_public, pages, created_by_id, created_by_label, created_at, updated_at, uses_count, revisions_count}

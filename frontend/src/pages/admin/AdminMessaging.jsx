@@ -55,6 +55,22 @@ export default function AdminMessaging() {
   };
   useEffect(() => { loadAll(); /* eslint-disable-next-line */ }, []);
 
+  // Auto-refresh schedules every 30s so admins see pending→running→done transitions
+  // without clicking "Rafraîchir" manually (cron ticks every minute).
+  useEffect(() => {
+    const t = setInterval(async () => {
+      try {
+        const [sch, hist] = await Promise.all([
+          apiClient.get("/admin/messaging/schedules"),
+          apiClient.get("/admin/messaging/history", { params: { limit: 200 } }),
+        ]);
+        setSchedules(sch.data || []);
+        setHistory(hist.data || []);
+      } catch { /* noop */ }
+    }, 30000);
+    return () => clearInterval(t);
+  }, []);
+
   const rows = tab === "clients" ? audience.clients : audience.tracked_users;
   const filtered = rows.filter((r) => {
     if (!query) return true;

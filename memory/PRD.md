@@ -33,6 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 23 : Planification d'envois WhatsApp
+✅ Backend : `whatsapp_schedules` collection + 3 endpoints admin
+- `GET /api/admin/messaging/schedules` (liste, admin-only).
+- `POST /api/admin/messaging/schedules` (validation : destinataires requis, template requis, date future uniquement).
+- `DELETE /api/admin/messaging/schedules/{id}` : hard-delete si `status=pending`, soft-cancel si `running|done`.
+✅ Cron job APScheduler `CronTrigger(minute='*')` — chaque minute, drain des planifications dues (atomic claim pending→running→done/failed) avec résolution des contacts (client/tracked/raw), envoi via `_wa_send_template`, log dans `whatsapp_messages` (`schedule_id`, `scheduled=true`, `bulk=true`) et `result_summary` détaillé `{requested, sent_ok, sent_ko, skipped_count, skipped, results}`.
+✅ Frontend `AdminMessaging.jsx` : section "Planifier un envoi" (titre, date, heure, bouton Planifier) + tableau "Envois programmés" avec statut coloré (En attente / En cours / Terminé / Échec / Annulé), bouton suppression sur pending/running, auto-refresh toutes les 30s pour voir les transitions en direct.
+✅ Tests : 12/12 nouveaux pytest + 14/14 iter11 regression = 26/26 green (`test_sawali_iter12.py`, 3.85s solo / 6.79s combined). Frontend end-to-end create→display→cancel validé.
+
 ### 2026-05-03 — Itération 22 : Admin Formulaires + Messagerie WhatsApp groupée
 ✅ Sidebar admin : 2 nouveaux liens — "Formulaires" (`/admin/forms`) et "Messagerie WhatsApp" (`/admin/messaging`). Les routes Admin réutilisent les composants existants (FormsList, FormEditor, FormRunner, FormsAnalytics, FormAnalyticsDetail).
 ✅ Backend : 3 nouveaux endpoints admin

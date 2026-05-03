@@ -33,6 +33,19 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 29 : Politiques publiques (RGPD / Services / Suppression)
+✅ Backend : 4 endpoints (3 admin + 1 public) sur 3 slots fixes (`privacy`, `services`, `deletion`).
+- `GET /api/admin/policies` → liste avec public_url dynamique (auto-résout via x-forwarded-host pour ingress K8s).
+- `POST /api/admin/policies/{slot}/upload` (multipart) → validation : slot ∈ {privacy, services, deletion}, PDF only (content-type ou filename.pdf), max 15 Mo (413), non vide. Écriture atomique via `.pdf.tmp` + rename. Upsert dans `db.policies` avec metadata (filename, size, uploaded_at, uploaded_by, source IP).
+- `DELETE /api/admin/policies/{slot}` → unlink fichier + delete doc.
+- `GET /api/public/policies/{slot}` → **NO auth required**, sert le PDF inline avec Content-Disposition + X-Robots-Tag:all pour autoriser Google/Facebook crawlers.
+✅ Frontend `AdminPolicies.jsx` : 3 cards colorées (emerald/sky/rose) avec gradient header, métadonnées (filename + size + date + auteur), bandeau "Publiée"/"Non publiée", input file caché + bouton "Charger/Remplacer le PDF" avec barre de progression, copy + open du lien public, delete button. Bandeau d'aide en bas explique comment partager les liens à Google/Facebook. Footer marketing public élargi : 3 liens vers les politiques accessibles depuis n'importe quelle page publique du site.
+✅ 3 PDFs initiaux uploadés depuis les artefacts utilisateur (privacy 1.5 Mo, services 957 Ko, deletion 536 Ko). URLs publiques actives :
+- https://sawali-portal.preview.emergentagent.com/api/public/policies/privacy
+- https://sawali-portal.preview.emergentagent.com/api/public/policies/services
+- https://sawali-portal.preview.emergentagent.com/api/public/policies/deletion
+✅ Tests : 15/15 pytest iter18 + 123/123 cumulé (iter12+13+14+15+16+17+18, ~24s). Couvre auth (401/403), 6 paths de validation, écriture atomique (re-upload), bytes match disk + DB upsert, public route sans auth, 404 sur slot inconnu / non publié, frontend 18 testids + clipboard mock + sidebar nav + footer absolute href.
+
 ### 2026-05-03 — Itération 28 : Notes & Tâches CRM par client
 ✅ Backend : 2 nouvelles collections `client_notes` et `client_tasks`. 7 endpoints admin (3 notes : list/create/delete ; 4 tasks : list/create/update/delete). Validation : note text required + ≤5000 car. ; task title required + due_at ISO valide + status ∈ {open, done}. Auteur (admin) capturé sur création.
 ✅ Timeline élargie : 7 types désormais (ajout `note` + `task`), counts dict élargi, filtres CSV pré-query intacts. Notes affichent un preview 160 car. ; tasks affichent due_at + statut + flag rappel WhatsApp.

@@ -110,6 +110,8 @@ load_dotenv(ROOT_DIR / ".env")
 
 UPLOAD_DIR = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
 UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+POLICIES_DIR = UPLOAD_DIR / "policies"
+POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
@@ -2013,6 +2015,134 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
     return file_doc
 
 
+# ====================================================================
+# POLICIES — public legal documents (RGPD, services, suppression)
+# Stored as files in POLICIES_DIR with a fixed slot name + metadata in DB.
+# Public URL: /api/public/policies/{slot} (PDF inline) — shareable to Google,
+# Facebook, partners, etc., without authentication.
+# ====================================================================
+POLICY_SLOTS = {
+    "privacy": "Politique de confidentialité (RGPD)",
+    "services": "Politique de services",
+    "deletion": "Politique de suppression",
+}
+POLICY_MAX_SIZE = 15 * 1024 * 1024  # 15 MB
+
+
+def _policy_public_url(request: Request, slot: str) -> str:
+    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    if not base:
+        scheme = request.url.scheme
+        host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
+        base = f"{scheme}://{host}"
+    return f"{base}/api/public/policies/{slot}"
+
+
+def _policy_path(slot: str) -> Path:
+    return POLICIES_DIR / f"{slot}.pdf"
+
+
+@api.get("/admin/policies", tags=["Admin"])
+async def admin_list_policies(request: Request, _: dict = Depends(get_current_admin)):
+    """Return the 3 fixed policy slots with metadata + public share URL."""
+    items = []
+    for slot, label in POLICY_SLOTS.items():
+        meta = await db.policies.find_one({"slot": slot}, {"_id": 0})
+        present = _policy_path(slot).exists()
+        items.append({
+            "slot": slot,
+            "label": label,
+            "present": present and bool(meta),
+            "filename": (meta or {}).get("filename") if present else None,
+            "size": (meta or {}).get("size") if present else None,
+            "uploaded_at": (meta or {}).get("uploaded_at") if present else None,
+            "uploaded_by_label": (meta or {}).get("uploaded_by_label") if present else None,
+            "public_url": _policy_public_url(request, slot),
+        })
+    return {"items": items}
+
+
+@api.post("/admin/policies/{slot}/upload", tags=["Admin"])
+async def admin_upload_policy(
+    slot: str,
+    request: Request,
+    file: UploadFile = File(...),
+    admin_user: dict = Depends(get_current_admin),
+):
+    if slot not in POLICY_SLOTS:
+        raise HTTPException(status_code=400, detail=f"Slot invalide. Valeurs : {sorted(POLICY_SLOTS)}")
+    suffix = Path(file.filename or "").suffix.lower()
+    if suffix != ".pdf" and (file.content_type or "") != "application/pdf":
+        raise HTTPException(status_code=400, detail="Format invalide : PDF requis")
+    target = _policy_path(slot)
+    tmp = target.with_suffix(".pdf.tmp")
+    size = 0
+    with tmp.open("wb") as f:
+        while True:
+            chunk = await file.read(1024 * 64)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > POLICY_MAX_SIZE:
+                tmp.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {POLICY_MAX_SIZE // (1024*1024)} Mo)")
+            f.write(chunk)
+    if size == 0:
+        tmp.unlink(missing_ok=True)
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    tmp.replace(target)
+    doc = {
+        "slot": slot,
+        "label": POLICY_SLOTS[slot],
+        "filename": file.filename or f"{slot}.pdf",
+        "size": size,
+        "uploaded_at": _now(),
+        "uploaded_by_id": admin_user["id"],
+        "uploaded_by_label": admin_user.get("full_name") or admin_user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
+    }
+    await db.policies.update_one({"slot": slot}, {"$set": doc}, upsert=True)
+    return {
+        "ok": True,
+        **doc,
+        "present": True,
+        "public_url": _policy_public_url(request, slot),
+    }
+
+
+@api.delete("/admin/policies/{slot}", tags=["Admin"])
+async def admin_delete_policy(slot: str, _: dict = Depends(get_current_admin)):
+    if slot not in POLICY_SLOTS:
+        raise HTTPException(status_code=400, detail=f"Slot invalide. Valeurs : {sorted(POLICY_SLOTS)}")
+    p = _policy_path(slot)
+    if p.exists():
+        p.unlink()
+    await db.policies.delete_one({"slot": slot})
+    return {"ok": True, "slot": slot}
+
+
+@api.get("/public/policies/{slot}", tags=["Public"])
+async def public_policy(slot: str):
+    """Serve a policy PDF inline so 3rd parties (Google, Facebook…) can verify it."""
+    if slot not in POLICY_SLOTS:
+        raise HTTPException(status_code=404, detail="Politique introuvable")
+    p = _policy_path(slot)
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Politique non publiée")
+    meta = await db.policies.find_one({"slot": slot}, {"_id": 0})
+    download_name = (meta or {}).get("filename") or f"{slot}.pdf"
+    return FileResponse(
+        path=str(p),
+        media_type="application/pdf",
+        filename=download_name,
+        headers={
+            "Content-Disposition": f'inline; filename="{download_name}"',
+            "Cache-Control": "public, max-age=3600",
+            "X-Robots-Tag": "all",
+        },
+    )
+
+
 @api.get("/files/{file_id}", tags=["Public"])
 async def serve_file(request: Request, file_id: str):
     meta = await db.files.find_one({"id": file_id}, {"_id": 0})
@@ -3611,7 +3741,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies",
 }
 
 
@@ -6893,6 +7023,7 @@ async def on_startup():
     await db.client_tasks.create_index("client_id")
     await db.client_tasks.create_index("status")
     await db.client_tasks.create_index("due_at")
+    await db.policies.create_index("slot", unique=True)
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -39,6 +39,7 @@ const adminLinks = [
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
+  { to: "/admin/policies", label: "Politiques publiques", icon: Shield },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },
   { to: "/admin/case-studies", label: "Études de cas", icon: Briefcase },

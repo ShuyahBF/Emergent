@@ -1,0 +1,42 @@
+{
+  "summary": "Iter12 SAWALI — Admin WhatsApp SCHEDULE PLANNER + iter11 phone carry-over fix. BACKEND: 12/12 new pytest tests pass + 14/14 iter11 regression pass = 26/26 GREEN against https://sawali-portal.preview.emergentagent.com (3.85s solo, 6.79s combined). Coverage in /app/backend/tests/test_sawali_iter12.py: GET /admin/messaging/schedules (401 unauth, 403 non-admin, 200 admin list); POST /admin/messaging/schedules (400 empty recipients, 400 empty template, 400 past scheduled_at, 200 happy with shape {id,title,recipients,template_name,language_code,scheduled_at,status='pending',result_summary,created_by_id,created_by_label,created_at} + no _id leak); DELETE /admin/messaging/schedules/{id} (404 unknown, 200 hard-delete pending → {ok:true,status:'deleted'}, 200 soft-cancel of done/running → {ok:true,status:'cancelled'}); _run_scheduled_whatsapp() runner exercised via direct pymongo seed of past-dated 'pending' schedule with mixed recipients (one raw phone + one phoneless 'client') → asyncio.run(server._run_scheduled_whatsapp()) → status transitions to 'failed' (Meta unconfigured), result_summary={requested:2,sent_ok:0,sent_ko:1,skipped_count:1,skipped:[{reason:'Pas de numéro de téléphone'}],results:[{phone,kind:'raw',ok:false,…}]}, whatsapp_messages log inserted with schedule_id=sid, scheduled=true, bulk=true, recipient_kind='raw'; second invocation is a no-op (atomic claim). Iter11 carry-over verified: POST /admin/tracked-users now accepts {phone:'+22500000456'} and persists it (visible in /admin/messaging/audience with has_phone=true). FRONTEND (Playwright with admin JWT injected into localStorage on https://sawali-portal.preview.emergentagent.com/admin/messaging): admin-messaging-page renders ✓, all NEW selectors present (messaging-sched-title, messaging-sched-date, messaging-sched-time, messaging-schedule-btn, messaging-schedules) ✓, messaging-config-card warning visible (Meta NOT configured) ✓, send-bar visible (messaging-send-btn) ✓, schedule btn disabled initially (no recipient/date/time + meta unconfigured) ✓, sidebar-link--admin-forms + sidebar-link--admin-messaging present ✓. End-to-end create→display→cancel: POST /admin/messaging/schedules from the page context returned status='pending', a click on messaging-refresh re-fetched and the new row schedule-row-<id> appeared in 'Envois programmés (n)' table with 'En attente' badge ✓; clicking schedule-cancel-<id> with auto-accepted dialog removed the row and surfaced toast 'Planification supprimée' ✓.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_sawali_iter12.py",
+    "/app/backend/tests/test_sawali_iter11.py",
+    "/app/test_reports/pytest/pytest_iter12.xml"
+  ],
+  "action_items": [
+    "(NONE-BLOCKING) Confirm production cron schedule registration — iter12 verified the runner via in-process asyncio.run; the APScheduler CronTrigger(minute='*') registration at server.py ~6020 was NOT exercised end-to-end during this run (would need a 60s wait). Smoke-tested by main agent already.",
+    "(LOW, carry-over) AdminMessaging.jsx still wraps Recharts (in /admin/forms/analytics) without a data-length guard — cosmetic console warnings persist (iter9-11 carry-over).",
+    "(LOW) Schedule row 'En attente' badge is present, but consider exposing a refresh interval (every 30s) on /admin/messaging so admins see the pending→running→done transition without manually clicking the refresh button — currently the runner ticks every minute but the UI does not auto-poll."
+  ],
+  "critical_code_review_comments": [
+    "server.py _run_scheduled_whatsapp (~4613-4707) is correct (atomic claim pattern, exception-safe per recipient, defensive try/except around insert log). Suggestion: extract the recipient-resolution loop (also duplicated in admin_messaging_bulk_send) into a single helper _resolve_recipients(recipients) → (results, skipped) to remove ~50 lines of duplication.",
+    "server.py admin_create_schedule accepts payload.scheduled_at as a free-form string and validates manually with datetime.fromisoformat — Pydantic's datetime type would give cleaner 422s; but current behavior matches the spec (400 'Date invalide' on bad input).",
+    "server.py admin_delete_schedule treats status='running' the same as 'done' (soft-cancel) — for 'running' that's a race window where the runner may keep sending after cancel is set; consider a cooperative cancel flag the runner reads per-recipient, OR document this 'cancel = no-op for already-running batch' behavior.",
+    "AdminMessaging.jsx ~290-340 schedule UI is now correctly NOT hidden behind the !configured branch (vs iter11 send-bar issue) — the schedule button is rendered always and disabled with a helpful title tooltip when Meta is missing. Good UX.",
+    "TrackedUserCreate.phone is now Optional[str] = None (models.py:300) — iter11 gap closed. POST /admin/tracked-users {client_id, name, phone} persists correctly.",
+    "server.py is now ~6186 lines (was 6006 at iter11). Splitting into routers (auth/admin/portal/forms/whatsapp/scheduler/db) is overdue (carry-over from iter7-11)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_sawali_iter12.py (NEW — 12 tests)",
+    "/app/test_reports/pytest/pytest_iter12.xml (NEW)",
+    "/app/test_reports/iteration_12.json (NEW)"
+  ],
+  "success_rate": {
+    "backend": "100% (26/26: 12 new schedule planner + 14 iter11 regression — all GREEN)",
+    "frontend": "100% on selectors and schedule lifecycle UI flow (create-via-API → row appears with 'En attente' → cancel removes row → toast). The disabled-state + past-date toast paths are exercised at the API level since the schedule button is disabled when Meta is unconfigured (which keeps the button gating consistent in the test env)."
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (OTP-dev flow — login response carries dev_otp; verify-otp body={session_token, code}). For the UI run, JWT was injected into localStorage (keys: access_token, sawali_token, token, user, sawali_user) to bypass the captcha-gated /login form.",
+  "seed_data_creation": "Each pytest session creates 1 secondary client (for 403 tests) + 1 transient parent client (for tracked-user phone persistence test) — all torn down. The runner test seeds & deletes via pymongo: 1 whatsapp_schedules doc + 1 whatsapp_messages doc per run. UI run created 1 schedule via API and immediately cancelled it (cleanup via DELETE).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite for the WhatsApp Schedule Planner is /app/backend/tests/test_sawali_iter12.py (12 tests, ~3.9s); pair it with /app/backend/tests/test_sawali_iter11.py (14 tests, ~4.2s) for full Admin Messagerie coverage. The runner test uses a SYNC pymongo client (MongoClient(os.environ['MONGO_URL'])) to seed/cleanup whatsapp_schedules + whatsapp_messages because asyncio.run() over the shared motor `db` raised 'a coroutine was expected, got Future' — motor binds to the first event loop on use; calling asyncio.run multiple times across loops breaks it. The runner itself (server._run_scheduled_whatsapp) DOES work fine under asyncio.run() because it creates its own awaitables on the active loop. Frontend: the /login form requires a captcha; the cleanest path is to call /api/auth/login + /api/auth/verify-otp via fetch() inside page.evaluate() and inject the JWT into localStorage before navigating to /admin/*.",
+  "rca of the issue": "No bugs found in iter12. The schedule planner backend (endpoints + cron runner + result_summary shape + skipped reason) and the AdminMessaging.jsx UI integration (selectors + create→list→cancel lifecycle) all work as specified. The iter11 'TrackedUserCreate missing phone' gap is also closed. Only known carry-over: server.py file size + Recharts cosmetic warnings on /admin/forms/analytics."
+}

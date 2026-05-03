@@ -3201,7 +3201,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules",
 }
 
 
@@ -4537,6 +4537,176 @@ async def admin_messaging_history(
 
 
 # ====================================================================
+# ADMIN — Envois WhatsApp planifiés (scheduler minute-based)
+# ====================================================================
+class AdminScheduleCreate(BaseModel):
+    title: Optional[str] = None
+    recipients: List[Dict[str, Any]]
+    template_name: str
+    language_code: Optional[str] = "fr"
+    components: Optional[list] = None
+    scheduled_at: str  # ISO-8601 UTC, e.g. "2026-05-10T14:30:00+00:00"
+
+
+@api.get("/admin/messaging/schedules", tags=["Admin"])
+async def admin_list_schedules(_: dict = Depends(get_current_admin)):
+    items = await db.whatsapp_schedules.find({}, {"_id": 0}).sort("scheduled_at", -1).to_list(1000)
+    return items
+
+
+@api.post("/admin/messaging/schedules", tags=["Admin"])
+async def admin_create_schedule(
+    payload: AdminScheduleCreate,
+    admin_user: dict = Depends(get_current_admin),
+):
+    if not payload.recipients:
+        raise HTTPException(status_code=400, detail="Aucun destinataire")
+    if not payload.template_name:
+        raise HTTPException(status_code=400, detail="Template requis")
+    # Parse + validate datetime
+    try:
+        sched = datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
+        if sched.tzinfo is None:
+            sched = sched.replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Date invalide (ISO-8601 attendu)")
+    now_utc = datetime.now(timezone.utc)
+    if sched <= now_utc - timedelta(minutes=1):
+        raise HTTPException(status_code=400, detail="La date planifiée doit être dans le futur")
+
+    doc = {
+        "id": _uuid(),
+        "title": (payload.title or "").strip() or f"Envoi {payload.template_name}",
+        "recipients": payload.recipients,
+        "template_name": payload.template_name,
+        "language_code": payload.language_code or "fr",
+        "components": payload.components,
+        "scheduled_at": sched.isoformat(),
+        "status": "pending",
+        "result_summary": None,
+        "created_by_id": admin_user["id"],
+        "created_by_label": admin_user.get("full_name") or admin_user.get("email"),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.whatsapp_schedules.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/admin/messaging/schedules/{sid}", tags=["Admin"])
+async def admin_delete_schedule(sid: str, _: dict = Depends(get_current_admin)):
+    existing = await db.whatsapp_schedules.find_one({"id": sid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Planification introuvable")
+    if existing.get("status") in ("running", "done"):
+        # Don't hard-delete an active one — mark cancelled for audit
+        await db.whatsapp_schedules.update_one(
+            {"id": sid},
+            {"$set": {"status": "cancelled", "updated_at": _now()}},
+        )
+        return {"ok": True, "status": "cancelled"}
+    await db.whatsapp_schedules.delete_one({"id": sid})
+    return {"ok": True, "status": "deleted"}
+
+
+async def _run_scheduled_whatsapp():
+    """Cron job (runs every minute) — execute any pending schedule whose scheduled_at <= now."""
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        due = await db.whatsapp_schedules.find(
+            {"status": "pending", "scheduled_at": {"$lte": now_iso}},
+            {"_id": 0},
+        ).to_list(50)
+        for sc in due:
+            # Claim it (atomic update to running)
+            claimed = await db.whatsapp_schedules.update_one(
+                {"id": sc["id"], "status": "pending"},
+                {"$set": {"status": "running", "started_at": _now(), "updated_at": _now()}},
+            )
+            if claimed.modified_count == 0:
+                continue  # Someone else got it (defensive)
+
+            # Resolve + send (same logic as bulk-send, simplified)
+            results = []
+            skipped = []
+            for r in (sc.get("recipients") or []):
+                kind = (r.get("kind") or "").lower()
+                rid = r.get("id")
+                phone = (r.get("phone") or "").strip()
+                label = r.get("label")
+                if kind == "client" and rid and not phone:
+                    u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "company": 1, "email": 1})
+                    if u:
+                        phone = (u.get("phone") or "").strip()
+                        label = label or u.get("company") or u.get("full_name") or u.get("email")
+                elif kind == "tracked" and rid and not phone:
+                    t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
+                    if t:
+                        phone = (t.get("phone") or "").strip()
+                        label = label or t.get("full_name") or t.get("name") or t.get("email")
+                label = label or phone or "—"
+                if not phone:
+                    skipped.append({"label": label, "reason": "Pas de numéro de téléphone"})
+                    continue
+                try:
+                    wr = await _wa_send_template(
+                        phone, sc["template_name"], sc.get("language_code") or "fr", sc.get("components"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
+                log = {
+                    "id": _uuid(),
+                    "client_id": rid if kind == "client" else None,
+                    "sender_id": sc.get("created_by_id"),
+                    "sender_label": sc.get("created_by_label"),
+                    "to": phone,
+                    "template_name": sc["template_name"],
+                    "language_code": sc.get("language_code"),
+                    "tracked_user_id": rid if kind == "tracked" else None,
+                    "recipient_kind": kind,
+                    "recipient_label": label,
+                    "bulk": True,
+                    "scheduled": True,
+                    "schedule_id": sc["id"],
+                    "ok": wr["ok"],
+                    "status": wr["status"],
+                    "message_id": wr["message_id"],
+                    "error": wr.get("error"),
+                    "created_at": _now(),
+                }
+                try:
+                    await db.whatsapp_messages.insert_one(log.copy())
+                except Exception:
+                    pass
+                results.append({
+                    "label": label, "phone": phone, "kind": kind,
+                    "ok": wr["ok"], "status": wr["status"],
+                    "message_id": wr["message_id"], "error": wr.get("error"),
+                })
+            sent_ok = sum(1 for x in results if x["ok"])
+            final_status = "done" if sent_ok > 0 or not results else "failed"
+            await db.whatsapp_schedules.update_one(
+                {"id": sc["id"]},
+                {"$set": {
+                    "status": final_status,
+                    "result_summary": {
+                        "requested": len(sc.get("recipients") or []),
+                        "sent_ok": sent_ok,
+                        "sent_ko": len(results) - sent_ok,
+                        "skipped_count": len(skipped),
+                        "skipped": skipped,
+                        "results": results,
+                    },
+                    "finished_at": _now(),
+                    "updated_at": _now(),
+                }},
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scheduled_whatsapp runner failed: %s", exc)
+
+
+# ====================================================================
 # PHASE 4 — Dynamic Forms (Google Forms-like)
 # Structure :
 #   forms : {id, client_id, number, title, description, is_public, pages, created_by_id, created_by_label, created_at, updated_at, uses_count, revisions_count}
@@ -5805,6 +5975,8 @@ async def on_startup():
     await db.directory_contacts.create_index([("client_id", 1), ("owner_id", 1)])
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")
+    await db.whatsapp_schedules.create_index("status")
+    await db.whatsapp_schedules.create_index("scheduled_at")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")
@@ -5989,6 +6161,14 @@ async def on_startup():
                 id="uptime_monitor_hourly",
                 replace_existing=True,
                 misfire_grace_time=600,
+            )
+            # Minute-level WhatsApp scheduler — drains pending schedules due for send.
+            _scheduler.add_job(
+                _run_scheduled_whatsapp,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="whatsapp_scheduler_minutely",
+                replace_existing=True,
+                misfire_grace_time=120,
             )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")

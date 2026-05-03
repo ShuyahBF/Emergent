@@ -2,39 +2,45 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings,
+  MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings, CalendarClock, Trash2, Loader2,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 /*
   Admin → Messagerie WhatsApp
-  Sélection multi : clients + utilisateurs suivis → template Meta approuvé → envoi groupé.
-  Historique des envois avec filtre (réussis / échoués / bulk / ad-hoc).
+  Sélection multi : clients + utilisateurs suivis → template Meta approuvé → envoi groupé immédiat ou planifié.
 */
 export default function AdminMessaging() {
   const [audience, setAudience] = useState({ clients: [], tracked_users: [] });
   const [templates, setTemplates] = useState({ configured: false, items: [], error: null });
   const [history, setHistory] = useState([]);
+  const [schedules, setSchedules] = useState([]);
   const [loading, setLoading] = useState(true);
   const [sending, setSending] = useState(false);
+  const [scheduling, setScheduling] = useState(false);
 
   const [tab, setTab] = useState("clients");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState({}); // `${kind}:${id}` → true
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("fr");
+  const [schedDate, setSchedDate] = useState("");
+  const [schedTime, setSchedTime] = useState("");
+  const [schedTitle, setSchedTitle] = useState("");
 
   const loadAll = async () => {
     setLoading(true);
     try {
-      const [aud, tpl, hist] = await Promise.all([
+      const [aud, tpl, hist, sch] = await Promise.all([
         apiClient.get("/admin/messaging/audience"),
         apiClient.get("/admin/whatsapp/templates"),
         apiClient.get("/admin/messaging/history", { params: { limit: 200 } }),
+        apiClient.get("/admin/messaging/schedules"),
       ]);
       setAudience(aud.data || { clients: [], tracked_users: [] });
       setTemplates(tpl.data || { configured: false, items: [] });
       setHistory(hist.data || []);
+      setSchedules(sch.data || []);
       // Preselect first approved template
       const first = (tpl.data?.items || []).find((t) => (t.status || "").toUpperCase() === "APPROVED");
       if (first && !template) {
@@ -124,6 +130,62 @@ export default function AdminMessaging() {
       toast.error(err?.response?.data?.detail || "Erreur d'envoi");
     } finally {
       setSending(false);
+    }
+  };
+
+  const schedule = async () => {
+    if (selectedList.length === 0) {
+      toast.error("Sélectionnez au moins un destinataire");
+      return;
+    }
+    if (!template) {
+      toast.error("Choisissez un template Meta approuvé");
+      return;
+    }
+    if (!schedDate || !schedTime) {
+      toast.error("Choisissez une date et une heure");
+      return;
+    }
+    // Local datetime → UTC ISO
+    const local = new Date(`${schedDate}T${schedTime}`);
+    if (isNaN(local.getTime())) {
+      toast.error("Date/heure invalide");
+      return;
+    }
+    if (local.getTime() <= Date.now()) {
+      toast.error("La date planifiée doit être dans le futur");
+      return;
+    }
+    setScheduling(true);
+    try {
+      await apiClient.post("/admin/messaging/schedules", {
+        title: schedTitle || `Envoi ${template}`,
+        recipients: selectedList.map((x) => ({ kind: x.kind, id: x.id, phone: x.phone, label: x.full_name })),
+        template_name: template,
+        language_code: language || "fr",
+        scheduled_at: local.toISOString(),
+      });
+      toast.success(`Planifié pour ${local.toLocaleString("fr-FR")}`);
+      setSelected({});
+      setSchedDate("");
+      setSchedTime("");
+      setSchedTitle("");
+      await loadAll();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de planification");
+    } finally {
+      setScheduling(false);
+    }
+  };
+
+  const cancelSchedule = async (sid) => {
+    if (!window.confirm("Annuler / supprimer cette planification ?")) return;
+    try {
+      await apiClient.delete(`/admin/messaging/schedules/${sid}`);
+      toast.success("Planification supprimée");
+      await loadAll();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
     }
   };
 
@@ -223,6 +285,59 @@ export default function AdminMessaging() {
             {sending ? "Envoi…" : `Envoyer à ${selectedList.length}`}
           </button>
         </div>
+
+        {/* Planification */}
+        <div className="mt-4 pt-4 border-t border-slate-200">
+          <div className="flex items-center gap-2 mb-2">
+            <CalendarClock className="h-4 w-4 text-indigo-600" />
+            <h3 className="text-sm font-display font-semibold text-slate-800">Planifier un envoi</h3>
+            <span className="text-[11px] text-slate-400">
+              (exécution automatique toutes les minutes)
+            </span>
+          </div>
+          <div className="grid md:grid-cols-5 gap-3 items-end">
+            <div className="md:col-span-2">
+              <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-1">Titre (optionnel)</label>
+              <input
+                value={schedTitle}
+                onChange={(e) => setSchedTitle(e.target.value)}
+                placeholder="Rappel RDV hebdo"
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                data-testid="messaging-sched-title"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-1">Date</label>
+              <input
+                type="date"
+                value={schedDate}
+                onChange={(e) => setSchedDate(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                data-testid="messaging-sched-date"
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-1">Heure</label>
+              <input
+                type="time"
+                value={schedTime}
+                onChange={(e) => setSchedTime(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+                data-testid="messaging-sched-time"
+              />
+            </div>
+            <button
+              onClick={schedule}
+              disabled={scheduling || selectedList.length === 0 || !template || !templates.configured || !schedDate || !schedTime}
+              title={!templates.configured ? "Configurez WhatsApp d'abord (Paramètres)" : ""}
+              className="inline-flex items-center justify-center gap-2 rounded-lg bg-indigo-600 text-white px-4 py-2 text-sm hover:bg-indigo-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              data-testid="messaging-schedule-btn"
+            >
+              <CalendarClock className="h-4 w-4" />
+              {scheduling ? "…" : "Planifier"}
+            </button>
+          </div>
+        </div>
       </div>
 
       {/* Audience */}
@@ -315,6 +430,85 @@ export default function AdminMessaging() {
                         )}
                         {r.role && (
                           <span className="px-2 py-0.5 rounded bg-slate-100 text-slate-600 ml-1">{r.role}</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* Schedules */}
+      <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid="messaging-schedules">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+          <h3 className="text-sm font-display font-bold flex items-center gap-2">
+            <CalendarClock className="h-4 w-4 text-indigo-600" />
+            Envois programmés ({schedules.length})
+          </h3>
+        </div>
+        {schedules.length === 0 ? (
+          <div className="text-center text-slate-400 py-8 italic text-sm">
+            Aucun envoi programmé. Sélectionnez des destinataires puis utilisez "Planifier".
+          </div>
+        ) : (
+          <div className="max-h-[360px] overflow-y-auto">
+            <table className="min-w-full text-xs">
+              <thead className="sticky top-0 bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500">
+                <tr>
+                  <th className="text-left py-2 px-3">Titre</th>
+                  <th className="text-left py-2 px-3">Planifié pour</th>
+                  <th className="text-left py-2 px-3">Template</th>
+                  <th className="text-left py-2 px-3">Destinataires</th>
+                  <th className="text-left py-2 px-3">Statut</th>
+                  <th className="text-left py-2 px-3">Créé par</th>
+                  <th className="text-right py-2 px-3"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {schedules.map((s) => {
+                  const rs = s.result_summary || {};
+                  const statusPill = {
+                    pending: ["bg-amber-100 text-amber-800", "En attente"],
+                    running: ["bg-indigo-100 text-indigo-800", "En cours"],
+                    done: ["bg-emerald-100 text-emerald-800", "Terminé"],
+                    failed: ["bg-rose-100 text-rose-700", "Échec"],
+                    cancelled: ["bg-slate-100 text-slate-600", "Annulé"],
+                  }[s.status] || ["bg-slate-100 text-slate-600", s.status];
+                  return (
+                    <tr key={s.id} className="border-t border-slate-100" data-testid={`schedule-row-${s.id}`}>
+                      <td className="py-1.5 px-3 text-slate-900">{s.title}</td>
+                      <td className="py-1.5 px-3 text-slate-600">
+                        {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString("fr-FR") : "—"}
+                      </td>
+                      <td className="py-1.5 px-3 font-mono text-[11px]">{s.template_name}</td>
+                      <td className="py-1.5 px-3">
+                        {(s.recipients || []).length} destinataire(s)
+                        {s.status === "done" && rs.sent_ok !== undefined && (
+                          <div className="text-[10px] text-slate-500">
+                            ✓ {rs.sent_ok} · ✗ {rs.sent_ko} · ⊘ {rs.skipped_count || 0}
+                          </div>
+                        )}
+                      </td>
+                      <td className="py-1.5 px-3">
+                        <span className={`px-2 py-0.5 rounded text-[10px] ${statusPill[0]}`}>
+                          {s.status === "running" && <Loader2 className="inline h-2.5 w-2.5 mr-1 animate-spin" />}
+                          {statusPill[1]}
+                        </span>
+                      </td>
+                      <td className="py-1.5 px-3 text-slate-500">{s.created_by_label || "—"}</td>
+                      <td className="py-1.5 px-3 text-right">
+                        {(s.status === "pending" || s.status === "running") && (
+                          <button
+                            onClick={() => cancelSchedule(s.id)}
+                            className="inline-flex items-center gap-1 text-[11px] rounded bg-rose-500 text-white px-2 py-1 hover:bg-rose-600"
+                            data-testid={`schedule-cancel-${s.id}`}
+                            title="Annuler / supprimer"
+                          >
+                            <Trash2 className="h-3 w-3" />
+                          </button>
                         )}
                       </td>
                     </tr>

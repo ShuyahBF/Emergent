@@ -33,6 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-03 — Itération 25 : Automations CRM (WhatsApp triggered)
+✅ Backend : nouvelle collection `automations` + 5 endpoints admin (`GET /events`, GET liste, POST, PUT, DELETE).
+✅ 4 événements supportés : `appointment.created`, `appointment.reminder` (J-1 cron horaire), `intervention.created`, `client.created`.
+✅ Helper central `_emit_event(event, target)` : résout le destinataire (client_id/tracked_user_id/phone), construit le ctx de variables avec `extra_ctx` (ex: `{appointment_date}`), traite immediate (delay=0 → `_wa_send_template` direct + log) OU delayed (delay>0 → planifie via `whatsapp_schedules` réutilisé) + incrémente `trigger_count`. Branches no-phone, disabled, unsupported event toutes idempotentes.
+✅ Hook fire-and-forget (`asyncio.create_task`) ajouté dans 4 routes : `POST /me/appointments`, `POST /admin/clients`, `POST /admin/interventions`, `POST /me/interventions`.
+✅ Cron horaire `_appointment_reminder_cron` (minute=15) : balaye les RDV dans la fenêtre `[now+23h, now+25h]` sans `reminder_sent_at`, émet `appointment.reminder` puis stamp.
+✅ Frontend `AdminAutomations.jsx` (`/admin/automations`) : liste avec toggle ON/OFF, modal create/edit pré-rempli (sélection événement → template Meta → variables avec picker tokens → délai). Bouton désactivé + bandeau si Meta non configuré. Sidebar admin enrichie avec lien "Automations" (icône Zap).
+✅ Tests : 20/20 pytest iter14 + 53/53 cumulé (iter12+13+14, ~14s). Couvre validation 400, CRUD complet, 5 branches de `_emit_event` (immediate/delayed/no-phone/disabled/unsupported), intégration via POST /admin/clients + /admin/interventions, cron `_appointment_reminder_cron`, frontend create→toggle→edit→delete avec injection JWT.
+
 ### 2026-05-03 — Itération 24 : Variables dynamiques pour templates WhatsApp
 ✅ Backend : 4 helpers réutilisables — `_VAR_TOKEN_RE`, `_render_variable(value, ctx)`, `_build_recipient_ctx(kind, user_doc, phone, label)` (retourne `{full_name, company, phone, email, client_code, today, tomorrow}`), `_build_components(variables, ctx)` qui produit `[{type:'body', parameters:[{type:'text', text:rendered}, …]}]` ou `None`.
 ✅ Backend : `AdminBulkSendRequest.variables` + `AdminScheduleCreate.variables` (`Optional[List[str]]`). Bulk-send et runner cron substituent les tokens **par destinataire** au moment de l'envoi.

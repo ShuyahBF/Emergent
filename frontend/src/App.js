@@ -68,6 +68,7 @@ import FormRunner from "@/pages/portal/FormRunner";
 import FormsAnalytics from "@/pages/portal/FormsAnalytics";
 import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
 import Contacts from "@/pages/portal/Contacts";
+import MediaGenerator from "@/pages/portal/MediaGenerator";
 import PublicForm from "@/pages/public/PublicForm";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
@@ -131,6 +132,7 @@ export default function App() {
             <Route path="forms/:fid/fill" element={<FormRunner />} />
             <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
             <Route path="contacts" element={<Contacts />} />
+            <Route path="media-generator" element={<MediaGenerator />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>
 

@@ -356,6 +356,7 @@ export default function AdminSettings() {
         </div>
         <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
+        <WaTestPanel />
       </Section>
 
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">
@@ -490,6 +491,63 @@ const Input = ({ label, value, onChange, type = "text", placeholder, testid }) =
   </div>
   );
 };
+// Panel that lets the admin probe Meta Graph API live to validate WA config.
+const WaTestPanel = () => {
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+  const run = async () => {
+    setLoading(true);
+    setResult(null);
+    try {
+      const r = await apiClient.post("/admin/whatsapp/test-config");
+      setResult(r.data);
+      if (r.data?.ok) toast.success("Paramètres WhatsApp valides");
+      else toast.error("Un ou plusieurs paramètres sont invalides");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur pendant le test");
+    } finally {
+      setLoading(false);
+    }
+  };
+  return (
+    <div className="rounded-lg border border-dashed border-sawali-blue/40 bg-sky-50/50 p-4 space-y-3" data-testid="wa-test-panel">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="text-xs text-slate-600">
+          <p className="font-semibold text-slate-800">Valider la configuration Meta</p>
+          <p>Lance un appel en direct vers Graph API pour vérifier que votre WABA, votre numéro et votre token fonctionnent, avant d'envoyer des messages réels.</p>
+          <p className="text-[11px] text-amber-700 mt-1">Astuce : enregistrez d'abord vos modifications avec le bouton "Enregistrer" en bas de page.</p>
+        </div>
+        <button
+          type="button"
+          onClick={run}
+          disabled={loading}
+          data-testid="wa-test-btn"
+          className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue px-3 py-2 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-60"
+        >
+          {loading ? <RotateCcw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+          {loading ? "Test en cours…" : "Tester la connexion Meta"}
+        </button>
+      </div>
+      {result && (
+        <div className="space-y-1.5" data-testid="wa-test-result">
+          <p className={`text-xs font-semibold ${result.ok ? "text-emerald-700" : "text-rose-700"}`}>{result.summary}</p>
+          <ul className="space-y-1">
+            {(result.checks || []).map((c, i) => (
+              <li key={i} className="flex items-start gap-2 text-xs" data-testid={`wa-test-check-${c.key}`}>
+                {c.ok ? <CheckCircle2 className="h-4 w-4 text-emerald-600 flex-shrink-0 mt-0.5" /> : <AlertCircle className="h-4 w-4 text-rose-600 flex-shrink-0 mt-0.5" />}
+                <div>
+                  <span className="font-semibold text-slate-800">{c.label}</span>
+                  <span className="text-slate-600"> — {c.detail}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
 const Toggle = ({ label, value, onChange, testid }) => (
   <label className="flex items-center gap-3 text-sm">
     <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} data-testid={testid} />

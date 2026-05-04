@@ -5051,7 +5051,10 @@ async def admin_create_wa_template(payload: WaTemplateCreate, _: dict = Depends(
                 raw = {"text": r.text[:2000]}
             if r.status_code >= 300:
                 err = (raw.get("error") or {}).get("message") if isinstance(raw, dict) else None
-                raise HTTPException(status_code=r.status_code, detail=err or f"Échec Meta HTTP {r.status_code}")
+                # Never forward Meta 401/403 verbatim — the client axios interceptor
+                # would log the admin out. Return 502 (Bad Gateway) so we surface
+                # the Meta error without affecting our own auth session.
+                raise HTTPException(status_code=502, detail=f"Meta API {r.status_code}: {err or f'Échec HTTP {r.status_code}'}")
             return {
                 "ok": True,
                 "name": name,
@@ -5087,10 +5090,102 @@ async def admin_delete_wa_template(name: str, _: dict = Depends(get_current_admi
                 raw = {"text": r.text[:1000]}
             if r.status_code >= 300:
                 err = (raw.get("error") or {}).get("message") if isinstance(raw, dict) else None
-                raise HTTPException(status_code=r.status_code, detail=err or f"Échec Meta HTTP {r.status_code}")
+                raise HTTPException(status_code=502, detail=f"Meta API {r.status_code}: {err or f'Échec HTTP {r.status_code}'}")
             return {"ok": True, "name": name, "raw": raw}
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Timeout Meta")
+
+
+# ---------- Config validator ----------
+@api.post("/admin/whatsapp/test-config", tags=["Admin"])
+async def admin_test_wa_config(_: dict = Depends(get_current_admin)):
+    """Validate Meta credentials by probing Graph API for WABA + phone number.
+    Returns {ok, checks:[{key,label,ok,detail}], summary}."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token") or ""
+    waba_id = s.get("wa_business_account_id") or ""
+    phone_id = s.get("wa_phone_number_id") or ""
+    app_id = s.get("wa_app_id") or ""
+
+    checks: List[Dict[str, Any]] = []
+    def add(key, label, ok, detail):
+        checks.append({"key": key, "label": label, "ok": bool(ok), "detail": detail})
+
+    # 1) Required fields
+    add("access_token", "Access Token renseigné", bool(access_token), "Token présent" if access_token else "Manquant")
+    add("waba_id", "WABA ID renseigné", bool(waba_id), waba_id or "Manquant")
+    add("phone_id", "Phone Number ID renseigné", bool(phone_id), phone_id or "Manquant")
+    add("app_id", "App ID renseigné (optionnel)", bool(app_id), app_id or "Non fourni (facultatif)")
+
+    if not access_token or not waba_id or not phone_id:
+        return {"ok": False, "checks": checks, "summary": "Informations requises manquantes — impossible de contacter Meta."}
+
+    headers = {"Authorization": f"Bearer {access_token}"}
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            # 2) WABA lookup
+            r1 = await http.get(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}",
+                params={"fields": "id,name,message_template_namespace"},
+                headers=headers,
+            )
+            try:
+                d1 = r1.json()
+            except Exception:
+                d1 = {"text": r1.text[:500]}
+            if r1.status_code < 300:
+                name = d1.get("name") or "(sans nom)"
+                add("waba_check", "WABA accessible", True, f"{name} (id={d1.get('id')})")
+            else:
+                err = (d1.get("error") or {}).get("message") if isinstance(d1, dict) else None
+                add("waba_check", "WABA accessible", False, f"HTTP {r1.status_code} — {err or 'erreur Meta'}")
+
+            # 3) Phone Number lookup
+            r2 = await http.get(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_id}",
+                params={"fields": "display_phone_number,verified_name,quality_rating,code_verification_status"},
+                headers=headers,
+            )
+            try:
+                d2 = r2.json()
+            except Exception:
+                d2 = {"text": r2.text[:500]}
+            if r2.status_code < 300:
+                display = d2.get("display_phone_number") or "?"
+                verified = d2.get("verified_name") or "?"
+                quality = d2.get("quality_rating") or "?"
+                add("phone_check", "Numéro WhatsApp Business validé", True, f"{display} — {verified} — Qualité {quality}")
+            else:
+                err = (d2.get("error") or {}).get("message") if isinstance(d2, dict) else None
+                add("phone_check", "Numéro WhatsApp Business validé", False, f"HTTP {r2.status_code} — {err or 'erreur Meta'}")
+
+            # 4) Templates fetch probe
+            r3 = await http.get(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates",
+                params={"limit": 1},
+                headers=headers,
+            )
+            if r3.status_code < 300:
+                try:
+                    total = len((r3.json() or {}).get("data") or [])
+                except Exception:
+                    total = 0
+                add("templates_check", "Lecture des templates", True, f"Réponse Meta OK ({total} template(s) trouvé(s) dans la 1ère page)")
+            else:
+                try:
+                    d3 = r3.json()
+                    err = (d3.get("error") or {}).get("message") if isinstance(d3, dict) else None
+                except Exception:
+                    err = None
+                add("templates_check", "Lecture des templates", False, f"HTTP {r3.status_code} — {err or 'erreur Meta'}")
+    except httpx.TimeoutException:
+        add("network", "Connexion Meta Graph API", False, "Timeout 10s — vérifiez la connectivité sortante du serveur")
+    except Exception as exc:  # noqa: BLE001
+        add("network", "Connexion Meta Graph API", False, f"Erreur : {str(exc)[:200]}")
+
+    ok = all(c["ok"] for c in checks if c["key"] not in ("app_id",))  # app_id is optional
+    summary = "Tous les paramètres sont valides — prêt à envoyer." if ok else "Un ou plusieurs paramètres sont invalides. Voir détail."
+    return {"ok": ok, "checks": checks, "summary": summary}
 
 
 # ====================================================================

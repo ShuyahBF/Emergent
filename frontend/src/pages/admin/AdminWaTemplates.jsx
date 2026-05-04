@@ -116,6 +116,21 @@ export default function AdminWaTemplates() {
         </div>
       )}
 
+      {/* Meta API error surfaced (invalid token, expired, insufficient perms…) */}
+      {resp.configured && resp.error && (
+        <div className="rounded-xl border border-rose-300 bg-rose-50 p-4 flex items-start gap-3" data-testid="templates-meta-error">
+          <AlertTriangle className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="text-sm text-rose-900">
+            <strong>Erreur côté Meta : {resp.error}</strong>
+            <p className="mt-1 text-rose-800">
+              Vos identifiants WhatsApp semblent invalides ou expirés. Ouvrez
+              <Link to="/admin/settings" className="underline font-semibold mx-1"><Settings className="h-3 w-3 inline" /> Paramètres</Link>
+              puis cliquez sur <em>"Tester la connexion Meta"</em> pour un diagnostic complet.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* Stats + filters */}
       {resp.configured && (
         <div className="grid grid-cols-4 gap-3">
@@ -149,8 +164,17 @@ export default function AdminWaTemplates() {
             Configurez WhatsApp pour voir vos templates Meta.
           </div>
         ) : items.length === 0 ? (
-          <div className="text-center text-slate-400 py-10 italic text-sm">
-            Aucun template {filter !== "ALL" ? `(filtre ${filter})` : ""}. Cliquez sur "Nouveau template" pour démarrer.
+          <div className="text-center text-slate-500 py-10 text-sm space-y-2" data-testid="templates-empty">
+            <p className="italic">
+              {filter !== "ALL"
+                ? `Aucun template avec le filtre « ${filter} ».`
+                : "Aucun template trouvé sur votre compte Meta."}
+            </p>
+            {filter === "ALL" && !resp.error && (
+              <p className="text-xs text-slate-400 max-w-xl mx-auto">
+                Votre compte WhatsApp Business n'a pas encore de template. Cliquez sur <strong>"Nouveau template"</strong> ci-dessus pour soumettre votre premier modèle à Meta (approbation en quelques minutes à 24h).
+              </p>
+            )}
           </div>
         ) : (
           <table className="min-w-full text-sm" data-testid="templates-table">

@@ -38,7 +38,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr
@@ -2808,8 +2808,11 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
 # ====================================================================
 # PORTAL — Contacts inbox (elevated users)
 # ====================================================================
-@api.get("/me/contacts", tags=["Portail Client"])
-async def me_contacts(user: dict = Depends(get_current_user)):
+@api.get("/me/contact-inbox", tags=["Portail Client"])
+async def me_contact_inbox(user: dict = Depends(get_current_user)):
+    """Inbox of messages submitted via the public contact form.
+    NOTE: renamed from /me/contacts to avoid collision with the contacts directory.
+    """
     if not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Accès aux messages réservé aux rôles Modération / Administrateur / Superviseur")
     items = await db.contacts.find({}, {"_id": 0}).to_list(5000)
@@ -4911,8 +4914,13 @@ class WhatsAppSendRequest(BaseModel):
 
 @api.post("/me/whatsapp/send", tags=["Portail Client"])
 async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(get_current_user)):
-    # RBAC: elevated roles only (Moderator/Admin/Superviseur) + the main client account
-    if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
+    # RBAC: elevated roles (Moderator/Admin/Superviseur) + the main client account + tracked users (any role)
+    allowed = (
+        user.get("role") in ("client", "admin")
+        or _is_elevated_creator(user)
+        or _is_tracked_user(user)
+    )
+    if not allowed:
         raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
     to = (payload.to or "").strip()
     if not to:
@@ -4920,12 +4928,15 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
     # Log the attempt
     client_scope = (user.get("client_id") or user.get("id"))
+    digits_only = "".join(ch for ch in to if ch.isdigit())
     log = {
         "id": _uuid(),
         "client_id": client_scope,
+        "direction": "outbound",
         "sender_id": user["id"],
         "sender_label": user.get("full_name") or user.get("email"),
         "to": to,
+        "phone_digits": digits_only,
         "template_name": payload.template_name,
         "language_code": payload.language_code,
         "contact_id": payload.contact_id,
@@ -4934,6 +4945,9 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
         "status": result["status"],
         "message_id": result["message_id"],
         "error": result.get("error"),
+        "wa_status": "sent" if result["ok"] else "failed",
+        "sent_at": _now() if result["ok"] else None,
+        "failed_at": None if result["ok"] else _now(),
         "created_at": _now(),
     }
     try: await db.whatsapp_messages.insert_one(log.copy())
@@ -4948,6 +4962,168 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
     query = {"client_id": client_scope} if user.get("role") != "admin" else {}
     items = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
     return items
+
+
+@api.get("/me/whatsapp/templates", tags=["Portail Client"])
+async def me_list_wa_templates(user: dict = Depends(get_current_user)):
+    """Portal users: list APPROVED templates only. No create/edit permissions.
+    Requires same scope as /me/whatsapp/send (elevated roles or client)."""
+    if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    waba_id = s.get("wa_business_account_id")
+    if not access_token or not waba_id:
+        return {"configured": False, "items": []}
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/message_templates?limit=100"
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(url, headers={"Authorization": f"Bearer {access_token}"})
+            if r.status_code >= 300:
+                return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
+            d = r.json()
+            # Portal users see only APPROVED templates (safer)
+            approved = [t for t in (d.get("data") or []) if (t.get("status") or "").upper() == "APPROVED"]
+            return {"configured": True, "items": approved}
+    except Exception as exc:  # noqa: BLE001
+        return {"configured": True, "items": [], "error": str(exc)[:200]}
+
+
+@api.get("/me/contacts/{cid}/messages", tags=["Portail Client"])
+async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
+    """Return the full WhatsApp conversation for a contact of the directory.
+    Includes outbound messages (sent via /me/whatsapp/send), inbound messages
+    captured by the Meta webhook, and the status-update timeline
+    (sent/delivered/read/failed) with timestamps."""
+    client_scope = (user.get("client_id") or user.get("id"))
+    contact = await db.directory_contacts.find_one({"id": cid, "client_id": client_scope}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    # Match by contact_id OR by exact phone number (covers inbound messages from unknown senders)
+    norm_phones = []
+    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
+        clean = "".join(ch for ch in (raw or "") if ch.isdigit())
+        if clean:
+            norm_phones.append(clean)
+    or_clauses = [{"contact_id": cid}]
+    if norm_phones:
+        or_clauses.append({"phone_digits": {"$in": norm_phones}})
+    items = await db.whatsapp_messages.find(
+        {"client_id": client_scope, "$or": or_clauses},
+        {"_id": 0},
+    ).sort("created_at", 1).to_list(1000)
+    return {"contact": contact, "messages": items}
+
+
+# ---------- Meta Cloud API webhook ----------
+@api.get("/whatsapp/webhook", tags=["Webhook"])
+async def whatsapp_webhook_verify(
+    hub_mode: Optional[str] = Query(default=None, alias="hub.mode"),
+    hub_verify_token: Optional[str] = Query(default=None, alias="hub.verify_token"),
+    hub_challenge: Optional[str] = Query(default=None, alias="hub.challenge"),
+):
+    """Meta verifies the webhook via GET with hub.mode=subscribe, hub.verify_token, hub.challenge.
+    We must echo hub.challenge as plain text when the verify token matches."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    expected = s.get("wa_verify_token") or ""
+    if not expected:
+        raise HTTPException(status_code=400, detail="Verify token non configuré")
+    if hub_mode == "subscribe" and hub_verify_token == expected and hub_challenge:
+        return PlainTextResponse(hub_challenge)
+    raise HTTPException(status_code=403, detail="Invalid verify token")
+
+
+@api.post("/whatsapp/webhook", tags=["Webhook"])
+async def whatsapp_webhook_incoming(request: Request):
+    """Receive Meta Cloud API events: new inbound messages + outbound status updates.
+    Shape: {object:'whatsapp_business_account', entry:[{changes:[{value:{...}}]}]}"""
+    try:
+        body = await request.json()
+    except Exception:
+        return {"ok": True}  # malformed → don't let Meta retry
+
+    client_scope = None  # our app uses per-install WABA, so scope = primary client/superviseur
+    try:
+        primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1})
+        client_scope = (primary or {}).get("id")
+    except Exception:
+        pass
+
+    for entry in body.get("entry") or []:
+        for change in entry.get("changes") or []:
+            val = change.get("value") or {}
+            # --- Inbound messages ---
+            for msg in val.get("messages") or []:
+                try:
+                    from_num = msg.get("from") or ""
+                    digits_only = "".join(ch for ch in from_num if ch.isdigit())
+                    mtype = msg.get("type") or "text"
+                    text_body = None
+                    if mtype == "text":
+                        text_body = (msg.get("text") or {}).get("body")
+                    elif mtype in ("image", "document", "audio", "video", "sticker"):
+                        text_body = f"[{mtype} reçu]"
+                    elif mtype == "button":
+                        text_body = (msg.get("button") or {}).get("text")
+                    elif mtype == "interactive":
+                        interactive = msg.get("interactive") or {}
+                        text_body = (interactive.get("button_reply") or interactive.get("list_reply") or {}).get("title")
+                    ts_raw = int(msg.get("timestamp") or 0)
+                    ts_iso = datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat() if ts_raw else _now()
+                    # Find contact by phone within the scope
+                    contact = await db.directory_contacts.find_one(
+                        {"$or": [{"whatsapp": {"$regex": digits_only}}, {"phone": {"$regex": digits_only}}]},
+                        {"_id": 0, "id": 1, "client_id": 1, "name": 1},
+                    ) if digits_only else None
+                    scope_for_msg = (contact or {}).get("client_id") or client_scope
+                    doc = {
+                        "id": _uuid(),
+                        "client_id": scope_for_msg,
+                        "direction": "inbound",
+                        "contact_id": (contact or {}).get("id"),
+                        "contact_name": (contact or {}).get("name"),
+                        "from": from_num,
+                        "phone_digits": digits_only,
+                        "body": text_body,
+                        "message_type": mtype,
+                        "wa_message_id": msg.get("id"),
+                        "received_at": ts_iso,
+                        "created_at": _now(),
+                        "read_by_us_at": None,
+                    }
+                    await db.whatsapp_messages.insert_one(doc)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("WA inbound parse failed: %s", exc)
+            # --- Status updates for outbound ---
+            for st in val.get("statuses") or []:
+                try:
+                    mid = st.get("id")
+                    status_val = st.get("status") or ""  # sent | delivered | read | failed
+                    ts_raw = int(st.get("timestamp") or 0)
+                    ts_iso = datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat() if ts_raw else _now()
+                    if not mid:
+                        continue
+                    stamp_field = {
+                        "sent": "sent_at",
+                        "delivered": "delivered_at",
+                        "read": "read_at",
+                        "failed": "failed_at",
+                    }.get(status_val)
+                    update: Dict[str, Any] = {
+                        "wa_status": status_val,
+                        "wa_status_updated_at": _now(),
+                    }
+                    if stamp_field:
+                        update[stamp_field] = ts_iso
+                    if status_val == "failed":
+                        errs = st.get("errors") or []
+                        if errs:
+                            update["wa_error_code"] = errs[0].get("code")
+                            update["wa_error_message"] = errs[0].get("message") or errs[0].get("title")
+                    await db.whatsapp_messages.update_one({"message_id": mid}, {"$set": update})
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("WA status parse failed: %s", exc)
+    return {"ok": True}
 
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])

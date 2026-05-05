@@ -119,20 +119,21 @@ def _public_base_url(request: Optional["Request"] = None) -> str:
     """Resolve the public base URL for absolute links (OAuth redirects, file URLs).
 
     Strategy:
-      1. If the request has X-Forwarded-Host / X-Forwarded-Proto (set by ingress), use them
-         so links honour the actual hostname the user is visiting (preview vs production).
-      2. Else fall back to the Origin header of the current request.
-      3. Else fall back to the static PUBLIC_BASE_URL env (preview default).
+      1. Use the browser-supplied Origin header first — when an admin clicks a button
+         from sawalismartsystems.com, Origin is the source of truth even when the
+         ingress rewrites X-Forwarded-Host to its internal hostname.
+      2. Fall back to X-Forwarded-Host / Host (set by ingress).
+      3. Fall back to the static PUBLIC_BASE_URL env var.
     """
     if request is not None:
         try:
+            origin = request.headers.get("origin")
+            if origin and origin.startswith(("http://", "https://")):
+                return origin.rstrip("/")
             xfh = request.headers.get("x-forwarded-host") or request.headers.get("host")
             xfp = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
             if xfh:
                 return f"{xfp}://{xfh.split(',')[0].strip()}".rstrip("/")
-            origin = request.headers.get("origin")
-            if origin:
-                return origin.rstrip("/")
         except Exception:
             pass
     return (PUBLIC_BASE_URL or "").rstrip("/")
@@ -5139,13 +5140,49 @@ def _build_recipient_ctx(kind: str, user_doc: Optional[dict], phone: str, label:
     }
 
 
-def _build_components(variables: Optional[List[str]], ctx: Dict[str, str]) -> Optional[list]:
-    """Build Meta template `components` array from positional body variables.
-    Returns None when no variables (caller passes None to Meta)."""
-    if not variables:
-        return None
-    params = [{"type": "text", "text": _render_variable(v, ctx)} for v in variables]
-    return [{"type": "body", "parameters": params}]
+def _build_components(
+    variables: Optional[List[str]],
+    ctx: Dict[str, str],
+    *,
+    header_text: Optional[str] = None,
+    header_media: Optional[Dict[str, Any]] = None,
+    button_vars: Optional[List[List[str]]] = None,
+) -> Optional[list]:
+    """Build Meta template `components` array from positional variables and optional
+    HEADER (text or media link) + URL-button parameters.
+    Returns None when nothing to send."""
+    components: list = []
+    # HEADER
+    if header_text:
+        components.append({
+            "type": "header",
+            "parameters": [{"type": "text", "text": _render_variable(header_text, ctx)}],
+        })
+    elif header_media and header_media.get("link"):
+        kind = (header_media.get("kind") or "document").lower()
+        link = header_media["link"]
+        if kind == "image":
+            components.append({"type": "header", "parameters": [{"type": "image", "image": {"link": link}}]})
+        elif kind == "video":
+            components.append({"type": "header", "parameters": [{"type": "video", "video": {"link": link}}]})
+        else:
+            components.append({"type": "header", "parameters": [{"type": "document", "document": {"link": link, "filename": header_media.get("filename") or "document.pdf"}}]})
+    # BODY
+    if variables:
+        params = [{"type": "text", "text": _render_variable(v, ctx)} for v in variables]
+        components.append({"type": "body", "parameters": params})
+    # BUTTONS (URL with {{N}})
+    if button_vars:
+        for index, params in enumerate(button_vars):
+            if not params:
+                continue
+            components.append({
+                "type": "button",
+                "sub_type": "url",
+                "index": str(index),
+                "parameters": [{"type": "text", "text": _render_variable(p, ctx)} for p in params],
+            })
+    return components or None
 
 
 # ----- Directory of contacts (per client) -----
@@ -5798,6 +5835,9 @@ class AdminBulkSendRequest(BaseModel):
     language_code: Optional[str] = "fr"
     components: Optional[list] = None
     variables: Optional[List[str]] = None  # Positional body-variable recipes with {{token}} tokens
+    header_text: Optional[str] = None  # Optional header TEXT variable (with token substitution)
+    header_media: Optional[Dict[str, Any]] = None  # {link, kind, filename?} for header IMAGE/DOC/VIDEO
+    button_vars: Optional[List[List[str]]] = None  # [[urlVar1,...], ...] indexed by button position
 
 
 @api.post("/admin/messaging/bulk-send", tags=["Admin"])
@@ -5842,10 +5882,15 @@ async def admin_messaging_bulk_send(
     # Send sequentially to avoid burst rate-limits (Meta Cloud ~80 msg/s max)
     results = []
     for x in to_send:
-        # Build per-recipient components from either the static `components` or dynamic `variables`
-        if payload.variables:
+        # Build per-recipient components from either the static `components` or dynamic `variables`/header/buttons
+        if payload.variables or payload.header_text or payload.header_media or payload.button_vars:
             ctx = _build_recipient_ctx(x["kind"], x["user_doc"], x["phone"], x["label"])
-            components = _build_components(payload.variables, ctx)
+            components = _build_components(
+                payload.variables, ctx,
+                header_text=payload.header_text,
+                header_media=payload.header_media,
+                button_vars=payload.button_vars,
+            )
         else:
             components = payload.components
         try:
@@ -6229,6 +6274,9 @@ class AdminScheduleCreate(BaseModel):
     language_code: Optional[str] = "fr"
     components: Optional[list] = None
     variables: Optional[List[str]] = None  # Positional body-variable recipes
+    header_text: Optional[str] = None
+    header_media: Optional[Dict[str, Any]] = None
+    button_vars: Optional[List[List[str]]] = None
     scheduled_at: str  # ISO-8601 UTC, e.g. "2026-05-10T14:30:00+00:00"
 
 
@@ -6266,6 +6314,9 @@ async def admin_create_schedule(
         "language_code": payload.language_code or "fr",
         "components": payload.components,
         "variables": payload.variables,
+        "header_text": payload.header_text,
+        "header_media": payload.header_media,
+        "button_vars": payload.button_vars,
         "scheduled_at": sched.isoformat(),
         "status": "pending",
         "result_summary": None,
@@ -6342,9 +6393,14 @@ async def _run_scheduled_whatsapp():
                     skipped.append({"label": label, "reason": "Pas de numéro de téléphone"})
                     continue
                 # Per-recipient dynamic components
-                if variables:
+                if variables or sc.get("header_text") or sc.get("header_media") or sc.get("button_vars"):
                     ctx = _build_recipient_ctx(kind, user_doc, phone, label)
-                    components = _build_components(variables, ctx)
+                    components = _build_components(
+                        variables, ctx,
+                        header_text=sc.get("header_text"),
+                        header_media=sc.get("header_media"),
+                        button_vars=sc.get("button_vars"),
+                    )
                 else:
                     components = static_components
                 try:

@@ -1,8 +1,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { parseTemplate } from "@/lib/waTemplate";
 import { toast } from "sonner";
 import {
   MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings, CalendarClock, Trash2, Loader2, Wand2, Eye,
+  Image as ImageIcon, FileText as FileTextIcon, Video, Upload, X,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -27,6 +29,12 @@ export default function AdminMessaging() {
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("fr");
   const [variables, setVariables] = useState([]); // positional body variables
+  const [headerText, setHeaderText] = useState("");
+  const [headerMedia, setHeaderMedia] = useState(null); // { link, kind, filename }
+  const [headerUploading, setHeaderUploading] = useState(false);
+  const [buttonVars, setButtonVars] = useState([]); // [[urlVar1,...], ...] indexed by button position
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [library, setLibrary] = useState([]);
   const [showPreview, setShowPreview] = useState(false);
   const [schedDate, setSchedDate] = useState("");
   const [schedTime, setSchedTime] = useState("");
@@ -124,17 +132,19 @@ export default function AdminMessaging() {
     [approved, template]
   );
 
+  const parsed = useMemo(() => parseTemplate(selectedTemplate), [selectedTemplate]);
+
   // Parse the template's body component for {{N}} placeholders. Number = count of unique numeric tokens.
   const { bodyText, varCount } = useMemo(() => {
-    if (!selectedTemplate) return { bodyText: "", varCount: 0 };
-    const bodyComp = (selectedTemplate.components || []).find(
-      (c) => (c.type || "").toUpperCase() === "BODY"
-    );
-    const text = bodyComp?.text || "";
-    const matches = [...text.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10));
-    const max = matches.length ? Math.max(...matches) : 0;
-    return { bodyText: text, varCount: max };
-  }, [selectedTemplate]);
+    return { bodyText: parsed.body.text, varCount: parsed.body.varCount };
+  }, [parsed]);
+
+  // Reset header/button state on template change
+  useEffect(() => {
+    setHeaderText("");
+    setHeaderMedia(null);
+    setButtonVars((parsed.buttons || []).map((b) => Array(b.urlVarCount || 0).fill("")));
+  }, [parsed]);
 
   // Sync variables array length to varCount when template changes
   useEffect(() => {
@@ -164,6 +174,44 @@ export default function AdminMessaging() {
       return n;
     });
   };
+
+  // Header media upload — saves into shared client media library so URL is reusable
+  const uploadHeader = async (file, existingMedia = null) => {
+    if (existingMedia?.public_url) {
+      setHeaderMedia({ link: existingMedia.public_url, kind: existingMedia.kind, filename: existingMedia.filename });
+      toast.success("Média sélectionné depuis la bibliothèque");
+      return;
+    }
+    if (!file) return;
+    setHeaderUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("label", file.name || "");
+      const r = await apiClient.post("/me/media-library", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const link = r.data?.public_url;
+      if (!link) throw new Error("URL publique manquante");
+      setHeaderMedia({ link, kind: r.data?.kind || "document", filename: r.data?.filename || file.name });
+      toast.success("Fichier ajouté à la bibliothèque");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'upload");
+    } finally {
+      setHeaderUploading(false);
+    }
+  };
+
+  // Lazy-load the library when the picker opens
+  useEffect(() => {
+    if (!showLibrary) return;
+    apiClient.get("/me/media-library").then((r) => setLibrary(r.data || [])).catch(() => {});
+  }, [showLibrary]);
+
+  const updateButtonVar = (bi, vi, val) => setButtonVars((prev) => {
+    const n = prev.map((x) => [...(x || [])]);
+    if (!n[bi]) n[bi] = [];
+    n[bi][vi] = val;
+    return n;
+  });
 
   // Live preview using the first selected recipient (or "—" placeholder context)
   const previewBody = useMemo(() => {
@@ -212,6 +260,9 @@ export default function AdminMessaging() {
         template_name: template,
         language_code: language || "fr",
         variables: variables.length > 0 ? variables : undefined,
+        header_text: headerText || undefined,
+        header_media: headerMedia || undefined,
+        button_vars: (buttonVars && buttonVars.some((bv) => bv && bv.length > 0)) ? buttonVars : undefined,
       });
       const { sent_ok = 0, sent_ko = 0, skipped = [] } = r.data || {};
       if (sent_ok > 0 && sent_ko === 0) {
@@ -264,6 +315,9 @@ export default function AdminMessaging() {
         template_name: template,
         language_code: language || "fr",
         variables: variables.length > 0 ? variables : undefined,
+        header_text: headerText || undefined,
+        header_media: headerMedia || undefined,
+        button_vars: (buttonVars && buttonVars.some((bv) => bv && bv.length > 0)) ? buttonVars : undefined,
         scheduled_at: local.toISOString(),
       });
       toast.success(`Planifié pour ${local.toLocaleString("fr-FR")}`);
@@ -394,11 +448,16 @@ export default function AdminMessaging() {
               <div className="flex items-center gap-2">
                 <Wand2 className="h-4 w-4 text-amber-600" />
                 <h3 className="text-sm font-display font-semibold text-slate-800">
-                  Variables dynamiques
-                  {varCount > 0 ? (
-                    <span className="ml-2 text-[11px] text-slate-500">({varCount} variable{varCount > 1 ? "s" : ""} détectée{varCount > 1 ? "s" : ""} dans le template)</span>
+                  Configuration du template
+                  {varCount > 0 || parsed.header || (parsed.buttons || []).some((b) => b.urlVarCount) ? (
+                    <span className="ml-2 text-[11px] text-slate-500">
+                      ({[varCount > 0 ? `${varCount} variable${varCount > 1 ? "s" : ""}` : null,
+                          parsed.header ? `en-tête ${parsed.header.format.toLowerCase()}` : null,
+                          (parsed.buttons || []).some((b) => b.urlVarCount) ? "boutons d'actions rapides" : null,
+                        ].filter(Boolean).join(" + ")})
+                    </span>
                   ) : (
-                    <span className="ml-2 text-[11px] text-slate-500">(aucune variable dans ce template)</span>
+                    <span className="ml-2 text-[11px] text-slate-500">(aucun paramètre dynamique)</span>
                   )}
                 </h3>
               </div>
@@ -418,6 +477,112 @@ export default function AdminMessaging() {
               <div className="text-[11px] text-slate-500 italic mb-3 rounded bg-slate-50 border border-slate-200 px-3 py-2 whitespace-pre-line">
                 <strong className="not-italic text-slate-600">Corps du template Meta :</strong>
                 <br />{bodyText}
+              </div>
+            )}
+
+            {/* HEADER block (text variable OR media upload) — same value applied to every recipient */}
+            {parsed.header && (
+              <div className="mb-3 rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2">
+                {parsed.header.format === "TEXT" && parsed.header.varCount > 0 && (
+                  <>
+                    <p className="text-xs font-semibold text-slate-700">En-tête (texte)</p>
+                    <p className="text-[11px] text-slate-500 whitespace-pre-wrap bg-slate-50 rounded px-2 py-1">{parsed.header.text}</p>
+                    <div className="flex gap-2">
+                      <input
+                        value={headerText}
+                        onChange={(e) => setHeaderText(e.target.value)}
+                        placeholder="Valeur de la variable d'en-tête (statique ou tokens)"
+                        className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                        data-testid="messaging-header-text-input"
+                      />
+                      <select
+                        onChange={(e) => {
+                          const tk = e.target.value;
+                          if (tk) { setHeaderText((p) => (p || "") + tk); e.target.value = ""; }
+                        }}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+                        defaultValue=""
+                        data-testid="messaging-header-text-token-picker"
+                      >
+                        <option value="">+ Token…</option>
+                        {tokens.map((t) => <option key={t.token} value={t.token}>{t.label}</option>)}
+                      </select>
+                    </div>
+                  </>
+                )}
+                {["IMAGE", "DOCUMENT", "VIDEO"].includes(parsed.header.format) && (
+                  <>
+                    <p className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5">
+                      {parsed.header.format === "IMAGE" ? <ImageIcon className="h-3.5 w-3.5" /> : parsed.header.format === "VIDEO" ? <Video className="h-3.5 w-3.5" /> : <FileTextIcon className="h-3.5 w-3.5" />}
+                      En-tête ({parsed.header.format === "IMAGE" ? "image" : parsed.header.format === "VIDEO" ? "vidéo" : "document PDF"}) — appliqué à tous les destinataires
+                    </p>
+                    {headerMedia?.link ? (
+                      <div className="flex items-center gap-2">
+                        {parsed.header.format === "IMAGE" && <img src={headerMedia.link} alt="" className="h-16 w-16 object-cover rounded" />}
+                        <div className="flex-1 text-xs">
+                          <p className="font-mono break-all text-slate-600">{headerMedia.filename}</p>
+                          <a href={headerMedia.link} target="_blank" rel="noreferrer" className="text-[11px] text-sawali-blue hover:underline">Ouvrir</a>
+                        </div>
+                        <button onClick={() => setHeaderMedia(null)} className="text-xs text-rose-600 hover:underline" data-testid="messaging-header-media-clear">Changer</button>
+                      </div>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        <label className="inline-flex items-center gap-2 text-xs cursor-pointer rounded bg-slate-100 hover:bg-slate-200 px-3 py-2">
+                          <Upload className="h-3.5 w-3.5" /> {headerUploading ? "Upload…" : "Uploader nouveau"}
+                          <input
+                            type="file"
+                            accept={parsed.header.format === "IMAGE" ? "image/*" : parsed.header.format === "VIDEO" ? "video/*" : ".pdf,application/pdf"}
+                            onChange={(e) => uploadHeader(e.target.files?.[0])}
+                            className="hidden"
+                            data-testid="messaging-header-media-input"
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => setShowLibrary((v) => !v)}
+                          className="inline-flex items-center gap-2 text-xs rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50 px-3 py-2"
+                          data-testid="messaging-header-library-toggle"
+                        >
+                          <ImageIcon className="h-3.5 w-3.5" /> {showLibrary ? "Masquer" : "Choisir dans la bibliothèque"}
+                        </button>
+                      </div>
+                    )}
+                    {!headerMedia?.link && showLibrary && (
+                      <div className="rounded ring-1 ring-slate-200 bg-slate-50 p-2 max-h-56 overflow-y-auto">
+                        {(library || []).filter((m) => {
+                          const k = parsed.header.format === "IMAGE" ? "image" : parsed.header.format === "VIDEO" ? "video" : "document";
+                          return m.kind === k;
+                        }).length === 0 ? (
+                          <p className="text-[11px] text-slate-500 italic">Aucun média dans la bibliothèque pour ce format.</p>
+                        ) : (
+                          <div className="grid grid-cols-3 sm:grid-cols-4 gap-2">
+                            {(library || []).filter((m) => {
+                              const k = parsed.header.format === "IMAGE" ? "image" : parsed.header.format === "VIDEO" ? "video" : "document";
+                              return m.kind === k;
+                            }).map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onClick={() => uploadHeader(null, m)}
+                                className="rounded border border-slate-200 bg-white hover:border-sawali-blue p-1.5 text-left"
+                                data-testid={`messaging-header-pick-${m.id}`}
+                              >
+                                {m.kind === "image" ? (
+                                  <img src={m.public_url} alt="" className="h-16 w-full object-cover rounded" />
+                                ) : (
+                                  <div className="h-16 flex items-center justify-center bg-slate-100 rounded text-slate-500">
+                                    {m.kind === "video" ? <Video className="h-6 w-6" /> : <FileTextIcon className="h-6 w-6" />}
+                                  </div>
+                                )}
+                                <p className="text-[10px] mt-1 truncate">{m.label || m.filename}</p>
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
             )}
 
@@ -461,6 +626,49 @@ export default function AdminMessaging() {
               <p className="text-[11px] text-slate-400 italic">
                 Ce template Meta n'a pas de variables (placeholders <code className="font-mono">{"{{1}}"}</code>, <code className="font-mono">{"{{2}}"}</code>…).
               </p>
+            )}
+
+            {/* BUTTONS with dynamic URL parameters */}
+            {(parsed.buttons || []).some((b) => b.type === "URL" && b.urlVarCount > 0) && (
+              <div className="mt-3 space-y-3">
+                <p className="text-xs font-semibold text-slate-700">Boutons d'action rapide (URL dynamique)</p>
+                {parsed.buttons.map((btn, bi) => (
+                  btn.type === "URL" && btn.urlVarCount > 0 ? (
+                    <div key={bi} className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid={`messaging-button-row-${bi}`}>
+                      <p className="text-[11px] text-slate-500">
+                        Bouton : <strong className="text-slate-800">{btn.text}</strong>
+                        <code className="ml-2 bg-slate-100 px-1 rounded text-[10px]">{btn.url}</code>
+                      </p>
+                      {Array.from({ length: btn.urlVarCount }).map((_, vi) => (
+                        <div key={vi} className="grid md:grid-cols-[120px_1fr_auto] gap-2 items-center">
+                          <label className="text-[11px] uppercase tracking-wider text-slate-500 font-mono">{`{{${vi + 1}}}`}</label>
+                          <input
+                            value={(buttonVars[bi] || [])[vi] || ""}
+                            onChange={(e) => updateButtonVar(bi, vi, e.target.value)}
+                            placeholder="Statique ou tokens"
+                            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                            data-testid={`messaging-button-input-${bi}-${vi + 1}`}
+                          />
+                          <select
+                            onChange={(e) => {
+                              const tk = e.target.value;
+                              if (tk) {
+                                updateButtonVar(bi, vi, ((buttonVars[bi] || [])[vi] || "") + tk);
+                                e.target.value = "";
+                              }
+                            }}
+                            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+                            defaultValue=""
+                          >
+                            <option value="">+ Token…</option>
+                            {tokens.map((t) => <option key={t.token} value={t.token}>{t.label}</option>)}
+                          </select>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null
+                ))}
+              </div>
             )}
 
             {showPreview && previewBody && selectedList.length > 0 && (

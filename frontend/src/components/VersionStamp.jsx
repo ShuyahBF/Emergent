@@ -28,7 +28,7 @@ export default function VersionStamp({ tone = "light" }) {
   const isLight = tone === "light";
   return (
     <div
-      className={`fixed bottom-2 right-3 z-30 text-[10px] font-mono select-none pointer-events-none tracking-wide ${
+      className={`fixed bottom-2 left-3 z-30 text-[10px] font-mono select-none pointer-events-none tracking-wide ${
         isLight ? "text-white/70" : "text-slate-500"
       }`}
       data-testid="version-stamp"

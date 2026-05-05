@@ -69,6 +69,7 @@ import FormsAnalytics from "@/pages/portal/FormsAnalytics";
 import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
 import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
+import MediaLibrary from "@/pages/portal/MediaLibrary";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
@@ -135,6 +136,7 @@ export default function App() {
             <Route path="forms/:fid/fill" element={<FormRunner />} />
             <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
             <Route path="contacts" element={<Contacts />} />
+            <Route path="media-library" element={<MediaLibrary />} />
             <Route path="media-generator" element={<MediaGenerator />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
           </Route>

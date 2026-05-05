@@ -5,7 +5,9 @@ import {
   Users, Plus, Trash2, MessageCircle, Tag, Share2, Lock,
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
+  Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
 } from "lucide-react";
+import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 
 /*
   Portal → Directory + WhatsApp.
@@ -388,14 +390,18 @@ const ContactEditModal = ({ contact, onClose, onSaved }) => {
   );
 };
 
-// --- WhatsApp send modal (uses /me/whatsapp/templates, read-only list) ---
+// --- WhatsApp send modal (supports HEADER text/media + BODY variables + URL button params) ---
 const WhatsAppModal = ({ contact, onClose, onSent }) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [templateName, setTemplateName] = useState("");
   const [language, setLanguage] = useState("fr");
-  const [variables, setVariables] = useState([]); // values for {{1}}..{{N}}
   const [tokens, setTokens] = useState([]);
+  const [headerText, setHeaderText] = useState("");
+  const [headerMedia, setHeaderMedia] = useState(null); // { link, kind, filename }
+  const [headerUploading, setHeaderUploading] = useState(false);
+  const [bodyVars, setBodyVars] = useState([]);
+  const [buttonVars, setButtonVars] = useState([]); // [[...], [...]]
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [configured, setConfigured] = useState(true);
@@ -420,73 +426,50 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
     () => templates.find((t) => t.name === templateName),
     [templates, templateName],
   );
-  const bodyText = useMemo(() => {
-    const body = (selectedTemplate?.components || []).find((c) => (c.type || "").toUpperCase() === "BODY");
-    return body?.text || "";
-  }, [selectedTemplate]);
-  const varCount = useMemo(() => {
-    const matches = [...bodyText.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10));
-    return matches.length ? Math.max(...matches) : 0;
-  }, [bodyText]);
+  const parsed = useMemo(() => parseTemplate(selectedTemplate), [selectedTemplate]);
 
-  // Sync variables array length with detected variable count when template changes
+  // Reset inputs whenever the template selection changes
   useEffect(() => {
-    setVariables((prev) => {
-      const next = [...prev];
-      next.length = varCount;
-      for (let i = 0; i < varCount; i++) if (next[i] === undefined) next[i] = "";
-      return next;
-    });
+    setHeaderText("");
+    setHeaderMedia(null);
+    setBodyVars(Array(parsed.body.varCount).fill(""));
+    setButtonVars((parsed.buttons || []).map((b) => Array(b.urlVarCount || 0).fill("")));
     setResult(null);
-  }, [varCount, templateName]);
+  }, [templateName, parsed.body.varCount, parsed.buttons]);
 
-  const updateVar = (i, v) => setVariables((prev) => {
-    const n = [...prev]; n[i] = v; return n;
-  });
-  const insertToken = (i, token) => setVariables((prev) => {
-    const n = [...prev]; n[i] = (n[i] || "") + token; return n;
-  });
-
-  // Live preview substituting tokens with example values (real values resolved server-side)
-  const previewBody = useMemo(() => {
-    if (!bodyText) return "";
-    let out = bodyText;
-    variables.forEach((v, idx) => {
-      let rendered = v || `{{${idx + 1}}}`;
-      tokens.forEach((tk) => {
-        rendered = rendered.split(tk.token).join(tk.example || tk.token);
-      });
-      // Local fallbacks for common tokens (using current contact)
-      rendered = rendered
-        .split("{{full_name}}").join(contact.name || "")
-        .split("{{company}}").join(contact.company || "")
-        .split("{{phone}}").join(contact.whatsapp || contact.phone || "")
-        .split("{{email}}").join(contact.email || "");
-      out = out.replace(new RegExp(`\\{\\{\\s*${idx + 1}\\s*\\}\\}`, "g"), rendered);
-    });
-    return out;
-  }, [bodyText, variables, tokens, contact]);
+  const uploadHeader = async (file) => {
+    if (!file) return;
+    setHeaderUploading(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await apiClient.post("/me/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const link = r.data?.public_url || r.data?.url || r.data?.file_url;
+      if (!link) throw new Error("URL publique manquante");
+      const ct = (r.data?.content_type || "").toLowerCase();
+      const kind = ct.startsWith("image") ? "image" : ct.startsWith("video") ? "video" : "document";
+      setHeaderMedia({ link, kind, filename: r.data?.filename || file.name });
+      toast.success("Fichier prêt pour l'en-tête");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'upload");
+    } finally {
+      setHeaderUploading(false);
+    }
+  };
 
   const send = async () => {
     if (!templateName) { toast.error("Sélectionnez un template"); return; }
-    // Validate variables
-    if (varCount > 0 && variables.some((v) => !v || !v.trim())) {
-      toast.error(`Renseignez les ${varCount} variable(s) du template`);
-      return;
-    }
+    const values = { headerText, headerMedia, bodyVars, buttonVars };
+    const v = validateTemplateValues(parsed, values);
+    if (!v.ok) { toast.error(v.message); return; }
     setSending(true); setResult(null);
     try {
-      const components = varCount > 0
-        ? [{
-          type: "body",
-          parameters: variables.slice(0, varCount).map((v) => ({ type: "text", text: v })),
-        }]
-        : null;
+      const components = buildComponentsPayload(parsed, values);
       const r = await apiClient.post("/me/whatsapp/send", {
         to: contact.whatsapp,
         template_name: templateName,
         language_code: language,
-        components,
+        components: components.length > 0 ? components : null,
         contact_id: contact.id,
       });
       setResult(r.data);
@@ -500,13 +483,18 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
     finally { setSending(false); }
   };
 
+  const previewBody = useMemo(
+    () => renderPreview(parsed, { bodyVars }, tokens, contact),
+    [parsed, bodyVars, tokens, contact],
+  );
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
       onClick={(e) => e.target === e.currentTarget && onClose()}
       data-testid="whatsapp-modal"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
             <MessageCircle className="h-5 w-5 text-emerald-600" /> Envoyer un WhatsApp
@@ -526,13 +514,13 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
             </div>
           ) : templates.length === 0 ? (
             <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
-              Aucun template approuvé. L'administrateur doit créer et faire approuver des templates dans Meta Business Suite.
+              Aucun template disponible. L'administrateur doit créer/activer des templates.
             </div>
           ) : (
             <>
               <div className="grid sm:grid-cols-[1fr_120px] gap-3">
                 <div>
-                  <label className="text-xs font-semibold block mb-1">Template approuvé</label>
+                  <label className="text-xs font-semibold block mb-1">Template</label>
                   <select
                     value={templateName}
                     onChange={(e) => {
@@ -561,58 +549,79 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
                 </div>
               </div>
 
-              {bodyText && (
-                <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 whitespace-pre-wrap">
-                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Corps du template Meta</p>
-                  {bodyText}
+              {/* Admin-maintained description */}
+              {selectedTemplate?.note_description && (
+                <div className="rounded-lg bg-sky-50 ring-1 ring-sky-200 p-3 text-xs text-sky-900 flex items-start gap-2" data-testid="wa-template-note">
+                  <Info className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+                  <span>{selectedTemplate.note_description}</span>
                 </div>
               )}
 
-              {varCount > 0 ? (
-                <div className="space-y-3">
-                  <p className="text-xs font-semibold text-slate-700">
-                    Variables du template <span className="text-slate-400">({varCount})</span>
-                  </p>
-                  {Array.from({ length: varCount }).map((_, i) => (
-                    <div key={i} className="grid grid-cols-[64px_1fr_auto] gap-2 items-center" data-testid={`wa-variable-row-${i + 1}`}>
-                      <label className="text-[11px] uppercase tracking-wider text-slate-500 font-mono text-center bg-slate-100 rounded py-2">
-                        {`{{${i + 1}}}`}
-                      </label>
-                      <input
-                        value={variables[i] || ""}
-                        onChange={(e) => updateVar(i, e.target.value)}
-                        placeholder="Texte ou tokens (ex: Bonjour {{full_name}})"
-                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
-                        data-testid={`wa-variable-input-${i + 1}`}
-                      />
-                      <select
-                        onChange={(e) => {
-                          const tk = e.target.value;
-                          if (tk) { insertToken(i, tk); e.target.value = ""; }
-                        }}
-                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
-                        data-testid={`wa-variable-token-picker-${i + 1}`}
-                        defaultValue=""
-                        title="Insérer un token dynamique"
-                      >
-                        <option value="">+ Token…</option>
-                        {tokens.map((t) => (
-                          <option key={t.token} value={t.token} title={t.example}>
-                            {t.label} {t.token}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  ))}
-                  {previewBody && (
-                    <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" data-testid="wa-preview">
-                      <p className="text-[10px] uppercase tracking-wider text-emerald-700 mb-1">Aperçu pour {contact.name}</p>
-                      <p className="whitespace-pre-line">{previewBody}</p>
-                    </div>
-                  )}
+              {/* HEADER */}
+              {parsed.header && (
+                <HeaderBlock
+                  header={parsed.header}
+                  headerText={headerText}
+                  setHeaderText={setHeaderText}
+                  headerMedia={headerMedia}
+                  clearMedia={() => setHeaderMedia(null)}
+                  uploadHeader={uploadHeader}
+                  uploading={headerUploading}
+                  tokens={tokens}
+                />
+              )}
+
+              {/* BODY */}
+              {parsed.body.text && (
+                <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 whitespace-pre-wrap">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Corps du template Meta</p>
+                  {parsed.body.text}
                 </div>
-              ) : (
-                <p className="text-[11px] text-slate-400 italic">Ce template n'a pas de variables.</p>
+              )}
+
+              {parsed.body.varCount > 0 && (
+                <VarGrid
+                  label={`Variables du corps (${parsed.body.varCount})`}
+                  values={bodyVars}
+                  onChange={setBodyVars}
+                  testPrefix="wa-variable"
+                  tokens={tokens}
+                />
+              )}
+
+              {/* BUTTONS with dynamic URLs */}
+              {(parsed.buttons || []).some((b) => b.type === "URL" && b.urlVarCount > 0) && (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-slate-700">Boutons dynamiques</p>
+                  {parsed.buttons.map((btn, bi) => (
+                    btn.type === "URL" && btn.urlVarCount > 0 ? (
+                      <div key={bi} className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid={`wa-button-row-${bi}`}>
+                        <p className="text-[11px] text-slate-500">
+                          Bouton : <strong className="text-slate-800">{btn.text}</strong>
+                          <code className="ml-2 bg-slate-100 px-1 rounded text-[10px]">{btn.url}</code>
+                        </p>
+                        <VarGrid
+                          label=""
+                          values={buttonVars[bi] || []}
+                          onChange={(arr) => setButtonVars((prev) => {
+                            const n = prev.map((x) => [...(x || [])]);
+                            n[bi] = arr;
+                            return n;
+                          })}
+                          testPrefix={`wa-button-${bi}-var`}
+                          tokens={tokens}
+                        />
+                      </div>
+                    ) : null
+                  ))}
+                </div>
+              )}
+
+              {previewBody && (
+                <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" data-testid="wa-preview">
+                  <p className="text-[10px] uppercase tracking-wider text-emerald-700 mb-1">Aperçu du corps pour {contact.name}</p>
+                  <p className="whitespace-pre-line">{previewBody}</p>
+                </div>
               )}
             </>
           )}
@@ -643,6 +652,112 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
           </button>
         </div>
       </div>
+    </div>
+  );
+};
+
+// --- HEADER block: text var OR media upload ---
+const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedia, uploadHeader, uploading, tokens }) => {
+  const fmt = header.format;
+  if (fmt === "TEXT" && header.varCount > 0) {
+    return (
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid="wa-header-text-block">
+        <p className="text-xs font-semibold text-slate-700">En-tête (texte)</p>
+        <p className="text-[11px] text-slate-500 whitespace-pre-wrap bg-slate-50 rounded px-2 py-1">{header.text}</p>
+        <div className="flex gap-2">
+          <input
+            value={headerText}
+            onChange={(e) => setHeaderText(e.target.value)}
+            placeholder="Valeur pour la variable de l'en-tête"
+            className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+            data-testid="wa-header-text-input"
+          />
+          <select
+            onChange={(e) => {
+              const tk = e.target.value;
+              if (tk) { setHeaderText((prev) => (prev || "") + tk); e.target.value = ""; }
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+            defaultValue=""
+            title="Insérer un token dynamique"
+            data-testid="wa-header-text-token-picker"
+          >
+            <option value="">+ Token…</option>
+            {(tokens || []).map((t) => <option key={t.token} value={t.token}>{t.label}</option>)}
+          </select>
+        </div>
+      </div>
+    );
+  }
+  if (["IMAGE", "DOCUMENT", "VIDEO"].includes(fmt)) {
+    const Ico = fmt === "IMAGE" ? ImageIcon : fmt === "VIDEO" ? Video : FileTextIcon;
+    const accept = fmt === "IMAGE" ? "image/*" : fmt === "VIDEO" ? "video/*" : ".pdf,application/pdf";
+    return (
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid={`wa-header-${fmt.toLowerCase()}-block`}>
+        <p className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5">
+          <Ico className="h-3.5 w-3.5" /> En-tête ({fmt === "IMAGE" ? "image" : fmt === "VIDEO" ? "vidéo" : "document PDF"})
+        </p>
+        {headerMedia?.link ? (
+          <div className="flex items-center gap-2">
+            {fmt === "IMAGE" && <img src={headerMedia.link} alt="" className="h-16 w-16 object-cover rounded" />}
+            <div className="flex-1 text-xs">
+              <p className="font-mono break-all text-slate-600">{headerMedia.filename}</p>
+              <a href={headerMedia.link} target="_blank" rel="noreferrer" className="text-[11px] text-sawali-blue hover:underline">Ouvrir</a>
+            </div>
+            <button onClick={clearMedia} className="text-xs text-rose-600 hover:underline" data-testid="wa-header-media-clear">Changer</button>
+          </div>
+        ) : (
+          <label className="inline-flex items-center gap-2 text-xs cursor-pointer rounded bg-slate-100 hover:bg-slate-200 px-3 py-2">
+            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Sélectionner un fichier"}
+            <input type="file" accept={accept} onChange={(e) => uploadHeader(e.target.files?.[0])} className="hidden" data-testid="wa-header-media-input" />
+          </label>
+        )}
+      </div>
+    );
+  }
+  return null;
+};
+
+// --- Reusable variable grid (body or button) ---
+const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
+  const update = (i, v) => {
+    const n = [...values]; n[i] = v; onChange(n);
+  };
+  const append = (i, token) => {
+    const n = [...values]; n[i] = (n[i] || "") + token; onChange(n);
+  };
+  return (
+    <div className="space-y-2">
+      {label && <p className="text-xs font-semibold text-slate-700">{label}</p>}
+      {(values || []).map((_, i) => (
+        <div key={i} className="grid grid-cols-[64px_1fr_auto] gap-2 items-center" data-testid={`${testPrefix}-row-${i + 1}`}>
+          <label className="text-[11px] uppercase tracking-wider text-slate-500 font-mono text-center bg-slate-100 rounded py-2">
+            {`{{${i + 1}}}`}
+          </label>
+          <input
+            value={values[i] || ""}
+            onChange={(e) => update(i, e.target.value)}
+            placeholder="Texte ou tokens"
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+            data-testid={`${testPrefix}-input-${i + 1}`}
+          />
+          <select
+            onChange={(e) => {
+              const tk = e.target.value;
+              if (tk) { append(i, tk); e.target.value = ""; }
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+            defaultValue=""
+            title="Insérer un token dynamique"
+            data-testid={`${testPrefix}-token-picker-${i + 1}`}
+          >
+            <option value="">+ Token…</option>
+            {(tokens || []).map((t) => (
+              <option key={t.token} value={t.token}>{t.label}</option>
+            ))}
+          </select>
+        </div>
+      ))}
     </div>
   );
 };

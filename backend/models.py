@@ -187,6 +187,8 @@ class AppointmentUpdate(BaseModel):
     notes: Optional[str] = None
     scheduled_at: Optional[str] = None
     duration_min: Optional[int] = None
+    subject: Optional[str] = None
+    message: Optional[str] = None
 
 
 class Appointment(BaseModel):

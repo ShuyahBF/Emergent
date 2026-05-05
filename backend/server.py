@@ -723,8 +723,10 @@ async def submit_contact(payload: ContactCreate):
 
 
 # ----- RDV availability + booking ------
-async def _check_slot_available(scheduled_at: str, duration_min: int) -> tuple[bool, str]:
-    """Verify the requested slot is within business hours and not taken."""
+async def _check_slot_available(scheduled_at: str, duration_min: int, exclude_id: Optional[str] = None) -> tuple[bool, str]:
+    """Verify the requested slot is within business hours and not taken.
+    If exclude_id is provided, that appointment is excluded from the overlap check
+    (used when rescheduling an existing appointment)."""
     try:
         start_dt = datetime.fromisoformat(scheduled_at)
         if start_dt.tzinfo is None:
@@ -759,6 +761,7 @@ async def _check_slot_available(scheduled_at: str, duration_min: int) -> tuple[b
         {
             "status": {"$in": ["pending", "confirmed"]},
             "scheduled_at": {"$gte": window_start, "$lte": window_end},
+            **({"id": {"$ne": exclude_id}} if exclude_id else {}),
         },
         {"_id": 0, "scheduled_at": 1, "duration_min": 1},
     ).to_list(500)
@@ -908,6 +911,65 @@ async def me_account(user: dict = Depends(get_current_user)):
 async def me_appointments(user: dict = Depends(get_current_user)):
     items = await db.appointments.find({"client_id": user["id"]}, {"_id": 0}).to_list(1000)
     return sorted(items, key=lambda x: x["scheduled_at"], reverse=True)
+
+
+@api.put("/me/appointments/{appt_id}", tags=["Portail Client"])
+async def me_update_appointment(
+    appt_id: str, payload: AppointmentUpdate, user: dict = Depends(get_current_user),
+):
+    """Client may edit their own upcoming appointments (pending/confirmed)."""
+    existing = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rendez-vous introuvable")
+    # Access control: owner (client_id) or elevated tracked users
+    owner_scope = existing.get("client_id")
+    if owner_scope != (user.get("client_id") or user.get("id")) and not _is_elevated_creator(user) and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if (existing.get("status") or "") == "completed":
+        raise HTTPException(status_code=400, detail="Un rendez-vous terminé ne peut être modifié")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Re-check slot availability if rescheduling
+    if "scheduled_at" in update or "duration_min" in update:
+        new_sched = update.get("scheduled_at") or existing.get("scheduled_at")
+        new_dur = update.get("duration_min") or existing.get("duration_min") or 30
+        ok, reason = await _check_slot_available(new_sched, new_dur, exclude_id=appt_id)
+        if not ok:
+            raise HTTPException(status_code=409, detail=reason)
+    update["updated_at"] = _now()
+    await db.appointments.update_one({"id": appt_id}, {"$set": update})
+    # Sync Google Calendar if linked
+    if existing.get("gcal_event_id") and ("scheduled_at" in update or "duration_min" in update or "subject" in update or "message" in update):
+        try:
+            new_sched = update.get("scheduled_at") or existing.get("scheduled_at")
+            new_dur = update.get("duration_min") or existing.get("duration_min") or 30
+            new_end = (datetime.fromisoformat(new_sched).replace(tzinfo=timezone.utc) + timedelta(minutes=new_dur)).isoformat()
+            await gcal.update_event(
+                event_id=existing["gcal_event_id"],
+                summary=f"RDV client : {update.get('subject') or existing.get('subject')}",
+                description=f"Client : {existing.get('name')} <{existing.get('email')}>\n{update.get('message') or existing.get('message') or ''}",
+                start_iso=new_sched,
+                end_iso=new_end,
+            )
+        except Exception as exc:
+            logger.warning("GCal update failed: %s", exc)
+    return {"ok": True}
+
+
+@api.delete("/me/appointments/{appt_id}", tags=["Portail Client"])
+async def me_delete_appointment(appt_id: str, user: dict = Depends(get_current_user)):
+    existing = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rendez-vous introuvable")
+    owner_scope = existing.get("client_id")
+    if owner_scope != (user.get("client_id") or user.get("id")) and not _is_elevated_creator(user) and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    await db.appointments.delete_one({"id": appt_id})
+    if existing.get("gcal_event_id"):
+        try:
+            await gcal.delete_event(existing["gcal_event_id"])
+        except Exception as exc:
+            logger.warning("GCal delete failed: %s", exc)
+    return {"ok": True}
 
 
 @api.post("/me/appointments", tags=["Portail Client"])
@@ -1629,15 +1691,32 @@ async def admin_appointments(_: dict = Depends(get_current_admin)):
 async def admin_update_appt(
     appt_id: str, payload: AppointmentUpdate, _: dict = Depends(get_current_admin)
 ):
+    existing = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rendez-vous introuvable")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     update["updated_at"] = _now()
     # Auto-generate feedback token when status becomes "completed"
     if update.get("status") == "completed":
-        existing = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
-        if existing and not existing.get("feedback_token"):
+        if not existing.get("feedback_token"):
             update["feedback_token"] = generate_session_token()
             update["feedback_status"] = "pending"
     await db.appointments.update_one({"id": appt_id}, {"$set": update})
+    # Sync GCal if the slot changed
+    if existing.get("gcal_event_id") and ("scheduled_at" in update or "duration_min" in update or "subject" in update or "message" in update):
+        try:
+            new_sched = update.get("scheduled_at") or existing.get("scheduled_at")
+            new_dur = update.get("duration_min") or existing.get("duration_min") or 30
+            new_end = (datetime.fromisoformat(new_sched).replace(tzinfo=timezone.utc) + timedelta(minutes=new_dur)).isoformat()
+            await gcal.update_event(
+                event_id=existing["gcal_event_id"],
+                summary=f"RDV client : {update.get('subject') or existing.get('subject')}",
+                description=f"Client : {existing.get('name')} <{existing.get('email')}>\n{update.get('message') or existing.get('message') or ''}",
+                start_iso=new_sched,
+                end_iso=new_end,
+            )
+        except Exception as exc:
+            logger.warning("GCal update failed: %s", exc)
     return {"ok": True}
 
 
@@ -2864,6 +2943,8 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
         "content_type": file.content_type or mimetypes.guess_type(file.filename or "")[0],
         "size": size,
         "url": f"/api/files/{file_id}",
+        # Absolute public URL (used by Meta to fetch headers/media on outbound templates)
+        "public_url": str(request.base_url).rstrip("/") + f"/api/files/{file_id}",
         "uploaded_at": _now(),
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),
@@ -5048,8 +5129,8 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
 
 @api.get("/me/whatsapp/templates", tags=["Portail Client"])
 async def me_list_wa_templates(user: dict = Depends(get_current_user)):
-    """Portal users: list APPROVED templates only. No create/edit permissions.
-    Requires same scope as /me/whatsapp/send (elevated roles or client)."""
+    """Portal users: list APPROVED templates + only those marked as available.
+    Attaches the admin-maintained description note."""
     if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Rôle non autorisé")
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -5064,8 +5145,17 @@ async def me_list_wa_templates(user: dict = Depends(get_current_user)):
             if r.status_code >= 300:
                 return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
             d = r.json()
-            # Portal users see only APPROVED templates (safer)
-            approved = [t for t in (d.get("data") or []) if (t.get("status") or "").upper() == "APPROVED"]
+            notes_map = await _load_template_notes_map()
+            approved = []
+            for t in (d.get("data") or []):
+                if (t.get("status") or "").upper() != "APPROVED":
+                    continue
+                note = notes_map.get(t["name"]) or {}
+                # Hide if explicitly marked unavailable to users (default = available)
+                if note.get("is_available_for_users") is False:
+                    continue
+                t["note_description"] = note.get("description") or ""
+                approved.append(t)
             return {"configured": True, "items": approved}
     except Exception as exc:  # noqa: BLE001
         return {"configured": True, "items": [], "error": str(exc)[:200]}
@@ -5210,7 +5300,7 @@ async def whatsapp_webhook_incoming(request: Request):
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
 async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
-    """List approved templates from the configured WABA."""
+    """List all templates from the configured WABA + merge admin notes (description + availability)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
     waba_id = s.get("wa_business_account_id")
@@ -5223,9 +5313,55 @@ async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
             if r.status_code >= 300:
                 return {"configured": True, "items": [], "error": f"HTTP {r.status_code}"}
             d = r.json()
-            return {"configured": True, "items": d.get("data") or []}
+            notes_map = await _load_template_notes_map()
+            items = []
+            for t in (d.get("data") or []):
+                note = notes_map.get(t["name"]) or {}
+                t["note_description"] = note.get("description") or ""
+                # Default TRUE when not explicitly set
+                t["is_available_for_users"] = note.get("is_available_for_users", True)
+                items.append(t)
+            return {"configured": True, "items": items}
     except Exception as exc:  # noqa: BLE001
         return {"configured": True, "items": [], "error": str(exc)[:200]}
+
+
+# ---------- Admin-managed template notes (index by name) ----------
+async def _load_template_notes_map() -> Dict[str, Dict[str, Any]]:
+    docs = await db.wa_template_notes.find({}, {"_id": 0}).to_list(1000)
+    return {d["name"]: d for d in docs if d.get("name")}
+
+
+@api.get("/admin/whatsapp/template-notes", tags=["Admin"])
+async def admin_list_template_notes(_: dict = Depends(get_current_admin)):
+    docs = await db.wa_template_notes.find({}, {"_id": 0}).sort("name", 1).to_list(1000)
+    return docs
+
+
+class WaTemplateNoteUpsert(BaseModel):
+    description: Optional[str] = None
+    is_available_for_users: Optional[bool] = None
+
+
+@api.put("/admin/whatsapp/template-notes/{name}", tags=["Admin"])
+async def admin_upsert_template_note(
+    name: str, payload: WaTemplateNoteUpsert, _: dict = Depends(get_current_admin),
+):
+    name = (name or "").strip().lower()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom de template manquant")
+    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    update["updated_at"] = _now()
+    update["name"] = name
+    await db.wa_template_notes.update_one({"name": name}, {"$set": update}, upsert=True)
+    doc = await db.wa_template_notes.find_one({"name": name}, {"_id": 0})
+    return doc
+
+
+@api.delete("/admin/whatsapp/template-notes/{name}", tags=["Admin"])
+async def admin_delete_template_note(name: str, _: dict = Depends(get_current_admin)):
+    await db.wa_template_notes.delete_one({"name": (name or "").strip().lower()})
+    return {"ok": True}
 
 
 # ---------- Templates: create / delete (Meta submission flow) ----------

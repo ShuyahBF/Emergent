@@ -180,3 +180,50 @@ async def freebusy(start_iso: str, end_iso: str) -> list[dict]:
     except Exception as e:
         logger.error("GCal freebusy failed: %s", e)
         return []
+
+
+async def update_event(
+    event_id: str,
+    summary: Optional[str] = None,
+    description: Optional[str] = None,
+    start_iso: Optional[str] = None,
+    end_iso: Optional[str] = None,
+    timezone_str: str = "UTC",
+) -> bool:
+    """Patch an event on the configured calendar."""
+    service = await _build_service()
+    if service is None:
+        return False
+    s = await _get_settings()
+    calendar_id = s.get("google_calendar_email") or "primary"
+    body: dict = {}
+    if summary is not None:
+        body["summary"] = summary
+    if description is not None:
+        body["description"] = description
+    if start_iso is not None:
+        body["start"] = {"dateTime": start_iso, "timeZone": timezone_str}
+    if end_iso is not None:
+        body["end"] = {"dateTime": end_iso, "timeZone": timezone_str}
+    if not body:
+        return True
+    try:
+        service.events().patch(calendarId=calendar_id, eventId=event_id, body=body).execute()
+        return True
+    except Exception as e:
+        logger.error("GCal update_event failed: %s", e)
+        return False
+
+
+async def delete_event(event_id: str) -> bool:
+    service = await _build_service()
+    if service is None:
+        return False
+    s = await _get_settings()
+    calendar_id = s.get("google_calendar_email") or "primary"
+    try:
+        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        return True
+    except Exception as e:
+        logger.error("GCal delete_event failed: %s", e)
+        return False

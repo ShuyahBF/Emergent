@@ -184,7 +184,8 @@ export default function AdminWaTemplates() {
                 <th className="text-left py-2 px-3">Langue</th>
                 <th className="text-left py-2 px-3">Catégorie</th>
                 <th className="text-left py-2 px-3">Statut</th>
-                <th className="text-left py-2 px-3">Aperçu</th>
+                <th className="text-left py-2 px-3">Note descriptive</th>
+                <th className="text-center py-2 px-3">Disponible<br/>utilisateurs</th>
                 <th className="text-right py-2 px-3"></th>
               </tr>
             </thead>
@@ -192,7 +193,6 @@ export default function AdminWaTemplates() {
               {items.map((t) => {
                 const status = (t.status || "").toUpperCase();
                 const [pill, Icon] = STATUS_PILL[status] || ["bg-slate-100 text-slate-600", Clock];
-                const body = (t.components || []).find((c) => (c.type || "").toUpperCase() === "BODY");
                 return (
                   <tr key={`${t.name}_${t.language}`} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`template-row-${t.name}`}>
                     <td className="py-2 px-3 font-mono text-[11px]">{t.name}</td>
@@ -206,8 +206,11 @@ export default function AdminWaTemplates() {
                         <div className="text-[10px] text-rose-600 mt-0.5">{t.rejected_reason}</div>
                       )}
                     </td>
-                    <td className="py-2 px-3 max-w-md">
-                      <div className="text-xs text-slate-700 line-clamp-2">{(body?.text || "").slice(0, 200) || "—"}</div>
+                    <td className="py-2 px-3 max-w-xs">
+                      <NoteCell template={t} onSaved={load} />
+                    </td>
+                    <td className="py-2 px-3 text-center">
+                      <AvailabilityToggle template={t} onSaved={load} />
                     </td>
                     <td className="py-2 px-3 text-right">
                       <div className="inline-flex gap-1">
@@ -493,5 +496,84 @@ function PreviewModal({ template, onClose }) {
         </div>
       </div>
     </div>
+  );
+}
+
+// --- Editable note cell (admin only) ---
+function NoteCell({ template, onSaved }) {
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(template.note_description || "");
+  const [saving, setSaving] = useState(false);
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put(`/admin/whatsapp/template-notes/${encodeURIComponent(template.name)}`, { description: val });
+      toast.success("Note enregistrée");
+      setEditing(false);
+      if (onSaved) onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+  if (editing) {
+    return (
+      <div className="flex flex-col gap-1" data-testid={`note-edit-${template.name}`}>
+        <textarea
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          rows={2}
+          placeholder="Décrivez à quoi sert ce template…"
+          className="w-full text-xs rounded border border-slate-300 px-2 py-1"
+          autoFocus
+        />
+        <div className="flex gap-1 text-[11px]">
+          <button disabled={saving} onClick={save} className="px-2 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50" data-testid={`note-save-${template.name}`}>{saving ? "…" : "OK"}</button>
+          <button onClick={() => { setEditing(false); setVal(template.note_description || ""); }} className="px-2 py-0.5 rounded bg-slate-200 text-slate-700">Annuler</button>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-left w-full text-xs text-slate-700 hover:text-sawali-blue line-clamp-2"
+      title="Cliquer pour éditer"
+      data-testid={`note-display-${template.name}`}
+    >
+      {template.note_description ? template.note_description : <span className="italic text-slate-400">Cliquez pour ajouter une note…</span>}
+    </button>
+  );
+}
+
+// --- Availability toggle (admin only) ---
+function AvailabilityToggle({ template, onSaved }) {
+  const [val, setVal] = useState(template.is_available_for_users !== false);
+  const [pending, setPending] = useState(false);
+  const flip = async () => {
+    const next = !val;
+    setVal(next);
+    setPending(true);
+    try {
+      await apiClient.put(`/admin/whatsapp/template-notes/${encodeURIComponent(template.name)}`, { is_available_for_users: next });
+      if (onSaved) onSaved();
+    } catch (err) {
+      setVal(!next);
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setPending(false);
+    }
+  };
+  return (
+    <button
+      onClick={flip}
+      disabled={pending}
+      className={`relative inline-flex h-5 w-10 items-center rounded-full transition-colors disabled:opacity-50 ${val ? "bg-emerald-600" : "bg-slate-300"}`}
+      title={val ? "Visible aux utilisateurs portail" : "Masqué aux utilisateurs"}
+      data-testid={`availability-toggle-${template.name}`}
+    >
+      <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white transition-transform ${val ? "translate-x-5" : "translate-x-1"}`} />
+    </button>
   );
 }

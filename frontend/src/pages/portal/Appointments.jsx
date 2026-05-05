@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Calendar, Plus, ArrowRight } from "lucide-react";
+import { Calendar, Plus, ArrowRight, Pencil, Trash2, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
+import { EditAppointmentModal } from "@/pages/admin/AdminAppointments";
 
 const formatDate = (d) => d.toISOString().slice(0, 10);
 
@@ -14,9 +15,21 @@ export default function ClientAppointments() {
   const [slot, setSlot] = useState(null);
   const [form, setForm] = useState({ subject: "", message: "" });
   const [loading, setLoading] = useState(false);
+  const [editing, setEditing] = useState(null);
 
   const load = () => apiClient.get("/me/appointments").then((r) => setItems(r.data));
   useEffect(() => { load().catch(() => {}); }, []);
+
+  const del = async (id) => {
+    if (!window.confirm("Supprimer ce rendez-vous ?")) return;
+    try {
+      await apiClient.delete(`/me/appointments/${id}`);
+      toast.success("Supprimé");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
 
   useEffect(() => {
     if (!showForm) return;
@@ -53,9 +66,14 @@ export default function ClientAppointments() {
           <h1 className="text-2xl font-display font-bold">Mes rendez-vous</h1>
           <p className="text-sm text-slate-500">Suivez et planifiez vos rendez-vous avec notre équipe.</p>
         </div>
-        <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-rdv-toggle">
-          <Plus className="h-4 w-4" /> {showForm ? "Annuler" : "Nouveau rendez-vous"}
-        </button>
+        <div className="flex gap-2 flex-wrap">
+          <button onClick={() => load()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm" data-testid="rdv-refresh">
+            <RefreshCw className="h-4 w-4" /> Actualiser
+          </button>
+          <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-rdv-toggle">
+            <Plus className="h-4 w-4" /> {showForm ? "Annuler" : "Nouveau rendez-vous"}
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -106,20 +124,56 @@ export default function ClientAppointments() {
       <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
         <table className="w-full text-sm">
           <thead className="bg-slate-50 text-slate-600 text-xs uppercase tracking-wider">
-            <tr><th className="text-left px-4 py-3">Sujet</th><th className="text-left px-4 py-3">Date</th><th className="text-left px-4 py-3">Statut</th></tr>
+            <tr>
+              <th className="text-left px-4 py-3">Sujet</th>
+              <th className="text-left px-4 py-3">Date</th>
+              <th className="text-left px-4 py-3">Statut</th>
+              <th className="text-right px-4 py-3">Actions</th>
+            </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={3} className="px-4 py-10 text-center text-slate-500">Aucun rendez-vous.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-500">Aucun rendez-vous.</td></tr>}
             {items.map((a) => (
               <tr key={a.id} className="border-t border-slate-100" data-testid={`appt-row-${a.id}`}>
-                <td className="px-4 py-3 font-medium text-slate-800">{a.subject}</td>
+                <td className="px-4 py-3 font-medium text-slate-800">
+                  {a.subject}
+                  {a.message && <p className="text-[11px] text-slate-400 mt-0.5 line-clamp-1">{a.message}</p>}
+                </td>
                 <td className="px-4 py-3 text-slate-600">{new Date(a.scheduled_at).toLocaleString("fr-FR", { dateStyle: "medium", timeStyle: "short" })}</td>
                 <td className="px-4 py-3"><StatusBadge s={a.status} /></td>
+                <td className="px-4 py-3 text-right whitespace-nowrap">
+                  {a.status !== "completed" && (
+                    <>
+                      <button
+                        onClick={() => setEditing(a)}
+                        className="inline-flex items-center gap-1 text-slate-600 hover:text-sawali-blue text-xs mr-3"
+                        data-testid={`portal-appt-edit-${a.id}`}
+                      >
+                        <Pencil className="h-3.5 w-3.5" /> Modifier
+                      </button>
+                      <button
+                        onClick={() => del(a.id)}
+                        className="inline-flex items-center gap-1 text-rose-600 text-xs hover:underline"
+                        data-testid={`portal-appt-delete-${a.id}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Supprimer
+                      </button>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {editing && (
+        <EditAppointmentModal
+          appt={editing}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
+          updateUrl={`/me/appointments/${editing.id}`}
+        />
+      )}
     </div>
   );
 }

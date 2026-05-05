@@ -533,7 +533,7 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
                   >
                     {templates.map((t) => (
                       <option key={`${t.name}_${t.language}`} value={t.name}>
-                        {t.name} ({t.language})
+                        {t.name} ({t.language}){t.note_description ? ` — ${t.note_description.slice(0, 80)}` : ""}
                       </option>
                     ))}
                   </select>

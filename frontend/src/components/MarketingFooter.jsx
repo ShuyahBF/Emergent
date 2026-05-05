@@ -70,11 +70,11 @@ export default function MarketingFooter() {
       </div>
       <div className="border-t border-white/5 py-5 text-center text-xs text-slate-500">
         <div className="flex items-center justify-center gap-3 mb-2 flex-wrap" data-testid="footer-policy-links">
-          <a href="/api/public/policies/privacy" target="_blank" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-privacy">Politique de confidentialité</a>
+          <a href="/politiques/confidentialite" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-privacy">Politique de confidentialité</a>
           <span className="text-slate-700">·</span>
-          <a href="/api/public/policies/services" target="_blank" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">Politique de services</a>
+          <a href="/politiques/services" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">Politique de services</a>
           <span className="text-slate-700">·</span>
-          <a href="/api/public/policies/deletion" target="_blank" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-deletion">Politique de suppression</a>
+          <a href="/politiques/suppression" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-deletion">Politique de suppression</a>
         </div>
         © {new Date().getFullYear()} SAWALI SMART SYSTEMS. Tous droits réservés.
       </div>

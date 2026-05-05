@@ -114,6 +114,29 @@ POLICIES_DIR = UPLOAD_DIR / "policies"
 POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 
+
+def _public_base_url(request: Optional["Request"] = None) -> str:
+    """Resolve the public base URL for absolute links (OAuth redirects, file URLs).
+
+    Strategy:
+      1. If the request has X-Forwarded-Host / X-Forwarded-Proto (set by ingress), use them
+         so links honour the actual hostname the user is visiting (preview vs production).
+      2. Else fall back to the Origin header of the current request.
+      3. Else fall back to the static PUBLIC_BASE_URL env (preview default).
+    """
+    if request is not None:
+        try:
+            xfh = request.headers.get("x-forwarded-host") or request.headers.get("host")
+            xfp = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+            if xfh:
+                return f"{xfp}://{xfh.split(',')[0].strip()}".rstrip("/")
+            origin = request.headers.get("origin")
+            if origin:
+                return origin.rstrip("/")
+        except Exception:
+            pass
+    return (PUBLIC_BASE_URL or "").rstrip("/")
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sawali")
 
@@ -2191,7 +2214,7 @@ POLICY_MAX_SIZE = 15 * 1024 * 1024  # 15 MB
 
 
 def _policy_public_url(request: Request, slot: str) -> str:
-    base = (PUBLIC_BASE_URL or "").rstrip("/")
+    base = _public_base_url(request) or (PUBLIC_BASE_URL or "").rstrip("/")
     if not base:
         scheme = request.url.scheme
         host = request.headers.get("x-forwarded-host") or request.headers.get("host") or request.url.netloc
@@ -2944,7 +2967,7 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
         "size": size,
         "url": f"/api/files/{file_id}",
         # Absolute public URL (used by Meta to fetch headers/media on outbound templates)
-        "public_url": str(request.base_url).rstrip("/") + f"/api/files/{file_id}",
+        "public_url": f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}/api/files/{file_id}",
         "uploaded_at": _now(),
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),
@@ -4295,7 +4318,8 @@ async def admin_delete_subscriber(sub_id: str, _: dict = Depends(get_current_adm
 # ----- Google Calendar OAuth admin endpoints -----
 @api.get("/admin/google/auth-url", tags=["Admin"])
 async def admin_google_auth_url(request: Request, _: dict = Depends(get_current_admin)):
-    redirect_uri = f"{PUBLIC_BASE_URL}/api/admin/google/callback"
+    base = _public_base_url(request) or PUBLIC_BASE_URL
+    redirect_uri = f"{base}/api/admin/google/callback"
     url = await gcal.get_auth_url(redirect_uri)
     if not url:
         raise HTTPException(
@@ -4306,13 +4330,14 @@ async def admin_google_auth_url(request: Request, _: dict = Depends(get_current_
 
 
 @api.get("/admin/google/callback", tags=["Admin"])
-async def admin_google_callback(code: str):
-    redirect_uri = f"{PUBLIC_BASE_URL}/api/admin/google/callback"
+async def admin_google_callback(request: Request, code: str):
+    base = _public_base_url(request) or PUBLIC_BASE_URL
+    redirect_uri = f"{base}/api/admin/google/callback"
     try:
         await gcal.exchange_code(code, redirect_uri)
-        return RedirectResponse(url=f"{PUBLIC_BASE_URL}/admin/settings?gcal=ok")
+        return RedirectResponse(url=f"{base}/admin/settings?gcal=ok")
     except Exception as e:
-        return RedirectResponse(url=f"{PUBLIC_BASE_URL}/admin/settings?gcal=error&msg={e}")
+        return RedirectResponse(url=f"{base}/admin/settings?gcal=error&msg={e}")
 
 
 @api.post("/admin/google/disconnect", tags=["Admin"])
@@ -4927,15 +4952,30 @@ async def _wa_send_template(to_e164: str, template_name: str, language_code: str
                 raw = r.json()
             except Exception:
                 raw = {"text": r.text[:2000]}
+            if r.status_code >= 300:
+                # Log payload + Meta response for ops debugging — masking the token
+                logger.warning(
+                    "[wa-send] FAIL template=%s lang=%s status=%s body=%s meta_response=%s",
+                    template_name, language_code, r.status_code,
+                    json.dumps(body)[:1500], json.dumps(raw)[:1500],
+                )
             if r.status_code < 300:
                 mid = None
                 if isinstance(raw, dict) and raw.get("messages"):
                     mid = raw["messages"][0].get("id")
                 return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
             err_msg = None
+            err_details = None
+            err_code = None
             if isinstance(raw, dict):
-                err_msg = (raw.get("error") or {}).get("message") or str(raw)[:500]
-            return {"ok": False, "status": r.status_code, "message_id": None, "error": err_msg or f"HTTP {r.status_code}", "raw": raw}
+                err_obj = raw.get("error") or {}
+                err_msg = err_obj.get("message") or str(raw)[:500]
+                err_code = err_obj.get("code")
+                err_details = (err_obj.get("error_data") or {}).get("details")
+                # Meta nests the most actionable explanation in error_data.details
+                if err_details:
+                    err_msg = f"{err_msg} — {err_details}"
+            return {"ok": False, "status": r.status_code, "message_id": None, "error": err_msg or f"HTTP {r.status_code}", "error_code": err_code, "error_details": err_details, "raw": raw}
     except httpx.TimeoutException:
         return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
     except Exception as exc:  # noqa: BLE001

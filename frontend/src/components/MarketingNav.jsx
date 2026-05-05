@@ -14,6 +14,7 @@ const links = [
   { to: "/temoignages", label: "Témoignages" },
   { to: "/rdv", label: "Demande RDV" },
   { to: "/contact", label: "Contact" },
+  { to: "/politiques", label: "Politiques" },
 ];
 
 export default function MarketingNav() {

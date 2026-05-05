@@ -70,6 +70,7 @@ import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
 import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
 import PublicForm from "@/pages/public/PublicForm";
+import PoliciesPage from "@/pages/public/Policies";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -113,6 +114,8 @@ export default function App() {
           <Route path="/launch" element={<Launch />} />
           <Route path="/f/:fid" element={<PublicForm />} />
           <Route path="/documentation" element={<ApiDocs />} />
+          <Route path="/politiques" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
+          <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />

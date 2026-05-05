@@ -62,6 +62,8 @@ class UserUpdateAdmin(BaseModel):
     role: Optional[str] = None
     password: Optional[str] = None
     is_primary_client: Optional[bool] = None
+    wa_unit_cost: Optional[float] = None  # Per-message cost billed to this client
+    wa_currency: Optional[str] = None  # ISO code (XOF, EUR, USD…)
 
 
 USER_ROLES = ["client", "admin", "superviseur"]
@@ -300,16 +302,19 @@ class TrackedUserCreate(BaseModel):
     phone: Optional[str] = None
     role: str = "Consultation"  # one of TRACKED_USER_ROLES
     department: Optional[str] = None
+    company: Optional[str] = None  # override client.company for this user
     last_seen: Optional[str] = None
     status: str = "active"
 
 
 class TrackedUserUpdate(BaseModel):
+    client_id: Optional[str] = None  # support reassigning to a different client
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
     role: Optional[str] = None
     department: Optional[str] = None
+    company: Optional[str] = None
     last_seen: Optional[str] = None
     status: Optional[str] = None
 

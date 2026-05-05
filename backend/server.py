@@ -1109,6 +1109,88 @@ async def admin_get_client(client_id: str, _: dict = Depends(get_current_admin))
     return u
 
 
+@api.get("/admin/clients/{client_id}/whatsapp-stats", tags=["Admin"])
+async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_current_admin)):
+    """WhatsApp consumption summary for a client: messages sent OK/KO,
+    inbound, last activity, configured unit cost & total cost."""
+    client = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "wa_unit_cost": 1, "wa_currency": 1})
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    unit_cost = float(client.get("wa_unit_cost") or 0)
+    currency = client.get("wa_currency") or "XOF"
+    cur = db.whatsapp_messages.find({"client_id": client_id}, {"_id": 0})
+    sent_ok = sent_ko = inbound = 0
+    last_at: Optional[str] = None
+    last_outbound_at: Optional[str] = None
+    last_inbound_at: Optional[str] = None
+    async for m in cur:
+        if (m.get("direction") or "outbound") == "inbound":
+            inbound += 1
+            ts = m.get("received_at") or m.get("created_at")
+            if ts and (not last_inbound_at or ts > last_inbound_at):
+                last_inbound_at = ts
+        else:
+            ok = m.get("ok")
+            if ok is None:
+                # Legacy logs may not have ok; infer from wa_status
+                ok = (m.get("wa_status") or "").lower() not in ("failed",)
+            if ok:
+                sent_ok += 1
+            else:
+                sent_ko += 1
+            ts = m.get("sent_at") or m.get("created_at")
+            if ts and (not last_outbound_at or ts > last_outbound_at):
+                last_outbound_at = ts
+        ts_any = m.get("sent_at") or m.get("received_at") or m.get("created_at")
+        if ts_any and (not last_at or ts_any > last_at):
+            last_at = ts_any
+    billable = sent_ok  # only successful sends are billed
+    total_cost = round(billable * unit_cost, 4)
+    return {
+        "client_id": client_id,
+        "client_name": client.get("full_name"),
+        "client_company": client.get("company"),
+        "sent_ok": sent_ok,
+        "sent_ko": sent_ko,
+        "inbound": inbound,
+        "billable_messages": billable,
+        "unit_cost": unit_cost,
+        "currency": currency,
+        "total_cost": total_cost,
+        "last_outbound_at": last_outbound_at,
+        "last_inbound_at": last_inbound_at,
+        "last_activity_at": last_at,
+    }
+
+
+@api.put("/admin/clients/{client_id}/whatsapp-cost", tags=["Admin"])
+async def admin_set_client_wa_cost(
+    client_id: str,
+    payload: Dict[str, Any],
+    _: dict = Depends(get_current_admin),
+):
+    """Update the WhatsApp unit cost (per outbound message) for a client.
+    Accepts {wa_unit_cost: number, wa_currency: str}."""
+    update: Dict[str, Any] = {}
+    if "wa_unit_cost" in payload:
+        try:
+            v = float(payload.get("wa_unit_cost") or 0)
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Coût invalide")
+        if v < 0:
+            raise HTTPException(status_code=400, detail="Le coût ne peut être négatif")
+        update["wa_unit_cost"] = v
+    if "wa_currency" in payload:
+        cur = (payload.get("wa_currency") or "").strip().upper()[:6]
+        update["wa_currency"] = cur or "XOF"
+    if not update:
+        return {"ok": True}
+    res = await db.users.update_one({"id": client_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    return {"ok": True, **update}
+
+
 @api.get("/admin/clients/{client_id}/timeline", tags=["Admin"])
 async def admin_client_timeline(
     client_id: str,
@@ -5533,6 +5615,18 @@ async def admin_messaging_history(
 async def admin_messaging_variable_tokens(_: dict = Depends(get_current_admin)):
     """List of substitution tokens the admin can insert into template variables.
     Resolved per-recipient at send time from the client or tracked-user profile."""
+    return _wa_variable_tokens()
+
+
+@api.get("/me/messaging/variable-tokens", tags=["Portail Client"])
+async def me_messaging_variable_tokens(user: dict = Depends(get_current_user)):
+    """Portal mirror of variable tokens. Same resolution at send time."""
+    if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user) and not _is_tracked_user(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    return _wa_variable_tokens()
+
+
+def _wa_variable_tokens() -> dict:
     return {
         "tokens": [
             {"token": "{{full_name}}", "label": "Nom complet", "example": "Jean Dupont"},

@@ -394,41 +394,99 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
   const [loading, setLoading] = useState(true);
   const [templateName, setTemplateName] = useState("");
   const [language, setLanguage] = useState("fr");
+  const [variables, setVariables] = useState([]); // values for {{1}}..{{N}}
+  const [tokens, setTokens] = useState([]);
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
   const [configured, setConfigured] = useState(true);
 
   useEffect(() => {
-    apiClient.get("/me/whatsapp/templates")
-      .then((r) => {
-        setTemplates(r.data?.items || []);
-        setConfigured(!!r.data?.configured);
-        if (r.data?.items?.[0]) {
-          setTemplateName(r.data.items[0].name);
-          setLanguage(r.data.items[0].language || "fr");
-        }
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
+    Promise.all([
+      apiClient.get("/me/whatsapp/templates"),
+      apiClient.get("/me/messaging/variable-tokens").catch(() => ({ data: { tokens: [] } })),
+    ]).then(([tplRes, tokRes]) => {
+      const items = tplRes.data?.items || [];
+      setTemplates(items);
+      setTokens(tokRes.data?.tokens || []);
+      setConfigured(!!tplRes.data?.configured);
+      if (items[0]) {
+        setTemplateName(items[0].name);
+        setLanguage(items[0].language || "fr");
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
   }, []);
 
   const selectedTemplate = useMemo(
     () => templates.find((t) => t.name === templateName),
     [templates, templateName],
   );
-  const previewBody = useMemo(() => {
+  const bodyText = useMemo(() => {
     const body = (selectedTemplate?.components || []).find((c) => (c.type || "").toUpperCase() === "BODY");
     return body?.text || "";
   }, [selectedTemplate]);
+  const varCount = useMemo(() => {
+    const matches = [...bodyText.matchAll(/\{\{\s*(\d+)\s*\}\}/g)].map((m) => parseInt(m[1], 10));
+    return matches.length ? Math.max(...matches) : 0;
+  }, [bodyText]);
+
+  // Sync variables array length with detected variable count when template changes
+  useEffect(() => {
+    setVariables((prev) => {
+      const next = [...prev];
+      next.length = varCount;
+      for (let i = 0; i < varCount; i++) if (next[i] === undefined) next[i] = "";
+      return next;
+    });
+    setResult(null);
+  }, [varCount, templateName]);
+
+  const updateVar = (i, v) => setVariables((prev) => {
+    const n = [...prev]; n[i] = v; return n;
+  });
+  const insertToken = (i, token) => setVariables((prev) => {
+    const n = [...prev]; n[i] = (n[i] || "") + token; return n;
+  });
+
+  // Live preview substituting tokens with example values (real values resolved server-side)
+  const previewBody = useMemo(() => {
+    if (!bodyText) return "";
+    let out = bodyText;
+    variables.forEach((v, idx) => {
+      let rendered = v || `{{${idx + 1}}}`;
+      tokens.forEach((tk) => {
+        rendered = rendered.split(tk.token).join(tk.example || tk.token);
+      });
+      // Local fallbacks for common tokens (using current contact)
+      rendered = rendered
+        .split("{{full_name}}").join(contact.name || "")
+        .split("{{company}}").join(contact.company || "")
+        .split("{{phone}}").join(contact.whatsapp || contact.phone || "")
+        .split("{{email}}").join(contact.email || "");
+      out = out.replace(new RegExp(`\\{\\{\\s*${idx + 1}\\s*\\}\\}`, "g"), rendered);
+    });
+    return out;
+  }, [bodyText, variables, tokens, contact]);
 
   const send = async () => {
     if (!templateName) { toast.error("Sélectionnez un template"); return; }
+    // Validate variables
+    if (varCount > 0 && variables.some((v) => !v || !v.trim())) {
+      toast.error(`Renseignez les ${varCount} variable(s) du template`);
+      return;
+    }
     setSending(true); setResult(null);
     try {
+      const components = varCount > 0
+        ? [{
+          type: "body",
+          parameters: variables.slice(0, varCount).map((v) => ({ type: "text", text: v })),
+        }]
+        : null;
       const r = await apiClient.post("/me/whatsapp/send", {
         to: contact.whatsapp,
         template_name: templateName,
         language_code: language,
+        components,
         contact_id: contact.id,
       });
       setResult(r.data);
@@ -448,80 +506,132 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
       onClick={(e) => e.target === e.currentTarget && onClose()}
       data-testid="whatsapp-modal"
     >
-      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[90vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
             <MessageCircle className="h-5 w-5 text-emerald-600" /> Envoyer un WhatsApp
           </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
         </div>
-        <p className="text-sm text-slate-600">
-          À : <strong>{contact.name}</strong>
-          <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded ml-1">{contact.whatsapp}</code>
-        </p>
-        {loading ? (
-          <p className="text-sm text-slate-500">Chargement des templates…</p>
-        ) : !configured ? (
-          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
-            WhatsApp Business API non configurée. Contactez l'administrateur.
-          </div>
-        ) : templates.length === 0 ? (
-          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
-            Aucun template approuvé. L'administrateur doit créer et faire approuver des templates dans Meta Business Suite.
-          </div>
-        ) : (
-          <>
-            <div>
-              <label className="text-xs font-semibold block mb-1">Template approuvé</label>
-              <select
-                value={templateName}
-                onChange={(e) => {
-                  setTemplateName(e.target.value);
-                  const t = templates.find((x) => x.name === e.target.value);
-                  if (t?.language) setLanguage(t.language);
-                }}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                data-testid="wa-template-select"
-              >
-                {templates.map((t) => (
-                  <option key={`${t.name}_${t.language}`} value={t.name}>
-                    {t.name} ({t.language})
-                  </option>
-                ))}
-              </select>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <p className="text-sm text-slate-600">
+            À : <strong>{contact.name}</strong>
+            <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded ml-1">{contact.whatsapp}</code>
+          </p>
+          {loading ? (
+            <p className="text-sm text-slate-500">Chargement des templates…</p>
+          ) : !configured ? (
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
+              WhatsApp Business API non configurée. Contactez l'administrateur.
             </div>
-            <div>
-              <label className="text-xs font-semibold block mb-1">Langue</label>
-              <input
-                value={language}
-                onChange={(e) => setLanguage(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                data-testid="wa-language-input"
-              />
+          ) : templates.length === 0 ? (
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
+              Aucun template approuvé. L'administrateur doit créer et faire approuver des templates dans Meta Business Suite.
             </div>
-            {previewBody && (
-              <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 whitespace-pre-wrap">
-                <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Aperçu du template</p>
-                {previewBody}
+          ) : (
+            <>
+              <div className="grid sm:grid-cols-[1fr_120px] gap-3">
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Template approuvé</label>
+                  <select
+                    value={templateName}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value);
+                      const t = templates.find((x) => x.name === e.target.value);
+                      if (t?.language) setLanguage(t.language);
+                    }}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="wa-template-select"
+                  >
+                    {templates.map((t) => (
+                      <option key={`${t.name}_${t.language}`} value={t.name}>
+                        {t.name} ({t.language})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Langue</label>
+                  <input
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="wa-language-input"
+                  />
+                </div>
               </div>
-            )}
-          </>
-        )}
-        {result && (
-          <div
-            className={`rounded-lg ring-1 p-3 text-xs ${
-              result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"
-            }`}
-            data-testid="wa-result"
-          >
-            {result.ok ? (
-              <><strong>Envoyé !</strong> ID message : <code>{result.message_id}</code></>
-            ) : (
-              <><strong>Échec :</strong> {result.error || "Erreur inconnue"} (HTTP {result.http_status || "—"})</>
-            )}
-          </div>
-        )}
-        <div className="flex justify-end gap-2 pt-1">
+
+              {bodyText && (
+                <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 whitespace-pre-wrap">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Corps du template Meta</p>
+                  {bodyText}
+                </div>
+              )}
+
+              {varCount > 0 ? (
+                <div className="space-y-3">
+                  <p className="text-xs font-semibold text-slate-700">
+                    Variables du template <span className="text-slate-400">({varCount})</span>
+                  </p>
+                  {Array.from({ length: varCount }).map((_, i) => (
+                    <div key={i} className="grid grid-cols-[64px_1fr_auto] gap-2 items-center" data-testid={`wa-variable-row-${i + 1}`}>
+                      <label className="text-[11px] uppercase tracking-wider text-slate-500 font-mono text-center bg-slate-100 rounded py-2">
+                        {`{{${i + 1}}}`}
+                      </label>
+                      <input
+                        value={variables[i] || ""}
+                        onChange={(e) => updateVar(i, e.target.value)}
+                        placeholder="Texte ou tokens (ex: Bonjour {{full_name}})"
+                        className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-mono"
+                        data-testid={`wa-variable-input-${i + 1}`}
+                      />
+                      <select
+                        onChange={(e) => {
+                          const tk = e.target.value;
+                          if (tk) { insertToken(i, tk); e.target.value = ""; }
+                        }}
+                        className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-[11px]"
+                        data-testid={`wa-variable-token-picker-${i + 1}`}
+                        defaultValue=""
+                        title="Insérer un token dynamique"
+                      >
+                        <option value="">+ Token…</option>
+                        {tokens.map((t) => (
+                          <option key={t.token} value={t.token} title={t.example}>
+                            {t.label} {t.token}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  ))}
+                  {previewBody && (
+                    <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-900" data-testid="wa-preview">
+                      <p className="text-[10px] uppercase tracking-wider text-emerald-700 mb-1">Aperçu pour {contact.name}</p>
+                      <p className="whitespace-pre-line">{previewBody}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-400 italic">Ce template n'a pas de variables.</p>
+              )}
+            </>
+          )}
+          {result && (
+            <div
+              className={`rounded-lg ring-1 p-3 text-xs ${
+                result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"
+              }`}
+              data-testid="wa-result"
+            >
+              {result.ok ? (
+                <><strong>Envoyé !</strong> ID message : <code>{result.message_id}</code></>
+              ) : (
+                <><strong>Échec :</strong> {result.error || "Erreur inconnue"} (HTTP {result.http_status || "—"})</>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
           <button
             onClick={send}

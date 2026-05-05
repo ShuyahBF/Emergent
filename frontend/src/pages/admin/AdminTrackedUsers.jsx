@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
 const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur"];
-const empty = { client_id: "", name: "", email: "", phone: "", role: "Consultation", department: "", status: "active" };
+const empty = { client_id: "", name: "", email: "", phone: "", role: "Consultation", department: "", company: "", status: "active" };
 
 export default function AdminTrackedUsers() {
   const [items, setItems] = useState([]);
@@ -169,7 +169,7 @@ export default function AdminTrackedUsers() {
                   {clients.map((c) => <option key={c.id} value={c.id}>{c.full_name}{c.company ? ` (${c.company})` : ""}</option>)}
                 </select>
               </div>
-              {[["name", "Nom *", "text", true], ["email", "Email", "email", false], ["phone", "Téléphone (WhatsApp)", "tel", false], ["department", "Service", "text", false]].map(([k, l, t, req]) => (
+              {[["name", "Nom *", "text", true], ["email", "Email", "email", false], ["phone", "Téléphone (WhatsApp)", "tel", false], ["company", "Société", "text", false], ["department", "Service", "text", false]].map(([k, l, t, req]) => (
                 <div key={k}>
                   <label className="block text-xs font-semibold mb-1">{l}</label>
                   <input type={t} required={req} value={form[k] || ""} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />

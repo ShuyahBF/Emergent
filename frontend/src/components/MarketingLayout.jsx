@@ -3,6 +3,7 @@ import MarketingNav from "@/components/MarketingNav";
 import MarketingFooter from "@/components/MarketingFooter";
 import StatusPill from "@/components/StatusPill";
 import IncidentBanner from "@/components/IncidentBanner";
+import VersionStamp from "@/components/VersionStamp";
 
 export default function MarketingLayout({ children }) {
   return (
@@ -12,6 +13,7 @@ export default function MarketingLayout({ children }) {
       <main className="flex-1">{children}</main>
       <MarketingFooter />
       <StatusPill />
+      <VersionStamp tone="light" />
     </div>
   );
 }

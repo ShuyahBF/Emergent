@@ -2327,10 +2327,11 @@ async def public_policy(slot: str):
     )
 
 
-@api.get("/files/{file_id}", tags=["Public"])
+@api.api_route("/files/{file_id}", methods=["GET", "HEAD"], tags=["Public"])
 async def serve_file(request: Request, file_id: str):
     # Allow the URL to embed an extension hint (e.g. /api/files/abc-123.pdf) so external
     # consumers like Meta's WhatsApp Cloud API accept the link as a "valid document URL".
+    # Also support HEAD requests because Meta probes the URL with HEAD before fetching.
     raw_id = file_id
     bare_id = file_id.split(".", 1)[0] if "." in file_id else file_id
     meta = await db.files.find_one({"id": bare_id}, {"_id": 0}) or await db.files.find_one({"id": raw_id}, {"_id": 0})
@@ -2356,6 +2357,16 @@ async def serve_file(request: Request, file_id: str):
             pass
     started = datetime.now(timezone.utc)
     started_ts = started.timestamp()
+    # HEAD probes (e.g. Meta validating the URL): return headers without body / log
+    if request.method == "HEAD":
+        return Response(
+            status_code=200,
+            headers={
+                "Content-Type": meta.get("content_type") or "application/octet-stream",
+                "Content-Length": str(meta.get("size") or path.stat().st_size),
+                "Accept-Ranges": "bytes",
+            },
+        )
     response = FileResponse(
         path,
         media_type=meta.get("content_type") or "application/octet-stream",
@@ -2392,6 +2403,105 @@ async def admin_document_logs(file_id: Optional[str] = None, _: dict = Depends(g
         query["file_id"] = file_id
     items = await db.document_logs.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return items
+
+
+# ============================================================
+# Media library (shared per-client bank for WhatsApp templates)
+# ============================================================
+@api.get("/me/media-library", tags=["Portail Client"])
+async def me_media_library(user: dict = Depends(get_current_user)):
+    """All media items uploaded by users of the same client. Shared bank."""
+    client_scope = user.get("client_id") or user.get("id")
+    items = await db.media_library.find({"client_id": client_scope}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    return items
+
+
+@api.post("/me/media-library", tags=["Portail Client"])
+async def me_media_library_create(
+    request: Request,
+    file: UploadFile = File(...),
+    label: str = Form(""),
+    user: dict = Depends(get_current_user),
+):
+    """Upload + register a media in the shared client library, returns a stable public URL
+    (with the file extension, accepted by Meta WhatsApp Cloud API as a header media)."""
+    if not (_is_tracked_user(user) or _is_elevated_creator(user) or user.get("role") in ("client", "admin")):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    file_id = _uuid()
+    suffix = Path(file.filename or "").suffix.lower()
+    safe_name = f"{file_id}{suffix}"
+    target = UPLOAD_DIR / safe_name
+    with target.open("wb") as f:
+        shutil.copyfileobj(file.file, f)
+    size = target.stat().st_size
+    ext = (suffix.lstrip(".") or "").lower()
+    public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
+    content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    kind = "image" if content_type.startswith("image") else ("video" if content_type.startswith("video") else "document")
+    public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    # Register in the regular files collection (so /api/files/{id} can serve it)
+    file_doc = {
+        "id": file_id, "filename": file.filename, "stored_name": safe_name,
+        "extension": ext, "content_type": content_type, "size": size,
+        "url": public_path, "public_url": public_url, "uploaded_at": _now(),
+        "uploaded_by_id": user.get("id"), "uploaded_by_email": user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
+    }
+    await db.files.insert_one(file_doc)
+    # Register in the shared client library
+    media = {
+        "id": _uuid(),
+        "file_id": file_id,
+        "client_id": user.get("client_id") or user.get("id"),
+        "uploaded_by_id": user.get("id"),
+        "uploaded_by_label": user.get("full_name") or user.get("email"),
+        "label": (label or file.filename or "")[:200],
+        "filename": file.filename,
+        "kind": kind,
+        "content_type": content_type,
+        "extension": ext,
+        "size": size,
+        "public_url": public_url,
+        "created_at": _now(),
+    }
+    await db.media_library.insert_one(media.copy())
+    media.pop("_id", None)
+    return media
+
+
+@api.delete("/me/media-library/{media_id}", tags=["Portail Client"])
+async def me_media_library_delete(media_id: str, user: dict = Depends(get_current_user)):
+    client_scope = user.get("client_id") or user.get("id")
+    media = await db.media_library.find_one({"id": media_id, "client_id": client_scope}, {"_id": 0})
+    if not media:
+        raise HTTPException(status_code=404, detail="Média introuvable")
+    await db.media_library.delete_one({"id": media_id})
+    # Best-effort: keep the underlying file in case other places reference it
+    return {"ok": True}
+
+
+@api.get("/me/clients-roster", tags=["Portail Client"])
+async def me_clients_roster(user: dict = Depends(get_current_user)):
+    """Returns a public-safe roster of clients used to populate the company dropdown
+    when editing a contact. Includes id, full_name, company, and client_code (ACME)."""
+    items = await db.users.find(
+        {"role": {"$in": ["client", "superviseur", "admin"]}},
+        {"_id": 0, "id": 1, "full_name": 1, "company": 1, "client_code": 1, "is_primary_client": 1},
+    ).to_list(500)
+    return [i for i in items if i.get("client_code") or i.get("company")]
+
+
+# ============================================================
+# Platform version / build info
+# ============================================================
+_BUILD_TIME_ISO = datetime.now(timezone.utc).isoformat()
+_BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
+
+
+@api.get("/version", tags=["Public"])
+async def get_version():
+    """Returns the running build's version + last-restart time."""
+    return {"version": _BUILD_VERSION, "started_at": _BUILD_TIME_ISO}
 
 
 # ====================================================================

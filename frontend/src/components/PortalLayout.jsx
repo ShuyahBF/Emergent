@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import IncidentBanner from "@/components/IncidentBanner";
+import VersionStamp from "@/components/VersionStamp";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 function absoluteUrl(u) {
@@ -224,6 +225,7 @@ export default function PortalLayout({ admin = false }) {
           <Outlet />
         </main>
       </div>
+      <VersionStamp tone="dark" />
     </div>
   );
 }

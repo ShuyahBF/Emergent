@@ -18,15 +18,21 @@ import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPr
 */
 export default function Contacts() {
   const [items, setItems] = useState([]);
+  const [clients, setClients] = useState([]); // roster used for company dropdown
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState("");
+  const [companyFilter, setCompanyFilter] = useState(""); // ACME code or full company name
   const [modal, setModal] = useState(null); // {type:'edit'|'wa'|'history', contact?}
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/me/contacts");
-      setItems(Array.isArray(r.data) ? r.data : []);
+      const [contactsRes, clientsRes] = await Promise.all([
+        apiClient.get("/me/contacts"),
+        apiClient.get("/me/clients-roster").catch(() => ({ data: [] })),
+      ]);
+      setItems(Array.isArray(contactsRes.data) ? contactsRes.data : []);
+      setClients(clientsRes.data || []);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally {
@@ -44,7 +50,29 @@ export default function Contacts() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
   };
 
+  const companyOptions = useMemo(() => {
+    const seen = new Set();
+    const opts = [];
+    clients.forEach((c) => {
+      const code = c.client_code || "";
+      const name = c.company || c.full_name || "";
+      const key = (code || name).toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      opts.push({ value: name || code, code, label: code ? `${code} — ${name}` : name });
+    });
+    // Also surface any company already typed on existing contacts but not in clients (legacy)
+    items.forEach((c) => {
+      const key = (c.company || "").toLowerCase();
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      opts.push({ value: c.company, code: "", label: c.company });
+    });
+    return opts.sort((a, b) => a.label.localeCompare(b.label));
+  }, [clients, items]);
+
   const filtered = items.filter((c) => {
+    if (companyFilter && (c.company || "") !== companyFilter) return false;
     if (!filter.trim()) return true;
     const q = filter.toLowerCase();
     return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
@@ -88,6 +116,15 @@ export default function Contacts() {
           className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm min-w-[220px]"
           data-testid="contact-search"
         />
+        <select
+          value={companyFilter}
+          onChange={(e) => setCompanyFilter(e.target.value)}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[180px]"
+          data-testid="contact-company-filter"
+        >
+          <option value="">Tous les clients</option>
+          {companyOptions.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
+        </select>
         <span className="text-xs text-slate-500">{filtered.length} contact(s)</span>
       </div>
 
@@ -131,6 +168,7 @@ export default function Contacts() {
       {modal?.type === "edit" && (
         <ContactEditModal
           contact={modal.contact}
+          companyOptions={companyOptions}
           onClose={() => setModal(null)}
           onSaved={() => { setModal(null); load(); }}
         />
@@ -284,7 +322,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onHistory, onDelete }) => {
 };
 
 // --- Full edit modal ---
-const ContactEditModal = ({ contact, onClose, onSaved }) => {
+const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) => {
   const [form, setForm] = useState(() => contact || {
     name: "", phone: "", whatsapp: "", email: "", company: "", notes: "", tags: [], shared: false,
   });
@@ -311,6 +349,15 @@ const ContactEditModal = ({ contact, onClose, onSaved }) => {
   };
   const rmTag = (t) => setForm({ ...form, tags: (form.tags || []).filter((x) => x !== t) });
 
+  // Company options include any pre-existing value of form.company that isn't in the roster
+  const companyOpts = useMemo(() => {
+    const opts = [...companyOptions];
+    if (form.company && !opts.find((o) => o.value === form.company)) {
+      opts.push({ value: form.company, code: "", label: `${form.company} (manuel)` });
+    }
+    return opts;
+  }, [companyOptions, form.company]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
@@ -328,7 +375,18 @@ const ContactEditModal = ({ contact, onClose, onSaved }) => {
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <Input label="Nom *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} testid="contact-field-name" />
-          <Input label="Société" value={form.company} onChange={(v) => setForm({ ...form, company: v })} testid="contact-field-company" />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Société (client)</label>
+            <select
+              value={form.company || ""}
+              onChange={(e) => setForm({ ...form, company: e.target.value })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="contact-field-company"
+            >
+              <option value="">— Choisir —</option>
+              {companyOpts.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
+            </select>
+          </div>
           <Input label="Téléphone (E.164)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+225xxxxxxxx" testid="contact-field-phone" />
           <Input label="WhatsApp (E.164)" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} placeholder="+225xxxxxxxx" testid="contact-field-whatsapp" />
           <Input label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="contact-field-email" />
@@ -437,19 +495,25 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
     setResult(null);
   }, [templateName, parsed.body.varCount, parsed.buttons]);
 
-  const uploadHeader = async (file) => {
+  const uploadHeader = async (file, existingMedia = null) => {
+    // If user picked an existing media from the shared library, just use it.
+    if (existingMedia?.public_url) {
+      setHeaderMedia({ link: existingMedia.public_url, kind: existingMedia.kind, filename: existingMedia.filename });
+      toast.success("Média sélectionné depuis la bibliothèque");
+      return;
+    }
     if (!file) return;
     setHeaderUploading(true);
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const r = await apiClient.post("/me/upload", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      const link = r.data?.public_url || r.data?.url || r.data?.file_url;
+      fd.append("label", file.name || "");
+      // Save in the shared client library so any other user can reuse it.
+      const r = await apiClient.post("/me/media-library", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const link = r.data?.public_url;
       if (!link) throw new Error("URL publique manquante");
-      const ct = (r.data?.content_type || "").toLowerCase();
-      const kind = ct.startsWith("image") ? "image" : ct.startsWith("video") ? "video" : "document";
-      setHeaderMedia({ link, kind, filename: r.data?.filename || file.name });
-      toast.success("Fichier prêt pour l'en-tête");
+      setHeaderMedia({ link, kind: r.data?.kind || "document", filename: r.data?.filename || file.name });
+      toast.success("Fichier ajouté à la bibliothèque et prêt pour l'en-tête");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Échec de l'upload");
     } finally {
@@ -656,9 +720,22 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
   );
 };
 
-// --- HEADER block: text var OR media upload ---
+// --- HEADER block: text var OR media upload (with shared media library) ---
 const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedia, uploadHeader, uploading, tokens }) => {
   const fmt = header.format;
+  const [showLibrary, setShowLibrary] = useState(false);
+  const [library, setLibrary] = useState([]);
+  const [libLoading, setLibLoading] = useState(false);
+
+  useEffect(() => {
+    if (!showLibrary) return;
+    setLibLoading(true);
+    apiClient.get("/me/media-library")
+      .then((r) => setLibrary(r.data || []))
+      .catch(() => {})
+      .finally(() => setLibLoading(false));
+  }, [showLibrary]);
+
   if (fmt === "TEXT" && header.varCount > 0) {
     return (
       <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid="wa-header-text-block">
@@ -692,6 +769,8 @@ const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedi
   if (["IMAGE", "DOCUMENT", "VIDEO"].includes(fmt)) {
     const Ico = fmt === "IMAGE" ? ImageIcon : fmt === "VIDEO" ? Video : FileTextIcon;
     const accept = fmt === "IMAGE" ? "image/*" : fmt === "VIDEO" ? "video/*" : ".pdf,application/pdf";
+    const wantedKind = fmt === "IMAGE" ? "image" : fmt === "VIDEO" ? "video" : "document";
+    const filtered = (library || []).filter((m) => m.kind === wantedKind);
     return (
       <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid={`wa-header-${fmt.toLowerCase()}-block`}>
         <p className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1.5">
@@ -707,10 +786,48 @@ const HeaderBlock = ({ header, headerText, setHeaderText, headerMedia, clearMedi
             <button onClick={clearMedia} className="text-xs text-rose-600 hover:underline" data-testid="wa-header-media-clear">Changer</button>
           </div>
         ) : (
-          <label className="inline-flex items-center gap-2 text-xs cursor-pointer rounded bg-slate-100 hover:bg-slate-200 px-3 py-2">
-            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Sélectionner un fichier"}
-            <input type="file" accept={accept} onChange={(e) => uploadHeader(e.target.files?.[0])} className="hidden" data-testid="wa-header-media-input" />
-          </label>
+          <div className="flex flex-wrap gap-2">
+            <label className="inline-flex items-center gap-2 text-xs cursor-pointer rounded bg-slate-100 hover:bg-slate-200 px-3 py-2">
+              <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Uploader nouveau"}
+              <input type="file" accept={accept} onChange={(e) => uploadHeader(e.target.files?.[0])} className="hidden" data-testid="wa-header-media-input" />
+            </label>
+            <button
+              type="button"
+              onClick={() => setShowLibrary((v) => !v)}
+              className="inline-flex items-center gap-2 text-xs rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50 px-3 py-2"
+              data-testid="wa-header-media-library-toggle"
+            >
+              <ImageIcon className="h-3.5 w-3.5" /> {showLibrary ? "Masquer la bibliothèque" : "Choisir dans la bibliothèque"}
+            </button>
+          </div>
+        )}
+        {!headerMedia?.link && showLibrary && (
+          <div className="rounded ring-1 ring-slate-200 bg-slate-50 p-2 max-h-56 overflow-y-auto" data-testid="wa-header-media-library">
+            {libLoading && <p className="text-[11px] text-slate-500 italic">Chargement…</p>}
+            {!libLoading && filtered.length === 0 && (
+              <p className="text-[11px] text-slate-500 italic">Aucun {wantedKind} dans la bibliothèque. Uploadez ci-dessus.</p>
+            )}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+              {filtered.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => uploadHeader(null, m)}
+                  className="rounded border border-slate-200 bg-white hover:border-sawali-blue p-1.5 text-left"
+                  data-testid={`wa-header-media-pick-${m.id}`}
+                >
+                  {m.kind === "image" ? (
+                    <img src={m.public_url} alt="" className="h-16 w-full object-cover rounded" />
+                  ) : (
+                    <div className="h-16 flex items-center justify-center bg-slate-100 rounded text-slate-500">
+                      {m.kind === "video" ? <Video className="h-6 w-6" /> : <FileTextIcon className="h-6 w-6" />}
+                    </div>
+                  )}
+                  <p className="text-[10px] mt-1 truncate">{m.label || m.filename}</p>
+                </button>
+              ))}
+            </div>
+          </div>
         )}
       </div>
     );

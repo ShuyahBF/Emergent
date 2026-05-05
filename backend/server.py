@@ -2329,7 +2329,11 @@ async def public_policy(slot: str):
 
 @api.get("/files/{file_id}", tags=["Public"])
 async def serve_file(request: Request, file_id: str):
-    meta = await db.files.find_one({"id": file_id}, {"_id": 0})
+    # Allow the URL to embed an extension hint (e.g. /api/files/abc-123.pdf) so external
+    # consumers like Meta's WhatsApp Cloud API accept the link as a "valid document URL".
+    raw_id = file_id
+    bare_id = file_id.split(".", 1)[0] if "." in file_id else file_id
+    meta = await db.files.find_one({"id": bare_id}, {"_id": 0}) or await db.files.find_one({"id": raw_id}, {"_id": 0})
     if not meta:
         raise HTTPException(status_code=404, detail="Fichier introuvable")
     path = UPLOAD_DIR / meta["stored_name"]
@@ -2958,6 +2962,8 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
     with target.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     size = target.stat().st_size
+    ext_suffix = (suffix.lstrip(".") or "").lower()
+    public_path = f"/api/files/{file_id}{('.' + ext_suffix) if ext_suffix else ''}"
     file_doc = {
         "id": file_id,
         "filename": file.filename,
@@ -2965,9 +2971,10 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
         "extension": suffix.lstrip(".") if suffix else None,
         "content_type": file.content_type or mimetypes.guess_type(file.filename or "")[0],
         "size": size,
-        "url": f"/api/files/{file_id}",
+        "url": public_path,
         # Absolute public URL (used by Meta to fetch headers/media on outbound templates)
-        "public_url": f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}/api/files/{file_id}",
+        # Include the extension so Meta accepts it as a "valid document/image link".
+        "public_url": f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}",
         "uploaded_at": _now(),
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),

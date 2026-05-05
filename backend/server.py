@@ -7024,7 +7024,7 @@ async def integrations_link_actions(_: dict = Depends(get_current_admin)):
 
 
 @api.post("/integrations/build-link", tags=["Admin"])
-async def integrations_build_link(payload: BuildLinkRequest, _: dict = Depends(get_current_admin)):
+async def integrations_build_link(request: Request, payload: BuildLinkRequest, _: dict = Depends(get_current_admin)):
     action = (payload.action or "").strip().lower()
     if action not in LINK_ACTIONS:
         raise HTTPException(status_code=400, detail=f"Action inconnue. Options : {', '.join(LINK_ACTIONS.keys())}")
@@ -7040,9 +7040,9 @@ async def integrations_build_link(payload: BuildLinkRequest, _: dict = Depends(g
         "exp": now + ttl,
     }
     token = _pyjwt_links.encode(claims, LINK_JWT_SECRET, algorithm=LINK_JWT_ALGO)
-    base = (PUBLIC_BASE_URL or "").rstrip("/")
-    # When PUBLIC_BASE_URL is not configured, still return the path — the admin
-    # UI will prepend window.location.origin client-side.
+    # Use the host the admin is actually browsing from (production vs preview)
+    # rather than the static PUBLIC_BASE_URL env value.
+    base = _public_base_url(request) or (PUBLIC_BASE_URL or "").rstrip("/")
     url = f"{base}/launch?t={token}" if base else f"/launch?t={token}"
     return {
         "token": token,

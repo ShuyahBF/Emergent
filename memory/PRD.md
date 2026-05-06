@@ -33,6 +33,16 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-06 — Itération 30 : Fix WA phone + planif portail + transcription audio + version stamp configurable
+✅ **Bug fix Admin WhatsApp** : Helper `_normalize_wa_phone(raw)` filtre digits-only avant l'envoi à Meta Graph. Plus de "Vérifier le numéro" sur les `+`, espaces, tirets, points, parenthèses. `admin_messaging_bulk_send` renvoie maintenant `error_summary[]` (3 erreurs Meta uniques max, 240 car. chacune) — la toast frontend affiche le détail Meta du 1er échec.
+✅ **Planification WhatsApp côté Portail** : 3 endpoints `GET/POST/DELETE /api/me/messaging/schedules`. POST valide future date + recipients + template. Le cron `_run_scheduled_whatsapp` (existant) traite indifféremment admin + portal. `Contacts.jsx` : nouveau bouton bleu "Mess. Program." (CalendarClock) par contact + `ScheduleModal` complet (template, langue, date, heure, variables, header, liste des planifs). Renommage "Messages" → "Hist. Mess."
+✅ **Transcription audio Whisper** : `POST /api/transcribe` accepte un audio multipart (≤25 Mo), proxy vers `https://api.openai.com/v1/audio/transcriptions` avec la clé stockée dans settings. Sans clé → HTTP 503 français explicite. `UserNotes.jsx` (RichEditor toolbar) : bouton micro 3-états (idle/recording/processing), MediaRecorder API, fallback gracieux si navigateur incompatible.
+✅ **Sélecteur client Admin pour Media Library** : `POST /me/media-library` accepte `target_client_id` (ignoré si non-admin). `MediaLibrary.jsx` : dropdown "Pour mon espace (admin)" / "<client>" qui n'apparaît que pour les admins.
+✅ **Tableau messages WA dans Rapports/Suivis** : composant `WaMessagesPicker` sous l'éditeur, fetch `/me/whatsapp/history` (filtré client_id pour suivis), checkboxes + bouton "Insérer dans le contenu" qui append un `<h3>+<ul>` formaté au HTML du rapport.
+✅ **Version stamp configurable** : 4 champs dans settings (`version_stamp_color/size/opacity/style`) exposés dans `/api/company-info`. `AdminSettings` : color picker + dropdown taille (XS/SM/MD/LG) + slider opacité 10–100% + dropdown style (normal/bold/italic/bold_italic) + aperçu en direct. `VersionStamp.jsx` consomme la conf et applique en temps réel.
+✅ **OpenAI key masking** : `openai_api_key` ajouté à la liste des champs masqués (`********` en GET) + traité comme placeholder no-change en PUT. Pattern aligné avec `wa_access_token`, `smtp_password`, etc.
+✅ Tests : 18/18 pytest iter19 (~5s) + 12 testids frontend validés. Backend OK 100%, Frontend OK 100%.
+
 ### 2026-05-03 — Itération 29 : Politiques publiques (RGPD / Services / Suppression)
 ✅ Backend : 4 endpoints (3 admin + 1 public) sur 3 slots fixes (`privacy`, `services`, `deletion`).
 - `GET /api/admin/policies` → liste avec public_url dynamique (auto-résout via x-forwarded-host pour ingress K8s).

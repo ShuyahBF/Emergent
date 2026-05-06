@@ -779,7 +779,7 @@ export default function AdminMessaging() {
                   <th className="text-left py-2 px-3">{tab === "clients" ? "Client" : "Utilisateur"}</th>
                   <th className="text-left py-2 px-3">{tab === "clients" ? "Société" : "Rattaché à"}</th>
                   <th className="text-left py-2 px-3">Email</th>
-                  <th className="text-left py-2 px-3">Téléphone</th>
+                  <th className="text-left py-2 px-3">WhatsApp</th>
                   <th className="text-left py-2 px-3">Statut</th>
                 </tr>
               </thead>
@@ -811,11 +811,16 @@ export default function AdminMessaging() {
                       <td className="py-2 px-3 text-slate-600">{r.email || "—"}</td>
                       <td className="py-2 px-3">
                         {r.phone ? (
-                          <span className="inline-flex items-center gap-1 font-mono text-[11px]">
-                            <Phone className="h-3 w-3 text-slate-400" /> {r.phone}
+                          <span className="inline-flex items-center gap-1 font-mono text-[11px]" title={r.whatsapp_number ? "N° WhatsApp dédié" : "N° téléphone (utilisé en fallback WhatsApp)"}>
+                            {r.whatsapp_number ? (
+                              <MessageCircle className="h-3 w-3 text-emerald-500" />
+                            ) : (
+                              <Phone className="h-3 w-3 text-slate-400" />
+                            )}
+                            {r.phone}
                           </span>
                         ) : (
-                          <span className="text-[11px] text-rose-500">Pas de numéro</span>
+                          <span className="text-[11px] text-rose-500" title="Renseignez le N° WhatsApp dans la fiche client">Pas de N° WhatsApp</span>
                         )}
                       </td>
                       <td className="py-2 px-3 text-[11px]">

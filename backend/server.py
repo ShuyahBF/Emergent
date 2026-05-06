@@ -5785,10 +5785,10 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
     users = await db.users.find(
         {"role": {"$in": ["client", "superviseur"]}},
         {"_id": 0, "id": 1, "full_name": 1, "email": 1, "company": 1,
-         "phone": 1, "account_status": 1, "client_code": 1, "country": 1, "city": 1},
+         "phone": 1, "whatsapp_number": 1, "account_status": 1, "client_code": 1, "country": 1, "city": 1},
     ).to_list(3000)
     tracked = await db.tracked_users.find(
-        {}, {"_id": 0, "id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1,
+        {}, {"_id": 0, "id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1,
              "client_id": 1, "role": 1, "status": 1},
     ).to_list(5000)
     # Build client lookup for tracked-users labels
@@ -5796,7 +5796,10 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
 
     clients_rows = []
     for u in users:
-        phone = (u.get("phone") or "").strip()
+        # Prefer the dedicated WhatsApp number; fall back to the regular phone field
+        wa = (u.get("whatsapp_number") or "").strip()
+        phone_only = (u.get("phone") or "").strip()
+        phone = wa or phone_only
         clients_rows.append({
             "kind": "client",
             "id": u["id"],
@@ -5804,6 +5807,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
             "email": u.get("email"),
             "company": u.get("company") or "",
             "phone": phone,
+            "whatsapp_number": wa or None,
             "client_code": u.get("client_code"),
             "country": u.get("country"),
             "city": u.get("city"),
@@ -5813,7 +5817,9 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
 
     tracked_rows = []
     for t in tracked:
-        phone = (t.get("phone") or "").strip()
+        wa = (t.get("whatsapp_number") or "").strip()
+        phone_only = (t.get("phone") or "").strip()
+        phone = wa or phone_only
         tracked_rows.append({
             "kind": "tracked",
             "id": t["id"],
@@ -5822,6 +5828,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
             "client_id": t.get("client_id"),
             "client_label": client_map.get(t.get("client_id") or "") or "—",
             "phone": phone,
+            "whatsapp_number": wa or None,
             "role": t.get("role"),
             "status": t.get("status"),
             "has_phone": bool(phone),
@@ -5860,18 +5867,19 @@ async def admin_messaging_bulk_send(
         label = r.get("label")
         user_doc: Optional[dict] = None
         if kind == "client" and rid:
-            u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
+            u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
             if u:
                 user_doc = u
                 if not phone:
-                    phone = (u.get("phone") or "").strip()
+                    # Prefer the dedicated WhatsApp number, fall back to the regular phone field
+                    phone = (u.get("whatsapp_number") or u.get("phone") or "").strip()
                 label = label or u.get("company") or u.get("full_name") or u.get("email")
         elif kind == "tracked" and rid:
-            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1, "client_id": 1})
+            t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "name": 1, "full_name": 1, "email": 1, "client_id": 1})
             if t:
                 user_doc = t
                 if not phone:
-                    phone = (t.get("phone") or "").strip()
+                    phone = (t.get("whatsapp_number") or t.get("phone") or "").strip()
                 label = label or t.get("full_name") or t.get("name") or t.get("email")
         resolved.append({"kind": kind or "raw", "id": rid, "phone": phone, "label": label or phone or "—", "user_doc": user_doc})
 
@@ -6375,18 +6383,18 @@ async def _run_scheduled_whatsapp():
                 label = r.get("label")
                 user_doc: Optional[dict] = None
                 if kind == "client" and rid:
-                    u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "company": 1, "email": 1, "client_code": 1})
+                    u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "full_name": 1, "company": 1, "email": 1, "client_code": 1})
                     if u:
                         user_doc = u
                         if not phone:
-                            phone = (u.get("phone") or "").strip()
+                            phone = (u.get("whatsapp_number") or u.get("phone") or "").strip()
                         label = label or u.get("company") or u.get("full_name") or u.get("email")
                 elif kind == "tracked" and rid:
-                    t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
+                    t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "name": 1, "full_name": 1, "email": 1})
                     if t:
                         user_doc = t
                         if not phone:
-                            phone = (t.get("phone") or "").strip()
+                            phone = (t.get("whatsapp_number") or t.get("phone") or "").strip()
                         label = label or t.get("full_name") or t.get("name") or t.get("email")
                 label = label or phone or "—"
                 if not phone:

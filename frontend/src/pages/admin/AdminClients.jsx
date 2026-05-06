@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -172,6 +172,7 @@ export default function AdminClients() {
             <Input label="Email *" type="email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} required />
             <Input label={editing?.id ? "Mot de passe (laisser vide pour ne pas changer)" : "Mot de passe *"} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required={!editing?.id} />
             <Input label="Téléphone" value={form.phone || ""} onChange={(v) => setForm({ ...form, phone: v })} />
+            <Input label="N° WhatsApp (E.164)" value={form.whatsapp_number || ""} onChange={(v) => setForm({ ...form, whatsapp_number: v })} testid="client-whatsapp-number" />
             <Input label="Entreprise" value={form.company || ""} onChange={(v) => setForm({ ...form, company: v })} />
             <Input label="Code client (utilisé pour la numérotation des interventions, ex. ACME)" value={form.client_code || ""} onChange={(v) => setForm({ ...form, client_code: v.toUpperCase() })} />
             <div>

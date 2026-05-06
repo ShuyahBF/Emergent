@@ -47,6 +47,7 @@ class UserCreateAdmin(BaseModel):
     logo_url: Optional[str] = None
     account_status: str = "active"
     is_primary_client: bool = False
+    whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164) — used by /admin/messaging
 
 
 class UserUpdateAdmin(BaseModel):
@@ -64,6 +65,7 @@ class UserUpdateAdmin(BaseModel):
     is_primary_client: Optional[bool] = None
     wa_unit_cost: Optional[float] = None  # Per-message cost billed to this client
     wa_currency: Optional[str] = None  # ISO code (XOF, EUR, USD…)
+    whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164) used by /admin/messaging
 
 
 USER_ROLES = ["client", "admin", "superviseur"]
@@ -302,6 +304,7 @@ class TrackedUserCreate(BaseModel):
     name: str
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164)
     role: str = "Consultation"  # one of TRACKED_USER_ROLES
     department: Optional[str] = None
     company: Optional[str] = None  # override client.company for this user
@@ -314,6 +317,7 @@ class TrackedUserUpdate(BaseModel):
     name: Optional[str] = None
     email: Optional[EmailStr] = None
     phone: Optional[str] = None
+    whatsapp_number: Optional[str] = None
     role: Optional[str] = None
     department: Optional[str] = None
     company: Optional[str] = None

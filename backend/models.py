@@ -508,6 +508,21 @@ class SettingsUpdate(BaseModel):
     pawapay_environment: Optional[str] = None  # "sandbox" | "production"
     pawapay_country: Optional[str] = None  # ISO-3 (e.g. "BFA")
 
+    # ----- n8n Agenda Agent — bidirectional webhook for AI-driven RDV CRUD -----
+    # Outbound: each manual create/update/delete fires a POST to this URL so
+    # the n8n AI Agent can react, sync external calendars or notify users.
+    # Inbound: n8n posts to /api/webhooks/agenda/{secret} to create/update/delete
+    # appointments on behalf of the AI agent.
+    agenda_n8n_outbound_enabled: Optional[bool] = None
+    agenda_n8n_outbound_url: Optional[str] = None
+    agenda_n8n_outbound_auth_type: Optional[str] = None  # none|bearer|basic
+    agenda_n8n_outbound_token: Optional[str] = None  # secret — masked
+    agenda_n8n_outbound_basic_user: Optional[str] = None
+    agenda_n8n_outbound_basic_pass: Optional[str] = None  # secret — masked
+
+    agenda_n8n_inbound_enabled: Optional[bool] = None
+    agenda_n8n_inbound_secret: Optional[str] = None  # secret — masked. Path token for /webhooks/agenda/{secret}
+
     # ----- Authentication: OTP delivery mode -----
     # Comma-separated list of "internal domains" — emails ending with any of
     # these domains get their OTP displayed directly on the login page (no

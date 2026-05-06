@@ -645,8 +645,7 @@ export default function AdminSettings() {
         <Input label="Sender (expéditeur enregistré)" value={s.sms_ovh_sender || ""} onChange={(v) => upd("sms_ovh_sender", v)} placeholder="OVHSMS" testid="sms-ovh-sender" />
       </Section>
 
-      <Section icon={CreditCard} title="Paiement — PawaPay (Mobile Money)">
-        <p className="text-xs text-slate-500">
+      <Section icon={CreditCard} title="Paiement — PawaPay (Mobile Money)">        <p className="text-xs text-slate-500">
           Configuration prête pour intégration PawaPay (Mobile Money Africa).
           Le flow d'encaissement utilisateur sera ajouté ultérieurement.
         </p>
@@ -679,6 +678,57 @@ export default function AdminSettings() {
             placeholder="BFA"
             testid="pawapay-country"
           />
+        </div>
+      </Section>
+
+      <Section icon={Calendar} title="Agenda — Webhook n8n / AI Agent">
+        <p className="text-xs text-slate-500">
+          Permet à un agent IA dans n8n d'interroger ou de modifier les rendez-vous via webhook. Tous les utilisateurs d'un même client voient un agenda partagé.
+          Coexiste avec Google Calendar (les RDV créés via n8n n'ont pas de gcal_event_id).
+        </p>
+
+        <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Webhook sortant (notification → n8n)</p>
+          <p className="text-[11px] text-slate-500">Posté à chaque création/modification/suppression manuelle d'un RDV.</p>
+          <Toggle label="Activer notifications sortantes" value={!!s.agenda_n8n_outbound_enabled} onChange={(v) => upd("agenda_n8n_outbound_enabled", v)} testid="agenda-out-enabled" />
+          <Input label="URL n8n" value={s.agenda_n8n_outbound_url || ""} onChange={(v) => upd("agenda_n8n_outbound_url", v)} placeholder="https://n8n.example.com/webhook/agenda" testid="agenda-out-url" />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Authentification</label>
+            <select value={s.agenda_n8n_outbound_auth_type || "none"} onChange={(e) => upd("agenda_n8n_outbound_auth_type", e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="agenda-out-auth-type">
+              <option value="none">Aucune</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+            </select>
+          </div>
+          {s.agenda_n8n_outbound_auth_type === "bearer" && (
+            <Input label="Token" type="password" value={s.agenda_n8n_outbound_token || ""} onChange={(v) => upd("agenda_n8n_outbound_token", v)} placeholder={s.agenda_n8n_outbound_token === "********" ? "(défini)" : ""} testid="agenda-out-token" />
+          )}
+          {s.agenda_n8n_outbound_auth_type === "basic" && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Input label="Utilisateur" value={s.agenda_n8n_outbound_basic_user || ""} onChange={(v) => upd("agenda_n8n_outbound_basic_user", v)} testid="agenda-out-basic-user" />
+              <Input label="Mot de passe" type="password" value={s.agenda_n8n_outbound_basic_pass || ""} onChange={(v) => upd("agenda_n8n_outbound_basic_pass", v)} placeholder={s.agenda_n8n_outbound_basic_pass === "********" ? "(défini)" : ""} testid="agenda-out-basic-pass" />
+            </div>
+          )}
+        </div>
+
+        <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Webhook entrant (n8n → SAWALI)</p>
+          <p className="text-[11px] text-slate-500">
+            n8n peut poster sur <code className="text-slate-800">POST /api/webhooks/agenda/{"{secret}"}</code> avec body
+            <code className="text-slate-800"> {"{action: 'create|update|delete|list', client_email, appointment_id?, subject?, scheduled_at?, duration_min?, status?}"}</code>.
+          </p>
+          <Toggle label="Activer le webhook entrant" value={!!s.agenda_n8n_inbound_enabled} onChange={(v) => upd("agenda_n8n_inbound_enabled", v)} testid="agenda-in-enabled" />
+          <Input
+            label="Secret (path token)"
+            type="password"
+            value={s.agenda_n8n_inbound_secret || ""}
+            onChange={(v) => upd("agenda_n8n_inbound_secret", v)}
+            placeholder={s.agenda_n8n_inbound_secret === "********" ? "(défini)" : "ex: 5f3a-7c91-bd-..."}
+            testid="agenda-in-secret"
+          />
+          <p className="text-[10px] text-slate-400">
+            Choisissez une chaîne longue et aléatoire. Elle sert d'authentification dans l'URL du webhook entrant.
+          </p>
         </div>
       </Section>
 

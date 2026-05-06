@@ -964,8 +964,167 @@ async def me_account(user: dict = Depends(get_current_user)):
 
 @api.get("/me/appointments", tags=["Portail Client"])
 async def me_appointments(user: dict = Depends(get_current_user)):
-    items = await db.appointments.find({"client_id": user["id"]}, {"_id": 0}).to_list(1000)
+    """All users belonging to the same client see the same set of RDV.
+    Admin/superviseur see everything."""
+    if user.get("role") in ("admin", "superviseur"):
+        items = await db.appointments.find({}, {"_id": 0}).to_list(2000)
+    else:
+        scope = user.get("client_id") or user["id"]
+        items = await db.appointments.find({"client_id": scope}, {"_id": 0}).to_list(2000)
     return sorted(items, key=lambda x: x["scheduled_at"], reverse=True)
+
+
+# ============================================================
+# n8n Agenda Agent — outbound webhook notifications
+# Fired (best-effort, non-blocking) on every manual appointment CRUD so
+# the n8n AI workflow can sync external systems / notify the user.
+# Inbound endpoint: POST /webhooks/agenda/{secret}
+# ============================================================
+async def _fire_agenda_n8n(action: str, appointment: Dict[str, Any], user: Optional[Dict[str, Any]] = None) -> None:
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if not s.get("agenda_n8n_outbound_enabled"):
+        return
+    url = (s.get("agenda_n8n_outbound_url") or "").strip()
+    if not url:
+        return
+    headers = {"Content-Type": "application/json"}
+    auth = None
+    auth_type = (s.get("agenda_n8n_outbound_auth_type") or "none").lower()
+    if auth_type == "bearer":
+        tok = (s.get("agenda_n8n_outbound_token") or "").strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+    elif auth_type == "basic":
+        bu = (s.get("agenda_n8n_outbound_basic_user") or "").strip()
+        bp = (s.get("agenda_n8n_outbound_basic_pass") or "").strip()
+        if bu and bp:
+            auth = (bu, bp)
+    safe_appt = {k: v for k, v in appointment.items() if k != "_id"}
+    payload = {
+        "type": "agenda",
+        "action": action,  # created | updated | deleted | reactor
+        "appointment": safe_appt,
+        "user": (
+            {
+                "id": user.get("id"),
+                "email": user.get("email"),
+                "full_name": user.get("full_name"),
+                "client_id": user.get("client_id") or user.get("id"),
+                "role": user.get("role"),
+            }
+            if user
+            else None
+        ),
+        "fired_at": _now(),
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            await http.post(url, headers=headers, auth=auth, json=payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[agenda-n8n outbound] %s — %s", action, exc)
+
+
+class AgendaWebhookCreate(BaseModel):
+    action: str  # "create" | "update" | "delete" | "list"
+    client_email: Optional[str] = None  # used to scope when the AI agent acts on behalf of a user
+    appointment_id: Optional[str] = None  # required for update/delete
+    subject: Optional[str] = None
+    message: Optional[str] = None
+    scheduled_at: Optional[str] = None  # ISO-8601
+    duration_min: Optional[int] = None
+    status: Optional[str] = None  # pending|confirmed|cancelled|completed
+
+
+@api.post("/webhooks/agenda/{secret}", tags=["Webhooks"])
+async def webhook_agenda_n8n(secret: str, payload: AgendaWebhookCreate, request: Request):
+    """Inbound webhook from n8n AI Agent. Allows CRUD on appointments using a
+    secret path token. The n8n workflow must scope by client_email when acting
+    on behalf of a specific user — admin can act globally."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if not s.get("agenda_n8n_inbound_enabled"):
+        raise HTTPException(status_code=503, detail="Webhook entrant Agenda n8n désactivé")
+    expected = (s.get("agenda_n8n_inbound_secret") or "").strip()
+    if not expected or secret != expected:
+        raise HTTPException(status_code=403, detail="Secret invalide")
+
+    action = (payload.action or "").lower().strip()
+    if action not in {"create", "update", "delete", "list"}:
+        raise HTTPException(status_code=400, detail="Action inconnue")
+
+    # Resolve scope: action targets a single client when client_email given
+    scope_user = None
+    if payload.client_email:
+        scope_user = await db.users.find_one(
+            {"email": payload.client_email.lower().strip()},
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "phone": 1, "company": 1, "client_id": 1, "role": 1},
+        )
+        if not scope_user:
+            raise HTTPException(status_code=404, detail="Client introuvable")
+
+    if action == "list":
+        query = {"client_id": (scope_user.get("client_id") or scope_user["id"])} if scope_user else {}
+        items = await db.appointments.find(query, {"_id": 0}).sort("scheduled_at", -1).to_list(500)
+        return {"ok": True, "items": items}
+
+    if action == "create":
+        if not (payload.scheduled_at and payload.subject):
+            raise HTTPException(status_code=400, detail="scheduled_at + subject requis")
+        if not scope_user:
+            raise HTTPException(status_code=400, detail="client_email requis pour create")
+        ok, reason = await _check_slot_available(payload.scheduled_at, payload.duration_min or 30)
+        if not ok:
+            raise HTTPException(status_code=409, detail=reason)
+        doc = {
+            "id": _uuid(),
+            "client_id": scope_user.get("client_id") or scope_user["id"],
+            "name": scope_user["full_name"],
+            "email": scope_user["email"],
+            "phone": scope_user.get("phone"),
+            "company": scope_user.get("company"),
+            "subject": payload.subject,
+            "message": payload.message,
+            "scheduled_at": payload.scheduled_at,
+            "duration_min": payload.duration_min or 30,
+            "status": payload.status or "pending",
+            "notes": None,
+            "gcal_event_id": None,
+            "source": "n8n",
+            "created_at": _now(),
+        }
+        await db.appointments.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return {"ok": True, "appointment": doc}
+
+    if action == "update":
+        if not payload.appointment_id:
+            raise HTTPException(status_code=400, detail="appointment_id requis pour update")
+        existing = await db.appointments.find_one({"id": payload.appointment_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Rendez-vous introuvable")
+        update = {
+            k: v
+            for k, v in {
+                "subject": payload.subject,
+                "message": payload.message,
+                "scheduled_at": payload.scheduled_at,
+                "duration_min": payload.duration_min,
+                "status": payload.status,
+            }.items()
+            if v is not None
+        }
+        update["updated_at"] = _now()
+        await db.appointments.update_one({"id": payload.appointment_id}, {"$set": update})
+        refreshed = await db.appointments.find_one({"id": payload.appointment_id}, {"_id": 0})
+        return {"ok": True, "appointment": refreshed}
+
+    # delete
+    if not payload.appointment_id:
+        raise HTTPException(status_code=400, detail="appointment_id requis pour delete")
+    existing = await db.appointments.find_one({"id": payload.appointment_id}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Rendez-vous introuvable")
+    await db.appointments.delete_one({"id": payload.appointment_id})
+    return {"ok": True, "deleted_id": payload.appointment_id}
 
 
 @api.put("/me/appointments/{appt_id}", tags=["Portail Client"])
@@ -992,6 +1151,8 @@ async def me_update_appointment(
             raise HTTPException(status_code=409, detail=reason)
     update["updated_at"] = _now()
     await db.appointments.update_one({"id": appt_id}, {"$set": update})
+    refreshed = await db.appointments.find_one({"id": appt_id}, {"_id": 0})
+    asyncio.create_task(_fire_agenda_n8n("updated", refreshed or {**existing, **update}, user))
     # Sync Google Calendar if linked
     if existing.get("gcal_event_id") and ("scheduled_at" in update or "duration_min" in update or "subject" in update or "message" in update):
         try:
@@ -1019,6 +1180,7 @@ async def me_delete_appointment(appt_id: str, user: dict = Depends(get_current_u
     if owner_scope != (user.get("client_id") or user.get("id")) and not _is_elevated_creator(user) and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Accès refusé")
     await db.appointments.delete_one({"id": appt_id})
+    asyncio.create_task(_fire_agenda_n8n("deleted", existing, user))
     if existing.get("gcal_event_id"):
         try:
             await gcal.delete_event(existing["gcal_event_id"])
@@ -1034,9 +1196,11 @@ async def me_create_appointment(
     ok, reason = await _check_slot_available(payload.scheduled_at, payload.duration_min)
     if not ok:
         raise HTTPException(status_code=409, detail=reason)
+    # Shared per-client scope: even tracked users land their RDV on the parent client_id
+    client_scope = user.get("client_id") or user["id"]
     doc = {
         "id": _uuid(),
-        "client_id": user["id"],
+        "client_id": client_scope,
         "name": user["full_name"],
         "email": user["email"],
         "phone": user.get("phone"),
@@ -1081,6 +1245,7 @@ async def me_create_appointment(
         }))
     except Exception:
         pass
+    asyncio.create_task(_fire_agenda_n8n("created", doc, user))
     return doc
 
 
@@ -4748,7 +4913,8 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
                 "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
                 "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
                 "sms_ovh_application_secret", "sms_ovh_consumer_key",
-                "pawapay_api_token"):
+                "pawapay_api_token",
+                "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -4772,6 +4938,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
         "sms_ovh_application_secret", "sms_ovh_consumer_key",
         "pawapay_api_token",
+        "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":

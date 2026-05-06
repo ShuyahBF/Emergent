@@ -12,7 +12,16 @@ const FIELD_TYPES = [
   { v: "date", l: "Date" }, { v: "datetime", l: "Date & heure" },
   { v: "email", l: "Email" }, { v: "tel", l: "Téléphone" }, { v: "url", l: "URL" },
   { v: "location", l: "Géolocalisation" },
+  { v: "table", l: "Tableau (lignes dynamiques)" },
+  { v: "file", l: "Fichier joint (≤ 1 Mo)" },
+  { v: "signature", l: "Signature manuscrite" },
 ];
+
+// Limit signature fields to 1 per form (UX simplification)
+const isSignatureUnique = (form, currentFieldId) => {
+  const all = (form?.pages || []).flatMap((p) => p.fields || []);
+  return !all.some((f) => f.type === "signature" && f.id !== currentFieldId);
+};
 
 // Form builder — multi-page, 12-col grid, simple field reordering
 export default function FormEditor() {
@@ -124,6 +133,69 @@ export default function FormEditor() {
                     <div className="sm:col-span-2">
                       <label className="text-[10px] uppercase tracking-wider text-slate-500">Options (une par ligne)</label>
                       <textarea value={(fd.options || []).join("\n")} onChange={(e) => updateField(fidx, { options: e.target.value.split("\n").map((s) => s.trim()).filter(Boolean) })} rows={3} className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono" data-testid={`field-options-${fidx}`} />
+                    </div>
+                  )}
+                  {fd.type === "table" && (
+                    <div className="sm:col-span-2 rounded bg-slate-50 ring-1 ring-slate-200 p-2">
+                      <label className="text-[10px] uppercase tracking-wider text-slate-500 block mb-1">Colonnes du tableau</label>
+                      {(fd.columns || []).map((col, ci) => (
+                        <div key={ci} className="flex gap-2 mb-1" data-testid={`field-table-col-${fidx}-${ci}`}>
+                          <input
+                            value={col.label || ""}
+                            onChange={(e) => {
+                              const next = [...(fd.columns || [])];
+                              next[ci] = { ...col, label: e.target.value, key: col.key || `col${ci}` };
+                              updateField(fidx, { columns: next });
+                            }}
+                            placeholder="Libellé"
+                            className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                          />
+                          <select
+                            value={col.type || "text"}
+                            onChange={(e) => {
+                              const next = [...(fd.columns || [])];
+                              next[ci] = { ...col, type: e.target.value };
+                              updateField(fidx, { columns: next });
+                            }}
+                            className="rounded border border-slate-300 px-2 py-1 text-xs"
+                          >
+                            <option value="text">Texte</option>
+                            <option value="number">Numérique</option>
+                            <option value="date">Date</option>
+                          </select>
+                          <button
+                            type="button"
+                            onClick={() => updateField(fidx, { columns: (fd.columns || []).filter((_, i) => i !== ci) })}
+                            className="text-rose-500 hover:bg-rose-50 px-1 rounded text-xs"
+                          >×</button>
+                        </div>
+                      ))}
+                      <button
+                        type="button"
+                        onClick={() => updateField(fidx, { columns: [...(fd.columns || []), { key: `col${(fd.columns || []).length}`, label: "", type: "text" }] })}
+                        className="text-xs text-sawali-blue hover:underline mt-1"
+                        data-testid={`field-table-addcol-${fidx}`}
+                      >
+                        + Ajouter une colonne
+                      </button>
+                    </div>
+                  )}
+                  {fd.type === "file" && (
+                    <div className="sm:col-span-2">
+                      <label className="text-[10px] uppercase tracking-wider text-slate-500">Types acceptés (facultatif)</label>
+                      <input
+                        value={fd.accept || ""}
+                        onChange={(e) => updateField(fidx, { accept: e.target.value })}
+                        placeholder=".pdf,image/*"
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-sm font-mono"
+                        data-testid={`field-accept-${fidx}`}
+                      />
+                      <p className="text-[10px] text-slate-400 mt-0.5">Limite : 1 Mo par fichier.</p>
+                    </div>
+                  )}
+                  {fd.type === "signature" && !isSignatureUnique(form, fd.id) && (
+                    <div className="sm:col-span-2 text-[11px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded p-2">
+                      ⚠ Un seul champ signature autorisé par formulaire — supprimez le précédent ou changez de type.
                     </div>
                   )}
                   <div className="grid grid-cols-3 gap-2 sm:col-span-2">

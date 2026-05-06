@@ -7389,7 +7389,8 @@ FIELD_TYPES = {"text", "textarea", "number", "boolean", "select", "multiselect",
 
 class FormField(BaseModel):
     id: str
-    type: str
+    type: str  # text | textarea | number | boolean | select | multiselect | date |
+               # datetime | email | tel | url | location | table | file | signature
     label: str
     required: bool = False
     options: Optional[List[str]] = None
@@ -7399,6 +7400,9 @@ class FormField(BaseModel):
     col_start: int = 1      # 1..12
     col_span: int = 12      # 1..12 (col_start + col_span <= 13)
     row: int = 0
+    # Type-specific extras
+    columns: Optional[List[Dict[str, Any]]] = None  # for type=table : [{key,label,type:text|number|date}]
+    accept: Optional[str] = None  # for type=file : MIME / extensions filter
 
 
 class FormPage(BaseModel):
@@ -7574,6 +7578,52 @@ async def me_get_my_submission(form_id: str, user: dict = Depends(get_current_us
         {"form_id": form_id, "user_id": user["id"]}, {"_id": 0}
     )
     return sub or {"form_id": form_id, "user_id": user["id"], "data": {}, "revisions_count": 0}
+
+
+@api.post("/me/forms/{form_id}/upload", tags=["Formulaires"])
+async def me_form_upload_file(
+    form_id: str,
+    request: Request,
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Per-form file attachment uploader (max 1 Mo). Used by the new "file" field
+    type. Returns a stable public URL stored on the submission's data dict."""
+    raw = await file.read()
+    if len(raw) > 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 1 Mo)")
+    if len(raw) < 1:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0, "client_id": 1})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    file_id = _uuid()
+    suffix = Path(file.filename or "").suffix.lower()
+    safe_name = f"{file_id}{suffix}"
+    target = UPLOAD_DIR / safe_name
+    target.write_bytes(raw)
+    ext = (suffix.lstrip(".") or "").lower()
+    public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
+    content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    file_doc = {
+        "id": file_id, "filename": file.filename, "stored_name": safe_name,
+        "extension": ext, "content_type": content_type, "size": len(raw),
+        "url": public_path, "public_url": public_url, "uploaded_at": _now(),
+        "uploaded_by_id": user.get("id"), "uploaded_by_email": user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
+        "context": "form_attachment",
+        "form_id": form_id,
+    }
+    await db.files.insert_one(file_doc)
+    return {
+        "ok": True,
+        "file_id": file_id,
+        "filename": file.filename,
+        "size": len(raw),
+        "content_type": content_type,
+        "public_url": public_url,
+    }
 
 
 @api.post("/me/forms/{form_id}/submission", tags=["Formulaires"])

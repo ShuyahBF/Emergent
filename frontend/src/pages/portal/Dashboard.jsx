@@ -1,7 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList } from "lucide-react";
+import { toast } from "sonner";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -43,6 +44,7 @@ export default function ClientDashboard() {
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({ reports: { count: 0, last_updated: null }, suivis: { count: 0, last_updated: null } });
   const [features, setFeatures] = useState({ show_reports_button: true, show_suivis_button: true });
+  const [showAi, setShowAi] = useState(false);
 
   useEffect(() => {
     apiClient.get("/me/account").then((r) => setData(r.data)).catch(() => {});
@@ -62,9 +64,18 @@ export default function ClientDashboard() {
           <h1 className="text-3xl font-display font-bold">Bonjour, {data.user.full_name.split(" ")[0]}</h1>
           <p className="text-sm text-slate-500 mt-1">Voici l'état de votre compte aujourd'hui.</p>
         </div>
-        <Link to="/portal/appointments" className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="dashboard-cta-rdv">
-          Demander un rendez-vous <ArrowRight className="h-4 w-4" />
-        </Link>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => setShowAi(true)}
+            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white px-4 py-2 text-sm shadow-sm"
+            data-testid="dashboard-ai-summary-btn"
+          >
+            <Sparkles className="h-4 w-4" /> Synthèse IA
+          </button>
+          <Link to="/portal/appointments" className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="dashboard-cta-rdv">
+            Demander un rendez-vous <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -117,6 +128,7 @@ export default function ClientDashboard() {
           </ul>
         </div>
       </div>
+      {showAi && <AiSummaryModal onClose={() => setShowAi(false)} />}
     </div>
   );
 }
@@ -133,3 +145,206 @@ const Badge = ({ status }) => {
   const [label, cls] = map[status] || [status, "bg-slate-100 text-slate-700"];
   return <span className={`text-xs px-2 py-1 rounded ${cls}`}>{label}</span>;
 };
+
+// ====================================================================
+// AI Summary modal — fetches recent WhatsApp messages, lets the user
+// filter by date range / client / direction, sends them to the
+// /me/ai/summarize endpoint and displays the rendered summary.
+// ====================================================================
+function AiSummaryModal({ onClose }) {
+  const [messages, setMessages] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [days, setDays] = useState(7);
+  const [clientFilter, setClientFilter] = useState("");
+  const [direction, setDirection] = useState("all");
+  const [target, setTarget] = useState("");
+  const [context, setContext] = useState("");
+  const [summary, setSummary] = useState("");
+  const [provider, setProvider] = useState("");
+  const [running, setRunning] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/me/whatsapp/history", { params: { limit: 300 } });
+      setMessages(Array.isArray(r.data) ? r.data : []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); }, []);
+
+  const clientOptions = useMemo(() => {
+    const seen = new Set();
+    const out = [];
+    messages.forEach((m) => {
+      const key = m.client_id || "";
+      if (!key || seen.has(key)) return;
+      seen.add(key);
+      out.push({ id: key, label: m.recipient_label || key });
+    });
+    return out;
+  }, [messages]);
+
+  const filtered = useMemo(() => {
+    const cutoff = Date.now() - days * 24 * 3600 * 1000;
+    return messages.filter((m) => {
+      const ts = m.created_at ? new Date(m.created_at).getTime() : 0;
+      if (ts && ts < cutoff) return false;
+      if (clientFilter && m.client_id !== clientFilter) return false;
+      if (direction !== "all" && m.direction !== direction) return false;
+      return true;
+    });
+  }, [messages, days, clientFilter, direction]);
+
+  const run = async () => {
+    if (filtered.length === 0) { toast.error("Aucun message dans la fenêtre sélectionnée"); return; }
+    setRunning(true); setSummary(""); setProvider("");
+    try {
+      const r = await apiClient.post("/me/ai/summarize", {
+        messages: filtered,
+        target: target || undefined,
+        context: context || undefined,
+      });
+      setSummary(r.data?.summary || "");
+      setProvider(r.data?.provider || "");
+      if (!r.data?.summary) toast.message("Synthèse vide.");
+      else toast.success(`Synthèse générée via ${r.data?.provider || "IA"}`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de synthèse");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const copy = async () => {
+    try { await navigator.clipboard.writeText(summary); toast.success("Synthèse copiée"); }
+    catch { toast.error("Copie impossible"); }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      data-testid="ai-summary-modal"
+    >
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-gradient-to-r from-fuchsia-50 to-violet-50">
+          <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+            <Sparkles className="h-5 w-5 text-fuchsia-600" /> Synthèse IA des conversations WhatsApp
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <div className="grid sm:grid-cols-3 gap-3">
+            <div>
+              <label className="text-xs font-semibold block mb-1">Période</label>
+              <select
+                value={days}
+                onChange={(e) => setDays(parseInt(e.target.value, 10))}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="ai-summary-days"
+              >
+                <option value="1">Dernières 24 h</option>
+                <option value="3">3 derniers jours</option>
+                <option value="7">7 derniers jours</option>
+                <option value="14">14 derniers jours</option>
+                <option value="30">30 derniers jours</option>
+                <option value="90">90 derniers jours</option>
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">Client</label>
+              <select
+                value={clientFilter}
+                onChange={(e) => setClientFilter(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="ai-summary-client"
+              >
+                <option value="">Tous les clients</option>
+                {clientOptions.map((c) => <option key={c.id} value={c.id}>{c.label}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">Sens</label>
+              <select
+                value={direction}
+                onChange={(e) => setDirection(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="ai-summary-direction"
+              >
+                <option value="all">Tous</option>
+                <option value="outbound">Envoyés</option>
+                <option value="inbound">Reçus</option>
+              </select>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs font-semibold block mb-1">Cible (facultatif)</label>
+              <input
+                value={target}
+                onChange={(e) => setTarget(e.target.value)}
+                placeholder="Nom du client, ex: ACME"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="ai-summary-target"
+              />
+            </div>
+            <div>
+              <label className="text-xs font-semibold block mb-1">Contexte (facultatif)</label>
+              <input
+                value={context}
+                onChange={(e) => setContext(e.target.value)}
+                placeholder="Ex: préparer le compte-rendu pour la réunion"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="ai-summary-context"
+              />
+            </div>
+          </div>
+          <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 text-xs text-slate-600 flex items-center justify-between">
+            <span>
+              <strong className="text-slate-800">{filtered.length}</strong> message(s) sélectionné(s)
+              {loading ? " · chargement…" : ""}
+            </span>
+            <button
+              onClick={load}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+              data-testid="ai-summary-refresh"
+            >
+              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+            </button>
+          </div>
+
+          {summary && (
+            <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-4 space-y-2" data-testid="ai-summary-result">
+              <div className="flex items-center justify-between">
+                <p className="text-[11px] uppercase tracking-wider text-emerald-700 font-semibold">
+                  Synthèse {provider ? `· ${provider}` : ""}
+                </p>
+                <button onClick={copy} className="text-[11px] inline-flex items-center gap-1 text-emerald-700 hover:text-emerald-900" data-testid="ai-summary-copy">
+                  <Copy className="h-3 w-3" /> Copier
+                </button>
+              </div>
+              <p className="whitespace-pre-line text-sm text-slate-800 leading-relaxed">{summary}</p>
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
+          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+          <button
+            onClick={run}
+            disabled={running || filtered.length === 0}
+            className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white px-4 py-2 disabled:opacity-50"
+            data-testid="ai-summary-run"
+          >
+            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+            {running ? "Génération…" : "Générer la synthèse"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+

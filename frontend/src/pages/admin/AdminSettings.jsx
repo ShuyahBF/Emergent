@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -22,7 +22,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -380,6 +380,96 @@ export default function AdminSettings() {
           placeholder="whisper-1"
           testid="openai-whisper-model"
         />
+      </Section>
+
+      <Section icon={Sparkles} title="Synthèse IA (ChatGPT ou n8n / AgentAI)">
+        <p className="text-xs text-slate-500">
+          Le bouton « Synthèse IA » du tableau de bord appelle le moteur sélectionné ci-dessous.
+          Vous pouvez basculer librement entre OpenAI ChatGPT et un webhook n8n (compatible AgentAI).
+        </p>
+        <div>
+          <label className="block text-xs font-semibold mb-1">Moteur de synthèse</label>
+          <select
+            value={s.ai_summary_provider || "openai"}
+            onChange={(e) => upd("ai_summary_provider", e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            data-testid="ai-summary-provider"
+          >
+            <option value="openai">OpenAI ChatGPT (clé API directe)</option>
+            <option value="n8n">Webhook n8n / AgentAI</option>
+          </select>
+        </div>
+
+        {/* OpenAI ChatGPT block */}
+        <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">OpenAI ChatGPT</p>
+          <Input
+            label="Clé API ChatGPT"
+            type="password"
+            value={s.openai_chat_api_key || ""}
+            onChange={(v) => upd("openai_chat_api_key", v)}
+            placeholder={s.openai_chat_api_key === "********" ? "(définie — cliquer pour modifier)" : "sk-..."}
+            testid="openai-chat-api-key"
+          />
+          <Input
+            label="Modèle ChatGPT (par défaut: gpt-4o-mini)"
+            value={s.openai_chat_model || ""}
+            onChange={(v) => upd("openai_chat_model", v)}
+            placeholder="gpt-4o-mini"
+            testid="openai-chat-model"
+          />
+        </div>
+
+        {/* n8n webhook block */}
+        <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Webhook n8n / AgentAI</p>
+          <p className="text-[11px] text-slate-500">
+            Le portail postera <code>{"{type, user, context, target, system_prompt, user_prompt, messages}"}</code> sur cette URL et attend une réponse JSON contenant <code>summary</code> (ou <code>text</code> / <code>output</code>).
+          </p>
+          <Input
+            label="URL du webhook n8n"
+            value={s.n8n_webhook_url || ""}
+            onChange={(v) => upd("n8n_webhook_url", v)}
+            placeholder="https://n8n.example.com/webhook/sawali-summary"
+            testid="n8n-webhook-url"
+          />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Authentification</label>
+            <select
+              value={s.n8n_webhook_auth_type || "none"}
+              onChange={(e) => upd("n8n_webhook_auth_type", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="n8n-webhook-auth-type"
+            >
+              <option value="none">Aucune</option>
+              <option value="bearer">Bearer Token</option>
+              <option value="basic">Basic Auth</option>
+            </select>
+          </div>
+          {s.n8n_webhook_auth_type === "bearer" && (
+            <Input
+              label="Token Bearer"
+              type="password"
+              value={s.n8n_webhook_token || ""}
+              onChange={(v) => upd("n8n_webhook_token", v)}
+              placeholder={s.n8n_webhook_token === "********" ? "(défini)" : ""}
+              testid="n8n-webhook-token"
+            />
+          )}
+          {s.n8n_webhook_auth_type === "basic" && (
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Input label="Utilisateur" value={s.n8n_webhook_basic_user || ""} onChange={(v) => upd("n8n_webhook_basic_user", v)} testid="n8n-webhook-basic-user" />
+              <Input
+                label="Mot de passe"
+                type="password"
+                value={s.n8n_webhook_basic_pass || ""}
+                onChange={(v) => upd("n8n_webhook_basic_pass", v)}
+                placeholder={s.n8n_webhook_basic_pass === "********" ? "(défini)" : ""}
+                testid="n8n-webhook-basic-pass"
+              />
+            </div>
+          )}
+        </div>
       </Section>
 
       <Section icon={Tag} title="Version stamp (footer)">

@@ -2312,9 +2312,11 @@ async def admin_delete_policy(slot: str, _: dict = Depends(get_current_admin)):
     return {"ok": True, "slot": slot}
 
 
-@api.get("/public/policies/{slot}", tags=["Public"])
-async def public_policy(slot: str):
-    """Serve a policy PDF inline so 3rd parties (Google, Facebook…) can verify it."""
+@api.api_route("/public/policies/{slot}", methods=["GET", "HEAD"], tags=["Public"])
+async def public_policy(slot: str, request: Request):
+    """Serve a policy PDF inline so 3rd parties (Google, Facebook…) can verify it.
+    Both GET (renders the PDF) and HEAD (existence check used by the public
+    /politiques/{slug} page to decide whether to show the iframe) are supported."""
     if slot not in POLICY_SLOTS:
         raise HTTPException(status_code=404, detail="Politique introuvable")
     p = _policy_path(slot)
@@ -2322,6 +2324,19 @@ async def public_policy(slot: str):
         raise HTTPException(status_code=404, detail="Politique non publiée")
     meta = await db.policies.find_one({"slot": slot}, {"_id": 0})
     download_name = (meta or {}).get("filename") or f"{slot}.pdf"
+    if request.method == "HEAD":
+        # Mirror the GET headers so HEAD probes can verify existence + size without
+        # reading the bytes — required by the iframe gate on the public page.
+        return Response(
+            status_code=200,
+            headers={
+                "Content-Type": "application/pdf",
+                "Content-Length": str(p.stat().st_size),
+                "Content-Disposition": f'inline; filename="{download_name}"',
+                "Cache-Control": "public, max-age=3600",
+                "X-Robots-Tag": "all",
+            },
+        )
     return FileResponse(
         path=str(p),
         media_type="application/pdf",
@@ -2551,6 +2566,157 @@ async def transcribe_audio(
         raise
     except Exception as exc:  # noqa: BLE001
         logger.warning("[transcribe] unexpected exception: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)[:300])
+
+
+# ============================================================
+# AI Summary — used by the dashboard "Synthèse IA" button.
+# Two providers are supported (toggle by admin in /admin/settings):
+#   • "openai" → POST https://api.openai.com/v1/chat/completions
+#   • "n8n"    → POST <n8n_webhook_url> (AgentAI-style webhook)
+# Body: { messages: [{role,content,…}], context: str?, target?: str }
+# Returns: { ok, provider, model?, summary }
+# ============================================================
+class AiSummaryRequest(BaseModel):
+    messages: List[Dict[str, Any]]  # arbitrary objects (WA history rows or plain texts)
+    context: Optional[str] = None  # extra prose hint, e.g. "Conversations avec ACME du 1er au 5 mai"
+    target: Optional[str] = None   # e.g. client name, displayed in the prompt
+
+
+def _format_messages_for_prompt(rows: List[Dict[str, Any]]) -> str:
+    """Render a compact human-readable text from a heterogeneous list of WA rows."""
+    lines = []
+    for r in rows[:200]:  # safety cap
+        if not isinstance(r, dict):
+            lines.append(str(r)[:400])
+            continue
+        ts = r.get("created_at") or r.get("ts") or ""
+        if ts and isinstance(ts, str):
+            ts = ts.split("T")[0] + " " + ts.split("T")[1][:5] if "T" in ts else ts
+        direction = r.get("direction") or ("outbound" if r.get("to") else "inbound")
+        who = r.get("to") if direction == "outbound" else (r.get("from") or "—")
+        body = (r.get("body") or r.get("text") or "").strip()
+        if not body and r.get("template_name"):
+            body = f"[Template {r['template_name']}]"
+        if not body:
+            continue
+        lines.append(f"[{ts}] {direction.upper()} {who}: {body[:600]}")
+    return "\n".join(lines) or "(aucun contenu)"
+
+
+@api.post("/me/ai/summarize", tags=["Portail Client"])
+async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_current_user)):
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    provider = (s.get("ai_summary_provider") or "openai").lower()
+    if provider not in ("openai", "n8n"):
+        provider = "openai"
+    formatted = _format_messages_for_prompt(payload.messages or [])
+    sys_prompt = (
+        "Tu es un assistant qui rédige des synthèses concises et professionnelles "
+        "en français. Résume la conversation/les messages ci-dessous en 5 à 10 lignes "
+        "maximum, en mettant en évidence les décisions, demandes, blocages et "
+        "prochaines étapes. Reste factuel."
+    )
+    target_line = f"\nClient/cible : {payload.target}" if payload.target else ""
+    context_line = f"\nContexte : {payload.context}" if payload.context else ""
+    user_prompt = f"{target_line}{context_line}\n\nMessages :\n{formatted}".strip()
+
+    # ---------- OpenAI ChatGPT branch ----------
+    if provider == "openai":
+        api_key = (s.get("openai_chat_api_key") or "").strip()
+        model = (s.get("openai_chat_model") or "gpt-4o-mini").strip()
+        if not api_key:
+            raise HTTPException(
+                status_code=503,
+                detail="ChatGPT non configuré. Demandez à l'admin d'ajouter une clé OpenAI ChatGPT dans /admin/settings.",
+            )
+        body = {
+            "model": model,
+            "messages": [
+                {"role": "system", "content": sys_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": 0.3,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=45) as http:
+                r = await http.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json=body,
+                )
+                if r.status_code >= 300:
+                    try:
+                        err = r.json().get("error", {}).get("message") or r.text[:300]
+                    except Exception:
+                        err = r.text[:300]
+                    raise HTTPException(status_code=502, detail=f"OpenAI a retourné HTTP {r.status_code} — {err}")
+                data = r.json()
+                summary = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
+                return {"ok": True, "provider": "openai", "model": model, "summary": summary.strip()}
+        except httpx.TimeoutException:
+            raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à OpenAI ChatGPT")
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[ai-summary openai] unexpected: %s", exc)
+            raise HTTPException(status_code=500, detail=str(exc)[:300])
+
+    # ---------- n8n webhook branch ----------
+    url = (s.get("n8n_webhook_url") or "").strip()
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail="Webhook n8n non configuré. Renseignez l'URL dans /admin/settings.",
+        )
+    auth_type = (s.get("n8n_webhook_auth_type") or "none").lower()
+    headers = {"Content-Type": "application/json"}
+    auth = None
+    if auth_type == "bearer":
+        tok = (s.get("n8n_webhook_token") or "").strip()
+        if tok:
+            headers["Authorization"] = f"Bearer {tok}"
+    elif auth_type == "basic":
+        bu = (s.get("n8n_webhook_basic_user") or "").strip()
+        bp = (s.get("n8n_webhook_basic_pass") or "").strip()
+        if bu and bp:
+            auth = (bu, bp)
+    payload_n8n = {
+        "type": "ai_summary",
+        "user": {
+            "id": user.get("id"),
+            "email": user.get("email"),
+            "company": user.get("company"),
+            "client_id": user.get("client_id"),
+        },
+        "context": payload.context,
+        "target": payload.target,
+        "system_prompt": sys_prompt,
+        "user_prompt": user_prompt,
+        "messages": payload.messages,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=60) as http:
+            r = await http.post(url, headers=headers, auth=auth, json=payload_n8n)
+            if r.status_code >= 300:
+                raise HTTPException(status_code=502, detail=f"n8n a retourné HTTP {r.status_code} — {r.text[:300]}")
+            try:
+                data = r.json()
+            except Exception:
+                data = {"summary": r.text}
+            # n8n returns whatever the workflow defines — accept the most common shapes:
+            summary = data.get("summary") or data.get("text") or data.get("output") or data.get("message") or ""
+            if not summary and isinstance(data, list) and data:
+                summary = data[0].get("summary") or data[0].get("text") or ""
+            if not summary:
+                summary = json.dumps(data)[:2000]
+            return {"ok": True, "provider": "n8n", "summary": str(summary).strip()}
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel au webhook n8n")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ai-summary n8n] unexpected: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)[:300])
 
 
@@ -4214,7 +4380,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -4231,7 +4397,8 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "notes_webhook_token", "notes_webhook_basic_pass",
         "health_webhook_token", "health_webhook_basic_pass",
         "wa_access_token", "wa_verify_token",
-        "openai_api_key",
+        "openai_api_key", "openai_chat_api_key",
+        "n8n_webhook_token", "n8n_webhook_basic_pass",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":

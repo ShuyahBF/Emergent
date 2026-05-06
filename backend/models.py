@@ -441,8 +441,21 @@ class SettingsUpdate(BaseModel):
     health_timezone: Optional[str] = None  # default Africa/Abidjan
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
-    openai_api_key: Optional[str] = None  # secret — masked when read
+    openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)
     openai_whisper_model: Optional[str] = None  # default "whisper-1"
+
+    # AI Summary engine — used by the dashboard "Synthèse IA" button.
+    # Two providers are supported and the admin can switch between them at any time:
+    #   - "openai" → calls OpenAI ChatGPT (chat.completions) with `openai_chat_api_key`.
+    #   - "n8n"    → forwards the payload to a configurable n8n webhook (AgentAI-style).
+    ai_summary_provider: Optional[str] = None  # "openai" | "n8n"
+    openai_chat_api_key: Optional[str] = None  # secret — masked when read
+    openai_chat_model: Optional[str] = None  # default "gpt-4o-mini"
+    n8n_webhook_url: Optional[str] = None
+    n8n_webhook_auth_type: Optional[str] = None  # "none" | "bearer" | "basic"
+    n8n_webhook_token: Optional[str] = None  # secret — masked when read
+    n8n_webhook_basic_user: Optional[str] = None
+    n8n_webhook_basic_pass: Optional[str] = None  # secret — masked when read
 
     # Version Stamp visual customization (footer pill on every layout)
     version_stamp_color: Optional[str] = None  # any CSS color (hex / rgb / oklch)

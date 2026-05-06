@@ -33,7 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-05-06 — Itération 34 : Lot A (1/3) — Tableau de bord Usage & Facturation + OTP par domaine
+### 2026-05-06 — Itération 35 : Lot B partiel — Agenda partagé + Webhook bidirectionnel n8n
+✅ **RDV partagés par client** : `me_appointments` + `me_create_appointment` utilisent `client_id || id` → tous les utilisateurs suivis d'un même client voient les mêmes RDV. Admin/superviseur voient tout.
+✅ **Webhook sortant n8n** : `_fire_agenda_n8n(action, appointment, user)` fire-and-forget sur create/update/delete manuel. Auth none/bearer/basic, timeout 10s, payload `{type:agenda, action, appointment, user, fired_at}`.
+✅ **Webhook entrant n8n** : `POST /api/webhooks/agenda/{secret}` non-authentifié (secret = path token). Actions : list/create/update/delete. Validation slot disponible. Tag `source:'n8n'`. 503 si désactivé, 403 si secret faux.
+✅ **Settings agenda** : `agenda_n8n_outbound_*` (enabled/url/auth_type/token/basic_user/basic_pass) + `agenda_n8n_inbound_*` (enabled/secret). 3 secrets masqués.
+✅ Coexiste avec Google Calendar (gcal_event_id null pour RDV créés par n8n).
+✅ Tests : 14/14 pytest iter22 (~5.2s). Toutes les UI Playwright vérifiées (login OTP/Plateforme Interne, /admin/usage 11 testids, /admin/settings agenda+OTP).
+
+
 ✅ **`/admin/usage`** : nouvelle page admin avec 4 KPI cards (WA envoyés/reçus, Synthèses IA, Coût WA estimé), graphique stacked Recharts 30j, tableau triable par client (8 colonnes : WA OK/KO/Reçus/Coût, IA, dots fonctionnalités), sélecteur période (7j/30j/90j/6mois), export CSV avec BOM UTF-8, lien rapide vers timeline CRM. Endpoint `GET /admin/usage/summary?days=N`.
 ✅ **OTP par domaine** : `/auth/login` détecte le domaine de l'email (vs `internal_domains` dans settings) → si interne, OTP affiché ("Plateforme Interne"), sinon envoi par email. Idem `/auth/resend-otp`. Plus de mention "Mode Développement". Notification toast harmonisée.
 ✅ **Settings "Authentification"** : nouveau champ texte CSV (`internal_domains`) éditable par admin avec aide contextuelle. Défaut : `sawalismartsystems.com`.

@@ -24,6 +24,7 @@ export default function Contacts() {
   const [filter, setFilter] = useState("");
   const [companyFilter, setCompanyFilter] = useState(""); // ACME code or full company name
   const [modal, setModal] = useState(null); // {type:'edit'|'wa'|'history', contact?}
+  const [smartFeatures, setSmartFeatures] = useState({ whatsapp: true, sms: true, ai: true, payments: true });
 
   const load = async () => {
     setLoading(true);
@@ -40,7 +41,10 @@ export default function Contacts() {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
+  }, []);
 
   const del = async (id) => {
     if (!window.confirm("Supprimer ce contact ?")) return;
@@ -160,6 +164,7 @@ export default function Contacts() {
                   onSchedule={() => setModal({ type: "schedule", contact: c })}
                   onHistory={() => setModal({ type: "history", contact: c })}
                   onDelete={() => del(c.id)}
+                  waEnabled={!!smartFeatures.whatsapp}
                 />
               ))}
             </tbody>
@@ -189,7 +194,7 @@ export default function Contacts() {
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete, waEnabled = true }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -290,8 +295,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete
         <div className="inline-flex gap-1 items-center">
           <button
             onClick={onWa}
-            disabled={!c.whatsapp}
-            title={c.whatsapp ? "Envoyer un WhatsApp" : "Ajoutez d'abord un numéro WhatsApp"}
+            disabled={!c.whatsapp || !waEnabled}
+            title={!waEnabled ? "Fonctionnalité WhatsApp non activée — contactez votre administrateur" : (c.whatsapp ? "Envoyer un WhatsApp" : "Ajoutez d'abord un numéro WhatsApp")}
             className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2 py-1 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid={`contact-wa-${c.id}`}
           >
@@ -299,8 +304,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete
           </button>
           <button
             onClick={onSchedule}
-            disabled={!c.whatsapp}
-            title={c.whatsapp ? "Planifier un message WhatsApp" : "Ajoutez d'abord un numéro WhatsApp"}
+            disabled={!c.whatsapp || !waEnabled}
+            title={!waEnabled ? "Fonctionnalité WhatsApp non activée — contactez votre administrateur" : (c.whatsapp ? "Planifier un message WhatsApp" : "Ajoutez d'abord un numéro WhatsApp")}
             className="inline-flex items-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2 py-1 hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid={`contact-schedule-${c.id}`}
           >

@@ -18,7 +18,7 @@ const KIND_META = {
   suivis: { label: "Suivis", singular: "suivi", icon: ClipboardList, accent: "#10B981" },
 };
 
-const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [] };
+const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false };
 
 const ELEVATED_TRACKED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL_TRACKED = new Set(["Administrateur", "Superviseur"]);
@@ -255,6 +255,9 @@ export default function UserNotesPage() {
 
               <div>
                 <label className="block text-xs font-semibold mb-1">Contenu</label>
+                <p className="text-[11px] text-slate-500 mb-2 inline-flex items-center gap-1">
+                  <Mic className="h-3 w-3" /> Astuce : cliquez sur l'icône <strong>micro</strong> en haut à droite de la barre d'outils pour dicter votre {meta.singular} (transcription Whisper).
+                </p>
                 <RichEditor value={form.content_html} onChange={(v) => setForm({ ...form, content_html: v })} accent={meta.accent} />
               </div>
 
@@ -266,6 +269,25 @@ export default function UserNotesPage() {
               />
 
               <ImageUploader images={form.images} onChange={(images) => setForm({ ...form, images })} accent={meta.accent} />
+
+              <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100 transition" data-testid="note-privacy-toggle-wrapper">
+                <input
+                  type="checkbox"
+                  checked={!!form.is_private}
+                  onChange={(e) => setForm({ ...form, is_private: e.target.checked })}
+                  className="mt-0.5 h-4 w-4 rounded border-slate-300"
+                  data-testid="note-privacy-toggle"
+                />
+                <span className="flex-1">
+                  <span className="block text-sm font-semibold text-slate-800 inline-flex items-center gap-1">
+                    <Lock className="h-3.5 w-3.5 text-slate-500" /> Note privée
+                  </span>
+                  <span className="block text-xs text-slate-500 mt-0.5">
+                    Si cochée, seul vous-même et les administrateurs pourrez voir cette note.
+                    Décochée : visible par les autres utilisateurs suivis du même client.
+                  </span>
+                </span>
+              </label>
 
               <button
                 type="submit"
@@ -315,9 +337,16 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, o
     <article className="rounded-xl border border-slate-200 bg-white p-5 hover:border-sawali-blue/40 transition flex flex-col" data-testid={`note-${n.id}`}>
       <div className="flex items-center justify-between gap-2 mb-2">
         <span className="text-[10px] uppercase tracking-widest font-mono text-slate-500">{n.numero || "—"}</span>
-        {locked ? (
-          <span className="inline-flex items-center gap-1 text-[10px] text-slate-400" title="Verrouillé (>1h après création)"><Lock className="h-3 w-3" /> verrouillé</span>
-        ) : null}
+        <span className="flex items-center gap-1.5">
+          {n.is_private && (
+            <span className="inline-flex items-center gap-1 text-[10px] text-fuchsia-700 bg-fuchsia-50 ring-1 ring-fuchsia-200 px-1.5 py-0.5 rounded" title="Note privée — visible uniquement par vous et les administrateurs">
+              <Lock className="h-3 w-3" /> privée
+            </span>
+          )}
+          {locked ? (
+            <span className="inline-flex items-center gap-1 text-[10px] text-slate-400" title="Verrouillé (>1h après création)"><Lock className="h-3 w-3" /> verrouillé</span>
+          ) : null}
+        </span>
       </div>
       <h3 className="font-display font-semibold text-slate-900 truncate" title={n.title}>{n.title}</h3>
       {kind === "suivis" && (

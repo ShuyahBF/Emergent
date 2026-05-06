@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -44,6 +44,7 @@ export default function ClientDashboard() {
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({ reports: { count: 0, last_updated: null }, suivis: { count: 0, last_updated: null } });
   const [features, setFeatures] = useState({ show_reports_button: true, show_suivis_button: true });
+  const [smartFeatures, setSmartFeatures] = useState({ whatsapp: true, sms: true, ai: true, payments: true });
   const [showAi, setShowAi] = useState(false);
 
   useEffect(() => {
@@ -52,6 +53,7 @@ export default function ClientDashboard() {
     apiClient.get("/company-info").then((r) => {
       if (r.data?.portal_features) setFeatures(r.data.portal_features);
     }).catch(() => {});
+    apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
   }, []);
   if (!data) return <p className="text-slate-500">Chargement...</p>;
 
@@ -66,8 +68,14 @@ export default function ClientDashboard() {
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
-            onClick={() => setShowAi(true)}
-            className="inline-flex items-center gap-2 rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white px-4 py-2 text-sm shadow-sm"
+            onClick={() => smartFeatures.ai && setShowAi(true)}
+            disabled={!smartFeatures.ai}
+            title={smartFeatures.ai ? "Ouvrir la synthèse IA" : "Fonctionnalité Génération IA non activée — contactez votre administrateur"}
+            className={`inline-flex items-center gap-2 rounded-lg text-white px-4 py-2 text-sm shadow-sm transition ${
+              smartFeatures.ai
+                ? "bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700"
+                : "bg-slate-300 cursor-not-allowed"
+            }`}
             data-testid="dashboard-ai-summary-btn"
           >
             <Sparkles className="h-4 w-4" /> Synthèse IA
@@ -200,6 +208,31 @@ function AiSummaryModal({ onClose }) {
       toast.success("Synthèse supprimée");
       await loadHistory();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  const [convertingId, setConvertingId] = useState(null);
+  const convertToReport = async (h) => {
+    const defaultTitle = h.target ? `Synthèse IA — ${h.target}` : `Synthèse IA — ${(h.created_at || "").slice(0, 10)}`;
+    const title = window.prompt("Titre du rapport :", defaultTitle);
+    if (!title) return;
+    const isPrivate = window.confirm(
+      "Voulez-vous rendre ce rapport PRIVÉ ?\n\n" +
+      "OK = Privé (visible uniquement par vous et les administrateurs)\n" +
+      "Annuler = Public (partagé avec les autres utilisateurs du même client)",
+    );
+    setConvertingId(h.id);
+    try {
+      const r = await apiClient.post(`/me/ai/summaries/${h.id}/to-report`, {
+        title,
+        is_private: isPrivate,
+      });
+      const numero = r.data?.report?.numero || "";
+      toast.success(`Rapport ${numero} créé. Retrouvez-le dans "Rapports".`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de conversion");
+    } finally {
+      setConvertingId(null);
+    }
   };
 
   const clientOptions = useMemo(() => {
@@ -417,6 +450,16 @@ function AiSummaryModal({ onClose }) {
                       {h.messages_count != null && <span className="text-slate-400">({h.messages_count} msg)</span>}
                     </span>
                     <span className="flex items-center gap-2">
+                      <button
+                        onClick={() => convertToReport(h)}
+                        disabled={convertingId === h.id}
+                        className="inline-flex items-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2 py-0.5 hover:bg-sawali-blue-light disabled:opacity-50"
+                        title="Créer un rapport à partir de cette synthèse"
+                        data-testid={`ai-summary-history-to-report-${h.id}`}
+                      >
+                        {convertingId === h.id ? <Loader2 className="h-3 w-3 animate-spin" /> : <FileDown className="h-3 w-3" />}
+                        Rapport
+                      </button>
                       <button
                         onClick={async () => {
                           try { await navigator.clipboard.writeText(h.summary || ""); toast.success("Copiée"); }

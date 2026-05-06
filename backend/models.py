@@ -457,6 +457,57 @@ class SettingsUpdate(BaseModel):
     n8n_webhook_basic_user: Optional[str] = None
     n8n_webhook_basic_pass: Optional[str] = None  # secret — masked when read
 
+    # ----- SMS — generic webhook providers (Orange / Moov / Telecel Burkina) -----
+    # Three independent provider blocks, each shaped like the n8n webhook one
+    # so the admin can plug whichever HTTP REST endpoint each operator exposes.
+    sms_orange_enabled: Optional[bool] = None
+    sms_orange_url: Optional[str] = None
+    sms_orange_method: Optional[str] = None  # "GET" | "POST"
+    sms_orange_auth_type: Optional[str] = None  # "none" | "bearer" | "basic" | "header"
+    sms_orange_token: Optional[str] = None  # secret — masked
+    sms_orange_basic_user: Optional[str] = None
+    sms_orange_basic_pass: Optional[str] = None  # secret — masked
+    sms_orange_header_name: Optional[str] = None  # for auth_type=header
+    sms_orange_header_value: Optional[str] = None  # secret — masked
+    sms_orange_sender: Optional[str] = None  # caller-id / from
+
+    sms_moov_enabled: Optional[bool] = None
+    sms_moov_url: Optional[str] = None
+    sms_moov_method: Optional[str] = None
+    sms_moov_auth_type: Optional[str] = None
+    sms_moov_token: Optional[str] = None  # masked
+    sms_moov_basic_user: Optional[str] = None
+    sms_moov_basic_pass: Optional[str] = None  # masked
+    sms_moov_header_name: Optional[str] = None
+    sms_moov_header_value: Optional[str] = None  # masked
+    sms_moov_sender: Optional[str] = None
+
+    sms_telecel_enabled: Optional[bool] = None
+    sms_telecel_url: Optional[str] = None
+    sms_telecel_method: Optional[str] = None
+    sms_telecel_auth_type: Optional[str] = None
+    sms_telecel_token: Optional[str] = None  # masked
+    sms_telecel_basic_user: Optional[str] = None
+    sms_telecel_basic_pass: Optional[str] = None  # masked
+    sms_telecel_header_name: Optional[str] = None
+    sms_telecel_header_value: Optional[str] = None  # masked
+    sms_telecel_sender: Optional[str] = None
+
+    # ----- OVH SMS — official API (https://api.ovh.com /sms/{serviceName}/jobs) -----
+    sms_ovh_enabled: Optional[bool] = None
+    sms_ovh_endpoint: Optional[str] = None  # "ovh-eu" | "ovh-ca" — endpoint host
+    sms_ovh_application_key: Optional[str] = None
+    sms_ovh_application_secret: Optional[str] = None  # masked
+    sms_ovh_consumer_key: Optional[str] = None  # masked
+    sms_ovh_service_name: Optional[str] = None  # e.g. "sms-xxxx-1"
+    sms_ovh_sender: Optional[str] = None  # registered sender / "OVHSMS"
+
+    # ----- PawaPay (mobile money payments) -----
+    pawapay_enabled: Optional[bool] = None
+    pawapay_api_token: Optional[str] = None  # masked
+    pawapay_environment: Optional[str] = None  # "sandbox" | "production"
+    pawapay_country: Optional[str] = None  # ISO-3 (e.g. "BFA")
+
     # Version Stamp visual customization (footer pill on every layout)
     version_stamp_color: Optional[str] = None  # any CSS color (hex / rgb / oklch)
     version_stamp_size: Optional[str] = None   # xs | sm | md | lg
@@ -480,6 +531,7 @@ class UserNoteCreate(BaseModel):
     client_id: Optional[str] = None  # required for suivis (validated server-side)
     event_date: Optional[str] = None  # ISO datetime ; required for suivis
     images: Optional[List[dict]] = None  # max 10
+    is_private: Optional[bool] = None  # True → only the author + admins; False/None → shared within client
 
 
 class UserNoteUpdate(BaseModel):
@@ -489,6 +541,7 @@ class UserNoteUpdate(BaseModel):
     client_id: Optional[str] = None
     event_date: Optional[str] = None
     images: Optional[List[dict]] = None
+    is_private: Optional[bool] = None
 
 
 class RatingCreate(BaseModel):

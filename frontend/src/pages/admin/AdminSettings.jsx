@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -22,7 +22,12 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass",
+        "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
+        "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
+        "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+        "sms_ovh_application_secret", "sms_ovh_consumer_key",
+        "pawapay_api_token"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -469,6 +474,193 @@ export default function AdminSettings() {
               />
             </div>
           )}
+        </div>
+      </Section>
+
+      <Section icon={Smartphone} title="SMS — Opérateurs Burkina Faso (Orange / Moov / Telecel)">
+        <p className="text-xs text-slate-500">
+          Trois fournisseurs indépendants. Chacun expose son propre endpoint REST.
+          Renseignez l'URL fournie par l'opérateur, la méthode HTTP et le mode d'authentification.
+        </p>
+        {[
+          { key: "orange", label: "Orange Burkina", color: "#FF7900" },
+          { key: "moov", label: "Moov Africa Burkina", color: "#0076BB" },
+          { key: "telecel", label: "Telecel Burkina", color: "#E2241A" },
+        ].map((op) => (
+          <div key={op.key} className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2" data-testid={`sms-${op.key}-block`}>
+            <div className="flex items-center justify-between">
+              <p className="text-[11px] uppercase tracking-wider font-semibold" style={{ color: op.color }}>
+                SMS {op.label}
+              </p>
+              <Toggle
+                label="Activer"
+                value={!!s[`sms_${op.key}_enabled`]}
+                onChange={(v) => upd(`sms_${op.key}_enabled`, v)}
+                testid={`sms-${op.key}-enabled`}
+              />
+            </div>
+            <div className="grid sm:grid-cols-[1fr_140px] gap-3">
+              <Input
+                label="URL de l'API SMS"
+                value={s[`sms_${op.key}_url`] || ""}
+                onChange={(v) => upd(`sms_${op.key}_url`, v)}
+                placeholder="https://api.operateur.bf/v1/sms/send"
+                testid={`sms-${op.key}-url`}
+              />
+              <div>
+                <label className="block text-xs font-semibold mb-1">Méthode</label>
+                <select
+                  value={s[`sms_${op.key}_method`] || "POST"}
+                  onChange={(e) => upd(`sms_${op.key}_method`, e.target.value)}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  data-testid={`sms-${op.key}-method`}
+                >
+                  <option value="POST">POST</option>
+                  <option value="GET">GET</option>
+                </select>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold mb-1">Authentification</label>
+              <select
+                value={s[`sms_${op.key}_auth_type`] || "none"}
+                onChange={(e) => upd(`sms_${op.key}_auth_type`, e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid={`sms-${op.key}-auth-type`}
+              >
+                <option value="none">Aucune</option>
+                <option value="bearer">Bearer Token</option>
+                <option value="basic">Basic Auth</option>
+                <option value="header">En-tête personnalisé (API Key)</option>
+              </select>
+            </div>
+            {s[`sms_${op.key}_auth_type`] === "bearer" && (
+              <Input
+                label="Token Bearer"
+                type="password"
+                value={s[`sms_${op.key}_token`] || ""}
+                onChange={(v) => upd(`sms_${op.key}_token`, v)}
+                placeholder={s[`sms_${op.key}_token`] === "********" ? "(défini)" : ""}
+                testid={`sms-${op.key}-token`}
+              />
+            )}
+            {s[`sms_${op.key}_auth_type`] === "basic" && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Input label="Utilisateur" value={s[`sms_${op.key}_basic_user`] || ""} onChange={(v) => upd(`sms_${op.key}_basic_user`, v)} testid={`sms-${op.key}-basic-user`} />
+                <Input
+                  label="Mot de passe"
+                  type="password"
+                  value={s[`sms_${op.key}_basic_pass`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_basic_pass`, v)}
+                  placeholder={s[`sms_${op.key}_basic_pass`] === "********" ? "(défini)" : ""}
+                  testid={`sms-${op.key}-basic-pass`}
+                />
+              </div>
+            )}
+            {s[`sms_${op.key}_auth_type`] === "header" && (
+              <div className="grid sm:grid-cols-2 gap-3">
+                <Input
+                  label="Nom de l'en-tête"
+                  value={s[`sms_${op.key}_header_name`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_header_name`, v)}
+                  placeholder="X-API-Key"
+                  testid={`sms-${op.key}-header-name`}
+                />
+                <Input
+                  label="Valeur"
+                  type="password"
+                  value={s[`sms_${op.key}_header_value`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_header_value`, v)}
+                  placeholder={s[`sms_${op.key}_header_value`] === "********" ? "(définie)" : ""}
+                  testid={`sms-${op.key}-header-value`}
+                />
+              </div>
+            )}
+            <Input
+              label="Identifiant expéditeur (sender ID)"
+              value={s[`sms_${op.key}_sender`] || ""}
+              onChange={(v) => upd(`sms_${op.key}_sender`, v)}
+              placeholder="SAWALI"
+              testid={`sms-${op.key}-sender`}
+            />
+          </div>
+        ))}
+      </Section>
+
+      <Section icon={Smartphone} title="SMS — OVH (API officielle)">
+        <p className="text-xs text-slate-500">
+          OVH SMS expose une API REST signée HMAC. Créez un service SMS sur <a href="https://www.ovhtelecom.fr/sms/" target="_blank" rel="noreferrer" className="text-sawali-blue underline">ovhtelecom.fr</a> puis générez l'application via <code>https://api.ovh.com/createApp</code>.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle label="Activer" value={!!s.sms_ovh_enabled} onChange={(v) => upd("sms_ovh_enabled", v)} testid="sms-ovh-enabled" />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Endpoint OVH</label>
+            <select
+              value={s.sms_ovh_endpoint || "ovh-eu"}
+              onChange={(e) => upd("sms_ovh_endpoint", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="sms-ovh-endpoint"
+            >
+              <option value="ovh-eu">ovh-eu (Europe)</option>
+              <option value="ovh-ca">ovh-ca (Canada)</option>
+            </select>
+          </div>
+        </div>
+        <Input label="Application Key (AK)" value={s.sms_ovh_application_key || ""} onChange={(v) => upd("sms_ovh_application_key", v)} placeholder="xxxxxxxxxxxxxxxx" testid="sms-ovh-application-key" />
+        <Input
+          label="Application Secret (AS)"
+          type="password"
+          value={s.sms_ovh_application_secret || ""}
+          onChange={(v) => upd("sms_ovh_application_secret", v)}
+          placeholder={s.sms_ovh_application_secret === "********" ? "(défini)" : ""}
+          testid="sms-ovh-application-secret"
+        />
+        <Input
+          label="Consumer Key (CK)"
+          type="password"
+          value={s.sms_ovh_consumer_key || ""}
+          onChange={(v) => upd("sms_ovh_consumer_key", v)}
+          placeholder={s.sms_ovh_consumer_key === "********" ? "(défini)" : ""}
+          testid="sms-ovh-consumer-key"
+        />
+        <Input label="Service Name" value={s.sms_ovh_service_name || ""} onChange={(v) => upd("sms_ovh_service_name", v)} placeholder="sms-ab1234-1" testid="sms-ovh-service-name" />
+        <Input label="Sender (expéditeur enregistré)" value={s.sms_ovh_sender || ""} onChange={(v) => upd("sms_ovh_sender", v)} placeholder="OVHSMS" testid="sms-ovh-sender" />
+      </Section>
+
+      <Section icon={CreditCard} title="Paiement — PawaPay (Mobile Money)">
+        <p className="text-xs text-slate-500">
+          Configuration prête pour intégration PawaPay (Mobile Money Africa).
+          Le flow d'encaissement utilisateur sera ajouté ultérieurement.
+        </p>
+        <Toggle label="Activer PawaPay" value={!!s.pawapay_enabled} onChange={(v) => upd("pawapay_enabled", v)} testid="pawapay-enabled" />
+        <Input
+          label="API Token"
+          type="password"
+          value={s.pawapay_api_token || ""}
+          onChange={(v) => upd("pawapay_api_token", v)}
+          placeholder={s.pawapay_api_token === "********" ? "(défini)" : "eyJ..."}
+          testid="pawapay-api-token"
+        />
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1">Environnement</label>
+            <select
+              value={s.pawapay_environment || "sandbox"}
+              onChange={(e) => upd("pawapay_environment", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="pawapay-environment"
+            >
+              <option value="sandbox">Sandbox (test)</option>
+              <option value="production">Production</option>
+            </select>
+          </div>
+          <Input
+            label="Pays par défaut (ISO-3)"
+            value={s.pawapay_country || ""}
+            onChange={(v) => upd("pawapay_country", (v || "").toUpperCase())}
+            placeholder="BFA"
+            testid="pawapay-country"
+          />
         </div>
       </Section>
 

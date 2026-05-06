@@ -1201,6 +1201,94 @@ async def admin_get_client(client_id: str, _: dict = Depends(get_current_admin))
     return u
 
 
+# ============================================================
+# Per-client SMART Communications feature flags
+# Stored on the client doc as `features` dict and inherited by every
+# tracked user belonging to that client (resolved live in /me/features).
+# Default = all disabled so a brand-new client can't unintentionally
+# consume paid services until the admin enables them.
+# ============================================================
+DEFAULT_CLIENT_FEATURES = {
+    "whatsapp": False,
+    "sms": False,
+    "ai": False,
+    "payments": False,
+}
+
+
+def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
+    out = dict(DEFAULT_CLIENT_FEATURES)
+    if isinstance(raw, dict):
+        for k in DEFAULT_CLIENT_FEATURES:
+            out[k] = bool(raw.get(k, DEFAULT_CLIENT_FEATURES[k]))
+    return out
+
+
+class ClientFeaturesUpdate(BaseModel):
+    whatsapp: Optional[bool] = None
+    sms: Optional[bool] = None
+    ai: Optional[bool] = None
+    payments: Optional[bool] = None
+
+
+@api.get("/admin/clients/{client_id}/features", tags=["Admin"])
+async def admin_get_client_features(client_id: str, _: dict = Depends(get_current_admin)):
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    return {
+        "client": {"id": u["id"], "full_name": u.get("full_name"), "company": u.get("company")},
+        "features": _normalize_features(u.get("features")),
+    }
+
+
+@api.put("/admin/clients/{client_id}/features", tags=["Admin"])
+async def admin_update_client_features(client_id: str, payload: ClientFeaturesUpdate, _: dict = Depends(get_current_admin)):
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "features": 1})
+    if not u:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    current = _normalize_features(u.get("features"))
+    update = payload.model_dump(exclude_none=True)
+    current.update({k: bool(v) for k, v in update.items()})
+    await db.users.update_one(
+        {"id": client_id},
+        {"$set": {"features": current, "features_updated_at": _now()}},
+    )
+    return {"ok": True, "features": current}
+
+
+@api.get("/me/features", tags=["Portail Client"])
+async def me_get_features(user: dict = Depends(get_current_user)):
+    """Resolve the SMART Communications feature flags for the calling user.
+    Admin & superviseur always have everything enabled. Tracked users inherit
+    from their parent client. Plain client users read from their own doc."""
+    if user.get("role") in ("admin", "superviseur"):
+        return {"features": {k: True for k in DEFAULT_CLIENT_FEATURES}, "inherited_from": None}
+    parent_id = user.get("client_id") or user["id"]
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1})
+    feats = _normalize_features((parent or {}).get("features"))
+    return {
+        "features": feats,
+        "inherited_from": {
+            "id": parent_id,
+            "full_name": (parent or {}).get("full_name"),
+            "company": (parent or {}).get("company"),
+        } if parent and parent_id != user["id"] else None,
+    }
+
+
+def _check_feature(user: dict, feature: str) -> None:
+    """Hook for future enforcement of per-client feature flags. Currently a
+    no-op: the frontend disables the UI for unavailable features, and we keep
+    this stub in place so a single line change can flip backend enforcement on.
+    Admin/superviseur always bypass."""
+    if user.get("role") in ("admin", "superviseur"):
+        return
+    # NOTE: enforcement intentionally deferred — see /me/features for the
+    # resolved feature dict consumed by the UI.
+    return
+
+
 @api.get("/admin/clients/{client_id}/whatsapp-stats", tags=["Admin"])
 async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_current_admin)):
     """WhatsApp consumption summary for a client: messages sent OK/KO,
@@ -2640,9 +2728,12 @@ async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_cu
     formatted = _format_messages_for_prompt(payload.messages or [])
     sys_prompt = (
         "Tu es un assistant qui rédige des synthèses concises et professionnelles "
-        "en français. Résume la conversation/les messages ci-dessous en 5 à 10 lignes "
-        "maximum, en mettant en évidence les décisions, demandes, blocages et "
-        "prochaines étapes. Reste factuel."
+        "en français. Analyse précisément le CONTENU des messages WhatsApp ci-dessous "
+        "(et non pas seulement les métadonnées) en 5 à 10 lignes maximum, en mettant "
+        "en évidence : (1) les sujets/thèmes abordés, (2) les décisions et accords, "
+        "(3) les demandes ou questions clients, (4) les blocages ou points sensibles, "
+        "(5) les prochaines étapes attendues. Reste factuel ; cite si pertinent une "
+        "phrase courte entre guillemets. Utilise des puces si cela aide à la lisibilité."
     )
     target_line = f"\nClient/cible : {payload.target}" if payload.target else ""
     context_line = f"\nContexte : {payload.context}" if payload.context else ""
@@ -2776,6 +2867,69 @@ async def me_delete_ai_summary(sid: str, user: dict = Depends(get_current_user))
         raise HTTPException(status_code=403, detail="Suppression non autorisée")
     await db.ai_summaries.delete_one({"id": sid})
     return {"ok": True}
+
+
+class AiSummaryToReport(BaseModel):
+    title: Optional[str] = None
+    is_private: Optional[bool] = True  # default privé to err on the safe side
+    client_id: Optional[str] = None  # if provided, creates a "suivi" instead of a "report"
+
+
+@api.post("/me/ai/summaries/{sid}/to-report", tags=["Portail Client"])
+async def me_summary_to_report(sid: str, payload: AiSummaryToReport, request: Request, user: dict = Depends(get_current_user)):
+    """Convert a saved AI summary into a Report (or a Suivi if a client_id is
+    provided alongside an event_date built from the summary date). The body of
+    the report contains the rendered summary plus a tiny attribution footer."""
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle insuffisant")
+    s = await db.ai_summaries.find_one({"id": sid}, {"_id": 0})
+    if not s:
+        raise HTTPException(status_code=404, detail="Synthèse introuvable")
+    if user.get("role") != "admin" and s.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Conversion non autorisée")
+
+    title = (payload.title or "").strip() or f"Synthèse IA — {s.get('target') or s.get('created_at', '')[:10]}"
+    body = (s.get("summary") or "").strip()
+    # Convert plain newlines into HTML paragraphs so the rich-text editor renders them well
+    paragraphs = "".join(f"<p>{p.replace('<', '&lt;').replace('>', '&gt;')}</p>" for p in body.split("\n") if p.strip())
+    footer = (
+        f'<hr/><p style="font-size:11px;color:#64748b;">'
+        f'Généré automatiquement le {s.get("created_at", "")[:16].replace("T", " ")} '
+        f'via {s.get("provider", "—")}{" · " + s.get("model") if s.get("model") else ""}'
+        f'{" · cible : " + s["target"] if s.get("target") else ""}'
+        f"</p>"
+    )
+    content_html = paragraphs + footer
+
+    is_suivi = bool(payload.client_id)
+    kind = "suivis" if is_suivi else "reports"
+    coll = _user_notes_collection(kind)
+    prefix = "RPT" if kind == "reports" else "SUI"
+    numero = await _next_simple_number(prefix)
+    doc = {
+        "id": _uuid(),
+        "kind": kind,
+        "numero": numero,
+        "owner_id": user["id"],
+        "owner_email": user["email"],
+        "owner_name": user.get("full_name"),
+        "owner_role": user.get("tracked_role") or user.get("role"),
+        "title": title,
+        "content_html": content_html,
+        "tags": ["ia", s.get("provider") or "ia"],
+        "client_id": payload.client_id if is_suivi else None,
+        "event_date": s.get("created_at") if is_suivi else None,
+        "images": [],
+        "is_private": bool(payload.is_private),
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent"),
+        "created_at": _now(),
+        "updated_at": _now(),
+        "source_summary_id": sid,
+    }
+    await coll.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {"ok": True, "kind": kind, "report": doc}
 
 
 @api.get("/me/clients-roster", tags=["Portail Client"])
@@ -3124,18 +3278,37 @@ async def me_list_notes(
     user: dict = Depends(get_current_user),
 ):
     coll = _user_notes_collection(kind)
-    base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
-    query = dict(base)
+    # Privacy scoping: an elevated user sees ALL notes of their scope, BUT
+    # private notes (is_private=True) authored by *other* users remain hidden
+    # unless the caller is admin/superviseur (those two see everything).
+    if user.get("role") in ("admin", "superviseur"):
+        base: Dict[str, Any] = {}
+    elif _is_elevated_creator(user):
+        base = {
+            "$or": [
+                {"is_private": {"$ne": True}},
+                {"owner_id": user["id"]},
+            ],
+        }
+    else:
+        base = {"owner_id": user["id"]}
+    query: Dict[str, Any] = dict(base)
     if author:
         query["owner_email"] = {"$regex": re.escape(author), "$options": "i"}
     if q:
         rx = {"$regex": re.escape(q), "$options": "i"}
-        query["$or"] = [
+        # Combine with a possible $or already present in `base` by wrapping in $and
+        text_or = [
             {"title": rx},
             {"content_html": rx},
             {"numero": rx},
             {"tags": rx},
         ]
+        if "$or" in query:
+            existing_or = query.pop("$or")
+            query["$and"] = [{"$or": existing_or}, {"$or": text_or}]
+        else:
+            query["$or"] = text_or
     items = await coll.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
     return await _attach_my_rating(items, kind, user["id"])
 
@@ -3195,6 +3368,7 @@ async def me_create_note(
         "client_id": (payload.client_id or None) if kind == "suivis" else None,
         "event_date": (payload.event_date or None) if kind == "suivis" else None,
         "images": images,
+        "is_private": bool(payload.is_private),
         "ip": _client_ip_from_request(request),
         "user_agent": request.headers.get("user-agent"),
         "created_at": _now(),
@@ -4438,7 +4612,12 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass",
+                "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
+                "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
+                "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+                "sms_ovh_application_secret", "sms_ovh_consumer_key",
+                "pawapay_api_token"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -4457,6 +4636,11 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "wa_access_token", "wa_verify_token",
         "openai_api_key", "openai_chat_api_key",
         "n8n_webhook_token", "n8n_webhook_basic_pass",
+        "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
+        "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
+        "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+        "sms_ovh_application_secret", "sms_ovh_consumer_key",
+        "pawapay_api_token",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":

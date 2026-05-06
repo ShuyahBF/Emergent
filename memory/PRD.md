@@ -33,7 +33,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-05-06 — Itération 35 : Lot B partiel — Agenda partagé + Webhook bidirectionnel n8n
+### 2026-05-06 — Itération 36 : Lot B-2 — Formulaires enrichis (3 nouveaux types + Print PDF + QR)
+✅ **3 nouveaux types de champs** : `table` (colonnes paramétrables + lignes dynamiques), `file` (≤1 Mo, accept configurable), `signature` (canvas signature_pad, 1 par formulaire). Modèle `FormField` étendu avec `columns?` et `accept?`.
+✅ **Endpoint upload** : `POST /me/forms/{form_id}/upload` (multipart, ≤1Mo, 413 si dépassement, réutilise infra `/api/files/{id}` existante).
+✅ **Print PDF** : nouveau bouton violet sur le runner. Ouvre une page imprimable avec titre + numéro + QR du lien (public/privé) + table de toutes les données (signature comme image, tableau imbriqué, fichier comme lien).
+✅ **QR des données** : bouton fuchsia → modal avec QR encodant `{form_id, numero, title, data, generated_at}` en JSON brut + bouton télécharger PNG.
+✅ **Editor** : config UI dédiée par type (éditeur de colonnes pour table, accept pour file, warning anti-doublon signature).
+✅ Tests : 8/8 pytest iter23 (~2.6s) + 17 testids Playwright. Aucun bug.
+
+
 ✅ **RDV partagés par client** : `me_appointments` + `me_create_appointment` utilisent `client_id || id` → tous les utilisateurs suivis d'un même client voient les mêmes RDV. Admin/superviseur voient tout.
 ✅ **Webhook sortant n8n** : `_fire_agenda_n8n(action, appointment, user)` fire-and-forget sur create/update/delete manuel. Auth none/bearer/basic, timeout 10s, payload `{type:agenda, action, appointment, user, fired_at}`.
 ✅ **Webhook entrant n8n** : `POST /api/webhooks/agenda/{secret}` non-authentifié (secret = path token). Actions : list/create/update/delete. Validation slot disponible. Tag `source:'n8n'`. 503 si désactivé, 403 si secret faux.

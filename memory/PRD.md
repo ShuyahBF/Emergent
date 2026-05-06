@@ -33,7 +33,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-05-06 — Itération 33 : SMART Communications (per-client) + Synthèse→Rapport + SMS/PawaPay
+### 2026-05-06 — Itération 34 : Lot A (1/3) — Tableau de bord Usage & Facturation + OTP par domaine
+✅ **`/admin/usage`** : nouvelle page admin avec 4 KPI cards (WA envoyés/reçus, Synthèses IA, Coût WA estimé), graphique stacked Recharts 30j, tableau triable par client (8 colonnes : WA OK/KO/Reçus/Coût, IA, dots fonctionnalités), sélecteur période (7j/30j/90j/6mois), export CSV avec BOM UTF-8, lien rapide vers timeline CRM. Endpoint `GET /admin/usage/summary?days=N`.
+✅ **OTP par domaine** : `/auth/login` détecte le domaine de l'email (vs `internal_domains` dans settings) → si interne, OTP affiché ("Plateforme Interne"), sinon envoi par email. Idem `/auth/resend-otp`. Plus de mention "Mode Développement". Notification toast harmonisée.
+✅ **Settings "Authentification"** : nouveau champ texte CSV (`internal_domains`) éditable par admin avec aide contextuelle. Défaut : `sawalismartsystems.com`.
+✅ **Login UX** : encart OTP coloré bleu (interne) ou ambre (SMTP HS), libellé adapté au cas. Testid `login-otp-inline-notice` + `login-dev-otp`.
+✅ Validation : `/admin/usage/summary?days=7` retourne `period:7, totals:{wa_sent_ok:0, wa_total:1, ai_count:0}, clients:8, daily_len:7`. Login admin renvoie `Plateforme Interne : code OTP affiché directement sur la page.` et `dev_otp:True`. Frontend Playwright : page rendue + 4 KPIs + chart + 8 lignes clients.
+
+
 ✅ **Per-client SMART Communications** : nouvelle page `/admin/clients/{id}/features` avec 4 toggles (WhatsApp / SMS / IA / Paiements). Endpoints `GET/PUT /admin/clients/{id}/features` + `GET /me/features` (admin/superviseur=tout activé, tracked-user hérite du parent). Frontend grise les boutons inactifs (Dashboard AI, Contacts WhatsApp/Schedule).
 ✅ **Notes privées** : nouveau champ `is_private` sur reports/suivis. Si `true` → seul l'auteur + admins voient. Si `false` → partage avec utilisateurs suivis du même client. Toggle dans le formulaire + badge fuchsia "privée" sur la carte. Logique de scoping mise à jour côté backend (`me_list_notes`).
 ✅ **Synthèse → Rapport** : `POST /me/ai/summaries/{id}/to-report` convertit une synthèse archivée en rapport (`is_private` au choix). Bouton "Rapport" sur chaque ligne de l'onglet "Mes synthèses" du Dashboard. Le contenu HTML est échappé puis paragraphé + footer d'attribution (date + provider + modèle).

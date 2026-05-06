@@ -33,7 +33,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-05-06 — Itération 32 : Historique des synthèses IA (collection ai_summaries)
+### 2026-05-06 — Itération 33 : SMART Communications (per-client) + Synthèse→Rapport + SMS/PawaPay
+✅ **Per-client SMART Communications** : nouvelle page `/admin/clients/{id}/features` avec 4 toggles (WhatsApp / SMS / IA / Paiements). Endpoints `GET/PUT /admin/clients/{id}/features` + `GET /me/features` (admin/superviseur=tout activé, tracked-user hérite du parent). Frontend grise les boutons inactifs (Dashboard AI, Contacts WhatsApp/Schedule).
+✅ **Notes privées** : nouveau champ `is_private` sur reports/suivis. Si `true` → seul l'auteur + admins voient. Si `false` → partage avec utilisateurs suivis du même client. Toggle dans le formulaire + badge fuchsia "privée" sur la carte. Logique de scoping mise à jour côté backend (`me_list_notes`).
+✅ **Synthèse → Rapport** : `POST /me/ai/summaries/{id}/to-report` convertit une synthèse archivée en rapport (`is_private` au choix). Bouton "Rapport" sur chaque ligne de l'onglet "Mes synthèses" du Dashboard. Le contenu HTML est échappé puis paragraphé + footer d'attribution (date + provider + modèle).
+✅ **SMS Burkina (Orange/Moov/Telecel)** : 3 blocs admin/settings indépendants (URL + méthode GET/POST + auth none/bearer/basic/header personnalisé + sender_id). 30+ champs ajoutés, 9 secrets masqués.
+✅ **OVH SMS** : intégration officielle prête (endpoint ovh-eu/ovh-ca + AK/AS/CK + service_name + sender). 2 secrets masqués (AS, CK).
+✅ **PawaPay** : api_token (masqué) + environnement (sandbox/production) + country code (BFA par défaut).
+✅ **Aide transcription** : bandeau d'information dans le formulaire de création de Rapport/Suivi pointant vers l'icône micro de la barre d'outils.
+✅ **Synthèse IA enrichie** : nouveau system_prompt orienté CONTENU (5 axes : thèmes, décisions, demandes, blocages, prochaines étapes).
+✅ Tests : 9/9 pytest iter21 (~3.3s). 14/15 testids frontend validés Playwright. Bouton AI Dashboard confirmé visuel.
+
+
 ✅ **Persistence automatique** : chaque appel réussi à `POST /me/ai/summarize` insère dans `db.ai_summaries` `{id, user_id, user_email, client_id, provider, model, context, target, messages_count, summary, created_at}`. Best-effort (échec DB ne casse pas la réponse utilisateur).
 ✅ **2 nouveaux endpoints** : `GET /me/ai/summaries?limit=` (admin voit tout, user filtré par user_id, capé 200) + `DELETE /me/ai/summaries/{id}` (RBAC : owner ou admin uniquement).
 ✅ **Onglets dans le modal Dashboard** : "Générer" / "Mes synthèses (N)". Liste les synthèses passées avec badge provider colorisé (emerald=openai, violet=n8n), date, contexte, cible, count, bouton copier + supprimer par ligne.

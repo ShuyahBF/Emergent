@@ -440,6 +440,16 @@ class SettingsUpdate(BaseModel):
     health_email_to: Optional[str] = None  # default: SUPER_ADMIN_EMAIL
     health_timezone: Optional[str] = None  # default Africa/Abidjan
 
+    # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
+    openai_api_key: Optional[str] = None  # secret — masked when read
+    openai_whisper_model: Optional[str] = None  # default "whisper-1"
+
+    # Version Stamp visual customization (footer pill on every layout)
+    version_stamp_color: Optional[str] = None  # any CSS color (hex / rgb / oklch)
+    version_stamp_size: Optional[str] = None   # xs | sm | md | lg
+    version_stamp_opacity: Optional[int] = None  # 0..100
+    version_stamp_style: Optional[str] = None  # normal | bold | italic | bold_italic
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

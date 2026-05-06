@@ -730,6 +730,12 @@ async def company_info():
             "link_label": s.get("incident_banner_link_label") or "",
             "updated_at": s.get("incident_banner_updated_at"),
         },
+        "version_stamp": {
+            "color": s.get("version_stamp_color") or "",
+            "size": s.get("version_stamp_size") or "xs",
+            "opacity": int(s.get("version_stamp_opacity") or 70),
+            "style": s.get("version_stamp_style") or "normal",
+        },
     }
 
 
@@ -2422,12 +2428,17 @@ async def me_media_library_create(
     request: Request,
     file: UploadFile = File(...),
     label: str = Form(""),
+    target_client_id: str = Form(""),  # Admin-only: attach the upload to a specific client's library
     user: dict = Depends(get_current_user),
 ):
     """Upload + register a media in the shared client library, returns a stable public URL
     (with the file extension, accepted by Meta WhatsApp Cloud API as a header media)."""
     if not (_is_tracked_user(user) or _is_elevated_creator(user) or user.get("role") in ("client", "admin")):
         raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    # Resolve client_id: admin can override via target_client_id, others always use their own
+    client_scope = user.get("client_id") or user.get("id")
+    if (target_client_id or "").strip() and user.get("role") == "admin":
+        client_scope = target_client_id.strip()
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
@@ -2453,7 +2464,7 @@ async def me_media_library_create(
     media = {
         "id": _uuid(),
         "file_id": file_id,
-        "client_id": user.get("client_id") or user.get("id"),
+        "client_id": client_scope,
         "uploaded_by_id": user.get("id"),
         "uploaded_by_label": user.get("full_name") or user.get("email"),
         "label": (label or file.filename or "")[:200],
@@ -2479,6 +2490,68 @@ async def me_media_library_delete(media_id: str, user: dict = Depends(get_curren
     await db.media_library.delete_one({"id": media_id})
     # Best-effort: keep the underlying file in case other places reference it
     return {"ok": True}
+
+
+# ============================================================
+# Audio transcription — used by Reports/Suivis to dictate the body.
+# Calls OpenAI Whisper (whisper-1 by default) using the API key
+# stored in admin settings (configurable from /admin/settings).
+# ============================================================
+@api.post("/transcribe", tags=["Portail Client"])
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    language: str = Form("fr"),
+    user: dict = Depends(get_current_user),
+):
+    """Accepts a short audio file (webm/mp3/m4a/wav/ogg, ≤25 Mo) and returns
+    the transcribed text using OpenAI Whisper."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    api_key = (s.get("openai_api_key") or "").strip()
+    model = (s.get("openai_whisper_model") or "whisper-1").strip()
+    if not api_key:
+        raise HTTPException(
+            status_code=503,
+            detail="Transcription audio non configurée. Demandez à l'admin d'ajouter une clé OpenAI dans /admin/settings.",
+        )
+    # Stream the upload into memory (capped) — Whisper limit is 25 Mo
+    raw = await file.read()
+    if len(raw) > 25 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Fichier audio trop volumineux (max 25 Mo)")
+    if len(raw) < 200:
+        raise HTTPException(status_code=400, detail="Audio vide")
+    fname = file.filename or "audio.webm"
+    mime = file.content_type or "audio/webm"
+    try:
+        async with httpx.AsyncClient(timeout=60) as http:
+            files = {"file": (fname, raw, mime)}
+            data = {"model": model, "language": (language or "fr")[:5]}
+            r = await http.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=files,
+                data=data,
+            )
+            if r.status_code >= 300:
+                try:
+                    err = r.json().get("error", {}).get("message") or r.text[:300]
+                except Exception:
+                    err = r.text[:300]
+                raise HTTPException(status_code=502, detail=f"OpenAI Whisper a retourné HTTP {r.status_code} — {err}")
+            payload = r.json()
+            return {
+                "ok": True,
+                "text": (payload.get("text") or "").strip(),
+                "model": model,
+                "language": data["language"],
+                "duration_bytes": len(raw),
+            }
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à OpenAI Whisper")
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[transcribe] unexpected exception: %s", exc)
+        raise HTTPException(status_code=500, detail=str(exc)[:300])
 
 
 @api.get("/me/clients-roster", tags=["Portail Client"])
@@ -4141,7 +4214,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()
     # mask sensitive
     masked = dict(s)
-    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token"):
+    for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -4158,6 +4231,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "notes_webhook_token", "notes_webhook_basic_pass",
         "health_webhook_token", "health_webhook_basic_pass",
         "wa_access_token", "wa_verify_token",
+        "openai_api_key",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -5047,6 +5121,17 @@ class MarkSeenRequest(BaseModel):
 WA_GRAPH_VERSION = "v21.0"  # Meta Graph API version (update as Meta ships new)
 
 
+def _normalize_wa_phone(raw: Optional[str]) -> str:
+    """Sanitize a WhatsApp/phone number into the format Meta Cloud API expects:
+    digits-only with country code, no leading +.
+    Strips all non-digit characters (spaces, parens, dots, dashes, plus).
+    Returns "" when nothing usable was provided so callers can short-circuit cleanly."""
+    if not raw:
+        return ""
+    digits = "".join(ch for ch in str(raw) if ch.isdigit())
+    return digits
+
+
 async def _wa_send_template(to_e164: str, template_name: str, language_code: str = "fr", components: Optional[list] = None) -> dict:
     """Send a WhatsApp template message. Returns {ok, status, message_id, error, raw}."""
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -5054,10 +5139,19 @@ async def _wa_send_template(to_e164: str, template_name: str, language_code: str
     phone_number_id = s.get("wa_phone_number_id")
     if not access_token or not phone_number_id:
         return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
+    # Sanitize the destination — Meta rejects spaces, parens, dots, etc. and
+    # Cloud API forbids the leading +. Numbers shorter than 6 digits cannot be valid.
+    to_clean = _normalize_wa_phone(to_e164)
+    if len(to_clean) < 6:
+        return {
+            "ok": False, "status": None, "message_id": None,
+            "error": f"Numéro invalide « {to_e164} » — il doit contenir un indicatif pays (ex: 225XXXXXXXX)",
+            "raw": None,
+        }
     url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
     body = {
         "messaging_product": "whatsapp",
-        "to": to_e164.lstrip("+").replace(" ", "").replace("-", ""),
+        "to": to_clean,
         "type": "template",
         "template": {"name": template_name, "language": {"code": language_code}},
     }
@@ -5319,6 +5413,101 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
     query = {"client_id": client_scope} if user.get("role") != "admin" else {}
     items = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
     return items
+
+
+# ---------- Portal WhatsApp scheduling (mirrors admin endpoints, scoped by client) ----------
+class MeScheduleCreate(BaseModel):
+    title: Optional[str] = None
+    recipients: List[Dict[str, Any]]
+    template_name: str
+    language_code: Optional[str] = "fr"
+    components: Optional[list] = None
+    variables: Optional[List[str]] = None
+    header_text: Optional[str] = None
+    header_media: Optional[Dict[str, Any]] = None
+    button_vars: Optional[List[List[str]]] = None
+    scheduled_at: str  # ISO-8601 UTC
+
+
+def _can_send_wa(user: dict) -> bool:
+    if user.get("role") in ("admin", "client", "superviseur"):
+        return True
+    return _is_elevated_creator(user)
+
+
+@api.get("/me/messaging/schedules", tags=["Portail Client"])
+async def me_list_schedules(user: dict = Depends(get_current_user)):
+    """List the user's WhatsApp scheduled sends. Admins see everything; portal users
+    see schedules they created (created_by_id=user.id)."""
+    if not _can_send_wa(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    query = {} if user.get("role") == "admin" else {"created_by_id": user["id"]}
+    items = await db.whatsapp_schedules.find(query, {"_id": 0}).sort("scheduled_at", -1).to_list(500)
+    return items
+
+
+@api.post("/me/messaging/schedules", tags=["Portail Client"])
+async def me_create_schedule(payload: MeScheduleCreate, user: dict = Depends(get_current_user)):
+    if not _can_send_wa(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    if not payload.recipients:
+        raise HTTPException(status_code=400, detail="Aucun destinataire")
+    if not payload.template_name:
+        raise HTTPException(status_code=400, detail="Template requis")
+    try:
+        sched = datetime.fromisoformat(payload.scheduled_at.replace("Z", "+00:00"))
+        if sched.tzinfo is None:
+            sched = sched.replace(tzinfo=timezone.utc)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Date invalide (ISO-8601 attendu)")
+    if sched <= datetime.now(timezone.utc) - timedelta(minutes=1):
+        raise HTTPException(status_code=400, detail="La date planifiée doit être dans le futur")
+
+    doc = {
+        "id": _uuid(),
+        "title": (payload.title or "").strip() or f"Envoi {payload.template_name}",
+        "recipients": payload.recipients,
+        "template_name": payload.template_name,
+        "language_code": payload.language_code or "fr",
+        "components": payload.components,
+        "variables": payload.variables,
+        "header_text": payload.header_text,
+        "header_media": payload.header_media,
+        "button_vars": payload.button_vars,
+        "scheduled_at": sched.isoformat(),
+        "status": "pending",
+        "result_summary": None,
+        # Capture the user origin (used by /me/messaging/schedules to filter)
+        "created_by_id": user["id"],
+        "created_by_label": user.get("full_name") or user.get("email"),
+        "created_by_role": user.get("role"),
+        "client_id": user.get("client_id") or user.get("id"),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.whatsapp_schedules.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.delete("/me/messaging/schedules/{sid}", tags=["Portail Client"])
+async def me_delete_schedule(sid: str, user: dict = Depends(get_current_user)):
+    if not _can_send_wa(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+    existing = await db.whatsapp_schedules.find_one({"id": sid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Planification introuvable")
+    # Portal users can only cancel their own schedules
+    if user.get("role") != "admin" and existing.get("created_by_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Suppression non autorisée")
+    if existing.get("status") in ("running", "done"):
+        await db.whatsapp_schedules.update_one(
+            {"id": sid},
+            {"$set": {"status": "cancelled", "updated_at": _now()}},
+        )
+        return {"ok": True, "status": "cancelled"}
+    await db.whatsapp_schedules.delete_one({"id": sid})
+    return {"ok": True, "status": "deleted"}
 
 
 @api.get("/me/whatsapp/templates", tags=["Portail Client"])
@@ -5939,12 +6128,25 @@ async def admin_messaging_bulk_send(
         })
 
     sent_ok = sum(1 for r in results if r["ok"])
+    # Collect a compact list of distinct error messages so the frontend can show why
+    # an envoi failed (e.g. "(#100) Param 'to' invalid" → user fixes the number once).
+    error_summary = []
+    seen_err = set()
+    for r in results:
+        if not r["ok"] and r.get("error"):
+            e = str(r["error"])[:240]
+            if e not in seen_err:
+                seen_err.add(e)
+                error_summary.append(e)
+            if len(error_summary) >= 3:
+                break
     return {
         "requested": len(payload.recipients),
         "sent_ok": sent_ok,
         "sent_ko": len(results) - sent_ok,
         "skipped": [{"label": s["label"], "reason": "Pas de numéro de téléphone"} for s in skipped],
         "results": results,
+        "error_summary": error_summary,
     }
 
 

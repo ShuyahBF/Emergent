@@ -7,6 +7,7 @@ import {
   Heading2, Heading3, List, ListOrdered, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link as LinkIcon, Undo2, Redo2, Eraser, Code,
+  Mic, Square, MessageCircle, Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -257,6 +258,13 @@ export default function UserNotesPage() {
                 <RichEditor value={form.content_html} onChange={(v) => setForm({ ...form, content_html: v })} accent={meta.accent} />
               </div>
 
+              {/* WhatsApp picker — append selected messages to the body */}
+              <WaMessagesPicker
+                clientId={kind === "suivis" ? form.client_id : null}
+                onAppend={(html) => setForm((f) => ({ ...f, content_html: (f.content_html || "") + html }))}
+                accent={meta.accent}
+              />
+
               <ImageUploader images={form.images} onChange={(images) => setForm({ ...form, images })} accent={meta.accent} />
 
               <button
@@ -466,6 +474,8 @@ function RichEditor({ value, onChange, accent = "#1E90FF" }) {
   const ref = useRef(null);
   const [showColors, setShowColors] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
+  const [recState, setRecState] = useState("idle"); // idle | recording | processing
+  const recRef = useRef({ recorder: null, chunks: [], stream: null });
 
   useEffect(() => {
     if (ref.current && ref.current.innerHTML !== (value || "")) {
@@ -478,6 +488,67 @@ function RichEditor({ value, onChange, accent = "#1E90FF" }) {
   const emit = () => { if (ref.current) onChange(ref.current.innerHTML); };
   const exec = (cmd, arg = null) => { ref.current?.focus(); document.execCommand(cmd, false, arg); emit(); };
   const setLink = () => { const url = window.prompt("URL du lien :", "https://"); if (url) exec("createLink", url); };
+
+  const insertText = (text) => {
+    if (!text) return;
+    ref.current?.focus();
+    // Wrap in a paragraph so multiline transcription stays readable
+    const html = text.split(/\n+/).map((p) => `<p>${p.replace(/</g, "&lt;").replace(/>/g, "&gt;")}</p>`).join("");
+    document.execCommand("insertHTML", false, html);
+    emit();
+  };
+
+  const startRec = async () => {
+    if (recState !== "idle") return;
+    if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === "undefined") {
+      toast.error("Votre navigateur ne supporte pas l'enregistrement audio.");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      // Pick the first MIME the browser supports — webm/opus everywhere except Safari (mp4)
+      const candidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus"];
+      const mime = candidates.find((m) => window.MediaRecorder.isTypeSupported && window.MediaRecorder.isTypeSupported(m)) || "";
+      const recorder = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      recorder.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      recorder.onstop = async () => {
+        try {
+          recRef.current.stream?.getTracks().forEach((t) => t.stop());
+        } catch { /* noop */ }
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        if (blob.size < 200) { setRecState("idle"); toast.error("Audio trop court."); return; }
+        setRecState("processing");
+        try {
+          const fd = new FormData();
+          const ext = (recorder.mimeType || "audio/webm").split(";")[0].split("/")[1] || "webm";
+          fd.append("file", blob, `note-audio.${ext}`);
+          fd.append("language", "fr");
+          const r = await apiClient.post("/transcribe", fd, { headers: { "Content-Type": "multipart/form-data" } });
+          const txt = (r.data?.text || "").trim();
+          if (txt) { insertText(txt); toast.success("Transcription insérée"); }
+          else toast.message("Aucun texte détecté dans l'audio.");
+        } catch (err) {
+          toast.error(err?.response?.data?.detail || "Erreur de transcription");
+        } finally {
+          setRecState("idle");
+        }
+      };
+      recRef.current = { recorder, chunks, stream };
+      recorder.start();
+      setRecState("recording");
+    } catch (err) {
+      toast.error("Accès au micro refusé.");
+    }
+  };
+  const stopRec = () => {
+    const rec = recRef.current.recorder;
+    if (rec && rec.state !== "inactive") rec.stop();
+  };
+  // Cleanup mic on unmount
+  useEffect(() => () => {
+    try { recRef.current.stream?.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+  }, []);
 
   const Btn = ({ onClick, title, children, testid }) => (
     <button type="button" title={title} onMouseDown={(e) => e.preventDefault()} onClick={onClick} className="p-1.5 rounded hover:bg-slate-100 text-slate-600" data-testid={testid}>{children}</button>
@@ -533,8 +604,156 @@ function RichEditor({ value, onChange, accent = "#1E90FF" }) {
         <span className="w-px h-5 bg-slate-200 mx-1" />
         <Btn onClick={() => exec("undo")} title="Annuler" testid="rte-undo"><Undo2 className="h-3.5 w-3.5" /></Btn>
         <Btn onClick={() => exec("redo")} title="Rétablir" testid="rte-redo"><Redo2 className="h-3.5 w-3.5" /></Btn>
+        <span className="w-px h-5 bg-slate-200 mx-1" />
+        {recState === "recording" ? (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={stopRec}
+            className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 text-[11px] animate-pulse"
+            title="Arrêter l'enregistrement"
+            data-testid="rte-mic-stop"
+          >
+            <Square className="h-3 w-3 fill-white" /> Arrêter
+          </button>
+        ) : recState === "processing" ? (
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 text-white px-2.5 py-1 text-[11px]" data-testid="rte-mic-processing">
+            <Loader2 className="h-3 w-3 animate-spin" /> Transcription…
+          </span>
+        ) : (
+          <Btn onClick={startRec} title="Dicter à la voix (transcription Whisper)" testid="rte-mic-start">
+            <Mic className="h-3.5 w-3.5" />
+          </Btn>
+        )}
       </div>
       <div ref={ref} contentEditable suppressContentEditableWarning onInput={emit} onBlur={emit} className="prose-sawali min-h-[180px] max-h-[360px] overflow-auto px-3 py-2 text-sm focus:outline-none" style={{ caretColor: accent }} data-testid="rte-content" />
+    </div>
+  );
+}
+
+
+// ====================================================================
+// WhatsApp messages picker — fetch the user's WA history (optionally
+// filtered by client) and let them inject selected messages into the
+// note body. Useful to consolidate context inside Reports/Suivis.
+// ====================================================================
+function WaMessagesPicker({ clientId = null, onAppend, accent = "#1E90FF" }) {
+  const [open, setOpen] = useState(false);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [picked, setPicked] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/me/whatsapp/history", { params: { limit: 100 } });
+      let arr = Array.isArray(r.data) ? r.data : [];
+      if (clientId) arr = arr.filter((m) => m.client_id === clientId);
+      setItems(arr);
+    } catch { setItems([]); }
+    finally { setLoading(false); }
+  };
+
+  useEffect(() => { if (open) load(); /* eslint-disable-next-line */ }, [open, clientId]);
+
+  const append = () => {
+    const ids = Object.keys(picked).filter((k) => picked[k]);
+    if (ids.length === 0) { toast.error("Sélectionnez au moins un message"); return; }
+    const chosen = items.filter((m) => ids.includes(m.id));
+    const rows = chosen.map((m) => {
+      const ts = m.created_at ? new Date(m.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—";
+      const dir = m.direction === "inbound" ? "Reçu" : "Envoyé";
+      const body = (m.body || "").trim();
+      const tpl = m.template_name ? ` <em>(template ${m.template_name})</em>` : "";
+      const text = body || (m.template_name ? `Template : ${m.template_name}` : "(sans contenu)");
+      const safe = text.replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      return `<li><strong>${dir}</strong> · <code>${m.to || m.from || "—"}</code> · <span style="color:#64748b">${ts}</span>${tpl}<br/>${safe}</li>`;
+    }).join("");
+    const html = `<h3>Messages WhatsApp sélectionnés (${chosen.length})</h3><ul>${rows}</ul>`;
+    onAppend(html);
+    setPicked({});
+    setOpen(false);
+    toast.success(`${chosen.length} message(s) ajouté(s) au contenu`);
+  };
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white" data-testid="wa-messages-picker">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 rounded-xl"
+        data-testid="wa-picker-toggle"
+      >
+        <span className="inline-flex items-center gap-2">
+          <MessageCircle className="h-4 w-4" style={{ color: accent }} />
+          Insérer des messages WhatsApp {clientId ? "(filtré par client)" : ""}
+        </span>
+        <span className="text-[10px] text-slate-400">{open ? "Réduire" : "Afficher"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 px-3 py-3 space-y-2 max-h-72 overflow-auto">
+          {loading ? (
+            <p className="text-xs italic text-slate-500">Chargement…</p>
+          ) : items.length === 0 ? (
+            <p className="text-xs italic text-slate-500">Aucun message WhatsApp à afficher.</p>
+          ) : (
+            <table className="w-full text-xs" data-testid="wa-picker-table">
+              <thead className="text-slate-500 text-[10px] uppercase">
+                <tr>
+                  <th className="text-left px-1 py-1 w-6"></th>
+                  <th className="text-left px-1 py-1">Date</th>
+                  <th className="text-left px-1 py-1">Sens</th>
+                  <th className="text-left px-1 py-1">Destinataire</th>
+                  <th className="text-left px-1 py-1">Aperçu</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((m) => {
+                  const checked = !!picked[m.id];
+                  const body = (m.body || "").trim() || (m.template_name ? `Template : ${m.template_name}` : "(sans contenu)");
+                  return (
+                    <tr key={m.id} className={`border-t border-slate-100 ${checked ? "bg-emerald-50" : "hover:bg-slate-50"}`} data-testid={`wa-picker-row-${m.id}`}>
+                      <td className="px-1 py-1">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={(e) => setPicked((p) => ({ ...p, [m.id]: e.target.checked }))}
+                          data-testid={`wa-picker-check-${m.id}`}
+                        />
+                      </td>
+                      <td className="px-1 py-1 text-slate-600 whitespace-nowrap">
+                        {m.created_at ? new Date(m.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}
+                      </td>
+                      <td className="px-1 py-1">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded ${m.direction === "inbound" ? "bg-sky-100 text-sky-700" : "bg-emerald-100 text-emerald-700"}`}>
+                          {m.direction === "inbound" ? "Reçu" : "Envoyé"}
+                        </span>
+                      </td>
+                      <td className="px-1 py-1 font-mono text-[10px] text-slate-600">{m.to || m.from || "—"}</td>
+                      <td className="px-1 py-1 text-slate-700 truncate max-w-[260px]" title={body}>{body.slice(0, 80)}{body.length > 80 ? "…" : ""}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          )}
+          <div className="flex items-center justify-between pt-2">
+            <span className="text-[10px] text-slate-500">
+              {Object.values(picked).filter(Boolean).length} sélectionné(s) sur {items.length}
+            </span>
+            <button
+              type="button"
+              onClick={append}
+              disabled={Object.values(picked).filter(Boolean).length === 0}
+              className="text-xs rounded-lg text-white px-3 py-1.5 disabled:opacity-50"
+              style={{ background: accent }}
+              data-testid="wa-picker-append"
+            >
+              Insérer dans le contenu
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

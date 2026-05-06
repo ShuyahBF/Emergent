@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -22,7 +22,7 @@ export default function AdminSettings() {
     try {
       const payload = { ...s };
       // Don't send masked values
-      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass"]) {
+      for (const k of ["smtp_password", "google_client_secret", "recaptcha_secret_key", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key"]) {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
@@ -357,6 +357,116 @@ export default function AdminSettings() {
         <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
         <WaTestPanel />
+      </Section>
+
+      <Section icon={Mic} title="Transcription audio (OpenAI Whisper)">
+        <p className="text-xs text-slate-500">
+          Permet à l'utilisateur d'enregistrer sa voix pour rédiger un Rapport ou un Suivi.
+          La clé est stockée chiffrée et n'est jamais ré-affichée en clair.
+          Obtenez votre clé sur <a href="https://platform.openai.com/api-keys" target="_blank" rel="noreferrer" className="text-sawali-blue underline">platform.openai.com/api-keys</a>.
+        </p>
+        <Input
+          label="Clé API OpenAI"
+          type="password"
+          value={s.openai_api_key || ""}
+          onChange={(v) => upd("openai_api_key", v)}
+          placeholder={s.openai_api_key === "********" ? "(définie — cliquer pour modifier)" : "sk-..."}
+          testid="openai-api-key"
+        />
+        <Input
+          label="Modèle Whisper (par défaut: whisper-1)"
+          value={s.openai_whisper_model || ""}
+          onChange={(v) => upd("openai_whisper_model", v)}
+          placeholder="whisper-1"
+          testid="openai-whisper-model"
+        />
+      </Section>
+
+      <Section icon={Tag} title="Version stamp (footer)">
+        <p className="text-xs text-slate-500">
+          Personnalise l'affichage discret de la version (ex. <code>v1.0 · 06/05/2026 13:09</code>) en bas à gauche.
+        </p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1">Couleur</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={s.version_stamp_color || "#94a3b8"}
+                onChange={(e) => upd("version_stamp_color", e.target.value)}
+                className="h-10 w-14 rounded border border-slate-300 cursor-pointer"
+                data-testid="version-stamp-color"
+              />
+              <input
+                value={s.version_stamp_color || ""}
+                onChange={(e) => upd("version_stamp_color", e.target.value)}
+                placeholder="#94a3b8"
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Taille</label>
+            <select
+              value={s.version_stamp_size || "xs"}
+              onChange={(e) => upd("version_stamp_size", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="version-stamp-size"
+            >
+              <option value="xs">Très petit (10px)</option>
+              <option value="sm">Petit (12px)</option>
+              <option value="md">Normal (14px)</option>
+              <option value="lg">Grand (16px)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Opacité ({s.version_stamp_opacity ?? 70}%)</label>
+            <input
+              type="range"
+              min="10"
+              max="100"
+              step="5"
+              value={s.version_stamp_opacity ?? 70}
+              onChange={(e) => upd("version_stamp_opacity", parseInt(e.target.value, 10))}
+              className="w-full"
+              data-testid="version-stamp-opacity"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Style</label>
+            <select
+              value={s.version_stamp_style || "normal"}
+              onChange={(e) => upd("version_stamp_style", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="version-stamp-style"
+            >
+              <option value="normal">Normal</option>
+              <option value="bold">Gras</option>
+              <option value="italic">Italique</option>
+              <option value="bold_italic">Gras + Italique</option>
+            </select>
+          </div>
+        </div>
+        {/* Preview */}
+        <div className="mt-2 rounded ring-1 ring-slate-200 bg-slate-100 p-3">
+          <p className="text-[11px] uppercase tracking-wider text-slate-500 mb-2">Aperçu</p>
+          <span
+            data-testid="version-stamp-preview"
+            style={{
+              color: s.version_stamp_color || "#94a3b8",
+              opacity: (s.version_stamp_opacity ?? 70) / 100,
+              fontSize:
+                s.version_stamp_size === "lg" ? 16 :
+                s.version_stamp_size === "md" ? 14 :
+                s.version_stamp_size === "sm" ? 12 : 10,
+              fontWeight: (s.version_stamp_style || "").includes("bold") ? 700 : 400,
+              fontStyle: (s.version_stamp_style || "").includes("italic") ? "italic" : "normal",
+              fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+            }}
+          >
+            v1.0 · 06/05/2026 13:09
+          </span>
+        </div>
       </Section>
 
       <Section icon={Activity} title="Santé applicative — Alertes & rapports">

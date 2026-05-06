@@ -264,13 +264,14 @@ export default function AdminMessaging() {
         header_media: headerMedia || undefined,
         button_vars: (buttonVars && buttonVars.some((bv) => bv && bv.length > 0)) ? buttonVars : undefined,
       });
-      const { sent_ok = 0, sent_ko = 0, skipped = [] } = r.data || {};
+      const { sent_ok = 0, sent_ko = 0, skipped = [], error_summary = [] } = r.data || {};
       if (sent_ok > 0 && sent_ko === 0) {
         toast.success(`${sent_ok} message(s) envoyé(s)`);
       } else if (sent_ok > 0) {
         toast.success(`${sent_ok} envoyé(s), ${sent_ko} en erreur`);
       } else {
-        toast.error(`Aucun envoi — ${sent_ko} erreur(s). Vérifiez le template et les numéros.`);
+        const tail = error_summary.length > 0 ? ` Détail Meta : ${error_summary[0]}` : "";
+        toast.error(`Aucun envoi — ${sent_ko} erreur(s).${tail}`);
       }
       if (skipped.length > 0) {
         toast.message(`${skipped.length} destinataire(s) ignoré(s) (pas de numéro).`);

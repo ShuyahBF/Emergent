@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
+import { useAuth } from "@/contexts/AuthContext";
 import {
   Image as ImageIcon, FileText as FileTextIcon, Video, Upload, Trash2,
   RefreshCw, Copy, Search, FolderOpen,
@@ -14,11 +15,15 @@ import {
 const KIND_LABELS = { image: "Images", document: "Documents", video: "Vidéos" };
 
 export default function MediaLibrary() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === "admin";
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
   const [kindFilter, setKindFilter] = useState("");
+  const [clients, setClients] = useState([]);
+  const [targetClientId, setTargetClientId] = useState("");
 
   const load = async () => {
     setLoading(true);
@@ -31,7 +36,12 @@ export default function MediaLibrary() {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    if (isAdmin) {
+      apiClient.get("/me/clients-roster").then((r) => setClients(r.data || [])).catch(() => {});
+    }
+  }, [isAdmin]);
 
   const upload = async (file) => {
     if (!file) return;
@@ -40,8 +50,11 @@ export default function MediaLibrary() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("label", file.name || "");
+      // Admin: optionally attach to a specific client's library so the upload is
+      // visible to all users of that client (and not only to the admin).
+      if (isAdmin && targetClientId) fd.append("target_client_id", targetClientId);
       await apiClient.post("/me/media-library", fd, { headers: { "Content-Type": "multipart/form-data" } });
-      toast.success("Média ajouté");
+      toast.success(isAdmin && targetClientId ? "Média ajouté pour le client sélectionné" : "Média ajouté");
       await load();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Échec de l'upload");
@@ -106,6 +119,22 @@ export default function MediaLibrary() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
           </button>
+          {isAdmin && (
+            <select
+              value={targetClientId}
+              onChange={(e) => setTargetClientId(e.target.value)}
+              className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[200px]"
+              title="Cible le client à qui ce média sera attaché"
+              data-testid="media-target-client"
+            >
+              <option value="">Pour mon espace (admin)</option>
+              {clients.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.client_code ? `${c.client_code} — ` : ""}{c.company || c.full_name}
+                </option>
+              ))}
+            </select>
+          )}
           <label className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light cursor-pointer" data-testid="media-upload-btn">
             <Upload className="h-4 w-4" /> {uploading ? "Upload…" : "Ajouter un média"}
             <input

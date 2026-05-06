@@ -6,6 +6,7 @@ import {
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
+  CalendarClock, Trash,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 
@@ -145,7 +146,7 @@ export default function Contacts() {
                 <th className="text-left px-3 py-2">WhatsApp</th>
                 <th className="text-left px-3 py-2">Email</th>
                 <th className="text-left px-3 py-2">Partage</th>
-                <th className="text-right px-3 py-2 min-w-[260px]">Actions</th>
+                <th className="text-right px-3 py-2 min-w-[340px]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -156,6 +157,7 @@ export default function Contacts() {
                   onReload={load}
                   onEdit={() => setModal({ type: "edit", contact: c })}
                   onWa={() => setModal({ type: "wa", contact: c })}
+                  onSchedule={() => setModal({ type: "schedule", contact: c })}
                   onHistory={() => setModal({ type: "history", contact: c })}
                   onDelete={() => del(c.id)}
                 />
@@ -176,6 +178,9 @@ export default function Contacts() {
       {modal?.type === "wa" && (
         <WhatsAppModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} />
       )}
+      {modal?.type === "schedule" && (
+        <ScheduleModal contact={modal.contact} onClose={() => setModal(null)} onScheduled={load} />
+      )}
       {modal?.type === "history" && (
         <ConversationModal contact={modal.contact} onClose={() => setModal(null)} />
       )}
@@ -184,7 +189,7 @@ export default function Contacts() {
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onHistory, onDelete }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -293,12 +298,21 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onHistory, onDelete }) => {
             <MessageCircle className="h-3 w-3" /> WhatsApp
           </button>
           <button
+            onClick={onSchedule}
+            disabled={!c.whatsapp}
+            title={c.whatsapp ? "Planifier un message WhatsApp" : "Ajoutez d'abord un numéro WhatsApp"}
+            className="inline-flex items-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2 py-1 hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed"
+            data-testid={`contact-schedule-${c.id}`}
+          >
+            <CalendarClock className="h-3 w-3" /> Mess. Program.
+          </button>
+          <button
             onClick={onHistory}
             title="Voir les messages échangés"
             className="inline-flex items-center gap-1 text-[11px] rounded bg-slate-700 text-white px-2 py-1 hover:bg-slate-800"
             data-testid={`contact-history-${c.id}`}
           >
-            <History className="h-3 w-3" /> Messages
+            <History className="h-3 w-3" /> Hist. Mess.
           </button>
           <button
             onClick={onEdit}
@@ -1020,3 +1034,279 @@ const Input = ({ label, value, onChange, placeholder, testid }) => (
     />
   </div>
 );
+
+// --- Schedule modal: pick a template + date + time + variables, post to /me/messaging/schedules ---
+const ScheduleModal = ({ contact, onClose, onScheduled }) => {
+  const [templates, setTemplates] = useState([]);
+  const [tokens, setTokens] = useState([]);
+  const [templateName, setTemplateName] = useState("");
+  const [language, setLanguage] = useState("fr");
+  const [bodyVars, setBodyVars] = useState([]);
+  const [headerText, setHeaderText] = useState("");
+  const [headerMedia, setHeaderMedia] = useState(null);
+  const [buttonVars, setButtonVars] = useState([]);
+  const [date, setDate] = useState("");
+  const [time, setTime] = useState("");
+  const [title, setTitle] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [configured, setConfigured] = useState(true);
+  const [schedules, setSchedules] = useState([]);
+
+  const refresh = () => apiClient.get("/me/messaging/schedules")
+    .then((r) => setSchedules((r.data || []).filter((s) => (s.recipients || []).some((rc) => rc.kind === "raw" && (rc.id === contact.id || rc.phone === contact.whatsapp)))))
+    .catch(() => {});
+
+  useEffect(() => {
+    Promise.all([
+      apiClient.get("/me/whatsapp/templates"),
+      apiClient.get("/me/messaging/variable-tokens").catch(() => ({ data: { tokens: [] } })),
+    ]).then(([tplRes, tokRes]) => {
+      const items = tplRes.data?.items || [];
+      setTemplates(items);
+      setTokens(tokRes.data?.tokens || []);
+      setConfigured(!!tplRes.data?.configured);
+      if (items[0]) {
+        setTemplateName(items[0].name);
+        setLanguage(items[0].language || "fr");
+      }
+    }).catch(() => {}).finally(() => setLoading(false));
+    refresh();
+    // eslint-disable-next-line
+  }, []);
+
+  const selectedTemplate = useMemo(
+    () => templates.find((t) => t.name === templateName),
+    [templates, templateName],
+  );
+  const parsed = useMemo(() => parseTemplate(selectedTemplate), [selectedTemplate]);
+
+  useEffect(() => {
+    setHeaderText("");
+    setHeaderMedia(null);
+    setBodyVars(Array(parsed.body.varCount).fill(""));
+    setButtonVars((parsed.buttons || []).map((b) => Array(b.urlVarCount || 0).fill("")));
+  }, [templateName, parsed.body.varCount, parsed.buttons]);
+
+  const create = async () => {
+    if (!templateName) { toast.error("Sélectionnez un template"); return; }
+    if (!date || !time) { toast.error("Date et heure requises"); return; }
+    const v = validateTemplateValues(parsed, { headerText, headerMedia, bodyVars, buttonVars });
+    if (!v.ok) { toast.error(v.message); return; }
+    const local = new Date(`${date}T${time}`);
+    if (Number.isNaN(local.getTime())) { toast.error("Date invalide"); return; }
+    if (local <= new Date()) { toast.error("La date doit être dans le futur"); return; }
+    setSaving(true);
+    try {
+      const components = buildComponentsPayload(parsed, { headerText, headerMedia, bodyVars, buttonVars });
+      await apiClient.post("/me/messaging/schedules", {
+        title: title || `Envoi à ${contact.name}`,
+        recipients: [{ kind: "raw", id: contact.id, phone: contact.whatsapp, label: contact.name }],
+        template_name: templateName,
+        language_code: language,
+        components: components.length > 0 ? components : null,
+        bodyVarsLen: bodyVars.length,
+        // Server expects positional variable RECIPES, not the resolved values, when
+        // tokens are involved. The portal flow sends already-resolved values, which
+        // is fine — the cron will substitute at run time only if `variables` is set.
+        scheduled_at: local.toISOString(),
+      });
+      toast.success("Message planifié");
+      setTitle("");
+      setDate("");
+      setTime("");
+      refresh();
+      if (onScheduled) onScheduled();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const cancel = async (sid) => {
+    if (!window.confirm("Annuler cette planification ?")) return;
+    try {
+      await apiClient.delete(`/me/messaging/schedules/${sid}`);
+      toast.success("Planification annulée");
+      refresh();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      data-testid="schedule-modal"
+    >
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+            <CalendarClock className="h-5 w-5 text-sawali-blue" /> Planifier un WhatsApp
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
+          <p className="text-sm text-slate-600">
+            À : <strong>{contact.name}</strong>
+            <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded ml-1">{contact.whatsapp}</code>
+          </p>
+          {loading ? (
+            <p className="text-sm text-slate-500">Chargement…</p>
+          ) : !configured ? (
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
+              WhatsApp Business API non configurée.
+            </div>
+          ) : (
+            <>
+              <Input label="Titre (facultatif)" value={title} onChange={setTitle} placeholder={`Envoi à ${contact.name}`} testid="schedule-title" />
+              <div className="grid sm:grid-cols-[1fr_120px] gap-3">
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Template</label>
+                  <select
+                    value={templateName}
+                    onChange={(e) => {
+                      setTemplateName(e.target.value);
+                      const t = templates.find((x) => x.name === e.target.value);
+                      if (t?.language) setLanguage(t.language);
+                    }}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="schedule-template-select"
+                  >
+                    {templates.map((t) => (
+                      <option key={`${t.name}_${t.language}`} value={t.name}>
+                        {t.name} ({t.language}){t.note_description ? ` — ${t.note_description.slice(0, 60)}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Langue</label>
+                  <input
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="schedule-language"
+                  />
+                </div>
+              </div>
+              <div className="grid sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Date</label>
+                  <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="schedule-date" />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1">Heure</label>
+                  <input type="time" value={time} onChange={(e) => setTime(e.target.value)} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="schedule-time" />
+                </div>
+              </div>
+
+              {/* HEADER */}
+              {parsed.header && (
+                <HeaderBlock
+                  header={parsed.header}
+                  headerText={headerText}
+                  setHeaderText={setHeaderText}
+                  headerMedia={headerMedia}
+                  clearMedia={() => setHeaderMedia(null)}
+                  uploadHeader={async (file, existingMedia = null) => {
+                    if (existingMedia?.public_url) {
+                      setHeaderMedia({ link: existingMedia.public_url, kind: existingMedia.kind, filename: existingMedia.filename });
+                      return;
+                    }
+                    if (!file) return;
+                    const fd = new FormData();
+                    fd.append("file", file);
+                    fd.append("label", file.name || "");
+                    try {
+                      const r = await apiClient.post("/me/media-library", fd, { headers: { "Content-Type": "multipart/form-data" } });
+                      const link = r.data?.public_url;
+                      if (!link) throw new Error("URL publique manquante");
+                      setHeaderMedia({ link, kind: r.data?.kind || "document", filename: r.data?.filename || file.name });
+                    } catch (err) { toast.error(err?.response?.data?.detail || "Échec de l'upload"); }
+                  }}
+                  uploading={false}
+                  tokens={tokens}
+                />
+              )}
+
+              {parsed.body.text && (
+                <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 whitespace-pre-wrap">
+                  <p className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Corps du template</p>
+                  {parsed.body.text}
+                </div>
+              )}
+
+              {parsed.body.varCount > 0 && (
+                <VarGrid
+                  label={`Variables du corps (${parsed.body.varCount})`}
+                  values={bodyVars}
+                  onChange={setBodyVars}
+                  testPrefix="schedule-variable"
+                  tokens={tokens}
+                />
+              )}
+
+              {/* Existing schedules for THIS contact */}
+              {schedules.length > 0 && (
+                <div className="rounded-lg ring-1 ring-slate-200 bg-white" data-testid="schedule-list">
+                  <p className="text-xs font-semibold px-3 py-2 border-b border-slate-100 text-slate-700">
+                    Planifications pour ce contact ({schedules.length})
+                  </p>
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-slate-500 uppercase text-[10px]">
+                      <tr>
+                        <th className="text-left px-2 py-1.5">Quand</th>
+                        <th className="text-left px-2 py-1.5">Template</th>
+                        <th className="text-left px-2 py-1.5">Statut</th>
+                        <th className="px-2 py-1.5"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {schedules.map((s) => (
+                        <tr key={s.id} className="border-t border-slate-100" data-testid={`schedule-row-${s.id}`}>
+                          <td className="px-2 py-1.5 whitespace-nowrap text-slate-700">
+                            {s.scheduled_at ? new Date(s.scheduled_at).toLocaleString("fr-FR") : "—"}
+                          </td>
+                          <td className="px-2 py-1.5 font-mono text-[11px] text-slate-700">{s.template_name}</td>
+                          <td className="px-2 py-1.5">
+                            <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                              s.status === "pending" ? "bg-amber-100 text-amber-800"
+                                : s.status === "running" ? "bg-sky-100 text-sky-800"
+                                : s.status === "done" ? "bg-emerald-100 text-emerald-800"
+                                : s.status === "failed" ? "bg-rose-100 text-rose-800"
+                                : "bg-slate-200 text-slate-700"
+                            }`}>{s.status}</span>
+                          </td>
+                          <td className="px-2 py-1.5 text-right">
+                            {(s.status === "pending" || s.status === "running") && (
+                              <button onClick={() => cancel(s.id)} className="text-rose-600 hover:text-rose-800" data-testid={`schedule-cancel-${s.id}`}>
+                                <Trash className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
+          <button
+            onClick={create}
+            disabled={saving || !configured || templates.length === 0}
+            className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50"
+            data-testid="schedule-create-btn"
+          >
+            <CalendarClock className="h-4 w-4" /> {saving ? "Planification…" : "Planifier"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+

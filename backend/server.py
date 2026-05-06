@@ -2604,6 +2604,33 @@ def _format_messages_for_prompt(rows: List[Dict[str, Any]]) -> str:
     return "\n".join(lines) or "(aucun contenu)"
 
 
+async def _persist_ai_summary(user: dict, provider: str, model: Optional[str], payload: AiSummaryRequest, summary: str) -> str:
+    """Insert the generated summary into db.ai_summaries so it shows up in the
+    history tab. Best-effort: any DB failure is logged but never bubbles up to
+    the caller (the AI call already succeeded — losing the audit row mustn't
+    break the user-facing response)."""
+    try:
+        doc = {
+            "id": _uuid(),
+            "user_id": user.get("id"),
+            "user_email": user.get("email"),
+            "user_label": user.get("full_name") or user.get("email"),
+            "client_id": user.get("client_id") or user.get("id"),
+            "provider": provider,
+            "model": model,
+            "context": (payload.context or "")[:500],
+            "target": (payload.target or "")[:200],
+            "messages_count": len(payload.messages or []),
+            "summary": (summary or "")[:8000],
+            "created_at": _now(),
+        }
+        await db.ai_summaries.insert_one(doc.copy())
+        return doc["id"]
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ai-summary persist] failed: %s", exc)
+        return ""
+
+
 @api.post("/me/ai/summarize", tags=["Portail Client"])
 async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_current_user)):
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -2653,7 +2680,9 @@ async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_cu
                     raise HTTPException(status_code=502, detail=f"OpenAI a retourné HTTP {r.status_code} — {err}")
                 data = r.json()
                 summary = ((data.get("choices") or [{}])[0].get("message") or {}).get("content") or ""
-                return {"ok": True, "provider": "openai", "model": model, "summary": summary.strip()}
+                summary = summary.strip()
+                await _persist_ai_summary(user, "openai", model, payload, summary)
+                return {"ok": True, "provider": "openai", "model": model, "summary": summary}
         except httpx.TimeoutException:
             raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à OpenAI ChatGPT")
         except HTTPException:
@@ -2710,7 +2739,9 @@ async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_cu
                 summary = data[0].get("summary") or data[0].get("text") or ""
             if not summary:
                 summary = json.dumps(data)[:2000]
-            return {"ok": True, "provider": "n8n", "summary": str(summary).strip()}
+            summary = str(summary).strip()
+            await _persist_ai_summary(user, "n8n", None, payload, summary)
+            return {"ok": True, "provider": "n8n", "summary": summary}
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel au webhook n8n")
     except HTTPException:
@@ -2718,6 +2749,33 @@ async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_cu
     except Exception as exc:  # noqa: BLE001
         logger.warning("[ai-summary n8n] unexpected: %s", exc)
         raise HTTPException(status_code=500, detail=str(exc)[:300])
+
+
+@api.get("/me/ai/summaries", tags=["Portail Client"])
+async def me_list_ai_summaries(limit: int = 50, user: dict = Depends(get_current_user)):
+    """List the calling user's saved AI summaries (admins see everything,
+    sorted by created_at desc). Capped at 200 per request to keep UI snappy."""
+    cap = min(max(limit, 1), 200)
+    if user.get("role") == "admin":
+        query = {}
+    else:
+        # Regular users see their own summaries — they shouldn't read other
+        # users of the same client (privacy: a summary may contain free-text
+        # context that the author considered private).
+        query = {"user_id": user["id"]}
+    items = await db.ai_summaries.find(query, {"_id": 0}).sort("created_at", -1).to_list(cap)
+    return items
+
+
+@api.delete("/me/ai/summaries/{sid}", tags=["Portail Client"])
+async def me_delete_ai_summary(sid: str, user: dict = Depends(get_current_user)):
+    existing = await db.ai_summaries.find_one({"id": sid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Synthèse introuvable")
+    if user.get("role") != "admin" and existing.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Suppression non autorisée")
+    await db.ai_summaries.delete_one({"id": sid})
+    return {"ok": True}
 
 
 @api.get("/me/clients-roster", tags=["Portail Client"])
@@ -4287,7 +4345,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies", "ai_summaries",
 }
 
 
@@ -8115,6 +8173,9 @@ async def on_startup():
     await db.client_tasks.create_index("status")
     await db.client_tasks.create_index("due_at")
     await db.policies.create_index("slot", unique=True)
+    await db.ai_summaries.create_index("user_id")
+    await db.ai_summaries.create_index([("user_id", 1), ("created_at", -1)])
+    await db.ai_summaries.create_index("created_at")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")

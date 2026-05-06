@@ -33,7 +33,21 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
-### 2026-05-06 — Itération 30 : Fix WA phone + planif portail + transcription audio + version stamp configurable
+### 2026-05-06 — Itération 32 : Historique des synthèses IA (collection ai_summaries)
+✅ **Persistence automatique** : chaque appel réussi à `POST /me/ai/summarize` insère dans `db.ai_summaries` `{id, user_id, user_email, client_id, provider, model, context, target, messages_count, summary, created_at}`. Best-effort (échec DB ne casse pas la réponse utilisateur).
+✅ **2 nouveaux endpoints** : `GET /me/ai/summaries?limit=` (admin voit tout, user filtré par user_id, capé 200) + `DELETE /me/ai/summaries/{id}` (RBAC : owner ou admin uniquement).
+✅ **Onglets dans le modal Dashboard** : "Générer" / "Mes synthèses (N)". Liste les synthèses passées avec badge provider colorisé (emerald=openai, violet=n8n), date, contexte, cible, count, bouton copier + supprimer par ligne.
+✅ Index MongoDB : `user_id`, `(user_id, created_at desc)`, `created_at`. Whitelist DB Explorer + lien sidebar admin (à créer si besoin).
+✅ Validé visuel : bouton "Synthèse IA" → modal → onglet "Mes synthèses" → "Aucune synthèse enregistrée…" rendu correctement.
+
+
+✅ **Bug fix politiques** : `/api/public/policies/{slot}` accepte maintenant `GET + HEAD` (api_route). L'iframe d'aperçu sur `/politiques/{slug}` se charge directement, plus besoin de télécharger le PDF d'abord. Vérifié : `curl -I` retourne 200 (vs 405 avant).
+✅ **Endpoint `POST /api/me/ai/summarize`** : moteur dual OpenAI ChatGPT / webhook n8n (AgentAI-style), routé via `ai_summary_provider`. 503 si non-configuré (message FR explicite), 502 sur erreur amont, 504 sur timeout. Parsing n8n robuste : accepte `summary | text | output | message` ou JSON brut.
+✅ **Settings IA** : 8 nouveaux champs (`ai_summary_provider`, `openai_chat_api_key`, `openai_chat_model`, `n8n_webhook_url`, `n8n_webhook_auth_type`, `n8n_webhook_token`, `n8n_webhook_basic_user`, `n8n_webhook_basic_pass`). Masking automatique des 3 secrets en GET. Section dédiée dans `/admin/settings` avec sélecteur de moteur + bloc OpenAI + bloc n8n (auth conditionnelle bearer/basic).
+✅ **Bouton "Synthèse IA" sur Dashboard** : gradient fuchsia→violet en haut à droite. Modal avec filtres (période 24h/3j/7j/14j/30j/90j, client, sens), inputs cible/contexte facultatifs, bouton "Générer la synthèse". Affiche le résultat dans un encart vert + bouton "Copier".
+✅ Tests : 9/9 pytest iter20 (~4.5s). Backend OK 100%. 14 testids frontend validés via grep + visuel iframe vérifié.
+
+
 ✅ **Bug fix Admin WhatsApp** : Helper `_normalize_wa_phone(raw)` filtre digits-only avant l'envoi à Meta Graph. Plus de "Vérifier le numéro" sur les `+`, espaces, tirets, points, parenthèses. `admin_messaging_bulk_send` renvoie maintenant `error_summary[]` (3 erreurs Meta uniques max, 240 car. chacune) — la toast frontend affiche le détail Meta du 1er échec.
 ✅ **Planification WhatsApp côté Portail** : 3 endpoints `GET/POST/DELETE /api/me/messaging/schedules`. POST valide future date + recipients + template. Le cron `_run_scheduled_whatsapp` (existant) traite indifféremment admin + portal. `Contacts.jsx` : nouveau bouton bleu "Mess. Program." (CalendarClock) par contact + `ScheduleModal` complet (template, langue, date, heure, variables, header, liste des planifs). Renommage "Messages" → "Hist. Mess."
 ✅ **Transcription audio Whisper** : `POST /api/transcribe` accepte un audio multipart (≤25 Mo), proxy vers `https://api.openai.com/v1/audio/transcriptions` avec la clé stockée dans settings. Sans clé → HTTP 503 français explicite. `UserNotes.jsx` (RichEditor toolbar) : bouton micro 3-états (idle/recording/processing), MediaRecorder API, fallback gracieux si navigateur incompatible.

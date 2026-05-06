@@ -152,6 +152,7 @@ const Badge = ({ status }) => {
 // /me/ai/summarize endpoint and displays the rendered summary.
 // ====================================================================
 function AiSummaryModal({ onClose }) {
+  const [tab, setTab] = useState("generate"); // generate | history
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(false);
   const [days, setDays] = useState(7);
@@ -162,6 +163,8 @@ function AiSummaryModal({ onClose }) {
   const [summary, setSummary] = useState("");
   const [provider, setProvider] = useState("");
   const [running, setRunning] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -174,7 +177,30 @@ function AiSummaryModal({ onClose }) {
       setLoading(false);
     }
   };
+
+  const loadHistory = async () => {
+    setHistoryLoading(true);
+    try {
+      const r = await apiClient.get("/me/ai/summaries", { params: { limit: 100 } });
+      setHistory(Array.isArray(r.data) ? r.data : []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement");
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   useEffect(() => { load(); }, []);
+  useEffect(() => { if (tab === "history") loadHistory(); }, [tab]);
+
+  const deleteSummary = async (id) => {
+    if (!window.confirm("Supprimer cette synthèse ?")) return;
+    try {
+      await apiClient.delete(`/me/ai/summaries/${id}`);
+      toast.success("Synthèse supprimée");
+      await loadHistory();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
 
   const clientOptions = useMemo(() => {
     const seen = new Set();
@@ -212,6 +238,8 @@ function AiSummaryModal({ onClose }) {
       setProvider(r.data?.provider || "");
       if (!r.data?.summary) toast.message("Synthèse vide.");
       else toast.success(`Synthèse générée via ${r.data?.provider || "IA"}`);
+      // Mark history as stale so a switch to the "Historique" tab re-fetches.
+      setHistory([]);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de synthèse");
     } finally {
@@ -237,6 +265,32 @@ function AiSummaryModal({ onClose }) {
           </h2>
           <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
         </div>
+        {/* Tabs */}
+        <div className="flex gap-0.5 px-5 pt-3 border-b border-slate-100" data-testid="ai-summary-tabs">
+          <button
+            onClick={() => setTab("generate")}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-md transition ${
+              tab === "generate"
+                ? "bg-white text-fuchsia-700 ring-1 ring-fuchsia-200 ring-b-0"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+            data-testid="ai-summary-tab-generate"
+          >
+            Générer
+          </button>
+          <button
+            onClick={() => setTab("history")}
+            className={`px-3 py-2 text-xs font-semibold rounded-t-md transition ${
+              tab === "history"
+                ? "bg-white text-fuchsia-700 ring-1 ring-fuchsia-200 ring-b-0"
+                : "text-slate-500 hover:text-slate-800"
+            }`}
+            data-testid="ai-summary-tab-history"
+          >
+            Mes synthèses ({history.length || "—"})
+          </button>
+        </div>
+        {tab === "generate" ? (
         <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
           <div className="grid sm:grid-cols-3 gap-3">
             <div>
@@ -331,17 +385,80 @@ function AiSummaryModal({ onClose }) {
             </div>
           )}
         </div>
+        ) : (
+        <div className="flex-1 overflow-y-auto px-5 py-4" data-testid="ai-summary-history">
+          <div className="flex items-center justify-between mb-3">
+            <p className="text-xs text-slate-500">
+              {historyLoading ? "Chargement…" : `${history.length} synthèse(s) enregistrée(s)`}
+            </p>
+            <button
+              onClick={loadHistory}
+              className="inline-flex items-center gap-1 text-[11px] text-slate-600 hover:text-slate-900"
+              data-testid="ai-summary-history-refresh"
+            >
+              <RefreshCw className={`h-3 w-3 ${historyLoading ? "animate-spin" : ""}`} /> Actualiser
+            </button>
+          </div>
+          {!historyLoading && history.length === 0 ? (
+            <p className="text-sm text-slate-400 italic text-center py-8">
+              Aucune synthèse enregistrée. Générez-en une depuis l'onglet « Générer ».
+            </p>
+          ) : (
+            <ul className="space-y-3">
+              {history.map((h) => (
+                <li key={h.id} className="rounded-lg ring-1 ring-slate-200 bg-white p-3" data-testid={`ai-summary-history-row-${h.id}`}>
+                  <div className="flex items-center justify-between text-[11px] text-slate-500 mb-1">
+                    <span className="inline-flex items-center gap-2">
+                      <span className={`px-1.5 py-0.5 rounded ${h.provider === "openai" ? "bg-emerald-100 text-emerald-800" : "bg-violet-100 text-violet-800"}`}>
+                        {h.provider}{h.model ? ` · ${h.model}` : ""}
+                      </span>
+                      <span>{h.created_at ? new Date(h.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}</span>
+                      {h.target && <span className="text-slate-700">· {h.target}</span>}
+                      {h.messages_count != null && <span className="text-slate-400">({h.messages_count} msg)</span>}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <button
+                        onClick={async () => {
+                          try { await navigator.clipboard.writeText(h.summary || ""); toast.success("Copiée"); }
+                          catch { toast.error("Copie impossible"); }
+                        }}
+                        className="text-slate-500 hover:text-slate-900"
+                        title="Copier"
+                        data-testid={`ai-summary-history-copy-${h.id}`}
+                      >
+                        <Copy className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={() => deleteSummary(h.id)}
+                        className="text-rose-500 hover:text-rose-700"
+                        title="Supprimer"
+                        data-testid={`ai-summary-history-delete-${h.id}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  </div>
+                  {h.context && <p className="text-[11px] text-slate-500 italic mb-1">Contexte : {h.context}</p>}
+                  <p className="whitespace-pre-line text-sm text-slate-800 leading-relaxed">{h.summary}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        )}
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
           <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
-          <button
-            onClick={run}
-            disabled={running || filtered.length === 0}
-            className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white px-4 py-2 disabled:opacity-50"
-            data-testid="ai-summary-run"
-          >
-            {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
-            {running ? "Génération…" : "Générer la synthèse"}
-          </button>
+          {tab === "generate" && (
+            <button
+              onClick={run}
+              disabled={running || filtered.length === 0}
+              className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-gradient-to-r from-fuchsia-600 to-violet-600 hover:from-fuchsia-700 hover:to-violet-700 text-white px-4 py-2 disabled:opacity-50"
+              data-testid="ai-summary-run"
+            >
+              {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+              {running ? "Génération…" : "Générer la synthèse"}
+            </button>
+          )}
         </div>
       </div>
     </div>

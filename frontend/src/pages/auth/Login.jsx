@@ -64,6 +64,8 @@ export default function Login() {
     document.head.appendChild(s);
   }, [captchaCfg]);
 
+  const [loginMsg, setLoginMsg] = useState(null);
+
   const submitCreds = async (e) => {
     e.preventDefault();
     setLoading(true);
@@ -71,6 +73,7 @@ export default function Login() {
       const r = await apiClient.post("/auth/login", { email, password, captcha_token: captchaToken });
       setSession(r.data.session_token);
       setDevOtp(r.data.dev_otp || null);
+      setLoginMsg(r.data.message || null);
       setStep("otp");
       toast.success(r.data.message);
     } catch (err) {
@@ -194,8 +197,17 @@ export default function Login() {
                   />
                 </div>
                 {devOtp && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-3 text-amber-900 text-xs">
-                    <strong>Mode développement :</strong> SMTP non configuré. Code OTP : <span className="font-mono text-base font-bold">{devOtp}</span>
+                  <div className={`rounded-lg border p-3 text-xs ${
+                    loginMsg && loginMsg.toLowerCase().includes("interne")
+                      ? "border-sawali-blue/30 bg-sawali-blue/5 text-sawali-blue"
+                      : "border-amber-300 bg-amber-50 text-amber-900"
+                  }`} data-testid="login-otp-inline-notice">
+                    <strong>
+                      {loginMsg && loginMsg.toLowerCase().includes("interne")
+                        ? "Plateforme Interne :"
+                        : "Service e-mail indisponible :"}
+                    </strong>{" "}
+                    Code OTP : <span className="font-mono text-base font-bold" data-testid="login-dev-otp">{devOtp}</span>
                   </div>
                 )}
                 <button type="submit" disabled={loading || otp.length !== 6} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition disabled:opacity-50" data-testid="login-verify-otp-button">

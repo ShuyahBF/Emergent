@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -74,6 +74,24 @@ export default function AdminSettings() {
           <Input label="From email" value={s.smtp_from_email || ""} onChange={(v) => upd("smtp_from_email", v)} testid="smtp-from" />
         </div>
         <Toggle label="Utiliser STARTTLS" value={s.smtp_use_tls !== false} onChange={(v) => upd("smtp_use_tls", v)} testid="smtp-tls" />
+      </Section>
+
+      <Section icon={KeyRound} title="Authentification — OTP par domaine">
+        <p className="text-xs text-slate-500">
+          Les emails appartenant à un domaine interne <strong>affichent le code OTP directement</strong> sur la page de connexion
+          (badge « Plateforme Interne ») au lieu de l'envoyer par email. Utile pour votre équipe.
+          Tous les autres utilisateurs reçoivent leur code par e-mail via SMTP.
+        </p>
+        <Input
+          label="Domaines internes (séparés par virgule)"
+          value={s.internal_domains || ""}
+          onChange={(v) => upd("internal_domains", v)}
+          placeholder="sawalismartsystems.com, sawali.local"
+          testid="internal-domains"
+        />
+        <p className="text-[10px] text-slate-400">
+          Valeur par défaut : <code>sawalismartsystems.com</code>. Laissez vide pour forcer l'envoi par email pour tous.
+        </p>
       </Section>
 
       <Section icon={Calendar} title="Google Calendar">

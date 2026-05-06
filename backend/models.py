@@ -508,6 +508,13 @@ class SettingsUpdate(BaseModel):
     pawapay_environment: Optional[str] = None  # "sandbox" | "production"
     pawapay_country: Optional[str] = None  # ISO-3 (e.g. "BFA")
 
+    # ----- Authentication: OTP delivery mode -----
+    # Comma-separated list of "internal domains" — emails ending with any of
+    # these domains get their OTP displayed directly on the login page (no
+    # SMTP). Everyone else receives it by email via the configured SMTP.
+    # Use this for staff / in-house accounts to avoid email round-trips.
+    internal_domains: Optional[str] = None  # e.g. "sawalismartsystems.com, sawali.local"
+
     # Version Stamp visual customization (footer pill on every layout)
     version_stamp_color: Optional[str] = None  # any CSS color (hex / rgb / oklch)
     version_stamp_size: Optional[str] = None   # xs | sm | md | lg

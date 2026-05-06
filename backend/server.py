@@ -583,13 +583,28 @@ async def auth_login(payload: LoginRequest):
             "created_at": _now(),
         }
     )
-    sent = await send_otp_email(user["email"], user["full_name"], code)
-    dev_otp = None if sent else code  # show only when SMTP not configured
-    msg = (
-        "Un code de vérification a été envoyé à votre adresse email."
-        if sent
-        else "SMTP non configuré : code OTP affiché en mode développement."
-    )
+    # Resolve OTP delivery mode: internal-domain users get the code shown on
+    # the login page (no SMTP cost / round-trip) — everyone else gets an email.
+    email_domain = (user["email"].split("@", 1)[-1] or "").lower().strip()
+    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+    internal_list = [
+        d.strip().lower().lstrip("@")
+        for d in (settings_doc.get("internal_domains") or "sawalismartsystems.com").split(",")
+        if d.strip()
+    ]
+    is_internal_user = email_domain in internal_list
+    if is_internal_user:
+        dev_otp = code  # always revealed on the page
+        sent = False
+        msg = "Plateforme Interne : code OTP affiché directement sur la page."
+    else:
+        sent = await send_otp_email(user["email"], user["full_name"], code)
+        dev_otp = None if sent else code
+        msg = (
+            "Un code de vérification a été envoyé à votre adresse email."
+            if sent
+            else "Service e-mail indisponible : code OTP affiché ci-dessous (à usage unique)."
+        )
     return LoginResponse(needs_otp=True, session_token=session, message=msg, dev_otp=dev_otp)
 
 
@@ -623,6 +638,16 @@ async def auth_resend_otp(session_token: str):
     new_code = generate_otp()
     expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
     await db.otps.update_one({"id": otp["id"]}, {"$set": {"code": new_code, "expires_at": expires}})
+    # Respect the same internal-domain rule as /auth/login
+    email_domain = (user["email"].split("@", 1)[-1] or "").lower().strip()
+    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+    internal_list = [
+        d.strip().lower().lstrip("@")
+        for d in (settings_doc.get("internal_domains") or "sawalismartsystems.com").split(",")
+        if d.strip()
+    ]
+    if email_domain in internal_list:
+        return {"sent": False, "dev_otp": new_code}
     sent = await send_otp_email(user["email"], user["full_name"], new_code)
     return {"sent": sent, "dev_otp": None if sent else new_code}
 
@@ -1287,6 +1312,112 @@ def _check_feature(user: dict, feature: str) -> None:
     # NOTE: enforcement intentionally deferred — see /me/features for the
     # resolved feature dict consumed by the UI.
     return
+
+
+# ============================================================
+# Admin Usage Dashboard — consolidates the paid-service consumption
+# (WhatsApp / AI summaries / audio transcriptions / PawaPay) per client.
+# Used by /admin/usage to support billing & heavy-user detection.
+# ============================================================
+@api.get("/admin/usage/summary", tags=["Admin"])
+async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admin)):
+    """Aggregate usage metrics per client over the last N days.
+    Returns: {period_days, totals, per_client[], daily_series[]}."""
+    days = max(1, min(days, 365))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since_iso = since.isoformat()
+
+    # Clients lookup (id → {full_name, company, features, wa_unit_cost, wa_currency})
+    clients_cur = db.users.find(
+        {"role": {"$in": ["client", "admin", "superviseur"]}},
+        {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "wa_unit_cost": 1, "wa_currency": 1},
+    )
+    clients = {c["id"]: c async for c in clients_cur}
+
+    # Aggregations
+    wa_pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {
+            "_id": "$client_id",
+            "sent_ok": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "sent_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$status", "failed"]}, {"$eq": ["$status", "error"]}]}, 1, 0]}},
+            "inbound": {"$sum": {"$cond": [{"$eq": ["$direction", "inbound"]}, 1, 0]}},
+            "total": {"$sum": 1},
+        }},
+    ]
+    wa_agg = {doc["_id"]: doc async for doc in db.whatsapp_messages.aggregate(wa_pipeline)}
+
+    ai_pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {"_id": "$client_id", "count": {"$sum": 1}}},
+    ]
+    ai_agg = {doc["_id"]: doc["count"] async for doc in db.ai_summaries.aggregate(ai_pipeline)}
+
+    # Per-client assembly
+    per_client = []
+    tot = {"wa_sent_ok": 0, "wa_sent_ko": 0, "wa_inbound": 0, "wa_total": 0, "wa_cost": 0.0, "ai_count": 0}
+    for cid, c in clients.items():
+        wa = wa_agg.get(cid, {})
+        unit_cost = float(c.get("wa_unit_cost") or 0)
+        currency = c.get("wa_currency") or "XOF"
+        wa_ok = int(wa.get("sent_ok", 0))
+        wa_ko = int(wa.get("sent_ko", 0))
+        wa_inbound = int(wa.get("inbound", 0))
+        wa_total = int(wa.get("total", 0))
+        wa_cost = wa_ok * unit_cost
+        ai_count = int(ai_agg.get(cid, 0))
+        features = _normalize_features(c.get("features"))
+        per_client.append({
+            "client_id": cid,
+            "full_name": c.get("full_name"),
+            "company": c.get("company"),
+            "features": features,
+            "wa_sent_ok": wa_ok,
+            "wa_sent_ko": wa_ko,
+            "wa_inbound": wa_inbound,
+            "wa_total": wa_total,
+            "wa_unit_cost": unit_cost,
+            "wa_currency": currency,
+            "wa_cost": wa_cost,
+            "ai_summaries": ai_count,
+        })
+        tot["wa_sent_ok"] += wa_ok
+        tot["wa_sent_ko"] += wa_ko
+        tot["wa_inbound"] += wa_inbound
+        tot["wa_total"] += wa_total
+        tot["wa_cost"] += wa_cost
+        tot["ai_count"] += ai_count
+    per_client.sort(key=lambda r: r["wa_cost"] + r["ai_summaries"], reverse=True)
+
+    # Daily series — stacked bar data for the 30-day chart
+    daily = {}
+    start_day = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date()
+    for i in range(days):
+        d = (start_day + timedelta(days=i)).isoformat()
+        daily[d] = {"day": d, "wa": 0, "ai": 0}
+
+    async for m in db.whatsapp_messages.find(
+        {"created_at": {"$gte": since_iso}, "status": "sent"},
+        {"_id": 0, "created_at": 1},
+    ):
+        day = (m.get("created_at") or "")[:10]
+        if day in daily:
+            daily[day]["wa"] += 1
+    async for s in db.ai_summaries.find(
+        {"created_at": {"$gte": since_iso}},
+        {"_id": 0, "created_at": 1},
+    ):
+        day = (s.get("created_at") or "")[:10]
+        if day in daily:
+            daily[day]["ai"] += 1
+
+    return {
+        "period_days": days,
+        "totals": tot,
+        "per_client": per_client,
+        "daily_series": sorted(daily.values(), key=lambda d: d["day"]),
+        "generated_at": _now(),
+    }
 
 
 @api.get("/admin/clients/{client_id}/whatsapp-stats", tags=["Admin"])

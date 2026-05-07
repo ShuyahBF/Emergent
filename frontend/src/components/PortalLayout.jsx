@@ -27,7 +27,7 @@ const clientLinks = [
   { to: "/portal/notes/reports", label: "Mes rapports", icon: FileEdit, module: "reports" },
   { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
-  { to: "/portal/contacts", label: "Répertoire & WhatsApp", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
+  { to: "/portal/contacts", label: "Centre de Messagerie", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
@@ -213,7 +213,7 @@ export default function PortalLayout({ admin = false }) {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
         <IncidentBanner />
         <header className="lg:hidden sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
           <button onClick={() => setOpen(true)} aria-label="Menu" data-testid="portal-menu-toggle">
@@ -225,7 +225,7 @@ export default function PortalLayout({ admin = false }) {
           </div>
           <div className="w-5" />
         </header>
-        <main className="flex-1 p-4 sm:p-6 lg:p-10">
+        <main className="flex-1 p-3 sm:p-6 lg:p-10 min-w-0 max-w-full">
           <Outlet />
         </main>
       </div>

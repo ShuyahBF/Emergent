@@ -67,6 +67,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 48 : Responsive Centre de Messagerie + Fix overflow mobile global
+✅ **Renommage** : "Répertoire & WhatsApp" → **"Centre de Messagerie"** dans la sidebar et l'en-tête de page (sous-titre "Répertoire de contacts unifié — WhatsApp, SMS & planifications").
+✅ **Tableau Contacts.jsx — responsive multi-breakpoints** :
+   - Mobile (<640px) : 2 colonnes uniquement (Nom + WhatsApp + Actions). Société + téléphone affichés sous le nom en muted text. Boutons WhatsApp/SMS/Schedule/Hist./Éditer en **icônes seules**.
+   - sm (≥640px) : ajout colonne Société, labels sur boutons WhatsApp/SMS.
+   - md (≥768px) : ajout colonne Téléphone.
+   - xl (≥1280px) : labels sur Mess. Program. + Hist. Mess. + bouton "Éditer" textuel.
+   - 2xl (≥1536px) : ajout colonnes Email (truncate 220px) + Partage.
+   - Min-width Actions réduit 340→180px, padding cellules réduit. Bouton Hist. Mess. désormais 100% visible sur tous les breakpoints.
+✅ **Overflow horizontal global** : `overflow-x-hidden` ajouté à `html`+`body` (index.css) + `flex-1 min-w-0 overflow-x-hidden` sur le `<main>` du `PortalLayout` + `overflow-x-hidden` sur `MarketingLayout`. Plus de scroll horizontal parasite sur mobile (`docW=winW=390` validé Playwright).
+✅ Validation Playwright : screenshots à 390 / 768 / 1280 / 1440px → 0 overflow horizontal sur tous, 5 boutons d'action visibles, badge "1" non lu correctement positionné dans la sidebar.
+
 ### 2026-05-07 — Itération 47 : Réponses WhatsApp libres (fenêtre 24h Meta) + Badges messages non lus
 ✅ **Backend** :
    - Nouveau helper `_wa_send_text(to, text)` : envoi free-form via Meta Graph (`type=text`, `preview_url=true`). Même structure de retour que `_wa_send_template`.

@@ -13,6 +13,11 @@ body {
   -moz-osx-font-smoothing: grayscale;
   background: #f8fafc;
   color: #0f172a;
+  overflow-x: hidden; /* Prevent rogue elements from scrolling the whole page horizontally on mobile */
+}
+
+html {
+  overflow-x: hidden;
 }
 
 @layer base {

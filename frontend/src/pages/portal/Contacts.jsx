@@ -104,8 +104,9 @@ export default function Contacts() {
         <div>
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Communication</p>
           <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-            <Users className="h-5 w-5 text-sawali-blue" /> Répertoire & WhatsApp
+            <Users className="h-5 w-5 text-sawali-blue" /> Centre de Messagerie
           </h1>
+          <p className="text-[11px] text-slate-500 mt-0.5">Répertoire de contacts unifié — WhatsApp, SMS &amp; planifications</p>
         </div>
         <div className="flex gap-2 flex-wrap">
           <button
@@ -154,17 +155,17 @@ export default function Contacts() {
           Aucun contact. Créez-en un avec "Nouveau contact".
         </div>
       ) : (
-        <div className="rounded-xl bg-white border border-slate-200 overflow-x-auto" data-testid="contacts-table">
+        <div className="rounded-xl bg-white border border-slate-200 overflow-x-auto -mx-3 sm:mx-0" data-testid="contacts-table">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
                 <th className="text-left px-3 py-2">Nom</th>
-                <th className="text-left px-3 py-2">Société</th>
-                <th className="text-left px-3 py-2">Téléphone</th>
+                <th className="text-left px-3 py-2 hidden sm:table-cell">Société</th>
+                <th className="text-left px-3 py-2 hidden md:table-cell">Téléphone</th>
                 <th className="text-left px-3 py-2">WhatsApp</th>
-                <th className="text-left px-3 py-2">Email</th>
-                <th className="text-left px-3 py-2">Partage</th>
-                <th className="text-right px-3 py-2 min-w-[340px]">Actions</th>
+                <th className="text-left px-3 py-2 hidden 2xl:table-cell max-w-[220px]">Email</th>
+                <th className="text-left px-3 py-2 hidden 2xl:table-cell">Partage</th>
+                <th className="text-right px-2 py-2 min-w-[180px]">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -259,6 +260,11 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             </span>
           )}
         </button>
+        {/* Mobile-only context (visible when Société/Téléphone columns are hidden) */}
+        <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 space-y-0.5">
+          {c.company && <div className="truncate">{c.company}</div>}
+          {c.phone && <div className="font-mono">{c.phone}</div>}
+        </div>
         {c.tags?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
             {c.tags.map((t) => (
@@ -269,8 +275,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           </div>
         )}
       </td>
-      <td className="px-3 py-2 text-slate-600">{c.company || "—"}</td>
-      <td className="px-3 py-2 text-slate-600 font-mono text-[12px]">{c.phone || "—"}</td>
+      <td className="px-3 py-2 hidden sm:table-cell text-slate-600">{c.company || "—"}</td>
+      <td className="px-3 py-2 hidden md:table-cell text-slate-600 font-mono text-[12px]">{c.phone || "—"}</td>
       <td className="px-3 py-2 text-slate-600 font-mono text-[12px]">
         {editingWa ? (
           <div className="flex items-center gap-1">
@@ -312,8 +318,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           </button>
         )}
       </td>
-      <td className="px-3 py-2 text-slate-600">{c.email || "—"}</td>
-      <td className="px-3 py-2">
+      <td className="px-3 py-2 hidden 2xl:table-cell text-slate-600 max-w-[220px] truncate" title={c.email || ""}>{c.email || "—"}</td>
+      <td className="px-3 py-2 hidden 2xl:table-cell">
         {c.shared ? (
           <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
             <Share2 className="h-2.5 w-2.5" /> Partagé
@@ -324,7 +330,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           </span>
         )}
       </td>
-      <td className="px-3 py-2 text-right whitespace-nowrap">
+      <td className="px-2 py-2 text-right whitespace-nowrap">
         <div className="inline-flex gap-1 items-center">
           <button
             onClick={onWa}
@@ -333,7 +339,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2 py-1 hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid={`contact-wa-${c.id}`}
           >
-            <MessageCircle className="h-3 w-3" /> WhatsApp
+            <MessageCircle className="h-3 w-3" /> <span className="hidden sm:inline">WhatsApp</span>
           </button>
           <button
             onClick={onSms}
@@ -342,7 +348,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             className="inline-flex items-center gap-1 text-[11px] rounded bg-amber-600 text-white px-2 py-1 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid={`contact-sms-${c.id}`}
           >
-            <Send className="h-3 w-3" /> SMS
+            <Send className="h-3 w-3" /> <span className="hidden sm:inline">SMS</span>
           </button>
           <button
             onClick={onSchedule}
@@ -351,7 +357,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             className="inline-flex items-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2 py-1 hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid={`contact-schedule-${c.id}`}
           >
-            <CalendarClock className="h-3 w-3" /> Mess. Program.
+            <CalendarClock className="h-3 w-3" /> <span className="hidden xl:inline">Mess. Program.</span>
           </button>
           <button
             onClick={onHistory}
@@ -359,7 +365,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             className="relative inline-flex items-center gap-1 text-[11px] rounded bg-slate-700 text-white px-2 py-1 hover:bg-slate-800"
             data-testid={`contact-history-${c.id}`}
           >
-            <History className="h-3 w-3" /> Hist. Mess.
+            <History className="h-3 w-3" /> <span className="hidden xl:inline">Hist. Mess.</span>
             {unreadCount > 0 && (
               <span
                 className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums ring-1 ring-white"
@@ -371,7 +377,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           </button>
           <button
             onClick={onEdit}
-            className="text-[11px] text-slate-600 hover:underline px-1"
+            className="text-[11px] text-slate-600 hover:underline px-1 hidden xl:inline"
             data-testid={`contact-edit-${c.id}`}
           >
             Éditer

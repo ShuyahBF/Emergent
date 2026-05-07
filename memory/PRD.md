@@ -33,6 +33,24 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 41 : Dashboard Encaissements 360°
+✅ **Backend** : `GET /me/payments-dashboard?days=N` — agrégation cross-source (payments + payment_links + whatsapp_messages + sms_messages). Retourne :
+   - `totals` : amount_completed, payments {count, completed, pending, failed}, links {total, active, disabled, expired, exhausted}.
+   - `by_status` (pending / completed / failed), `by_mno` (ORANGE / MOOV / TELECEL / OTHER).
+   - `channels` : `sent` (whatsapp+sms ayant un `/pay/{slug}` dans le body), `payments_attributed` (par source PawaPay), `conversion_rate_pct`.
+   - `daily` : 30 jours zero-fill avec count + amount.
+   - `top_links` : top 5 par uses_count (avec status calculé live).
+   - **Heuristique d'attribution canal** : regex sur `whatsapp_messages.message_text` et `sms_messages.message` cherchant `/pay/{slug}` → comptabilise les envois liés à un lien.
+   - Note : route `/me/payments-dashboard` (sans `/`) pour ne pas entrer en conflit avec `/me/payments/{deposit_id}`.
+✅ **Frontend** `PaymentsDashboard.jsx` (`recharts`) — onglet **Dashboard 360°** par défaut dans `/portal/payments` :
+   - 4 KPIs : Encaissements (montant XOF) / Liens actifs / En attente / Conversion %.
+   - **AreaChart** des encaissements quotidiens (gradient emerald, tooltip XOF).
+   - 3 charts compacts en grille : `PieChart` statuts, `BarChart` MNO (couleurs Orange/Moov/Telecel), `BarChart` canaux (Envoyés vs Payés WhatsApp/SMS/Direct).
+   - Tableau Top 5 liens : libellé + slug + montant + utilisations N/M + badge statut coloré.
+   - Sélecteur période : 7j / 30j / 90j / 6 mois / 1 an.
+✅ Tests curl + Playwright : 9 sections rendues, top_links peuplé (3 entrées présentes), AreaChart visible avec 30 jours.
+✅ 11 nouveaux data-testid : `payments-dashboard`, `dashboard-period`, `dashboard-kpis`, `kpi-{cash|links|pending|conversion}`, `dashboard-chart-daily`, `chart-{status|mno|channels}`, `dashboard-top-links`, `top-link-{slug}`, `tab-dashboard`.
+
 ### 2026-05-07 — Itération 40 : Module SMS multi-fournisseurs (Phase 1 — envoi unitaire)
 ✅ **Backend** (4 nouveaux endpoints + dispatcher) :
    - `_sms_dispatch(provider, msisdn, message, sender)` : dispatcher routant vers OVH ou un webhook HTTP générique selon le fournisseur.

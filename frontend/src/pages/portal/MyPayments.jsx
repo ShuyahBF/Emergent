@@ -3,9 +3,10 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   CreditCard, Plus, RefreshCw, X, CheckCircle2, Clock, AlertCircle, Wallet,
-  Download, Filter, Send, TrendingUp, Link2, Receipt,
+  Download, Filter, Send, TrendingUp, Link2, Receipt, BarChart3,
 } from "lucide-react";
 import MyPaymentLinks from "./MyPaymentLinks";
+import PaymentsDashboard from "./PaymentsDashboard";
 
 /*
   Portal → Mes paiements (PawaPay Mobile Money).
@@ -42,7 +43,7 @@ export default function MyPayments() {
   const [mnos, setMnos] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [resendPrefill, setResendPrefill] = useState(null);
-  const [tab, setTab] = useState("transactions"); // transactions | links
+  const [tab, setTab] = useState("dashboard"); // dashboard | transactions | links
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all"); // all|pending|completed|failed
@@ -205,6 +206,13 @@ export default function MyPayments() {
       {/* Tabs */}
       <div className="flex gap-1 border-b border-slate-200" data-testid="payments-tabs">
         <button
+          onClick={() => setTab("dashboard")}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 -mb-px ${tab === "dashboard" ? "border-amber-600 text-amber-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          data-testid="tab-dashboard"
+        >
+          <BarChart3 className="h-4 w-4" /> Dashboard 360°
+        </button>
+        <button
           onClick={() => setTab("transactions")}
           className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 -mb-px ${tab === "transactions" ? "border-amber-600 text-amber-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
           data-testid="tab-transactions"
@@ -220,7 +228,9 @@ export default function MyPayments() {
         </button>
       </div>
 
-      {tab === "links" ? (
+      {tab === "dashboard" ? (
+        <PaymentsDashboard />
+      ) : tab === "links" ? (
         <MyPaymentLinks features={features} mnos={mnos} />
       ) : (
         <TransactionsPanel

@@ -1354,6 +1354,108 @@ async def webhook_pawapay(secret: str, request: Request):
 
 
 # ============================================================
+# Payments Dashboard 360 — KPIs, channel attribution, conversion.
+# Crosses payments + payment_links + whatsapp_messages + sms_messages.
+# Channel attribution : a message containing the substring "/pay/{slug}"
+# in its body is considered to have driven any payment recorded for that
+# slug (best-effort heuristic — works because every link is unique).
+# ============================================================
+@api.get("/me/payments-dashboard", tags=["Portail Client"])
+async def me_payments_dashboard(days: int = 30, user: dict = Depends(get_current_user)):
+    days = max(1, min(int(days or 30), 365))
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    is_admin = user.get("role") in ("admin", "superviseur")
+    client_scope = (user.get("client_id") or user["id"])
+    pay_q: Dict[str, Any] = {} if is_admin else {"client_id": client_scope}
+    pay_q["created_at"] = {"$gte": since}
+    payments = await db.payments.find(pay_q, {"_id": 0}).to_list(2000)
+    links_q: Dict[str, Any] = {} if is_admin else {"client_id": client_scope}
+    links = await db.payment_links.find(links_q, {"_id": 0}).to_list(1000)
+    for li in links:
+        li["status"] = _payment_link_status(li)
+    slugs = [l["slug"] for l in links if l.get("slug")]
+    by_channel = {"whatsapp": 0, "sms": 0, "direct": 0}
+    sent_by_channel = {"whatsapp": 0, "sms": 0}
+    if slugs:
+        pattern = "/pay/(" + "|".join(re.escape(s) for s in slugs) + ")"
+        wa_q: Dict[str, Any] = {"created_at": {"$gte": since}, "message_text": {"$regex": pattern}}
+        sms_q: Dict[str, Any] = {"created_at": {"$gte": since}, "message": {"$regex": pattern}}
+        if not is_admin:
+            wa_q["client_id"] = client_scope
+            sms_q["client_id"] = client_scope
+        sent_by_channel["whatsapp"] = await db.whatsapp_messages.count_documents(wa_q)
+        sent_by_channel["sms"] = await db.sms_messages.count_documents(sms_q)
+    by_status = {"pending": 0, "completed": 0, "failed": 0}
+    by_mno = {"ORANGE": 0, "MOOV": 0, "TELECEL": 0, "OTHER": 0}
+    total_amount_completed = 0.0
+    daily: Dict[str, Dict[str, float]] = {}
+    for p in payments:
+        st = p.get("status") or "pending"
+        by_status[st] = by_status.get(st, 0) + 1
+        m = (p.get("mno") or "").upper() or "OTHER"
+        by_mno[m if m in by_mno else "OTHER"] += 1
+        if st == "completed":
+            total_amount_completed += float(p.get("amount") or 0)
+        src = (p.get("source") or "").lower()
+        if src == "payment_link":
+            by_channel["direct"] += 1
+        ts = (p.get("created_at") or "")[:10]
+        if ts:
+            daily.setdefault(ts, {"count": 0, "amount": 0.0})
+            daily[ts]["count"] += 1
+            if st == "completed":
+                daily[ts]["amount"] += float(p.get("amount") or 0)
+    today = datetime.now(timezone.utc).date()
+    daily_arr = []
+    for i in range(days - 1, -1, -1):
+        d = (today - timedelta(days=i)).isoformat()
+        e = daily.get(d) or {"count": 0, "amount": 0.0}
+        daily_arr.append({"date": d, "count": int(e["count"]), "amount": round(e["amount"], 2)})
+    sorted_links = sorted(links, key=lambda x: (x.get("uses_count") or 0), reverse=True)[:5]
+    top_links = [
+        {
+            "slug": l.get("slug"),
+            "label": l.get("label"),
+            "amount": l.get("amount"),
+            "uses_count": l.get("uses_count") or 0,
+            "max_uses": l.get("max_uses"),
+            "status": l.get("status"),
+        }
+        for l in sorted_links
+    ]
+    sent_total = sent_by_channel["whatsapp"] + sent_by_channel["sms"]
+    completed_count = by_status.get("completed", 0)
+    conversion_rate = round(100.0 * completed_count / max(sent_total, 1), 1) if sent_total else None
+    return {
+        "period_days": days,
+        "totals": {
+            "links": len(links),
+            "links_active": sum(1 for l in links if l["status"] == "active"),
+            "links_disabled": sum(1 for l in links if l["status"] == "disabled"),
+            "links_expired": sum(1 for l in links if l["status"] == "expired"),
+            "links_exhausted": sum(1 for l in links if l["status"] == "exhausted"),
+            "payments_count": len(payments),
+            "payments_completed": completed_count,
+            "payments_pending": by_status.get("pending", 0),
+            "payments_failed": by_status.get("failed", 0),
+            "amount_completed": round(total_amount_completed, 2),
+        },
+        "by_status": by_status,
+        "by_mno": by_mno,
+        "channels": {
+            "sent": sent_by_channel,
+            "payments_attributed": by_channel,
+            "conversion_rate_pct": conversion_rate,
+        },
+        "daily": daily_arr,
+        "top_links": top_links,
+    }
+
+
+
+
+
+# ============================================================
 # Payment Links — shareable URLs that let anyone pay via PawaPay
 # without having a portal account. Each link is owned by a client
 # (or a tracked user of that client) and reuses the PawaPay flow.

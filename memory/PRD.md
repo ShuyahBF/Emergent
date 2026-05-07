@@ -33,6 +33,19 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 43 : Hardening Paiements + Telemetry crash production
+✅ **ErrorBoundary global** (`/app/frontend/src/components/ErrorBoundary.jsx`) appliqué autour de `MyPayments` et `SmsBulk` dans `App.js`. Affiche un panneau rouge avec stack + bouton « Copier les détails » + « Recharger la page » au lieu d'une page blanche en cas d'exception React.
+✅ **Global error reporter** (`window.error` + `unhandledrejection`) installé dans `App.js` → poste un breadcrumb à `/me/api-trace` (kind, msg, stack, ua, path) pour les crashs hors-arbre React (event handlers, async, libs).
+✅ **Submit PawaPay durci** dans `MyPayments.jsx` :
+   - Pre-flight breadcrumb (`CLIENT_DEBUG`) envoyé à `/me/api-trace` avec amount/mno/msisdn_len/has_description avant l'appel à `/me/payments/pawapay/deposit`.
+   - **Toast loading** ("Envoi de la demande à PawaPay…") avec timeout 35s.
+   - **Timeout HTTP client** explicite à 32s (axios) — évite les hangs muets sur connexions lentes.
+   - **Toast error** détaillé (`detail` ou `message`) avec duration 8s, traçabilité maximale.
+   - Catch global → `CLIENT_ERROR` posté avec status, error, stack vers `api_traces`.
+✅ **Bouton « Nouveau paiement »** instrumenté pareillement (try/catch + breadcrumbs avec features/mnos_len/items_len/tab) pour diagnostiquer toute exception même hors-render.
+✅ Tests Playwright preview : submit avec montant 1500 + MSISDN valide → toast d'erreur clair « Erreur : PawaPay non activé », modale reste ouverte, aucun crash, aucune ErrorBoundary déclenchée.
+✅ 1 nouveau data-testid : `error-boundary`.
+
 ### 2026-05-07 — Itération 42 : SMS Phase 2 (bulk + planification) + WA statuts retour
 ✅ **Backend SMS Phase 2** :
    - `POST /me/sms/bulk` : envoi en masse jusqu'à 500 contacts. Personnalisation via `{{name}}/{{company}}/{{phone}}/{{whatsapp}}/{{email}}/{{tag}}` substitué par contact. Si `scheduled_at` (ISO8601) fourni → planification (refus si <30s dans le futur).

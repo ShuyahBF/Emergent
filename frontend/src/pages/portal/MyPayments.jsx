@@ -433,24 +433,42 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
     }
     if (!mnos.includes(mno)) { toast.error("Opérateur non autorisé"); return; }
     setSubmitting(true);
+    let toastId;
     try {
+      // Pre-flight breadcrumb so we can debug from the api_traces collection
+      apiClient.post("/me/api-trace", {
+        method: "CLIENT_DEBUG", url: "/portal/payments#submit-click", status: 0,
+        module: "payment-submit-pre",
+        request_body: { amount: amt, mno, msisdn_len: msisdn.replace(/\D/g, "").length, has_description: !!description },
+      }).catch(() => {});
+      toastId = toast.loading("Envoi de la demande à PawaPay…", { duration: 35000 });
       const r = await apiClient.post("/me/payments/pawapay/deposit", {
         amount: amt,
         msisdn: msisdn.replace(/\D/g, ""),
         mno,
         description: description || undefined,
-      });
+      }, { timeout: 32000 });
+      if (toastId !== undefined) toast.dismiss(toastId);
       if (r.data?.ok) {
         toast.success("Demande envoyée — vous allez recevoir une notification mobile pour confirmer le paiement.");
         onCreated && onCreated();
         onClose();
       } else {
-        toast.error(r.data?.reason || "Demande rejetée");
-        // The backend stored the row even on rejection, so refresh to show it.
+        toast.error(r.data?.reason || "Demande rejetée par PawaPay");
         onCreated && onCreated();
       }
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      if (toastId !== undefined) toast.dismiss(toastId);
+      const msg = err?.response?.data?.detail || err?.message || "Erreur inconnue";
+      toast.error(`Erreur : ${msg}`, { duration: 8000 });
+      // Log full detail server-side so we can diagnose prod-only crashes
+      apiClient.post("/me/api-trace", {
+        method: "CLIENT_ERROR", url: "/portal/payments#submit-fail", status: err?.response?.status || 0,
+        module: "payment-submit-fail",
+        error: String(msg).slice(0, 400),
+        request_body: { amount: amt, mno, msisdn_len: msisdn.replace(/\D/g, "").length },
+        response_body: { stack: String(err?.stack || "").slice(0, 1500) },
+      }).catch(() => {});
     } finally {
       setSubmitting(false);
     }

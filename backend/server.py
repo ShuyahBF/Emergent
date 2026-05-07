@@ -30,6 +30,7 @@ import httpx
 from fastapi import (
     FastAPI,
     APIRouter,
+    Body,
     Depends,
     HTTPException,
     UploadFile,
@@ -1349,6 +1350,320 @@ async def webhook_pawapay(secret: str, request: Request):
         }},
     )
     return {"ok": True, "deposit_id": deposit_id, "status": new_status}
+
+
+# ============================================================
+# Payment Links — shareable URLs that let anyone pay via PawaPay
+# without having a portal account. Each link is owned by a client
+# (or a tracked user of that client) and reuses the PawaPay flow.
+# Public URL : /pay/{slug}  (rendered by the React app).
+# ============================================================
+class PaymentLinkCreate(BaseModel):
+    label: str
+    amount: Optional[float] = None  # None → open amount (payer chooses)
+    currency: str = "XOF"
+    description: Optional[str] = None
+    allowed_mnos: Optional[List[str]] = None  # subset of the client's MNOs
+    expires_at: Optional[str] = None  # ISO8601 UTC
+    max_uses: Optional[int] = None  # None → unlimited
+
+
+def _gen_slug(n: int = 8) -> str:
+    import string
+    alpha = string.ascii_lowercase + string.digits
+    return "".join(secrets.choice(alpha) for _ in range(n))
+
+
+def _payment_link_status(d: Dict[str, Any]) -> str:
+    if d.get("disabled"):
+        return "disabled"
+    exp = d.get("expires_at")
+    if exp:
+        try:
+            if datetime.fromisoformat(str(exp).replace("Z", "+00:00")) < datetime.now(timezone.utc):
+                return "expired"
+        except Exception:  # noqa: BLE001
+            pass
+    mu = d.get("max_uses")
+    if mu and (d.get("uses_count") or 0) >= mu:
+        return "exhausted"
+    return "active"
+
+
+@api.post("/me/payment-links", tags=["Portail Client"])
+async def me_create_payment_link(payload: PaymentLinkCreate, user: dict = Depends(get_current_user)):
+    parent_id = user.get("client_id") or user["id"]
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1, "pawapay_mnos": 1, "company": 1, "logo_url": 1})
+    if user.get("role") not in ("admin", "superviseur"):
+        feats = _normalize_features((parent or {}).get("features"))
+        if not feats.get("payments"):
+            raise HTTPException(status_code=403, detail="Paiements non autorisés pour votre compte")
+    client_mnos = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
+    requested = [m.upper() for m in (payload.allowed_mnos or client_mnos)]
+    invalid = [m for m in requested if m not in client_mnos]
+    if invalid:
+        raise HTTPException(status_code=400, detail=f"Opérateurs non autorisés : {', '.join(invalid)}")
+    if not requested:
+        raise HTTPException(status_code=400, detail="Aucun opérateur disponible — configurez d'abord les MNO du client")
+    if payload.amount is not None and payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Montant invalide")
+    if payload.max_uses is not None and payload.max_uses <= 0:
+        raise HTTPException(status_code=400, detail="Nombre d'utilisations invalide")
+    if not (payload.label or "").strip():
+        raise HTTPException(status_code=400, detail="Libellé requis")
+    slug = None
+    for _ in range(8):
+        cand = _gen_slug(8)
+        if not await db.payment_links.find_one({"slug": cand}):
+            slug = cand
+            break
+    if not slug:
+        raise HTTPException(status_code=500, detail="Impossible de générer un slug unique")
+    doc = {
+        "id": _uuid(),
+        "slug": slug,
+        "client_id": parent_id,
+        "owner_user_id": user["id"],
+        "owner_email": user.get("email"),
+        "owner_label": user.get("full_name") or user.get("email"),
+        "label": payload.label.strip()[:120],
+        "amount": float(payload.amount) if payload.amount is not None else None,
+        "currency": (payload.currency or "XOF").upper(),
+        "description": (payload.description or "").strip()[:200],
+        "allowed_mnos": requested,
+        "expires_at": payload.expires_at,
+        "max_uses": payload.max_uses,
+        "uses_count": 0,
+        "disabled": False,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.payment_links.insert_one(doc.copy())
+    doc.pop("_id", None)
+    doc["status"] = _payment_link_status(doc)
+    return doc
+
+
+@api.get("/me/payment-links", tags=["Portail Client"])
+async def me_list_payment_links(user: dict = Depends(get_current_user)):
+    if user.get("role") in ("admin", "superviseur"):
+        items = await db.payment_links.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    else:
+        items = await db.payment_links.find(
+            {"client_id": user.get("client_id") or user["id"]}, {"_id": 0}
+        ).sort("created_at", -1).to_list(200)
+    for it in items:
+        it["status"] = _payment_link_status(it)
+    return items
+
+
+@api.patch("/me/payment-links/{link_id}", tags=["Portail Client"])
+async def me_toggle_payment_link(link_id: str, payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+    pl = await db.payment_links.find_one({"id": link_id}, {"_id": 0})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Lien introuvable")
+    if user.get("role") not in ("admin", "superviseur") and pl.get("client_id") != (user.get("client_id") or user["id"]):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    update: Dict[str, Any] = {"updated_at": _now()}
+    if "disabled" in payload:
+        update["disabled"] = bool(payload["disabled"])
+    await db.payment_links.update_one({"id": link_id}, {"$set": update})
+    refreshed = await db.payment_links.find_one({"id": link_id}, {"_id": 0})
+    if refreshed:
+        refreshed["status"] = _payment_link_status(refreshed)
+    return refreshed or {"ok": True}
+
+
+@api.delete("/me/payment-links/{link_id}", tags=["Portail Client"])
+async def me_delete_payment_link(link_id: str, user: dict = Depends(get_current_user)):
+    pl = await db.payment_links.find_one({"id": link_id}, {"_id": 0})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Lien introuvable")
+    if user.get("role") not in ("admin", "superviseur") and pl.get("client_id") != (user.get("client_id") or user["id"]):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    await db.payment_links.delete_one({"id": link_id})
+    return {"ok": True}
+
+
+@api.get("/public/pay/{slug}", tags=["Public"])
+async def public_get_payment_link(slug: str):
+    pl = await db.payment_links.find_one({"slug": slug}, {"_id": 0})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Lien de paiement introuvable")
+    parent = await db.users.find_one(
+        {"id": pl.get("client_id")},
+        {"_id": 0, "company": 1, "logo_url": 1, "branding": 1, "full_name": 1},
+    )
+    branding_logo = None
+    if parent:
+        branding_logo = parent.get("logo_url")
+        if not branding_logo and isinstance(parent.get("branding"), dict):
+            branding_logo = parent["branding"].get("logo_url")
+    return {
+        "slug": pl["slug"],
+        "label": pl.get("label"),
+        "amount": pl.get("amount"),
+        "currency": pl.get("currency") or "XOF",
+        "description": pl.get("description"),
+        "allowed_mnos": pl.get("allowed_mnos") or [],
+        "expires_at": pl.get("expires_at"),
+        "status": _payment_link_status(pl),
+        "uses_count": pl.get("uses_count") or 0,
+        "max_uses": pl.get("max_uses"),
+        "branding": {
+            "company": (parent or {}).get("company") or (parent or {}).get("full_name"),
+            "logo_url": branding_logo,
+        },
+    }
+
+
+class PublicPayRequest(BaseModel):
+    msisdn: str
+    mno: str
+    amount: Optional[float] = None  # mandatory only when link has open amount
+    payer_name: Optional[str] = None
+
+
+@api.post("/public/pay/{slug}/deposit", tags=["Public"])
+async def public_pay_deposit(slug: str, payload: PublicPayRequest, request: Request):
+    pl = await db.payment_links.find_one({"slug": slug}, {"_id": 0})
+    if not pl:
+        raise HTTPException(status_code=404, detail="Lien de paiement introuvable")
+    status = _payment_link_status(pl)
+    if status != "active":
+        raise HTTPException(status_code=409, detail=f"Lien non utilisable (statut : {status})")
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if not s.get("pawapay_enabled"):
+        raise HTTPException(status_code=503, detail="PawaPay non activé")
+    token = _pawapay_active_token(s)
+    if not token:
+        raise HTTPException(status_code=503, detail="Clé API PawaPay non configurée")
+    if pl.get("amount") is not None:
+        amount = float(pl["amount"])
+    else:
+        if payload.amount is None or payload.amount <= 0:
+            raise HTTPException(status_code=400, detail="Montant requis pour ce lien")
+        amount = float(payload.amount)
+    mno = (payload.mno or "").upper()
+    allowed = pl.get("allowed_mnos") or []
+    if mno not in allowed:
+        raise HTTPException(status_code=400, detail=f"Opérateur non autorisé. Disponibles : {', '.join(allowed)}")
+    msisdn_clean = "".join(ch for ch in (payload.msisdn or "") if ch.isdigit())
+    if len(msisdn_clean) < 8:
+        raise HTTPException(status_code=400, detail="Numéro mobile invalide")
+    env = (s.get("pawapay_environment") or "sandbox").lower()
+    host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
+    country = (s.get("pawapay_country") or "BFA").upper()
+    deposit_id = _uuid()
+    body = {
+        "depositId": deposit_id,
+        "amount": str(amount),
+        "currency": pl.get("currency") or "XOF",
+        "country": country,
+        "correspondent": _pawapay_correspondent(mno, country),
+        "payer": {"type": "MSISDN", "address": {"value": msisdn_clean}},
+        "customerTimestamp": _now(),
+        "statementDescription": (pl.get("label") or "SAWALI")[:22],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.post(
+                f"{host}/deposits",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=body,
+            )
+            api_resp: Dict[str, Any] = {}
+            try:
+                api_resp = r.json()
+            except Exception:  # noqa: BLE001
+                api_resp = {"raw": r.text[:500]}
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à PawaPay")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Erreur PawaPay : {exc}"[:300])
+    api_status = (api_resp.get("status") or "").upper()
+    initial_status = "pending" if api_status in ("ACCEPTED", "PENDING", "") else "failed"
+    doc = {
+        "id": _uuid(),
+        "deposit_id": deposit_id,
+        "client_id": pl["client_id"],
+        "user_id": pl.get("owner_user_id"),
+        "user_email": pl.get("owner_email"),
+        "user_label": pl.get("owner_label"),
+        "amount": amount,
+        "currency": pl.get("currency") or "XOF",
+        "country": country,
+        "mno": mno,
+        "msisdn": msisdn_clean,
+        "description": pl.get("label"),
+        "environment": env,
+        "status": initial_status,
+        "api_status": api_status or None,
+        "api_message": api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message"),
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent"),
+        "source": "payment_link",
+        "payment_link_slug": slug,
+        "payment_link_id": pl["id"],
+        "payer_name": (payload.payer_name or "").strip()[:80] or None,
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.payments.insert_one(doc.copy())
+    doc.pop("_id", None)
+    if initial_status != "failed":
+        await db.payment_links.update_one(
+            {"id": pl["id"]},
+            {"$inc": {"uses_count": 1}, "$set": {"updated_at": _now()}},
+        )
+    if api_resp.get("status") == "REJECTED":
+        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": api_resp.get("rejectionReason")}
+    return {"ok": True, "deposit_id": deposit_id, "status": initial_status}
+
+
+@api.get("/public/pay/{slug}/status/{deposit_id}", tags=["Public"])
+async def public_pay_status(slug: str, deposit_id: str):
+    """Polling endpoint for the public payment landing page (no auth)."""
+    p = await db.payments.find_one({"deposit_id": deposit_id, "payment_link_slug": slug}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    # If still pending, refresh from PawaPay live
+    if p.get("status") == "pending":
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        token = _pawapay_active_token(s)
+        if token:
+            env = (p.get("environment") or s.get("pawapay_environment") or "sandbox").lower()
+            host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
+            try:
+                async with httpx.AsyncClient(timeout=15) as http:
+                    rr = await http.get(f"{host}/deposits/{deposit_id}", headers={"Authorization": f"Bearer {token}"})
+                    arr = rr.json() if rr.status_code < 400 else []
+                    entry = arr[0] if isinstance(arr, list) and arr else (arr if isinstance(arr, dict) else {})
+                    api_status = (entry.get("status") or "").upper()
+                    new_status = {
+                        "COMPLETED": "completed", "FAILED": "failed", "REJECTED": "failed",
+                        "ACCEPTED": "pending", "PROCESSING": "pending", "SUBMITTED": "pending", "PENDING": "pending",
+                    }.get(api_status, p.get("status"))
+                    if new_status != p.get("status"):
+                        await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {
+                            "status": new_status,
+                            "api_status": api_status,
+                            "api_message": entry.get("failureReason") or entry.get("rejectionReason"),
+                            "completed_at": entry.get("respondedTimestamp") or (None if new_status == "pending" else _now()),
+                            "updated_at": _now(),
+                        }})
+                        p = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[pay-link-poll] %s — %s", deposit_id, exc)
+    return {
+        "status": p.get("status"),
+        "api_message": p.get("api_message"),
+        "amount": p.get("amount"),
+        "currency": p.get("currency") or "XOF",
+    }
+
+
+
 
 
 @api.put("/me/appointments/{appt_id}", tags=["Portail Client"])

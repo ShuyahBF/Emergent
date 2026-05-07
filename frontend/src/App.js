@@ -73,6 +73,7 @@ import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
+import PayLink from "@/pages/public/PayLink";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
@@ -117,6 +118,7 @@ export default function App() {
           <Route path="/uptime" element={<StatusPage />} />
           <Route path="/launch" element={<Launch />} />
           <Route path="/f/:fid" element={<PublicForm />} />
+          <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/documentation" element={<ApiDocs />} />
           <Route path="/politiques" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
           <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />

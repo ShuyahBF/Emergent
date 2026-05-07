@@ -3,8 +3,9 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   CreditCard, Plus, RefreshCw, X, CheckCircle2, Clock, AlertCircle, Wallet,
-  Download, Filter, Send, TrendingUp,
+  Download, Filter, Send, TrendingUp, Link2, Receipt,
 } from "lucide-react";
+import MyPaymentLinks from "./MyPaymentLinks";
 
 /*
   Portal → Mes paiements (PawaPay Mobile Money).
@@ -41,6 +42,7 @@ export default function MyPayments() {
   const [mnos, setMnos] = useState([]);
   const [showModal, setShowModal] = useState(false);
   const [resendPrefill, setResendPrefill] = useState(null);
+  const [tab, setTab] = useState("transactions"); // transactions | links
 
   // Filters
   const [statusFilter, setStatusFilter] = useState("all"); // all|pending|completed|failed
@@ -200,6 +202,62 @@ export default function MyPayments() {
         </div>
       )}
 
+      {/* Tabs */}
+      <div className="flex gap-1 border-b border-slate-200" data-testid="payments-tabs">
+        <button
+          onClick={() => setTab("transactions")}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 -mb-px ${tab === "transactions" ? "border-amber-600 text-amber-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          data-testid="tab-transactions"
+        >
+          <Receipt className="h-4 w-4" /> Transactions ({items.length})
+        </button>
+        <button
+          onClick={() => setTab("links")}
+          className={`inline-flex items-center gap-1.5 px-4 py-2 text-sm border-b-2 -mb-px ${tab === "links" ? "border-amber-600 text-amber-700 font-semibold" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          data-testid="tab-links"
+        >
+          <Link2 className="h-4 w-4" /> Liens de paiement
+        </button>
+      </div>
+
+      {tab === "links" ? (
+        <MyPaymentLinks features={features} mnos={mnos} />
+      ) : (
+        <TransactionsPanel
+          items={items}
+          loading={loading}
+          filtered={filtered}
+          kpis={kpis}
+          statusFilter={statusFilter} setStatusFilter={setStatusFilter}
+          mnoFilter={mnoFilter} setMnoFilter={setMnoFilter}
+          dateFrom={dateFrom} setDateFrom={setDateFrom}
+          dateTo={dateTo} setDateTo={setDateTo}
+          filtersActive={filtersActive} resetFilters={resetFilters}
+          refreshOne={refreshOne} handleResend={handleResend}
+          features={features} mnosLen={mnos.length}
+        />
+      )}
+
+      {showModal && (
+        <NewPaymentModal
+          mnos={mnos}
+          prefill={resendPrefill}
+          onClose={() => { setShowModal(false); setResendPrefill(null); }}
+          onCreated={load}
+        />
+      )}
+    </div>
+  );
+}
+
+function TransactionsPanel({
+  items, loading, filtered, kpis,
+  statusFilter, setStatusFilter, mnoFilter, setMnoFilter,
+  dateFrom, setDateFrom, dateTo, setDateTo,
+  filtersActive, resetFilters, refreshOne, handleResend, features, mnosLen,
+}) {
+  return (
+    <>
       {/* KPIs */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         <KpiCard label="Complétés" value={kpis.completed_count} sub={fmtAmount(kpis.completed_total)} tone="emerald" icon={CheckCircle2} testid="kpi-completed" />
@@ -209,7 +267,7 @@ export default function MyPayments() {
       </div>
 
       {/* Filters */}
-      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3 flex flex-wrap items-end gap-3" data-testid="payments-filters">
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3 flex flex-wrap items-end gap-3 mt-4" data-testid="payments-filters">
         <div className="flex items-center gap-1 text-xs text-slate-500 mr-2 self-center">
           <Filter className="h-3.5 w-3.5" /> Filtres
         </div>
@@ -241,7 +299,7 @@ export default function MyPayments() {
       </div>
 
       {/* Table */}
-      <div className="rounded-xl ring-1 ring-slate-200 bg-white overflow-hidden">
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white overflow-hidden mt-4">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px]">
@@ -288,7 +346,7 @@ export default function MyPayments() {
                           Vérifier
                         </button>
                       )}
-                      {p.status === "failed" && features.payments && mnos.length > 0 && (
+                      {p.status === "failed" && features.payments && mnosLen > 0 && (
                         <button onClick={() => handleResend(p)} className="inline-flex items-center gap-1 text-xs text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded" data-testid={`payment-resend-${p.deposit_id}`}>
                           <Send className="h-3 w-3" /> Renvoyer
                         </button>
@@ -301,16 +359,7 @@ export default function MyPayments() {
           </table>
         </div>
       </div>
-
-      {showModal && (
-        <NewPaymentModal
-          mnos={mnos}
-          prefill={resendPrefill}
-          onClose={() => { setShowModal(false); setResendPrefill(null); }}
-          onCreated={load}
-        />
-      )}
-    </div>
+    </>
   );
 }
 

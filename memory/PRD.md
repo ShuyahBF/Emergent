@@ -33,6 +33,23 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 38 : Liens de paiement partageables (Mobile Money sans login)
+✅ **Backend** : nouveau modèle `payment_links` (slug 8 chars, owner, allowed_mnos, montant fixe ou libre, expires_at, max_uses, uses_count, disabled). Endpoints :
+   - `POST /me/payment-links` (créer), `GET /me/payment-links` (lister), `PATCH /me/payment-links/{id}` (toggle disabled), `DELETE /me/payment-links/{id}`.
+   - `GET /api/public/pay/{slug}` (public, retourne label, montant, MNOs, branding du client), `POST /api/public/pay/{slug}/deposit` (déclenche PawaPay sans auth, incrémente uses_count, lie le `payments.row` au lien via `payment_link_id/_slug`), `GET /api/public/pay/{slug}/status/{deposit_id}` (polling public — refresh PawaPay live si pending).
+   - Re-use du flow PawaPay existant (`_pawapay_active_token`, `_pawapay_correspondent`, host sandbox/prod). Statut auto : active / disabled / expired / exhausted.
+✅ **Frontend Portal** (`/portal/payments`) : système d'onglets « Transactions » / « Liens de paiement » (composant extrait `MyPaymentLinks.jsx`).
+   - Création : modal complet (libellé, montant fixe OU libre, choix multi-MNO, expiration datetime, max_uses, description). À la création → modal QR auto-affiché.
+   - Liste : table avec libellé+slug+description, montant ou « libre », badges MNO, compteur usages (0/N ou ∞), badge statut coloré.
+   - Actions par ligne : Copier le lien / QR / Partager via WhatsApp (`wa.me/?text=…`) / Ouvrir / Activer-Désactiver (toggle) / Supprimer.
+   - QR Modal : génération via `qrcode.toDataURL` 320×320 + bouton « Télécharger PNG ».
+✅ **Page publique** (`/pay/:slug` — `pages/public/PayLink.jsx`) : landing brandée (logo + nom du client), affichage du montant fixe ou champ saisie libre, sélecteur MNO coloré, MSISDN international, nom optionnel, bouton « Payer maintenant ».
+   - Écran résultat (success / pending / failed) avec polling auto toutes les 5s pendant `pending` jusqu'à confirmation finale.
+   - Gère 4 états : actif / désactivé / expiré / épuisé (avec messages FR explicites).
+   - Footer : « Powered by SAWALI SMART SYSTEMS × PawaPay » + cadenas.
+✅ Tests curl : 3 liens créés (5000 fixe + 2500 fixe + libre), `GET /public/pay/{slug}` retourne le payload public correctement, branding client résolu (logo_url, company).
+✅ 17 nouveaux data-testid : `payments-tabs`, `tab-transactions`, `tab-links`, `payment-links-tab`, `links-new-btn`, `link-{row|copy|qr|wa|open|toggle|delete}-{slug}`, `link-new-modal`, `link-{label|amount|open-amount|description|expires-at|max-uses|mno-X|submit-btn}`, `link-qr-modal`, `pay-link-page`, `pay-{amount|mno-X|msisdn|name|submit-btn|retry-btn}`, `pay-result`.
+
 ### 2026-05-07 — Itération 37 : PawaPay Mobile Money UI (Portal)
 ✅ **Page `/portal/payments`** complète : KPIs (Complétés / En attente / Échoués / Total transactions avec montants), filtres (Statut, Opérateur, période Du/Au, reset), table responsive avec polling automatique des paiements `pending` toutes les 20s et bouton « Vérifier » manuel.
 ✅ **Modal Nouveau paiement** : montant XOF, sélecteur 3 MNO colorés (Orange Money / Moov Money / Telecel Cash), MSISDN format international, description ≤22 car. Validation côté client + serveur.

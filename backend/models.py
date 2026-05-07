@@ -504,9 +504,13 @@ class SettingsUpdate(BaseModel):
 
     # ----- PawaPay (mobile money payments) -----
     pawapay_enabled: Optional[bool] = None
-    pawapay_api_token: Optional[str] = None  # masked
+    pawapay_api_token_sandbox: Optional[str] = None  # masked
+    pawapay_api_token_production: Optional[str] = None  # masked
     pawapay_environment: Optional[str] = None  # "sandbox" | "production"
     pawapay_country: Optional[str] = None  # ISO-3 (e.g. "BFA")
+    pawapay_callback_secret: Optional[str] = None  # masked — path token for /webhooks/pawapay/{secret}
+    # legacy single key (kept for backwards-compat — not exposed in new UI)
+    pawapay_api_token: Optional[str] = None
 
     # ----- n8n Agenda Agent — bidirectional webhook for AI-driven RDV CRUD -----
     # Outbound: each manual create/update/delete fires a POST to this URL so
@@ -529,6 +533,9 @@ class SettingsUpdate(BaseModel):
     # SMTP). Everyone else receives it by email via the configured SMTP.
     # Use this for staff / in-house accounts to avoid email round-trips.
     internal_domains: Optional[str] = None  # e.g. "sawalismartsystems.com, sawali.local"
+
+    # Forms / Contacts policy
+    contacts_require_tag: Optional[bool] = None  # if True, every contact must have at least one tag
 
     # Version Stamp visual customization (footer pill on every layout)
     version_stamp_color: Optional[str] = None  # any CSS color (hex / rgb / oklch)

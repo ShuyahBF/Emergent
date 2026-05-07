@@ -761,6 +761,9 @@ async def company_info():
             "opacity": int(s.get("version_stamp_opacity") or 70),
             "style": s.get("version_stamp_style") or "normal",
         },
+        "policy": {
+            "contacts_require_tag": bool(s.get("contacts_require_tag", False)),
+        },
     }
 
 
@@ -1127,6 +1130,227 @@ async def webhook_agenda_n8n(secret: str, payload: AgendaWebhookCreate, request:
     return {"ok": True, "deleted_id": payload.appointment_id}
 
 
+# ============================================================
+# PawaPay — mobile money "deposit" (encaissement) flow.
+# Two API tokens stored: sandbox + production. The active token is
+# selected via settings.pawapay_environment ("sandbox" | "production").
+# Webhook callback : POST /api/webhooks/pawapay/{secret}
+# Docs : https://docs.pawapay.io/v2/api-reference/deposits
+# ============================================================
+PAWAPAY_HOSTS = {
+    "sandbox": "https://api.sandbox.pawapay.io",
+    "production": "https://api.pawapay.io",
+}
+
+
+def _pawapay_active_token(s: Dict[str, Any]) -> Optional[str]:
+    env = (s.get("pawapay_environment") or "sandbox").lower()
+    if env == "production":
+        return s.get("pawapay_api_token_production") or s.get("pawapay_api_token")
+    return s.get("pawapay_api_token_sandbox") or s.get("pawapay_api_token")
+
+
+class PawaPayDepositCreate(BaseModel):
+    amount: float
+    msisdn: str  # E.164 (without leading +)
+    mno: str  # ORANGE | MOOV | TELECEL
+    description: Optional[str] = None
+
+
+def _pawapay_correspondent(mno: str, country: str = "BFA") -> str:
+    """Map MNO + country to the PawaPay "correspondent" code expected by the API.
+    Fallback chain: MNO_<COUNTRY>_MTN. Burkina-specific mappings here are best-
+    effort and can be overriden later via a settings field if PawaPay renames."""
+    m = (mno or "").upper().strip()
+    c = (country or "BFA").upper().strip()
+    table = {
+        "BFA": {"ORANGE": "ORANGE_BFA", "MOOV": "MOOV_BFA", "TELECEL": "TELECEL_BFA"},
+    }
+    return table.get(c, {}).get(m) or f"{m}_{c}"
+
+
+@api.post("/me/payments/pawapay/deposit", tags=["Portail Client"])
+async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, user: dict = Depends(get_current_user)):
+    """Initiate a PawaPay deposit (collect) — the user pays. Stores a row in
+    db.payments with status=pending then resolves via webhook callback."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if not s.get("pawapay_enabled"):
+        raise HTTPException(status_code=503, detail="PawaPay non activé")
+    # Feature gating + per-client MNO whitelist
+    parent_id = user.get("client_id") or user["id"]
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1, "pawapay_mnos": 1, "id": 1, "company": 1})
+    if user.get("role") not in ("admin", "superviseur"):
+        feats = _normalize_features((parent or {}).get("features"))
+        if not feats.get("payments"):
+            raise HTTPException(status_code=403, detail="Paiements non autorisés pour votre client")
+        allowed = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
+        if (payload.mno or "").upper() not in allowed:
+            raise HTTPException(status_code=403, detail=f"Opérateur non autorisé. Disponibles : {', '.join(allowed)}")
+    token = _pawapay_active_token(s)
+    if not token:
+        raise HTTPException(status_code=503, detail="Clé API PawaPay non configurée")
+    env = (s.get("pawapay_environment") or "sandbox").lower()
+    host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
+    country = (s.get("pawapay_country") or "BFA").upper()
+    deposit_id = _uuid()
+    msisdn_clean = "".join(ch for ch in (payload.msisdn or "") if ch.isdigit())
+    if len(msisdn_clean) < 8:
+        raise HTTPException(status_code=400, detail="Numéro mobile invalide (format international attendu)")
+    if payload.amount <= 0:
+        raise HTTPException(status_code=400, detail="Montant invalide")
+    body = {
+        "depositId": deposit_id,
+        "amount": str(payload.amount),
+        "currency": "XOF",
+        "country": country,
+        "correspondent": _pawapay_correspondent(payload.mno, country),
+        "payer": {
+            "type": "MSISDN",
+            "address": {"value": msisdn_clean},
+        },
+        "customerTimestamp": _now(),
+        "statementDescription": (payload.description or "SAWALI Smart Systems")[:22],
+    }
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.post(
+                f"{host}/deposits",
+                headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+                json=body,
+            )
+            api_resp: Dict[str, Any] = {}
+            try:
+                api_resp = r.json()
+            except Exception:
+                api_resp = {"raw": r.text[:500]}
+    except httpx.TimeoutException:
+        raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à PawaPay")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Erreur PawaPay : {exc}"[:300])
+
+    # Persist a row regardless of API outcome — the webhook (or polling) finalizes status
+    api_status = (api_resp.get("status") or "").upper()
+    initial_status = "pending" if api_status in ("ACCEPTED", "PENDING", "") else "failed"
+    doc = {
+        "id": _uuid(),
+        "deposit_id": deposit_id,
+        "client_id": (user.get("client_id") or user["id"]),
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_label": user.get("full_name") or user.get("email"),
+        "amount": float(payload.amount),
+        "currency": "XOF",
+        "country": country,
+        "mno": (payload.mno or "").upper(),
+        "msisdn": msisdn_clean,
+        "description": payload.description,
+        "environment": env,
+        "status": initial_status,
+        "api_status": api_status or None,
+        "api_message": api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message"),
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent"),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.payments.insert_one(doc.copy())
+    doc.pop("_id", None)
+    if api_resp.get("status") == "REJECTED":
+        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": api_resp.get("rejectionReason"), "payment": doc}
+    return {"ok": True, "deposit_id": deposit_id, "status": initial_status, "payment": doc}
+
+
+@api.get("/me/payments", tags=["Portail Client"])
+async def me_list_payments(user: dict = Depends(get_current_user)):
+    """List the calling user's recent payments. Admin/superviseur see all.
+    Plain users see only their own (privacy : amounts can be sensitive)."""
+    if user.get("role") in ("admin", "superviseur"):
+        items = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    else:
+        items = await db.payments.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+
+@api.get("/me/payments/{deposit_id}", tags=["Portail Client"])
+async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)):
+    """Polling endpoint — refreshes the payment by querying PawaPay if still pending."""
+    p = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+    if not p:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    if user.get("role") not in ("admin", "superviseur") and p.get("user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Accès non autorisé")
+    if p.get("status") not in ("pending",):
+        return p
+    # Live refresh
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    token = _pawapay_active_token(s)
+    if not token:
+        return p
+    env = (p.get("environment") or s.get("pawapay_environment") or "sandbox").lower()
+    host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.get(f"{host}/deposits/{deposit_id}", headers={"Authorization": f"Bearer {token}"})
+            arr = r.json() if r.status_code < 400 else []
+            entry = arr[0] if isinstance(arr, list) and arr else (arr if isinstance(arr, dict) else {})
+            api_status = (entry.get("status") or "").upper()
+            new_status = {
+                "COMPLETED": "completed",
+                "FAILED": "failed",
+                "REJECTED": "failed",
+                "ACCEPTED": "pending",
+                "PROCESSING": "pending",
+                "SUBMITTED": "pending",
+                "PENDING": "pending",
+            }.get(api_status, p.get("status") or "pending")
+            await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {
+                "status": new_status,
+                "api_status": api_status,
+                "api_message": entry.get("failureReason") or entry.get("rejectionReason"),
+                "completed_at": entry.get("respondedTimestamp") or (None if new_status == "pending" else _now()),
+                "updated_at": _now(),
+                "raw_response": entry,
+            }})
+            p = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[pawapay-poll] %s — %s", deposit_id, exc)
+    return p
+
+
+@api.post("/webhooks/pawapay/{secret}", tags=["Webhooks"])
+async def webhook_pawapay(secret: str, request: Request):
+    """PawaPay callback — flips local status. Validated via path secret."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    expected = (s.get("pawapay_callback_secret") or "").strip()
+    if not expected or secret != expected:
+        raise HTTPException(status_code=403, detail="Secret invalide")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    deposit_id = payload.get("depositId") or payload.get("deposit_id")
+    if not deposit_id:
+        return {"ok": False, "reason": "depositId manquant"}
+    api_status = (payload.get("status") or "").upper()
+    new_status = {
+        "COMPLETED": "completed",
+        "FAILED": "failed",
+        "REJECTED": "failed",
+    }.get(api_status, "pending")
+    await db.payments.update_one(
+        {"deposit_id": deposit_id},
+        {"$set": {
+            "status": new_status,
+            "api_status": api_status,
+            "api_message": payload.get("failureReason") or payload.get("rejectionReason"),
+            "completed_at": payload.get("respondedTimestamp") or _now(),
+            "updated_at": _now(),
+            "raw_response": payload,
+        }},
+    )
+    return {"ok": True, "deposit_id": deposit_id, "status": new_status}
+
+
 @api.put("/me/appointments/{appt_id}", tags=["Portail Client"])
 async def me_update_appointment(
     appt_id: str, payload: AppointmentUpdate, user: dict = Depends(get_current_user),
@@ -1405,6 +1629,21 @@ DEFAULT_CLIENT_FEATURES = {
     "payments": False,
 }
 
+# Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
+# Stored alongside features on the client doc.
+DEFAULT_CLIENT_PAWAPAY_MNOS: List[str] = ["ORANGE", "MOOV", "TELECEL"]
+
+
+def _normalize_pawapay_mnos(raw: Optional[Any]) -> List[str]:
+    if not isinstance(raw, list):
+        return list(DEFAULT_CLIENT_PAWAPAY_MNOS)
+    out = []
+    for x in raw:
+        v = str(x).upper().strip()
+        if v in DEFAULT_CLIENT_PAWAPAY_MNOS and v not in out:
+            out.append(v)
+    return out
+
 
 def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
     out = dict(DEFAULT_CLIENT_FEATURES)
@@ -1419,32 +1658,42 @@ class ClientFeaturesUpdate(BaseModel):
     sms: Optional[bool] = None
     ai: Optional[bool] = None
     payments: Optional[bool] = None
+    pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 
 @api.get("/admin/clients/{client_id}/features", tags=["Admin"])
 async def admin_get_client_features(client_id: str, _: dict = Depends(get_current_admin)):
-    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1})
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
     if not u:
         raise HTTPException(status_code=404, detail="Client introuvable")
     return {
         "client": {"id": u["id"], "full_name": u.get("full_name"), "company": u.get("company")},
         "features": _normalize_features(u.get("features")),
+        "pawapay_mnos": _normalize_pawapay_mnos(u.get("pawapay_mnos")),
     }
 
 
 @api.put("/admin/clients/{client_id}/features", tags=["Admin"])
 async def admin_update_client_features(client_id: str, payload: ClientFeaturesUpdate, _: dict = Depends(get_current_admin)):
-    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "features": 1})
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "features": 1, "pawapay_mnos": 1})
     if not u:
         raise HTTPException(status_code=404, detail="Client introuvable")
     current = _normalize_features(u.get("features"))
-    update = payload.model_dump(exclude_none=True)
-    current.update({k: bool(v) for k, v in update.items()})
+    update_dict = payload.model_dump(exclude_none=True)
+    mnos = update_dict.pop("pawapay_mnos", None)
+    current.update({k: bool(v) for k, v in update_dict.items()})
+    set_doc: Dict[str, Any] = {"features": current, "features_updated_at": _now()}
+    if mnos is not None:
+        set_doc["pawapay_mnos"] = _normalize_pawapay_mnos(mnos)
     await db.users.update_one(
         {"id": client_id},
-        {"$set": {"features": current, "features_updated_at": _now()}},
+        {"$set": set_doc},
     )
-    return {"ok": True, "features": current}
+    return {
+        "ok": True,
+        "features": current,
+        "pawapay_mnos": set_doc.get("pawapay_mnos") or _normalize_pawapay_mnos(u.get("pawapay_mnos")),
+    }
 
 
 @api.get("/me/features", tags=["Portail Client"])
@@ -1453,12 +1702,18 @@ async def me_get_features(user: dict = Depends(get_current_user)):
     Admin & superviseur always have everything enabled. Tracked users inherit
     from their parent client. Plain client users read from their own doc."""
     if user.get("role") in ("admin", "superviseur"):
-        return {"features": {k: True for k in DEFAULT_CLIENT_FEATURES}, "inherited_from": None}
+        return {
+            "features": {k: True for k in DEFAULT_CLIENT_FEATURES},
+            "pawapay_mnos": list(DEFAULT_CLIENT_PAWAPAY_MNOS),
+            "inherited_from": None,
+        }
     parent_id = user.get("client_id") or user["id"]
-    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1})
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
     feats = _normalize_features((parent or {}).get("features"))
+    mnos = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
     return {
         "features": feats,
+        "pawapay_mnos": mnos,
         "inherited_from": {
             "id": parent_id,
             "full_name": (parent or {}).get("full_name"),
@@ -4815,7 +5070,7 @@ ALLOWED_COLLECTIONS = {
     "access_logs", "api_traces", "visits", "document_logs", "files",
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
-    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies", "ai_summaries",
+    "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies", "ai_summaries", "payments",
 }
 
 
@@ -4913,7 +5168,7 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
                 "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
                 "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
                 "sms_ovh_application_secret", "sms_ovh_consumer_key",
-                "pawapay_api_token",
+                "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
                 "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret"):
         if masked.get(k):
             masked[k] = "********"
@@ -4937,7 +5192,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
         "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
         "sms_ovh_application_secret", "sms_ovh_consumer_key",
-        "pawapay_api_token",
+        "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
         "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
     )
     for k in SECRET_FIELDS:
@@ -6023,6 +6278,12 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
 
 @api.post("/me/contacts", tags=["Portail Client"])
 async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_current_user)):
+    # Enforce admin-configured "tag mandatory" policy: at least one tag is
+    # required when settings.contacts_require_tag is True. Helps keep the
+    # directory searchable / categorized.
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if s.get("contacts_require_tag") and not (payload.tags and any((t or "").strip() for t in payload.tags)):
+        raise HTTPException(status_code=400, detail="Au moins un tag est requis (politique d'administration)")
     client_scope = (user.get("client_id") or user.get("id"))
     doc = {
         "id": _uuid(),
@@ -6046,6 +6307,12 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
     if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Same policy on update: if tags is explicitly cleared while the policy is on, reject
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    if s.get("contacts_require_tag") and "tags" in update:
+        new_tags = update.get("tags") or []
+        if not any((t or "").strip() for t in new_tags):
+            raise HTTPException(status_code=400, detail="Au moins un tag est requis (politique d'administration)")
     update["updated_at"] = _now()
     await db.directory_contacts.update_one({"id": cid}, {"$set": update})
     return {"ok": True}
@@ -8708,6 +8975,10 @@ async def on_startup():
     await db.ai_summaries.create_index("user_id")
     await db.ai_summaries.create_index([("user_id", 1), ("created_at", -1)])
     await db.ai_summaries.create_index("created_at")
+    await db.payments.create_index("deposit_id", unique=True)
+    await db.payments.create_index([("user_id", 1), ("created_at", -1)])
+    await db.payments.create_index([("client_id", 1), ("created_at", -1)])
+    await db.payments.create_index("status")
 
     # Seed initial admin
     init_email = os.environ.get("ADMIN_INIT_EMAIL")

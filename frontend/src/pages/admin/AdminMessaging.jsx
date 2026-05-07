@@ -252,6 +252,36 @@ export default function AdminMessaging() {
       toast.error("Choisissez un template Meta approuvé");
       return;
     }
+    // Pre-flight validation: catch the most common Meta rejection ("paramètres
+    // invalides") before hitting the API. We check variable count + button URL
+    // params + media-header presence consistency with the parsed template.
+    if (varCount > 0) {
+      const missing = variables.findIndex((v, i) => i < varCount && !(v || "").trim());
+      if (missing !== -1) {
+        toast.error(`Variable {{${missing + 1}}} manquante — remplissez tous les champs avant l'envoi.`);
+        return;
+      }
+    }
+    if (parsed.header?.format === "TEXT" && parsed.header.varCount > 0 && !(headerText || "").trim()) {
+      toast.error("Le template attend un texte pour l'en-tête.");
+      return;
+    }
+    if (parsed.header?.format && parsed.header.format !== "TEXT" && !headerMedia?.link) {
+      toast.error(`Le template attend un fichier ${parsed.header.format.toLowerCase()} pour l'en-tête.`);
+      return;
+    }
+    for (let bi = 0; bi < (parsed.buttons || []).length; bi++) {
+      const b = parsed.buttons[bi];
+      if ((b.urlVarCount || 0) > 0) {
+        const bv = (buttonVars && buttonVars[bi]) || [];
+        for (let pi = 0; pi < b.urlVarCount; pi++) {
+          if (!(bv[pi] || "").trim()) {
+            toast.error(`Variable d'URL du bouton ${bi + 1} manquante.`);
+            return;
+          }
+        }
+      }
+    }
     if (!window.confirm(`Envoyer le template "${template}" à ${selectedList.length} destinataire(s) ?`)) return;
     setSending(true);
     try {
@@ -270,8 +300,9 @@ export default function AdminMessaging() {
       } else if (sent_ok > 0) {
         toast.success(`${sent_ok} envoyé(s), ${sent_ko} en erreur`);
       } else {
-        const tail = error_summary.length > 0 ? ` Détail Meta : ${error_summary[0]}` : "";
-        toast.error(`Aucun envoi — ${sent_ko} erreur(s).${tail}`);
+        const tail = error_summary.length > 0 ? `\nDétail Meta : ${error_summary[0]}` : "";
+        // Use a longer-lasting toast for failures so the user can read the full Meta error
+        toast.error(`Aucun envoi — ${sent_ko} erreur(s).${tail}`, { duration: 12000 });
       }
       if (skipped.length > 0) {
         toast.message(`${skipped.length} destinataire(s) ignoré(s) (pas de numéro).`);

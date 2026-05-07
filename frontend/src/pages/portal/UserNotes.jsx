@@ -64,10 +64,12 @@ export default function UserNotesPage() {
       q: filterQ || undefined,
     },
   }).then((r) => setItems(r.data)).catch(() => {});
+  const [smartFeatures, setSmartFeatures] = useState({ ai: true });
   useEffect(() => {
     if (!meta) return;
     load();
     apiClient.get(`/me/notes/${kind}/authors`).then((r) => setAuthors(r.data)).catch(() => {});
+    apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
     if (kind === "suivis") {
       apiClient.get("/me/clients").then((r) => setClients(r.data)).catch(() => {});
     }
@@ -258,7 +260,12 @@ export default function UserNotesPage() {
                 <p className="text-[11px] text-slate-500 mb-2 inline-flex items-center gap-1">
                   <Mic className="h-3 w-3" /> Astuce : cliquez sur l'icône <strong>micro</strong> en haut à droite de la barre d'outils pour dicter votre {meta.singular} (transcription Whisper).
                 </p>
-                <RichEditor value={form.content_html} onChange={(v) => setForm({ ...form, content_html: v })} accent={meta.accent} />
+                <RichEditor
+                  value={form.content_html}
+                  onChange={(v) => setForm({ ...form, content_html: v })}
+                  accent={meta.accent}
+                  aiEnabled={smartFeatures.ai !== false}
+                />
               </div>
 
               {/* WhatsApp picker — append selected messages to the body */}
@@ -499,7 +506,7 @@ function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
 const TEXT_COLORS = ["#0F172A", "#1E90FF", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
 const HIGHLIGHTS = ["transparent", "#FEF3C7", "#DBEAFE", "#DCFCE7", "#FEE2E2", "#EDE9FE"];
 
-function RichEditor({ value, onChange, accent = "#1E90FF" }) {
+function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = true }) {
   const ref = useRef(null);
   const [showColors, setShowColors] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);
@@ -639,20 +646,32 @@ function RichEditor({ value, onChange, accent = "#1E90FF" }) {
             type="button"
             onMouseDown={(e) => e.preventDefault()}
             onClick={stopRec}
-            className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1 text-[11px] animate-pulse"
+            className="inline-flex items-center gap-1.5 rounded-full bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 text-[12px] font-semibold animate-pulse shadow"
             title="Arrêter l'enregistrement"
             data-testid="rte-mic-stop"
           >
-            <Square className="h-3 w-3 fill-white" /> Arrêter
+            <Square className="h-3.5 w-3.5 fill-white" /> Arrêter
           </button>
         ) : recState === "processing" ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 text-white px-2.5 py-1 text-[11px]" data-testid="rte-mic-processing">
-            <Loader2 className="h-3 w-3 animate-spin" /> Transcription…
+          <span className="inline-flex items-center gap-1.5 rounded-full bg-amber-500 text-white px-3 py-1.5 text-[12px] font-semibold" data-testid="rte-mic-processing">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" /> Transcription…
           </span>
         ) : (
-          <Btn onClick={startRec} title="Dicter à la voix (transcription Whisper)" testid="rte-mic-start">
-            <Mic className="h-3.5 w-3.5" />
-          </Btn>
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={aiEnabled ? startRec : () => toast.message("Fonctionnalité Génération IA non activée — contactez votre administrateur")}
+            disabled={!aiEnabled}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[12px] font-semibold shadow-sm ${
+              aiEnabled
+                ? "bg-fuchsia-600 hover:bg-fuchsia-700 text-white"
+                : "bg-slate-200 text-slate-400 cursor-not-allowed"
+            }`}
+            title={aiEnabled ? "Dicter à la voix (transcription Whisper)" : "Fonctionnalité Génération IA non activée"}
+            data-testid="rte-mic-start"
+          >
+            <Mic className="h-3.5 w-3.5" /> Dicter
+          </button>
         )}
       </div>
       <div ref={ref} contentEditable suppressContentEditableWarning onInput={emit} onBlur={emit} className="prose-sawali min-h-[180px] max-h-[360px] overflow-auto px-3 py-2 text-sm focus:outline-none" style={{ caretColor: accent }} data-testid="rte-content" />

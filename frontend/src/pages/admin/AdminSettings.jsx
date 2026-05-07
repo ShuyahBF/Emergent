@@ -92,6 +92,17 @@ export default function AdminSettings() {
         <p className="text-[10px] text-slate-400">
           Valeur par défaut : <code>sawalismartsystems.com</code>. Laissez vide pour forcer l'envoi par email pour tous.
         </p>
+        <div className="pt-2 border-t border-slate-100">
+          <Toggle
+            label="Tag obligatoire dans les contacts (CRM)"
+            value={!!s.contacts_require_tag}
+            onChange={(v) => upd("contacts_require_tag", v)}
+            testid="contacts-require-tag"
+          />
+          <p className="text-[10px] text-slate-400 mt-0.5">
+            Si activé, les utilisateurs doivent renseigner au moins un tag pour créer ou modifier un contact.
+          </p>
+        </div>
       </Section>
 
       <Section icon={Calendar} title="Google Calendar">

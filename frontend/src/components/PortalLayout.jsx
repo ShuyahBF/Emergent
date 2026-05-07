@@ -28,6 +28,7 @@ const clientLinks = [
   { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
   { to: "/portal/contacts", label: "Répertoire & WhatsApp", icon: MessageCircle },
+  { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },

@@ -1377,9 +1377,9 @@ async def me_payments_dashboard(days: int = 30, user: dict = Depends(get_current
     by_channel = {"whatsapp": 0, "sms": 0, "direct": 0}
     sent_by_channel = {"whatsapp": 0, "sms": 0}
     if slugs:
-        pattern = "/pay/(" + "|".join(re.escape(s) for s in slugs) + ")"
-        wa_q: Dict[str, Any] = {"created_at": {"$gte": since}, "message_text": {"$regex": pattern}}
-        sms_q: Dict[str, Any] = {"created_at": {"$gte": since}, "message": {"$regex": pattern}}
+        # Prefer the persisted payment_link_slug field (set since it. 42)
+        wa_q: Dict[str, Any] = {"created_at": {"$gte": since}, "payment_link_slug": {"$in": slugs}}
+        sms_q: Dict[str, Any] = {"created_at": {"$gte": since}, "payment_link_slug": {"$in": slugs}}
         if not is_admin:
             wa_q["client_id"] = client_scope
             sms_q["client_id"] = client_scope
@@ -6769,6 +6769,13 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     if not to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
     result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
+    # Extract any /pay/{slug} URL embedded in the template variables for channel attribution
+    pay_slug = None
+    try:
+        blob = json.dumps(payload.components or [], ensure_ascii=False)
+        pay_slug = _extract_pay_slug(blob)
+    except Exception:  # noqa: BLE001
+        pass
     # Log the attempt
     client_scope = (user.get("client_id") or user.get("id"))
     digits_only = "".join(ch for ch in to if ch.isdigit())
@@ -6791,6 +6798,7 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
         "wa_status": "sent" if result["ok"] else "failed",
         "sent_at": _now() if result["ok"] else None,
         "failed_at": None if result["ok"] else _now(),
+        "payment_link_slug": pay_slug,
         "created_at": _now(),
     }
     try: await db.whatsapp_messages.insert_one(log.copy())
@@ -7060,6 +7068,7 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
     if not (payload.to or "").strip():
         raise HTTPException(status_code=400, detail="Destinataire requis")
     result = await _sms_dispatch(payload.provider or "auto", payload.to, payload.message, payload.sender)
+    pay_slug = _extract_pay_slug(payload.message)
     doc = {
         "id": _uuid(),
         "client_id": parent_id,
@@ -7077,6 +7086,7 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
         "api_message": result.get("api_message"),
         "http_status": result.get("http_status"),
         "raw_response": result.get("raw_response"),
+        "payment_link_slug": pay_slug,
         "ip": _client_ip_from_request(request),
         "created_at": _now(),
     }
@@ -7143,6 +7153,218 @@ async def admin_sms_test(payload: AdminSmsTestRequest, request: Request, user: d
         "raw_response": result.get("raw_response"),
         "id": doc["id"],
     }
+
+
+
+# ============================================================
+# SMS Phase 2 — Bulk send + Scheduled sends
+# ============================================================
+def _personalize_sms(template: str, ctx: Dict[str, Any]) -> str:
+    """Replace {{name}}/{{company}}/{{phone}}/{{whatsapp}}/{{email}} tokens
+    inside an SMS body using the recipient's contact attributes."""
+    out = template or ""
+    for k, v in (ctx or {}).items():
+        out = out.replace("{{" + k + "}}", str(v if v is not None else ""))
+    return out
+
+
+def _build_sms_ctx(contact: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "name": contact.get("name") or "",
+        "company": contact.get("company") or "",
+        "phone": contact.get("phone") or "",
+        "whatsapp": contact.get("whatsapp") or "",
+        "email": contact.get("email") or "",
+        "tag": ", ".join(contact.get("tags") or []),
+    }
+
+
+def _extract_pay_slug(text: str) -> Optional[str]:
+    if not text:
+        return None
+    m = re.search(r"/pay/([a-z0-9]{4,16})", text)
+    return m.group(1) if m else None
+
+
+class MeSmsBulkRequest(BaseModel):
+    contact_ids: List[str]
+    message: str
+    provider: Optional[str] = None
+    sender: Optional[str] = None
+    scheduled_at: Optional[str] = None  # ISO8601 — if set, schedule instead of send
+
+
+@api.post("/me/sms/bulk", tags=["Portail Client"])
+async def me_sms_bulk(payload: MeSmsBulkRequest, request: Request, user: dict = Depends(get_current_user)):
+    parent_id = user.get("client_id") or user["id"]
+    if user.get("role") not in ("admin", "superviseur"):
+        parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+        feats = _normalize_features((parent or {}).get("features"))
+        if not feats.get("sms"):
+            raise HTTPException(status_code=403, detail="SMS non autorisé pour votre compte")
+    if not (payload.message or "").strip():
+        raise HTTPException(status_code=400, detail="Message vide")
+    if len(payload.message) > 800:
+        raise HTTPException(status_code=400, detail="Message trop long (>800 caractères)")
+    if not payload.contact_ids:
+        raise HTTPException(status_code=400, detail="Aucun destinataire sélectionné")
+    if len(payload.contact_ids) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 destinataires par envoi")
+    contacts = await db.directory_contacts.find(
+        {"id": {"$in": payload.contact_ids}, "client_id": parent_id}, {"_id": 0}
+    ).to_list(len(payload.contact_ids))
+
+    # Schedule for later if requested
+    if payload.scheduled_at:
+        try:
+            sched_dt = datetime.fromisoformat(str(payload.scheduled_at).replace("Z", "+00:00"))
+        except Exception:
+            raise HTTPException(status_code=400, detail="Date de planification invalide")
+        if sched_dt < datetime.now(timezone.utc) + timedelta(seconds=30):
+            raise HTTPException(status_code=400, detail="La date de planification doit être au moins +30 secondes")
+        sched_doc = {
+            "id": _uuid(),
+            "kind": "sms",
+            "client_id": parent_id,
+            "created_by_id": user["id"],
+            "created_by_label": user.get("full_name") or user.get("email"),
+            "provider": payload.provider or "auto",
+            "sender": payload.sender,
+            "message_template": payload.message,
+            "contact_ids": payload.contact_ids,
+            "scheduled_at": sched_dt.astimezone(timezone.utc).isoformat(),
+            "status": "pending",
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.sms_schedules.insert_one(sched_doc.copy())
+        sched_doc.pop("_id", None)
+        return {"ok": True, "scheduled": True, "id": sched_doc["id"], "scheduled_at": sched_doc["scheduled_at"], "recipients": len(payload.contact_ids)}
+
+    # Live bulk send (synchronous, capped at 500 to keep request <30s)
+    results = []
+    skipped = []
+    pay_slug = _extract_pay_slug(payload.message)
+    for c in contacts:
+        target = c.get("phone") or c.get("whatsapp")
+        if not target:
+            skipped.append({"label": c.get("name"), "reason": "Pas de numéro"})
+            continue
+        ctx = _build_sms_ctx(c)
+        body = _personalize_sms(payload.message, ctx)
+        result = await _sms_dispatch(payload.provider or "auto", target, body, payload.sender)
+        doc = {
+            "id": _uuid(), "client_id": parent_id, "user_id": user["id"],
+            "user_email": user.get("email"), "user_label": user.get("full_name") or user.get("email"),
+            "contact_id": c.get("id"),
+            "provider": result.get("provider"), "sender": payload.sender,
+            "msisdn": target, "msisdn_digits": "".join(ch for ch in target if ch.isdigit()),
+            "message": body, "length": len(body),
+            "status": result.get("status"), "api_message": result.get("api_message"),
+            "http_status": result.get("http_status"), "raw_response": result.get("raw_response"),
+            "bulk": True,
+            "payment_link_slug": pay_slug,
+            "ip": _client_ip_from_request(request),
+            "created_at": _now(),
+        }
+        await db.sms_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        results.append({"label": c.get("name"), "phone": target, "ok": result.get("ok"),
+                        "status": result.get("status"), "error": None if result.get("ok") else result.get("api_message")})
+    return {"ok": True, "scheduled": False, "sent_ok": sum(1 for r in results if r["ok"]),
+            "sent_ko": len([r for r in results if not r["ok"]]), "skipped": skipped, "results": results}
+
+
+@api.get("/me/sms/schedules", tags=["Portail Client"])
+async def me_sms_schedules(user: dict = Depends(get_current_user)):
+    is_admin = user.get("role") in ("admin", "superviseur")
+    q: Dict[str, Any] = {} if is_admin else {"client_id": user.get("client_id") or user["id"]}
+    items = await db.sms_schedules.find(q, {"_id": 0}).sort("scheduled_at", -1).to_list(200)
+    return items
+
+
+@api.delete("/me/sms/schedules/{sid}", tags=["Portail Client"])
+async def me_sms_schedule_cancel(sid: str, user: dict = Depends(get_current_user)):
+    sched = await db.sms_schedules.find_one({"id": sid}, {"_id": 0})
+    if not sched:
+        raise HTTPException(status_code=404, detail="Planification introuvable")
+    is_admin = user.get("role") in ("admin", "superviseur")
+    if not is_admin and sched.get("client_id") != (user.get("client_id") or user["id"]):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if sched.get("status") == "running":
+        raise HTTPException(status_code=409, detail="Envoi déjà en cours")
+    if sched.get("status") in ("done", "failed"):
+        await db.sms_schedules.delete_one({"id": sid})
+        return {"ok": True, "status": "deleted"}
+    await db.sms_schedules.update_one({"id": sid}, {"$set": {"status": "cancelled", "updated_at": _now()}})
+    return {"ok": True, "status": "cancelled"}
+
+
+async def _run_scheduled_sms():
+    """APScheduler tick (every minute) — drain pending SMS schedules."""
+    try:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        due = await db.sms_schedules.find(
+            {"status": "pending", "scheduled_at": {"$lte": now_iso}}, {"_id": 0},
+        ).to_list(50)
+        for sc in due:
+            claimed = await db.sms_schedules.update_one(
+                {"id": sc["id"], "status": "pending"},
+                {"$set": {"status": "running", "started_at": _now(), "updated_at": _now()}},
+            )
+            if claimed.modified_count == 0:
+                continue
+            cids = sc.get("contact_ids") or []
+            contacts = await db.directory_contacts.find(
+                {"id": {"$in": cids}, "client_id": sc["client_id"]}, {"_id": 0}
+            ).to_list(len(cids))
+            tpl = sc.get("message_template") or ""
+            pay_slug = _extract_pay_slug(tpl)
+            results = []
+            skipped = []
+            for c in contacts:
+                target = c.get("phone") or c.get("whatsapp")
+                if not target:
+                    skipped.append({"label": c.get("name"), "reason": "Pas de numéro"})
+                    continue
+                ctx = _build_sms_ctx(c)
+                body = _personalize_sms(tpl, ctx)
+                try:
+                    result = await _sms_dispatch(sc.get("provider") or "auto", target, body, sc.get("sender"))
+                except Exception as exc:  # noqa: BLE001
+                    result = {"ok": False, "status": "failed", "api_message": str(exc)[:200]}
+                doc = {
+                    "id": _uuid(), "client_id": sc["client_id"],
+                    "user_id": sc.get("created_by_id"), "user_label": sc.get("created_by_label"),
+                    "contact_id": c.get("id"),
+                    "provider": result.get("provider"), "sender": sc.get("sender"),
+                    "msisdn": target, "msisdn_digits": "".join(ch for ch in target if ch.isdigit()),
+                    "message": body, "length": len(body),
+                    "status": result.get("status"), "api_message": result.get("api_message"),
+                    "http_status": result.get("http_status"), "raw_response": result.get("raw_response"),
+                    "bulk": True, "scheduled": True, "schedule_id": sc["id"],
+                    "payment_link_slug": pay_slug, "created_at": _now(),
+                }
+                try:
+                    await db.sms_messages.insert_one(doc.copy())
+                except Exception:  # noqa: BLE001
+                    pass
+                results.append({"label": c.get("name"), "phone": target, "ok": result.get("ok"),
+                                "status": result.get("status"), "error": None if result.get("ok") else result.get("api_message")})
+            sent_ok = sum(1 for r in results if r["ok"])
+            final_status = "done" if (sent_ok > 0 or not results) else "failed"
+            await db.sms_schedules.update_one(
+                {"id": sc["id"]},
+                {"$set": {"status": final_status, "result_summary": {
+                    "requested": len(cids), "sent_ok": sent_ok, "sent_ko": len(results) - sent_ok,
+                    "skipped_count": len(skipped), "skipped": skipped, "results": results,
+                }, "finished_at": _now(), "updated_at": _now()}},
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("scheduled_sms runner failed: %s", exc)
+
+
+
 
 
 
@@ -9724,6 +9946,21 @@ async def on_startup():
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")
     await db.whatsapp_schedules.create_index("scheduled_at")
+    await db.whatsapp_messages.create_index("payment_link_slug")
+    # SMS Phase 1+2
+    await db.sms_messages.create_index("client_id")
+    await db.sms_messages.create_index("created_at")
+    await db.sms_messages.create_index("payment_link_slug")
+    await db.sms_messages.create_index([("contact_id", 1), ("created_at", -1)])
+    await db.sms_schedules.create_index("status")
+    await db.sms_schedules.create_index("scheduled_at")
+    await db.sms_schedules.create_index([("client_id", 1), ("status", 1)])
+    # Payment links (Iterations 38+)
+    await db.payment_links.create_index("slug", unique=True)
+    await db.payment_links.create_index("client_id")
+    await db.payments.create_index("client_id")
+    await db.payments.create_index("deposit_id", unique=True)
+    await db.payments.create_index("payment_link_slug")
     await db.automations.create_index("event")
     await db.automations.create_index("enabled")
     await db.client_notes.create_index("client_id")
@@ -9928,6 +10165,14 @@ async def on_startup():
                 _run_scheduled_whatsapp,
                 CronTrigger(minute="*", timezone="Africa/Abidjan"),
                 id="whatsapp_scheduler_minutely",
+                replace_existing=True,
+                misfire_grace_time=120,
+            )
+            # Minute-level SMS scheduler — drains pending SMS schedules due for send.
+            _scheduler.add_job(
+                _run_scheduled_sms,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="sms_scheduler_minutely",
                 replace_existing=True,
                 misfire_grace_time=120,
             )

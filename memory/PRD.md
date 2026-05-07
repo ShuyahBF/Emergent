@@ -33,6 +33,23 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 42 : SMS Phase 2 (bulk + planification) + WA statuts retour
+✅ **Backend SMS Phase 2** :
+   - `POST /me/sms/bulk` : envoi en masse jusqu'à 500 contacts. Personnalisation via `{{name}}/{{company}}/{{phone}}/{{whatsapp}}/{{email}}/{{tag}}` substitué par contact. Si `scheduled_at` (ISO8601) fourni → planification (refus si <30s dans le futur).
+   - `GET /me/sms/schedules` + `DELETE /me/sms/schedules/{id}` : liste + annulation des envois planifiés.
+   - **Cron APScheduler** `_run_scheduled_sms` (toutes les minutes, Africa/Abidjan, misfire_grace_time=120s). Pattern claim atomique (status=pending → running) puis envoi par contact + log dans `sms_messages`. Final status `done|failed`.
+   - Indices Mongo ajoutés : `sms_messages.client_id/created_at/payment_link_slug`, `sms_schedules.status/scheduled_at`, `payment_links.slug unique`, `payments.deposit_id unique`.
+✅ **Persistence du `payment_link_slug`** dans `sms_messages` (envoi unitaire + bulk + scheduled) et `whatsapp_messages` (extrait via `_extract_pay_slug` qui matche `/pay/{slug}` dans le body SMS ou dans le JSON des components WA template). Dashboard 360° utilise désormais ce champ persistant au lieu d'un regex sur le body → attribution canal **fiable**.
+✅ **Frontend** `/portal/sms` (`SmsBulk.jsx` ~340 lignes, lazy via App.js + entrée sidebar « SMS — Masse & Planif. ») :
+   - **Sélecteur multi-contacts** avec recherche live (nom, téléphone, tag, company), checkbox + « Tout sélectionner » sur le filtre courant. Affichage du nombre de contacts sélectionnés en badge.
+   - **Composer** : sélecteur fournisseur (auto + actifs), expéditeur 11-char, **chips d'insertion** des 6 tokens + textarea max 800 char avec compteur (warning >160 sur facturation multi-SMS).
+   - **Datepicker datetime-local** pour planifier l'envoi (si vide → envoi immédiat).
+   - **Bouton Aperçu** : modal montrant les 3 premiers messages personnalisés tels qu'ils seront envoyés (substitution live des tokens).
+   - **Tableau des planifications** : programmé pour, message tronqué, destinataires N (+ ✓ envoyés une fois fait), provider, badge statut animé (pending/running spinning/done/failed/cancelled), action « Annuler » pour les `pending`.
+✅ **WA Statuts retour** : webhook Meta `/api/whatsapp/webhook` parse déjà `statuses[]` (sent/delivered/read/failed) et persiste `wa_status`, `sent_at`, `delivered_at`, `read_at`, `failed_at`, `wa_error_code/message`. Frontend `Contacts.jsx` `MessageBubble` affiche déjà les ticks colorés (Check / CheckCheck slate / CheckCheck sky / AlertCircle rose). Test simulé OK : status=read → `wa_status=read`, `read_at` correctement renseigné.
+✅ Tests curl + Playwright : `POST /me/sms/bulk` avec `scheduled_at` futur retourne `{ok:true, scheduled:true, recipients:1}` + persiste dans `sms_schedules`. UI `/portal/sms` rendue : 3 contacts listés, token `{{name}}` cliqué et inséré, planification existante affichée dans le tableau.
+✅ 18 nouveaux data-testid : `sms-bulk-page`, `sms-contacts-block`, `sms-contacts-search`, `sms-contact-{id}`, `sms-toggle-all`, `sms-compose-block`, `sms-bulk-{provider|sender|message|schedule-at|preview|send-btn}`, `sms-token-{name}`, `sms-schedules-block`, `sms-sched-{id}`, `sms-sched-cancel-{id}`, `sms-preview-modal`, `sms-preview-{i}`.
+
 ### 2026-05-07 — Itération 41 : Dashboard Encaissements 360°
 ✅ **Backend** : `GET /me/payments-dashboard?days=N` — agrégation cross-source (payments + payment_links + whatsapp_messages + sms_messages). Retourne :
    - `totals` : amount_completed, payments {count, completed, pending, failed}, links {total, active, disabled, expired, exhausted}.

@@ -181,7 +181,7 @@ export default function MyPayments() {
   const filtersActive = statusFilter !== "all" || mnoFilter !== "all" || !!dateFrom || !!dateTo;
 
   return (
-    <div className="space-y-6 max-w-6xl" data-testid="my-payments-page">
+    <div className="space-y-6 max-w-full" data-testid="my-payments-page">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
           <h1 className="text-3xl font-display font-bold inline-flex items-center gap-2">
@@ -347,9 +347,9 @@ function TransactionsPanel({
             <thead className="bg-slate-50 text-slate-500 uppercase text-[10px]">
               <tr>
                 <th className="text-left px-3 py-2">Date</th>
-                <th className="text-left px-3 py-2">Référence</th>
-                <th className="text-left px-3 py-2">Opérateur</th>
-                <th className="text-left px-3 py-2">Numéro</th>
+                <th className="text-left px-3 py-2 hidden lg:table-cell">Référence</th>
+                <th className="text-left px-3 py-2 hidden sm:table-cell">Opérateur</th>
+                <th className="text-left px-3 py-2 hidden md:table-cell">Numéro</th>
                 <th className="text-right px-3 py-2">Montant</th>
                 <th className="text-left px-3 py-2">Statut</th>
                 <th className="text-right px-3 py-2"></th>
@@ -371,16 +371,21 @@ function TransactionsPanel({
                 const mno = MNO_LABELS[p.mno] || { label: p.mno, color: "#64748b" };
                 return (
                   <tr key={p.deposit_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`payment-row-${p.deposit_id}`}>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{fmtDate(p.created_at)}</td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-slate-700" title={p.deposit_id}>{p.deposit_id?.slice(0, 8)}…</td>
-                    <td className="px-3 py-2"><span className="text-[11px] font-semibold" style={{ color: mno.color }}>{mno.label}</span></td>
-                    <td className="px-3 py-2 font-mono text-xs text-slate-700">{p.msisdn}</td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap text-xs">
+                      <div>{fmtDate(p.created_at)}</div>
+                      {/* Mobile-only context: opérateur + numéro */}
+                      <div className="sm:hidden text-[10px] mt-0.5" style={{ color: mno.color }}>{mno.label}</div>
+                      <div className="md:hidden text-[10px] font-mono text-slate-400 mt-0.5">{p.msisdn}</div>
+                    </td>
+                    <td className="px-3 py-2 hidden lg:table-cell font-mono text-[10px] text-slate-700" title={p.deposit_id}>{p.deposit_id?.slice(0, 8)}…</td>
+                    <td className="px-3 py-2 hidden sm:table-cell"><span className="text-[11px] font-semibold" style={{ color: mno.color }}>{mno.label}</span></td>
+                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-slate-700">{p.msisdn}</td>
                     <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{Number(p.amount || 0).toLocaleString("fr-FR")} <span className="text-[10px] text-slate-400">{p.currency || "XOF"}</span></td>
                     <td className="px-3 py-2">
                       <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${sb.cls}`}>
-                        <Icon className="h-3 w-3" /> {sb.label}
+                        <Icon className="h-3 w-3" /> <span className="hidden sm:inline">{sb.label}</span>
                       </span>
-                      {p.api_message && <span className="block text-[10px] text-slate-500 mt-0.5 max-w-[180px] truncate" title={safeText(p.api_message)}>{safeText(p.api_message)}</span>}
+                      {p.api_message && <span className="hidden md:block text-[10px] text-slate-500 mt-0.5 max-w-[180px] truncate" title={safeText(p.api_message)}>{safeText(p.api_message)}</span>}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       {p.status === "pending" && (
@@ -390,7 +395,7 @@ function TransactionsPanel({
                       )}
                       {p.status === "failed" && features.payments && mnosLen > 0 && (
                         <button onClick={() => handleResend(p)} className="inline-flex items-center gap-1 text-xs text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded" data-testid={`payment-resend-${p.deposit_id}`}>
-                          <Send className="h-3 w-3" /> Renvoyer
+                          <Send className="h-3 w-3" /> <span className="hidden sm:inline">Renvoyer</span>
                         </button>
                       )}
                     </td>

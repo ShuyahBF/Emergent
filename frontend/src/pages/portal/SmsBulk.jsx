@@ -158,7 +158,7 @@ export default function SmsBulk() {
   };
 
   return (
-    <div className="space-y-6 max-w-7xl" data-testid="sms-bulk-page">
+    <div className="space-y-6 max-w-full" data-testid="sms-bulk-page">
       <div>
         <h1 className="text-3xl font-display font-bold inline-flex items-center gap-2">
           <Send className="h-7 w-7 text-amber-600" /> Envoi SMS — Masse & Planification
@@ -300,9 +300,9 @@ export default function SmsBulk() {
               <thead className="bg-slate-50 text-slate-500 uppercase text-[10px]">
                 <tr>
                   <th className="text-left px-3 py-2">Programmé pour</th>
-                  <th className="text-left px-3 py-2">Message</th>
-                  <th className="text-center px-3 py-2">Destinataires</th>
-                  <th className="text-left px-3 py-2">Provider</th>
+                  <th className="text-left px-3 py-2 hidden md:table-cell">Message</th>
+                  <th className="text-center px-3 py-2 hidden sm:table-cell">Dest.</th>
+                  <th className="text-left px-3 py-2 hidden lg:table-cell">Provider</th>
                   <th className="text-left px-3 py-2">Statut</th>
                   <th className="text-right px-3 py-2">Action</th>
                 </tr>
@@ -313,22 +313,31 @@ export default function SmsBulk() {
                   const Icon = sb.icon;
                   return (
                     <tr key={sc.id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`sms-sched-${sc.id}`}>
-                      <td className="px-3 py-2 whitespace-nowrap">{fmtDate(sc.scheduled_at)}</td>
-                      <td className="px-3 py-2 max-w-[300px] truncate text-xs text-slate-600" title={sc.message_template}>{sc.message_template}</td>
-                      <td className="px-3 py-2 text-center font-mono text-xs">
+                      <td className="px-3 py-2 whitespace-nowrap text-xs">
+                        <div>{fmtDate(sc.scheduled_at)}</div>
+                        {/* Mobile-only context */}
+                        <div className="md:hidden text-[10px] text-slate-500 mt-0.5 max-w-[160px] truncate" title={sc.message_template}>
+                          {sc.message_template}
+                        </div>
+                        <div className="sm:hidden text-[10px] text-slate-400 mt-0.5">
+                          {(sc.contact_ids || []).length} dest. • {(sc.provider || "auto").toUpperCase()}
+                        </div>
+                      </td>
+                      <td className="px-3 py-2 hidden md:table-cell max-w-[300px] truncate text-xs text-slate-600" title={sc.message_template}>{sc.message_template}</td>
+                      <td className="px-3 py-2 hidden sm:table-cell text-center font-mono text-xs">
                         {(sc.contact_ids || []).length}
                         {sc.result_summary && <span className="text-[10px] text-emerald-700 block">✓ {sc.result_summary.sent_ok || 0}</span>}
                       </td>
-                      <td className="px-3 py-2 text-xs">{(sc.provider || "auto").toUpperCase()}</td>
+                      <td className="px-3 py-2 hidden lg:table-cell text-xs">{(sc.provider || "auto").toUpperCase()}</td>
                       <td className="px-3 py-2">
                         <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${sb.cls}`}>
-                          <Icon className={`h-3 w-3 ${sc.status === "running" ? "animate-spin" : ""}`} /> {sb.label}
+                          <Icon className={`h-3 w-3 ${sc.status === "running" ? "animate-spin" : ""}`} /> <span className="hidden sm:inline">{sb.label}</span>
                         </span>
                       </td>
                       <td className="px-3 py-2 text-right">
                         {sc.status === "pending" && (
                           <button onClick={() => cancelSchedule(sc.id)} className="text-xs text-rose-600 hover:underline inline-flex items-center gap-1" data-testid={`sms-sched-cancel-${sc.id}`}>
-                            <Trash2 className="h-3 w-3" /> Annuler
+                            <Trash2 className="h-3 w-3" /> <span className="hidden sm:inline">Annuler</span>
                           </button>
                         )}
                       </td>

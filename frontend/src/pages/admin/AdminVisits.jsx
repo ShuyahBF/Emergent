@@ -52,25 +52,32 @@ export default function AdminVisits() {
       )}
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[820px]">
+        <table className="w-full text-sm">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
-              <th className="text-left px-4 py-3">Date / Heure</th>
-              <th className="text-left px-4 py-3">IP</th>
-              <th className="text-left px-4 py-3">Pays / Ville</th>
-              <th className="text-left px-4 py-3">Page</th>
-              <th className="text-left px-4 py-3">Référent</th>
+              <th className="text-left px-3 py-3">Date / Heure</th>
+              <th className="text-left px-3 py-3 hidden md:table-cell">IP</th>
+              <th className="text-left px-3 py-3 hidden sm:table-cell">Pays / Ville</th>
+              <th className="text-left px-3 py-3">Page</th>
+              <th className="text-left px-3 py-3 hidden lg:table-cell">Référent</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={5} className="px-4 py-10 text-center text-slate-500">Aucune visite enregistrée.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={5} className="px-3 py-10 text-center text-slate-500">Aucune visite enregistrée.</td></tr>}
             {items.map((v) => (
               <tr key={v.id} className="border-t border-slate-100" data-testid={`visit-${v.id}`}>
-                <td className="px-4 py-3 text-slate-600 whitespace-nowrap">{new Date(v.datetime).toLocaleString("fr-FR")}</td>
-                <td className="px-4 py-3 font-mono text-xs">{v.ip || "-"}</td>
-                <td className="px-4 py-3"><span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3 text-sawali-blue" />{[v.city, v.country].filter(Boolean).join(", ") || "—"}</span></td>
-                <td className="px-4 py-3"><code className="text-xs text-slate-700">{v.page}</code></td>
-                <td className="px-4 py-3 text-xs text-slate-500 truncate max-w-[220px]">{v.referrer || "—"}</td>
+                <td className="px-3 py-3 text-slate-600 whitespace-nowrap text-xs">
+                  <div>{new Date(v.datetime).toLocaleString("fr-FR")}</div>
+                  {/* Mobile-only context */}
+                  <div className="sm:hidden text-[10px] text-slate-400 mt-0.5 inline-flex items-center gap-1">
+                    <MapPin className="h-2.5 w-2.5 text-sawali-blue" />{[v.city, v.country].filter(Boolean).join(", ") || "—"}
+                  </div>
+                  <div className="md:hidden text-[10px] font-mono text-slate-400 mt-0.5">{v.ip || "-"}</div>
+                </td>
+                <td className="px-3 py-3 hidden md:table-cell font-mono text-xs">{v.ip || "-"}</td>
+                <td className="px-3 py-3 hidden sm:table-cell"><span className="inline-flex items-center gap-1"><MapPin className="h-3 w-3 text-sawali-blue" />{[v.city, v.country].filter(Boolean).join(", ") || "—"}</span></td>
+                <td className="px-3 py-3 max-w-[200px] truncate"><code className="text-xs text-slate-700">{v.page}</code></td>
+                <td className="px-3 py-3 hidden lg:table-cell text-xs text-slate-500 truncate max-w-[220px]">{v.referrer || "—"}</td>
               </tr>
             ))}
           </tbody>

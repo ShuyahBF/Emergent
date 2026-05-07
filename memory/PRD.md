@@ -67,6 +67,13 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 49 : Responsive multi-tableaux (Paiements, SMS Bulk, Trafic & Visites)
+✅ Pattern responsive de l'itération 48 appliqué à 3 nouveaux tableaux :
+   - **`MyPayments.jsx`** (Mes paiements) : Date toujours visible (avec MNO + numéro empilés en mobile <sm), Référence cachée <lg, Opérateur caché <sm, Numéro caché <md, label Statut + label "Renvoyer" cachés <sm. Wrapper passé `max-w-6xl` → `max-w-full` pour utiliser toute la largeur disponible.
+   - **`SmsBulk.jsx`** (SMS — Masse & Planif.) : tableau planifications — Programmé pour toujours visible (avec Message tronqué + dest+provider empilés en mobile <md), Message caché <md, Destinataires <sm, Provider <lg, label Statut + label "Annuler" cachés <sm. Wrapper `max-w-7xl` → `max-w-full`.
+   - **`AdminVisits.jsx`** (Trafic & Visites) : Date toujours visible (avec Pays/Ville + IP empilés en mobile <md), IP cachée <md, Pays/Ville cachée <sm, Page tronquée 200px, Référent caché <lg.
+✅ Validation Playwright : `docW=winW=390` à 390px sur les 3 pages, idem à 1280px → zéro overflow horizontal.
+
 ### 2026-05-07 — Itération 48 : Responsive Centre de Messagerie + Fix overflow mobile global
 ✅ **Renommage** : "Répertoire & WhatsApp" → **"Centre de Messagerie"** dans la sidebar et l'en-tête de page (sous-titre "Répertoire de contacts unifié — WhatsApp, SMS & planifications").
 ✅ **Tableau Contacts.jsx — responsive multi-breakpoints** :

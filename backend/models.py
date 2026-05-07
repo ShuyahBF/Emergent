@@ -343,6 +343,14 @@ class SettingsUpdate(BaseModel):
     recaptcha_secret_key: Optional[str] = None
     recaptcha_enabled: Optional[bool] = None
 
+    # --- Support Technique Load Gauge (0-7 — like cellular signal bars) ---
+    # Visible at the top of every public page. Configurable from Admin
+    # Settings UI or via webhook (POST /api/webhooks/support-load/{secret}).
+    support_load_enabled: Optional[bool] = None
+    support_load_level: Optional[int] = None  # 0..7
+    support_load_label: Optional[str] = None  # short FR label, eg. "Forte affluence ce matin"
+    support_load_webhook_secret: Optional[str] = None  # for webhook auth
+
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None

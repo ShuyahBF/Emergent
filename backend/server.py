@@ -713,6 +713,89 @@ async def public_documents():
     return items
 
 
+# ============================================================
+# Support Technique — Load Gauge (0..7) — public + admin + webhook
+# Mirrors the "cellular signal bars" UX so users instantly grasp the
+# current support team load. Set via Admin UI or POST webhook.
+# ============================================================
+def _clamp_load(v: Any) -> int:
+    try:
+        n = int(v)
+    except (TypeError, ValueError):
+        return 0
+    return max(0, min(7, n))
+
+
+@api.get("/public/support-load", tags=["Public"])
+async def public_support_load():
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "enabled": bool(s.get("support_load_enabled")),
+        "level": _clamp_load(s.get("support_load_level")),
+        "label": s.get("support_load_label") or "",
+        "updated_at": s.get("support_load_updated_at"),
+    }
+
+
+class AdminSupportLoadUpdate(BaseModel):
+    level: int
+    label: Optional[str] = None
+    enabled: Optional[bool] = None
+
+
+@api.post("/admin/support-load", tags=["Admin"])
+async def admin_set_support_load(payload: AdminSupportLoadUpdate, user: dict = Depends(get_current_admin)):
+    update: Dict[str, Any] = {
+        "support_load_level": _clamp_load(payload.level),
+        "support_load_updated_at": _now(),
+        "support_load_updated_by": user.get("email"),
+    }
+    if payload.label is not None:
+        update["support_load_label"] = (payload.label or "")[:140]
+    if payload.enabled is not None:
+        update["support_load_enabled"] = bool(payload.enabled)
+    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    return {"ok": True, **update}
+
+
+@api.api_route("/webhooks/support-load/{secret}", methods=["GET", "POST"], tags=["Webhooks"])
+async def webhook_support_load(secret: str, request: Request):
+    """External webhook to push the current support load (0..7).
+    GET ?level=N[&label=...]  OR  POST JSON {level, label}.
+    Useful from monitoring (Zabbix/Grafana/Freshdesk/Zendesk/n8n)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    expected = (s.get("support_load_webhook_secret") or "").strip()
+    if not expected or secret != expected:
+        raise HTTPException(status_code=403, detail="Secret invalide")
+    level = None
+    label = None
+    if request.method == "POST":
+        try:
+            body = await request.json()
+        except Exception:
+            body = {}
+        level = body.get("level") if isinstance(body, dict) else None
+        label = body.get("label") if isinstance(body, dict) else None
+    if level is None:
+        level = request.query_params.get("level")
+    if label is None:
+        label = request.query_params.get("label")
+    if level is None:
+        raise HTTPException(status_code=400, detail="Paramètre 'level' requis (0..7)")
+    update: Dict[str, Any] = {
+        "support_load_level": _clamp_load(level),
+        "support_load_updated_at": _now(),
+        "support_load_updated_by": "webhook",
+        "support_load_enabled": True,
+    }
+    if label is not None:
+        update["support_load_label"] = (str(label) or "")[:140]
+    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    return {"ok": True, "level": update["support_load_level"], "label": update.get("support_load_label")}
+
+
+
+
 @api.get("/company-info", tags=["Public"])
 async def company_info():
     s = await db.settings.find_one({"_id": "global"}) or {}

@@ -33,6 +33,24 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 45 : Jauge d'occupation Support Technique (style signal cellulaire)
+✅ **Backend** : 3 endpoints + helper de validation 0..7
+   - `GET /public/support-load` (no-auth) → `{enabled, level, label, updated_at}`
+   - `POST /admin/support-load` (admin) → push immédiat avec stamp `updated_by`/`updated_at`
+   - `POST/GET /webhooks/support-load/{secret}` → mise à jour automatique depuis monitoring externe (Zabbix/Grafana/n8n…). Accepte `?level=N&label=...` en GET ou `{level, label}` en POST JSON. Active automatiquement la jauge à réception.
+   - Ajout 4 champs dans `Settings` model : `support_load_enabled`, `support_load_level` (0..7), `support_load_label` (140 char), `support_load_webhook_secret`.
+✅ **Composant `SupportLoadGauge.jsx`** : sticky banner en haut du `MarketingLayout` (donc présent sur **toutes** les pages publiques), centré, fond gradient slate-900→slate-800, polling auto toutes les 60s.
+   - **7 barres** style signal cellulaire (hauteurs croissantes 4→16px) avec couleurs distinctes par barre : vert / vert-clair / lime / jaune / amber / orange / rouge. Glow shadow sur barres actives.
+   - Icône casque (Headphones) + label "Support Technique" + libellé contextuel (custom ou auto selon niveau : "Très disponible", "Charge légère", …, "Saturé") + ratio `N/7`.
+   - Caché si `enabled=false` (zéro footprint sur les pages publiques quand désactivé).
+   - Accessibilité : `role="status"` + `aria-label` détaillé.
+✅ **Admin Settings UI** (`SupportLoadSection`) : aperçu live de la jauge, toggle d'activation, **8 boutons cliquables** (0..7) avec couleurs correspondantes pour push immédiat (sans bouton "Enregistrer"), champ libellé personnalisé, **générateur de secret** pour le webhook avec URL prête à copier (ex: `https://sawalismartsystems.com/api/webhooks/support-load/{secret}?level=4&label=…`).
+✅ Tests : `POST /admin/support-load level=5` → `level=5` propagé au public ; `GET /webhook/support-load/{secret}?level=6&label=...` → niveau 6 + auto-activation ; reset à 0/disabled OK.
+✅ Validation Playwright : jauge visible sur la home, 7 barres rendues, label "Test webhook 6/7" affiché en haut centré.
+✅ 8 nouveaux data-testid : `support-load-gauge`, `support-load-bars`, `support-bar-{1..7}`, `support-load-section`, `support-load-{preview|enabled|levels|level-{0..7}|label|secret|gen-secret|copy-url}`.
+
+**Cas d'usage** : votre équipe support voit "rouge 7/7" → réduit les appels entrants en redirigeant vers WhatsApp/email. Outils monitoring (FreshDesk/Zendesk file d'attente) peuvent pousser le niveau automatiquement via webhook → expérience client transparente.
+
 ### 2026-05-07 — Itération 44 : 🐛 FIX P0 — Crash React sur paiement PawaPay
 ✅ **Cause root identifiée** grâce au système de télémétrie ajouté en itération 43 : ErrorBoundary a capturé l'erreur exacte
 > `Objects are not valid as a React child (found: object with keys {rejectionCode, rejectionMessage})`

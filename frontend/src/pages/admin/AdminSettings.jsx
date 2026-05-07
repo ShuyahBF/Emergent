@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -169,6 +169,7 @@ export default function AdminSettings() {
         </div>
       </Section>
 
+      <SupportLoadSection s={s} upd={upd} />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
@@ -1171,5 +1172,137 @@ const SmsTestButton = ({ provider, testid }) => {
         </div>
       )}
     </>
+  );
+};
+
+
+
+// --- Support Technique — Load Gauge admin section ---
+const LEVEL_LABELS = {
+  0: "Inactif", 1: "Très disponible", 2: "Disponible",
+  3: "Charge légère", 4: "Charge modérée", 5: "Charge élevée",
+  6: "Très occupé", 7: "Saturé",
+};
+const BAR_COLORS = ["#16a34a", "#22c55e", "#84cc16", "#eab308", "#f59e0b", "#f97316", "#ef4444"];
+
+const SupportLoadSection = ({ s, upd }) => {
+  const [saving, setSaving] = useState(false);
+  const [secret, setSecret] = useState(s.support_load_webhook_secret || "");
+
+  useEffect(() => { setSecret(s.support_load_webhook_secret || ""); }, [s.support_load_webhook_secret]);
+
+  const level = Math.max(0, Math.min(7, parseInt(s.support_load_level ?? 0, 10) || 0));
+  const enabled = !!s.support_load_enabled;
+  const label = s.support_load_label || "";
+
+  const generateSecret = () => {
+    const v = Array.from(crypto.getRandomValues(new Uint8Array(16))).map((b) => b.toString(16).padStart(2, "0")).join("");
+    setSecret(v); upd("support_load_webhook_secret", v);
+  };
+
+  const pushNow = async (newLevel) => {
+    setSaving(true);
+    try {
+      await apiClient.post("/admin/support-load", { level: newLevel, label, enabled });
+      upd("support_load_level", newLevel);
+      toast.success("Niveau d'occupation mis à jour");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  const webhookUrl = secret ? `${window.location.origin}/api/webhooks/support-load/${secret}` : "";
+
+  const copy = () => {
+    if (!webhookUrl) return;
+    navigator.clipboard?.writeText(webhookUrl).then(() => toast.success("URL copiée"));
+  };
+
+  return (
+    <Section icon={Headphones} title="Jauge d'occupation du Support technique" testid="support-load-section">
+      <p className="text-xs text-slate-500 mb-3">
+        Affichée tout en haut de chaque page publique sous forme de 7 barres (style signal cellulaire) — du <strong className="text-emerald-700">vert</strong> (très disponible) au <strong className="text-rose-700">rouge</strong> (saturé). Permet aux clients de voir le niveau d'activité en temps réel et d'éviter les appels en heure de pointe.
+      </p>
+
+      <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 mb-3 flex items-center justify-center gap-3" data-testid="support-load-preview">
+        <span className="text-[10px] uppercase tracking-wider text-slate-500">Aperçu</span>
+        <div className="flex items-end gap-[2px] h-4">
+          {[4, 6, 8, 10, 12, 14, 16].map((h, i) => {
+            const active = i < level;
+            return (
+              <div key={i} className="w-[3px] rounded-sm" style={{ height: `${h}px`, backgroundColor: active ? BAR_COLORS[i] : "rgba(148,163,184,0.25)" }} />
+            );
+          })}
+        </div>
+        <span className="font-semibold text-sm" style={{ color: level > 0 ? BAR_COLORS[level - 1] : "#64748b" }}>
+          {label || LEVEL_LABELS[level]}
+        </span>
+        <span className="text-[10px] text-slate-400">{level}/7</span>
+      </div>
+
+      <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer mb-3">
+        <input type="checkbox" checked={enabled} onChange={(e) => upd("support_load_enabled", e.target.checked)} data-testid="support-load-enabled" />
+        Activer l'affichage public de la jauge
+      </label>
+
+      <div className="grid sm:grid-cols-8 gap-1 mb-3" data-testid="support-load-levels">
+        {[0, 1, 2, 3, 4, 5, 6, 7].map((n) => (
+          <button
+            key={n}
+            type="button"
+            onClick={() => pushNow(n)}
+            disabled={saving}
+            className={`rounded-lg px-2 py-2 text-xs font-semibold ring-1 transition ${level === n ? "ring-2 text-white shadow" : "ring-slate-200 text-slate-600 bg-white hover:bg-slate-50"}`}
+            style={level === n ? { backgroundColor: n > 0 ? BAR_COLORS[n - 1] : "#64748b", borderColor: n > 0 ? BAR_COLORS[n - 1] : "#64748b" } : {}}
+            data-testid={`support-load-level-${n}`}
+            title={LEVEL_LABELS[n]}
+          >
+            {n} <span className="block text-[9px] font-normal opacity-80 truncate">{LEVEL_LABELS[n]}</span>
+          </button>
+        ))}
+      </div>
+
+      <Input
+        label="Libellé personnalisé (optionnel — sinon le libellé du niveau s'affiche)"
+        value={label}
+        onChange={(v) => upd("support_load_label", v.slice(0, 140))}
+        placeholder="Ex: Forte affluence ce matin — appel possible avec délai d'attente"
+        testid="support-load-label"
+      />
+
+      <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 mt-4">
+        <h4 className="text-sm font-semibold inline-flex items-center gap-2 mb-2">
+          <Webhook className="h-3.5 w-3.5" /> Webhook de mise à jour automatique
+        </h4>
+        <p className="text-[11px] text-slate-600 mb-2">
+          Pour une mise à jour automatique depuis votre outil de monitoring (Zabbix, Grafana, Freshdesk, n8n…), configurez l'URL ci-dessous avec un secret. Acceptable en GET (`?level=N&label=...`) ou POST JSON (`{"{level: N, label: '…'}"}`).
+        </p>
+        <div className="flex gap-2 mb-2">
+          <input
+            value={secret}
+            onChange={(e) => { setSecret(e.target.value); upd("support_load_webhook_secret", e.target.value); }}
+            placeholder="Secret webhook (32 char recommandé)"
+            className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-mono"
+            data-testid="support-load-secret"
+          />
+          <button type="button" onClick={generateSecret}
+            className="text-xs rounded-lg ring-1 ring-amber-400 bg-amber-100 hover:bg-amber-200 px-3 py-1.5"
+            data-testid="support-load-gen-secret">
+            <RotateCcw className="h-3 w-3 inline-block mr-1" /> Générer
+          </button>
+        </div>
+        {webhookUrl && (
+          <div className="rounded-lg bg-white ring-1 ring-slate-200 p-2 flex items-center gap-2">
+            <code className="text-[11px] font-mono break-all flex-1">{webhookUrl}?level=4&label=Charge%20mod%C3%A9r%C3%A9e</code>
+            <button type="button" onClick={copy} className="text-xs inline-flex items-center gap-1 rounded ring-1 ring-slate-200 hover:bg-slate-100 px-2 py-1" data-testid="support-load-copy-url">
+              <Copy className="h-3 w-3" /> Copier
+            </button>
+          </div>
+        )}
+        <p className="text-[10px] text-slate-500 mt-2">
+          ⚠️ Le webhook **active automatiquement** la jauge dès qu'il reçoit un niveau valide.
+        </p>
+      </div>
+    </Section>
   );
 };

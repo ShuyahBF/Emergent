@@ -31,6 +31,40 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ---
 
+## ROADMAP / Backlog (priorisé)
+
+### 🟧 P1 — Liluvine intelligent (à faire prochaine session)
+**Couplage Liluvine ↔ Jauge Support Technique** :
+1. Ajouter dans Admin Settings → Section "Jauge d'occupation" un champ **"Seuil d'alerte Liluvine"** (slider 0..7, défaut=6).
+2. Quand le niveau courant ≥ seuil, le bot Liluvine de la home affiche en priorité un message du genre :
+   > "Notre équipe est très sollicitée. Privilégiez le formulaire de contact ou WhatsApp pour une réponse plus rapide qu'au téléphone."
+3. **Contrôle distant du seuil** :
+   - **Option A — WhatsApp** : commande spéciale (ex: `!seuil 5`) reçue via webhook Meta WA sur le numéro admin → met à jour le seuil.
+   - **Option B — Lien spécifique** : URL du type `/admin/seuil/{token-crypté-HMAC}?value=N` que vous pouvez bookmarker sur le téléphone et cliquer pour changer le seuil sans login.
+   - Le token est généré côté serveur (HMAC SHA256 du seuil + secret + timestamp), expirable, et stocké chiffré.
+4. Audit log dans `db.api_traces` à chaque changement (qui/quand/comment).
+
+### 🟧 P1 — Stats SMS dans `/admin/usage`
+- Graphiques par fournisseur (volume/jour, taux succès)
+- Top 10 clients consommateurs SMS
+- Coût estimé (à raison de tarifs configurables admin par provider)
+
+### 🟧 P0 — Refactor `server.py`
+- Découpage en `/app/backend/routes/` : `auth.py`, `admin.py`, `me.py`, `public.py`, `webhooks.py`, `payments.py`, `sms.py`, `whatsapp.py`, `dashboard.py`, `formations.py`…
+- Actuellement >10 300 lignes — devient critique pour maintenabilité.
+
+### 🟦 Future
+- ErrorBoundary global sur toutes les routes /portal/* et /admin/*
+- Tags sur payment_links (filtrage dashboard par campagne)
+- A/B test multi-canal automatisé (SMS vs WA, conversion par canal)
+- Lien de paiement intégré dans le module SMS (comme dans WA)
+- Scanner QR `encodePCS` (BLOQUÉ — attente lib/code C# Windows)
+- PDF côté serveur (WeasyPrint/ReportLab)
+- Bandeau RGPD cookies
+- Stripe Checkout pour Formations payantes
+
+---
+
 ## CHANGELOG
 
 ### 2026-05-07 — Itération 45 : Jauge d'occupation Support Technique (style signal cellulaire)

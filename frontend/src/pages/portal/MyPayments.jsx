@@ -183,10 +183,25 @@ export default function MyPayments() {
           </button>
           <button
             onClick={() => {
-              if (!features.payments) { toast.error("Paiements non activés pour votre compte"); return; }
-              if (mnos.length === 0) { toast.error("Aucun opérateur Mobile Money autorisé"); return; }
-              setResendPrefill(null);
-              setShowModal(true);
+              try {
+                // Diagnostic — fire-and-forget breadcrumb to backend so we can debug prod-only crashes
+                apiClient.post("/me/api-trace", {
+                  method: "CLIENT_DEBUG", url: "/portal/payments#new-payment-click", status: 0,
+                  module: "payments-new-btn",
+                  request_body: { features, mnos_len: (mnos || []).length, items_len: (items || []).length, tab },
+                }).catch(() => {});
+                if (!features.payments) { toast.error("Paiements non activés pour votre compte"); return; }
+                if (!mnos || mnos.length === 0) { toast.error("Aucun opérateur Mobile Money autorisé"); return; }
+                setResendPrefill(null);
+                setShowModal(true);
+              } catch (err) {
+                toast.error("Erreur : " + (err?.message || err));
+                apiClient.post("/me/api-trace", {
+                  method: "CLIENT_ERROR", url: "/portal/payments#new-payment-click", status: 0,
+                  module: "payments-new-btn-crash", error: String(err?.message || err),
+                  response_body: { stack: String(err?.stack || "").slice(0, 1500) },
+                }).catch(() => {});
+              }
             }}
             disabled={!features.payments || mnos.length === 0}
             className="inline-flex items-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed"

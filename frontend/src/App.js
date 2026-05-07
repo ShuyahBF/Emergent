@@ -2,6 +2,35 @@ import React from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
+import { apiClient } from "@/lib/api";
+
+// === Global runtime error reporter ===
+// Captures any uncaught JS error or unhandled promise rejection that escapes
+// React's render tree (event handlers, async code, libs like PostHog) and
+// posts a tiny breadcrumb to the backend so we can debug production-only crashes.
+if (typeof window !== "undefined" && !window.__sawali_err_handler__) {
+  window.__sawali_err_handler__ = true;
+  const post = (kind, msg, stack) => {
+    try {
+      apiClient.post("/me/api-trace", {
+        method: "CLIENT_ERROR",
+        url: window.location.pathname,
+        status: 0,
+        module: "client-error",
+        error: String(msg).slice(0, 500),
+        request_body: { kind, ua: navigator.userAgent.slice(0, 200) },
+        response_body: { stack: String(stack || "").slice(0, 2000) },
+      }).catch(() => {});
+    } catch { /* noop */ }
+  };
+  window.addEventListener("error", (e) => {
+    if (e?.error?.name === "DataCloneError") return; // already filtered
+    post("window.error", e?.message, e?.error?.stack);
+  });
+  window.addEventListener("unhandledrejection", (e) => {
+    post("unhandledrejection", e?.reason?.message || e?.reason, e?.reason?.stack);
+  });
+}
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import MarketingLayout from "@/components/MarketingLayout";

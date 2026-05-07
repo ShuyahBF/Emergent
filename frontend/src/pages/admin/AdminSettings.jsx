@@ -612,6 +612,31 @@ export default function AdminSettings() {
               placeholder="SAWALI"
               testid={`sms-${op.key}-sender`}
             />
+            <div>
+              <label className="block text-xs font-semibold mb-1">
+                Template du payload (JSON ou form-data) — placeholders : <code className="text-[10px] bg-slate-100 px-1">{"{phone}"}</code> <code className="text-[10px] bg-slate-100 px-1">{"{message}"}</code> <code className="text-[10px] bg-slate-100 px-1">{"{sender}"}</code>
+              </label>
+              <textarea
+                value={s[`sms_${op.key}_payload_template`] || ""}
+                onChange={(e) => upd(`sms_${op.key}_payload_template`, e.target.value)}
+                rows={3}
+                placeholder={'{"to":"{phone}","text":"{message}","from":"{sender}"}'}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
+                data-testid={`sms-${op.key}-payload-template`}
+              />
+              <div className="grid grid-cols-2 gap-2 mt-1">
+                <select
+                  value={s[`sms_${op.key}_content_type`] || "json"}
+                  onChange={(e) => upd(`sms_${op.key}_content_type`, e.target.value)}
+                  className="rounded-md ring-1 ring-slate-300 px-2 py-1 text-xs bg-white"
+                  data-testid={`sms-${op.key}-content-type`}
+                >
+                  <option value="json">JSON (application/json)</option>
+                  <option value="form">Form (application/x-www-form-urlencoded)</option>
+                </select>
+              </div>
+            </div>
+            <SmsTestButton provider={op.key} testid={`sms-${op.key}-test-btn`} />
           </div>
         ))}
       </Section>
@@ -654,6 +679,25 @@ export default function AdminSettings() {
         />
         <Input label="Service Name" value={s.sms_ovh_service_name || ""} onChange={(v) => upd("sms_ovh_service_name", v)} placeholder="sms-ab1234-1" testid="sms-ovh-service-name" />
         <Input label="Sender (expéditeur enregistré)" value={s.sms_ovh_sender || ""} onChange={(v) => upd("sms_ovh_sender", v)} placeholder="OVHSMS" testid="sms-ovh-sender" />
+        <SmsTestButton provider="ovh" testid="sms-ovh-test-btn" />
+        <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3">
+          <label className="block text-xs font-semibold mb-1">Fournisseur SMS par défaut</label>
+          <select
+            value={s.sms_default_provider || "auto"}
+            onChange={(e) => upd("sms_default_provider", e.target.value)}
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+            data-testid="sms-default-provider"
+          >
+            <option value="auto">Auto (selon préfixe — Burkina → opérateur local, sinon OVH)</option>
+            <option value="orange">Orange Burkina</option>
+            <option value="moov">Moov Burkina</option>
+            <option value="telecel">Telecel Burkina</option>
+            <option value="ovh">OVH</option>
+          </select>
+          <p className="text-[10px] text-slate-500 mt-1">
+            Utilisé quand le portail/Admin n'impose pas explicitement un fournisseur. Mode « auto » privilégie l'opérateur local Burkina pour les numéros +226, sinon bascule sur OVH.
+          </p>
+        </div>
       </Section>
 
       <Section icon={CreditCard} title="Paiement — PawaPay (Mobile Money)">        <p className="text-xs text-slate-500">
@@ -1045,5 +1089,87 @@ const BannerPreview = ({ severity, message, linkLabel, linkUrl }) => {
         )}
       </span>
     </div>
+  );
+};
+
+
+
+// --- SMS Test Button (per-provider) ---
+const SmsTestButton = ({ provider, testid }) => {
+  const [open, setOpen] = useState(false);
+  const [to, setTo] = useState("+226");
+  const [message, setMessage] = useState("Test SMS depuis SAWALI Admin.");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const send = async () => {
+    if (!to.trim()) { toast.error("Numéro requis"); return; }
+    if (!message.trim()) { toast.error("Message requis"); return; }
+    setSending(true); setResult(null);
+    try {
+      const r = await apiClient.post("/admin/sms/test", { provider, to, message });
+      setResult(r.data);
+      if (r.data?.ok) toast.success("SMS de test envoyé via " + provider.toUpperCase());
+      else toast.error(r.data?.api_message || "Échec");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSending(false); }
+  };
+
+  return (
+    <>
+      <button
+        onClick={() => { setResult(null); setOpen(true); }}
+        type="button"
+        className="inline-flex items-center gap-1.5 text-xs rounded-lg ring-1 ring-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3 py-1.5"
+        data-testid={testid}
+      >
+        <Activity className="h-3.5 w-3.5" /> Tester l'envoi {provider.toUpperCase()}
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={(e) => e.target === e.currentTarget && setOpen(false)} data-testid={`${testid}-modal`}>
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
+            <div className="flex items-center justify-between px-5 py-3 border-b bg-amber-50">
+              <h3 className="font-display font-bold inline-flex items-center gap-2">
+                <Smartphone className="h-4 w-4" /> Test SMS — {provider.toUpperCase()}
+              </h3>
+              <button onClick={() => setOpen(false)} className="text-slate-500 text-lg">×</button>
+            </div>
+            <div className="p-5 space-y-3">
+              <p className="text-[11px] text-slate-500">
+                Le message sera envoyé via le fournisseur <strong>{provider.toUpperCase()}</strong> avec les paramètres saisis ci-dessus. Pensez à enregistrer la configuration avant de tester.
+              </p>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Numéro destinataire (E.164)</label>
+                <input value={to} onChange={(e) => setTo(e.target.value)} placeholder="+22670000000"
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid={`${testid}-to`} />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold mb-1">Message ({message.length}/600)</label>
+                <textarea value={message} onChange={(e) => setMessage(e.target.value.slice(0, 600))} rows={3}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={`${testid}-message`} />
+              </div>
+              {result && (
+                <div className={`rounded-lg ring-1 p-3 text-xs ${result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"}`} data-testid={`${testid}-result`}>
+                  <p><strong>{result.ok ? "Succès" : "Échec"}</strong> via {result.provider} (HTTP {result.http_status || "—"})</p>
+                  {result.api_message && <p className="mt-1">{result.api_message}</p>}
+                  {result.raw_response && (
+                    <details className="mt-2"><summary className="cursor-pointer text-[10px] underline">Réponse brute</summary>
+                      <pre className="text-[9px] mt-1 max-h-40 overflow-auto whitespace-pre-wrap">{JSON.stringify(result.raw_response, null, 2)}</pre>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 px-5 py-3 border-t bg-slate-50">
+              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+              <button onClick={send} disabled={sending} className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50" data-testid={`${testid}-send`}>
+                <Activity className="h-4 w-4" /> {sending ? "Envoi…" : "Envoyer test"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
   );
 };

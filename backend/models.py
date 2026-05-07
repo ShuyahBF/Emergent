@@ -470,6 +470,8 @@ class SettingsUpdate(BaseModel):
     sms_orange_header_name: Optional[str] = None  # for auth_type=header
     sms_orange_header_value: Optional[str] = None  # secret — masked
     sms_orange_sender: Optional[str] = None  # caller-id / from
+    sms_orange_payload_template: Optional[str] = None  # JSON template with {phone}/{message}/{sender}
+    sms_orange_content_type: Optional[str] = None  # "json" | "form" — defaults to json
 
     sms_moov_enabled: Optional[bool] = None
     sms_moov_url: Optional[str] = None
@@ -481,6 +483,8 @@ class SettingsUpdate(BaseModel):
     sms_moov_header_name: Optional[str] = None
     sms_moov_header_value: Optional[str] = None  # masked
     sms_moov_sender: Optional[str] = None
+    sms_moov_payload_template: Optional[str] = None
+    sms_moov_content_type: Optional[str] = None
 
     sms_telecel_enabled: Optional[bool] = None
     sms_telecel_url: Optional[str] = None
@@ -492,6 +496,12 @@ class SettingsUpdate(BaseModel):
     sms_telecel_header_name: Optional[str] = None
     sms_telecel_header_value: Optional[str] = None  # masked
     sms_telecel_sender: Optional[str] = None
+    sms_telecel_payload_template: Optional[str] = None
+    sms_telecel_content_type: Optional[str] = None
+
+    # Default SMS provider used when the caller doesn't specify one.
+    # Values: "orange" | "moov" | "telecel" | "ovh" | "auto" (auto = pick by phone prefix).
+    sms_default_provider: Optional[str] = None
 
     # ----- OVH SMS — official API (https://api.ovh.com /sms/{serviceName}/jobs) -----
     sms_ovh_enabled: Optional[bool] = None

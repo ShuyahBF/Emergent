@@ -17,6 +17,7 @@ import secrets
 import shutil
 import uuid
 import asyncio
+import hashlib
 import ipaddress
 import json
 import logging
@@ -6702,6 +6703,347 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
     query = {"client_id": client_scope} if user.get("role") != "admin" else {}
     items = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
     return items
+
+
+# ============================================================
+# SMS multi-provider gateway (Orange BFA / Moov BFA / Telecel BFA / OVH)
+# Each Burkina provider is a configurable HTTP webhook (URL + method +
+# auth + payload template). OVH uses its official HMAC-SHA1 signed API.
+# Outbound usage is recorded in db.sms_messages for audit + analytics.
+# ============================================================
+SMS_BFA_PROVIDERS = ("orange", "moov", "telecel")
+
+
+def _sms_substitute(template: str, mapping: Dict[str, str]) -> str:
+    """Replace {phone}, {message}, {sender} (and any custom key) inside a string."""
+    out = template or ""
+    for k, v in (mapping or {}).items():
+        out = out.replace("{" + k + "}", str(v if v is not None else ""))
+    return out
+
+
+def _sms_provider_cfg(s: Dict[str, Any], provider: str) -> Optional[Dict[str, Any]]:
+    p = (provider or "").lower().strip()
+    if p in SMS_BFA_PROVIDERS:
+        if not s.get(f"sms_{p}_enabled"):
+            return None
+        return {
+            "kind": "generic",
+            "name": p,
+            "url": s.get(f"sms_{p}_url"),
+            "method": (s.get(f"sms_{p}_method") or "POST").upper(),
+            "auth_type": (s.get(f"sms_{p}_auth_type") or "none").lower(),
+            "token": s.get(f"sms_{p}_token"),
+            "basic_user": s.get(f"sms_{p}_basic_user"),
+            "basic_pass": s.get(f"sms_{p}_basic_pass"),
+            "header_name": s.get(f"sms_{p}_header_name"),
+            "header_value": s.get(f"sms_{p}_header_value"),
+            "sender": s.get(f"sms_{p}_sender"),
+            "payload_template": s.get(f"sms_{p}_payload_template"),
+            "content_type": (s.get(f"sms_{p}_content_type") or "json").lower(),
+        }
+    if p == "ovh":
+        if not s.get("sms_ovh_enabled"):
+            return None
+        return {
+            "kind": "ovh",
+            "name": "ovh",
+            "endpoint": (s.get("sms_ovh_endpoint") or "ovh-eu").lower(),
+            "application_key": s.get("sms_ovh_application_key"),
+            "application_secret": s.get("sms_ovh_application_secret"),
+            "consumer_key": s.get("sms_ovh_consumer_key"),
+            "service_name": s.get("sms_ovh_service_name"),
+            "sender": s.get("sms_ovh_sender") or "OVHSMS",
+        }
+    return None
+
+
+def _sms_active_providers(s: Dict[str, Any]) -> List[str]:
+    out = [p for p in SMS_BFA_PROVIDERS if s.get(f"sms_{p}_enabled")]
+    if s.get("sms_ovh_enabled"):
+        out.append("ovh")
+    return out
+
+
+def _sms_pick_default(s: Dict[str, Any], msisdn: str) -> Optional[str]:
+    """Pick a default provider when caller passes 'auto' or omits provider."""
+    explicit = (s.get("sms_default_provider") or "auto").lower()
+    if explicit and explicit != "auto":
+        return explicit if _sms_provider_cfg(s, explicit) else None
+    actives = _sms_active_providers(s)
+    if not actives:
+        return None
+    digits = "".join(ch for ch in (msisdn or "") if ch.isdigit())
+    if digits.startswith("226"):
+        for c in ("orange", "moov", "telecel"):
+            if c in actives:
+                return c
+    if "ovh" in actives:
+        return "ovh"
+    return actives[0]
+
+
+def _ovh_host(endpoint: str) -> str:
+    e = (endpoint or "ovh-eu").lower()
+    if e == "ovh-ca":
+        return "https://ca.api.ovh.com/1.0"
+    return "https://eu.api.ovh.com/1.0"
+
+
+async def _sms_send_ovh(cfg: Dict[str, Any], msisdn_e164: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
+    """Send an SMS via OVH official API. Uses HMAC-SHA1 signing scheme."""
+    if not all([cfg.get("application_key"), cfg.get("application_secret"), cfg.get("consumer_key"), cfg.get("service_name")]):
+        return {"ok": False, "status": "failed", "api_message": "OVH credentials incomplete"}
+    host = _ovh_host(cfg.get("endpoint"))
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            tr = await http.get(f"{host}/auth/time")
+            ts = str(int(tr.text.strip())) if tr.status_code == 200 else str(int(datetime.now(timezone.utc).timestamp()))
+    except Exception:  # noqa: BLE001
+        ts = str(int(datetime.now(timezone.utc).timestamp()))
+    url = f"{host}/sms/{cfg['service_name']}/jobs"
+    body = {
+        "charset": "UTF-8",
+        "class": "phoneDisplay",
+        "coding": "8bit",
+        "message": message,
+        "noStopClause": False,
+        "priority": "high",
+        "receivers": [msisdn_e164 if msisdn_e164.startswith("+") else f"+{msisdn_e164}"],
+        "senderForResponse": False,
+        "sender": sender or cfg.get("sender") or "OVHSMS",
+        "validityPeriod": 2880,
+    }
+    body_str = json.dumps(body)
+    to_sign = "+".join([cfg["application_secret"], cfg["consumer_key"], "POST", url, body_str, ts])
+    signature = "$1$" + hashlib.sha1(to_sign.encode("utf-8")).hexdigest()
+    headers = {
+        "X-Ovh-Application": cfg["application_key"],
+        "X-Ovh-Consumer": cfg["consumer_key"],
+        "X-Ovh-Timestamp": ts,
+        "X-Ovh-Signature": signature,
+        "Content-Type": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.post(url, headers=headers, content=body_str)
+            try:
+                resp = r.json()
+            except Exception:  # noqa: BLE001
+                resp = {"raw": r.text[:500]}
+            if r.status_code >= 300:
+                return {"ok": False, "status": "failed", "http_status": r.status_code, "api_message": (resp.get("message") if isinstance(resp, dict) else None) or f"HTTP {r.status_code}", "raw_response": resp}
+            invalid = (resp.get("invalidReceivers") or []) if isinstance(resp, dict) else []
+            valid = (resp.get("validReceivers") or []) if isinstance(resp, dict) else []
+            if invalid and not valid:
+                return {"ok": False, "status": "failed", "api_message": f"Numéro rejeté : {', '.join(invalid)}", "raw_response": resp}
+            return {"ok": True, "status": "sent", "http_status": r.status_code, "api_message": (resp.get("message") if isinstance(resp, dict) else None), "raw_response": resp}
+    except httpx.TimeoutException:
+        return {"ok": False, "status": "failed", "api_message": "OVH timeout"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
+
+
+async def _sms_send_generic(cfg: Dict[str, Any], msisdn: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
+    """Send via a generic configurable HTTP webhook (Orange/Moov/Telecel BFA)."""
+    url = (cfg.get("url") or "").strip()
+    if not url:
+        return {"ok": False, "status": "failed", "api_message": f"URL non configurée pour {cfg.get('name')}"}
+    method = (cfg.get("method") or "POST").upper()
+    final_sender = sender or cfg.get("sender") or "SAWALI"
+    mapping = {"phone": msisdn, "message": message, "sender": final_sender}
+    final_url = _sms_substitute(url, mapping)
+    headers: Dict[str, str] = {}
+    auth = (cfg.get("auth_type") or "none").lower()
+    httpx_auth = None
+    if auth == "bearer" and cfg.get("token"):
+        headers["Authorization"] = f"Bearer {cfg['token']}"
+    elif auth == "basic" and cfg.get("basic_user"):
+        httpx_auth = (cfg.get("basic_user") or "", cfg.get("basic_pass") or "")
+    elif auth == "header" and cfg.get("header_name"):
+        headers[cfg["header_name"]] = _sms_substitute(cfg.get("header_value") or "", mapping)
+    payload_tpl = cfg.get("payload_template")
+    body_obj: Any = None
+    body_str: Optional[str] = None
+    content_type = (cfg.get("content_type") or "json").lower()
+    if method != "GET" and payload_tpl:
+        rendered = _sms_substitute(payload_tpl, mapping)
+        if content_type == "form":
+            headers.setdefault("Content-Type", "application/x-www-form-urlencoded")
+            body_str = rendered
+        else:
+            headers.setdefault("Content-Type", "application/json")
+            try:
+                body_obj = json.loads(rendered)
+            except Exception:  # noqa: BLE001
+                body_str = rendered
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            req_kwargs: Dict[str, Any] = {"headers": headers}
+            if httpx_auth:
+                req_kwargs["auth"] = httpx_auth
+            if body_obj is not None:
+                req_kwargs["json"] = body_obj
+            elif body_str is not None:
+                req_kwargs["content"] = body_str
+            r = await http.request(method, final_url, **req_kwargs)
+            try:
+                resp = r.json()
+            except Exception:  # noqa: BLE001
+                resp = {"raw": r.text[:500]}
+            ok = 200 <= r.status_code < 300
+            return {
+                "ok": ok,
+                "status": "sent" if ok else "failed",
+                "http_status": r.status_code,
+                "api_message": (resp.get("message") if isinstance(resp, dict) else None) or (None if ok else f"HTTP {r.status_code}"),
+                "raw_response": resp,
+            }
+    except httpx.TimeoutException:
+        return {"ok": False, "status": "failed", "api_message": "Timeout"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
+
+
+async def _sms_dispatch(provider: str, msisdn: str, message: str, sender: Optional[str] = None) -> Dict[str, Any]:
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    actual_provider = provider
+    if not actual_provider or actual_provider == "auto":
+        actual_provider = _sms_pick_default(s, msisdn)
+    if not actual_provider:
+        return {"ok": False, "status": "failed", "api_message": "Aucun fournisseur SMS disponible", "provider": None}
+    cfg = _sms_provider_cfg(s, actual_provider)
+    if not cfg:
+        return {"ok": False, "status": "failed", "api_message": f"Fournisseur '{actual_provider}' non activé", "provider": actual_provider}
+    msisdn_clean = "".join(ch for ch in (msisdn or "") if ch.isdigit() or ch == "+")
+    if cfg["kind"] == "ovh":
+        result = await _sms_send_ovh(cfg, msisdn_clean if msisdn_clean.startswith("+") else f"+{msisdn_clean}", message, sender)
+    else:
+        result = await _sms_send_generic(cfg, msisdn_clean.lstrip("+"), message, sender)
+    result["provider"] = actual_provider
+    return result
+
+
+class MeSmsSendRequest(BaseModel):
+    to: str
+    message: str
+    provider: Optional[str] = None
+    sender: Optional[str] = None
+    contact_id: Optional[str] = None
+
+
+@api.get("/me/sms/providers", tags=["Portail Client"])
+async def me_sms_providers(user: dict = Depends(get_current_user)):
+    """Tell the portal which SMS providers are configured + the default one."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    return {
+        "default": (s.get("sms_default_provider") or "auto").lower(),
+        "active": _sms_active_providers(s),
+        "ovh_enabled": bool(s.get("sms_ovh_enabled")),
+    }
+
+
+@api.post("/me/sms/send", tags=["Portail Client"])
+async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = Depends(get_current_user)):
+    parent_id = user.get("client_id") or user["id"]
+    if user.get("role") not in ("admin", "superviseur"):
+        parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+        feats = _normalize_features((parent or {}).get("features"))
+        if not feats.get("sms"):
+            raise HTTPException(status_code=403, detail="SMS non autorisé pour votre compte")
+    if not (payload.message or "").strip():
+        raise HTTPException(status_code=400, detail="Message vide")
+    if len(payload.message) > 800:
+        raise HTTPException(status_code=400, detail="Message trop long (>800 caractères)")
+    if not (payload.to or "").strip():
+        raise HTTPException(status_code=400, detail="Destinataire requis")
+    result = await _sms_dispatch(payload.provider or "auto", payload.to, payload.message, payload.sender)
+    doc = {
+        "id": _uuid(),
+        "client_id": parent_id,
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_label": user.get("full_name") or user.get("email"),
+        "contact_id": payload.contact_id,
+        "provider": result.get("provider"),
+        "sender": payload.sender,
+        "msisdn": payload.to,
+        "msisdn_digits": "".join(ch for ch in (payload.to or "") if ch.isdigit()),
+        "message": payload.message,
+        "length": len(payload.message),
+        "status": result.get("status"),
+        "api_message": result.get("api_message"),
+        "http_status": result.get("http_status"),
+        "raw_response": result.get("raw_response"),
+        "ip": _client_ip_from_request(request),
+        "created_at": _now(),
+    }
+    await db.sms_messages.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {"ok": result.get("ok"), "provider": result.get("provider"), "status": result.get("status"),
+            "error": None if result.get("ok") else result.get("api_message"),
+            "http_status": result.get("http_status"), "id": doc["id"]}
+
+
+@api.get("/me/sms/messages", tags=["Portail Client"])
+async def me_sms_messages(limit: int = 100, contact_id: Optional[str] = None, user: dict = Depends(get_current_user)):
+    client_scope = (user.get("client_id") or user.get("id"))
+    query: Dict[str, Any] = {} if user.get("role") == "admin" else {"client_id": client_scope}
+    if contact_id:
+        query["contact_id"] = contact_id
+    items = await db.sms_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
+    return items
+
+
+class AdminSmsTestRequest(BaseModel):
+    provider: str
+    to: str
+    message: Optional[str] = None
+    sender: Optional[str] = None
+
+
+@api.post("/admin/sms/test", tags=["Admin"])
+async def admin_sms_test(payload: AdminSmsTestRequest, request: Request, user: dict = Depends(get_current_admin)):
+    """Send a test SMS using a chosen provider — surfaces the full HTTP response
+    so the admin can debug the credentials / payload template quickly."""
+    msg = (payload.message or "Test SMS depuis SAWALI Admin — il s'agit d'un message de validation.").strip()
+    if len(msg) > 600:
+        raise HTTPException(status_code=400, detail="Message trop long")
+    result = await _sms_dispatch(payload.provider or "auto", payload.to, msg, payload.sender)
+    doc = {
+        "id": _uuid(),
+        "client_id": "admin-test",
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_label": user.get("full_name") or user.get("email"),
+        "provider": result.get("provider"),
+        "sender": payload.sender,
+        "msisdn": payload.to,
+        "msisdn_digits": "".join(ch for ch in (payload.to or "") if ch.isdigit()),
+        "message": msg,
+        "length": len(msg),
+        "status": result.get("status"),
+        "api_message": result.get("api_message"),
+        "http_status": result.get("http_status"),
+        "raw_response": result.get("raw_response"),
+        "ip": _client_ip_from_request(request),
+        "kind": "admin_test",
+        "created_at": _now(),
+    }
+    await db.sms_messages.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {
+        "ok": result.get("ok"),
+        "provider": result.get("provider"),
+        "status": result.get("status"),
+        "http_status": result.get("http_status"),
+        "api_message": result.get("api_message"),
+        "raw_response": result.get("raw_response"),
+        "id": doc["id"],
+    }
+
+
+
 
 
 # ---------- Portal WhatsApp scheduling (mirrors admin endpoints, scoped by client) ----------

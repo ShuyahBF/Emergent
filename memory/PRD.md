@@ -33,6 +33,22 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 40 : Module SMS multi-fournisseurs (Phase 1 — envoi unitaire)
+✅ **Backend** (4 nouveaux endpoints + dispatcher) :
+   - `_sms_dispatch(provider, msisdn, message, sender)` : dispatcher routant vers OVH ou un webhook HTTP générique selon le fournisseur.
+   - **OVH** : intégration officielle via API REST signée HMAC-SHA1 (`/sms/{serviceName}/jobs`), gestion `invalidReceivers`, fallback sur `auth/time` pour éviter les rejets de skew d'horloge.
+   - **Orange / Moov / Telecel BFA** : provider générique HTTP — URL/method/auth (none/bearer/basic/header)/payload template avec placeholders `{phone}` `{message}` `{sender}`. Content-Type configurable (json|form).
+   - Sélection auto du fournisseur par défaut : préfixe `+226` → Burkina, sinon OVH (sinon premier actif).
+   - `GET /me/sms/providers`, `POST /me/sms/send`, `GET /me/sms/messages`, `POST /admin/sms/test`. Stockage dans `db.sms_messages` (id, provider, msisdn, status, http_status, raw_response…). Feature gating via `/me/features.sms`.
+✅ **Settings model** étendu : `sms_{orange|moov|telecel}_payload_template`, `_content_type`, `sms_default_provider` (auto|orange|moov|telecel|ovh).
+✅ **Admin Settings UI** : pour chaque provider Burkina → champ textarea « Template du payload » + sélecteur JSON/Form + **bouton « Tester l'envoi {NAME} »** qui ouvre une modal compacte (numéro + message + résultat HTTP brut). OVH : même bouton de test. Sélecteur global « Fournisseur SMS par défaut ».
+✅ **Portal Contacts** : nouveau bouton **SMS** (orange) à côté de WhatsApp sur chaque ligne. Modal `SmsModal` avec sélecteur de fournisseur (auto + actifs), expéditeur optionnel, textarea (max 800 char) avec compteur, intégration **`PaymentLinkInserter`** réutilisé : insertion d'un lien `/pay/{slug}` directement dans le corps SMS via callback.
+✅ **`PaymentLinkInserter`** rendu polymorphique : prop `insertCallback` (utilisé par SMS, contournant le slot-picker {{N}} qui s'applique uniquement au flux WA template).
+✅ Tests curl : `GET /me/sms/providers` → `active=[]` ; `POST /me/sms/send` → `403 SMS non autorisé` (gating OK) puis `failed: Aucun fournisseur SMS disponible` (admin) ; `POST /admin/sms/test` provider=orange → `failed: Fournisseur 'orange' non activé` (logique OK).
+✅ Validation Playwright : 3 boutons SMS visibles dans `/portal/contacts`, modal SMS s'ouvre avec bandeau « Aucun fournisseur configuré » (UI conditionnelle correcte). Section Admin Settings : `sms-orange-block`, `sms-orange-payload-template`, `sms-orange-test-btn`, `sms-default-provider`, `sms-ovh-test-btn` tous présents et la modal Test SMS Orange s'ouvre correctement.
+✅ 14 nouveaux data-testid : `contact-sms-{id}`, `sms-modal`, `sms-provider-select`, `sms-sender`, `sms-message`, `sms-send-btn`, `sms-result`, `sms-{provider}-payload-template`, `sms-{provider}-content-type`, `sms-{provider}-test-btn(-modal/-to/-message/-result/-send)`, `sms-default-provider`.
+✅ **À venir Phase 2** : envoi en masse (bulk avec personnalisation par contact), planification SMS (cron), stats SMS dans `/admin/usage` (déjà partiellement préparé via `db.sms_messages`).
+
 ### 2026-05-07 — Itération 39 : Liens de paiement intégrés dans WhatsApp
 ✅ **Composant `PaymentLinkInserter`** ajouté dans le modal WhatsApp de `/portal/contacts` :
    - Bouton « 🔗 Insérer un lien de paiement » visible dès qu'un template a des variables `{{N}}`.

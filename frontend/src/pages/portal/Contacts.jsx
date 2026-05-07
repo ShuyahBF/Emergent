@@ -161,10 +161,12 @@ export default function Contacts() {
                   onReload={load}
                   onEdit={() => setModal({ type: "edit", contact: c })}
                   onWa={() => setModal({ type: "wa", contact: c })}
+                  onSms={() => setModal({ type: "sms", contact: c })}
                   onSchedule={() => setModal({ type: "schedule", contact: c })}
                   onHistory={() => setModal({ type: "history", contact: c })}
                   onDelete={() => del(c.id)}
                   waEnabled={!!smartFeatures.whatsapp}
+                  smsEnabled={!!smartFeatures.sms}
                 />
               ))}
             </tbody>
@@ -183,6 +185,9 @@ export default function Contacts() {
       {modal?.type === "wa" && (
         <WhatsAppModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} />
       )}
+      {modal?.type === "sms" && (
+        <SmsModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} />
+      )}
       {modal?.type === "schedule" && (
         <ScheduleModal contact={modal.contact} onClose={() => setModal(null)} onScheduled={load} />
       )}
@@ -194,7 +199,7 @@ export default function Contacts() {
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete, waEnabled = true }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onDelete, waEnabled = true, smsEnabled = true }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -301,6 +306,15 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSchedule, onHistory, onDelete
             data-testid={`contact-wa-${c.id}`}
           >
             <MessageCircle className="h-3 w-3" /> WhatsApp
+          </button>
+          <button
+            onClick={onSms}
+            disabled={!c.phone || !smsEnabled}
+            title={!smsEnabled ? "Fonctionnalité SMS non activée — contactez votre administrateur" : (c.phone ? "Envoyer un SMS" : "Ajoutez d'abord un numéro de téléphone")}
+            className="inline-flex items-center gap-1 text-[11px] rounded bg-amber-600 text-white px-2 py-1 hover:bg-amber-700 disabled:opacity-40 disabled:cursor-not-allowed"
+            data-testid={`contact-sms-${c.id}`}
+          >
+            <Send className="h-3 w-3" /> SMS
           </button>
           <button
             onClick={onSchedule}
@@ -1325,10 +1339,140 @@ const ScheduleModal = ({ contact, onClose, onScheduled }) => {
 
 
 
-// --- Payment Link Inserter (used inside WhatsApp modal) ---
+// --- SMS send modal (free-text + tokens + payment link inserter) ---
+const SmsModal = ({ contact, onClose, onSent }) => {
+  const [providers, setProviders] = useState({ default: "auto", active: [] });
+  const [provider, setProvider] = useState("auto");
+  const [message, setMessage] = useState("");
+  const [sender, setSender] = useState("");
+  const [sending, setSending] = useState(false);
+  const [result, setResult] = useState(null);
+
+  useEffect(() => {
+    apiClient.get("/me/sms/providers").then((r) => {
+      setProviders(r.data || { active: [] });
+      setProvider(r.data?.default || "auto");
+    }).catch(() => {});
+  }, []);
+
+  const send = async () => {
+    if (!message.trim()) { toast.error("Message vide"); return; }
+    if (message.length > 800) { toast.error("Message trop long"); return; }
+    const target = contact.phone || contact.whatsapp;
+    if (!target) { toast.error("Aucun numéro disponible"); return; }
+    setSending(true); setResult(null);
+    try {
+      const r = await apiClient.post("/me/sms/send", {
+        to: target,
+        message,
+        provider,
+        sender: sender || undefined,
+        contact_id: contact.id,
+      });
+      setResult(r.data);
+      if (r.data?.ok) {
+        toast.success("SMS envoyé via " + (r.data?.provider || "?"));
+        if (onSent) onSent();
+      } else {
+        toast.error(r.data?.error || "Échec d'envoi");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSending(false); }
+  };
+
+  // Wrap the inserter — SMS uses a single body string, not variables. We
+  // pass a 1-slot bodyVars and append the URL on insert.
+  const insertLink = (url) => {
+    setMessage((m) => (m ? m.replace(/\s*$/, "") + "\n" + url : url));
+    toast.success("Lien collé dans le message");
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()} data-testid="sms-modal">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl flex flex-col max-h-[92vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-amber-50">
+          <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+            <Send className="h-5 w-5 text-amber-600" /> Envoyer un SMS
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-4 space-y-3">
+          <p className="text-sm text-slate-600">
+            À : <strong>{contact.name}</strong>
+            <code className="text-xs bg-slate-100 px-1.5 py-0.5 rounded ml-1">{contact.phone || contact.whatsapp}</code>
+          </p>
+          {providers.active.length === 0 ? (
+            <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+              Aucun fournisseur SMS configuré. Contactez votre administrateur (paramètres SMS Orange / Moov / Telecel / OVH).
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <label className="text-xs font-semibold">
+                  Fournisseur
+                  <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full mt-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="sms-provider-select">
+                    <option value="auto">Auto (selon préfixe)</option>
+                    {providers.active.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+                  </select>
+                </label>
+                <label className="text-xs font-semibold">
+                  Expéditeur (optionnel)
+                  <input value={sender} onChange={(e) => setSender(e.target.value)} maxLength={11} placeholder="SAWALI"
+                    className="w-full mt-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="sms-sender" />
+                </label>
+              </div>
+              <div>
+                <label className="text-xs font-semibold flex items-center justify-between">
+                  <span>Message ({message.length}/800)</span>
+                  <PaymentLinkInserter
+                    bodyVars={[]}
+                    setBodyVars={() => {}}
+                    insertCallback={insertLink}
+                  />
+                </label>
+                <textarea
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value.slice(0, 800))}
+                  rows={6}
+                  placeholder="Bonjour, voici votre facture du mois…"
+                  className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  data-testid="sms-message"
+                />
+                <p className="text-[10px] text-slate-400 mt-0.5">
+                  Astuce : utilisez le bouton « Insérer un lien de paiement » pour ajouter un lien `/pay/{slug}`.
+                </p>
+              </div>
+            </>
+          )}
+          {result && (
+            <div className={`rounded-lg ring-1 p-3 text-xs ${result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"}`} data-testid="sms-result">
+              {result.ok
+                ? <><strong>Envoyé !</strong> Via : {result.provider} (HTTP {result.http_status})</>
+                : <><strong>Échec :</strong> {result.error || "Erreur inconnue"} {result.http_status ? `(HTTP ${result.http_status})` : ""}</>
+              }
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
+          <button onClick={send} disabled={sending || providers.active.length === 0}
+            className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50"
+            data-testid="sms-send-btn">
+            <Send className="h-4 w-4" /> {sending ? "Envoi…" : "Envoyer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+
+// --- Payment Link Inserter (used inside WhatsApp & SMS modals) ---
 // Lets the user pick (or create on the fly) a payment link, then injects
-// the public URL (https://…/pay/{slug}) into one of the template variables.
-const PaymentLinkInserter = ({ bodyVars, setBodyVars }) => {
+// the public URL (https://…/pay/{slug}) either into a chosen template
+// variable (WA flow) or via a callback (SMS flow — appends to the body).
+const PaymentLinkInserter = ({ bodyVars, setBodyVars, insertCallback }) => {
   const [open, setOpen] = useState(false);
   const [tab, setTab] = useState("existing"); // existing | quick
   const [items, setItems] = useState([]);
@@ -1375,6 +1519,16 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars }) => {
 
   const publicPayUrl = (slug) => `${window.location.origin}/pay/${slug}`;
 
+  // When a callback flow is used (e.g. SMS), insert immediately and close.
+  const handlePicked = (url) => {
+    if (insertCallback) {
+      insertCallback(url);
+      setOpen(false);
+    } else {
+      setChosenUrl(url);
+    }
+  };
+
   const insertIntoVar = (i) => {
     if (!chosenUrl) return;
     const next = [...bodyVars];
@@ -1399,8 +1553,13 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars }) => {
         allowed_mnos: allowedMnos,
       });
       const url = publicPayUrl(r.data?.slug);
-      setChosenUrl(url);
-      toast.success("Lien créé. Choisissez une variable où l'insérer.");
+      if (insertCallback) {
+        insertCallback(url);
+        setOpen(false);
+      } else {
+        setChosenUrl(url);
+        toast.success("Lien créé. Choisissez une variable où l'insérer.");
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
@@ -1447,7 +1606,7 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars }) => {
                     items.map((l) => (
                       <button
                         key={l.id}
-                        onClick={() => setChosenUrl(publicPayUrl(l.slug))}
+                        onClick={() => handlePicked(publicPayUrl(l.slug))}
                         className="w-full text-left rounded-lg ring-1 ring-slate-200 hover:ring-amber-400 hover:bg-amber-50 p-3 transition"
                         data-testid={`wa-pay-pick-${l.slug}`}
                       >

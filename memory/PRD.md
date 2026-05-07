@@ -67,6 +67,22 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 46 : Liluvine intelligent + Contrôle distant HMAC + Commandes WhatsApp
+✅ **Backend** :
+   - `/public/support-load` enrichi → retourne `liluvine.{alert_enabled, threshold, alert_active, label, message}` (alert_active = level ≥ threshold ET les deux features activées).
+   - `POST /admin/liluvine/remote-link` : génère un token HMAC-SHA256 signé (payload `{scope, issued_at, issued_by, exp}`) encodé URL-safe base64. TTL configurable (1h..1 an, défaut 30 jours). Auto-génération du secret côté DB si absent.
+   - `GET/POST /public/remote/support/{token}` (no-auth) : valide le token HMAC + signature, expose lecture/écriture du level/threshold/label. Audit log dans `api_traces` à chaque update.
+   - `_try_handle_liluvine_wa_command` : parser regex (`!seuil N`, `!niveau N [label]`, `!load N`) déclenché dans le webhook Meta WA inbound. Allow-list des numéros admin (`liluvine_remote_admin_phones`). Numéro non listé → rejet silencieux + trace.
+   - 6 nouveaux champs Settings : `liluvine_alert_enabled`, `liluvine_alert_threshold` (0..7), `liluvine_alert_message` (250 char), `liluvine_alert_label` (60 char), `liluvine_remote_secret` (HMAC), `liluvine_remote_admin_phones` (list).
+✅ **Frontend** :
+   - **`VirtualAssistant.jsx`** : poll `/public/support-load` toutes les 60s. Quand `alert_active=true` → bouton devient **rouge** avec icône triangle, label change vers le custom (`liluvine_alert_label`), animation pulse, **bulle tooltip auto-affichée 12s** une fois par session avec message + CTA "Démarrer le chat".
+   - **`/remote/support/:token`** (`RemoteSupportConsole.jsx`) : page mobile-first brandée SAWALI. Aperçu jauge live (couleurs dégradées vert→rouge) + badge "ALERTE ACTIVE" si applicable. 3 sections : sélecteur niveau 0..7 (one-tap save), sélecteur seuil ≥1..≥7, libellé personnalisé. Validation HMAC côté serveur, traçage dans `api_traces`.
+   - **Admin Settings** → bloc rose "Liluvine — Redirection intelligente" : toggle activation, sélecteur seuil 7 boutons, label custom (60 char) + textarea message (250 char), **bouton "Générer un lien (30 jours)"** avec URL prête à copier, bloc émeraude "Contrôle via WhatsApp" avec exemples de commandes + champ allow-list multi-numéros.
+✅ Tests Playwright : home en niveau 7/seuil 5 → jauge rouge + Liluvine rouge "🔴 Très occupé — chat" + bulle d'alerte auto-affichée. Console distante : aperçu live, click level 2 → toast "Mis à jour" + aperçu passe instantanément à 2/7 vert.
+✅ 14 nouveaux data-testid : `virtual-assistant-{alert|alert-close|alert-cta}`, `remote-current-preview`, `remote-{level|threshold}-picker`, `remote-{level-{0..7}|threshold-{1..7}}`, `remote-label-{input|save}`, `remote-refresh`, `liluvine-alert-block`, `liluvine-alert-{enabled|label|message}`, `liluvine-threshold-{1..7}`, `liluvine-{gen-link|copy-link|remote-url|admin-phones}`.
+
+**Cas d'usage final** : depuis votre téléphone, vous bookmarkez une URL signée HMAC, et en 2 taps vous changez le niveau d'occupation + le seuil. Quand vos clients arrivent sur le site et que la jauge est rouge, Liluvine les redirige automatiquement vers le chat plutôt que le téléphone. Vous pouvez aussi envoyer `!niveau 6 Forte affluence` depuis votre WhatsApp (depuis un numéro admin allow-listé) pour la même action.
+
 ### 2026-05-07 — Itération 45 : Jauge d'occupation Support Technique (style signal cellulaire)
 ✅ **Backend** : 3 endpoints + helper de validation 0..7
    - `GET /public/support-load` (no-auth) → `{enabled, level, label, updated_at}`

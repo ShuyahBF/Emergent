@@ -351,6 +351,18 @@ class SettingsUpdate(BaseModel):
     support_load_label: Optional[str] = None  # short FR label, eg. "Forte affluence ce matin"
     support_load_webhook_secret: Optional[str] = None  # for webhook auth
 
+    # --- Liluvine smart redirect (couples the assistant with the gauge) ---
+    # When current support_load_level >= threshold, the floating Liluvine
+    # button gets a warning-style label and the assistant panel surfaces an
+    # "office is busy" message first. Threshold is admin-tunable; can also
+    # be tweaked remotely via a signed link or a WhatsApp command.
+    liluvine_alert_enabled: Optional[bool] = None  # opt-in (default off)
+    liluvine_alert_threshold: Optional[int] = None  # 0..7 — default 6
+    liluvine_alert_message: Optional[str] = None  # FR text (~200 chars)
+    liluvine_alert_label: Optional[str] = None  # short button label, eg. "🔴 Forte affluence — chat plutôt"
+    liluvine_remote_secret: Optional[str] = None  # HMAC secret for /remote/support/{token}
+    liluvine_remote_admin_phones: Optional[List[str]] = None  # WA digits allowed to send `!seuil`/`!niveau`
+
     smtp_host: Optional[str] = None
     smtp_port: Optional[int] = None
     smtp_user: Optional[str] = None

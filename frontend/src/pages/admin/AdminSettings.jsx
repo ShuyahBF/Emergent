@@ -1270,6 +1270,8 @@ const SupportLoadSection = ({ s, upd }) => {
         testid="support-load-label"
       />
 
+      <LiluvineAlertBlock s={s} upd={upd} />
+
       <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 mt-4">
         <h4 className="text-sm font-semibold inline-flex items-center gap-2 mb-2">
           <Webhook className="h-3.5 w-3.5" /> Webhook de mise à jour automatique
@@ -1304,5 +1306,146 @@ const SupportLoadSection = ({ s, upd }) => {
         </p>
       </div>
     </Section>
+  );
+};
+
+
+
+// --- Liluvine Smart Alert block (inside Support Load admin section) ---
+const LiluvineAlertBlock = ({ s, upd }) => {
+  const [generating, setGenerating] = useState(false);
+  const [link, setLink] = useState(null);
+  const threshold = Math.max(0, Math.min(7, parseInt(s.liluvine_alert_threshold ?? 6, 10) || 6));
+  const enabled = !!s.liluvine_alert_enabled;
+  const alertLabel = s.liluvine_alert_label || "";
+  const alertMessage = s.liluvine_alert_message || "";
+  const adminPhones = Array.isArray(s.liluvine_remote_admin_phones) ? s.liluvine_remote_admin_phones : (typeof s.liluvine_remote_admin_phones === "string" ? s.liluvine_remote_admin_phones.split(",").map((x) => x.trim()).filter(Boolean) : []);
+  const phonesValue = adminPhones.join(", ");
+
+  const generateLink = async () => {
+    setGenerating(true);
+    try {
+      const r = await apiClient.post("/admin/liluvine/remote-link", { ttl_hours: 24 * 30 });
+      setLink(r.data);
+      toast.success("Lien généré (valide 30 jours) — bookmarkez-le sur votre téléphone");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setGenerating(false); }
+  };
+
+  const copyLink = () => {
+    if (!link?.url) return;
+    navigator.clipboard?.writeText(link.url).then(() => toast.success("URL copiée"));
+  };
+
+  return (
+    <div className="rounded-lg bg-rose-50 ring-1 ring-rose-200 p-3 mt-4" data-testid="liluvine-alert-block">
+      <h4 className="text-sm font-semibold inline-flex items-center gap-2 mb-2 text-rose-900">
+        <Sparkles className="h-3.5 w-3.5" /> Liluvine — Redirection intelligente
+      </h4>
+      <p className="text-[11px] text-slate-600 mb-3">
+        Quand le niveau d'occupation atteint le seuil défini, le bouton flottant Liluvine devient rouge et propose le chat comme canal prioritaire — pour décharger la ligne téléphonique aux heures de pointe.
+      </p>
+
+      <label className="flex items-center gap-2 text-sm font-semibold cursor-pointer mb-3">
+        <input type="checkbox" checked={enabled} onChange={(e) => upd("liluvine_alert_enabled", e.target.checked)} data-testid="liluvine-alert-enabled" />
+        Activer le mode alerte
+      </label>
+
+      <div className="mb-3">
+        <label className="block text-xs font-semibold mb-1">
+          Seuil de déclenchement <span className="text-slate-500 font-normal">(quand niveau ≥ seuil → alerte ON)</span>
+        </label>
+        <div className="grid grid-cols-7 gap-1" data-testid="liluvine-threshold-grid">
+          {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+            <button
+              key={n}
+              type="button"
+              onClick={() => upd("liluvine_alert_threshold", n)}
+              className={`rounded-lg px-2 py-2 text-xs font-bold ring-1 ${threshold === n ? "ring-2 bg-rose-100 text-rose-900 ring-rose-400" : "ring-slate-200 text-slate-600 bg-white hover:bg-slate-50"}`}
+              data-testid={`liluvine-threshold-${n}`}
+            >
+              ≥{n}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <Input
+        label="Libellé du bouton en mode alerte (≤ 60 char)"
+        value={alertLabel}
+        onChange={(v) => upd("liluvine_alert_label", v.slice(0, 60))}
+        placeholder="🔴 Forte affluence — chat plutôt"
+        testid="liluvine-alert-label"
+      />
+      <div className="mt-2">
+        <label className="block text-xs font-semibold mb-1">Message d'alerte affiché dans la bulle</label>
+        <textarea
+          value={alertMessage}
+          onChange={(e) => upd("liluvine_alert_message", e.target.value.slice(0, 250))}
+          rows={2}
+          maxLength={250}
+          placeholder="Notre équipe est très sollicitée. Privilégiez ce chat ou notre formulaire de contact pour une réponse plus rapide qu'au téléphone."
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="liluvine-alert-message"
+        />
+        <p className="text-[10px] text-slate-400 mt-0.5">{alertMessage.length}/250 caractères</p>
+      </div>
+
+      {/* Remote control */}
+      <div className="mt-4 rounded-lg bg-white ring-1 ring-slate-200 p-3">
+        <h5 className="text-xs font-semibold inline-flex items-center gap-1 mb-2">
+          <KeyRound className="h-3 w-3" /> Contrôle distant (mobile)
+        </h5>
+        <p className="text-[11px] text-slate-500 mb-2">
+          Générez un lien <strong>HMAC sécurisé</strong> à bookmarker sur votre téléphone : il vous permet de modifier le niveau et le seuil <em>sans login</em>.
+        </p>
+        <button
+          type="button"
+          onClick={generateLink}
+          disabled={generating}
+          className="text-xs inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 disabled:opacity-50"
+          data-testid="liluvine-gen-link"
+        >
+          <ExternalLink className="h-3 w-3" /> {generating ? "Génération…" : "Générer un lien (30 jours)"}
+        </button>
+        {link?.url && (
+          <div className="mt-2 rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2 flex items-center gap-2" data-testid="liluvine-remote-url">
+            <code className="text-[10px] font-mono break-all flex-1">{link.url}</code>
+            <button type="button" onClick={copyLink} className="text-xs inline-flex items-center gap-1 rounded ring-1 ring-slate-200 hover:bg-slate-100 px-2 py-1" data-testid="liluvine-copy-link">
+              <Copy className="h-3 w-3" /> Copier
+            </button>
+          </div>
+        )}
+        <p className="text-[10px] text-slate-400 mt-2">
+          Expire : {link?.expires_at ? new Date(link.expires_at).toLocaleString("fr-FR") : "—"}. Toute action est tracée dans les logs.
+        </p>
+      </div>
+
+      {/* WhatsApp command */}
+      <div className="mt-3 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-3">
+        <h5 className="text-xs font-semibold inline-flex items-center gap-1 mb-2 text-emerald-900">
+          <MessageCircle className="h-3 w-3" /> Contrôle via WhatsApp
+        </h5>
+        <p className="text-[11px] text-slate-600 mb-2">
+          Envoyez à votre numéro WhatsApp Business une de ces commandes pour ajuster en direct :
+        </p>
+        <ul className="text-[11px] font-mono space-y-0.5 mb-2 ml-3">
+          <li><code className="bg-white ring-1 ring-emerald-200 px-1 rounded">!niveau 5</code> — fixe le niveau (auto-active la jauge)</li>
+          <li><code className="bg-white ring-1 ring-emerald-200 px-1 rounded">!niveau 6 Forte affluence</code> — niveau + libellé</li>
+          <li><code className="bg-white ring-1 ring-emerald-200 px-1 rounded">!seuil 4</code> — règle le seuil Liluvine</li>
+        </ul>
+        <Input
+          label="Numéros WhatsApp autorisés à envoyer ces commandes (séparés par virgule)"
+          value={phonesValue}
+          onChange={(v) => upd("liluvine_remote_admin_phones", v.split(",").map((x) => x.trim()).filter(Boolean))}
+          placeholder="+22670000000, +22670000001"
+          testid="liluvine-admin-phones"
+        />
+        <p className="text-[10px] text-slate-500 mt-1">
+          Format international avec ou sans « + ». Une commande envoyée par un numéro non listé est rejetée silencieusement.
+        </p>
+      </div>
+    </div>
   );
 };

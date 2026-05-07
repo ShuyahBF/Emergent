@@ -105,6 +105,7 @@ import MyPayments from "@/pages/portal/MyPayments";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import PayLink from "@/pages/public/PayLink";
+import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
@@ -150,6 +151,7 @@ export default function App() {
           <Route path="/launch" element={<Launch />} />
           <Route path="/f/:fid" element={<PublicForm />} />
           <Route path="/pay/:slug" element={<PayLink />} />
+          <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />
           <Route path="/documentation" element={<ApiDocs />} />
           <Route path="/politiques" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
           <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />

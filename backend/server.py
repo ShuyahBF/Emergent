@@ -18,6 +18,8 @@ import shutil
 import uuid
 import asyncio
 import hashlib
+import hmac
+import base64
 import ipaddress
 import json
 import logging
@@ -729,11 +731,22 @@ def _clamp_load(v: Any) -> int:
 @api.get("/public/support-load", tags=["Public"])
 async def public_support_load():
     s = await db.settings.find_one({"_id": "global"}) or {}
+    level = _clamp_load(s.get("support_load_level"))
+    threshold = _clamp_load(s.get("liluvine_alert_threshold") or 6)
+    liluvine_alert_enabled = bool(s.get("liluvine_alert_enabled"))
+    alert_active = liluvine_alert_enabled and bool(s.get("support_load_enabled")) and level >= threshold and threshold > 0
     return {
         "enabled": bool(s.get("support_load_enabled")),
-        "level": _clamp_load(s.get("support_load_level")),
+        "level": level,
         "label": s.get("support_load_label") or "",
         "updated_at": s.get("support_load_updated_at"),
+        "liluvine": {
+            "alert_enabled": liluvine_alert_enabled,
+            "threshold": threshold,
+            "alert_active": alert_active,
+            "label": (s.get("liluvine_alert_label") or "").strip() if alert_active else None,
+            "message": (s.get("liluvine_alert_message") or "").strip() if alert_active else None,
+        },
     }
 
 
@@ -792,6 +805,171 @@ async def webhook_support_load(secret: str, request: Request):
         update["support_load_label"] = (str(label) or "")[:140]
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
     return {"ok": True, "level": update["support_load_level"], "label": update.get("support_load_label")}
+
+
+
+
+# ============================================================
+# Liluvine smart redirect — remote control via signed link or
+# WhatsApp command. Generates short-lived HMAC tokens that can be
+# bookmarked from the admin's mobile to flip the threshold/level
+# without going through the login screen.
+# ============================================================
+def _liluvine_secret(s: Dict[str, Any]) -> str:
+    """Return the per-install HMAC secret. Auto-generates one on first use."""
+    sec = (s.get("liluvine_remote_secret") or "").strip()
+    return sec
+
+
+def _liluvine_sign(secret: str, payload: Dict[str, Any]) -> str:
+    """Sign a JSON payload with HMAC-SHA256 → returns urlsafe base64 token."""
+    body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
+    sig = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+    return base64.urlsafe_b64encode(f"{body}|{sig}".encode("utf-8")).decode("utf-8").rstrip("=")
+
+
+def _liluvine_verify(secret: str, token: str) -> Optional[Dict[str, Any]]:
+    if not token or not secret:
+        return None
+    try:
+        padded = token + "=" * (-len(token) % 4)
+        raw = base64.urlsafe_b64decode(padded.encode("utf-8")).decode("utf-8")
+        body, sig = raw.rsplit("|", 1)
+        expected = hmac.new(secret.encode("utf-8"), body.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, sig):
+            return None
+        data = json.loads(body)
+        # Expiry check
+        exp = data.get("exp")
+        if exp and datetime.now(timezone.utc) > datetime.fromisoformat(str(exp).replace("Z", "+00:00")):
+            return None
+        return data
+    except Exception:  # noqa: BLE001
+        return None
+
+
+class AdminRemoteLinkRequest(BaseModel):
+    ttl_hours: Optional[int] = 720  # default 30 days
+
+
+@api.post("/admin/liluvine/remote-link", tags=["Admin"])
+async def admin_liluvine_remote_link(payload: AdminRemoteLinkRequest, request: Request, user: dict = Depends(get_current_admin)):
+    """Generate a long-lived signed link to control Liluvine threshold + level
+    from a phone bookmark — without going through the login screen."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    secret = _liluvine_secret(s)
+    if not secret:
+        secret = secrets.token_urlsafe(32)
+        await db.settings.update_one({"_id": "global"}, {"$set": {"liluvine_remote_secret": secret}}, upsert=True)
+    ttl = max(1, min(int(payload.ttl_hours or 720), 24 * 365))
+    exp = (datetime.now(timezone.utc) + timedelta(hours=ttl)).isoformat()
+    token = _liluvine_sign(secret, {
+        "scope": "liluvine",
+        "issued_at": _now(),
+        "issued_by": user.get("email"),
+        "exp": exp,
+    })
+    base_url = str(request.base_url).rstrip("/")
+    # The remote console is a public React route → use frontend base
+    public_origin = request.headers.get("origin") or request.headers.get("referer") or base_url
+    if "://" in public_origin:
+        public_origin = "://".join(public_origin.split("://")[:1] + [public_origin.split("://")[1].split("/")[0]])
+    url = f"{public_origin}/remote/support/{token}"
+    return {"ok": True, "url": url, "token": token, "expires_at": exp}
+
+
+class RemoteSupportUpdate(BaseModel):
+    level: Optional[int] = None  # 0..7
+    threshold: Optional[int] = None  # 0..7
+    label: Optional[str] = None  # support_load_label (the "main gauge" label)
+
+
+@api.get("/public/remote/support/{token}", tags=["Public"])
+async def public_remote_support_state(token: str):
+    """Inspect the current support load + Liluvine config — gated by HMAC token."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    secret = _liluvine_secret(s)
+    if not _liluvine_verify(secret, token):
+        raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+    return {
+        "support_load_enabled": bool(s.get("support_load_enabled")),
+        "support_load_level": _clamp_load(s.get("support_load_level")),
+        "support_load_label": s.get("support_load_label") or "",
+        "liluvine_alert_threshold": _clamp_load(s.get("liluvine_alert_threshold") or 6),
+        "liluvine_alert_enabled": bool(s.get("liluvine_alert_enabled")),
+        "alert_active": (
+            bool(s.get("liluvine_alert_enabled"))
+            and bool(s.get("support_load_enabled"))
+            and _clamp_load(s.get("support_load_level")) >= _clamp_load(s.get("liluvine_alert_threshold") or 6)
+        ),
+        "updated_at": s.get("support_load_updated_at"),
+    }
+
+
+@api.post("/public/remote/support/{token}", tags=["Public"])
+async def public_remote_support_update(token: str, payload: RemoteSupportUpdate, request: Request):
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    secret = _liluvine_secret(s)
+    verified = _liluvine_verify(secret, token)
+    if not verified:
+        raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+    update: Dict[str, Any] = {"support_load_updated_at": _now(), "support_load_updated_by": f"remote-link({verified.get('issued_by') or 'admin'})"}
+    if payload.level is not None:
+        update["support_load_level"] = _clamp_load(payload.level)
+        update["support_load_enabled"] = True
+    if payload.threshold is not None:
+        update["liluvine_alert_threshold"] = _clamp_load(payload.threshold)
+    if payload.label is not None:
+        update["support_load_label"] = (payload.label or "")[:140]
+    if not any(k in update for k in ("support_load_level", "liluvine_alert_threshold", "support_load_label")):
+        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    # Audit trail
+    await db.api_traces.insert_one({
+        "id": _uuid(), "method": "REMOTE_LILUVINE", "url": "/public/remote/support",
+        "module": "liluvine-remote", "status": 200, "ip": _client_ip_from_request(request),
+        "request_body": {**payload.model_dump(), "issued_by": verified.get("issued_by")},
+        "created_at": _now(),
+    })
+    return {"ok": True, **{k: v for k, v in update.items() if not k.startswith("support_load_updated")}}
+
+
+async def _try_handle_liluvine_wa_command(from_phone: str, message_text: str) -> Optional[str]:
+    """When a WhatsApp message comes from an allow-listed admin phone and
+    starts with `!seuil` or `!niveau` (or `!load`), tweak the gauge live.
+    Returns a status string for logging or None if no command was found."""
+    if not message_text:
+        return None
+    text = message_text.strip()
+    m = re.match(r"^[!/](?:seuil|niveau|level|threshold|load)\s+(-?\d+)\b\s*(.*)$", text, re.IGNORECASE)
+    if not m:
+        return None
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    allowed = s.get("liluvine_remote_admin_phones") or []
+    digits = "".join(ch for ch in (from_phone or "") if ch.isdigit())
+    allowed_norm = {"".join(ch for ch in str(p) if ch.isdigit()) for p in allowed if p}
+    if digits not in allowed_norm:
+        return f"refused:{digits}"
+    n = _clamp_load(m.group(1))
+    extra = (m.group(2) or "").strip()
+    cmd = re.match(r"^[!/](\w+)", text).group(1).lower()
+    update: Dict[str, Any] = {"support_load_updated_at": _now(), "support_load_updated_by": f"wa({digits})"}
+    if cmd in ("seuil", "threshold"):
+        update["liluvine_alert_threshold"] = n
+    else:
+        update["support_load_level"] = n
+        update["support_load_enabled"] = True
+        if extra:
+            update["support_load_label"] = extra[:140]
+    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    await db.api_traces.insert_one({
+        "id": _uuid(), "method": "WA_LILUVINE", "url": "/whatsapp/webhook",
+        "module": "liluvine-wa-cmd", "status": 200,
+        "request_body": {"cmd": cmd, "value": n, "from": digits, "extra": extra},
+        "created_at": _now(),
+    })
+    return f"ok:{cmd}={n}"
+
 
 
 
@@ -5713,6 +5891,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "sms_ovh_application_secret", "sms_ovh_consumer_key",
         "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
         "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
+        "support_load_webhook_secret", "liluvine_remote_secret",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -7703,6 +7882,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         "read_by_us_at": None,
                     }
                     await db.whatsapp_messages.insert_one(doc)
+                    # Liluvine remote command? (only on plain text messages)
+                    if mtype == "text" and text_body and (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                        try:
+                            await _try_handle_liluvine_wa_command(from_num, text_body)
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("liluvine cmd parse failed: %s", exc)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("WA inbound parse failed: %s", exc)
             # --- Status updates for outbound ---

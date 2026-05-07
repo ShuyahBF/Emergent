@@ -6,7 +6,7 @@ import {
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
-  CalendarClock, Trash,
+  CalendarClock, Trash, Link2, CreditCard,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 
@@ -663,13 +663,20 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
               )}
 
               {parsed.body.varCount > 0 && (
-                <VarGrid
-                  label={`Variables du corps (${parsed.body.varCount})`}
-                  values={bodyVars}
-                  onChange={setBodyVars}
-                  testPrefix="wa-variable"
-                  tokens={tokens}
-                />
+                <>
+                  <PaymentLinkInserter
+                    paymentsEnabled={!!(contact?._payments_enabled ?? true)}
+                    bodyVars={bodyVars}
+                    setBodyVars={setBodyVars}
+                  />
+                  <VarGrid
+                    label={`Variables du corps (${parsed.body.varCount})`}
+                    values={bodyVars}
+                    onChange={setBodyVars}
+                    testPrefix="wa-variable"
+                    tokens={tokens}
+                  />
+                </>
               )}
 
               {/* BUTTONS with dynamic URLs */}
@@ -1315,3 +1322,218 @@ const ScheduleModal = ({ contact, onClose, onScheduled }) => {
   );
 };
 
+
+
+
+// --- Payment Link Inserter (used inside WhatsApp modal) ---
+// Lets the user pick (or create on the fly) a payment link, then injects
+// the public URL (https://…/pay/{slug}) into one of the template variables.
+const PaymentLinkInserter = ({ bodyVars, setBodyVars }) => {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState("existing"); // existing | quick
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [chosenUrl, setChosenUrl] = useState(null);
+  // Quick create form
+  const [features, setFeatures] = useState({});
+  const [allowedMnos, setAllowedMnos] = useState([]);
+  const [label, setLabel] = useState("");
+  const [amount, setAmount] = useState("");
+  const [openAmount, setOpenAmount] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/me/payment-links");
+      setItems((r.data || []).filter((l) => l.status === "active"));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const loadFeatures = async () => {
+    try {
+      const r = await apiClient.get("/me/features");
+      setFeatures(r.data?.features || {});
+      const mnos = r.data?.pawapay_mnos || [];
+      setAllowedMnos(mnos);
+    } catch { /* noop */ }
+  };
+
+  const onOpen = () => {
+    setOpen(true);
+    setChosenUrl(null);
+    setLabel("");
+    setAmount("");
+    setOpenAmount(false);
+    load();
+    loadFeatures();
+  };
+
+  const publicPayUrl = (slug) => `${window.location.origin}/pay/${slug}`;
+
+  const insertIntoVar = (i) => {
+    if (!chosenUrl) return;
+    const next = [...bodyVars];
+    next[i] = chosenUrl;
+    setBodyVars(next);
+    setOpen(false);
+    toast.success(`Lien collé dans la variable {{${i + 1}}}`);
+  };
+
+  const quickCreate = async () => {
+    if (!label.trim()) { toast.error("Libellé requis"); return; }
+    if (!openAmount) {
+      const a = parseFloat(amount);
+      if (!a || a <= 0) { toast.error("Montant invalide"); return; }
+    }
+    if (allowedMnos.length === 0) { toast.error("Aucun opérateur disponible"); return; }
+    setSubmitting(true);
+    try {
+      const r = await apiClient.post("/me/payment-links", {
+        label: label.trim(),
+        amount: openAmount ? null : parseFloat(amount),
+        allowed_mnos: allowedMnos,
+      });
+      const url = publicPayUrl(r.data?.slug);
+      setChosenUrl(url);
+      toast.success("Lien créé. Choisissez une variable où l'insérer.");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div data-testid="wa-payment-link-inserter">
+      <button
+        type="button"
+        onClick={onOpen}
+        className="inline-flex items-center gap-1.5 text-xs rounded-lg ring-1 ring-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 px-3 py-1.5"
+        data-testid="wa-pay-link-btn"
+      >
+        <Link2 className="h-3.5 w-3.5" /> Insérer un lien de paiement
+      </button>
+
+      {open && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4" onClick={(e) => e.target === e.currentTarget && setOpen(false)} data-testid="wa-pay-link-modal">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[88vh] flex flex-col">
+            <div className="flex items-center justify-between px-5 py-3 border-b bg-amber-50">
+              <h3 className="font-display font-bold inline-flex items-center gap-2">
+                <CreditCard className="h-4 w-4 text-amber-600" /> Lien de paiement
+              </h3>
+              <button onClick={() => setOpen(false)} className="text-slate-500"><X className="h-4 w-4" /></button>
+            </div>
+
+            {/* Step 1 — pick or create */}
+            {!chosenUrl ? (
+              <>
+                <div className="flex border-b border-slate-200">
+                  <button onClick={() => setTab("existing")} className={`flex-1 py-2 text-sm ${tab === "existing" ? "border-b-2 border-amber-600 text-amber-700 font-semibold" : "text-slate-500"}`} data-testid="wa-pay-tab-existing">
+                    Liens actifs ({items.length})
+                  </button>
+                  <button onClick={() => setTab("quick")} className={`flex-1 py-2 text-sm ${tab === "quick" ? "border-b-2 border-amber-600 text-amber-700 font-semibold" : "text-slate-500"}`} data-testid="wa-pay-tab-quick">
+                    Nouveau lien rapide
+                  </button>
+                </div>
+                <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                  {tab === "existing" ? (
+                    loading ? <p className="text-sm text-slate-400 italic">Chargement…</p> :
+                    items.length === 0 ? <p className="text-sm text-slate-400 italic">Aucun lien actif. Créez-en un dans l'onglet « Nouveau lien rapide ».</p> :
+                    items.map((l) => (
+                      <button
+                        key={l.id}
+                        onClick={() => setChosenUrl(publicPayUrl(l.slug))}
+                        className="w-full text-left rounded-lg ring-1 ring-slate-200 hover:ring-amber-400 hover:bg-amber-50 p-3 transition"
+                        data-testid={`wa-pay-pick-${l.slug}`}
+                      >
+                        <div className="font-semibold text-sm text-slate-800">{l.label}</div>
+                        <div className="text-xs text-slate-500 flex items-center gap-2 mt-0.5">
+                          {l.amount != null ? (
+                            <span className="font-mono">{Number(l.amount).toLocaleString("fr-FR")} {l.currency || "XOF"}</span>
+                          ) : (
+                            <span className="italic text-amber-700">montant libre</span>
+                          )}
+                          <span>•</span>
+                          <span>{(l.allowed_mnos || []).join(" / ")}</span>
+                          <span>•</span>
+                          <span>{l.uses_count || 0}{l.max_uses ? `/${l.max_uses}` : "/∞"} usages</span>
+                        </div>
+                      </button>
+                    ))
+                  ) : (
+                    <>
+                      <div>
+                        <label className="text-xs font-semibold block mb-1">Libellé / référence *</label>
+                        <input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={120} placeholder="Facture #2025-001"
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="wa-pay-quick-label" />
+                      </div>
+                      <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200">
+                        <label className="flex items-center gap-2 text-xs font-semibold cursor-pointer">
+                          <input type="checkbox" checked={openAmount} onChange={(e) => setOpenAmount(e.target.checked)} data-testid="wa-pay-quick-open" />
+                          Montant libre (le payeur saisit)
+                        </label>
+                        {!openAmount && (
+                          <div className="mt-2">
+                            <label className="text-[10px] uppercase tracking-wider text-slate-500 block">Montant fixe (XOF)</label>
+                            <input type="number" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="5000"
+                              className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="wa-pay-quick-amount" />
+                          </div>
+                        )}
+                      </div>
+                      <p className="text-[10px] text-slate-500">
+                        Opérateurs autorisés (hérité du client) : {allowedMnos.join(", ") || "aucun"}.
+                        {!features.payments && <span className="block text-rose-600 mt-1">⚠ Paiements non activés pour votre compte.</span>}
+                      </p>
+                      <button onClick={quickCreate} disabled={submitting || !features.payments || allowedMnos.length === 0}
+                        className="w-full inline-flex items-center justify-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50"
+                        data-testid="wa-pay-quick-create-btn">
+                        <Link2 className="h-4 w-4" /> {submitting ? "Création…" : "Créer le lien"}
+                      </button>
+                    </>
+                  )}
+                </div>
+              </>
+            ) : (
+              /* Step 2 — choose variable slot */
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                <p className="text-sm text-slate-700">
+                  Lien sélectionné :
+                  <code className="block text-[11px] bg-slate-100 px-2 py-1 rounded mt-1 break-all">{chosenUrl}</code>
+                </p>
+                <p className="text-xs font-semibold text-slate-700 mt-3">Coller dans quelle variable ?</p>
+                <div className="grid grid-cols-3 gap-2">
+                  {bodyVars.map((_, i) => (
+                    <button
+                      key={i}
+                      onClick={() => insertIntoVar(i)}
+                      className="rounded-lg ring-1 ring-slate-300 hover:ring-amber-500 hover:bg-amber-50 px-3 py-3 text-sm font-mono"
+                      data-testid={`wa-pay-target-var-${i}`}
+                    >
+                      {`{{${i + 1}}}`}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  onClick={() => setChosenUrl(null)}
+                  className="text-xs text-slate-500 hover:underline mt-2"
+                  data-testid="wa-pay-back-btn"
+                >
+                  ← Choisir un autre lien
+                </button>
+              </div>
+            )}
+
+            <div className="flex justify-end gap-2 px-5 py-3 border-t bg-slate-50">
+              <button onClick={() => setOpen(false)} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Fermer</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};

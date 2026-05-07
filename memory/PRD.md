@@ -33,6 +33,16 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 39 : Liens de paiement intégrés dans WhatsApp
+✅ **Composant `PaymentLinkInserter`** ajouté dans le modal WhatsApp de `/portal/contacts` :
+   - Bouton « 🔗 Insérer un lien de paiement » visible dès qu'un template a des variables `{{N}}`.
+   - Sub-modal à 2 onglets : **Liens actifs** (liste cliquable des liens `status=active`) ou **Nouveau lien rapide** (libellé + montant fixe/libre, MNOs hérités du client → `POST /me/payment-links`).
+   - Étape 2 : grille `{{1}} {{2}} {{3}}…` pour choisir dans quelle variable du corps coller l'URL `https://…/pay/{slug}`. Toast confirme « Lien collé dans la variable {{N}} ».
+   - Réutilise `/me/features` (gating paiements) + `/me/payment-links` (CRUD existant) — zéro nouvel endpoint backend.
+✅ Permet à un utilisateur portal d'envoyer une **facture WhatsApp avec lien de paiement Mobile Money cliquable** en quelques secondes : ouvrir le modal WA → choisir un template avec une variable URL → cliquer « Insérer un lien » → créer ou choisir → coller dans `{{3}}` → envoyer. Le client paie en 2 tap depuis WhatsApp via PawaPay.
+✅ 7 nouveaux data-testid : `wa-payment-link-inserter`, `wa-pay-link-btn`, `wa-pay-link-modal`, `wa-pay-tab-{existing|quick}`, `wa-pay-pick-{slug}`, `wa-pay-quick-{label|amount|open|create-btn}`, `wa-pay-target-var-{i}`, `wa-pay-back-btn`.
+✅ Lint clean. Validation Playwright : button correctement caché sans WA configuré (logique fonctionnelle).
+
 ### 2026-05-07 — Itération 38 : Liens de paiement partageables (Mobile Money sans login)
 ✅ **Backend** : nouveau modèle `payment_links` (slug 8 chars, owner, allowed_mnos, montant fixe ou libre, expires_at, max_uses, uses_count, disabled). Endpoints :
    - `POST /me/payment-links` (créer), `GET /me/payment-links` (lister), `PATCH /me/payment-links/{id}` (toggle disabled), `DELETE /me/payment-links/{id}`.

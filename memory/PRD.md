@@ -33,6 +33,16 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 37 : PawaPay Mobile Money UI (Portal)
+✅ **Page `/portal/payments`** complète : KPIs (Complétés / En attente / Échoués / Total transactions avec montants), filtres (Statut, Opérateur, période Du/Au, reset), table responsive avec polling automatique des paiements `pending` toutes les 20s et bouton « Vérifier » manuel.
+✅ **Modal Nouveau paiement** : montant XOF, sélecteur 3 MNO colorés (Orange Money / Moov Money / Telecel Cash), MSISDN format international, description ≤22 car. Validation côté client + serveur.
+✅ **Renvoyer un paiement échoué** : bouton sur chaque ligne `failed` qui pré-remplit le modal avec les infos précédentes (montant, MNO, MSISDN, description) et un bandeau d'avertissement.
+✅ **Export CSV** (BOM UTF-8 / séparateur `;` / Excel FR-friendly) sur la liste filtrée.
+✅ **Sidebar** : nouvelle entrée « Mes paiements » (icône Wallet, module=`payments` pour les badges de notifications).
+✅ **Feature gating** : page lit `/me/features` ; bouton « Nouveau paiement » désactivé si `features.payments=false` ou `pawapay_mnos=[]`. Bandeau d'info pour l'utilisateur. Admins/superviseurs voient tout (héritage backend déjà en place).
+✅ Backend `POST /me/payments/pawapay/deposit` validé (503 quand non configuré, accepté quand clés sandbox/prod renseignées). Webhook `/webhooks/pawapay/{secret}` déjà présent pour finaliser le statut.
+✅ 11 data-testid : `my-payments-page`, `payments-new-btn`, `payments-refresh`, `payments-export-csv`, `kpi-{completed|pending|failed|total}`, `payments-filters`, `filter-{status|mno|date-from|date-to|reset}`, `payment-row-{id}`, `payment-{refresh|resend}-{id}`, `payment-new-modal`, `payment-{amount|mno-{X}|msisdn|description|submit-btn|cancel-btn|modal-close}`.
+
 ### 2026-05-06 — Itération 36 : Lot B-2 — Formulaires enrichis (3 nouveaux types + Print PDF + QR)
 ✅ **3 nouveaux types de champs** : `table` (colonnes paramétrables + lignes dynamiques), `file` (≤1 Mo, accept configurable), `signature` (canvas signature_pad, 1 par formulaire). Modèle `FormField` étendu avec `columns?` et `accept?`.
 ✅ **Endpoint upload** : `POST /me/forms/{form_id}/upload` (multipart, ≤1Mo, 413 si dépassement, réutilise infra `/api/files/{id}` existante).

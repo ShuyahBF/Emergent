@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { CreditCard, Plus, RefreshCw, X, CheckCircle2, Clock, AlertCircle, Wallet } from "lucide-react";
+import {
+  CreditCard, Plus, RefreshCw, X, CheckCircle2, Clock, AlertCircle, Wallet,
+  Download, Filter, Send, TrendingUp,
+} from "lucide-react";
 
 /*
-  Portal → My Payments
-  Lets the user initiate a PawaPay deposit and track the status.
-  Available MNOs come from /me/features (inherited from the parent client).
+  Portal → Mes paiements (PawaPay Mobile Money).
+  v1 features : déposit + historique + relance échec + filtres + export CSV.
 */
 const MNO_LABELS = {
   ORANGE: { label: "Orange Money", color: "#FF7900" },
@@ -15,10 +17,22 @@ const MNO_LABELS = {
 };
 
 const STATUS_BADGE = {
-  pending: { cls: "bg-amber-100 text-amber-800", icon: Clock, label: "En attente" },
-  completed: { cls: "bg-emerald-100 text-emerald-800", icon: CheckCircle2, label: "Complété" },
-  failed: { cls: "bg-rose-100 text-rose-800", icon: AlertCircle, label: "Échec" },
+  pending: { cls: "bg-amber-100 text-amber-800 ring-amber-200", icon: Clock, label: "En attente" },
+  completed: { cls: "bg-emerald-100 text-emerald-800 ring-emerald-200", icon: CheckCircle2, label: "Complété" },
+  failed: { cls: "bg-rose-100 text-rose-800 ring-rose-200", icon: AlertCircle, label: "Échec" },
 };
+
+function fmtAmount(n, ccy = "XOF") {
+  if (n == null) return "—";
+  const v = Number(n);
+  return `${v.toLocaleString("fr-FR")} ${ccy}`;
+}
+function fmtDate(d) {
+  if (!d) return "—";
+  try {
+    return new Date(d).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
+  } catch { return d; }
+}
 
 export default function MyPayments() {
   const [items, setItems] = useState([]);
@@ -26,8 +40,15 @@ export default function MyPayments() {
   const [features, setFeatures] = useState({});
   const [mnos, setMnos] = useState([]);
   const [showModal, setShowModal] = useState(false);
+  const [resendPrefill, setResendPrefill] = useState(null);
 
-  const load = async () => {
+  // Filters
+  const [statusFilter, setStatusFilter] = useState("all"); // all|pending|completed|failed
+  const [mnoFilter, setMnoFilter] = useState("all");
+  const [dateFrom, setDateFrom] = useState("");
+  const [dateTo, setDateTo] = useState("");
+
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const r = await apiClient.get("/me/payments");
@@ -37,7 +58,7 @@ export default function MyPayments() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
     load();
@@ -45,32 +66,125 @@ export default function MyPayments() {
       setFeatures(r.data?.features || {});
       setMnos(r.data?.pawapay_mnos || []);
     }).catch(() => {});
-  }, []);
+  }, [load]);
+
+  // Auto-refresh pending rows every 20s
+  useEffect(() => {
+    const hasPending = items.some((p) => p.status === "pending");
+    if (!hasPending) return;
+    const t = setInterval(() => {
+      items.filter((p) => p.status === "pending").slice(0, 5).forEach((p) => {
+        apiClient.get(`/me/payments/${p.deposit_id}`).then((r) => {
+          setItems((prev) => prev.map((x) => (x.deposit_id === p.deposit_id ? r.data : x)));
+        }).catch(() => {});
+      });
+    }, 20000);
+    return () => clearInterval(t);
+  }, [items]);
 
   const refreshOne = async (deposit_id) => {
     try {
       const r = await apiClient.get(`/me/payments/${deposit_id}`);
       setItems((prev) => prev.map((p) => (p.deposit_id === deposit_id ? r.data : p)));
-    } catch { /* noop */ }
+      toast.success("Statut actualisé");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
   };
 
+  const handleResend = (p) => {
+    setResendPrefill({
+      amount: String(p.amount || ""),
+      msisdn: p.msisdn || "",
+      mno: p.mno || (mnos[0] || "ORANGE"),
+      description: p.description || "",
+    });
+    setShowModal(true);
+  };
+
+  // Filtered list
+  const filtered = useMemo(() => {
+    let arr = items;
+    if (statusFilter !== "all") arr = arr.filter((p) => p.status === statusFilter);
+    if (mnoFilter !== "all") arr = arr.filter((p) => (p.mno || "").toUpperCase() === mnoFilter);
+    if (dateFrom) {
+      const tFrom = new Date(dateFrom).getTime();
+      arr = arr.filter((p) => new Date(p.created_at).getTime() >= tFrom);
+    }
+    if (dateTo) {
+      const tTo = new Date(dateTo).getTime() + 24 * 3600 * 1000 - 1; // inclusive end-of-day
+      arr = arr.filter((p) => new Date(p.created_at).getTime() <= tTo);
+    }
+    return arr;
+  }, [items, statusFilter, mnoFilter, dateFrom, dateTo]);
+
+  // KPIs (computed on filtered to reflect what user sees)
+  const kpis = useMemo(() => {
+    const sumIf = (s) => filtered.filter((p) => p.status === s).reduce((a, p) => a + Number(p.amount || 0), 0);
+    return {
+      completed_count: filtered.filter((p) => p.status === "completed").length,
+      completed_total: sumIf("completed"),
+      pending_count: filtered.filter((p) => p.status === "pending").length,
+      pending_total: sumIf("pending"),
+      failed_count: filtered.filter((p) => p.status === "failed").length,
+      total_count: filtered.length,
+    };
+  }, [filtered]);
+
+  const exportCSV = () => {
+    const header = ["Date", "Référence", "Opérateur", "Numéro", "Montant", "Devise", "Statut", "Description", "Message API"];
+    const rows = filtered.map((p) => [
+      p.created_at || "",
+      p.deposit_id || "",
+      p.mno || "",
+      p.msisdn || "",
+      p.amount ?? "",
+      p.currency || "XOF",
+      STATUS_BADGE[p.status]?.label || p.status || "",
+      (p.description || "").replace(/"/g, '""'),
+      (p.api_message || "").replace(/"/g, '""'),
+    ]);
+    const csv = [header, ...rows].map((r) => r.map((c) => `"${c}"`).join(";")).join("\r\n");
+    // BOM UTF-8 pour Excel FR
+    const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `paiements_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a); a.click();
+    a.remove(); URL.revokeObjectURL(url);
+  };
+
+  const resetFilters = () => {
+    setStatusFilter("all"); setMnoFilter("all"); setDateFrom(""); setDateTo("");
+  };
+  const filtersActive = statusFilter !== "all" || mnoFilter !== "all" || !!dateFrom || !!dateTo;
+
   return (
-    <div className="space-y-6 p-6 max-w-5xl" data-testid="my-payments-page">
+    <div className="space-y-6 max-w-6xl" data-testid="my-payments-page">
       <div className="flex items-end justify-between flex-wrap gap-3">
         <div>
-          <h1 className="text-2xl font-display font-bold inline-flex items-center gap-2">
-            <Wallet className="h-6 w-6 text-amber-600" /> Mes paiements
+          <h1 className="text-3xl font-display font-bold inline-flex items-center gap-2">
+            <Wallet className="h-7 w-7 text-amber-600" /> Mes paiements
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Encaissements via Mobile Money (PawaPay).
+            Encaissements via Mobile Money (PawaPay) — Burkina Faso.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <button onClick={load} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50" data-testid="payments-refresh">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
           </button>
+          <button onClick={exportCSV} disabled={!filtered.length} className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm hover:bg-slate-50 disabled:opacity-40" data-testid="payments-export-csv">
+            <Download className="h-4 w-4" /> Export CSV
+          </button>
           <button
-            onClick={() => features.payments && mnos.length > 0 ? setShowModal(true) : toast.error(features.payments ? "Aucun opérateur autorisé" : "Paiements non activés pour votre compte")}
+            onClick={() => {
+              if (!features.payments) { toast.error("Paiements non activés pour votre compte"); return; }
+              if (mnos.length === 0) { toast.error("Aucun opérateur Mobile Money autorisé"); return; }
+              setResendPrefill(null);
+              setShowModal(true);
+            }}
             disabled={!features.payments || mnos.length === 0}
             className="inline-flex items-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-sm disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid="payments-new-btn"
@@ -81,11 +195,52 @@ export default function MyPayments() {
       </div>
 
       {!features.payments && (
-        <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs text-amber-900">
+        <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs text-amber-900" data-testid="payments-disabled-banner">
           La fonctionnalité Paiements n'est pas activée pour votre compte. Contactez votre administrateur.
         </div>
       )}
 
+      {/* KPIs */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Complétés" value={kpis.completed_count} sub={fmtAmount(kpis.completed_total)} tone="emerald" icon={CheckCircle2} testid="kpi-completed" />
+        <KpiCard label="En attente" value={kpis.pending_count} sub={fmtAmount(kpis.pending_total)} tone="amber" icon={Clock} testid="kpi-pending" />
+        <KpiCard label="Échoués" value={kpis.failed_count} sub="—" tone="rose" icon={AlertCircle} testid="kpi-failed" />
+        <KpiCard label="Total transactions" value={kpis.total_count} sub={`${items.length} au total`} tone="slate" icon={TrendingUp} testid="kpi-total" />
+      </div>
+
+      {/* Filters */}
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3 flex flex-wrap items-end gap-3" data-testid="payments-filters">
+        <div className="flex items-center gap-1 text-xs text-slate-500 mr-2 self-center">
+          <Filter className="h-3.5 w-3.5" /> Filtres
+        </div>
+        <Field label="Statut">
+          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded-md ring-1 ring-slate-300 px-2 py-1 text-sm bg-white" data-testid="filter-status">
+            <option value="all">Tous</option>
+            <option value="pending">En attente</option>
+            <option value="completed">Complétés</option>
+            <option value="failed">Échoués</option>
+          </select>
+        </Field>
+        <Field label="Opérateur">
+          <select value={mnoFilter} onChange={(e) => setMnoFilter(e.target.value)} className="rounded-md ring-1 ring-slate-300 px-2 py-1 text-sm bg-white" data-testid="filter-mno">
+            <option value="all">Tous</option>
+            {Object.keys(MNO_LABELS).map((m) => <option key={m} value={m}>{MNO_LABELS[m].label}</option>)}
+          </select>
+        </Field>
+        <Field label="Du">
+          <input type="date" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} className="rounded-md ring-1 ring-slate-300 px-2 py-1 text-sm bg-white" data-testid="filter-date-from" />
+        </Field>
+        <Field label="Au">
+          <input type="date" value={dateTo} onChange={(e) => setDateTo(e.target.value)} className="rounded-md ring-1 ring-slate-300 px-2 py-1 text-sm bg-white" data-testid="filter-date-to" />
+        </Field>
+        {filtersActive && (
+          <button onClick={resetFilters} className="text-xs text-rose-700 hover:underline" data-testid="filter-reset">
+            Réinitialiser
+          </button>
+        )}
+      </div>
+
+      {/* Table */}
       <div className="rounded-xl ring-1 ring-slate-200 bg-white overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
@@ -104,30 +259,38 @@ export default function MyPayments() {
               {loading && items.length === 0 && (
                 <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Chargement…</td></tr>
               )}
-              {!loading && items.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement pour l'instant.</td></tr>
+              {!loading && filtered.length === 0 && items.length > 0 && (
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement ne correspond à ces filtres.</td></tr>
               )}
-              {items.map((p) => {
+              {!loading && items.length === 0 && (
+                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement pour l'instant. Cliquez sur « Nouveau paiement » pour démarrer.</td></tr>
+              )}
+              {filtered.map((p) => {
                 const sb = STATUS_BADGE[p.status] || STATUS_BADGE.pending;
                 const Icon = sb.icon;
                 const mno = MNO_LABELS[p.mno] || { label: p.mno, color: "#64748b" };
                 return (
                   <tr key={p.deposit_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`payment-row-${p.deposit_id}`}>
-                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{p.created_at ? new Date(p.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—"}</td>
-                    <td className="px-3 py-2 font-mono text-[10px] text-slate-700">{p.deposit_id?.slice(0, 8)}…</td>
+                    <td className="px-3 py-2 text-slate-600 whitespace-nowrap">{fmtDate(p.created_at)}</td>
+                    <td className="px-3 py-2 font-mono text-[10px] text-slate-700" title={p.deposit_id}>{p.deposit_id?.slice(0, 8)}…</td>
                     <td className="px-3 py-2"><span className="text-[11px] font-semibold" style={{ color: mno.color }}>{mno.label}</span></td>
                     <td className="px-3 py-2 font-mono text-xs text-slate-700">{p.msisdn}</td>
-                    <td className="px-3 py-2 text-right font-mono">{p.amount?.toLocaleString("fr-FR")} <span className="text-[10px] text-slate-400">{p.currency}</span></td>
+                    <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{Number(p.amount || 0).toLocaleString("fr-FR")} <span className="text-[10px] text-slate-400">{p.currency || "XOF"}</span></td>
                     <td className="px-3 py-2">
-                      <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ${sb.cls}`}>
+                      <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${sb.cls}`}>
                         <Icon className="h-3 w-3" /> {sb.label}
                       </span>
-                      {p.api_message && <span className="block text-[10px] text-slate-500 mt-0.5">{p.api_message}</span>}
+                      {p.api_message && <span className="block text-[10px] text-slate-500 mt-0.5 max-w-[180px] truncate" title={p.api_message}>{p.api_message}</span>}
                     </td>
-                    <td className="px-3 py-2 text-right">
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
                       {p.status === "pending" && (
-                        <button onClick={() => refreshOne(p.deposit_id)} className="text-xs text-sawali-blue hover:underline" data-testid={`payment-refresh-${p.deposit_id}`}>
+                        <button onClick={() => refreshOne(p.deposit_id)} className="text-xs text-sawali-blue hover:underline mr-2" data-testid={`payment-refresh-${p.deposit_id}`}>
                           Vérifier
+                        </button>
+                      )}
+                      {p.status === "failed" && features.payments && mnos.length > 0 && (
+                        <button onClick={() => handleResend(p)} className="inline-flex items-center gap-1 text-xs text-rose-700 hover:bg-rose-50 px-2 py-0.5 rounded" data-testid={`payment-resend-${p.deposit_id}`}>
+                          <Send className="h-3 w-3" /> Renvoyer
                         </button>
                       )}
                     </td>
@@ -140,17 +303,51 @@ export default function MyPayments() {
       </div>
 
       {showModal && (
-        <NewPaymentModal mnos={mnos} onClose={() => setShowModal(false)} onCreated={load} />
+        <NewPaymentModal
+          mnos={mnos}
+          prefill={resendPrefill}
+          onClose={() => { setShowModal(false); setResendPrefill(null); }}
+          onCreated={load}
+        />
       )}
     </div>
   );
 }
 
-function NewPaymentModal({ mnos, onClose, onCreated }) {
-  const [amount, setAmount] = useState("");
-  const [msisdn, setMsisdn] = useState("226");
-  const [mno, setMno] = useState(mnos[0] || "ORANGE");
-  const [description, setDescription] = useState("");
+function Field({ label, children }) {
+  return (
+    <label className="flex flex-col gap-1">
+      <span className="text-[10px] uppercase tracking-wider text-slate-400">{label}</span>
+      {children}
+    </label>
+  );
+}
+
+const TONES = {
+  emerald: "bg-emerald-50 ring-emerald-200 text-emerald-900",
+  amber: "bg-amber-50 ring-amber-200 text-amber-900",
+  rose: "bg-rose-50 ring-rose-200 text-rose-900",
+  slate: "bg-slate-50 ring-slate-200 text-slate-900",
+};
+
+function KpiCard({ label, value, sub, tone = "slate", icon: Icon, testid }) {
+  return (
+    <div className={`rounded-xl ring-1 p-3 ${TONES[tone]}`} data-testid={testid}>
+      <div className="flex items-center justify-between mb-1">
+        <span className="text-[10px] uppercase tracking-wider opacity-70">{label}</span>
+        {Icon && <Icon className="h-4 w-4 opacity-60" />}
+      </div>
+      <div className="text-2xl font-display font-bold">{value}</div>
+      <div className="text-[11px] opacity-70 truncate">{sub}</div>
+    </div>
+  );
+}
+
+function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
+  const [amount, setAmount] = useState(prefill?.amount || "");
+  const [msisdn, setMsisdn] = useState(prefill?.msisdn || "226");
+  const [mno, setMno] = useState(prefill?.mno || mnos[0] || "ORANGE");
+  const [description, setDescription] = useState(prefill?.description || "");
   const [submitting, setSubmitting] = useState(false);
 
   const submit = async () => {
@@ -175,6 +372,8 @@ function NewPaymentModal({ mnos, onClose, onCreated }) {
         onClose();
       } else {
         toast.error(r.data?.reason || "Demande rejetée");
+        // The backend stored the row even on rejection, so refresh to show it.
+        onCreated && onCreated();
       }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -192,11 +391,17 @@ function NewPaymentModal({ mnos, onClose, onCreated }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200 bg-amber-50">
           <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
-            <CreditCard className="h-5 w-5 text-amber-600" /> Nouveau paiement
+            <CreditCard className="h-5 w-5 text-amber-600" />
+            {prefill ? "Renvoyer le paiement" : "Nouveau paiement"}
           </h2>
-          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="payment-modal-close"><X className="h-4 w-4" /></button>
         </div>
         <div className="p-5 space-y-3">
+          {prefill && (
+            <div className="text-[11px] rounded-md ring-1 ring-amber-200 bg-amber-50 p-2 text-amber-900">
+              Les informations du paiement échoué ont été pré-remplies. Vérifiez puis relancez.
+            </div>
+          )}
           <div>
             <label className="text-xs font-semibold block mb-1">Montant (XOF)</label>
             <input
@@ -219,8 +424,8 @@ function NewPaymentModal({ mnos, onClose, onCreated }) {
                     key={m}
                     type="button"
                     onClick={() => setMno(m)}
-                    className={`rounded-lg px-2 py-2 text-xs font-semibold ring-1 ${active ? "ring-2 text-white" : "ring-slate-200 text-slate-600 bg-white hover:bg-slate-50"}`}
-                    style={active ? { backgroundColor: meta.color, ringColor: meta.color } : {}}
+                    className={`rounded-lg px-2 py-2 text-xs font-semibold ring-1 transition ${active ? "ring-2 text-white shadow" : "ring-slate-200 text-slate-600 bg-white hover:bg-slate-50"}`}
+                    style={active ? { backgroundColor: meta.color, borderColor: meta.color } : {}}
                     data-testid={`payment-mno-${m}`}
                   >
                     {meta.label}
@@ -253,7 +458,7 @@ function NewPaymentModal({ mnos, onClose, onCreated }) {
           </div>
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200 bg-slate-50">
-          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2">Annuler</button>
+          <button onClick={onClose} className="text-sm rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-100 px-4 py-2" data-testid="payment-cancel-btn">Annuler</button>
           <button
             onClick={submit}
             disabled={submitting}

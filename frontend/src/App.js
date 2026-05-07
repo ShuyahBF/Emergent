@@ -72,6 +72,7 @@ import FormAnalyticsDetail from "@/pages/portal/FormAnalyticsDetail";
 import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
+import MyPayments from "@/pages/portal/MyPayments";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
@@ -141,6 +142,7 @@ export default function App() {
             <Route path="media-library" element={<MediaLibrary />} />
             <Route path="media-generator" element={<MediaGenerator />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
+            <Route path="payments" element={<MyPayments />} />
           </Route>
 
           {/* Admin */}

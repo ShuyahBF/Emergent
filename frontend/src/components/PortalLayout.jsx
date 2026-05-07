@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -28,6 +28,7 @@ const clientLinks = [
   { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
   { to: "/portal/contacts", label: "Répertoire & WhatsApp", icon: MessageCircle },
+  { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
 ];

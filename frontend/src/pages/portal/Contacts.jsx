@@ -25,6 +25,7 @@ export default function Contacts() {
   const [companyFilter, setCompanyFilter] = useState(""); // ACME code or full company name
   const [modal, setModal] = useState(null); // {type:'edit'|'wa'|'history', contact?}
   const [smartFeatures, setSmartFeatures] = useState({ whatsapp: true, sms: true, ai: true, payments: true });
+  const [unread, setUnread] = useState({ total: 0, by_contact: {} });
 
   const load = async () => {
     setLoading(true);
@@ -41,9 +42,22 @@ export default function Contacts() {
       setLoading(false);
     }
   };
+
+  const loadUnread = async () => {
+    try {
+      const r = await apiClient.get("/me/whatsapp/unread");
+      setUnread({ total: r.data?.total || 0, by_contact: r.data?.by_contact || {} });
+    } catch { /* noop */ }
+  };
+
   useEffect(() => {
     load();
+    loadUnread();
     apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
+  }, []);
+  useEffect(() => {
+    const t = setInterval(loadUnread, 30000);
+    return () => clearInterval(t);
   }, []);
 
   const del = async (id) => {
@@ -167,6 +181,7 @@ export default function Contacts() {
                   onDelete={() => del(c.id)}
                   waEnabled={!!smartFeatures.whatsapp}
                   smsEnabled={!!smartFeatures.sms}
+                  unreadCount={unread.by_contact?.[c.id] || 0}
                 />
               ))}
             </tbody>
@@ -192,14 +207,18 @@ export default function Contacts() {
         <ScheduleModal contact={modal.contact} onClose={() => setModal(null)} onScheduled={load} />
       )}
       {modal?.type === "history" && (
-        <ConversationModal contact={modal.contact} onClose={() => setModal(null)} />
+        <ConversationModal
+          contact={modal.contact}
+          onClose={() => { setModal(null); loadUnread(); }}
+          onMessagesRead={loadUnread}
+        />
       )}
     </div>
   );
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onDelete, waEnabled = true, smsEnabled = true }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0 }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -225,11 +244,20 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
       <td className="px-3 py-2">
         <button
           onClick={onHistory}
-          className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left"
+          className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex items-center gap-2"
           title="Voir la conversation WhatsApp"
           data-testid={`contact-name-${c.id}`}
         >
-          {c.name}
+          <span>{c.name}</span>
+          {unreadCount > 0 && (
+            <span
+              className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-white shadow-sm animate-pulse"
+              title={`${unreadCount} nouveau(x) message(s) reçu(s)`}
+              data-testid={`contact-unread-${c.id}`}
+            >
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          )}
         </button>
         {c.tags?.length > 0 && (
           <div className="flex flex-wrap gap-1 mt-1">
@@ -328,10 +356,18 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           <button
             onClick={onHistory}
             title="Voir les messages échangés"
-            className="inline-flex items-center gap-1 text-[11px] rounded bg-slate-700 text-white px-2 py-1 hover:bg-slate-800"
+            className="relative inline-flex items-center gap-1 text-[11px] rounded bg-slate-700 text-white px-2 py-1 hover:bg-slate-800"
             data-testid={`contact-history-${c.id}`}
           >
             <History className="h-3 w-3" /> Hist. Mess.
+            {unreadCount > 0 && (
+              <span
+                className="absolute -top-1.5 -right-1.5 inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums ring-1 ring-white"
+                data-testid={`contact-history-unread-${c.id}`}
+              >
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
           </button>
           <button
             onClick={onEdit}
@@ -920,9 +956,11 @@ const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
 };
 
 // --- Conversation history modal ---
-const ConversationModal = ({ contact, onClose }) => {
+const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState({ messages: [] });
+  const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
+  const [text, setText] = useState("");
+  const [sending, setSending] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -935,9 +973,49 @@ const ConversationModal = ({ contact, onClose }) => {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [contact.id]);
+
+  const markRead = async () => {
+    try {
+      await apiClient.post(`/me/contacts/${contact.id}/messages/mark-read`);
+      onMessagesRead && onMessagesRead();
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => {
+    load();
+    markRead();
+    /* eslint-disable-next-line */
+  }, [contact.id]);
+
+  const sendFreeText = async () => {
+    const body = (text || "").trim();
+    if (!body) { toast.error("Le message est vide"); return; }
+    if (!contact.whatsapp) { toast.error("Numéro WhatsApp manquant"); return; }
+    setSending(true);
+    try {
+      const r = await apiClient.post("/me/whatsapp/send-text", {
+        to: contact.whatsapp,
+        text: body,
+        contact_id: contact.id,
+      });
+      if (r.data?.ok) {
+        toast.success("Message envoyé");
+        setText("");
+        await load();
+      } else {
+        toast.error(r.data?.error || "Échec d'envoi");
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      toast.error(typeof detail === "string" ? detail : "Erreur d'envoi");
+    } finally {
+      setSending(false);
+    }
+  };
 
   const messages = data.messages || [];
+  const canSendText = !!data.can_send_text;
+  const windowExpires = data.window_expires_at;
 
   return (
     <div
@@ -974,6 +1052,61 @@ const ConversationModal = ({ contact, onClose }) => {
             <p className="text-center text-slate-400 italic text-sm py-8">Aucun message échangé pour l'instant.</p>
           ) : (
             messages.map((m) => <MessageBubble key={m.id} m={m} />)
+          )}
+        </div>
+        {/* Free-form text composer (only allowed within Meta 24h window) */}
+        <div className="border-t border-slate-200 bg-white">
+          {canSendText ? (
+            <div className="px-5 py-3" data-testid="conversation-composer-open">
+              <div className="flex items-center justify-between text-[11px] mb-1.5">
+                <span className="inline-flex items-center gap-1.5 text-emerald-700 font-medium">
+                  <Check className="h-3.5 w-3.5" /> Fenêtre 24h ouverte — réponse libre autorisée
+                </span>
+                {windowExpires && (
+                  <span className="text-slate-500" data-testid="conversation-window-expires">
+                    Expire le {fmtDate(windowExpires)}
+                  </span>
+                )}
+              </div>
+              <div className="flex gap-2 items-end">
+                <textarea
+                  value={text}
+                  onChange={(e) => setText(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFreeText(); }
+                  }}
+                  placeholder="Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer)"
+                  rows={2}
+                  maxLength={4096}
+                  className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:ring-1 focus:ring-sawali-blue outline-none"
+                  data-testid="conversation-text-input"
+                />
+                <button
+                  onClick={sendFreeText}
+                  disabled={sending || !text.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 text-white px-3.5 py-2 text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+                  data-testid="conversation-text-send"
+                >
+                  <Send className="h-4 w-4" />
+                  {sending ? "Envoi…" : "Envoyer"}
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1 tabular-nums">{text.length} / 4096</p>
+            </div>
+          ) : (
+            <div className="px-5 py-3 bg-amber-50 border-t border-amber-100" data-testid="conversation-composer-closed">
+              <div className="flex items-start gap-2 text-[12px]">
+                <AlertCircle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                <div className="flex-1">
+                  <p className="text-amber-900 font-medium">
+                    Fenêtre 24h fermée — utilisez un template Meta approuvé
+                  </p>
+                  <p className="text-amber-700 mt-0.5">
+                    Meta n'autorise les réponses libres qu'à l'intérieur de 24h après le dernier message reçu de ce contact. Cliquez sur « WhatsApp » dans la liste pour envoyer un template (ex : <code className="bg-amber-100 px-1 rounded">hello_world</code>).
+                  </p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
         <div className="px-5 py-3 border-t border-slate-200 text-[11px] text-slate-500 flex items-center justify-between">

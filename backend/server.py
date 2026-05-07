@@ -6766,6 +6766,14 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
 
     for key, spec in MODULE_COUNT_QUERIES.items():
         counts[key] = await _count(key, spec)
+    # Special: WhatsApp inbound unread (not based on last_visited_at — uses read_by_us_at).
+    try:
+        wa_q: Dict[str, Any] = {"direction": "inbound", "read_by_us_at": None}
+        if not is_admin:
+            wa_q["client_id"] = client_scope
+        counts["contacts_unread"] = await db.whatsapp_messages.count_documents(wa_q)
+    except Exception:
+        counts["contacts_unread"] = 0
     return {"counts": counts, "generated_at": _now()}
 
 
@@ -7093,6 +7101,205 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
     query = {"client_id": client_scope} if user.get("role") != "admin" else {}
     items = await db.whatsapp_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
     return items
+
+
+# ---------- Free-form text within Meta 24h customer service window ----------
+WA_24H_WINDOW_SECONDS = 24 * 3600
+
+
+async def _wa_send_text(to_e164: str, text: str) -> dict:
+    """Send a free-form WhatsApp text message (Cloud API type=text).
+    ONLY allowed inside the 24h customer service window (after the user wrote first).
+    Caller is responsible for verifying the window before invocation.
+    Returns the same shape as `_wa_send_template`."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    phone_number_id = s.get("wa_phone_number_id")
+    if not access_token or not phone_number_id:
+        return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
+    to_clean = _normalize_wa_phone(to_e164)
+    if len(to_clean) < 6:
+        return {"ok": False, "status": None, "message_id": None,
+                "error": f"Numéro invalide « {to_e164} » — il doit contenir un indicatif pays", "raw": None}
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "text",
+        "text": {"body": text or "", "preview_url": True},
+    }
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=12) as http:
+            r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:2000]}
+            if r.status_code < 300:
+                mid = None
+                if isinstance(raw, dict) and raw.get("messages"):
+                    mid = raw["messages"][0].get("id")
+                return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
+            err_msg = None
+            err_code = None
+            if isinstance(raw, dict):
+                err_obj = raw.get("error") or {}
+                err_msg = err_obj.get("message") or str(raw)[:500]
+                err_code = err_obj.get("code")
+                details = (err_obj.get("error_data") or {}).get("details")
+                if details:
+                    err_msg = f"{err_msg} — {details}"
+            return {"ok": False, "status": r.status_code, "message_id": None,
+                    "error": err_msg or f"HTTP {r.status_code}", "error_code": err_code, "raw": raw}
+    except httpx.TimeoutException:
+        return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
+
+
+async def _wa_last_inbound_iso(client_scope: str, *, contact_id: Optional[str] = None, phone_digits: Optional[str] = None) -> Optional[str]:
+    """Return the ISO timestamp of the most recent inbound WA message in the user's scope
+    matching either the contact_id or the phone_digits. Used to compute the 24h window."""
+    or_clauses: List[Dict[str, Any]] = []
+    if contact_id:
+        or_clauses.append({"contact_id": contact_id})
+    if phone_digits:
+        or_clauses.append({"phone_digits": phone_digits})
+    if not or_clauses:
+        return None
+    q = {"client_id": client_scope, "direction": "inbound", "$or": or_clauses}
+    doc = await db.whatsapp_messages.find_one(q, {"_id": 0, "received_at": 1, "created_at": 1}, sort=[("created_at", -1)])
+    if not doc:
+        return None
+    return doc.get("received_at") or doc.get("created_at")
+
+
+def _wa_window_open(last_inbound_iso: Optional[str]) -> bool:
+    """Return True when the last inbound is within the 24h Meta customer service window."""
+    if not last_inbound_iso:
+        return False
+    try:
+        ts = datetime.fromisoformat(last_inbound_iso.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+    except Exception:
+        return False
+    return (datetime.now(timezone.utc) - ts).total_seconds() < WA_24H_WINDOW_SECONDS
+
+
+class WhatsAppSendTextRequest(BaseModel):
+    to: str
+    text: str
+    contact_id: Optional[str] = None
+    tracked_user_id: Optional[str] = None
+
+
+@api.post("/me/whatsapp/send-text", tags=["Portail Client"])
+async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = Depends(get_current_user)):
+    """Send a free-form text WhatsApp message — only allowed within the Meta 24h
+    customer service window (i.e. the contact has written to us in the last 24h)."""
+    allowed = (
+        user.get("role") in ("client", "admin")
+        or _is_elevated_creator(user)
+        or _is_tracked_user(user)
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
+    text = (payload.text or "").strip()
+    if not text:
+        raise HTTPException(status_code=400, detail="Le message ne peut pas être vide")
+    if len(text) > 4096:
+        raise HTTPException(status_code=400, detail="Message trop long (4096 caractères max)")
+    to = (payload.to or "").strip()
+    if not to:
+        raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+
+    client_scope = (user.get("client_id") or user.get("id"))
+    digits_only = "".join(ch for ch in to if ch.isdigit())
+
+    # Verify 24h window: must have a recent inbound from this contact/phone
+    last_iso = await _wa_last_inbound_iso(client_scope, contact_id=payload.contact_id, phone_digits=digits_only)
+    if not _wa_window_open(last_iso):
+        raise HTTPException(
+            status_code=409,
+            detail="Fenêtre 24h fermée — aucun message reçu de ce contact dans les dernières 24 heures. Utilisez un template Meta approuvé.",
+        )
+
+    result = await _wa_send_text(to, text)
+    log = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "direction": "outbound",
+        "sender_id": user["id"],
+        "sender_label": user.get("full_name") or user.get("email"),
+        "to": to,
+        "phone_digits": digits_only,
+        "template_name": None,
+        "language_code": None,
+        "message_type": "text",
+        "body": text,
+        "contact_id": payload.contact_id,
+        "tracked_user_id": payload.tracked_user_id,
+        "ok": result["ok"],
+        "status": result["status"],
+        "message_id": result["message_id"],
+        "error": result.get("error"),
+        "wa_status": "sent" if result["ok"] else "failed",
+        "sent_at": _now() if result["ok"] else None,
+        "failed_at": None if result["ok"] else _now(),
+        "created_at": _now(),
+    }
+    try:
+        await db.whatsapp_messages.insert_one(log.copy())
+    except Exception:
+        pass
+    log.pop("_id", None)
+    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
+
+
+# ---------- Unread inbound counters + mark-read ----------
+@api.get("/me/whatsapp/unread", tags=["Portail Client"])
+async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
+    """Return per-contact unread counts plus a global total of inbound WA messages
+    where `read_by_us_at` is null. Used by the sidebar badge and per-contact pastille."""
+    client_scope = (user.get("client_id") or user.get("id"))
+    base_q = {"direction": "inbound", "read_by_us_at": None}
+    if user.get("role") != "admin":
+        base_q["client_id"] = client_scope
+    pipeline = [
+        {"$match": base_q},
+        {"$group": {"_id": "$contact_id", "n": {"$sum": 1}}},
+    ]
+    by_contact: Dict[str, int] = {}
+    total = 0
+    async for row in db.whatsapp_messages.aggregate(pipeline):
+        cid = row.get("_id") or "_unknown"
+        n = int(row.get("n") or 0)
+        by_contact[cid] = n
+        total += n
+    return {"total": total, "by_contact": by_contact}
+
+
+@api.post("/me/contacts/{cid}/messages/mark-read", tags=["Portail Client"])
+async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_current_user)):
+    """Mark all inbound WA messages of a given contact as read (sets read_by_us_at)."""
+    client_scope = (user.get("client_id") or user.get("id"))
+    contact = await db.directory_contacts.find_one({"id": cid, "client_id": client_scope}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    norm_phones: List[str] = []
+    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
+        clean = "".join(ch for ch in (raw or "") if ch.isdigit())
+        if clean:
+            norm_phones.append(clean)
+    or_clauses: List[Dict[str, Any]] = [{"contact_id": cid}]
+    if norm_phones:
+        or_clauses.append({"phone_digits": {"$in": norm_phones}})
+    res = await db.whatsapp_messages.update_many(
+        {"client_id": client_scope, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
+        {"$set": {"read_by_us_at": _now(), "read_by_us_id": user["id"]}},
+    )
+    return {"ok": True, "updated": int(getattr(res, "modified_count", 0) or 0)}
 
 
 # ============================================================
@@ -7802,7 +8009,29 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
         {"client_id": client_scope, "$or": or_clauses},
         {"_id": 0},
     ).sort("created_at", 1).to_list(1000)
-    return {"contact": contact, "messages": items}
+    # Compute the 24h Meta customer service window from the latest inbound
+    last_inbound_at: Optional[str] = None
+    for m in reversed(items):
+        if m.get("direction") == "inbound":
+            last_inbound_at = m.get("received_at") or m.get("created_at")
+            break
+    can_send_text = _wa_window_open(last_inbound_at)
+    window_expires_at: Optional[str] = None
+    if last_inbound_at:
+        try:
+            ts = datetime.fromisoformat(last_inbound_at.replace("Z", "+00:00"))
+            if ts.tzinfo is None:
+                ts = ts.replace(tzinfo=timezone.utc)
+            window_expires_at = (ts + timedelta(seconds=WA_24H_WINDOW_SECONDS)).isoformat()
+        except Exception:
+            window_expires_at = None
+    return {
+        "contact": contact,
+        "messages": items,
+        "can_send_text": can_send_text,
+        "last_inbound_at": last_inbound_at,
+        "window_expires_at": window_expires_at,
+    }
 
 
 # ---------- Meta Cloud API webhook ----------

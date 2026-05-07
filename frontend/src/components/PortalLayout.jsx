@@ -27,7 +27,7 @@ const clientLinks = [
   { to: "/portal/notes/reports", label: "Mes rapports", icon: FileEdit, module: "reports" },
   { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
-  { to: "/portal/contacts", label: "Répertoire & WhatsApp", icon: MessageCircle },
+  { to: "/portal/contacts", label: "Répertoire & WhatsApp", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
@@ -100,7 +100,7 @@ export default function PortalLayout({ admin = false }) {
     const match = [...adminLinks, ...clientLinks].find((l) =>
       l.module && (l.end ? location.pathname === l.to : location.pathname === l.to || location.pathname.startsWith(l.to + "/"))
     );
-    if (match?.module) {
+    if (match?.module && !match?.noMarkSeen) {
       apiClient.post("/me/notifications/mark-seen", { module: match.module })
         .then(() => refreshBadges())
         .catch(() => {});

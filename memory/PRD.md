@@ -67,6 +67,29 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 47 : Réponses WhatsApp libres (fenêtre 24h Meta) + Badges messages non lus
+✅ **Backend** :
+   - Nouveau helper `_wa_send_text(to, text)` : envoi free-form via Meta Graph (`type=text`, `preview_url=true`). Même structure de retour que `_wa_send_template`.
+   - Helpers `_wa_last_inbound_iso()` + `_wa_window_open(iso)` : calculent si la dernière réception du contact se situe dans la fenêtre des 24h Meta.
+   - `POST /me/whatsapp/send-text` : envoi texte libre. Vérifie la fenêtre 24h → 409 explicite sinon. Logge dans `whatsapp_messages` (direction=outbound, message_type=text, body=text).
+   - `GET /me/whatsapp/unread` : agrégat MongoDB par `contact_id` des inbounds avec `read_by_us_at=null` → `{total, by_contact}`.
+   - `POST /me/contacts/{cid}/messages/mark-read` : marque tous les inbounds du contact comme lus (matching par `contact_id` OR `phone_digits`).
+   - Enrichissement `GET /me/contacts/{cid}/messages` : retourne désormais `can_send_text` (bool), `last_inbound_at`, `window_expires_at` (ISO).
+   - `GET /me/notifications/counts` : ajoute la clé `contacts_unread` (basée sur `read_by_us_at IS NULL`, indépendante de `last_visited_at`).
+✅ **Frontend** :
+   - **Sidebar `PortalLayout.jsx`** : badge rouge sur "Répertoire & WhatsApp" alimenté par `counts.contacts_unread`. Flag `noMarkSeen=true` ajouté pour ce module → la navigation NE remet PAS le badge à zéro (seul le mark-read par contact le fait).
+   - **`Contacts.jsx`** : nouveau state `unread.{total, by_contact}` rafraîchi au mount + polling 30s. Pastille rouge animate-pulse à côté du nom du contact + sur le bouton "Hist. Mess." (corner badge). Données passées via prop `unreadCount` à `ContactRow`.
+   - **`ConversationModal`** :
+     - Auto `POST /me/contacts/{cid}/messages/mark-read` à l'ouverture → décrémente le badge.
+     - Si `can_send_text=true` → composer texte libre (textarea 4096 char + bouton Envoyer + badge "Fenêtre 24h ouverte" + indicateur d'expiration). Raccourci Cmd/Ctrl+Entrée.
+     - Sinon → bandeau ambre "Fenêtre 24h fermée — utilisez un template Meta approuvé" avec lien vers le bouton WhatsApp template.
+     - Recharge + remontée du compteur unread vers parent au close.
+✅ Tests curl : webhook simulé (inbound `Bonjour, j-ai une question`) → contact résolu via `phone_digits` → `can_send_text:true`, `window_expires_at:+24h`, `messages_count:1`. `mark-read` retourne `updated:1`. `send-text` retourne `ok:false` avec erreur claire "WhatsApp non configuré" (env preview), pas de 409. Hors fenêtre → 409 attendu.
+✅ Validation Playwright : sidebar affiche bien "1" en badge rouge, modal affiche conversation avec bulles entrantes/sortantes + composer vert "Réponse libre autorisée" + textarea + bouton Envoyer.
+✅ 7 nouveaux data-testid : `contact-unread-{id}`, `contact-history-unread-{id}`, `conversation-composer-open`, `conversation-composer-closed`, `conversation-text-input`, `conversation-text-send`, `conversation-window-expires`.
+
+**Cas d'usage** : un client envoie "Bonjour, j'ai un souci" sur le WhatsApp Business du compte → la jauge Liluvine reste verte mais l'icône Hist. Mess. du contact gagne une **pastille rouge** + le menu sidebar affiche "1". L'agent ouvre la conversation : le compteur est mis à zéro automatiquement, et il peut répondre librement avec du texte libre durant 24h **sans avoir besoin d'un template Meta approuvé** — Meta n'autorise le free-form qu'à l'intérieur de cette fenêtre. Passé 24h, l'UI affiche un bandeau ambre invitant à utiliser un template.
+
 ### 2026-05-07 — Itération 46 : Liluvine intelligent + Contrôle distant HMAC + Commandes WhatsApp
 ✅ **Backend** :
    - `/public/support-load` enrichi → retourne `liluvine.{alert_enabled, threshold, alert_active, label, message}` (alert_active = level ≥ threshold ET les deux features activées).

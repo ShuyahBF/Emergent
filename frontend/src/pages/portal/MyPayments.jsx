@@ -36,6 +36,23 @@ function fmtDate(d) {
   } catch { return d; }
 }
 
+// Safely coerce any value (incl. PawaPay rejection objects) to a printable string.
+// Without this, rendering `{p.api_message}` when api_message is `{rejectionCode, rejectionMessage}`
+// would crash React with "Objects are not valid as a React child".
+function safeText(v) {
+  if (v == null) return "";
+  if (typeof v === "string" || typeof v === "number") return String(v);
+  if (typeof v === "object") {
+    const code = v.failureCode || v.rejectionCode || v.code;
+    const msg = v.failureMessage || v.rejectionMessage || v.message || v.detail;
+    if (code && msg) return `${code} — ${msg}`;
+    if (msg) return String(msg);
+    if (code) return String(code);
+    try { return JSON.stringify(v).slice(0, 200); } catch { return ""; }
+  }
+  return String(v);
+}
+
 export default function MyPayments() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -363,7 +380,7 @@ function TransactionsPanel({
                       <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${sb.cls}`}>
                         <Icon className="h-3 w-3" /> {sb.label}
                       </span>
-                      {p.api_message && <span className="block text-[10px] text-slate-500 mt-0.5 max-w-[180px] truncate" title={p.api_message}>{p.api_message}</span>}
+                      {p.api_message && <span className="block text-[10px] text-slate-500 mt-0.5 max-w-[180px] truncate" title={safeText(p.api_message)}>{safeText(p.api_message)}</span>}
                     </td>
                     <td className="px-3 py-2 text-right whitespace-nowrap">
                       {p.status === "pending" && (
@@ -454,12 +471,12 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
         onCreated && onCreated();
         onClose();
       } else {
-        toast.error(r.data?.reason || "Demande rejetée par PawaPay");
+        toast.error(safeText(r.data?.reason) || "Demande rejetée par PawaPay");
         onCreated && onCreated();
       }
     } catch (err) {
       if (toastId !== undefined) toast.dismiss(toastId);
-      const msg = err?.response?.data?.detail || err?.message || "Erreur inconnue";
+      const msg = safeText(err?.response?.data?.detail) || err?.message || "Erreur inconnue";
       toast.error(`Erreur : ${msg}`, { duration: 8000 });
       // Log full detail server-side so we can diagnose prod-only crashes
       apiClient.post("/me/api-trace", {

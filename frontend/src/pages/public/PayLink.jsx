@@ -100,15 +100,21 @@ export default function PayLink() {
         mno,
         payer_name: payerName || undefined,
       });
+      const reason = r.data?.reason;
+      const reasonStr = reason && typeof reason === "object"
+        ? (reason.failureMessage || reason.rejectionMessage || reason.message || JSON.stringify(reason))
+        : reason;
       setResult({
         deposit_id: r.data.deposit_id,
         status: r.data.status,
-        api_message: r.data.reason,
+        api_message: reasonStr || null,
         amount: amt,
         currency: link.currency || "XOF",
       });
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur lors du paiement");
+      const detail = err?.response?.data?.detail;
+      const msg = (typeof detail === "object" ? (detail?.failureMessage || detail?.rejectionMessage || detail?.message || JSON.stringify(detail)) : detail) || err?.message || "Erreur lors du paiement";
+      toast.error(String(msg).slice(0, 200));
     } finally {
       setSubmitting(false);
     }

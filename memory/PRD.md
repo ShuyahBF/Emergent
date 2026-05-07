@@ -33,6 +33,24 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-07 — Itération 44 : 🐛 FIX P0 — Crash React sur paiement PawaPay
+✅ **Cause root identifiée** grâce au système de télémétrie ajouté en itération 43 : ErrorBoundary a capturé l'erreur exacte
+> `Objects are not valid as a React child (found: object with keys {rejectionCode, rejectionMessage})`
+
+PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont désormais des **objets** `{failureCode, failureMessage}` ou `{rejectionCode, rejectionMessage}` (au lieu de simples chaînes en v1). Le frontend tentait de rendre ces objets directement → crash React fatal.
+
+✅ **Fix backend** : nouveau helper `_pawapay_str()` dans `server.py` qui coerce tout résultat PawaPay (`None`/`str`/`dict`) en chaîne lisible (`"CODE — Message"` ou `Message` ou `Code` selon dispo). Appliqué aux **6 emplacements** où PawaPay renvoie failure/rejection :
+   - `POST /me/payments/pawapay/deposit` (api_message + reason)
+   - `GET /me/payments/{deposit_id}` (polling)
+   - `POST /webhooks/pawapay/{secret}` (callback)
+   - `POST /public/pay/{slug}/deposit` (api_message + reason)
+   - `GET /public/pay/{slug}/status/{deposit_id}` (polling)
+✅ **Fix frontend** : nouveau helper `safeText()` dans `MyPayments.jsx` qui rend défensivement n'importe quel `api_message`/`reason` même s'il vient de la DB en format objet (legacy). Appliqué dans le tableau transactions + le toast d'erreur du modal submit. Helper similaire intégré dans `PayLink.jsx` (page publique).
+✅ **Test unitaire** du helper : `_pawapay_str({rejectionCode:'INVALID_AMOUNT', rejectionMessage:'Le montant est invalide'})` → `"INVALID_AMOUNT — Le montant est invalide"` ✅
+✅ Backend redémarré, lint clean.
+
+**Impact production** : après redéploiement, le clic « Lancer le paiement » affichera désormais un toast d'erreur clair (ex : `"INVALID_AMOUNT — Le montant est invalide"`) au lieu de crasher la page. Les paiements rejetés / échoués s'afficheront correctement dans le tableau.
+
 ### 2026-05-07 — Itération 43 : Hardening Paiements + Telemetry crash production
 ✅ **ErrorBoundary global** (`/app/frontend/src/components/ErrorBoundary.jsx`) appliqué autour de `MyPayments` et `SmsBulk` dans `App.js`. Affiche un panneau rouge avec stack + bouton « Copier les détails » + « Recharger la page » au lieu d'une page blanche en cas d'exception React.
 ✅ **Global error reporter** (`window.error` + `unhandledrejection`) installé dans `App.js` → poste un breadcrumb à `/me/api-trace` (kind, msg, stack, ua, path) pour les crashs hors-arbre React (event handlers, async, libs).

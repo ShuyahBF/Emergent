@@ -1145,6 +1145,24 @@ PAWAPAY_HOSTS = {
 }
 
 
+def _pawapay_str(field: Any) -> Optional[str]:
+    """PawaPay v2 returns failureReason / rejectionReason as objects
+    {failureCode, failureMessage} or {rejectionCode, rejectionMessage}.
+    v1 sometimes returned strings. Coerce to a printable single string so
+    React can render it without crashing."""
+    if field is None:
+        return None
+    if isinstance(field, str):
+        return field
+    if isinstance(field, dict):
+        msg = field.get("failureMessage") or field.get("rejectionMessage") or field.get("message")
+        code = field.get("failureCode") or field.get("rejectionCode") or field.get("code")
+        if msg and code:
+            return f"{code} — {msg}"
+        return msg or code or json.dumps(field)[:300]
+    return str(field)[:300]
+
+
 def _pawapay_active_token(s: Dict[str, Any]) -> Optional[str]:
     env = (s.get("pawapay_environment") or "sandbox").lower()
     if env == "production":
@@ -1249,7 +1267,7 @@ async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, us
         "environment": env,
         "status": initial_status,
         "api_status": api_status or None,
-        "api_message": api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message"),
+        "api_message": _pawapay_str(api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message")),
         "ip": _client_ip_from_request(request),
         "user_agent": request.headers.get("user-agent"),
         "created_at": _now(),
@@ -1258,7 +1276,7 @@ async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, us
     await db.payments.insert_one(doc.copy())
     doc.pop("_id", None)
     if api_resp.get("status") == "REJECTED":
-        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": api_resp.get("rejectionReason"), "payment": doc}
+        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": _pawapay_str(api_resp.get("rejectionReason")), "payment": doc}
     return {"ok": True, "deposit_id": deposit_id, "status": initial_status, "payment": doc}
 
 
@@ -1308,7 +1326,7 @@ async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)
             await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {
                 "status": new_status,
                 "api_status": api_status,
-                "api_message": entry.get("failureReason") or entry.get("rejectionReason"),
+                "api_message": _pawapay_str(entry.get("failureReason") or entry.get("rejectionReason")),
                 "completed_at": entry.get("respondedTimestamp") or (None if new_status == "pending" else _now()),
                 "updated_at": _now(),
                 "raw_response": entry,
@@ -1344,7 +1362,7 @@ async def webhook_pawapay(secret: str, request: Request):
         {"$set": {
             "status": new_status,
             "api_status": api_status,
-            "api_message": payload.get("failureReason") or payload.get("rejectionReason"),
+            "api_message": _pawapay_str(payload.get("failureReason") or payload.get("rejectionReason")),
             "completed_at": payload.get("respondedTimestamp") or _now(),
             "updated_at": _now(),
             "raw_response": payload,
@@ -1702,7 +1720,7 @@ async def public_pay_deposit(slug: str, payload: PublicPayRequest, request: Requ
         "environment": env,
         "status": initial_status,
         "api_status": api_status or None,
-        "api_message": api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message"),
+        "api_message": _pawapay_str(api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message")),
         "ip": _client_ip_from_request(request),
         "user_agent": request.headers.get("user-agent"),
         "source": "payment_link",
@@ -1720,7 +1738,7 @@ async def public_pay_deposit(slug: str, payload: PublicPayRequest, request: Requ
             {"$inc": {"uses_count": 1}, "$set": {"updated_at": _now()}},
         )
     if api_resp.get("status") == "REJECTED":
-        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": api_resp.get("rejectionReason")}
+        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": _pawapay_str(api_resp.get("rejectionReason"))}
     return {"ok": True, "deposit_id": deposit_id, "status": initial_status}
 
 
@@ -1751,7 +1769,7 @@ async def public_pay_status(slug: str, deposit_id: str):
                         await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {
                             "status": new_status,
                             "api_status": api_status,
-                            "api_message": entry.get("failureReason") or entry.get("rejectionReason"),
+                            "api_message": _pawapay_str(entry.get("failureReason") or entry.get("rejectionReason")),
                             "completed_at": entry.get("respondedTimestamp") or (None if new_status == "pending" else _now()),
                             "updated_at": _now(),
                         }})

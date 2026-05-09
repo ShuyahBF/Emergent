@@ -68,6 +68,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-09 — Itération 53 : RGPD anonymisation étendue (Rendez-vous, Interventions, Documents)
+✅ **5 nouveaux helpers backend** : `_apply_anon_to_appointment`, `_apply_anon_to_intervention`, `_apply_anon_to_document`, `_apply_anon_to_access_log`, et un wrapper générique `_maybe_anon_list(viewer, items, applier)` qui no-op si aucun flag n'est ON.
+✅ **Endpoints couverts** :
+   - `GET /me/appointments` : anonymise `name`, `email`, `phone`, `company` du client RDV.
+   - `GET /me/interventions` : anonymise le `technician`.
+   - `GET /me/documents` : anonymise `uploaded_by_email/name`, `client_name`.
+✅ **Logs admin** : `/admin/access-logs` est restreint à `admin/superviseur` (rôles privilégiés) → l'anonymisation serait un no-op par construction. Conservé tel quel.
+✅ Tests curl : tracker (utilisateur) voit RDV `J*** S*** T*** / j***@test.com / +22 ** ** ** 11 / A*** C***` et intervention technician `P*** D***`. Admin voit tout en clair sur les mêmes endpoints.
+
 ### 2026-05-09 — Itération 52 : PawaPay auto sur souscription + Web Notifications WA + Stats SMS + ErrorBoundary global
 ✅ **PawaPay auto-link sur souscription publique** : `POST /public/subscriptions/order` crée désormais un `payment_links` avec slug aléatoire, montant pré-rempli, `prefill_phone`, `prefill_name`, expire à J+7, max 1 utilisation. Le lien est attaché à l'order et retourné dans la réponse. Le modal frontend affiche un encart vert "Régler maintenant via Mobile Money" → `/pay/{slug}` (ouvre dans un nouvel onglet). Activé seulement si `pawapay_enabled=true` dans les settings + montant > 0. Fallback sur le premier admin si aucun superviseur configuré.
 ✅ **Web Notifications API + son sur nouveaux WA** : nouveau hook `useWhatsAppNotifier` qui poll `/me/whatsapp/unread` toutes les 15s, joue un blip 880 Hz → 1320 Hz (Web Audio, sans asset), affiche une notification desktop si le compteur croît ET si l'onglet est en arrière-plan, et badge le favicon avec un point rouge. Toggles persistés dans localStorage : `sound_on` (par défaut ON) et `desktop_on` (par défaut ON). Bouton "Autoriser les notifications" si la permission est `default`. Click sur la notif → focus tab + redirection vers `/portal/contacts`.

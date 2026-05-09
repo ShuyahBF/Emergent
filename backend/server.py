@@ -1231,12 +1231,14 @@ async def me_account(user: dict = Depends(get_current_user)):
 @api.get("/me/appointments", tags=["Portail Client"])
 async def me_appointments(user: dict = Depends(get_current_user)):
     """All users belonging to the same client see the same set of RDV.
-    Admin/superviseur see everything."""
+    Admin/superviseur see everything. RGPD: anonymizes customer fields per
+    parent-client flags for non-privileged roles."""
     if user.get("role") in ("admin", "superviseur"):
         items = await db.appointments.find({}, {"_id": 0}).to_list(2000)
     else:
         scope = user.get("client_id") or user["id"]
         items = await db.appointments.find({"client_id": scope}, {"_id": 0}).to_list(2000)
+    items = await _maybe_anon_list(user, items, _apply_anon_to_appointment)
     return sorted(items, key=lambda x: x["scheduled_at"], reverse=True)
 
 
@@ -2200,26 +2202,27 @@ async def me_create_appointment(
 
 @api.get("/me/documents", tags=["Portail Client"])
 async def me_documents(user: dict = Depends(get_current_user)):
+    """RGPD: anonymizes uploaded_by_email/name for non-privileged roles."""
     if _can_consult_all_docs(user):
-        # Moderation/Admin/Superviseur see ALL documents
         items = await db.documents.find({}, {"_id": 0}).to_list(5000)
     else:
-        # Resolve effective client id (tracked users → parent client)
         effective_client_id = user.get("parent_client_id") or user["id"]
         items = await db.documents.find(
             {"$or": [{"client_id": effective_client_id}, {"is_public": True}]}, {"_id": 0}
         ).to_list(500)
-    return items
+    return await _maybe_anon_list(user, items, _apply_anon_to_document)
 
 
 @api.get("/me/interventions", tags=["Portail Client"])
 async def me_interventions(user: dict = Depends(get_current_user)):
+    """RGPD: anonymizes the technician name for non-privileged roles."""
     if _is_elevated_creator(user):
         items = await db.interventions.find({}, {"_id": 0}).to_list(2000)
     else:
         effective_client_id = user.get("parent_client_id") or user["id"]
         items = await db.interventions.find({"client_id": effective_client_id}, {"_id": 0}).to_list(1000)
     items = sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
+    items = await _maybe_anon_list(user, items, _apply_anon_to_intervention)
     return await _attach_my_rating(items, "interventions", user["id"])
 
 
@@ -2459,6 +2462,57 @@ def _apply_anon_to_contact(c: Dict[str, Any], flags: Dict[str, bool]) -> Dict[st
     if flags.get("anon_whatsapp"):
         out["whatsapp"] = _anon_phone(out.get("whatsapp")) or out.get("whatsapp")
     return out
+
+
+def _apply_anon_to_appointment(a: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Anonymize the customer fields of an appointment (RDV)."""
+    out = dict(a)
+    if flags.get("anon_name"):
+        out["name"] = _anon_name(out.get("name")) or out.get("name")
+        out["company"] = _anon_name(out.get("company")) or out.get("company")
+    if flags.get("anon_email"):
+        out["email"] = _anon_email(out.get("email")) or out.get("email")
+    if flags.get("anon_phone"):
+        out["phone"] = _anon_phone(out.get("phone")) or out.get("phone")
+    return out
+
+
+def _apply_anon_to_intervention(i: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Anonymize the technician name on an intervention card."""
+    out = dict(i)
+    if flags.get("anon_name"):
+        out["technician"] = _anon_name(out.get("technician")) or out.get("technician")
+    return out
+
+
+def _apply_anon_to_document(d: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Anonymize uploader-related fields on a document."""
+    out = dict(d)
+    if flags.get("anon_name"):
+        out["uploaded_by_name"] = _anon_name(out.get("uploaded_by_name")) or out.get("uploaded_by_name")
+        out["client_name"] = _anon_name(out.get("client_name")) or out.get("client_name")
+    if flags.get("anon_email"):
+        out["uploaded_by_email"] = _anon_email(out.get("uploaded_by_email")) or out.get("uploaded_by_email")
+    return out
+
+
+def _apply_anon_to_access_log(log: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Anonymize identity fields on an access-log entry."""
+    out = dict(log)
+    if flags.get("anon_name"):
+        out["user_name"] = _anon_name(out.get("user_name")) or out.get("user_name")
+    if flags.get("anon_email"):
+        out["user_email"] = _anon_email(out.get("user_email")) or out.get("user_email")
+    return out
+
+
+async def _maybe_anon_list(viewer: dict, items: List[Dict[str, Any]], applier) -> List[Dict[str, Any]]:
+    """Generic helper: applies the chosen `applier` to each item only if at
+    least one anon flag is True for the viewer. No-op otherwise."""
+    flags = await _resolve_anon_flags(viewer)
+    if not any(flags.values()):
+        return items
+    return [applier(x, flags) for x in items]
 
 
 class ClientFeaturesUpdate(BaseModel):

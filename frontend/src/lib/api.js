@@ -138,7 +138,12 @@ apiClient.interceptors.response.use(
       const url = err.config?.url || "";
       const isAuthEndpoint = url.includes("/auth/");
       const isTelemetry = NO_LOGOUT_ON_401.some((p) => url.includes(p));
-      if (!isAuthEndpoint && !isTelemetry) {
+      // Only force a logout-redirect when the user WAS logged in. Anonymous
+      // visitors of public marketing pages whose components opportunistically
+      // call /me/* endpoints get a 401 — that's expected, do NOT bounce them
+      // to /login (it would break the entire public site for first-time visitors).
+      const hadToken = typeof localStorage !== "undefined" && !!localStorage.getItem("sawali_token");
+      if (!isAuthEndpoint && !isTelemetry && hadToken) {
         localStorage.removeItem("sawali_token");
         localStorage.removeItem("sawali_user");
         if (typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {

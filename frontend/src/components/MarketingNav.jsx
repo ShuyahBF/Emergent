@@ -28,32 +28,32 @@ export default function MarketingNav() {
 
   return (
     <header className="glass-nav sticky top-0 z-50 backdrop-blur-md bg-[#081226]/85 border-b border-white/5" data-testid="marketing-navbar">
+      {/* Thin top strip — Support technique gauge centered. The component
+          returns null (whole strip vanishes) when the admin disables the gauge
+          so we never leave an empty band. Hidden on small screens to save
+          vertical space. */}
+      <div className="hidden md:block" data-testid="navbar-support-gauge-wrap">
+        <SupportLoadGauge inline />
+      </div>
+
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="relative flex h-16 items-center justify-between">
-          <Link to="/" className="flex items-center gap-3 z-10" data-testid="navbar-logo-link">
+        <div className="flex h-16 items-center justify-between gap-4">
+          <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="navbar-logo-link">
             <img src={LOGO_URL} alt="SAWALI" className="h-10 w-10 rounded-md object-cover ring-1 ring-white/20" />
             <div className="hidden sm:flex flex-col leading-tight">
-              <span className="font-display font-bold text-white tracking-tight">SAWALI SMART SYSTEMS</span>
-              <span className="text-[10px] uppercase tracking-[0.25em] text-sawali-blue-light">Software Engineering</span>
+              <span className="font-display font-bold text-white tracking-tight whitespace-nowrap">SAWALI SMART SYSTEMS</span>
+              <span className="text-[10px] uppercase tracking-[0.25em] text-sawali-blue-light whitespace-nowrap">Software Engineering</span>
             </div>
           </Link>
 
-          {/* Center — Support Load Gauge (cellular-bars). Absolute-centered so it stays visually centered regardless of left/right widths. Hidden on small screens to keep the bar tidy. */}
-          <div
-            className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center pointer-events-auto"
-            data-testid="navbar-support-gauge-wrap"
-          >
-            <SupportLoadGauge inline />
-          </div>
-
-          <nav className="hidden lg:flex items-center gap-1 ml-auto mr-4">
+          <nav className="hidden lg:flex items-center gap-0.5">
             {links.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
                 end={l.to === "/"}
                 className={({ isActive }) =>
-                  `px-2.5 py-2 text-[13px] font-medium transition-colors ${
+                  `px-2 py-2 text-[13px] font-medium whitespace-nowrap transition-colors ${
                     isActive ? "text-white" : "text-slate-300 hover:text-white"
                   }`
                 }
@@ -64,7 +64,7 @@ export default function MarketingNav() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2 z-10">
+          <div className="flex items-center gap-2 shrink-0">
             <button
               onClick={() => navigate(portalHref)}
               className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-sawali-blue/40 px-4 py-2 text-sm text-white hover:bg-sawali-blue/10 transition"

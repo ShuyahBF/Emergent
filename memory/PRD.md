@@ -667,6 +667,15 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - UI `WaBulk.jsx` (~530 lignes) : sélecteur de template avec aperçu de la structure parsée, génération automatique des champs variables (header/corps/boutons) selon le template, barre d'insertion de jetons (`{{name}}`, `{{client_code}}`…), filtres contacts (recherche + société), aperçu personnalisé sur 3 destinataires, planification, historique des envois groupés. Lien sidebar « WhatsApp — Masse & Planif. ».
 - Tests : `/app/backend/tests/test_sawali_iter25.py` (10 tests, 100% pass) + Playwright frontend (9/9 testids).
 
+### 2026-05-09 — Iter26 : 3 fixes UI + WhatsApp→SMS fallback
+- **BUG fix Subscriptions double header** : retiré le `<MarketingLayout>` interne dans `Subscriptions.jsx` (PublicRoute fournit déjà le layout).
+- **FEATURE Header sticky avec jauge intégrée** : ajout d'un bandeau fin au sommet de `MarketingNav` (sticky) contenant la jauge de Support technique (`SupportLoadGauge inline`) avec barres cellulaires colorées et label centré (« 🎧 Support |||| Charge modérée 4/7 »). Disparaît automatiquement quand l'admin désactive la jauge.
+- **BUG fix sidebar tronquée** : `PortalLayout` passé en *fixed-shell pattern* — outer div en `h-screen flex overflow-hidden`, sidebar `h-screen overflow-y-auto`, main aussi `h-screen overflow-y-auto`. Le bug `position:sticky` dans flex-row qui causait la troncature après scroll est éliminé.
+- **CRITICAL bug fix** : axios interceptor 401 ne forçait plus le redirect vers `/login` que si un token était présent en localStorage. Avant, tout visiteur anonyme des pages publiques (`/`, `/subscriptions`, etc.) était immédiatement renvoyé vers `/login` dès qu'un composant tapait `/me/*` — site marketing inutilisable pour les nouveaux visiteurs.
+- **FEATURE WhatsApp→SMS fallback** : `MeWaBulkRequest` étendu avec `sms_fallback`, `sms_fallback_message`, `sms_fallback_provider`, `sms_fallback_sender`. En cas d'échec WA (numéro non WA, hors fenêtre 24h, erreur Meta…), tentative automatique en SMS via `_sms_dispatch` avec personnalisation par destinataire. Les logs `sms_messages` créés portent `wa_fallback: true` pour traçabilité. Réponse enrichie : `fallback_used`, `fallback_results[]`, `fallback_ok`. Le cron runner applique aussi le repli pour les envois planifiés.
+- UI `WaBulk.jsx` enrichie : bloc « Repli SMS automatique » avec toggle, sélecteur de fournisseur SMS, expéditeur, message-template (avec jetons), désactivé si `features.sms === false`.
+- Tests : iter26 backend (3/3 pass), frontend Playwright bloqué par bug pré-existant axios → corrigé dans cette même itération.
+
 ---
 
 ## Test Credentials

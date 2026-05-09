@@ -2893,6 +2893,136 @@ async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_curr
     }
 
 
+# ============================================================
+# Campaign Efficiency dashboard — quantifies the WhatsApp-first
+# strategy versus SMS:
+#   • WA delivery rate (sent_ok / total)
+#   • SMS delivery rate (sent_ok / total, all-time and as fallback only)
+#   • Fallback rate (% of WA failures that triggered an SMS retry, and the
+#     success rate of those retries)
+#   • Estimated cost savings (each successful WA = one SMS not sent → save
+#     `sms_unit_cost`). Helps justify the WA-first strategy to clients.
+# Admin-only; aggregates across all clients (no per-client breakdown here —
+# that already exists in /admin/usage/summary). Daily series capped at 30 days.
+# ============================================================
+@api.get("/admin/campaign-efficiency", tags=["Admin"])
+async def admin_campaign_efficiency(days: int = 30, _: dict = Depends(get_current_admin)):
+    days = max(1, min(days, 90))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since_iso = since.isoformat()
+
+    # Helper to extract a YYYY-MM-DD bucket from a string created_at field.
+    day_expr = {"$substr": ["$created_at", 0, 10]}
+
+    # 1) WA stats — outbound only (inbound is excluded from delivery rate).
+    wa_pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}, "direction": {"$ne": "inbound"}}},
+        {"$group": {
+            "_id": None,
+            "total": {"$sum": 1},
+            "sent_ok": {"$sum": {"$cond": [{"$or": [{"$eq": ["$ok", True]}, {"$eq": ["$wa_status", "sent"]}]}, 1, 0]}},
+            "sent_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$ok", False]}, {"$eq": ["$wa_status", "failed"]}]}, 1, 0]}},
+        }},
+    ]
+    wa_doc = await db.whatsapp_messages.aggregate(wa_pipeline).to_list(1)
+    wa = (wa_doc[0] if wa_doc else {"total": 0, "sent_ok": 0, "sent_ko": 0})
+    wa_delivery_rate = (wa["sent_ok"] / wa["total"] * 100.0) if wa["total"] else 0.0
+
+    # 2) SMS stats — all SMS sent, and fallback-only subset.
+    sms_pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {
+            "_id": None,
+            "total": {"$sum": 1},
+            "sent_ok": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "sent_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$status", "failed"]}, {"$eq": ["$status", "error"]}]}, 1, 0]}},
+            "fallback_total": {"$sum": {"$cond": [{"$eq": ["$wa_fallback", True]}, 1, 0]}},
+            "fallback_ok": {"$sum": {"$cond": [{"$and": [{"$eq": ["$wa_fallback", True]}, {"$eq": ["$status", "sent"]}]}, 1, 0]}},
+        }},
+    ]
+    sms_doc = await db.sms_messages.aggregate(sms_pipeline).to_list(1)
+    sms = (sms_doc[0] if sms_doc else {"total": 0, "sent_ok": 0, "sent_ko": 0, "fallback_total": 0, "fallback_ok": 0})
+    sms_delivery_rate = (sms["sent_ok"] / sms["total"] * 100.0) if sms["total"] else 0.0
+    fallback_success_rate = (sms["fallback_ok"] / sms["fallback_total"] * 100.0) if sms["fallback_total"] else 0.0
+    # % of WA failures that triggered an SMS retry
+    fallback_trigger_rate = (sms["fallback_total"] / wa["sent_ko"] * 100.0) if wa["sent_ko"] else 0.0
+
+    # 3) Cost savings — average sms_unit_cost across configured clients.
+    cost_pipeline = [
+        {"$match": {"sms_unit_cost": {"$gt": 0}}},
+        {"$group": {"_id": None, "avg": {"$avg": "$sms_unit_cost"}, "count": {"$sum": 1}}},
+    ]
+    cost_doc = await db.users.aggregate(cost_pipeline).to_list(1)
+    sms_unit_cost_avg = float((cost_doc[0] if cost_doc else {}).get("avg") or 0.0)
+    estimated_savings = round(wa["sent_ok"] * sms_unit_cost_avg, 2)
+
+    # 4) Daily series — WA OK, WA KO, SMS OK, SMS KO, fallback OK per day.
+    daily_wa = {}
+    async for d in db.whatsapp_messages.aggregate([
+        {"$match": {"created_at": {"$gte": since_iso}, "direction": {"$ne": "inbound"}}},
+        {"$group": {
+            "_id": day_expr,
+            "wa_ok": {"$sum": {"$cond": [{"$or": [{"$eq": ["$ok", True]}, {"$eq": ["$wa_status", "sent"]}]}, 1, 0]}},
+            "wa_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$ok", False]}, {"$eq": ["$wa_status", "failed"]}]}, 1, 0]}},
+        }},
+    ]):
+        daily_wa[d["_id"]] = {"wa_ok": int(d.get("wa_ok") or 0), "wa_ko": int(d.get("wa_ko") or 0)}
+
+    daily_sms = {}
+    async for d in db.sms_messages.aggregate([
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {
+            "_id": day_expr,
+            "sms_ok": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "sms_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$status", "failed"]}, {"$eq": ["$status", "error"]}]}, 1, 0]}},
+            "fallback_ok": {"$sum": {"$cond": [{"$and": [{"$eq": ["$wa_fallback", True]}, {"$eq": ["$status", "sent"]}]}, 1, 0]}},
+        }},
+    ]):
+        daily_sms[d["_id"]] = {
+            "sms_ok": int(d.get("sms_ok") or 0),
+            "sms_ko": int(d.get("sms_ko") or 0),
+            "fallback_ok": int(d.get("fallback_ok") or 0),
+        }
+
+    daily = []
+    cur_day = since.date()
+    end_day = datetime.now(timezone.utc).date()
+    while cur_day <= end_day:
+        key = cur_day.isoformat()
+        wa_row = daily_wa.get(key, {"wa_ok": 0, "wa_ko": 0})
+        sms_row = daily_sms.get(key, {"sms_ok": 0, "sms_ko": 0, "fallback_ok": 0})
+        daily.append({"day": key, **wa_row, **sms_row})
+        cur_day += timedelta(days=1)
+
+    return {
+        "period_days": days,
+        "wa": {
+            "total": int(wa["total"]),
+            "sent_ok": int(wa["sent_ok"]),
+            "sent_ko": int(wa["sent_ko"]),
+            "delivery_rate": round(wa_delivery_rate, 2),
+        },
+        "sms": {
+            "total": int(sms["total"]),
+            "sent_ok": int(sms["sent_ok"]),
+            "sent_ko": int(sms["sent_ko"]),
+            "delivery_rate": round(sms_delivery_rate, 2),
+        },
+        "fallback": {
+            "triggered": int(sms["fallback_total"]),
+            "succeeded": int(sms["fallback_ok"]),
+            "success_rate": round(fallback_success_rate, 2),
+            "trigger_rate_on_wa_failures": round(fallback_trigger_rate, 2),
+        },
+        "cost_savings": {
+            "sms_unit_cost_avg": round(sms_unit_cost_avg, 4),
+            "wa_success_count": int(wa["sent_ok"]),
+            "estimated_savings_xof": estimated_savings,
+        },
+        "daily": daily,
+    }
+
+
 @api.put("/admin/clients/{client_id}/whatsapp-cost", tags=["Admin"])
 async def admin_set_client_wa_cost(
     client_id: str,

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send } from "lucide-react";
+import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 /*
@@ -23,12 +23,18 @@ export default function AdminUsage() {
   const [loading, setLoading] = useState(true);
   const [sortKey, setSortKey] = useState("wa_cost");
   const [dir, setDir] = useState("desc");
+  // Campaign Efficiency dashboard — quantifies WA-first strategy vs SMS
+  const [campaign, setCampaign] = useState(null);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/admin/usage/summary", { params: { days } });
+      const [r, cR] = await Promise.all([
+        apiClient.get("/admin/usage/summary", { params: { days } }),
+        apiClient.get("/admin/campaign-efficiency", { params: { days } }).catch(() => ({ data: null })),
+      ]);
       setData(r.data);
+      setCampaign(cR.data);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally {
@@ -148,6 +154,81 @@ export default function AdminUsage() {
         <KpiCard icon={Send} color="indigo" label="SMS envoyés" value={totals.sms_sent_ok || 0} subtitle={`${totals.sms_sent_ko || 0} échec(s) • ${totals.sms_total || 0} tot.`} testid="kpi-sms-sent" />
         <KpiCard icon={CreditCard} color="amber" label="Coût total estimé" value={((totals.wa_cost || 0) + (totals.sms_cost || 0)).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} subtitle={`WA ${(totals.wa_cost || 0).toLocaleString("fr-FR")} • SMS ${(totals.sms_cost || 0).toLocaleString("fr-FR")} XOF`} testid="kpi-total-cost" />
       </div>
+
+      {/* Campaign Efficiency dashboard — quantifies WA-first strategy vs SMS */}
+      {campaign && (
+        <div className="rounded-xl ring-1 ring-emerald-200 bg-gradient-to-br from-emerald-50/60 via-white to-indigo-50/40 p-4" data-testid="campaign-efficiency-block">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
+              <Zap className="h-4 w-4 text-emerald-600" /> Efficacité de campagne — stratégie WhatsApp-first
+            </h2>
+            <span className="text-[10px] text-slate-400">{campaign.period_days} jours</span>
+          </div>
+          <p className="text-[11px] text-slate-500 mb-3 max-w-3xl">
+            Mesure du taux de délivrance WA vs SMS, du repli automatique en cas d'échec WA, et de l'économie générée
+            par chaque message WhatsApp réussi (qui n'a pas eu besoin d'être envoyé en SMS payant).
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <KpiCard
+              icon={MessageCircle} color="emerald"
+              label="Délivrance WA"
+              value={`${campaign.wa.delivery_rate}%`}
+              subtitle={`${campaign.wa.sent_ok}/${campaign.wa.total} envoyés`}
+              testid="kpi-wa-delivery"
+            />
+            <KpiCard
+              icon={Send} color="indigo"
+              label="Délivrance SMS"
+              value={`${campaign.sms.delivery_rate}%`}
+              subtitle={`${campaign.sms.sent_ok}/${campaign.sms.total} envoyés`}
+              testid="kpi-sms-delivery"
+            />
+            <KpiCard
+              icon={ArrowRightLeft} color="amber"
+              label="Repli SMS"
+              value={`${campaign.fallback.success_rate}%`}
+              subtitle={`${campaign.fallback.succeeded}/${campaign.fallback.triggered} repli OK • ${campaign.fallback.trigger_rate_on_wa_failures}% des échecs WA`}
+              testid="kpi-fallback-rate"
+            />
+            <KpiCard
+              icon={Coins} color="emerald"
+              label="Économie estimée"
+              value={`${(campaign.cost_savings.estimated_savings_xof || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} XOF`}
+              subtitle={`${campaign.cost_savings.wa_success_count} WA × ${(campaign.cost_savings.sms_unit_cost_avg || 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} XOF/SMS moy.`}
+              testid="kpi-cost-savings"
+            />
+          </div>
+          {campaign.daily?.length > 0 && (
+            <div className="w-full h-56 mt-4" data-testid="campaign-daily-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={campaign.daily.slice(-Math.min(30, campaign.daily.length))}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                  <XAxis dataKey="day" tick={{ fontSize: 9 }} tickFormatter={(v) => v.slice(5)} />
+                  <YAxis tick={{ fontSize: 10 }} />
+                  <Tooltip
+                    formatter={(v, n) => [v, ({
+                      wa_ok: "WA livrés", wa_ko: "WA échoués",
+                      sms_ok: "SMS livrés", sms_ko: "SMS échoués",
+                      fallback_ok: "Repli SMS livré",
+                    })[n] || n]}
+                    labelFormatter={(l) => `Jour ${l}`}
+                  />
+                  <Legend formatter={(v) => ({
+                    wa_ok: "WA livrés", wa_ko: "WA échoués",
+                    sms_ok: "SMS livrés", sms_ko: "SMS échoués",
+                    fallback_ok: "Repli SMS livré",
+                  })[v] || v} />
+                  <Bar dataKey="wa_ok" stackId="a" fill="#10b981" />
+                  <Bar dataKey="wa_ko" stackId="a" fill="#fb923c" />
+                  <Bar dataKey="sms_ok" stackId="b" fill="#6366f1" />
+                  <Bar dataKey="sms_ko" stackId="b" fill="#f43f5e" />
+                  <Bar dataKey="fallback_ok" stackId="c" fill="#a78bfa" />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Per-provider breakdown */}
       {data.sms_by_provider && Object.keys(data.sms_by_provider).length > 0 && (

@@ -676,6 +676,11 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - UI `WaBulk.jsx` enrichie : bloc « Repli SMS automatique » avec toggle, sélecteur de fournisseur SMS, expéditeur, message-template (avec jetons), désactivé si `features.sms === false`.
 - Tests : iter26 backend (3/3 pass), frontend Playwright bloqué par bug pré-existant axios → corrigé dans cette même itération.
 
+### 2026-05-09 — Iter27 : Campaign Efficiency Dashboard
+- **Nouveau endpoint** `GET /api/admin/campaign-efficiency?days=N` (admin only, days clamped 1-90) : agrège WA outbound (en excluant `direction:inbound`), SMS, et SMS de repli (`wa_fallback:true`). Retourne taux de délivrance WA & SMS, taux de repli (succès + déclenchement sur échecs WA), économie estimée (`wa.sent_ok × sms_unit_cost_avg`), et série quotidienne strictement de N jours.
+- **Nouvelle section dans `/admin/usage`** : « ⚡ Efficacité de campagne — stratégie WhatsApp-first » avec 4 KPI cards (Délivrance WA, Délivrance SMS, Repli SMS, Économie estimée) + BarChart empilé (3 stack groups : WA, SMS, fallback) sur 30 jours glissants. Re-fetch automatique au changement de période.
+- Tests : `/app/backend/tests/test_sawali_iter27.py` — 9/9 pytest pass + frontend confirmé live (4 KPIs + chart + re-fetch sur sélection de période).
+
 ---
 
 ## Test Credentials

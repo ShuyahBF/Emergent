@@ -2985,8 +2985,11 @@ async def admin_campaign_efficiency(days: int = 30, _: dict = Depends(get_curren
         }
 
     daily = []
-    cur_day = since.date()
     end_day = datetime.now(timezone.utc).date()
+    # Strict `days` consecutive buckets ending today (inclusive). Earlier we
+    # used `since.date()` which could yield days+1 buckets across the UTC
+    # midnight boundary — the testing agent flagged this; tighten it here.
+    cur_day = end_day - timedelta(days=days - 1)
     while cur_day <= end_day:
         key = cur_day.isoformat()
         wa_row = daily_wa.get(key, {"wa_ok": 0, "wa_ko": 0})

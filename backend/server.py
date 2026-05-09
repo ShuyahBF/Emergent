@@ -2360,9 +2360,14 @@ DEFAULT_CLIENT_FEATURES = {
     # in API responses for users whose role is NOT one of: admin, superviseur,
     # moderateur. Inherited automatically by tracked users of this client.
     "anon_name": False,
+    "anon_company": False,  # split out from anon_name so admin can mask the
+                              # name without masking the company (and vice-versa)
     "anon_email": False,
     "anon_phone": False,
     "anon_whatsapp": False,
+    # Allow tracked users to enable the WhatsApp inbound sound alert. When OFF,
+    # the sound toggle is hidden in their portal sidebar.
+    "wa_sound_alerts": True,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -2436,12 +2441,13 @@ async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
     flags — false (no anonymization) by default."""
     role = (viewer.get("role") or "").lower()
     if role in RGPD_PRIVILEGED_ROLES:
-        return {"anon_name": False, "anon_email": False, "anon_phone": False, "anon_whatsapp": False}
+        return {"anon_name": False, "anon_company": False, "anon_email": False, "anon_phone": False, "anon_whatsapp": False}
     parent_id = viewer.get("client_id") or viewer.get("id")
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
     feats = _normalize_features((parent or {}).get("features"))
     return {
         "anon_name": bool(feats.get("anon_name")),
+        "anon_company": bool(feats.get("anon_company")),
         "anon_email": bool(feats.get("anon_email")),
         "anon_phone": bool(feats.get("anon_phone")),
         "anon_whatsapp": bool(feats.get("anon_whatsapp")),
@@ -2450,10 +2456,12 @@ async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
 
 def _apply_anon_to_contact(c: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
     """Mutate a copy of a contact dict to mask sensitive fields per flags.
-    Returns a new dict (does not modify the input)."""
+    The `contact_code` field is NEVER masked — it's the stable identifier
+    used to reference the contact even when other fields are anonymized."""
     out = dict(c)
     if flags.get("anon_name"):
         out["name"] = _anon_name(out.get("name")) or out.get("name")
+    if flags.get("anon_company"):
         out["company"] = _anon_name(out.get("company")) or out.get("company")
     if flags.get("anon_email"):
         out["email"] = _anon_email(out.get("email")) or out.get("email")
@@ -2469,6 +2477,7 @@ def _apply_anon_to_appointment(a: Dict[str, Any], flags: Dict[str, bool]) -> Dic
     out = dict(a)
     if flags.get("anon_name"):
         out["name"] = _anon_name(out.get("name")) or out.get("name")
+    if flags.get("anon_company"):
         out["company"] = _anon_name(out.get("company")) or out.get("company")
     if flags.get("anon_email"):
         out["email"] = _anon_email(out.get("email")) or out.get("email")
@@ -2522,9 +2531,11 @@ class ClientFeaturesUpdate(BaseModel):
     payments: Optional[bool] = None
     webhook_returns: Optional[bool] = None
     anon_name: Optional[bool] = None
+    anon_company: Optional[bool] = None
     anon_email: Optional[bool] = None
     anon_phone: Optional[bool] = None
     anon_whatsapp: Optional[bool] = None
+    wa_sound_alerts: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 

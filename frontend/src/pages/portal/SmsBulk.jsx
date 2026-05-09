@@ -48,6 +48,7 @@ export default function SmsBulk() {
   const [features, setFeatures] = useState({});
   const [schedules, setSchedules] = useState([]);
   const [search, setSearch] = useState("");
+  const [companyFilter, setCompanyFilter] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [provider, setProvider] = useState("auto");
   const [sender, setSender] = useState("");
@@ -55,20 +56,23 @@ export default function SmsBulk() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
+  const [clientsRoster, setClientsRoster] = useState([]);
 
   const loadAll = async () => {
     try {
-      const [cR, fR, pR, sR] = await Promise.all([
+      const [cR, fR, pR, sR, rosterR] = await Promise.all([
         apiClient.get("/me/contacts"),
         apiClient.get("/me/features"),
         apiClient.get("/me/sms/providers"),
         apiClient.get("/me/sms/schedules"),
+        apiClient.get("/me/clients-roster").catch(() => ({ data: [] })),
       ]);
       setContacts(cR.data || []);
       setFeatures(fR.data?.features || {});
       setProviders(pR.data || { default: "auto", active: [] });
       setProvider(pR.data?.default || "auto");
       setSchedules(sR.data || []);
+      setClientsRoster(rosterR.data || []);
     } catch (err) {
       toast.error(safeText(err?.response?.data?.detail) || "Erreur");
     }
@@ -76,15 +80,39 @@ export default function SmsBulk() {
 
   useEffect(() => { loadAll(); }, []);
 
+  // Build list of (label, value) options matching admin clients to filter by:
+  // we expose ACME code OR company name. The contact `company` field stores
+  // the full company string, so we match on either.
+  const companyOptions = useMemo(() => {
+    const set = new Map();
+    (clientsRoster || []).forEach((c) => {
+      const lbl = c.full_name || c.company || c.email;
+      if (lbl) set.set(c.id, { label: lbl, value: c.company || lbl, code: c.acme_code });
+    });
+    // Also fold in any `company` strings present on contacts that don't match
+    // a roster entry (so users can filter by ad-hoc company labels)
+    contacts.forEach((c) => {
+      const v = (c.company || "").trim();
+      if (v && !Array.from(set.values()).some((o) => o.value === v)) {
+        set.set(`__c_${v}`, { label: v, value: v });
+      }
+    });
+    return Array.from(set.values()).sort((a, b) => a.label.localeCompare(b.label));
+  }, [clientsRoster, contacts]);
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     let arr = contacts.filter((c) => c.phone || c.whatsapp);
+    if (companyFilter) {
+      const f = companyFilter.toLowerCase();
+      arr = arr.filter((c) => (c.company || "").toLowerCase().includes(f));
+    }
     if (!q) return arr;
     return arr.filter((c) =>
       [c.name, c.company, c.phone, c.whatsapp, c.email, ...(c.tags || [])]
         .filter(Boolean).join(" ").toLowerCase().includes(q)
     );
-  }, [contacts, search]);
+  }, [contacts, search, companyFilter]);
 
   const allSelected = filtered.length > 0 && filtered.every((c) => selectedIds.has(c.id));
 
@@ -199,10 +227,34 @@ export default function SmsBulk() {
               {allSelected ? "Tout désélectionner" : "Tout sélectionner"} ({filtered.length})
             </button>
           </div>
-          <div className="relative mb-3">
+          <div className="relative mb-2">
             <Search className="h-4 w-4 absolute left-2.5 top-2.5 text-slate-400" />
             <input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Rechercher (nom, téléphone, tag…)"
               className="w-full pl-9 pr-3 py-2 rounded-lg border border-slate-300 text-sm" data-testid="sms-contacts-search" />
+          </div>
+          <div className="flex gap-2 mb-3">
+            <select
+              value={companyFilter}
+              onChange={(e) => setCompanyFilter(e.target.value)}
+              className="flex-1 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              data-testid="sms-company-filter"
+            >
+              <option value="">Tous les clients</option>
+              {companyOptions.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}{o.code ? ` [${o.code}]` : ""}
+                </option>
+              ))}
+            </select>
+            {companyFilter && (
+              <button
+                onClick={() => setCompanyFilter("")}
+                className="text-xs text-slate-500 hover:text-rose-600 px-2"
+                data-testid="sms-company-filter-clear"
+              >
+                ✕ Effacer
+              </button>
+            )}
           </div>
           <div className="flex-1 overflow-y-auto max-h-[420px] divide-y divide-slate-100 ring-1 ring-slate-100 rounded-lg">
             {filtered.length === 0 && (

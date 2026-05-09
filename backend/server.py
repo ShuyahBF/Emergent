@@ -2563,6 +2563,47 @@ async def admin_update_client_features(client_id: str, payload: ClientFeaturesUp
     }
 
 
+@api.get("/admin/rgpd-preview/{client_id}", tags=["Admin"])
+async def admin_rgpd_preview(client_id: str, _: dict = Depends(get_current_admin)):
+    """Preview what a non-privileged user of `client_id` would see in their
+    portal — applies the parent client's anon flags to a sample of records
+    from each anonymized collection (contacts, appointments, interventions,
+    documents). Admins use this to audit the RGPD setup without having to
+    create a test user account.
+
+    Returns up to 5 records per collection with both the original and the
+    masked version side-by-side so the admin can verify the mapping."""
+    parent = await db.users.find_one({"id": client_id}, {"_id": 0, "features": 1, "full_name": 1, "company": 1})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    feats = _normalize_features(parent.get("features"))
+    flags = {
+        "anon_name": bool(feats.get("anon_name")),
+        "anon_email": bool(feats.get("anon_email")),
+        "anon_phone": bool(feats.get("anon_phone")),
+        "anon_whatsapp": bool(feats.get("anon_whatsapp")),
+    }
+
+    contacts = await db.directory_contacts.find({"client_id": client_id}, {"_id": 0}).limit(5).to_list(5)
+    appointments = await db.appointments.find({"client_id": client_id}, {"_id": 0}).limit(5).to_list(5)
+    interventions = await db.interventions.find({"client_id": client_id}, {"_id": 0}).limit(5).to_list(5)
+    documents = await db.documents.find({"client_id": client_id}, {"_id": 0}).limit(5).to_list(5)
+
+    def _pair(items, applier):
+        return [{"original": x, "masked": applier(x, flags)} for x in items]
+
+    return {
+        "client_id": client_id,
+        "client_name": parent.get("full_name") or parent.get("company"),
+        "flags": flags,
+        "contacts": _pair(contacts, _apply_anon_to_contact),
+        "appointments": _pair(appointments, _apply_anon_to_appointment),
+        "interventions": _pair(interventions, _apply_anon_to_intervention),
+        "documents": _pair(documents, _apply_anon_to_document),
+    }
+
+
+
 @api.get("/me/features", tags=["Portail Client"])
 async def me_get_features(user: dict = Depends(get_current_user)):
     """Resolve the SMART Communications feature flags for the calling user.

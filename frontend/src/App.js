@@ -92,6 +92,7 @@ import AdminAutomations from "@/pages/admin/AdminAutomations";
 import AdminWaTemplates from "@/pages/admin/AdminWaTemplates";
 import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
 import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
+import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
 import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
 import Launch from "@/pages/public/Launch";
@@ -195,6 +196,7 @@ export default function App() {
             <Route path="clients" element={<AdminClients />} />
             <Route path="clients/:id/timeline" element={<AdminClientTimeline />} />
             <Route path="clients/:id/features" element={<AdminClientFeatures />} />
+            <Route path="clients/:client_id/rgpd-preview" element={<AdminRgpdPreview />} />
             <Route path="usage" element={<AdminUsage />} />
             <Route path="appointments" element={<AdminAppointments />} />
             <Route path="interventions" element={<AdminInterventions />} />

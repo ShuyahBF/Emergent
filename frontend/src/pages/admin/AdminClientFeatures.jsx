@@ -149,14 +149,24 @@ export default function AdminClientFeatures() {
             Les utilisateurs suivis du client héritent automatiquement de ces réglages.
           </p>
         </div>
-        <button
-          onClick={save}
-          disabled={!dirty || saving}
-          className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50"
-          data-testid="features-save-btn"
-        >
-          <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer"}
-        </button>
+        <div className="flex items-center gap-2">
+          <Link
+            to={`/admin/clients/${id}/rgpd-preview`}
+            className="inline-flex items-center gap-2 rounded-lg ring-1 ring-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100 px-4 py-2 text-sm"
+            data-testid="rgpd-preview-link"
+            title="Audit RGPD — voir ce qu'un utilisateur non-privilégié verrait"
+          >
+            <ShieldCheck className="h-4 w-4" /> Audit RGPD
+          </Link>
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50"
+            data-testid="features-save-btn"
+          >
+            <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
       </div>
 
       <div className="grid sm:grid-cols-2 gap-4">

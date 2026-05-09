@@ -68,6 +68,17 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-09 — Itération 54 : Audit RGPD Preview + Filtre par Client dans SMS Bulk
+✅ **Endpoint `GET /admin/rgpd-preview/{client_id}`** : retourne 5 échantillons de chaque collection anonymisable (contacts, appointments, interventions, documents) avec le couple `{original, masked}` côte à côte. Utilise les flags actuels du parent client. Permet à l'admin d'auditer la configuration RGPD avant de déployer en production.
+✅ **Page `/admin/clients/:client_id/rgpd-preview`** : panneau "Audit RGPD" avec :
+   - Bandeau rose listant les 4 flags actifs (Eye/EyeOff icons, "Anonymisé" / "Visible")
+   - Si aucun flag : bandeau ambre invitant à activer depuis Fonctionnalités
+   - 4 sections (Contacts, Rendez-vous, Interventions, Documents) avec table comparative double-ligne par enregistrement : ligne verte "Admin (clair)" + ligne rose "Utilisateur (anonyme)". Les cellules différentes sont surlignées en rose pour mise en évidence.
+   - Bouton "Audit RGPD" rose ajouté à côté de "Enregistrer" dans `AdminClientFeatures`.
+✅ **Filtre par Client dans `SmsBulk.jsx`** : nouveau dropdown "Tous les clients" + bouton "✕ Effacer" qui filtre la liste des destinataires par `c.company`. Les options listent le roster admin (`/me/clients-roster`) en priorité, complétées par les sociétés ad-hoc présentes dans les contacts (mémoïsé pour ne pas re-calculer à chaque caractère tapé).
+✅ Note : la page Centre de Messagerie (`Contacts.jsx`) avait déjà ce filtre. Aucune page WhatsApp Bulk distincte n'existe — le multi-envoi WA passe par les schedules per-contact (Mess. Program. dans Contacts.jsx).
+✅ Tests curl : `/admin/rgpd-preview/{me}` retourne 3 contacts avec original/masked corrects (Jean Dupont → J*** D***, +22507123456 → +22 ** ** ** 56). Validation Playwright : SmsBulk affiche bien le dropdown "Tous les clients".
+
 ### 2026-05-09 — Itération 53 : RGPD anonymisation étendue (Rendez-vous, Interventions, Documents)
 ✅ **5 nouveaux helpers backend** : `_apply_anon_to_appointment`, `_apply_anon_to_intervention`, `_apply_anon_to_document`, `_apply_anon_to_access_log`, et un wrapper générique `_maybe_anon_list(viewer, items, applier)` qui no-op si aucun flag n'est ON.
 ✅ **Endpoints couverts** :

@@ -76,8 +76,27 @@ export function useWhatsAppNotifier() {
   const [permission, setPermission] = useState(typeof Notification !== "undefined" ? Notification.permission : "default");
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(STORAGE_KEY_SOUND) !== "off");
   const [desktopOn, setDesktopOn] = useState(() => localStorage.getItem(STORAGE_KEY_DESKTOP) !== "off");
+  // Client-level kill switch: when the admin disables `wa_sound_alerts` on the
+  // parent client, the user's localStorage preference is overridden and the
+  // sound never plays. Defaults to true (allowed) until /me/features answers.
+  const [soundAllowedByAdmin, setSoundAllowedByAdmin] = useState(true);
   const lastSeenRef = useRef(null);
   const intervalRef = useRef(null);
+
+  // Resolve the per-client feature flag once on mount. Privileged roles get
+  // every flag = true, so the kill switch is a no-op for them.
+  useEffect(() => {
+    let cancelled = false;
+    apiClient.get("/me/features")
+      .then((r) => {
+        if (cancelled) return;
+        const allowed = r.data?.features?.wa_sound_alerts;
+        // Treat undefined as allowed (backward-compat with older payloads).
+        setSoundAllowedByAdmin(allowed !== false);
+      })
+      .catch(() => { /* keep default = allowed */ });
+    return () => { cancelled = true; };
+  }, []);
 
   const persist = useCallback((sound, desktop) => {
     localStorage.setItem(STORAGE_KEY_SOUND, sound ? "on" : "off");
@@ -107,7 +126,7 @@ export function useWhatsAppNotifier() {
       }
       if (total > lastSeenRef.current) {
         const delta = total - lastSeenRef.current;
-        if (soundOn) playBlip();
+        if (soundOn && soundAllowedByAdmin) playBlip();
         if (desktopOn && typeof Notification !== "undefined" && Notification.permission === "granted" && document.visibilityState !== "visible") {
           try {
             const n = new Notification(`SAWALI — ${delta} nouveau(x) message WhatsApp`, {
@@ -126,7 +145,7 @@ export function useWhatsAppNotifier() {
       }
       lastSeenRef.current = total;
     } catch { /* poll silently */ }
-  }, [soundOn, desktopOn]);
+  }, [soundOn, desktopOn, soundAllowedByAdmin]);
 
   useEffect(() => {
     tick();
@@ -141,6 +160,7 @@ export function useWhatsAppNotifier() {
     unread,
     permission,
     soundOn,
+    soundAllowedByAdmin,
     desktopOn,
     requestPermission,
     toggleSound: () => setSoundOn((s) => { const v = !s; persist(v, desktopOn); return v; }),

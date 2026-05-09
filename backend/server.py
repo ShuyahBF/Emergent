@@ -296,6 +296,31 @@ async def _next_intervention_number(client_doc: dict) -> str:
     return f"INT-{year}-{code}-{seq:04d}"
 
 
+async def _next_contact_unique_code(client_doc: dict) -> str:
+    """Generate a stable, never-reissued unique code for a CRM contact.
+    Format: ``YYYY-CODE-NNNN`` where CODE is the parent client's slug (or
+    ``client_code`` if defined) and NNNN is a sequential per-client/per-year
+    counter. Once assigned to a contact, this code MUST NOT change — it is the
+    inalterable business identifier displayed in the directory and on
+    documents (invoices, quotes, etc.).
+    """
+    year = datetime.now(timezone.utc).year
+    code = (client_doc.get("client_code") or "").strip()
+    if not code:
+        code = _slugify_code(client_doc.get("company") or client_doc.get("full_name") or "X")
+    counter_id = f"contact:{client_doc['id']}:{year}"
+    res = await db.counters.find_one_and_update(
+        {"_id": counter_id},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    if res is None:
+        res = await db.counters.find_one({"_id": counter_id})
+    seq = (res or {}).get("seq", 1)
+    return f"{year}-{code}-{seq:04d}"
+
+
 # ---- Intervention webhook ----
 async def _fire_intervention_webhook(action: str, intervention_doc: dict) -> dict:
     """POST to {base_url}/{action}/{client_code}/{number}.
@@ -2590,6 +2615,7 @@ async def admin_rgpd_preview(client_id: str, _: dict = Depends(get_current_admin
     feats = _normalize_features(parent.get("features"))
     flags = {
         "anon_name": bool(feats.get("anon_name")),
+        "anon_company": bool(feats.get("anon_company")),
         "anon_email": bool(feats.get("anon_email")),
         "anon_phone": bool(feats.get("anon_phone")),
         "anon_whatsapp": bool(feats.get("anon_whatsapp")),
@@ -7274,12 +7300,21 @@ async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_cur
     if s.get("contacts_require_tag") and not (payload.tags and any((t or "").strip() for t in payload.tags)):
         raise HTTPException(status_code=400, detail="Au moins un tag est requis (politique d'administration)")
     client_scope = (user.get("client_id") or user.get("id"))
+    # Generate the inalterable unique business code (YYYY-CLIENTCODE-NNNN).
+    # We pull the parent client doc to derive the prefix; fall back to a slug
+    # if the parent has no `client_code` set.
+    client_doc = await db.users.find_one(
+        {"id": client_scope},
+        {"_id": 0, "id": 1, "client_code": 1, "company": 1, "full_name": 1},
+    ) or {"id": client_scope}
+    unique_code = await _next_contact_unique_code(client_doc)
     doc = {
         "id": _uuid(),
         "client_id": client_scope,
         "owner_id": user["id"],
         "owner_label": user.get("full_name") or user.get("email"),
         **payload.model_dump(),
+        "unique_code": unique_code,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -8601,9 +8636,23 @@ async def whatsapp_webhook_incoming(request: Request):
                     # "wa_unmapped" record so the admin can review and import it).
                     if profile_name:
                         if contact:
+                            # Auto-fill the contact's main `name` field if it is
+                            # empty OR still equal to the bare phone number (a
+                            # common state for contacts created from inbound WA
+                            # before any human review). We only overwrite blank-
+                            # ish names — never a real, user-entered name.
+                            existing_name = (contact.get("name") or "").strip()
+                            phone_only = bool(re.fullmatch(r"\+?\d[\d\s().-]*", existing_name)) if existing_name else False
+                            patch = {
+                                "wa_profile_name": profile_name,
+                                "wa_profile_synced_at": _now(),
+                            }
+                            if not existing_name or phone_only:
+                                patch["name"] = profile_name
+                                patch["updated_at"] = _now()
                             await db.directory_contacts.update_one(
                                 {"id": contact["id"]},
-                                {"$set": {"wa_profile_name": profile_name, "wa_profile_synced_at": _now()}},
+                                {"$set": patch},
                             )
                         else:
                             # Unknown sender — upsert a `wa_pending_imports` record
@@ -10972,6 +11021,31 @@ async def on_startup():
     # Directory & WhatsApp (Phase 3)
     await db.directory_contacts.create_index("client_id")
     await db.directory_contacts.create_index([("client_id", 1), ("owner_id", 1)])
+    await db.directory_contacts.create_index("unique_code")
+    # One-shot backfill: assign a stable unique_code to any pre-existing contact
+    # that doesn't have one yet. The code is generated per client/year using
+    # the same counter as new contacts so sequencing is preserved.
+    try:
+        missing_cursor = db.directory_contacts.find(
+            {"$or": [{"unique_code": {"$exists": False}}, {"unique_code": None}, {"unique_code": ""}]},
+            {"_id": 0, "id": 1, "client_id": 1, "created_at": 1},
+        ).sort("created_at", 1)
+        client_cache: Dict[str, dict] = {}
+        async for c in missing_cursor:
+            cid = c.get("client_id")
+            if not cid:
+                continue
+            client_doc = client_cache.get(cid)
+            if client_doc is None:
+                client_doc = await db.users.find_one(
+                    {"id": cid},
+                    {"_id": 0, "id": 1, "client_code": 1, "company": 1, "full_name": 1},
+                ) or {"id": cid}
+                client_cache[cid] = client_doc
+            uc = await _next_contact_unique_code(client_doc)
+            await db.directory_contacts.update_one({"id": c["id"]}, {"$set": {"unique_code": uc}})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("contact unique_code backfill failed: %s", exc)
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")

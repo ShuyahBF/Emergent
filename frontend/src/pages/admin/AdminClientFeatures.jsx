@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2 } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -62,6 +62,15 @@ const FEATURE_META = [
     rgpd: true,
   },
   {
+    key: "anon_company",
+    label: "RGPD — Anonymiser les sociétés",
+    description: "Masque le champ « Société » sous la forme « A***  C*** ». Le Code Unique du contact (ex. 2026-ACME-0001) reste lisible pour permettre la traçabilité sans exposer l'identité.",
+    icon: Building2,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    rgpd: true,
+  },
+  {
     key: "anon_email",
     label: "RGPD — Anonymiser les emails",
     description: "Affiche les emails sous la forme « j***@gmail.com ».",
@@ -88,12 +97,20 @@ const FEATURE_META = [
     bg: "bg-rose-50",
     rgpd: true,
   },
+  {
+    key: "wa_sound_alerts",
+    label: "Alerte sonore WhatsApp",
+    description: "Autorise les utilisateurs du client à activer la notification sonore (« blip ») à la réception d'un nouveau message WhatsApp dans le portail. Décocher pour interdire ce son côté utilisateurs (les alertes desktop restent disponibles).",
+    icon: Volume2,
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_email: false, anon_phone: false, anon_whatsapp: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, wa_sound_alerts: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

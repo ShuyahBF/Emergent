@@ -224,12 +224,13 @@ export default function PortalLayout({ admin = false }) {
             </button>
             <button
               onClick={waNotifier.toggleSound}
-              className={`flex-1 inline-flex items-center justify-center gap-1 text-[10px] rounded px-1.5 py-1 ring-1 transition-colors ${waNotifier.soundOn ? "bg-amber-500/20 text-amber-200 ring-amber-400/40" : "bg-white/5 text-slate-400 ring-white/10 hover:bg-white/10"}`}
+              disabled={!waNotifier.soundAllowedByAdmin}
+              className={`flex-1 inline-flex items-center justify-center gap-1 text-[10px] rounded px-1.5 py-1 ring-1 transition-colors ${!waNotifier.soundAllowedByAdmin ? "bg-white/5 text-slate-500 ring-white/10 cursor-not-allowed opacity-50" : (waNotifier.soundOn ? "bg-amber-500/20 text-amber-200 ring-amber-400/40" : "bg-white/5 text-slate-400 ring-white/10 hover:bg-white/10")}`}
               data-testid="wa-notifier-sound-toggle"
-              title={waNotifier.soundOn ? "Couper le son" : "Activer le son"}
+              title={!waNotifier.soundAllowedByAdmin ? "Son désactivé par l'administrateur du client" : (waNotifier.soundOn ? "Couper le son" : "Activer le son")}
             >
-              {waNotifier.soundOn ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
-              {waNotifier.soundOn ? "Son" : "Muet"}
+              {!waNotifier.soundAllowedByAdmin || !waNotifier.soundOn ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+              {!waNotifier.soundAllowedByAdmin ? "Bloqué" : (waNotifier.soundOn ? "Son" : "Muet")}
             </button>
           </div>
           {waNotifier.permission === "default" && waNotifier.desktopOn && (

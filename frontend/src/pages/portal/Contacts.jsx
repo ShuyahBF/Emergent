@@ -9,6 +9,7 @@ import {
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
+import { useAuth } from "@/contexts/AuthContext";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -349,6 +350,15 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
                 </span>
               )}
             </button>
+            {c.unique_code && (
+              <div
+                className="text-[10px] text-slate-500 font-mono mt-0.5 inline-flex items-center gap-1"
+                title="Code Unique inaltérable du contact"
+                data-testid={`contact-unique-code-${c.id}`}
+              >
+                <Lock className="h-2.5 w-2.5" /> {c.unique_code}
+              </div>
+            )}
             {/* Mobile-only context (visible when Société/Téléphone columns are hidden) */}
             <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 space-y-0.5">
               {c.company && <div className="truncate">{c.company}</div>}
@@ -489,6 +499,11 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
 
 // --- Full edit modal ---
 const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) => {
+  const { user } = useAuth();
+  const role = (user?.role || "").toLowerCase();
+  // Photo upload is restricted to admin/superviseur/moderateur. Standard users
+  // (client/tracked) see the photo but cannot replace or remove it.
+  const canManagePhoto = ["admin", "superviseur", "moderateur"].includes(role);
   const [form, setForm] = useState(() => contact || {
     name: "", phone: "", whatsapp: "", email: "", company: "", notes: "", tags: [], shared: false,
   });
@@ -618,8 +633,15 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
           <div className="flex-1 min-w-0">
             <p className="text-xs font-semibold text-slate-700">Photo de profil</p>
             <p className="text-[11px] text-slate-500 leading-snug">
-              {form.photo_url ? "Cliquez sur « Remplacer » pour changer la photo." : "Ajoutez une photo qui s'affichera comme l'avatar WhatsApp dans le portail."}
+              {!canManagePhoto
+                ? "Seuls les administrateurs ou superviseurs peuvent modifier la photo."
+                : (form.photo_url ? "Cliquez sur « Remplacer » pour changer la photo." : "Ajoutez une photo qui s'affichera comme l'avatar WhatsApp dans le portail.")}
             </p>
+            {form.unique_code && (
+              <p className="text-[10px] mt-1 inline-flex items-center gap-1 text-slate-700 font-mono" title="Code Unique inaltérable du contact (généré une seule fois à la création)">
+                <Lock className="h-2.5 w-2.5" /> Code : <strong>{form.unique_code}</strong>
+              </p>
+            )}
             {!contact?.id && (
               <p className="text-[10px] text-amber-700 mt-0.5">Enregistrez d'abord le contact, puis revenez pour ajouter sa photo.</p>
             )}
@@ -641,10 +663,10 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             <button
               type="button"
               onClick={() => photoInputRef.current?.click()}
-              disabled={!contact?.id || uploadingPhoto}
+              disabled={!contact?.id || uploadingPhoto || !canManagePhoto}
               className="inline-flex items-center justify-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2.5 py-1.5 hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed"
               data-testid="contact-photo-upload-btn"
-              title={!contact?.id ? "Enregistrez d'abord le contact" : (form.photo_url ? "Remplacer la photo" : "Ajouter une photo")}
+              title={!canManagePhoto ? "Réservé aux administrateurs/superviseurs" : (!contact?.id ? "Enregistrez d'abord le contact" : (form.photo_url ? "Remplacer la photo" : "Ajouter une photo"))}
             >
               <Upload className="h-3 w-3" />
               {uploadingPhoto ? "Envoi…" : (form.photo_url ? "Remplacer" : "Ajouter")}
@@ -660,7 +682,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
               <RefreshCw className={`h-3 w-3 ${wasyncing ? "animate-spin" : ""}`} />
               {wasyncing ? "…" : "Synchro WA"}
             </button>
-            {form.photo_url && (
+            {form.photo_url && canManagePhoto && (
               <button
                 type="button"
                 onClick={removePhoto}

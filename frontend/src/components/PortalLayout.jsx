@@ -31,6 +31,7 @@ const clientLinks = [
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
   { to: "/portal/contacts", label: "Centre de Messagerie", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
+  { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/cash", label: "Caisse", icon: Banknote, soon: true },
   { to: "/portal/billing", label: "Facturation", icon: Receipt, soon: true },

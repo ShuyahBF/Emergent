@@ -106,6 +106,7 @@ import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
 import SmsBulk from "@/pages/portal/SmsBulk";
+import WaBulk from "@/pages/portal/WaBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
@@ -183,6 +184,7 @@ export default function App() {
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="payments" element={<MyPayments />} />
             <Route path="sms" element={<SmsBulk />} />
+            <Route path="whatsapp-bulk" element={<WaBulk />} />
             {/* Stubs for upcoming modules — render a "Coming soon" placeholder */}
             <Route path="cash" element={<ComingSoon />} />
             <Route path="billing" element={<ComingSoon />} />

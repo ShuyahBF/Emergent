@@ -8448,6 +8448,179 @@ async def me_create_schedule(payload: MeScheduleCreate, user: dict = Depends(get
     return doc
 
 
+# ----- WhatsApp Bulk send (mirrors SMS bulk; supports per-contact personalization) -----
+class MeWaBulkRequest(BaseModel):
+    contact_ids: List[str]
+    template_name: str
+    language_code: Optional[str] = "fr"
+    variables: Optional[List[str]] = None  # Body positional vars, may contain {{name}} tokens
+    header_text: Optional[str] = None
+    header_media: Optional[Dict[str, Any]] = None
+    button_vars: Optional[List[List[str]]] = None
+    scheduled_at: Optional[str] = None  # ISO-8601 — if set, schedule instead of live send
+    title: Optional[str] = None  # Friendly label for the schedule row
+
+
+@api.post("/me/whatsapp/bulk", tags=["Portail Client"])
+async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_current_user)):
+    """Send a Meta-approved WhatsApp template to many CRM contacts at once,
+    with per-contact variable personalization (`{{name}}`, `{{company}}`,
+    `{{phone}}`, `{{email}}`, `{{client_code}}` = contact's unique_code, etc).
+    Optional `scheduled_at` defers execution to the cron runner.
+    Caps at 500 recipients per call (same as SMS bulk)."""
+    if not _can_send_wa(user):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
+    parent_id = user.get("client_id") or user["id"]
+    # Feature gate: tracked/regular users must have whatsapp enabled by their parent client
+    if user.get("role") not in ("admin", "superviseur"):
+        parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+        feats = _normalize_features((parent or {}).get("features"))
+        if not feats.get("whatsapp"):
+            raise HTTPException(status_code=403, detail="WhatsApp non autorisé pour votre compte")
+    if not (payload.template_name or "").strip():
+        raise HTTPException(status_code=400, detail="Template requis")
+    if not payload.contact_ids:
+        raise HTTPException(status_code=400, detail="Aucun destinataire sélectionné")
+    if len(payload.contact_ids) > 500:
+        raise HTTPException(status_code=400, detail="Maximum 500 destinataires par envoi")
+
+    # Resolve contacts within the user's scope (directory_contacts.client_id == parent)
+    contacts = await db.directory_contacts.find(
+        {"id": {"$in": payload.contact_ids}, "client_id": parent_id},
+        {"_id": 0},
+    ).to_list(len(payload.contact_ids))
+
+    # Schedule-for-later branch: persist recipients and let the cron pick it up.
+    if payload.scheduled_at:
+        try:
+            sched_dt = datetime.fromisoformat(str(payload.scheduled_at).replace("Z", "+00:00"))
+            if sched_dt.tzinfo is None:
+                sched_dt = sched_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Date de planification invalide (ISO-8601 attendu)")
+        if sched_dt < datetime.now(timezone.utc) + timedelta(seconds=30):
+            raise HTTPException(status_code=400, detail="La date de planification doit être au moins +30 secondes")
+        recipients = []
+        for c in contacts:
+            phone = (c.get("whatsapp") or c.get("phone") or "").strip()
+            recipients.append({
+                "kind": "contact",
+                "id": c.get("id"),
+                "phone": phone,
+                "label": c.get("name") or c.get("company") or phone,
+            })
+        sched_doc = {
+            "id": _uuid(),
+            "title": (payload.title or "").strip() or f"WA bulk {payload.template_name}",
+            "recipients": recipients,
+            "template_name": payload.template_name,
+            "language_code": payload.language_code or "fr",
+            "components": None,
+            "variables": payload.variables,
+            "header_text": payload.header_text,
+            "header_media": payload.header_media,
+            "button_vars": payload.button_vars,
+            "scheduled_at": sched_dt.astimezone(timezone.utc).isoformat(),
+            "status": "pending",
+            "result_summary": None,
+            "created_by_id": user["id"],
+            "created_by_label": user.get("full_name") or user.get("email"),
+            "created_by_role": user.get("role"),
+            "client_id": parent_id,
+            "bulk": True,
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.whatsapp_schedules.insert_one(sched_doc.copy())
+        sched_doc.pop("_id", None)
+        return {
+            "ok": True,
+            "scheduled": True,
+            "id": sched_doc["id"],
+            "scheduled_at": sched_doc["scheduled_at"],
+            "recipients": len(recipients),
+        }
+
+    # Live-send branch: iterate contacts, build per-contact ctx, send template now.
+    results = []
+    skipped = []
+    for c in contacts:
+        phone = (c.get("whatsapp") or c.get("phone") or "").strip()
+        label = c.get("name") or c.get("company") or phone or "—"
+        if not phone:
+            skipped.append({"label": label, "reason": "Pas de numéro WhatsApp"})
+            continue
+        # Re-use _build_recipient_ctx with a contact-shaped doc so {{name}},
+        # {{company}}, {{client_code}} (= unique_code) etc. resolve naturally.
+        user_doc = {
+            "full_name": c.get("name"),
+            "company": c.get("company"),
+            "email": c.get("email"),
+            "phone": c.get("phone") or c.get("whatsapp"),
+            "client_code": c.get("unique_code"),
+        }
+        ctx = _build_recipient_ctx("contact", user_doc, phone, label)
+        components = _build_components(
+            payload.variables, ctx,
+            header_text=payload.header_text,
+            header_media=payload.header_media,
+            button_vars=payload.button_vars,
+        )
+        try:
+            wr = await _wa_send_template(
+                phone, payload.template_name, payload.language_code or "fr", components,
+            )
+        except Exception as exc:  # noqa: BLE001
+            wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
+        # Capture any /pay/{slug} URL embedded for analytics attribution
+        pay_slug = None
+        try:
+            pay_slug = _extract_pay_slug(json.dumps((payload.variables or []) + [(payload.header_text or "")], ensure_ascii=False))
+        except Exception:  # noqa: BLE001
+            pass
+        log = {
+            "id": _uuid(),
+            "client_id": parent_id,
+            "direction": "outbound",
+            "sender_id": user["id"],
+            "sender_label": user.get("full_name") or user.get("email"),
+            "to": phone,
+            "phone_digits": "".join(ch for ch in phone if ch.isdigit()),
+            "template_name": payload.template_name,
+            "language_code": payload.language_code or "fr",
+            "contact_id": c.get("id"),
+            "recipient_kind": "contact",
+            "recipient_label": label,
+            "bulk": True,
+            "ok": wr["ok"],
+            "status": wr["status"],
+            "message_id": wr["message_id"],
+            "error": wr.get("error"),
+            "wa_status": "sent" if wr["ok"] else "failed",
+            "sent_at": _now() if wr["ok"] else None,
+            "failed_at": None if wr["ok"] else _now(),
+            "payment_link_slug": pay_slug,
+            "created_at": _now(),
+        }
+        try:
+            await db.whatsapp_messages.insert_one(log.copy())
+        except Exception:  # noqa: BLE001
+            pass
+        results.append({
+            "label": label, "phone": phone, "ok": wr["ok"],
+            "status": wr["status"], "message_id": wr["message_id"],
+            "error": None if wr["ok"] else (wr.get("error") or "Échec"),
+        })
+    return {
+        "ok": True,
+        "scheduled": False,
+        "sent_ok": sum(1 for r in results if r["ok"]),
+        "sent_ko": sum(1 for r in results if not r["ok"]),
+        "skipped": skipped,
+        "results": results,
+    }
+
+
 @api.delete("/me/messaging/schedules/{sid}", tags=["Portail Client"])
 async def me_delete_schedule(sid: str, user: dict = Depends(get_current_user)):
     if not _can_send_wa(user):
@@ -9640,6 +9813,23 @@ async def _run_scheduled_whatsapp():
                         if not phone:
                             phone = (t.get("whatsapp_number") or t.get("phone") or "").strip()
                         label = label or t.get("full_name") or t.get("name") or t.get("email")
+                elif kind == "contact" and rid:
+                    # Directory contact (CRM). Pull name/company/email/whatsapp/phone.
+                    c = await db.directory_contacts.find_one(
+                        {"id": rid},
+                        {"_id": 0, "name": 1, "company": 1, "email": 1, "phone": 1, "whatsapp": 1, "unique_code": 1},
+                    )
+                    if c:
+                        user_doc = {
+                            "full_name": c.get("name"),
+                            "company": c.get("company"),
+                            "email": c.get("email"),
+                            "phone": c.get("phone") or c.get("whatsapp"),
+                            "client_code": c.get("unique_code"),
+                        }
+                        if not phone:
+                            phone = (c.get("whatsapp") or c.get("phone") or "").strip()
+                        label = label or c.get("name") or c.get("company") or c.get("email")
                 label = label or phone or "—"
                 if not phone:
                     skipped.append({"label": label, "reason": "Pas de numéro de téléphone"})

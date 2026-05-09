@@ -104,6 +104,7 @@ import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import SmsBulk from "@/pages/portal/SmsBulk";
+import ComingSoon from "@/pages/portal/ComingSoon";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
@@ -179,6 +180,11 @@ export default function App() {
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="payments" element={<ErrorBoundary name="MyPayments"><MyPayments /></ErrorBoundary>} />
             <Route path="sms" element={<ErrorBoundary name="SmsBulk"><SmsBulk /></ErrorBoundary>} />
+            {/* Stubs for upcoming modules — render a "Coming soon" placeholder */}
+            <Route path="cash" element={<ComingSoon />} />
+            <Route path="billing" element={<ComingSoon />} />
+            <Route path="catalog" element={<ComingSoon />} />
+            <Route path="tickets" element={<ComingSoon />} />
           </Route>
 
           {/* Admin */}

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { CheckCircle2, XCircle, Copy, X, AlertCircle, Clock } from "lucide-react";
+import { apiClient } from "@/lib/api";
 
 // Global bus — any POST/PUT/DELETE response that contains a `webhook_result`
 // dispatches a CustomEvent on window. The modal listens and surfaces the
@@ -14,9 +15,37 @@ export const showWebhookResult = (result) => {
 
 export default function WebhookResultModal() {
   const [result, setResult] = useState(null);
+  // Per-user feature flag: only show webhook return modals when explicitly
+  // enabled by the admin on the parent client. Admins/superviseurs are also
+  // governed by this flag (they can view the same audit info via api_traces).
+  const allowedRef = useRef(null);
 
   useEffect(() => {
-    const handler = (e) => setResult(e.detail || null);
+    let cancelled = false;
+    const fetchAllowed = async () => {
+      try {
+        const r = await apiClient.get("/me/features");
+        if (!cancelled) {
+          allowedRef.current = !!(r?.data?.features?.webhook_returns);
+        }
+      } catch {
+        if (!cancelled) allowedRef.current = false;
+      }
+    };
+    fetchAllowed();
+    // Refresh occasionally to pick up admin toggles without a page reload
+    const t = setInterval(fetchAllowed, 5 * 60 * 1000);
+    return () => { cancelled = true; clearInterval(t); };
+  }, []);
+
+  useEffect(() => {
+    const handler = (e) => {
+      // Hard gate: drop any incoming event when the user isn't allowed to see
+      // webhook returns. allowedRef may still be `null` during initial load —
+      // in that case we DROP to avoid leaking returns until the flag is known.
+      if (allowedRef.current !== true) return;
+      setResult(e.detail || null);
+    };
     window.addEventListener(SHOW_WEBHOOK_RESULT_EVENT, handler);
     return () => window.removeEventListener(SHOW_WEBHOOK_RESULT_EVENT, handler);
   }, []);

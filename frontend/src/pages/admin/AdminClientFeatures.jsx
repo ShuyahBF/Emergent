@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -44,12 +44,20 @@ const FEATURE_META = [
     color: "text-amber-600",
     bg: "bg-amber-50",
   },
+  {
+    key: "webhook_returns",
+    label: "Retours de Webhook",
+    description: "Affiche une fenêtre détaillée (URL, code HTTP, réponse) après chaque action déclenchant un webhook sortant. Les utilisateurs suivis du client en héritent.",
+    icon: Webhook,
+    color: "text-violet-600",
+    bg: "bg-violet-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

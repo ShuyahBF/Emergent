@@ -10,6 +10,59 @@ import {
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+const absoluteFileUrl = (u) => {
+  if (!u) return "";
+  if (u.startsWith("http")) return u;
+  return `${BACKEND}${u.startsWith("/") ? "" : "/"}${u}`;
+};
+
+// Deterministic avatar color palette so the same contact always gets the same hue
+const AVATAR_PALETTE = [
+  "bg-emerald-500", "bg-sky-500", "bg-violet-500", "bg-rose-500",
+  "bg-amber-500", "bg-fuchsia-500", "bg-teal-500", "bg-indigo-500",
+];
+function paletteFor(seed) {
+  let h = 0;
+  for (let i = 0; i < (seed || "").length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+
+// Circular avatar (à la WhatsApp profile picture).
+// Renders the contact's photo_url if present, otherwise a colored circle with
+// initials derived from the contact's name (or its phone if no name).
+function ContactAvatar({ contact, size = 32 }) {
+  const photo = absoluteFileUrl(contact?.photo_url);
+  if (photo) {
+    return (
+      <img
+        src={photo}
+        alt={contact?.name || "Avatar"}
+        className="rounded-full object-cover ring-2 ring-white shadow-sm flex-shrink-0"
+        style={{ width: size, height: size }}
+        data-testid={`contact-avatar-${contact?.id}`}
+      />
+    );
+  }
+  const seed = (contact?.name || contact?.phone || contact?.whatsapp || "?").toLowerCase();
+  const colorClass = paletteFor(seed);
+  const source = (contact?.name || contact?.phone || "?").trim();
+  const parts = source.replace(/[._-]+/g, " ").split(/\s+/).filter(Boolean);
+  let initials = "?";
+  if (parts.length >= 2) initials = (parts[0][0] + parts[1][0]).toUpperCase();
+  else if (parts.length === 1) initials = parts[0].slice(0, 2).toUpperCase();
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded-full text-white font-semibold ring-2 ring-white shadow-sm flex-shrink-0 ${colorClass}`}
+      style={{ width: size, height: size, fontSize: Math.max(10, size * 0.38) }}
+      title={contact?.name || ""}
+      data-testid={`contact-avatar-${contact?.id}`}
+    >
+      {initials}
+    </span>
+  );
+}
+
 /*
   Portal → Directory + WhatsApp.
   - CRUD contacts scoped to current client.
@@ -243,37 +296,42 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
   return (
     <tr className="border-t border-slate-100 hover:bg-slate-50" data-testid={`contact-row-${c.id}`}>
       <td className="px-3 py-2">
-        <button
-          onClick={onHistory}
-          className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex items-center gap-2"
-          title="Voir la conversation WhatsApp"
-          data-testid={`contact-name-${c.id}`}
-        >
-          <span>{c.name}</span>
-          {unreadCount > 0 && (
-            <span
-              className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-white shadow-sm animate-pulse"
-              title={`${unreadCount} nouveau(x) message(s) reçu(s)`}
-              data-testid={`contact-unread-${c.id}`}
+        <div className="flex items-start gap-2.5">
+          <ContactAvatar contact={c} size={36} />
+          <div className="min-w-0 flex-1">
+            <button
+              onClick={onHistory}
+              className="font-semibold text-slate-900 hover:text-sawali-blue hover:underline text-left inline-flex items-center gap-2"
+              title="Voir la conversation WhatsApp"
+              data-testid={`contact-name-${c.id}`}
             >
-              {unreadCount > 99 ? "99+" : unreadCount}
-            </span>
-          )}
-        </button>
-        {/* Mobile-only context (visible when Société/Téléphone columns are hidden) */}
-        <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 space-y-0.5">
-          {c.company && <div className="truncate">{c.company}</div>}
-          {c.phone && <div className="font-mono">{c.phone}</div>}
-        </div>
-        {c.tags?.length > 0 && (
-          <div className="flex flex-wrap gap-1 mt-1">
-            {c.tags.map((t) => (
-              <span key={t} className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-                <Tag className="h-2.5 w-2.5" /> {t}
-              </span>
-            ))}
+              <span className="truncate">{c.name}</span>
+              {unreadCount > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[18px] h-[18px] px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-white shadow-sm animate-pulse"
+                  title={`${unreadCount} nouveau(x) message(s) reçu(s)`}
+                  data-testid={`contact-unread-${c.id}`}
+                >
+                  {unreadCount > 99 ? "99+" : unreadCount}
+                </span>
+              )}
+            </button>
+            {/* Mobile-only context (visible when Société/Téléphone columns are hidden) */}
+            <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 space-y-0.5">
+              {c.company && <div className="truncate">{c.company}</div>}
+              {c.phone && <div className="font-mono">{c.phone}</div>}
+            </div>
+            {c.tags?.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-1">
+                {c.tags.map((t) => (
+                  <span key={t} className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                    <Tag className="h-2.5 w-2.5" /> {t}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+        </div>
       </td>
       <td className="px-3 py-2 hidden sm:table-cell text-slate-600">{c.company || "—"}</td>
       <td className="px-3 py-2 hidden md:table-cell text-slate-600 font-mono text-[12px]">{c.phone || "—"}</td>
@@ -403,6 +461,44 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
   });
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const photoInputRef = React.useRef(null);
+
+  const uploadPhoto = async (file) => {
+    if (!contact?.id) {
+      toast.error("Enregistrez d'abord le contact, puis ajoutez sa photo.");
+      return;
+    }
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) { toast.error("Photo trop lourde (max 5 Mo)"); return; }
+    if (!/^image\/(png|jpe?g|webp)$/i.test(file.type)) { toast.error("Format invalide (PNG/JPEG/WEBP)"); return; }
+    setUploadingPhoto(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await apiClient.post(`/me/contacts/${contact.id}/photo`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setForm((prev) => ({ ...prev, photo_url: r.data?.photo_url || prev.photo_url }));
+      toast.success("Photo de profil mise à jour");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'envoi");
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const removePhoto = async () => {
+    if (!contact?.id) return;
+    if (!window.confirm("Retirer la photo de profil ?")) return;
+    try {
+      await apiClient.delete(`/me/contacts/${contact.id}/photo`);
+      setForm((prev) => ({ ...prev, photo_url: null }));
+      toast.success("Photo retirée");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
 
   const save = async () => {
     if (!form.name.trim()) { toast.error("Le nom est requis"); return; }
@@ -448,6 +544,52 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {/* Profile picture (à la WhatsApp) */}
+        <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 ring-1 ring-slate-200" data-testid="contact-photo-block">
+          <ContactAvatar contact={form} size={56} />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-semibold text-slate-700">Photo de profil</p>
+            <p className="text-[11px] text-slate-500 leading-snug">
+              {form.photo_url ? "Cliquez sur « Remplacer » pour changer la photo." : "Ajoutez une photo qui s'affichera comme l'avatar WhatsApp dans le portail."}
+            </p>
+            {!contact?.id && (
+              <p className="text-[10px] text-amber-700 mt-0.5">Enregistrez d'abord le contact, puis revenez pour ajouter sa photo.</p>
+            )}
+          </div>
+          <input
+            ref={photoInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/webp"
+            className="hidden"
+            onChange={(e) => uploadPhoto(e.target.files?.[0])}
+            data-testid="contact-photo-input"
+          />
+          <div className="flex flex-col gap-1.5">
+            <button
+              type="button"
+              onClick={() => photoInputRef.current?.click()}
+              disabled={!contact?.id || uploadingPhoto}
+              className="inline-flex items-center justify-center gap-1 text-[11px] rounded bg-sawali-blue text-white px-2.5 py-1.5 hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="contact-photo-upload-btn"
+              title={!contact?.id ? "Enregistrez d'abord le contact" : (form.photo_url ? "Remplacer la photo" : "Ajouter une photo")}
+            >
+              <Upload className="h-3 w-3" />
+              {uploadingPhoto ? "Envoi…" : (form.photo_url ? "Remplacer" : "Ajouter")}
+            </button>
+            {form.photo_url && (
+              <button
+                type="button"
+                onClick={removePhoto}
+                className="inline-flex items-center justify-center gap-1 text-[11px] rounded ring-1 ring-rose-200 bg-white text-rose-700 hover:bg-rose-50 px-2.5 py-1.5"
+                data-testid="contact-photo-remove-btn"
+              >
+                <Trash2 className="h-3 w-3" /> Retirer
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="grid sm:grid-cols-2 gap-3">
           <Input label="Nom *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} testid="contact-field-name" />
           <div>
@@ -1031,14 +1173,17 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     >
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
-          <div>
-            <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
-              <History className="h-5 w-5 text-sawali-blue" /> Conversation
-            </h2>
-            <p className="text-xs text-slate-500 mt-0.5">
-              <strong className="text-slate-800">{contact.name}</strong>
-              {contact.whatsapp && <code className="ml-2 bg-slate-100 px-1.5 py-0.5 rounded">{contact.whatsapp}</code>}
-            </p>
+          <div className="flex items-center gap-3 min-w-0">
+            <ContactAvatar contact={contact} size={40} />
+            <div className="min-w-0">
+              <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+                <History className="h-4 w-4 text-sawali-blue" /> Conversation
+              </h2>
+              <p className="text-xs text-slate-500 mt-0.5 truncate">
+                <strong className="text-slate-800">{contact.name}</strong>
+                {contact.whatsapp && <code className="ml-2 bg-slate-100 px-1.5 py-0.5 rounded">{contact.whatsapp}</code>}
+              </p>
+            </div>
           </div>
           <div className="flex items-center gap-2">
             <button

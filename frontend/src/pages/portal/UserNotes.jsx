@@ -370,9 +370,15 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, o
         </div>
       )}
       <div className="mt-3 flex items-center justify-between gap-2 text-xs">
-        <span className="text-slate-400 truncate">
-          {n.owner_email && <>par {n.owner_email}<br /></>}
-          {n.created_at && new Date(n.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+        <span className="text-slate-400 truncate inline-flex items-center gap-2 min-w-0">
+          {n.owner_email && (
+            <AuthorAvatar email={n.owner_email} name={n.owner_name} />
+          )}
+          <span className="truncate">
+            {n.owner_email && <span className="text-slate-600 font-medium" title={n.owner_email}>{n.owner_name || (n.owner_email || "").split("@")[0]}</span>}
+            <br />
+            {n.created_at && new Date(n.created_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+          </span>
         </span>
         <div className="flex gap-2 items-center">
           {!locked && <button onClick={onEdit} className="text-slate-500 hover:text-sawali-blue" title="Modifier" data-testid={`edit-note-${n.id}`}><Edit className="h-3.5 w-3.5" /></button>}
@@ -391,6 +397,52 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, o
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteImg = (u) => (!u ? "" : (u.startsWith("http") ? u : `${BACKEND}${u.startsWith("/") ? "" : "/"}${u}`));
+
+// ====================================================================
+// Author avatar — colored circular pictogramme with initials.
+// Color is derived deterministically from the email so the same author
+// always gets the same color, making authorship identifiable at a glance.
+// ====================================================================
+const AVATAR_PALETTE = [
+  { bg: "bg-emerald-500", ring: "ring-emerald-200" },
+  { bg: "bg-sky-500", ring: "ring-sky-200" },
+  { bg: "bg-violet-500", ring: "ring-violet-200" },
+  { bg: "bg-rose-500", ring: "ring-rose-200" },
+  { bg: "bg-amber-500", ring: "ring-amber-200" },
+  { bg: "bg-fuchsia-500", ring: "ring-fuchsia-200" },
+  { bg: "bg-teal-500", ring: "ring-teal-200" },
+  { bg: "bg-indigo-500", ring: "ring-indigo-200" },
+  { bg: "bg-orange-500", ring: "ring-orange-200" },
+  { bg: "bg-cyan-500", ring: "ring-cyan-200" },
+];
+
+function paletteFor(seed) {
+  if (!seed) return AVATAR_PALETTE[0];
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) >>> 0;
+  return AVATAR_PALETTE[h % AVATAR_PALETTE.length];
+}
+
+function AuthorAvatar({ email, name, size = 28 }) {
+  const seed = (email || name || "?").toLowerCase();
+  const p = paletteFor(seed);
+  // Build initials (2 chars max) from the friendly name when available, else from local-part of email
+  const source = (name || (email || "").split("@")[0] || "?").trim();
+  const parts = source.replace(/[._-]+/g, " ").split(/\s+/).filter(Boolean);
+  let initials = "?";
+  if (parts.length >= 2) initials = (parts[0][0] + parts[1][0]).toUpperCase();
+  else if (parts.length === 1) initials = parts[0].slice(0, 2).toUpperCase();
+  return (
+    <span
+      className={`inline-flex items-center justify-center rounded-full text-white font-semibold ring-2 ring-white shadow-sm flex-shrink-0 ${p.bg}`}
+      style={{ width: size, height: size, fontSize: Math.max(10, size * 0.4) }}
+      title={`Auteur : ${name || email || "inconnu"}`}
+      data-testid={`author-avatar-${seed}`}
+    >
+      {initials}
+    </span>
+  );
+}
 
 // ====================================================================
 // 5-star rater

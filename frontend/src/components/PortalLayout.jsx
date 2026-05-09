@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -30,6 +30,10 @@ const clientLinks = [
   { to: "/portal/contacts", label: "Centre de Messagerie", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
+  { to: "/portal/cash", label: "Caisse", icon: Banknote, soon: true },
+  { to: "/portal/billing", label: "Facturation", icon: Receipt, soon: true },
+  { to: "/portal/catalog", label: "Catalogue", icon: ShoppingBag, soon: true },
+  { to: "/portal/tickets", label: "Tickets", icon: Ticket, soon: true },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
 ];
@@ -151,7 +155,7 @@ export default function PortalLayout({ admin = false }) {
         </div>
       </Link>
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon, end, module }) => {
+        {links.map(({ to, label, icon: Icon, end, module, soon }) => {
           const count = module ? (badges[module] || 0) : 0;
           return (
             <NavLink
@@ -164,6 +168,15 @@ export default function PortalLayout({ admin = false }) {
             >
               <Icon className="h-4 w-4" />
               <span className="flex-1 truncate">{label}</span>
+              {soon && (
+                <span
+                  className="text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/30"
+                  data-testid={`badge-soon-${to.replace(/\//g, "-")}`}
+                  title="Bientôt disponible"
+                >
+                  Bientôt
+                </span>
+              )}
               {count > 0 && (
                 <span
                   className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-rose-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] animate-in fade-in slide-in-from-right-1"

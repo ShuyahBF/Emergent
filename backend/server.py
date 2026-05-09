@@ -2324,6 +2324,7 @@ DEFAULT_CLIENT_FEATURES = {
     "sms": False,
     "ai": False,
     "payments": False,
+    "webhook_returns": False,  # Show outbound-webhook execution result modals on POST/PUT/DELETE
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -2355,6 +2356,7 @@ class ClientFeaturesUpdate(BaseModel):
     sms: Optional[bool] = None
     ai: Optional[bool] = None
     payments: Optional[bool] = None
+    webhook_returns: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 
@@ -6957,6 +6959,7 @@ class ContactCreate(BaseModel):
     notes: Optional[str] = ""
     tags: Optional[List[str]] = []
     shared: bool = False
+    photo_url: Optional[str] = None  # Manually uploaded avatar (à la WhatsApp profile picture)
 
 
 class ContactUpdate(BaseModel):
@@ -6968,6 +6971,7 @@ class ContactUpdate(BaseModel):
     notes: Optional[str] = None
     tags: Optional[List[str]] = None
     shared: Optional[bool] = None
+    photo_url: Optional[str] = None
 
 
 @api.get("/me/contacts", tags=["Portail Client"])
@@ -7030,6 +7034,64 @@ async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
     if existing and existing.get("owner_id") != user["id"] and user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Suppression non autorisée")
     await db.directory_contacts.delete_one({"id": cid})
+    return {"ok": True}
+
+
+@api.post("/me/contacts/{cid}/photo", tags=["Portail Client"])
+async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
+    """Upload a profile picture for a contact (à la WhatsApp avatar). Stored in
+    /api/files/ and the contact's `photo_url` field is set to the public URL.
+    Owner or admin only. Max 5 MiB. PNG/JPEG/WEBP only."""
+    existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Modification non autorisée")
+    ctype = (file.content_type or "").lower()
+    if ctype not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
+        raise HTTPException(status_code=400, detail="Format invalide — PNG/JPEG/WEBP uniquement")
+    file_id = _uuid()
+    suffix = Path(file.filename or "").suffix.lower() or ".png"
+    safe_name = f"{file_id}{suffix}"
+    target = UPLOAD_DIR / safe_name
+    size = 0
+    with target.open("wb") as f:
+        while True:
+            chunk = await file.read(64 * 1024)
+            if not chunk:
+                break
+            size += len(chunk)
+            if size > 5 * 1024 * 1024:
+                f.close()
+                target.unlink(missing_ok=True)
+                raise HTTPException(status_code=413, detail="Photo trop lourde (max 5 Mo)")
+            f.write(chunk)
+    ext_suffix = suffix.lstrip(".")
+    public_path = f"/api/files/{file_id}.{ext_suffix}" if ext_suffix else f"/api/files/{file_id}"
+    await db.files.insert_one({
+        "id": file_id, "filename": file.filename, "stored_name": safe_name,
+        "extension": ext_suffix or None, "content_type": ctype, "size": size,
+        "url": public_path, "uploaded_at": _now(), "uploaded_by_id": user.get("id"),
+    })
+    await db.directory_contacts.update_one(
+        {"id": cid},
+        {"$set": {"photo_url": public_path, "photo_updated_at": _now()}},
+    )
+    return {"ok": True, "photo_url": public_path}
+
+
+@api.delete("/me/contacts/{cid}/photo", tags=["Portail Client"])
+async def me_delete_contact_photo(cid: str, user: dict = Depends(get_current_user)):
+    """Remove a contact's profile picture (sets photo_url to null)."""
+    existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Modification non autorisée")
+    await db.directory_contacts.update_one(
+        {"id": cid},
+        {"$set": {"photo_url": None, "photo_updated_at": _now()}},
+    )
     return {"ok": True}
 
 

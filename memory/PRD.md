@@ -55,6 +55,7 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ### 🟦 Future
 - ErrorBoundary global sur toutes les routes /portal/* et /admin/*
+- **Composant `<ResponsiveTable>` réutilisable** (avec props `<Column hideBelow="sm">`) pour standardiser le pattern responsive sur tous les tableaux et éviter les répétitions à la main (issue de l'itération 49).
 - Tags sur payment_links (filtrage dashboard par campagne)
 - A/B test multi-canal automatisé (SMS vs WA, conversion par canal)
 - Lien de paiement intégré dans le module SMS (comme dans WA)
@@ -66,6 +67,17 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 ---
 
 ## CHANGELOG
+
+### 2026-05-09 — Itération 50 : Liens stubs Caisse/Facturation/Catalogue/Tickets + Webhook par-client + Pictogramme auteur + Photo contact
+✅ **Liens stubs** : 4 nouveaux liens sidebar portail (Caisse, Facturation, Catalogue, Tickets) avec badge "Bientôt" doré. Page partagée `ComingSoon.jsx` qui affiche un descriptif différent selon le path et 3 bullets de fonctionnalités prévues.
+✅ **Visibilité retours de webhook par-client** : ajout de la feature `webhook_returns` dans `DEFAULT_CLIENT_FEATURES` + `ClientFeaturesUpdate`. `WebhookResultModal.jsx` consulte `/me/features` au mount + refresh toutes les 5 min. Si `webhook_returns=false` → tous les events `sawali:webhook-result` sont ignorés (pas de modal). Hérité automatiquement par les utilisateurs suivis du client. UI : 5e tile violet "Retours de Webhook" dans `/admin/clients/{id}/features`.
+✅ **Pictogramme auteur** sur Rapports/Suivis : nouveau composant `<AuthorAvatar>` dans `UserNotes.jsx` — avatar circulaire avec initiales (2 lettres) + couleur déterministe (10 couleurs basées sur hash de l'email). Placé en bas de chaque card à côté du nom de l'auteur (vs ancien texte "par email@…").
+✅ **Photo contact (avatar à la WhatsApp)** :
+   - Backend : champ `photo_url` ajouté à `ContactCreate`/`ContactUpdate`. Endpoints `POST /me/contacts/{cid}/photo` (upload PNG/JPEG/WEBP, max 5 Mo, validation chunked) + `DELETE /me/contacts/{cid}/photo`.
+   - Frontend : composant `<ContactAvatar>` réutilisable avec fallback initiales + couleur déterministe ; affiché dans la liste contacts (taille 36) + en-tête `ConversationModal` (40) + section "Photo de profil" du modal édition (56) avec boutons "Remplacer" / "Retirer".
+   - L'upload est désactivé tant que le contact n'a pas été enregistré — bandeau ambre invitant à sauvegarder d'abord.
+✅ Tests curl : `/me/features` retourne `webhook_returns:true`, `PUT /admin/clients/{id}/features {webhook_returns:true,whatsapp:true}` enregistre correctement, upload PNG 1×1 → `photo_url:/api/files/...`, contact retournée avec le nouveau champ.
+✅ Validation Playwright : sidebar avec 4 badges "Bientôt", Mes Rapports avec pictos AS/AD colorés, Centre de Messagerie avec avatars JD/TE/WI, modal édition contact avec section photo, page admin features avec 5 tiles dont la nouvelle violette "Retours de Webhook".
 
 ### 2026-05-07 — Itération 49 : Responsive multi-tableaux (Paiements, SMS Bulk, Trafic & Visites)
 ✅ Pattern responsive de l'itération 48 appliqué à 3 nouveaux tableaux :

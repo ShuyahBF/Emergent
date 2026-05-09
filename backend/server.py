@@ -4634,6 +4634,11 @@ async def admin_set_tracked_password(
                 "tracked_user_id": tu_id,
                 "tracked_role": tu.get("role"),
                 "parent_client_id": tu.get("client_id"),
+                # Mirror the parent client id on the legacy `client_id` field so
+                # every endpoint that resolves scope via `user.client_id or
+                # user.id` (50+ call sites) correctly inherits the parent's
+                # feature flags + RGPD toggles + shared contacts.
+                "client_id": tu.get("client_id"),
                 "account_status": "active",
                 "updated_at": _now(),
             }},
@@ -4654,6 +4659,8 @@ async def admin_set_tracked_password(
             "tracked_user_id": tu_id,
             "tracked_role": tu.get("role"),
             "parent_client_id": tu.get("client_id"),
+            # Mirror the parent client id (see comment above).
+            "client_id": tu.get("client_id"),
             "created_at": _now(),
             "updated_at": _now(),
         })
@@ -11046,6 +11053,23 @@ async def on_startup():
             await db.directory_contacts.update_one({"id": c["id"]}, {"$set": {"unique_code": uc}})
     except Exception as exc:  # noqa: BLE001
         logger.warning("contact unique_code backfill failed: %s", exc)
+
+    # One-shot migration: fill `client_id` on bridged tracked-user accounts that
+    # were created before we started mirroring `parent_client_id` → `client_id`.
+    # Without this, legacy ~50 endpoints that resolve scope via
+    # `user.get("client_id") or user["id"]` fall back to the user's own id and
+    # tracked users never inherit RGPD/feature flags from their parent client.
+    try:
+        await db.users.update_many(
+            {
+                "role": "client",
+                "parent_client_id": {"$exists": True, "$ne": None, "$ne": ""},
+                "$or": [{"client_id": {"$exists": False}}, {"client_id": None}, {"client_id": ""}],
+            },
+            [{"$set": {"client_id": "$parent_client_id"}}],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("tracked-user client_id mirror backfill failed: %s", exc)
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")

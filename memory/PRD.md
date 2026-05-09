@@ -650,6 +650,15 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - Google Calendar OAuth flow, reCAPTCHA v2, SMTP OTP.
 - Auto-seed admin + default contents.
 
+### 2026-05-09 — Iter24 : 4 derniers feedbacks utilisateur
+- **Code Unique inaltérable** par contact : helper `_next_contact_unique_code` (compteur Mongo atomique par client/année). Format `YYYY-CLIENTPREFIX-NNNN` (ex. `2026-SAWALISM-0001`). Backfill au démarrage pour tous les contacts existants. Champ ignoré silencieusement par PUT (immutabilité). Affiché en lecture seule dans la fiche contact + dans la ligne du tableau (icône cadenas).
+- **RGPD `anon_company`** : nouveau toggle dans `/admin/clients/{id}/features` qui masque la société sous forme `A*** C***` pour les non-privilégiés. Inclus dans `/api/admin/rgpd-preview/{client_id}`.
+- **Toggle `wa_sound_alerts` par client** : kill switch admin pour l'alerte sonore WhatsApp. `useWhatsAppNotifier` lit `/me/features` et expose `soundAllowedByAdmin`. PortalLayout grise le bouton + affiche `Bloqué` si désactivé côté client.
+- **Restriction photo de contact** : les boutons « Ajouter / Remplacer / Retirer » sont désactivés pour les rôles standards (`client`, tracked) ; seuls `admin/superviseur/moderateur` peuvent modifier. Tooltip explicatif.
+- **Auto-sync nom WA via webhook** : à la réception d'un message WA, si `contact.name` est vide ou n'est qu'un numéro de téléphone, il est automatiquement remplacé par `profile.name`. ⚠️ Meta n'expose **pas** la photo de profil via Cloud API — seul le nom est synchronisable, ce qui est désormais documenté en infobulle.
+- **Bug fix tracked-user inheritance** : la création/mise à jour des comptes utilisateurs suivis copie désormais `parent_client_id` également dans `client_id` (legacy field utilisé par 50+ endpoints). Migration startup pour les comptes existants. Effet : les utilisateurs suivis héritent désormais réellement des flags RGPD + features de leur client parent.
+- Tests : `/app/backend/tests/test_sawali_iter24.py` (10 tests, 100% pass).
+
 ---
 
 ## Test Credentials

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import MarketingLayout from "@/components/MarketingLayout";
 import { Check, ChevronRight, Sparkles, Zap, Star, Loader2 } from "lucide-react";
 
 /*
@@ -41,7 +40,7 @@ export default function Subscriptions() {
   };
 
   return (
-    <MarketingLayout>
+    <>
       <section className="relative overflow-hidden">
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_top,_var(--tw-gradient-stops))] from-sawali-blue/30 via-transparent to-transparent pointer-events-none" />
         <div className="max-w-6xl mx-auto px-6 py-16 sm:py-24 relative">
@@ -155,7 +154,7 @@ export default function Subscriptions() {
       </section>
 
       {selected && <SubscriptionOrderModal plan={selected} period={period} onClose={() => setSelected(null)} />}
-    </MarketingLayout>
+    </>
   );
 }
 

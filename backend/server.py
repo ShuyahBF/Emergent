@@ -8459,6 +8459,13 @@ class MeWaBulkRequest(BaseModel):
     button_vars: Optional[List[List[str]]] = None
     scheduled_at: Optional[str] = None  # ISO-8601 — if set, schedule instead of live send
     title: Optional[str] = None  # Friendly label for the schedule row
+    # SMS fallback: when WhatsApp delivery fails for a contact (no number, not on WA,
+    # outside 24h window, Meta error…), automatically retry as SMS using
+    # `sms_fallback_message` (which supports the same {{name}}/{{company}}/etc. tokens).
+    sms_fallback: bool = False
+    sms_fallback_message: Optional[str] = None
+    sms_fallback_provider: Optional[str] = None  # "auto" / "orange" / "moov" / "telecel" / "ovh"
+    sms_fallback_sender: Optional[str] = None
 
 
 @api.post("/me/whatsapp/bulk", tags=["Portail Client"])
@@ -8528,6 +8535,11 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
             "created_by_role": user.get("role"),
             "client_id": parent_id,
             "bulk": True,
+            # SMS fallback config (cron runner will apply per-recipient on failure)
+            "sms_fallback": bool(payload.sms_fallback),
+            "sms_fallback_message": payload.sms_fallback_message,
+            "sms_fallback_provider": payload.sms_fallback_provider,
+            "sms_fallback_sender": payload.sms_fallback_sender,
             "created_at": _now(),
             "updated_at": _now(),
         }
@@ -8544,6 +8556,7 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
     # Live-send branch: iterate contacts, build per-contact ctx, send template now.
     results = []
     skipped = []
+    fallback_results = []  # SMS fallback attempts (when sms_fallback=True)
     for c in contacts:
         phone = (c.get("whatsapp") or c.get("phone") or "").strip()
         label = c.get("name") or c.get("company") or phone or "—"
@@ -8611,6 +8624,47 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
             "status": wr["status"], "message_id": wr["message_id"],
             "error": None if wr["ok"] else (wr.get("error") or "Échec"),
         })
+        # ---- SMS fallback on failure ----
+        if not wr["ok"] and payload.sms_fallback and (payload.sms_fallback_message or "").strip():
+            sms_target = (c.get("phone") or c.get("whatsapp") or "").strip()
+            if sms_target:
+                try:
+                    sms_ctx = _build_sms_ctx(c)
+                    sms_body = _personalize_sms(payload.sms_fallback_message, sms_ctx)
+                    sms_res = await _sms_dispatch(
+                        payload.sms_fallback_provider or "auto",
+                        sms_target, sms_body, payload.sms_fallback_sender,
+                    )
+                    sms_doc = {
+                        "id": _uuid(), "client_id": parent_id, "user_id": user["id"],
+                        "user_email": user.get("email"),
+                        "user_label": user.get("full_name") or user.get("email"),
+                        "contact_id": c.get("id"),
+                        "provider": sms_res.get("provider"),
+                        "sender": payload.sms_fallback_sender,
+                        "msisdn": sms_target,
+                        "msisdn_digits": "".join(ch for ch in sms_target if ch.isdigit()),
+                        "message": sms_body, "length": len(sms_body),
+                        "status": sms_res.get("status"),
+                        "api_message": sms_res.get("api_message"),
+                        "http_status": sms_res.get("http_status"),
+                        "raw_response": sms_res.get("raw_response"),
+                        "bulk": True,
+                        "wa_fallback": True,  # marks this row as the SMS fallback of a WA failure
+                        "payment_link_slug": _extract_pay_slug(payload.sms_fallback_message),
+                        "created_at": _now(),
+                    }
+                    await db.sms_messages.insert_one(sms_doc.copy())
+                    fallback_results.append({
+                        "label": label, "phone": sms_target,
+                        "ok": bool(sms_res.get("ok")),
+                        "status": sms_res.get("status"),
+                        "error": None if sms_res.get("ok") else (sms_res.get("api_message") or "Échec SMS"),
+                    })
+                except Exception as exc:  # noqa: BLE001
+                    fallback_results.append({"label": label, "phone": sms_target, "ok": False, "status": "failed", "error": str(exc)[:200]})
+            else:
+                fallback_results.append({"label": label, "phone": "", "ok": False, "status": "no_phone", "error": "Pas de numéro de téléphone pour le repli SMS"})
     return {
         "ok": True,
         "scheduled": False,
@@ -8618,6 +8672,9 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
         "sent_ko": sum(1 for r in results if not r["ok"]),
         "skipped": skipped,
         "results": results,
+        "fallback_used": bool(payload.sms_fallback),
+        "fallback_results": fallback_results,
+        "fallback_ok": sum(1 for r in fallback_results if r["ok"]),
     }
 
 
@@ -9853,13 +9910,14 @@ async def _run_scheduled_whatsapp():
                     wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
                 log = {
                     "id": _uuid(),
-                    "client_id": rid if kind == "client" else None,
+                    "client_id": rid if kind == "client" else (sc.get("client_id") if kind == "contact" else None),
                     "sender_id": sc.get("created_by_id"),
                     "sender_label": sc.get("created_by_label"),
                     "to": phone,
                     "template_name": sc["template_name"],
                     "language_code": sc.get("language_code"),
                     "tracked_user_id": rid if kind == "tracked" else None,
+                    "contact_id": rid if kind == "contact" else None,
                     "recipient_kind": kind,
                     "recipient_label": label,
                     "bulk": True,
@@ -9875,10 +9933,60 @@ async def _run_scheduled_whatsapp():
                     await db.whatsapp_messages.insert_one(log.copy())
                 except Exception:
                     pass
+                # ---- SMS fallback for scheduled bulk on WA failure (kind="contact" only)
+                fallback_status = None
+                if (
+                    not wr["ok"] and sc.get("sms_fallback") and kind == "contact"
+                    and (sc.get("sms_fallback_message") or "").strip() and user_doc
+                ):
+                    sms_target = (user_doc.get("phone") or phone or "").strip()
+                    if sms_target:
+                        try:
+                            # Reconstruct a contact-like dict for _build_sms_ctx
+                            sms_ctx = _build_sms_ctx({
+                                "name": user_doc.get("full_name"),
+                                "company": user_doc.get("company"),
+                                "phone": user_doc.get("phone"),
+                                "whatsapp": phone,
+                                "email": user_doc.get("email"),
+                                "tags": [],
+                                "unique_code": user_doc.get("client_code"),
+                            })
+                            sms_body = _personalize_sms(sc.get("sms_fallback_message") or "", sms_ctx)
+                            sms_res = await _sms_dispatch(
+                                sc.get("sms_fallback_provider") or "auto",
+                                sms_target, sms_body, sc.get("sms_fallback_sender"),
+                            )
+                            sms_doc = {
+                                "id": _uuid(),
+                                "client_id": sc.get("client_id"),
+                                "user_id": sc.get("created_by_id"),
+                                "user_email": None,
+                                "user_label": sc.get("created_by_label"),
+                                "contact_id": rid,
+                                "provider": sms_res.get("provider"),
+                                "sender": sc.get("sms_fallback_sender"),
+                                "msisdn": sms_target,
+                                "msisdn_digits": "".join(ch for ch in sms_target if ch.isdigit()),
+                                "message": sms_body, "length": len(sms_body),
+                                "status": sms_res.get("status"),
+                                "api_message": sms_res.get("api_message"),
+                                "http_status": sms_res.get("http_status"),
+                                "raw_response": sms_res.get("raw_response"),
+                                "bulk": True,
+                                "wa_fallback": True,
+                                "schedule_id": sc["id"],
+                                "created_at": _now(),
+                            }
+                            await db.sms_messages.insert_one(sms_doc.copy())
+                            fallback_status = "ok" if sms_res.get("ok") else "failed"
+                        except Exception as exc:  # noqa: BLE001
+                            fallback_status = f"err:{str(exc)[:80]}"
                 results.append({
                     "label": label, "phone": phone, "kind": kind,
                     "ok": wr["ok"], "status": wr["status"],
                     "message_id": wr["message_id"], "error": wr.get("error"),
+                    "fallback": fallback_status,
                 })
             sent_ok = sum(1 for x in results if x["ok"])
             final_status = "done" if sent_ok > 0 or not results else "failed"

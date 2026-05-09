@@ -3,6 +3,7 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Menu, X, ArrowRight, LogIn } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { useAuth } from "@/contexts/AuthContext";
+import SupportLoadGauge from "@/components/SupportLoadGauge";
 
 const links = [
   { to: "/", label: "Accueil" },
@@ -26,10 +27,10 @@ export default function MarketingNav() {
   const portalLabel = user ? "Mon espace" : "Espace Client";
 
   return (
-    <header className="glass-nav sticky top-0 z-50" data-testid="marketing-navbar">
+    <header className="glass-nav sticky top-0 z-50 backdrop-blur-md bg-[#081226]/85 border-b border-white/5" data-testid="marketing-navbar">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="flex h-16 items-center justify-between">
-          <Link to="/" className="flex items-center gap-3" data-testid="navbar-logo-link">
+        <div className="relative flex h-16 items-center justify-between">
+          <Link to="/" className="flex items-center gap-3 z-10" data-testid="navbar-logo-link">
             <img src={LOGO_URL} alt="SAWALI" className="h-10 w-10 rounded-md object-cover ring-1 ring-white/20" />
             <div className="hidden sm:flex flex-col leading-tight">
               <span className="font-display font-bold text-white tracking-tight">SAWALI SMART SYSTEMS</span>
@@ -37,14 +38,22 @@ export default function MarketingNav() {
             </div>
           </Link>
 
-          <nav className="hidden lg:flex items-center gap-1">
+          {/* Center — Support Load Gauge (cellular-bars). Absolute-centered so it stays visually centered regardless of left/right widths. Hidden on small screens to keep the bar tidy. */}
+          <div
+            className="hidden md:flex absolute left-1/2 -translate-x-1/2 items-center pointer-events-auto"
+            data-testid="navbar-support-gauge-wrap"
+          >
+            <SupportLoadGauge inline />
+          </div>
+
+          <nav className="hidden lg:flex items-center gap-1 ml-auto mr-4">
             {links.map((l) => (
               <NavLink
                 key={l.to}
                 to={l.to}
                 end={l.to === "/"}
                 className={({ isActive }) =>
-                  `px-3 py-2 text-sm font-medium transition-colors ${
+                  `px-2.5 py-2 text-[13px] font-medium transition-colors ${
                     isActive ? "text-white" : "text-slate-300 hover:text-white"
                   }`
                 }
@@ -55,7 +64,7 @@ export default function MarketingNav() {
             ))}
           </nav>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 z-10">
             <button
               onClick={() => navigate(portalHref)}
               className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-sawali-blue/40 px-4 py-2 text-sm text-white hover:bg-sawali-blue/10 transition"

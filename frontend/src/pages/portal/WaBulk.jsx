@@ -93,24 +93,32 @@ export default function WaBulk() {
   const [scheduleAt, setScheduleAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
-  const [activeTokenField, setActiveTokenField] = useState(null); // {kind:"body"|"header"|"btn", index, btnIdx?}
+  const [activeTokenField, setActiveTokenField] = useState(null); // {kind:"body"|"header"|"btn"|"sms_fb", index, btnIdx?}
+  // SMS fallback config — when WhatsApp delivery fails for a contact, retry via SMS
+  const [smsFallback, setSmsFallback] = useState(false);
+  const [smsFallbackMessage, setSmsFallbackMessage] = useState("");
+  const [smsProviders, setSmsProviders] = useState({ default: "auto", active: [] });
+  const [smsProvider, setSmsProvider] = useState("auto");
+  const [smsSender, setSmsSender] = useState("");
 
   const loadAll = async () => {
     try {
-      const [cR, fR, tR, sR, rosterR] = await Promise.all([
+      const [cR, fR, tR, sR, rosterR, pR] = await Promise.all([
         apiClient.get("/me/contacts"),
         apiClient.get("/me/features"),
         apiClient.get("/me/whatsapp/templates"),
         apiClient.get("/me/messaging/schedules").catch(() => ({ data: [] })),
         apiClient.get("/me/clients-roster").catch(() => ({ data: [] })),
+        apiClient.get("/me/sms/providers").catch(() => ({ data: { default: "auto", active: [] } })),
       ]);
       setContacts(cR.data || []);
       setFeatures(fR.data?.features || {});
       setTemplates(tR.data?.items || []);
       setTemplatesConfigured(tR.data?.configured !== false);
-      // Only show the bulk-relevant rows: must have `bulk: true` OR be a regular WA schedule
       setSchedules(sR.data || []);
       setClientsRoster(rosterR.data || []);
+      setSmsProviders(pR.data || { default: "auto", active: [] });
+      setSmsProvider(pR.data?.default || "auto");
     } catch (err) {
       toast.error(safeText(err?.response?.data?.detail) || "Erreur de chargement");
     }
@@ -205,6 +213,8 @@ export default function WaBulk() {
           ? arr.map((v, i) => (i === activeTokenField.index ? (v + piece) : v))
           : arr,
       ));
+    } else if (activeTokenField.kind === "sms_fb") {
+      setSmsFallbackMessage((prev) => prev + piece);
     }
   };
 
@@ -255,6 +265,12 @@ export default function WaBulk() {
       if (parsed?.header?.format === "TEXT" && headerVars.length) {
         body.header_text = headerVars[0] || "";
       }
+      if (smsFallback && (smsFallbackMessage || "").trim()) {
+        body.sms_fallback = true;
+        body.sms_fallback_message = smsFallbackMessage;
+        body.sms_fallback_provider = smsProvider || "auto";
+        if (smsSender) body.sms_fallback_sender = smsSender.slice(0, 11);
+      }
       if (scheduleAt) {
         const dt = new Date(scheduleAt);
         if (isNaN(dt.getTime())) { toast.error("Date invalide"); setSubmitting(false); return; }
@@ -268,7 +284,10 @@ export default function WaBulk() {
         const ok = r.data?.sent_ok || 0;
         const ko = r.data?.sent_ko || 0;
         const sk = r.data?.skipped?.length || 0;
-        toast.success(`${ok} envoyé(s), ${ko} échec(s)${sk ? `, ${sk} ignoré(s)` : ""}`);
+        const fbOk = r.data?.fallback_ok || 0;
+        const fbCount = r.data?.fallback_results?.length || 0;
+        const fbMsg = fbCount > 0 ? ` — Repli SMS : ${fbOk}/${fbCount} envoyé(s)` : "";
+        toast.success(`${ok} envoyé(s), ${ko} échec(s)${sk ? `, ${sk} ignoré(s)` : ""}${fbMsg}`);
       }
       setSelectedIds(new Set());
       setScheduleAt("");
@@ -508,6 +527,75 @@ export default function WaBulk() {
               ))}
             </div>
           ))}
+
+          {/* SMS fallback toggle — when WA delivery fails, retry via SMS */}
+          <div
+            className={`mt-3 rounded-xl ring-1 p-3 transition ${smsFallback ? "ring-amber-300 bg-amber-50" : "ring-slate-200 bg-slate-50"}`}
+            data-testid="wa-bulk-sms-fallback-block"
+          >
+            <label className="flex items-start gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={smsFallback}
+                onChange={(e) => setSmsFallback(e.target.checked)}
+                disabled={!features.sms}
+                className="mt-0.5 accent-amber-600"
+                data-testid="wa-bulk-sms-fallback-toggle"
+              />
+              <div className="flex-1">
+                <p className="text-xs font-semibold text-slate-800">
+                  Repli SMS automatique en cas d'échec WhatsApp
+                  {!features.sms && <span className="ml-1 text-[10px] text-rose-600">(SMS non activé)</span>}
+                </p>
+                <p className="text-[10px] text-slate-500 leading-snug mt-0.5">
+                  Si le WhatsApp ne peut être délivré (numéro non WA, hors fenêtre 24 h, erreur Meta…), un SMS sera automatiquement envoyé au numéro <code className="font-mono">phone</code> du contact.
+                  Maximise le taux de délivrance tout en gardant WhatsApp en priorité (gratuit en initiation business).
+                </p>
+              </div>
+            </label>
+            {smsFallback && (
+              <div className="mt-3 space-y-2" data-testid="wa-bulk-sms-fallback-details">
+                <div className="grid grid-cols-2 gap-2">
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Fournisseur SMS
+                    <select
+                      value={smsProvider}
+                      onChange={(e) => setSmsProvider(e.target.value)}
+                      className="w-full mt-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      data-testid="wa-bulk-sms-fb-provider"
+                    >
+                      <option value="auto">Auto (selon préfixe)</option>
+                      {(smsProviders.active || []).map((p) => (
+                        <option key={p} value={p}>{p.toUpperCase()}</option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">
+                    Expéditeur (max 11)
+                    <input
+                      value={smsSender}
+                      onChange={(e) => setSmsSender(e.target.value.slice(0, 11))}
+                      placeholder="SAWALI"
+                      className="w-full mt-1 rounded-lg border border-slate-300 px-2 py-1.5 text-xs"
+                      data-testid="wa-bulk-sms-fb-sender"
+                    />
+                  </label>
+                </div>
+                <textarea
+                  value={smsFallbackMessage}
+                  onChange={(e) => setSmsFallbackMessage(e.target.value.slice(0, 800))}
+                  onFocus={() => setActiveTokenField({ kind: "sms_fb" })}
+                  rows={3}
+                  placeholder="Bonjour {{name}}, votre WA n'a pas pu être délivré — voici le message en SMS…"
+                  className="w-full rounded-lg border border-slate-300 px-2 py-1.5 text-xs font-mono"
+                  data-testid="wa-bulk-sms-fb-message"
+                />
+                <p className="text-[10px] text-slate-500">
+                  {smsFallbackMessage.length}/800 caractères. Les jetons <code className="font-mono">{"{{name}}"}</code>, <code className="font-mono">{"{{company}}"}</code>… fonctionnent aussi ici.
+                </p>
+              </div>
+            )}
+          </div>
 
           {/* Schedule + actions */}
           <div className="mt-3 grid grid-cols-2 gap-2">

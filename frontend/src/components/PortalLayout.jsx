@@ -257,9 +257,12 @@ export default function PortalLayout({ admin = false }) {
   );
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
-      {/* Desktop sidebar */}
-      <aside className="hidden lg:block w-72 bg-[#0E1F3D] p-5 sticky top-0 h-screen overflow-y-auto" data-testid="portal-sidebar">
+    <div className="h-screen bg-slate-50 flex overflow-hidden">
+      {/* Desktop sidebar — full screen height, never moves; its own scroll
+          when the menu is taller than the viewport. Using a non-sticky
+          shell prevents the "pinned-then-truncated" bug some browsers
+          exhibit with `position: sticky` inside a flex row. */}
+      <aside className="hidden lg:flex flex-col shrink-0 w-72 bg-[#0E1F3D] p-5 h-screen overflow-y-auto" data-testid="portal-sidebar">
         {SidebarContent}
       </aside>
 
@@ -273,7 +276,8 @@ export default function PortalLayout({ admin = false }) {
         </div>
       )}
 
-      <div className="flex-1 flex flex-col min-w-0 overflow-x-hidden">
+      {/* Main column scrolls independently — keeps the sidebar perfectly stable. */}
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden">
         <IncidentBanner />
         <header className="lg:hidden sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
           <button onClick={() => setOpen(true)} aria-label="Menu" data-testid="portal-menu-toggle">

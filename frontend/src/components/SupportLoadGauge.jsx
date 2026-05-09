@@ -34,7 +34,7 @@ const LEVEL_LABEL = {
   7: "Saturé",
 };
 
-export default function SupportLoadGauge() {
+export default function SupportLoadGauge({ inline = false }) {
   const [data, setData] = useState(null);
 
   useEffect(() => {
@@ -54,6 +54,27 @@ export default function SupportLoadGauge() {
   const level = Math.max(0, Math.min(7, Number(data.level) || 0));
   const dominantColor = level > 0 ? BAR_COLORS[level - 1] : "#64748b";
   const headline = data.label || LEVEL_LABEL[level] || "—";
+
+  // Inline (navbar-embedded) variant — no banner background, just the bars and
+  // a compact label so it sits well centered in the sticky header.
+  if (inline) {
+    return (
+      <div
+        className="inline-flex items-center gap-2 text-[11px] text-slate-100 px-2.5 py-1 rounded-full ring-1 ring-white/10 bg-white/5 backdrop-blur-sm"
+        data-testid="support-load-gauge-inline"
+        role="status"
+        aria-label={`Niveau d'occupation du support : ${level} sur 7 — ${headline}`}
+        title={`Support : ${headline} (${level}/7)`}
+      >
+        <Headphones className="h-3 w-3 opacity-70 hidden sm:block" />
+        <Bars level={level} />
+        <span className="font-semibold hidden md:inline" style={{ color: dominantColor }}>
+          {headline}
+        </span>
+        <span className="opacity-50 text-[9px] hidden lg:inline">{level}/7</span>
+      </div>
+    );
+  }
 
   return (
     <div

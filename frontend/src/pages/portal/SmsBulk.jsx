@@ -29,6 +29,19 @@ function fmtDate(iso) {
   return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" });
 }
 
+// Defensive coercer (FastAPI sometimes returns `detail` as an array of validation errors)
+function safeText(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object") {
+    if (typeof v.message === "string") return v.message;
+    if (typeof v.detail === "string") return v.detail;
+    try { return JSON.stringify(v).slice(0, 300); } catch { return "[objet]"; }
+  }
+  return String(v);
+}
+
 export default function SmsBulk() {
   const [contacts, setContacts] = useState([]);
   const [providers, setProviders] = useState({ default: "auto", active: [] });
@@ -57,7 +70,7 @@ export default function SmsBulk() {
       setProvider(pR.data?.default || "auto");
       setSchedules(sR.data || []);
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
     }
   };
 
@@ -142,7 +155,7 @@ export default function SmsBulk() {
       setMessage(""); setSelectedIds(new Set()); setScheduleAt("");
       loadAll();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
     } finally { setSubmitting(false); }
   };
 
@@ -153,7 +166,7 @@ export default function SmsBulk() {
       toast.success("Planification annulée");
       loadAll();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
     }
   };
 

@@ -48,6 +48,7 @@ import Feedback from "@/pages/public/Feedback";
 import CaseStudies from "@/pages/public/CaseStudies";
 import CaseStudyDetail from "@/pages/public/CaseStudyDetail";
 import Blog from "@/pages/public/Blog";
+import Subscriptions from "@/pages/public/Subscriptions";
 import BlogPost from "@/pages/public/BlogPost";
 import StatusPage from "@/pages/public/Status";
 
@@ -75,6 +76,7 @@ import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
 import AdminTestimonials from "@/pages/admin/AdminTestimonials";
 import AdminCaseStudies from "@/pages/admin/AdminCaseStudies";
 import AdminBlog from "@/pages/admin/AdminBlog";
+import AdminSubscriptions from "@/pages/admin/AdminSubscriptions";
 import AdminNewsletter from "@/pages/admin/AdminNewsletter";
 import AdminVisits from "@/pages/admin/AdminVisits";
 import AdminDeployments from "@/pages/admin/AdminDeployments";
@@ -147,6 +149,7 @@ export default function App() {
           <Route path="/etudes-de-cas/:slug" element={<PublicRoute><CaseStudyDetail /></PublicRoute>} />
           <Route path="/blog" element={<PublicRoute><Blog /></PublicRoute>} />
           <Route path="/blog/:slug" element={<PublicRoute><BlogPost /></PublicRoute>} />
+          <Route path="/subscriptions" element={<PublicRoute><Subscriptions /></PublicRoute>} />
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/uptime" element={<StatusPage />} />
           <Route path="/launch" element={<Launch />} />
@@ -203,6 +206,7 @@ export default function App() {
             <Route path="testimonials" element={<AdminTestimonials />} />
             <Route path="case-studies" element={<AdminCaseStudies />} />
             <Route path="blog" element={<AdminBlog />} />
+            <Route path="subscriptions" element={<AdminSubscriptions />} />
             <Route path="newsletter" element={<AdminNewsletter />} />
             <Route path="visits" element={<AdminVisits />} />
             <Route path="deployments" element={<AdminDeployments />} />

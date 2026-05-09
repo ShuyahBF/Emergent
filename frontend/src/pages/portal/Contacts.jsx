@@ -6,7 +6,7 @@ import {
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
-  CalendarClock, Trash, Link2, CreditCard,
+  CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 
@@ -16,6 +16,23 @@ const absoluteFileUrl = (u) => {
   if (u.startsWith("http")) return u;
   return `${BACKEND}${u.startsWith("/") ? "" : "/"}${u}`;
 };
+
+// Defensive coercion — third-party API responses sometimes return objects in
+// fields where we expect strings (Meta, OVH, Orange…). Rendering an object as
+// a JSX child crashes React with "Objects are not valid as a React child".
+// Always pipe such fields through safeText() before rendering.
+function safeText(v) {
+  if (v == null) return "";
+  if (typeof v === "string") return v;
+  if (typeof v === "number" || typeof v === "boolean") return String(v);
+  if (typeof v === "object") {
+    if (typeof v.message === "string") return v.message;
+    if (typeof v.error === "string") return v.error;
+    if (typeof v.detail === "string") return v.detail;
+    try { return JSON.stringify(v).slice(0, 300); } catch { return "[objet]"; }
+  }
+  return String(v);
+}
 
 // Deterministic avatar color palette so the same contact always gets the same hue
 const AVATAR_PALETTE = [
@@ -103,13 +120,22 @@ export default function Contacts() {
     } catch { /* noop */ }
   };
 
+  const [pendingImports, setPendingImports] = useState([]);
+  const loadPending = async () => {
+    try {
+      const r = await apiClient.get("/me/wa-pending-imports");
+      setPendingImports(Array.isArray(r.data) ? r.data : []);
+    } catch { /* noop */ }
+  };
+
   useEffect(() => {
     load();
     loadUnread();
+    loadPending();
     apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
   }, []);
   useEffect(() => {
-    const t = setInterval(loadUnread, 30000);
+    const t = setInterval(() => { loadUnread(); loadPending(); }, 30000);
     return () => clearInterval(t);
   }, []);
 
@@ -200,6 +226,13 @@ export default function Contacts() {
         </select>
         <span className="text-xs text-slate-500">{filtered.length} contact(s)</span>
       </div>
+
+      {pendingImports.length > 0 && (
+        <PendingImportsBanner
+          items={pendingImports}
+          onChange={() => { loadPending(); load(); }}
+        />
+      )}
 
       {loading ? (
         <div className="text-center text-slate-500 py-10">Chargement…</div>
@@ -500,6 +533,40 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
     }
   };
 
+  // Manually re-fetch the WA profile name from the most recent inbound. Meta
+  // does NOT expose third-party photos via Cloud API → photo stays manual.
+  const [wasyncing, setWasyncing] = useState(false);
+  const syncWaProfile = async () => {
+    if (!contact?.id) return;
+    setWasyncing(true);
+    try {
+      const r = await apiClient.post(`/me/contacts/${contact.id}/wa-sync`);
+      const d = r.data || {};
+      if (!d.ok) {
+        toast.message(safeText(d.message) || "Aucune information disponible.");
+        return;
+      }
+      const cur = (d.current_name || "").trim();
+      const sug = (d.suggested_name || "").trim();
+      // Only prompt if the WA name differs from what's saved
+      if (sug && sug !== cur) {
+        if (window.confirm(`WhatsApp annonce ce contact comme :\n\n« ${sug} »\n\nLe nom enregistré est « ${cur || "(vide)"} ». Voulez-vous le remplacer ?`)) {
+          setForm((prev) => ({ ...prev, name: sug, wa_profile_name: sug }));
+          toast.success("Nom mis à jour. N'oubliez pas d'enregistrer.");
+        } else {
+          setForm((prev) => ({ ...prev, wa_profile_name: sug }));
+          toast.message(`Profil WA stocké : ${sug}`);
+        }
+      } else if (sug) {
+        toast.success(`Profil WA confirmé : ${sug}`);
+      }
+    } catch (err) {
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
+    } finally {
+      setWasyncing(false);
+    }
+  };
+
   const save = async () => {
     if (!form.name.trim()) { toast.error("Le nom est requis"); return; }
     setSaving(true);
@@ -545,7 +612,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
           </button>
         </div>
 
-        {/* Profile picture (à la WhatsApp) */}
+        {/* Profile picture (à la WhatsApp) + WA Profile sync */}
         <div className="flex items-center gap-3 p-3 rounded-xl bg-slate-50 ring-1 ring-slate-200" data-testid="contact-photo-block">
           <ContactAvatar contact={form} size={56} />
           <div className="flex-1 min-w-0">
@@ -555,6 +622,11 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             </p>
             {!contact?.id && (
               <p className="text-[10px] text-amber-700 mt-0.5">Enregistrez d'abord le contact, puis revenez pour ajouter sa photo.</p>
+            )}
+            {form.wa_profile_name && form.wa_profile_name !== form.name && (
+              <p className="text-[10px] text-emerald-700 mt-1 inline-flex items-center gap-1" data-testid="wa-profile-hint">
+                <MessageCircle className="h-2.5 w-2.5" /> WhatsApp : <strong>{form.wa_profile_name}</strong>
+              </p>
             )}
           </div>
           <input
@@ -576,6 +648,17 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             >
               <Upload className="h-3 w-3" />
               {uploadingPhoto ? "Envoi…" : (form.photo_url ? "Remplacer" : "Ajouter")}
+            </button>
+            <button
+              type="button"
+              onClick={syncWaProfile}
+              disabled={!contact?.id || wasyncing}
+              className="inline-flex items-center justify-center gap-1 text-[11px] rounded ring-1 ring-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 px-2.5 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="contact-wa-sync-btn"
+              title="Lit le nom de profil WhatsApp depuis le dernier message reçu (Meta n'expose pas la photo)"
+            >
+              <RefreshCw className={`h-3 w-3 ${wasyncing ? "animate-spin" : ""}`} />
+              {wasyncing ? "…" : "Synchro WA"}
             </button>
             {form.photo_url && (
               <button
@@ -1655,13 +1738,13 @@ const SmsModal = ({ contact, onClose, onSent }) => {
       });
       setResult(r.data);
       if (r.data?.ok) {
-        toast.success("SMS envoyé via " + (r.data?.provider || "?"));
+        toast.success("SMS envoyé via " + safeText(r.data?.provider) || "?");
         if (onSent) onSent();
       } else {
-        toast.error(r.data?.error || "Échec d'envoi");
+        toast.error(safeText(r.data?.error) || "Échec d'envoi");
       }
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
     } finally { setSending(false); }
   };
 
@@ -1732,8 +1815,8 @@ const SmsModal = ({ contact, onClose, onSent }) => {
           {result && (
             <div className={`rounded-lg ring-1 p-3 text-xs ${result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"}`} data-testid="sms-result">
               {result.ok
-                ? <><strong>Envoyé !</strong> Via : {result.provider} (HTTP {result.http_status})</>
-                : <><strong>Échec :</strong> {result.error || "Erreur inconnue"} {result.http_status ? `(HTTP ${result.http_status})` : ""}</>
+                ? <><strong>Envoyé !</strong> Via : {safeText(result.provider) || "?"} (HTTP {safeText(result.http_status)})</>
+                : <><strong>Échec :</strong> {safeText(result.error) || "Erreur inconnue"} {result.http_status ? `(HTTP ${safeText(result.http_status)})` : ""}</>
               }
             </div>
           )}
@@ -1977,6 +2060,91 @@ const PaymentLinkInserter = ({ bodyVars, setBodyVars, insertCallback }) => {
           </div>
         </div>
       )}
+    </div>
+  );
+};
+
+
+// ====================================================================
+// Pending WA imports — yellow banner that lists unknown numbers that have
+// written to our WhatsApp Business line but aren't in the directory yet.
+// One-click "Importer" to promote them as full contacts.
+// ====================================================================
+const PendingImportsBanner = ({ items, onChange }) => {
+  const [busy, setBusy] = useState({});
+  const importOne = async (it) => {
+    setBusy((b) => ({ ...b, [it.id]: true }));
+    try {
+      await apiClient.post(`/me/wa-pending-imports/${it.id}/import`, {});
+      toast.success(`Contact « ${it.wa_profile_name || it.from} » importé`);
+      onChange && onChange();
+    } catch (err) {
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
+    } finally {
+      setBusy((b) => ({ ...b, [it.id]: false }));
+    }
+  };
+  const dismissOne = async (it) => {
+    if (!window.confirm("Ignorer ce numéro ? Il ne réapparaîtra que s'il vous écrit à nouveau.")) return;
+    setBusy((b) => ({ ...b, [it.id]: true }));
+    try {
+      await apiClient.delete(`/me/wa-pending-imports/${it.id}`);
+      toast.success("Ignoré");
+      onChange && onChange();
+    } catch (err) {
+      toast.error(safeText(err?.response?.data?.detail) || "Erreur");
+    } finally {
+      setBusy((b) => ({ ...b, [it.id]: false }));
+    }
+  };
+  return (
+    <div className="rounded-xl ring-1 ring-amber-200 bg-amber-50 p-4 space-y-2" data-testid="pending-imports-banner">
+      <p className="text-sm font-semibold text-amber-900 inline-flex items-center gap-2">
+        <Inbox className="h-4 w-4" /> {items.length} contact(s) inconnu(s) vous ont écrit sur WhatsApp
+      </p>
+      <p className="text-[11px] text-amber-800">Importez-les en un clic pour démarrer la conversation depuis le portail.</p>
+      <ul className="space-y-1.5 mt-1.5">
+        {items.map((it) => (
+          <li
+            key={it.id}
+            className="flex items-center justify-between gap-3 rounded-lg bg-white ring-1 ring-amber-200 px-3 py-2 text-sm"
+            data-testid={`pending-import-${it.id}`}
+          >
+            <div className="min-w-0 flex-1">
+              <p className="font-semibold text-slate-900 truncate">
+                {it.wa_profile_name || "Sans nom WhatsApp"}
+              </p>
+              <p className="text-[11px] text-slate-500 font-mono">+{it.phone_digits}</p>
+              {it.last_message && (
+                <p className="text-[11px] text-slate-600 italic truncate mt-0.5" title={it.last_message}>
+                  « {it.last_message} »
+                </p>
+              )}
+              <p className="text-[10px] text-slate-400 mt-0.5">
+                {it.messages_count || 1} message(s) • dernier {fmtDate(it.last_seen_at)}
+              </p>
+            </div>
+            <div className="flex items-center gap-1.5 flex-shrink-0">
+              <button
+                onClick={() => importOne(it)}
+                disabled={!!busy[it.id]}
+                className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2.5 py-1.5 hover:bg-emerald-700 disabled:opacity-40"
+                data-testid={`pending-import-btn-${it.id}`}
+              >
+                <UserPlus className="h-3 w-3" /> Importer
+              </button>
+              <button
+                onClick={() => dismissOne(it)}
+                disabled={!!busy[it.id]}
+                className="inline-flex items-center gap-1 text-[11px] rounded ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50 px-2.5 py-1.5 disabled:opacity-40"
+                data-testid={`pending-dismiss-btn-${it.id}`}
+              >
+                <X className="h-3 w-3" /> Ignorer
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 };

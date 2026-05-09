@@ -52,12 +52,48 @@ const FEATURE_META = [
     color: "text-violet-600",
     bg: "bg-violet-50",
   },
+  {
+    key: "anon_name",
+    label: "RGPD — Anonymiser les noms",
+    description: "Affiche les noms sous la forme « J*** D*** » pour les utilisateurs non privilégiés (Modérateur/Admin/Superviseur voient toujours en clair).",
+    icon: ShieldCheck,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    rgpd: true,
+  },
+  {
+    key: "anon_email",
+    label: "RGPD — Anonymiser les emails",
+    description: "Affiche les emails sous la forme « j***@gmail.com ».",
+    icon: ShieldCheck,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    rgpd: true,
+  },
+  {
+    key: "anon_phone",
+    label: "RGPD — Anonymiser les téléphones",
+    description: "Affiche les numéros sous la forme « +225 07 ** ** ** 89 ».",
+    icon: ShieldCheck,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    rgpd: true,
+  },
+  {
+    key: "anon_whatsapp",
+    label: "RGPD — Anonymiser les WhatsApp",
+    description: "Même format que téléphone, appliqué au champ WhatsApp.",
+    icon: ShieldCheck,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+    rgpd: true,
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_email: false, anon_phone: false, anon_whatsapp: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

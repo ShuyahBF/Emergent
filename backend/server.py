@@ -1424,6 +1424,34 @@ def _pawapay_str(field: Any) -> Optional[str]:
     return str(field)[:300]
 
 
+def _safe_text(field: Any, max_len: int = 300) -> Optional[str]:
+    """Generic coercer for upstream API messages that may arrive as nested
+    dicts or lists. Always returns a single short printable string (or None)
+    so React JSX never receives a raw object → "Objects are not valid as a
+    React child" crash. Use this for any value piped into the frontend that
+    was originally produced by a third-party API response."""
+    if field is None:
+        return None
+    if isinstance(field, str):
+        return field[:max_len]
+    if isinstance(field, dict):
+        # Try common message keys first, then fall back to compact JSON
+        for k in ("message", "description", "detail", "error", "errorMessage", "text"):
+            v = field.get(k)
+            if isinstance(v, str) and v:
+                return v[:max_len]
+        try:
+            return json.dumps(field, default=str)[:max_len]
+        except Exception:
+            return str(field)[:max_len]
+    if isinstance(field, list):
+        try:
+            return ", ".join(_safe_text(x, max_len) or "" for x in field if x is not None)[:max_len]
+        except Exception:
+            return str(field)[:max_len]
+    return str(field)[:max_len]
+
+
 def _pawapay_active_token(s: Dict[str, Any]) -> Optional[str]:
     env = (s.get("pawapay_environment") or "sandbox").lower()
     if env == "production":
@@ -2325,6 +2353,13 @@ DEFAULT_CLIENT_FEATURES = {
     "ai": False,
     "payments": False,
     "webhook_returns": False,  # Show outbound-webhook execution result modals on POST/PUT/DELETE
+    # RGPD anonymization toggles — when ON, the corresponding field is masked
+    # in API responses for users whose role is NOT one of: admin, superviseur,
+    # moderateur. Inherited automatically by tracked users of this client.
+    "anon_name": False,
+    "anon_email": False,
+    "anon_phone": False,
+    "anon_whatsapp": False,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -2351,12 +2386,91 @@ def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
     return out
 
 
+# ---------- RGPD anonymization (per-client toggles inherited by tracked users) ----------
+RGPD_PRIVILEGED_ROLES = {"admin", "superviseur", "moderateur"}
+
+
+def _anon_name(name: Optional[str]) -> Optional[str]:
+    """Anonymize a person/company name as `J*** D***`. Each whitespace-token
+    keeps its first character followed by 3 stars. Single-token names get
+    the same treatment. Empty input is returned as-is."""
+    if not name:
+        return name
+    parts = (name or "").strip().split()
+    if not parts:
+        return name
+    return " ".join((p[0] + "***") if p else "" for p in parts)
+
+
+def _anon_email(email: Optional[str]) -> Optional[str]:
+    """Anonymize an email as `j***@gmail.com` (1st letter + stars + domain)."""
+    if not email or "@" not in email:
+        return email
+    local, _, domain = email.partition("@")
+    if not local:
+        return f"***@{domain}"
+    return f"{local[0]}***@{domain}"
+
+
+def _anon_phone(phone: Optional[str]) -> Optional[str]:
+    """Anonymize a phone as `+225 07 ** ** ** 89`. Keeps non-digit prefixes
+    (e.g. country code), masks the middle, keeps the last 2 digits."""
+    if not phone:
+        return phone
+    digits = "".join(ch for ch in phone if ch.isdigit())
+    if len(digits) < 4:
+        return "***"
+    keep_last = digits[-2:]
+    masked_middle = "*" * max(0, len(digits) - 4)
+    keep_first = digits[:2]
+    return f"+{keep_first} {masked_middle[:2]} {masked_middle[2:4]} {masked_middle[4:6]} {keep_last}".replace("  ", " ").strip()
+
+
+async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
+    """Return the anon_* flags that apply to the current viewer.
+    Privileged roles (admin/superviseur/moderateur) get all flags as False so
+    they always see the data in clear. Other users inherit the parent client's
+    flags — false (no anonymization) by default."""
+    role = (viewer.get("role") or "").lower()
+    if role in RGPD_PRIVILEGED_ROLES:
+        return {"anon_name": False, "anon_email": False, "anon_phone": False, "anon_whatsapp": False}
+    parent_id = viewer.get("client_id") or viewer.get("id")
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+    feats = _normalize_features((parent or {}).get("features"))
+    return {
+        "anon_name": bool(feats.get("anon_name")),
+        "anon_email": bool(feats.get("anon_email")),
+        "anon_phone": bool(feats.get("anon_phone")),
+        "anon_whatsapp": bool(feats.get("anon_whatsapp")),
+    }
+
+
+def _apply_anon_to_contact(c: Dict[str, Any], flags: Dict[str, bool]) -> Dict[str, Any]:
+    """Mutate a copy of a contact dict to mask sensitive fields per flags.
+    Returns a new dict (does not modify the input)."""
+    out = dict(c)
+    if flags.get("anon_name"):
+        out["name"] = _anon_name(out.get("name")) or out.get("name")
+        out["company"] = _anon_name(out.get("company")) or out.get("company")
+    if flags.get("anon_email"):
+        out["email"] = _anon_email(out.get("email")) or out.get("email")
+    if flags.get("anon_phone"):
+        out["phone"] = _anon_phone(out.get("phone")) or out.get("phone")
+    if flags.get("anon_whatsapp"):
+        out["whatsapp"] = _anon_phone(out.get("whatsapp")) or out.get("whatsapp")
+    return out
+
+
 class ClientFeaturesUpdate(BaseModel):
     whatsapp: Optional[bool] = None
     sms: Optional[bool] = None
     ai: Optional[bool] = None
     payments: Optional[bool] = None
     webhook_returns: Optional[bool] = None
+    anon_name: Optional[bool] = None
+    anon_email: Optional[bool] = None
+    anon_phone: Optional[bool] = None
+    anon_whatsapp: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 
@@ -5770,6 +5884,7 @@ ALLOWED_COLLECTIONS = {
     "formations", "formation_modules", "formation_enrollments", "formation_visits", "formation_qa",
     "otps", "counters", "auth_checks", "uptime_checks", "incidents", "incident_subscribers",
     "user_module_visits", "forms", "form_submissions", "directory_contacts", "whatsapp_messages", "whatsapp_schedules", "automations", "client_notes", "client_tasks", "policies", "ai_summaries", "payments",
+    "subscription_plans", "subscription_categories", "subscription_orders", "wa_pending_imports",
 }
 
 
@@ -6976,13 +7091,17 @@ class ContactUpdate(BaseModel):
 
 @api.get("/me/contacts", tags=["Portail Client"])
 async def me_list_contacts(user: dict = Depends(get_current_user)):
-    """List contacts: owned by me + shared within my client scope."""
+    """List contacts: owned by me + shared within my client scope.
+    RGPD: applies per-client anonymization flags for non-privileged roles."""
     client_scope = (user.get("client_id") or user.get("id"))
     query = {"$or": [
         {"client_id": client_scope, "owner_id": user["id"]},
         {"client_id": client_scope, "shared": True},
     ]}
     items = await db.directory_contacts.find(query, {"_id": 0}).sort("name", 1).to_list(2000)
+    flags = await _resolve_anon_flags(user)
+    if any(flags.values()):
+        items = [_apply_anon_to_contact(c, flags) for c in items]
     return items
 
 
@@ -7092,6 +7211,139 @@ async def me_delete_contact_photo(cid: str, user: dict = Depends(get_current_use
         {"id": cid},
         {"$set": {"photo_url": None, "photo_updated_at": _now()}},
     )
+    return {"ok": True}
+
+
+# ---------- WhatsApp profile sync (manual button + auto on first inbound) ----------
+# IMPORTANT: Meta Cloud API does NOT expose third-party profile pictures or
+# `about` fields — privacy by design. The only field we can reliably retrieve
+# is `profile.name` from the `contacts[]` array of inbound webhooks. The
+# button below therefore reads the most recent inbound for the contact's
+# phone and pulls the latest `from_profile_name` we logged. It does NOT make
+# a real-time API call to Meta (no such endpoint exists).
+@api.post("/me/contacts/{cid}/wa-sync", tags=["Portail Client"])
+async def me_contact_wa_sync(cid: str, user: dict = Depends(get_current_user)):
+    """Read the latest WhatsApp profile name we observed for this contact's
+    phone in inbound messages and store it on the contact. Returns the
+    suggested name so the UI can prompt the user before overwriting."""
+    contact = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable")
+    if contact.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Modification non autorisée")
+
+    digits = []
+    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
+        d = "".join(ch for ch in (raw or "") if ch.isdigit())
+        if d:
+            digits.append(d)
+    if not digits:
+        raise HTTPException(status_code=400, detail="Aucun numéro de téléphone configuré sur ce contact")
+
+    msg = await db.whatsapp_messages.find_one(
+        {
+            "direction": "inbound",
+            "phone_digits": {"$in": digits},
+            "from_profile_name": {"$nin": [None, ""]},
+        },
+        {"_id": 0, "from_profile_name": 1, "received_at": 1, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    if not msg:
+        return {
+            "ok": False,
+            "reason": "no_inbound",
+            "message": "Aucun message reçu de ce contact pour le moment. La synchronisation s'effectuera automatiquement dès qu'il vous écrira sur WhatsApp.",
+        }
+
+    suggested = (msg.get("from_profile_name") or "").strip()
+    if not suggested:
+        return {"ok": False, "reason": "no_profile_name", "message": "Le contact n'a pas de nom de profil WhatsApp public."}
+
+    await db.directory_contacts.update_one(
+        {"id": cid},
+        {"$set": {"wa_profile_name": suggested, "wa_profile_synced_at": _now()}},
+    )
+    return {
+        "ok": True,
+        "suggested_name": suggested,
+        "current_name": contact.get("name"),
+        "observed_at": msg.get("received_at") or msg.get("created_at"),
+        "note": "Meta Cloud API n'expose pas la photo de profil. Téléversez-la manuellement.",
+    }
+
+
+@api.get("/me/wa-pending-imports", tags=["Portail Client"])
+async def me_list_wa_pending_imports(user: dict = Depends(get_current_user)):
+    """List unknown phone numbers that have written to our WhatsApp Business
+    line but aren't yet in the directory. Sorted by last_seen_at desc."""
+    client_scope = (user.get("client_id") or user.get("id"))
+    q = {} if user.get("role") == "admin" else {"client_id": client_scope}
+    items = await db.wa_pending_imports.find(q, {"_id": 0}).sort("last_seen_at", -1).to_list(50)
+    return items
+
+
+class WaPendingImportRequest(BaseModel):
+    name: Optional[str] = None  # If empty, fallback to wa_profile_name
+    company: Optional[str] = None
+    email: Optional[str] = None
+
+
+@api.post("/me/wa-pending-imports/{pending_id}/import", tags=["Portail Client"])
+async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest, user: dict = Depends(get_current_user)):
+    """Promote a pending WA inbound to a full directory contact. Optionally
+    overrides the suggested name."""
+    pending = await db.wa_pending_imports.find_one({"id": pending_id}, {"_id": 0})
+    if not pending:
+        raise HTTPException(status_code=404, detail="Inconnu")
+    client_scope = (user.get("client_id") or user.get("id"))
+    if user.get("role") != "admin" and pending.get("client_id") != client_scope:
+        raise HTTPException(status_code=403, detail="Hors de votre périmètre")
+    name = (payload.name or pending.get("wa_profile_name") or pending.get("from") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="Nom requis")
+    new_id = _uuid()
+    contact = {
+        "id": new_id,
+        "client_id": client_scope,
+        "owner_id": user["id"],
+        "name": name,
+        "phone": pending.get("from") or "",
+        "whatsapp": pending.get("from") or "",
+        "email": (payload.email or "").strip(),
+        "company": (payload.company or "").strip(),
+        "notes": f"Importé depuis WhatsApp ({pending.get('messages_count', 0)} message(s) reçu(s))",
+        "tags": ["wa-import"],
+        "shared": False,
+        "photo_url": None,
+        "wa_profile_name": pending.get("wa_profile_name"),
+        "wa_profile_synced_at": _now(),
+        "created_at": _now(),
+    }
+    await db.directory_contacts.insert_one(contact.copy())
+    # Re-link past inbound messages to the new contact
+    digits = pending.get("phone_digits") or ""
+    if digits:
+        await db.whatsapp_messages.update_many(
+            {"client_id": client_scope, "direction": "inbound", "phone_digits": digits, "contact_id": None},
+            {"$set": {"contact_id": new_id, "contact_name": name}},
+        )
+    await db.wa_pending_imports.delete_one({"id": pending_id})
+    contact.pop("_id", None)
+    return {"ok": True, "contact": contact}
+
+
+@api.delete("/me/wa-pending-imports/{pending_id}", tags=["Portail Client"])
+async def me_dismiss_wa_pending(pending_id: str, user: dict = Depends(get_current_user)):
+    """Permanently dismiss a pending WA inbound (won't reappear unless they
+    write to us again)."""
+    pending = await db.wa_pending_imports.find_one({"id": pending_id}, {"_id": 0})
+    if not pending:
+        raise HTTPException(status_code=404, detail="Inconnu")
+    client_scope = (user.get("client_id") or user.get("id"))
+    if user.get("role") != "admin" and pending.get("client_id") != client_scope:
+        raise HTTPException(status_code=403, detail="Hors de votre périmètre")
+    await db.wa_pending_imports.delete_one({"id": pending_id})
     return {"ok": True}
 
 
@@ -7491,12 +7743,12 @@ async def _sms_send_ovh(cfg: Dict[str, Any], msisdn_e164: str, message: str, sen
             except Exception:  # noqa: BLE001
                 resp = {"raw": r.text[:500]}
             if r.status_code >= 300:
-                return {"ok": False, "status": "failed", "http_status": r.status_code, "api_message": (resp.get("message") if isinstance(resp, dict) else None) or f"HTTP {r.status_code}", "raw_response": resp}
+                return {"ok": False, "status": "failed", "http_status": r.status_code, "api_message": _safe_text(resp.get("message") if isinstance(resp, dict) else None) or f"HTTP {r.status_code}", "raw_response": resp}
             invalid = (resp.get("invalidReceivers") or []) if isinstance(resp, dict) else []
             valid = (resp.get("validReceivers") or []) if isinstance(resp, dict) else []
             if invalid and not valid:
                 return {"ok": False, "status": "failed", "api_message": f"Numéro rejeté : {', '.join(invalid)}", "raw_response": resp}
-            return {"ok": True, "status": "sent", "http_status": r.status_code, "api_message": (resp.get("message") if isinstance(resp, dict) else None), "raw_response": resp}
+            return {"ok": True, "status": "sent", "http_status": r.status_code, "api_message": _safe_text(resp.get("message") if isinstance(resp, dict) else None), "raw_response": resp}
     except httpx.TimeoutException:
         return {"ok": False, "status": "failed", "api_message": "OVH timeout"}
     except Exception as exc:  # noqa: BLE001
@@ -7555,7 +7807,7 @@ async def _sms_send_generic(cfg: Dict[str, Any], msisdn: str, message: str, send
                 "ok": ok,
                 "status": "sent" if ok else "failed",
                 "http_status": r.status_code,
-                "api_message": (resp.get("message") if isinstance(resp, dict) else None) or (None if ok else f"HTTP {r.status_code}"),
+                "api_message": _safe_text(resp.get("message") if isinstance(resp, dict) else None) or (None if ok else f"HTTP {r.status_code}"),
                 "raw_response": resp,
             }
     except httpx.TimeoutException:
@@ -7642,7 +7894,7 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
     await db.sms_messages.insert_one(doc.copy())
     doc.pop("_id", None)
     return {"ok": result.get("ok"), "provider": result.get("provider"), "status": result.get("status"),
-            "error": None if result.get("ok") else result.get("api_message"),
+            "error": None if result.get("ok") else _safe_text(result.get("api_message")),
             "http_status": result.get("http_status"), "id": doc["id"]}
 
 
@@ -8133,11 +8385,22 @@ async def whatsapp_webhook_incoming(request: Request):
     for entry in body.get("entry") or []:
         for change in entry.get("changes") or []:
             val = change.get("value") or {}
+            # Build a wa_id → profile.name map from the contacts array (Meta
+            # always includes it alongside inbound messages). Used to:
+            #  1. fill `from_profile_name` on inbound messages
+            #  2. suggest a name when an unknown contact writes for the first time
+            profile_by_wa: Dict[str, Optional[str]] = {}
+            for c in val.get("contacts") or []:
+                wa_id = c.get("wa_id") or ""
+                pname = ((c.get("profile") or {}).get("name") or "").strip() or None
+                if wa_id:
+                    profile_by_wa[wa_id] = pname
             # --- Inbound messages ---
             for msg in val.get("messages") or []:
                 try:
                     from_num = msg.get("from") or ""
                     digits_only = "".join(ch for ch in from_num if ch.isdigit())
+                    profile_name = profile_by_wa.get(from_num) or profile_by_wa.get(digits_only)
                     mtype = msg.get("type") or "text"
                     text_body = None
                     if mtype == "text":
@@ -8154,7 +8417,7 @@ async def whatsapp_webhook_incoming(request: Request):
                     # Find contact by phone within the scope
                     contact = await db.directory_contacts.find_one(
                         {"$or": [{"whatsapp": {"$regex": digits_only}}, {"phone": {"$regex": digits_only}}]},
-                        {"_id": 0, "id": 1, "client_id": 1, "name": 1},
+                        {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
                     ) if digits_only else None
                     scope_for_msg = (contact or {}).get("client_id") or client_scope
                     doc = {
@@ -8164,6 +8427,7 @@ async def whatsapp_webhook_incoming(request: Request):
                         "contact_id": (contact or {}).get("id"),
                         "contact_name": (contact or {}).get("name"),
                         "from": from_num,
+                        "from_profile_name": profile_name,
                         "phone_digits": digits_only,
                         "body": text_body,
                         "message_type": mtype,
@@ -8173,6 +8437,36 @@ async def whatsapp_webhook_incoming(request: Request):
                         "read_by_us_at": None,
                     }
                     await db.whatsapp_messages.insert_one(doc)
+                    # Persist the latest profile name on the contact (or create a
+                    # "wa_unmapped" record so the admin can review and import it).
+                    if profile_name:
+                        if contact:
+                            await db.directory_contacts.update_one(
+                                {"id": contact["id"]},
+                                {"$set": {"wa_profile_name": profile_name, "wa_profile_synced_at": _now()}},
+                            )
+                        else:
+                            # Unknown sender — upsert a `wa_pending_imports` record
+                            # so the admin can decide to create a contact or ignore.
+                            await db.wa_pending_imports.update_one(
+                                {"phone_digits": digits_only, "client_id": client_scope},
+                                {
+                                    "$setOnInsert": {
+                                        "id": _uuid(),
+                                        "phone_digits": digits_only,
+                                        "from": from_num,
+                                        "client_id": client_scope,
+                                        "first_seen_at": _now(),
+                                    },
+                                    "$set": {
+                                        "wa_profile_name": profile_name,
+                                        "last_seen_at": _now(),
+                                        "last_message": (text_body or "")[:200],
+                                    },
+                                    "$inc": {"messages_count": 1},
+                                },
+                                upsert=True,
+                            )
                     # Liluvine remote command? (only on plain text messages)
                     if mtype == "text" and text_body and (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
                         try:
@@ -10467,7 +10761,6 @@ async def me_module_ask(fid: str, mid: str, payload: FormationModuleQuestion, us
 # ====================================================================
 # REGISTER & STARTUP
 # ====================================================================
-app.include_router(api)
 
 
 @app.on_event("startup")
@@ -10775,6 +11068,242 @@ async def on_startup():
         logger.warning("Scheduler init failed: %s", exc)
 
 
+# ====================================================================
+# SUBSCRIPTIONS MODULE — admin CRUD + public list + public order endpoint.
+#
+# • subscription_categories : 4 max categories (admin-defined groupings).
+# • subscription_plans : individual offers shown on the public page.
+#   Code format: FML + YYYY + 4-digit sequence reset every year.
+# • subscription_orders : public-side leads. Triggers a WhatsApp
+#   notification (+ optional automation webhook) when validated.
+# ====================================================================
+async def _next_subscription_code() -> str:
+    year = datetime.now(timezone.utc).year
+    prefix = f"FML{year}"
+    cursor = db.subscription_plans.find({"code": {"$regex": f"^{prefix}"}}, {"_id": 0, "code": 1}).sort("code", -1).limit(1)
+    last = None
+    async for d in cursor:
+        last = d.get("code")
+        break
+    if last and len(last) == len(prefix) + 4:
+        try:
+            n = int(last[len(prefix):]) + 1
+        except Exception:
+            n = 1
+    else:
+        n = 1
+    return f"{prefix}{n:04d}"
+
+
+class SubscriptionCategoryCreate(BaseModel):
+    label: str
+    color: Optional[str] = "#0D6EFD"
+    position: Optional[int] = 0
+    animated: Optional[bool] = True
+
+
+class SubscriptionCategoryUpdate(BaseModel):
+    label: Optional[str] = None
+    color: Optional[str] = None
+    position: Optional[int] = None
+    animated: Optional[bool] = None
+
+
+class SubscriptionPlanCreate(BaseModel):
+    name: str
+    category_id: Optional[str] = None
+    description: Optional[str] = ""
+    price_monthly_xof: int = 0
+    price_annual_xof: int = 0
+    featured: Optional[bool] = False
+    active: Optional[bool] = True
+    automation_url: Optional[str] = ""
+    whatsapp_notify_to: Optional[str] = ""
+
+
+class SubscriptionPlanUpdate(BaseModel):
+    name: Optional[str] = None
+    category_id: Optional[str] = None
+    description: Optional[str] = None
+    price_monthly_xof: Optional[int] = None
+    price_annual_xof: Optional[int] = None
+    featured: Optional[bool] = None
+    active: Optional[bool] = None
+    automation_url: Optional[str] = None
+    whatsapp_notify_to: Optional[str] = None
+
+
+class SubscriptionOrderCreate(BaseModel):
+    plan_id: str
+    period: str  # "monthly" | "annual"
+    customer_name: str
+    customer_email: Optional[str] = ""
+    customer_phone: str
+    message: Optional[str] = ""
+
+
+@api.get("/admin/subscriptions/categories", tags=["Admin"])
+async def admin_list_subscription_categories(user: dict = Depends(get_current_admin)):
+    items = await db.subscription_categories.find({}, {"_id": 0}).sort("position", 1).to_list(20)
+    return items
+
+
+@api.post("/admin/subscriptions/categories", tags=["Admin"])
+async def admin_create_subscription_category(payload: SubscriptionCategoryCreate, user: dict = Depends(get_current_admin)):
+    n = await db.subscription_categories.count_documents({})
+    if n >= 4:
+        raise HTTPException(status_code=400, detail="Maximum 4 catégories autorisées")
+    doc = {
+        "id": _uuid(),
+        "label": payload.label.strip()[:60],
+        "color": (payload.color or "#0D6EFD")[:20],
+        "position": int(payload.position or 0),
+        "animated": bool(payload.animated if payload.animated is not None else True),
+        "created_at": _now(),
+    }
+    await db.subscription_categories.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/subscriptions/categories/{cat_id}", tags=["Admin"])
+async def admin_update_subscription_category(cat_id: str, payload: SubscriptionCategoryUpdate, user: dict = Depends(get_current_admin)):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucune modification")
+    await db.subscription_categories.update_one({"id": cat_id}, {"$set": update})
+    doc = await db.subscription_categories.find_one({"id": cat_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Catégorie introuvable")
+    return doc
+
+
+@api.delete("/admin/subscriptions/categories/{cat_id}", tags=["Admin"])
+async def admin_delete_subscription_category(cat_id: str, user: dict = Depends(get_current_admin)):
+    await db.subscription_categories.delete_one({"id": cat_id})
+    await db.subscription_plans.update_many({"category_id": cat_id}, {"$set": {"category_id": None}})
+    return {"ok": True}
+
+
+@api.get("/admin/subscriptions/plans", tags=["Admin"])
+async def admin_list_subscription_plans(user: dict = Depends(get_current_admin)):
+    items = await db.subscription_plans.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+
+@api.post("/admin/subscriptions/plans", tags=["Admin"])
+async def admin_create_subscription_plan(payload: SubscriptionPlanCreate, user: dict = Depends(get_current_admin)):
+    code = await _next_subscription_code()
+    doc = {
+        "id": _uuid(),
+        "code": code,
+        "name": payload.name.strip()[:120],
+        "category_id": payload.category_id,
+        "description": (payload.description or "").strip(),
+        "price_monthly_xof": max(0, int(payload.price_monthly_xof or 0)),
+        "price_annual_xof": max(0, int(payload.price_annual_xof or 0)),
+        "featured": bool(payload.featured),
+        "active": bool(payload.active if payload.active is not None else True),
+        "automation_url": (payload.automation_url or "").strip(),
+        "whatsapp_notify_to": (payload.whatsapp_notify_to or "").strip(),
+        "created_at": _now(),
+        "updated_at": _now(),
+    }
+    await db.subscription_plans.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return doc
+
+
+@api.put("/admin/subscriptions/plans/{plan_id}", tags=["Admin"])
+async def admin_update_subscription_plan(plan_id: str, payload: SubscriptionPlanUpdate, user: dict = Depends(get_current_admin)):
+    update = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucune modification")
+    update["updated_at"] = _now()
+    await db.subscription_plans.update_one({"id": plan_id}, {"$set": update})
+    doc = await db.subscription_plans.find_one({"id": plan_id}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Formule introuvable")
+    return doc
+
+
+@api.delete("/admin/subscriptions/plans/{plan_id}", tags=["Admin"])
+async def admin_delete_subscription_plan(plan_id: str, user: dict = Depends(get_current_admin)):
+    await db.subscription_plans.delete_one({"id": plan_id})
+    return {"ok": True}
+
+
+@api.get("/admin/subscriptions/orders", tags=["Admin"])
+async def admin_list_subscription_orders(user: dict = Depends(get_current_admin)):
+    items = await db.subscription_orders.find({}, {"_id": 0}).sort("created_at", -1).to_list(200)
+    return items
+
+
+@api.get("/public/subscriptions", tags=["Public"])
+async def public_list_subscriptions():
+    """Public: returns active plans grouped by category (max 4 categories)."""
+    cats = await db.subscription_categories.find({}, {"_id": 0}).sort("position", 1).to_list(4)
+    plans = await db.subscription_plans.find({"active": True}, {"_id": 0, "automation_url": 0, "whatsapp_notify_to": 0}).sort("created_at", 1).to_list(100)
+    return {"categories": cats, "plans": plans}
+
+
+@api.post("/public/subscriptions/order", tags=["Public"])
+async def public_create_subscription_order(payload: SubscriptionOrderCreate, request: Request):
+    plan = await db.subscription_plans.find_one({"id": payload.plan_id, "active": True}, {"_id": 0})
+    if not plan:
+        raise HTTPException(status_code=404, detail="Formule introuvable ou désactivée")
+    if payload.period not in ("monthly", "annual"):
+        raise HTTPException(status_code=400, detail="Période invalide")
+    if not (payload.customer_name or "").strip() or not (payload.customer_phone or "").strip():
+        raise HTTPException(status_code=400, detail="Nom et téléphone requis")
+    amount = plan.get("price_monthly_xof") if payload.period == "monthly" else plan.get("price_annual_xof")
+    order = {
+        "id": _uuid(),
+        "plan_id": payload.plan_id,
+        "plan_code": plan.get("code"),
+        "plan_name": plan.get("name"),
+        "period": payload.period,
+        "amount_xof": amount,
+        "customer_name": payload.customer_name.strip()[:120],
+        "customer_email": (payload.customer_email or "").strip()[:200],
+        "customer_phone": payload.customer_phone.strip()[:30],
+        "message": (payload.message or "").strip()[:1000],
+        "ip": _client_ip_from_request(request),
+        "status": "pending",
+        "created_at": _now(),
+    }
+    await db.subscription_orders.insert_one(order.copy())
+    order.pop("_id", None)
+
+    notify_to = (plan.get("whatsapp_notify_to") or "").strip()
+    if notify_to:
+        try:
+            text = (
+                f"🆕 Nouvelle souscription\n"
+                f"Formule : {plan.get('name')} ({plan.get('code')})\n"
+                f"Période : {'Mensuel' if payload.period == 'monthly' else 'Annuel'} — {amount:,} XOF\n"
+                f"Client : {order['customer_name']}\n"
+                f"Téléphone : {order['customer_phone']}\n"
+                f"Email : {order['customer_email'] or '—'}\n"
+                f"Message : {order['message'] or '—'}"
+            )
+            await _wa_send_text(notify_to, text)
+            await db.subscription_orders.update_one({"id": order["id"]}, {"$set": {"status": "notified"}})
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("subscription wa-notify failed: %s", exc)
+
+    auto_url = (plan.get("automation_url") or "").strip()
+    if auto_url:
+        try:
+            async with httpx.AsyncClient(timeout=8) as http:
+                await http.post(auto_url, json=order)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("subscription automation webhook failed: %s", exc)
+
+    return {"ok": True, "order_id": order["id"], "next_step": "Notre équipe vous contactera sous 24h pour finaliser votre souscription."}
+
+
+
 @app.on_event("shutdown")
 async def on_shutdown():
     try:
@@ -10782,3 +11311,10 @@ async def on_shutdown():
             _scheduler.shutdown(wait=False)
     except Exception:  # noqa: BLE001
         pass
+
+
+
+# Register the API router at the very end, after every endpoint has been
+# declared. This is critical: include_router() snapshots routes at call time,
+# so any @api.* decorator added below this line would NOT be exposed.
+app.include_router(api)

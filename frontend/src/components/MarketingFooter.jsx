@@ -42,7 +42,7 @@ export default function MarketingFooter() {
             <li><Link to="/specialisations" className="hover:text-sawali-blue-light">Spécialisations</Link></li>
             <li><Link to="/catalogue" className="hover:text-sawali-blue-light">Catalogue</Link></li>
             <li><Link to="/etudes-de-cas" className="hover:text-sawali-blue-light">Études de cas</Link></li>
-            <li><Link to="/blog" className="hover:text-sawali-blue-light">Blog</Link></li>
+            <li><Link to="/subscriptions" className="hover:text-sawali-blue-light">Abonnements</Link></li>
             <li><Link to="/temoignages" className="hover:text-sawali-blue-light">Témoignages</Link></li>
             <li><Link to="/rdv" className="hover:text-sawali-blue-light">Demande de RDV</Link></li>
           </ul>

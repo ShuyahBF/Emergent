@@ -68,6 +68,31 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-09 — Itération 51 : Bug SMS fix + WhatsApp Profile Sync + Module Abonnements + RGPD anonymisation
+✅ **Bug SMS résolu** : `_sms_send_generic` et `_sms_send_ovh` retournaient un dict dans `api_message` quand `resp.get("message")` était lui-même un objet (Orange/Moov/Telecel parfois). Frontend rendait directement `result.error` → crash React → page blanche identique à PawaPay. Fix double couche :
+   - **Backend** : nouveau helper `_safe_text(field, max_len=300)` qui coerce dict/list en string. Appliqué aux 3 retours `api_message` SMS + au champ `error` final de `me_sms_send`.
+   - **Frontend** : helper `safeText()` dans `Contacts.jsx` et `SmsBulk.jsx`, utilisé sur `result.error/.provider/.http_status` + tous les `toast.error(err?.response?.data?.detail)`.
+✅ **WhatsApp Profile Sync** :
+   - Webhook `/whatsapp/webhook` lit désormais `entry[].changes[].value.contacts[].profile.name` et le stocke (`from_profile_name` sur le message + `wa_profile_name` sur le contact).
+   - Nouveau bouton vert **« Synchro WA »** dans le modal Modifier le contact → `POST /me/contacts/{cid}/wa-sync` lit le dernier inbound stocké et propose le nom (avec confirmation avant écrasement).
+   - Auto-import sur première réception : numéros inconnus accumulés dans `wa_pending_imports`, exposés via `GET /me/wa-pending-imports`. Bandeau ambre `<PendingImportsBanner>` en haut de la page Contacts → bouton 1-clic "Importer" qui crée le contact + rattache les messages passés. Bouton "Ignorer" supprime l'entrée.
+   - **Limitation Meta documentée** : photo de profil et statut/about ne sont PAS exposés par Cloud API → upload manuel reste la seule voie.
+✅ **Module Abonnements** (remplace Blog en navigation publique, Blog admin reste accessible) :
+   - 3 collections Mongo : `subscription_categories` (4 max, label/color/position/animated), `subscription_plans` (auto-code FMLYYYYNNNN, prix mensuel + annuel, featured, automation_url, whatsapp_notify_to), `subscription_orders` (leads publics).
+   - Helper `_next_subscription_code()` génère séquence par année.
+   - 11 endpoints : 5 CRUD admin catégories + 5 CRUD admin plans + 1 admin orders + 2 publics (`GET /public/subscriptions` filtre les champs sensibles, `POST /public/subscriptions/order` valide → notifie WhatsApp + hit webhook automation).
+   - **Pages frontend** : `/admin/subscriptions` (3 onglets : Formules, Catégories, Souscriptions, modals édition complets), `/subscriptions` publique (toggle Mensuel/Annuel avec économie calculée, filtres par catégorie, animations CSS hover scale-1.025 si `cat.animated=true`, badge "★ Recommandée" pour `featured`, modal souscription → `submit` → confirmation 24h).
+   - Nav publique : `/blog` → `/subscriptions` dans `MarketingNav` + `MarketingFooter`. Blog admin & blog routes publiques préservés.
+✅ **RGPD anonymisation par-client** :
+   - 4 nouveaux flags : `anon_name`, `anon_email`, `anon_phone`, `anon_whatsapp` ajoutés à `DEFAULT_CLIENT_FEATURES`.
+   - Helpers backend `_anon_name` (`J*** D***`), `_anon_email` (`j***@gmail.com`), `_anon_phone` (`+22 ** ** ** 56`), `_apply_anon_to_contact`, et `_resolve_anon_flags(viewer)` qui retourne tout `False` pour les rôles privilégiés (`admin`, `superviseur`, `moderateur`).
+   - Hérité automatiquement : un utilisateur suivi voit l'anonymisation appliquée si son client parent l'a activée.
+   - Endpoint `GET /me/contacts` applique les flags via `_apply_anon_to_contact`.
+   - UI : 4 nouveaux tiles "RGPD —" rose dans `/admin/clients/{id}/features`.
+✅ **CRITIQUE — bug `app.include_router(api)` déplacé** : la fonction était appelée à la ligne 10764 mais les nouveaux endpoints subscriptions/wa-sync/wa-pending étaient ajoutés APRÈS → 404 sur tous. Déplacé tout en bas du fichier (avec commentaire explicatif).
+✅ Tests curl complets : webhook avec `contacts[]` → `wa_pending_imports` upserté, import → contact créé avec wa_profile_name + tag `wa-import`, wa-sync retourne suggestion. Subscriptions : catégorie + plan créés (code `FML20260001` généré), public list filtre les champs sensibles. RGPD : tracker (utilisateur) voit `J*** D***` + `j***@acme.fr` + `+22 ** ** ** 56`, admin (privilégié) voit en clair.
+✅ Validation Playwright : page admin Abonnements avec 3 onglets, page publique `/subscriptions` avec H1 "Choisissez votre formule" + toggle, modal Modifier contact avec bouton vert "Synchro WA".
+
 ### 2026-05-09 — Itération 50 : Liens stubs Caisse/Facturation/Catalogue/Tickets + Webhook par-client + Pictogramme auteur + Photo contact
 ✅ **Liens stubs** : 4 nouveaux liens sidebar portail (Caisse, Facturation, Catalogue, Tickets) avec badge "Bientôt" doré. Page partagée `ComingSoon.jsx` qui affiche un descriptif différent selon le path et 3 bullets de fonctionnalités prévues.
 ✅ **Visibilité retours de webhook par-client** : ajout de la feature `webhook_returns` dans `DEFAULT_CLIENT_FEATURES` + `ClientFeaturesUpdate`. `WebhookResultModal.jsx` consulte `/me/features` au mount + refresh toutes les 5 min. Si `webhook_returns=false` → tous les events `sawali:webhook-result` sont ignorés (pas de modal). Hérité automatiquement par les utilisateurs suivis du client. UI : 5e tile violet "Retours de Webhook" dans `/admin/clients/{id}/features`.

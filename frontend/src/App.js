@@ -104,7 +104,6 @@ import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
-import { ErrorBoundary } from "@/components/ErrorBoundary";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import PayLink from "@/pages/public/PayLink";
@@ -181,8 +180,8 @@ export default function App() {
             <Route path="media-library" element={<MediaLibrary />} />
             <Route path="media-generator" element={<MediaGenerator />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
-            <Route path="payments" element={<ErrorBoundary name="MyPayments"><MyPayments /></ErrorBoundary>} />
-            <Route path="sms" element={<ErrorBoundary name="SmsBulk"><SmsBulk /></ErrorBoundary>} />
+            <Route path="payments" element={<MyPayments />} />
+            <Route path="sms" element={<SmsBulk />} />
             {/* Stubs for upcoming modules — render a "Coming soon" placeholder */}
             <Route path="cash" element={<ComingSoon />} />
             <Route path="billing" element={<ComingSoon />} />

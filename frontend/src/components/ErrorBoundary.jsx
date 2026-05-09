@@ -5,6 +5,11 @@ import React from "react";
   message instead of the React 18 "blank screen" default in production
   builds. Forwards a copy-to-clipboard button so the user can give us
   the actual error string when reporting bugs.
+  
+  RESET ON NAVIGATION: pass a `resetKey` prop (e.g. location.pathname) to
+  automatically clear the error state when the user navigates to another
+  route — otherwise a crash on /portal/payments would persist when the user
+  opens /portal/dashboard.
 */
 export class ErrorBoundary extends React.Component {
   state = { error: null, info: null };
@@ -17,6 +22,13 @@ export class ErrorBoundary extends React.Component {
     this.setState({ info });
     // eslint-disable-next-line no-console
     console.error("[ErrorBoundary]", this.props.name || "anonymous", error, info);
+  }
+
+  componentDidUpdate(prevProps) {
+    if (this.state.error && prevProps.resetKey !== this.props.resetKey) {
+      // Route changed — clear the error so the new page can render
+      this.setState({ error: null, info: null });
+    }
   }
 
   copyDetails = () => {
@@ -46,6 +58,7 @@ export class ErrorBoundary extends React.Component {
           <div className="flex gap-2 mt-4">
             <button onClick={() => window.location.reload()} className="rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-sm">Recharger la page</button>
             <button onClick={this.copyDetails} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm">Copier les détails</button>
+            <button onClick={() => this.setState({ error: null, info: null })} className="rounded-lg ring-1 ring-rose-300 bg-white hover:bg-rose-100 px-4 py-2 text-sm" data-testid="error-boundary-dismiss">Réessayer</button>
           </div>
         </div>
       );
@@ -53,3 +66,4 @@ export class ErrorBoundary extends React.Component {
     return this.props.children;
   }
 }
+

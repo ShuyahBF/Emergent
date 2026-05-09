@@ -192,6 +192,25 @@ const SubscriptionOrderModal = ({ plan, period, onClose }) => {
             </div>
             <h2 className="text-xl font-display font-bold">Demande enregistrée !</h2>
             <p className="text-sm text-slate-600 mt-2">{done.next_step || "Notre équipe vous contactera très bientôt."}</p>
+            {done.payment_link_url && (
+              <div className="mt-5 rounded-xl ring-1 ring-emerald-200 bg-emerald-50 p-4 text-left">
+                <p className="text-xs font-semibold text-emerald-900 inline-flex items-center gap-1.5">
+                  <Zap className="h-3.5 w-3.5" /> Régler maintenant via Mobile Money
+                </p>
+                <p className="text-[11px] text-emerald-800 mt-1">
+                  Vous pouvez payer immédiatement votre première échéance ({fmtXOF(amount)}) avec PawaPay (Orange / Moov / Telecel).
+                </p>
+                <a
+                  href={done.payment_link_url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-3 inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 shadow-sm"
+                  data-testid="subs-pay-now-btn"
+                >
+                  Payer maintenant <ChevronRight className="h-4 w-4" />
+                </a>
+              </div>
+            )}
             <button onClick={onClose} className="mt-6 inline-flex rounded-lg bg-sawali-blue text-white px-5 py-2 text-sm hover:bg-sawali-blue-light" data-testid="subs-modal-close-done">Fermer</button>
           </div>
         ) : (

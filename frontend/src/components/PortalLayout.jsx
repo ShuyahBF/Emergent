@@ -2,13 +2,15 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import IncidentBanner from "@/components/IncidentBanner";
 import VersionStamp from "@/components/VersionStamp";
+import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
+import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 function absoluteUrl(u) {
@@ -117,6 +119,9 @@ export default function PortalLayout({ admin = false }) {
     if (admin && user && user.role !== "admin") navigate("/portal");
   }, [user, admin, navigate]);
 
+  // Web Notifications + son sur nouveaux WA
+  const waNotifier = useWhatsAppNotifier();
+
   // Access log every page change for any logged-in portal user
   useEffect(() => {
     if (!user) return;
@@ -198,6 +203,45 @@ export default function PortalLayout({ admin = false }) {
           <p className="text-sm text-white truncate">{user.full_name}</p>
           <p className="text-xs text-sawali-blue-light truncate">{user.email}</p>
         </div>
+        <div className="px-3 py-2 mt-1 rounded-lg bg-white/5 ring-1 ring-white/10 space-y-1.5" data-testid="wa-notifier-controls">
+          <p className="text-[10px] uppercase tracking-wider text-slate-400 inline-flex items-center gap-1.5">
+            <Bell className="h-3 w-3" /> Alerte WhatsApp
+            {waNotifier.unread > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[16px] h-[16px] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold tabular-nums" data-testid="wa-notifier-count">
+                {waNotifier.unread > 99 ? "99+" : waNotifier.unread}
+              </span>
+            )}
+          </p>
+          <div className="flex gap-1">
+            <button
+              onClick={waNotifier.toggleDesktop}
+              className={`flex-1 inline-flex items-center justify-center gap-1 text-[10px] rounded px-1.5 py-1 ring-1 transition-colors ${waNotifier.desktopOn ? "bg-emerald-500/20 text-emerald-200 ring-emerald-400/40" : "bg-white/5 text-slate-400 ring-white/10 hover:bg-white/10"}`}
+              data-testid="wa-notifier-desktop-toggle"
+              title={waNotifier.permission === "denied" ? "Bloqué par le navigateur — réautorisez les notifications dans les paramètres" : (waNotifier.desktopOn ? "Désactiver les notifications" : "Activer les notifications")}
+            >
+              {waNotifier.desktopOn ? <Bell className="h-3 w-3" /> : <BellOff className="h-3 w-3" />}
+              {waNotifier.desktopOn ? "Notif" : "Off"}
+            </button>
+            <button
+              onClick={waNotifier.toggleSound}
+              className={`flex-1 inline-flex items-center justify-center gap-1 text-[10px] rounded px-1.5 py-1 ring-1 transition-colors ${waNotifier.soundOn ? "bg-amber-500/20 text-amber-200 ring-amber-400/40" : "bg-white/5 text-slate-400 ring-white/10 hover:bg-white/10"}`}
+              data-testid="wa-notifier-sound-toggle"
+              title={waNotifier.soundOn ? "Couper le son" : "Activer le son"}
+            >
+              {waNotifier.soundOn ? <Volume2 className="h-3 w-3" /> : <VolumeX className="h-3 w-3" />}
+              {waNotifier.soundOn ? "Son" : "Muet"}
+            </button>
+          </div>
+          {waNotifier.permission === "default" && waNotifier.desktopOn && (
+            <button
+              onClick={waNotifier.requestPermission}
+              className="w-full text-[10px] bg-sawali-blue text-white rounded px-2 py-1 hover:bg-sawali-blue-light"
+              data-testid="wa-notifier-permission-btn"
+            >
+              Autoriser les notifications
+            </button>
+          )}
+        </div>
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"
@@ -240,7 +284,9 @@ export default function PortalLayout({ admin = false }) {
           <div className="w-5" />
         </header>
         <main className="flex-1 p-3 sm:p-6 lg:p-10 min-w-0 max-w-full">
-          <Outlet />
+          <ErrorBoundary name={`portal:${location.pathname}`} resetKey={location.pathname}>
+            <Outlet />
+          </ErrorBoundary>
         </main>
       </div>
       <VersionStamp tone="dark" />

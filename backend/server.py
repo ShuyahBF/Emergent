@@ -2586,9 +2586,42 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
     ]
     ai_agg = {doc["_id"]: doc["count"] async for doc in db.ai_summaries.aggregate(ai_pipeline)}
 
+    # SMS aggregation per client × per provider (sent_ok + sent_ko + total)
+    sms_pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {
+            "_id": {"client_id": "$client_id", "provider": "$provider"},
+            "sent_ok": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "sent_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$status", "failed"]}, {"$eq": ["$status", "error"]}]}, 1, 0]}},
+            "total": {"$sum": 1},
+        }},
+    ]
+    sms_by_client: Dict[str, Dict[str, Any]] = {}
+    sms_by_provider: Dict[str, Dict[str, int]] = {}
+    async for doc in db.sms_messages.aggregate(sms_pipeline):
+        cid = (doc.get("_id") or {}).get("client_id")
+        prov = ((doc.get("_id") or {}).get("provider") or "?").upper()
+        ok = int(doc.get("sent_ok", 0))
+        ko = int(doc.get("sent_ko", 0))
+        tot = int(doc.get("total", 0))
+        if cid:
+            client_row = sms_by_client.setdefault(cid, {"sent_ok": 0, "sent_ko": 0, "total": 0, "by_provider": {}})
+            client_row["sent_ok"] += ok
+            client_row["sent_ko"] += ko
+            client_row["total"] += tot
+            pp = client_row["by_provider"].setdefault(prov, {"sent_ok": 0, "sent_ko": 0, "total": 0})
+            pp["sent_ok"] += ok
+            pp["sent_ko"] += ko
+            pp["total"] += tot
+        prov_row = sms_by_provider.setdefault(prov, {"sent_ok": 0, "sent_ko": 0, "total": 0})
+        prov_row["sent_ok"] += ok
+        prov_row["sent_ko"] += ko
+        prov_row["total"] += tot
+
     # Per-client assembly
     per_client = []
-    tot = {"wa_sent_ok": 0, "wa_sent_ko": 0, "wa_inbound": 0, "wa_total": 0, "wa_cost": 0.0, "ai_count": 0}
+    tot = {"wa_sent_ok": 0, "wa_sent_ko": 0, "wa_inbound": 0, "wa_total": 0, "wa_cost": 0.0, "ai_count": 0,
+           "sms_sent_ok": 0, "sms_sent_ko": 0, "sms_total": 0, "sms_cost": 0.0}
     for cid, c in clients.items():
         wa = wa_agg.get(cid, {})
         unit_cost = float(c.get("wa_unit_cost") or 0)
@@ -2599,6 +2632,9 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
         wa_total = int(wa.get("total", 0))
         wa_cost = wa_ok * unit_cost
         ai_count = int(ai_agg.get(cid, 0))
+        sms_row = sms_by_client.get(cid, {"sent_ok": 0, "sent_ko": 0, "total": 0, "by_provider": {}})
+        sms_unit_cost = float(c.get("sms_unit_cost") or 0)
+        sms_cost = int(sms_row["sent_ok"]) * sms_unit_cost
         features = _normalize_features(c.get("features"))
         per_client.append({
             "client_id": cid,
@@ -2613,6 +2649,12 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
             "wa_currency": currency,
             "wa_cost": wa_cost,
             "ai_summaries": ai_count,
+            "sms_sent_ok": int(sms_row["sent_ok"]),
+            "sms_sent_ko": int(sms_row["sent_ko"]),
+            "sms_total": int(sms_row["total"]),
+            "sms_by_provider": sms_row["by_provider"],
+            "sms_unit_cost": sms_unit_cost,
+            "sms_cost": sms_cost,
         })
         tot["wa_sent_ok"] += wa_ok
         tot["wa_sent_ko"] += wa_ko
@@ -2620,14 +2662,18 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
         tot["wa_total"] += wa_total
         tot["wa_cost"] += wa_cost
         tot["ai_count"] += ai_count
-    per_client.sort(key=lambda r: r["wa_cost"] + r["ai_summaries"], reverse=True)
+        tot["sms_sent_ok"] += int(sms_row["sent_ok"])
+        tot["sms_sent_ko"] += int(sms_row["sent_ko"])
+        tot["sms_total"] += int(sms_row["total"])
+        tot["sms_cost"] += sms_cost
+    per_client.sort(key=lambda r: r["wa_cost"] + r["sms_cost"] + r["ai_summaries"], reverse=True)
 
-    # Daily series — stacked bar data for the 30-day chart
+    # Daily series — stacked bar data for the 30-day chart (WA + AI + SMS)
     daily = {}
     start_day = (datetime.now(timezone.utc) - timedelta(days=days - 1)).date()
     for i in range(days):
         d = (start_day + timedelta(days=i)).isoformat()
-        daily[d] = {"day": d, "wa": 0, "ai": 0}
+        daily[d] = {"day": d, "wa": 0, "ai": 0, "sms": 0}
 
     async for m in db.whatsapp_messages.find(
         {"created_at": {"$gte": since_iso}, "status": "sent"},
@@ -2643,11 +2689,19 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
         day = (s.get("created_at") or "")[:10]
         if day in daily:
             daily[day]["ai"] += 1
+    async for s in db.sms_messages.find(
+        {"created_at": {"$gte": since_iso}, "status": "sent"},
+        {"_id": 0, "created_at": 1},
+    ):
+        day = (s.get("created_at") or "")[:10]
+        if day in daily:
+            daily[day]["sms"] += 1
 
     return {
         "period_days": days,
         "totals": tot,
         "per_client": per_client,
+        "sms_by_provider": sms_by_provider,
         "daily_series": sorted(daily.values(), key=lambda d: d["day"]),
         "generated_at": _now(),
     }
@@ -11300,7 +11354,68 @@ async def public_create_subscription_order(payload: SubscriptionOrderCreate, req
         except Exception as exc:  # noqa: BLE001
             logger.warning("subscription automation webhook failed: %s", exc)
 
-    return {"ok": True, "order_id": order["id"], "next_step": "Notre équipe vous contactera sous 24h pour finaliser votre souscription."}
+    # Auto-create a public PawaPay payment link so the visitor can pay
+    # immediately after submitting. Best-effort: skipped if PawaPay is not
+    # enabled, or if amount is 0, or if no admin client is configured.
+    pay_link_url = None
+    pay_link_slug = None
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        if s.get("pawapay_enabled") and amount and int(amount) > 0:
+            primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1})
+            if not primary:
+                # Fallback to first admin so the link still gets created in
+                # development / single-admin setups.
+                primary = await db.users.find_one({"role": "admin"}, {"_id": 0, "id": 1})
+            client_scope = (primary or {}).get("id")
+            if client_scope:
+                slug = None
+                for _ in range(8):
+                    cand = _gen_slug(8)
+                    if not await db.payment_links.find_one({"slug": cand}):
+                        slug = cand
+                        break
+                if slug:
+                    link_doc = {
+                        "id": _uuid(),
+                        "slug": slug,
+                        "client_id": client_scope,
+                        "owner_user_id": None,
+                        "owner_email": None,
+                        "owner_label": "Souscription publique",
+                        "label": f"Souscription : {plan.get('name')} ({'mensuel' if payload.period == 'monthly' else 'annuel'})",
+                        "amount": float(amount),
+                        "currency": "XOF",
+                        "description": f"Code {plan.get('code')} — {payload.customer_name.strip()[:60]}",
+                        "allowed_mnos": list(DEFAULT_CLIENT_PAWAPAY_MNOS),
+                        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat(),
+                        "max_uses": 1,
+                        "uses_count": 0,
+                        "disabled": False,
+                        "subscription_order_id": order["id"],
+                        "subscription_plan_code": plan.get("code"),
+                        "prefill_phone": order["customer_phone"],
+                        "prefill_name": order["customer_name"],
+                        "created_at": _now(),
+                        "updated_at": _now(),
+                    }
+                    await db.payment_links.insert_one(link_doc.copy())
+                    pay_link_slug = slug
+                    pay_link_url = f"/pay/{slug}"
+                    await db.subscription_orders.update_one(
+                        {"id": order["id"]},
+                        {"$set": {"payment_link_slug": slug, "payment_link_url": pay_link_url}},
+                    )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("subscription pay-link creation failed: %s", exc)
+
+    return {
+        "ok": True,
+        "order_id": order["id"],
+        "next_step": "Notre équipe vous contactera sous 24h pour finaliser votre souscription.",
+        "payment_link_slug": pay_link_slug,
+        "payment_link_url": pay_link_url,
+    }
 
 
 

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle } from "lucide-react";
+import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 /*
@@ -60,7 +60,9 @@ export default function AdminUsage() {
     if (!data?.per_client) return;
     const rows = [[
       "Client", "Société", "WA envoyés OK", "WA envoyés KO", "WA reçus",
-      "Coût unitaire", "Devise", "Coût WA", "Synthèses IA",
+      "Coût unitaire WA", "Devise", "Coût WA",
+      "SMS envoyés OK", "SMS envoyés KO", "Coût unitaire SMS", "Coût SMS",
+      "Synthèses IA",
       "WA activé", "SMS activé", "IA activé", "Paiements activé",
     ]];
     data.per_client.forEach((r) => {
@@ -73,6 +75,10 @@ export default function AdminUsage() {
         r.wa_unit_cost,
         r.wa_currency,
         r.wa_cost,
+        r.sms_sent_ok || 0,
+        r.sms_sent_ko || 0,
+        r.sms_unit_cost || 0,
+        r.sms_cost || 0,
         r.ai_summaries,
         r.features?.whatsapp ? "oui" : "non",
         r.features?.sms ? "oui" : "non",
@@ -139,9 +145,33 @@ export default function AdminUsage() {
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
         <KpiCard icon={MessageCircle} color="emerald" label="WA envoyés" value={totals.wa_sent_ok || 0} subtitle={`${totals.wa_sent_ko || 0} échec(s)`} testid="kpi-wa-sent" />
         <KpiCard icon={Activity} color="sky" label="WA reçus" value={totals.wa_inbound || 0} subtitle={`${totals.wa_total || 0} trafic total`} testid="kpi-wa-inbound" />
-        <KpiCard icon={Sparkles} color="fuchsia" label="Synthèses IA" value={totals.ai_count || 0} subtitle="Période entière" testid="kpi-ai-count" />
-        <KpiCard icon={CreditCard} color="amber" label="Coût WA estimé" value={(totals.wa_cost || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} subtitle={data.per_client?.[0]?.wa_currency || "XOF"} testid="kpi-wa-cost" />
+        <KpiCard icon={Send} color="indigo" label="SMS envoyés" value={totals.sms_sent_ok || 0} subtitle={`${totals.sms_sent_ko || 0} échec(s) • ${totals.sms_total || 0} tot.`} testid="kpi-sms-sent" />
+        <KpiCard icon={CreditCard} color="amber" label="Coût total estimé" value={((totals.wa_cost || 0) + (totals.sms_cost || 0)).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} subtitle={`WA ${(totals.wa_cost || 0).toLocaleString("fr-FR")} • SMS ${(totals.sms_cost || 0).toLocaleString("fr-FR")} XOF`} testid="kpi-total-cost" />
       </div>
+
+      {/* Per-provider breakdown */}
+      {data.sms_by_provider && Object.keys(data.sms_by_provider).length > 0 && (
+        <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4" data-testid="sms-by-provider">
+          <h2 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-1.5 mb-3">
+            <Send className="h-4 w-4 text-indigo-500" /> Répartition SMS par fournisseur
+          </h2>
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
+            {Object.entries(data.sms_by_provider).map(([prov, stats]) => {
+              const total = stats.total || 0;
+              const ok = stats.sent_ok || 0;
+              const ratio = total > 0 ? Math.round((ok / total) * 100) : 0;
+              return (
+                <div key={prov} className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid={`sms-prov-${prov}`}>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">{prov}</p>
+                  <p className="text-2xl font-display font-bold text-slate-900 tabular-nums">{ok}</p>
+                  <p className="text-[11px] text-slate-500">/ {total} total — {ratio}% succès</p>
+                  {stats.sent_ko > 0 && <p className="text-[10px] text-rose-600 mt-0.5">{stats.sent_ko} échec(s)</p>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       {/* Chart */}
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
@@ -158,11 +188,12 @@ export default function AdminUsage() {
               <XAxis dataKey="day" tick={{ fontSize: 10 }} tickFormatter={(v) => v.slice(5)} />
               <YAxis tick={{ fontSize: 10 }} />
               <Tooltip
-                formatter={(v, n) => [v, n === "wa" ? "WhatsApp envoyés" : "Synthèses IA"]}
+                formatter={(v, n) => [v, n === "wa" ? "WhatsApp envoyés" : (n === "sms" ? "SMS envoyés" : "Synthèses IA")]}
                 labelFormatter={(l) => `Jour ${l}`}
               />
-              <Legend formatter={(v) => (v === "wa" ? "WhatsApp envoyés" : "Synthèses IA")} />
+              <Legend formatter={(v) => (v === "wa" ? "WhatsApp" : (v === "sms" ? "SMS" : "Synthèses IA"))} />
               <Bar dataKey="wa" stackId="a" fill="#10b981" />
+              <Bar dataKey="sms" stackId="a" fill="#6366f1" />
               <Bar dataKey="ai" stackId="a" fill="#c026d3" />
             </BarChart>
           </ResponsiveContainer>
@@ -185,6 +216,8 @@ export default function AdminUsage() {
                 <Th k="wa_sent_ko" sortKey={sortKey} dir={dir} onSort={toggleSort} right>WA ✗</Th>
                 <Th k="wa_inbound" sortKey={sortKey} dir={dir} onSort={toggleSort} right>WA ↓</Th>
                 <Th k="wa_cost" sortKey={sortKey} dir={dir} onSort={toggleSort} right>Coût WA</Th>
+                <Th k="sms_sent_ok" sortKey={sortKey} dir={dir} onSort={toggleSort} right>SMS ✓</Th>
+                <Th k="sms_cost" sortKey={sortKey} dir={dir} onSort={toggleSort} right>Coût SMS</Th>
                 <Th k="ai_summaries" sortKey={sortKey} dir={dir} onSort={toggleSort} right>IA</Th>
                 <th className="text-center px-3 py-2 w-32">Actives</th>
                 <th className="text-right px-3 py-2 w-16"></th>
@@ -200,6 +233,10 @@ export default function AdminUsage() {
                   <td className="px-3 py-2 text-right text-slate-700 font-mono">{c.wa_inbound}</td>
                   <td className="px-3 py-2 text-right font-mono">
                     {(c.wa_cost || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} <span className="text-[10px] text-slate-400">{c.wa_currency}</span>
+                  </td>
+                  <td className="px-3 py-2 text-right text-indigo-700 font-mono">{c.sms_sent_ok || 0}</td>
+                  <td className="px-3 py-2 text-right font-mono">
+                    {(c.sms_cost || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} <span className="text-[10px] text-slate-400">XOF</span>
                   </td>
                   <td className="px-3 py-2 text-right text-fuchsia-700 font-mono">{c.ai_summaries}</td>
                   <td className="px-3 py-2 text-center">

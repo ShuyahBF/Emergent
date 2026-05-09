@@ -68,6 +68,16 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-09 — Itération 52 : PawaPay auto sur souscription + Web Notifications WA + Stats SMS + ErrorBoundary global
+✅ **PawaPay auto-link sur souscription publique** : `POST /public/subscriptions/order` crée désormais un `payment_links` avec slug aléatoire, montant pré-rempli, `prefill_phone`, `prefill_name`, expire à J+7, max 1 utilisation. Le lien est attaché à l'order et retourné dans la réponse. Le modal frontend affiche un encart vert "Régler maintenant via Mobile Money" → `/pay/{slug}` (ouvre dans un nouvel onglet). Activé seulement si `pawapay_enabled=true` dans les settings + montant > 0. Fallback sur le premier admin si aucun superviseur configuré.
+✅ **Web Notifications API + son sur nouveaux WA** : nouveau hook `useWhatsAppNotifier` qui poll `/me/whatsapp/unread` toutes les 15s, joue un blip 880 Hz → 1320 Hz (Web Audio, sans asset), affiche une notification desktop si le compteur croît ET si l'onglet est en arrière-plan, et badge le favicon avec un point rouge. Toggles persistés dans localStorage : `sound_on` (par défaut ON) et `desktop_on` (par défaut ON). Bouton "Autoriser les notifications" si la permission est `default`. Click sur la notif → focus tab + redirection vers `/portal/contacts`.
+✅ **UI sidebar PortalLayout** : nouveau bloc "🔔 Alerte WhatsApp" dans le footer de la sidebar avec badge unread + 2 toggles (Notif + Son).
+✅ **Stats SMS dans `/admin/usage`** :
+   - Backend : `admin_usage_summary` agrège désormais `sms_messages` par client × fournisseur (`sent_ok`, `sent_ko`, `total`). Ajoute aux totaux : `sms_sent_ok/ko/total/cost`. Nouvelle clé top-level `sms_by_provider`. Daily series étendue de 2 → 3 séries (`wa`, `ai`, `sms`).
+   - Frontend : 4 KPIs (WA env., WA reçus, **SMS envoyés**, **Coût total estimé**), nouvelle section "Répartition SMS par fournisseur" en grid 4 cards (avec ratio succès), 3 colonnes ajoutées au tableau par client (SMS ✓, Coût SMS, IA), CSV export enrichi de 5 colonnes SMS. Graph stacked WhatsApp + SMS + IA.
+✅ **ErrorBoundary global** : `<ErrorBoundary resetKey={location.pathname}>` enveloppe désormais le `<Outlet />` du `PortalLayout` (couvre toutes les routes `/portal/*` et `/admin/*` sans exception). Reset auto à la navigation grâce à `componentDidUpdate(prevProps)` — un crash sur `/portal/payments` ne bloque plus l'app entière. Bouton "Réessayer" pour rejouer le rendu sans recharger. Suppression des wrappers redondants dans `App.js`.
+✅ Tests curl : `/admin/usage/summary` retourne désormais sms_sent_ok/ko/cost/total, sms_by_provider {ORANGE,...}, daily_series avec clé `sms`. `/public/subscriptions/order` retourne `payment_link_url:/pay/{slug}` quand pawapay_enabled.
+
 ### 2026-05-09 — Itération 51 : Bug SMS fix + WhatsApp Profile Sync + Module Abonnements + RGPD anonymisation
 ✅ **Bug SMS résolu** : `_sms_send_generic` et `_sms_send_ovh` retournaient un dict dans `api_message` quand `resp.get("message")` était lui-même un objet (Orange/Moov/Telecel parfois). Frontend rendait directement `result.error` → crash React → page blanche identique à PawaPay. Fix double couche :
    - **Backend** : nouveau helper `_safe_text(field, max_len=300)` qui coerce dict/list en string. Appliqué aux 3 retours `api_message` SMS + au champ `error` final de `me_sms_send`.

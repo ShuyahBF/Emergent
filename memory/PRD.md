@@ -659,6 +659,14 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Bug fix tracked-user inheritance** : la création/mise à jour des comptes utilisateurs suivis copie désormais `parent_client_id` également dans `client_id` (legacy field utilisé par 50+ endpoints). Migration startup pour les comptes existants. Effet : les utilisateurs suivis héritent désormais réellement des flags RGPD + features de leur client parent.
 - Tests : `/app/backend/tests/test_sawali_iter24.py` (10 tests, 100% pass).
 
+### 2026-05-09 — Iter25 : P1 WhatsApp Bulk
+- **Nouveau module `/portal/whatsapp-bulk`** : envoi de templates Meta WhatsApp Business approuvés à plusieurs contacts en une fois, avec personnalisation par destinataire.
+- Endpoint `POST /api/me/whatsapp/bulk` (model `MeWaBulkRequest`) : prend `contact_ids[]`, `template_name`, `language_code`, `variables[]` (corps), `header_text`, `header_media`, `button_vars[][]`, `scheduled_at?`. Cap 500 destinataires, validation +30 s.
+- Branche **envoi immédiat** : itère les contacts dans le scope client, construit un `ctx` par contact (`{{name}}`, `{{company}}`, `{{phone}}`, `{{email}}`, `{{client_code}}` = `unique_code`), appelle `_wa_send_template`, log dans `whatsapp_messages` avec `bulk: true`.
+- Branche **planification** : insère un doc dans `whatsapp_schedules` avec `recipients[].kind='contact'`, `bulk: true`. Le cron `_run_scheduled_whatsapp` reconnaît désormais le kind `contact` (en plus de `client` et `tracked`).
+- UI `WaBulk.jsx` (~530 lignes) : sélecteur de template avec aperçu de la structure parsée, génération automatique des champs variables (header/corps/boutons) selon le template, barre d'insertion de jetons (`{{name}}`, `{{client_code}}`…), filtres contacts (recherche + société), aperçu personnalisé sur 3 destinataires, planification, historique des envois groupés. Lien sidebar « WhatsApp — Masse & Planif. ».
+- Tests : `/app/backend/tests/test_sawali_iter25.py` (10 tests, 100% pass) + Playwright frontend (9/9 testids).
+
 ---
 
 ## Test Credentials

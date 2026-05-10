@@ -752,11 +752,22 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 
 ---
 
-## Iter33 (2026-05-10) — Searchable Admin Settings + "NOUVEAU" badges
-- **AdminSettings.jsx** : Ajout d'un Context Provider `SettingsFilterCtx` qui rend toutes les sections filtrables (sticky toolbar avec input de recherche + dropdown "Aller à").
-- **`NEW_SECTIONS` map** : 8 sections récentes marquées avec une bulle bleue clignotante "• NOUVEAU" (fenêtre de 14 jours, fade automatique 3 jours après première consultation IntersectionObserver, persisté en localStorage `sawali_settings_first_seen_v1`).
-- **Wrapping global** : Le composant `Section` enveloppe désormais ses enfants dans `<Filterable>`, donc les ~28 sections en héritent automatiquement. 3 sections custom (`OrphanDataSection`, `ClientsConsistencySection`, `ClientDataDiagnosticSection`) ont leur propre wrapper `<Filterable>`. `SupportLoadSection` utilise `Section` interne et est donc filtrable.
-- **Tests Iter28** : ✅ 100% des 9 critères d'acceptation validés (login, toolbar, filtre dynamique, clear, dropdown jump-to, 7 bulles NOUVEAU rendues, scroll vers ancre, save sans régression).
+## Iter34 (2026-05-10) — DB Snapshots + Visibilité contacts + Société autocomplete
+- **Backend** : 6 endpoints `/api/admin/snapshots*` pour exporter/importer/lister/modifier/supprimer des snapshots de toutes les collections métier (36 collections, ~76 docs en preview). Fichier `.json.gz` téléchargeable, masquage des secrets API par défaut. Mode import : `replace`, `merge`, ou `dry_run`. Tous les imports loggés dans `db_snapshot_imports`.
+- **Backend** : Nouveau helper `_resolve_visible_client_ids(user)` qui retourne TOUS les `client_id` qu'un utilisateur peut voir, en incluant les peers ayant le même `company` (case-insensitive, regex échappé). Appliqué à `me_list_contacts`, `me_update_contact`, `me_delete_contact`. Résout l'Issue 3 (visibilité contacts entre utilisateurs de la même société).
+- **Frontend** : Section "Sauvegarde de la base (Snapshot)" ajoutée dans `/admin/settings` (bulle NOUVEAU), avec UI d'export (commentaire + masquage), historique éditable (Pencil → input → Enregistrer), import (mode replace/merge + dry-run + commentaire), résumé d'import par collection, et historique des imports.
+- **Frontend** : Champ "Société (client)" dans la modale Contacts transformé en `<input list>` + `<datalist>` HTML5 → autocomplete natif (tape + filtre + saisie libre). Hint UX ajouté.
+- **Tests Iter29** : ✅ 12/12 backend pytest passed, 8/8 frontend criteria passed. Suite de régression créée : `/app/backend/tests/test_iter34_snapshots.py`.
+
+## Iter35 / Backlog suite
+### 🟧 P1 (prochaine session)
+- "Aperçu rapide" drawer latéral sur les rangées de Contacts (info + 3 derniers WA/SMS + actions) — confirmé par l'utilisateur, à implémenter
+- Snapshot v2 : validation de `version` au moment de l'import (future-proof)
+- Snapshot delete : logger les échecs `file.unlink()` pour visibilité ops
+- UX merge : ajouter un confirm doux pour le mode `merge` (actuellement seul `replace` confirme)
+
+### 🟦 P0 technique persistant
+- **Refactor `server.py`** (>12 900 lignes) → modules `/app/backend/routes/*.py` — session dédiée requise
 
 ## Backlog priorisé (mise à jour 2026-05-10)
 ### 🟧 P1 (à faire prochainement)

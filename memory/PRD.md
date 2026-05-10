@@ -748,3 +748,26 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **P2** : Notifications email/SMS lors d'un changement de statut RDV.
 - **P2** : Pagination & recherche avancée sur les listes admin.
 - **P2** : Export CSV des interventions / RDV.
+
+
+---
+
+## Iter33 (2026-05-10) — Searchable Admin Settings + "NOUVEAU" badges
+- **AdminSettings.jsx** : Ajout d'un Context Provider `SettingsFilterCtx` qui rend toutes les sections filtrables (sticky toolbar avec input de recherche + dropdown "Aller à").
+- **`NEW_SECTIONS` map** : 8 sections récentes marquées avec une bulle bleue clignotante "• NOUVEAU" (fenêtre de 14 jours, fade automatique 3 jours après première consultation IntersectionObserver, persisté en localStorage `sawali_settings_first_seen_v1`).
+- **Wrapping global** : Le composant `Section` enveloppe désormais ses enfants dans `<Filterable>`, donc les ~28 sections en héritent automatiquement. 3 sections custom (`OrphanDataSection`, `ClientsConsistencySection`, `ClientDataDiagnosticSection`) ont leur propre wrapper `<Filterable>`. `SupportLoadSection` utilise `Section` interne et est donc filtrable.
+- **Tests Iter28** : ✅ 100% des 9 critères d'acceptation validés (login, toolbar, filtre dynamique, clear, dropdown jump-to, 7 bulles NOUVEAU rendues, scroll vers ancre, save sans régression).
+
+## Backlog priorisé (mise à jour 2026-05-10)
+### 🟧 P1 (à faire prochainement)
+1. **Export/Import snapshot DB** (Production → Preview) : créer `GET /api/admin/export-snapshot` (gzip JSON anonymisé) + `POST /api/admin/import-snapshot`. UI dans `/admin/settings` ou `/admin/usage`.
+2. **Dropdown autocomplete "Société"** dans `Contacts.jsx` (remplacer le champ texte libre par un sélecteur basé sur les sociétés existantes).
+3. **Issue 3 — Visibilité partagée des contacts** entre utilisateurs de la même société : auditer `get_contacts` / `me_contacts` pour garantir que tous les users du même `client_id` / `parent_client_id` voient et éditent les mêmes contacts.
+
+### 🟦 P0 technique
+- **Refactor du monolithe `server.py`** (>12 500 lignes) → `/app/backend/routes/` modulaire. Session dédiée requise.
+
+### 🟨 P2 / P3
+- Transkribus OCR (manuscrits)
+- Caisse, Facturation, Catalogue, Tickets
+- Génération PDF côté serveur, Stripe Checkout

@@ -3171,6 +3171,108 @@ async def admin_realign_user_to_client(
 
 
 # ============================================================
+# iter31 — Client-consistency canary
+# ----------------------------------------------------------
+# Scans every user grouped by their normalized `company` name and detects
+# whether all members of a company share the same canonical client_id.
+# A canonical client_id is determined as:
+#   1) The id of an admin/superviseur in the group (if any), else
+#   2) The most common non-null client_id in the group, else
+#   3) None (signal: company has no canonical anchor — admin must intervene)
+#
+# This runs at boot time (logs WARNING summary if any group is misaligned)
+# and is also exposed via the /admin/clients-consistency endpoint that the
+# settings UI panoramic section consumes.
+# ============================================================
+async def _scan_clients_consistency() -> Dict[str, Any]:
+    groups: Dict[str, Dict[str, Any]] = {}
+    async for u in db.users.find(
+        {"company": {"$exists": True, "$nin": [None, ""]}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1,
+         "company": 1, "client_id": 1, "parent_client_id": 1, "account_status": 1},
+    ):
+        # Skip disabled/deleted accounts so we don't flag old data
+        if u.get("account_status") in ("disabled", "deleted", "blocked"):
+            continue
+        key = (u.get("company") or "").strip().lower()
+        if not key:
+            continue
+        g = groups.setdefault(key, {"company": (u.get("company") or "").strip(), "members": []})
+        g["members"].append(u)
+
+    misaligned_groups: List[Dict[str, Any]] = []
+    aligned_groups = 0
+    total_misaligned_users = 0
+
+    for key, g in groups.items():
+        members = g["members"]
+        if len(members) < 2:
+            # Solo accounts cannot be inconsistent with peers
+            aligned_groups += 1
+            continue
+        # Resolve canonical:
+        admins = [m for m in members if m.get("role") in ("admin", "superviseur")]
+        canonical: Optional[str] = None
+        canonical_via = None
+        if admins:
+            canonical = admins[0]["id"]
+            canonical_via = f"admin/superviseur ({admins[0].get('email')})"
+        else:
+            # Fallback: most common non-null client_id
+            counts: Dict[str, int] = {}
+            for m in members:
+                cid = m.get("client_id")
+                if cid:
+                    counts[cid] = counts.get(cid, 0) + 1
+            if counts:
+                canonical = max(counts.items(), key=lambda x: x[1])[0]
+                canonical_via = "most common client_id"
+
+        # Compare each member's effective scope to the canonical
+        misaligned: List[Dict[str, Any]] = []
+        for m in members:
+            scope = m.get("client_id") or m["id"]
+            if canonical and scope != canonical:
+                misaligned.append({
+                    "id": m["id"],
+                    "email": m.get("email"),
+                    "full_name": m.get("full_name"),
+                    "role": m.get("role"),
+                    "client_id": m.get("client_id"),
+                    "parent_client_id": m.get("parent_client_id"),
+                    "effective_scope": scope,
+                })
+        if misaligned:
+            misaligned_groups.append({
+                "company": g["company"],
+                "canonical_client_id": canonical,
+                "canonical_via": canonical_via,
+                "members_total": len(members),
+                "misaligned_count": len(misaligned),
+                "misaligned": misaligned,
+            })
+            total_misaligned_users += len(misaligned)
+        else:
+            aligned_groups += 1
+
+    return {
+        "scanned_groups": len(groups),
+        "aligned_groups": aligned_groups,
+        "misaligned_groups": len(misaligned_groups),
+        "misaligned_users_total": total_misaligned_users,
+        "groups": misaligned_groups,
+    }
+
+
+@api.get("/admin/clients-consistency", tags=["Admin"])
+async def admin_clients_consistency(_: dict = Depends(get_current_admin)):
+    """Panoramic view of every multi-user company and whether all its members
+    share the same canonical client_id. Read-only; pair with
+    /admin/realign-user-to-client to fix outliers."""
+    return await _scan_clients_consistency()
+
+
+# ============================================================
 # Campaign Efficiency dashboard — quantifies the WhatsApp-first
 # strategy versus SMS:
 #   • WA delivery rate (sent_ok / total)
@@ -11856,6 +11958,26 @@ async def on_startup():
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("iter29 contacts shared migration failed: %s", exc)
+
+    # Iter31 — Client-consistency canary. Surfaces misaligned users at boot
+    # so admins are warned BEFORE the affected user complains. Read-only.
+    try:
+        scan = await _scan_clients_consistency()
+        if scan["misaligned_users_total"] > 0:
+            logger.warning(
+                "iter31 client-consistency canary: %d user(s) misaligned across %d company group(s) — "
+                "see /admin/clients-consistency or Settings → 'Cohérence multi-utilisateurs'",
+                scan["misaligned_users_total"], scan["misaligned_groups"],
+            )
+            for g in scan["groups"][:10]:
+                logger.warning(
+                    "  • %s — canonical=%s via %s — %d/%d misaligned: %s",
+                    g["company"], (g["canonical_client_id"] or "")[:8],
+                    g["canonical_via"], g["misaligned_count"], g["members_total"],
+                    ", ".join(m.get("email") or m["id"][:8] for m in g["misaligned"][:5]),
+                )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("iter31 client-consistency canary failed: %s", exc)
 
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")

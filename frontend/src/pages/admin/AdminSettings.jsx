@@ -171,6 +171,7 @@ export default function AdminSettings() {
 
       <SupportLoadSection s={s} upd={upd} />
       <OrphanDataSection />
+      <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
@@ -978,6 +979,107 @@ export default function AdminSettings() {
     </div>
   );
 }
+
+const ClientsConsistencySection = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(null);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/clients-consistency");
+      setData(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const realign = async (email) => {
+    if (!window.confirm(`Réaligner ${email} sur le client canonique de son entreprise ?`)) return;
+    setBusy(email);
+    try {
+      const r = await apiClient.post("/admin/realign-user-to-client", { email });
+      toast.success(`${r.data.actions?.length || 0} action(s) appliquée(s) pour ${email}.`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(null); }
+  };
+
+  const total = data?.misaligned_users_total ?? 0;
+
+  return (
+    <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-6 space-y-3" data-testid="admin-clients-consistency-section">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-violet-600" />
+          <h2 className="font-display font-semibold">
+            Cohérence multi-utilisateurs (panoramique)
+            {data && total === 0 && <CheckCircle2 className="inline h-4 w-4 text-emerald-600 ml-2" />}
+            {total > 0 && <AlertCircle className="inline h-4 w-4 text-rose-600 ml-2 animate-pulse" />}
+          </h2>
+        </div>
+        <button onClick={load} disabled={loading} className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900" data-testid="cc-refresh-btn">
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      <p className="text-xs text-slate-600">
+        Vue panoramique de toutes les entreprises (groupées par <code className="font-mono">company</code>) ayant plusieurs utilisateurs.
+        Identifie celles dont les membres ne partagent pas le même <code className="font-mono">client_id</code> canonique (admin/superviseur, ou client_id majoritaire).
+        Cliquez « Réaligner » à côté d'un utilisateur pour appliquer la correction proposée par le diagnostic ciblé.
+      </p>
+
+      {!data ? (
+        <p className="text-xs text-slate-400 italic">Chargement…</p>
+      ) : total === 0 ? (
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 inline-flex items-center gap-2" data-testid="cc-status-clean">
+          <CheckCircle2 className="h-4 w-4" />
+          <span><strong>Toutes les entreprises sont cohérentes</strong> — {data.scanned_groups} entreprise(s) scannée(s), {data.aligned_groups} alignée(s).</span>
+        </div>
+      ) : (
+        <div className="space-y-3" data-testid="cc-status-found">
+          <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+            <strong>⚠️ {total} utilisateur(s) désaligné(s)</strong> sur {data.misaligned_groups} entreprise(s) (sur {data.scanned_groups} scannées).
+          </div>
+          <div className="space-y-2">
+            {data.groups.map((g) => (
+              <div key={g.company} className="rounded-lg ring-1 ring-rose-200 bg-white p-3" data-testid={`cc-group-${g.company}`}>
+                <div className="flex items-center justify-between mb-1.5">
+                  <h4 className="font-semibold text-sm">{g.company} <span className="text-slate-400 text-[10px] font-normal">— {g.misaligned_count}/{g.members_total} désaligné(s)</span></h4>
+                  <span className="text-[10px] text-slate-500 font-mono">canonique : {String(g.canonical_client_id || "—").slice(0, 12)}… <span className="text-slate-400">({g.canonical_via || "?"})</span></span>
+                </div>
+                <ul className="divide-y divide-slate-100">
+                  {g.misaligned.map((m) => (
+                    <li key={m.id} className="py-1.5 flex items-center justify-between gap-2 text-xs">
+                      <div className="min-w-0">
+                        <div className="truncate"><strong>{m.full_name || m.email}</strong> <span className="text-slate-400 text-[10px]">({m.role})</span></div>
+                        <div className="text-[10px] text-slate-500 font-mono truncate">
+                          scope effectif : <span className="text-rose-700">{String(m.effective_scope).slice(0, 12)}…</span>
+                        </div>
+                      </div>
+                      <button
+                        onClick={() => realign(m.email)}
+                        disabled={busy === m.email || !m.email}
+                        className="shrink-0 inline-flex items-center gap-1 rounded bg-rose-600 hover:bg-rose-700 text-white px-2 py-1 text-[11px] disabled:opacity-50"
+                        data-testid={`cc-realign-${m.email || m.id}`}
+                      >
+                        {busy === m.email ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" />}
+                        Réaligner
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const ClientDataDiagnosticSection = () => {
   const [email, setEmail] = useState("");

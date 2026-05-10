@@ -715,6 +715,13 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Frontend `AdminSettings.jsx`** : nouvelle section bordée bleue « 🔍 Diagnostic visibilité par utilisateur » avec input email, bouton diagnostiquer, affichage user/canonique/pairs/plan, bouton « Appliquer le réalignement ».
 - **Test E2E** : reproducer scenario prod (Ines admin SAWALI-2S, JF tracked sans `parent_client_id`, contacts éparpillés sur 2 ids) → diagnostic identifie le canonique via `company match`, applique le plan, JF passe de 2 à 5 contacts visibles, Ines passe à 5 aussi, ownership préservé.
 
+### 2026-05-10 — Iter31 : Canari de cohérence multi-utilisateurs
+- **Helper** `_scan_clients_consistency()` — groupe les users par `company` (case-insensitive, trim, exclut comptes désactivés), résout le canonique (admin/superviseur > client_id majoritaire), liste les membres dont le scope effectif diffère du canonique.
+- **Boot canary** : log `WARNING` au démarrage si des désalignements sont détectés (résumé global + jusqu'à 10 groupes détaillés). Aucune donnée modifiée — read-only.
+- **Endpoint** `GET /api/admin/clients-consistency` — vue panoramique pour l'UI.
+- **Section UI dans `/admin/settings`** : « 🟣 Cohérence multi-utilisateurs (panoramique) » bordée violette, affiche le résumé scanné/aligné/désaligné, déroule chaque groupe désaligné avec un bouton « Réaligner » par utilisateur (qui appelle `/admin/realign-user-to-client`). Bandeau vert si tout est cohérent.
+- **Test E2E** : 3 users SAWALI-2S (Ines admin + JF désaligné + Sara alignée) → canary boot logue exactement « 1 user(s) misaligned across 1 company group(s) » + endpoint retourne le détail correct.
+
 ---
 
 ## Test Credentials

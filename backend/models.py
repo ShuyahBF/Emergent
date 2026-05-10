@@ -348,6 +348,13 @@ class SettingsUpdate(BaseModel):
     recaptcha_secret_key: Optional[str] = None
     recaptcha_enabled: Optional[bool] = None
 
+    # --- Auto DB Snapshot (iter34) ---
+    # Weekly cron creates a snapshot every Sunday 03:00 Africa/Abidjan and
+    # rotates older auto snapshots beyond `auto_snapshot_keep` (default 4,
+    # max 52). Manual snapshots never rotate.
+    auto_snapshot_enabled: Optional[bool] = None
+    auto_snapshot_keep: Optional[int] = None  # rotation window (1..52)
+
     # --- Support Technique Load Gauge (0-7 — like cellular signal bars) ---
     # Visible at the top of every public page. Configurable from Admin
     # Settings UI or via webhook (POST /api/webhooks/support-load/{secret}).

@@ -3138,28 +3138,23 @@ async def admin_list_snapshots(_: dict = Depends(get_current_admin)):
     return {"snapshots": docs, "count": len(docs)}
 
 
-@api.post("/admin/snapshots", tags=["Admin"])
-async def admin_create_snapshot(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_admin)):
-    """Create a new snapshot of all business collections.
-    Body: {comment?: str, mask_secrets?: bool=True}
-    """
-    comment = (payload.get("comment") or "").strip()[:500]
-    mask_secrets = bool(payload.get("mask_secrets", True))
+async def _create_snapshot_record(comment: str, mask_secrets: bool, author_id: Optional[str], author_email: Optional[str], kind: str = "manual") -> dict:
+    """Build a snapshot file on disk + insert metadata into db.db_snapshots.
+    Reusable from the HTTP endpoint and the weekly cron. Returns the metadata
+    dict (already _id-stripped via serialize)."""
     snap_id = _uuid()
     file_name = f"snapshot_{snap_id}.json.gz"
     file_path = SNAPSHOTS_DIR / file_name
-
     snap_payload, stats = await _build_snapshot_payload(mask_secrets=mask_secrets)
     raw = json.dumps(snap_payload, ensure_ascii=False, default=_json_default).encode("utf-8")
     compressed = gzip.compress(raw, compresslevel=6)
     file_path.write_bytes(compressed)
-
     meta = {
         "id": snap_id,
         "created_at": _now(),
-        "author_id": user.get("id"),
-        "author_email": user.get("email"),
-        "comment": comment,
+        "author_id": author_id,
+        "author_email": author_email,
+        "comment": (comment or "").strip()[:500],
         "size_bytes": len(compressed),
         "raw_size_bytes": len(raw),
         "collections_count": len([k for k, v in stats.items() if v > 0]),
@@ -3167,9 +3162,26 @@ async def admin_create_snapshot(payload: Dict[str, Any] = Body(default={}), user
         "stats": stats,
         "mask_secrets": mask_secrets,
         "file_name": file_name,
+        "kind": kind,  # "manual" | "auto"
     }
     await db.db_snapshots.insert_one(dict(meta))
     return serialize(meta)
+
+
+@api.post("/admin/snapshots", tags=["Admin"])
+async def admin_create_snapshot(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_admin)):
+    """Create a new snapshot of all business collections.
+    Body: {comment?: str, mask_secrets?: bool=True}
+    """
+    comment = (payload.get("comment") or "").strip()[:500]
+    mask_secrets = bool(payload.get("mask_secrets", True))
+    return await _create_snapshot_record(
+        comment=comment,
+        mask_secrets=mask_secrets,
+        author_id=user.get("id"),
+        author_email=user.get("email"),
+        kind="manual",
+    )
 
 
 @api.get("/admin/snapshots/{snap_id}/download", tags=["Admin"])
@@ -3207,10 +3219,67 @@ async def admin_delete_snapshot(snap_id: str, _: dict = Depends(get_current_admi
     try:
         if file_path.exists():
             file_path.unlink()
-    except Exception:
-        pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Snapshot %s file delete failed: %s", snap_id, exc)
     await db.db_snapshots.delete_one({"id": snap_id})
     return {"ok": True, "id": snap_id}
+
+
+# ============================================================
+# Auto-snapshot — weekly cron + admin-controlled toggle/run-now.
+# Keeps only the last N (default 4) auto snapshots; manual ones never rotate.
+# Driven by settings.auto_snapshot_enabled, .auto_snapshot_keep (int) and
+# logged into db.db_snapshots with kind='auto'.
+# ============================================================
+AUTO_SNAPSHOT_DEFAULT_KEEP = 4
+
+
+async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
+    """Create an auto snapshot then prune older auto snapshots beyond the
+    rotation window. Idempotent (safe to call manually too)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    keep = int(s.get("auto_snapshot_keep") or AUTO_SNAPSHOT_DEFAULT_KEEP)
+    keep = max(1, min(keep, 52))  # clamp 1..52 weeks
+    meta = await _create_snapshot_record(
+        comment=f"Sauvegarde automatique — {triggered_by}",
+        mask_secrets=True,
+        author_id=None,
+        author_email="(système)",
+        kind="auto",
+    )
+    # Rotation: delete older auto snapshots beyond `keep`
+    autos_cursor = db.db_snapshots.find(
+        {"kind": "auto"}, {"_id": 0, "id": 1, "file_name": 1, "created_at": 1}
+    ).sort("created_at", -1)
+    autos = [a async for a in autos_cursor]
+    to_delete = autos[keep:]
+    deleted = 0
+    for a in to_delete:
+        fp = SNAPSHOTS_DIR / (a.get("file_name") or "")
+        try:
+            if fp.exists():
+                fp.unlink()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Auto-snapshot %s file delete failed: %s", a.get("id"), exc)
+        await db.db_snapshots.delete_one({"id": a["id"]})
+        deleted += 1
+    # Persist last_run marker on settings for the UI
+    await db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {
+            "auto_snapshot_last_run_at": _now(),
+            "auto_snapshot_last_run_id": meta["id"],
+            "auto_snapshot_last_run_trigger": triggered_by,
+        }},
+        upsert=True,
+    )
+    return {"snapshot": meta, "deleted": deleted, "kept": min(len(autos) + 1 - deleted, keep)}
+
+
+@api.post("/admin/snapshots/auto-run", tags=["Admin"])
+async def admin_run_auto_snapshot(user: dict = Depends(get_current_admin)):
+    """Trigger the weekly auto-snapshot logic immediately (manual)."""
+    return await _run_auto_snapshot(triggered_by=f"manual:{user.get('email','admin')}")
 
 
 @api.post("/admin/snapshots/import", tags=["Admin"])
@@ -12598,6 +12667,25 @@ async def on_startup():
                 id="task_reminder_hourly",
                 replace_existing=True,
                 misfire_grace_time=600,
+            )
+            # Weekly DB auto-snapshot — Sunday 03:00 (Africa/Abidjan), gated by
+            # settings.auto_snapshot_enabled. Keeps the last N (settings
+            # .auto_snapshot_keep, default 4) auto snapshots; manual ones
+            # never rotate.
+            async def _scheduled_auto_snapshot():
+                try:
+                    s = await db.settings.find_one({"_id": "global"}) or {}
+                    if not s.get("auto_snapshot_enabled"):
+                        return
+                    await _run_auto_snapshot(triggered_by="cron:weekly-sun-03")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Auto-snapshot cron failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_auto_snapshot,
+                CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Africa/Abidjan"),
+                id="db_auto_snapshot_weekly",
+                replace_existing=True,
+                misfire_grace_time=3600,
             )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")

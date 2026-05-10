@@ -334,7 +334,7 @@ export default function AdminSettings() {
       </Section>
 
       <SupportLoadSection s={s} upd={upd} />
-      <DbSnapshotsSection />
+      <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
@@ -1415,7 +1415,7 @@ const formatBytes = (bytes) => {
   return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 };
 
-const DbSnapshotsSection = () => {
+const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} }) => {
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
@@ -1428,6 +1428,8 @@ const DbSnapshotsSection = () => {
   const [importing, setImporting] = useState(false);
   const [lastImport, setLastImport] = useState(null);
   const [imports, setImports] = useState([]);
+  const [autoRunning, setAutoRunning] = useState(false);
+  const [autoSaving, setAutoSaving] = useState(false);
   const fileInputRef = useRef(null);
   const TITLE = "Sauvegarde de la base (Snapshot)";
 
@@ -1527,6 +1529,33 @@ const DbSnapshotsSection = () => {
     } finally { setImporting(false); }
   };
 
+  const runAutoNow = async () => {
+    if (!window.confirm("Lancer maintenant une sauvegarde automatique ? Elle sera marquée 'auto' et soumise à la rotation.")) return;
+    setAutoRunning(true);
+    try {
+      const r = await apiClient.post("/admin/snapshots/auto-run");
+      toast.success(`Auto-snapshot créé (${r.data?.deleted ?? 0} ancien(s) purgé(s))`);
+      await load();
+      await reloadSettings();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setAutoRunning(false); }
+  };
+
+  const saveAutoSettings = async (patch) => {
+    setAutoSaving(true);
+    try {
+      await apiClient.put("/admin/settings", patch);
+      await reloadSettings();
+      toast.success("Préférences enregistrées");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setAutoSaving(false); }
+  };
+
+  const autoEnabled = !!s.auto_snapshot_enabled;
+  const autoKeep = Number.isFinite(s.auto_snapshot_keep) ? s.auto_snapshot_keep : 4;
+
   return (
     <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
     <div className="rounded-xl border-2 border-sky-200 bg-sky-50/40 p-6 space-y-4" data-testid="admin-db-snapshots-section">
@@ -1549,6 +1578,61 @@ const DbSnapshotsSection = () => {
         Les <strong>tokens API et secrets</strong> sont masqués par défaut. Les <strong>fichiers binaires</strong> (PDF, images uploadés) ne sont <strong>pas</strong> inclus.
         Pour répliquer la prod sur ce preview : exportez depuis la prod, téléchargez le fichier, puis utilisez le bloc « Importer un snapshot » plus bas.
       </p>
+
+      {/* Auto snapshot — weekly cron */}
+      <div className="rounded-lg ring-1 ring-emerald-200 bg-white p-4 space-y-3" data-testid="snapshot-auto-card">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wider text-emerald-700 flex items-center gap-1.5">
+              <RotateCcw className="h-3.5 w-3.5" /> Sauvegarde automatique hebdomadaire
+            </div>
+            <p className="text-[11px] text-slate-600 mt-1">
+              Crée un snapshot tous les <strong>dimanches à 03:00</strong> (heure d'Abidjan), conservé sous l'étiquette <code>auto</code>. Rotation automatique : seuls les <strong>{autoKeep} plus récents</strong> sont conservés. Les snapshots créés à la main ne sont jamais supprimés.
+            </p>
+            {s.auto_snapshot_last_run_at && (
+              <p className="text-[11px] text-slate-500 mt-1" data-testid="snapshot-auto-last-run">
+                Dernière exécution : <strong>{new Date(s.auto_snapshot_last_run_at).toLocaleString("fr-FR")}</strong>
+                {s.auto_snapshot_last_run_trigger ? <span className="ml-1 text-slate-400">({s.auto_snapshot_last_run_trigger})</span> : null}
+              </p>
+            )}
+          </div>
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700 shrink-0 select-none">
+            <input
+              type="checkbox"
+              checked={autoEnabled}
+              disabled={autoSaving}
+              onChange={(e) => { upd("auto_snapshot_enabled", e.target.checked); saveAutoSettings({ auto_snapshot_enabled: e.target.checked }); }}
+              data-testid="snapshot-auto-toggle"
+            />
+            <span className={autoEnabled ? "text-emerald-700 font-semibold" : "text-slate-500"}>{autoEnabled ? "Activé" : "Désactivé"}</span>
+          </label>
+        </div>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-slate-700">
+            <span className="block font-semibold mb-1">Nombre à conserver (rotation)</span>
+            <input
+              type="number"
+              min={1}
+              max={52}
+              value={autoKeep}
+              disabled={autoSaving}
+              onChange={(e) => upd("auto_snapshot_keep", parseInt(e.target.value || "4", 10))}
+              onBlur={(e) => saveAutoSettings({ auto_snapshot_keep: parseInt(e.target.value || "4", 10) })}
+              className="w-24 rounded border border-slate-300 px-2 py-1.5 text-xs"
+              data-testid="snapshot-auto-keep"
+            />
+          </label>
+          <button
+            onClick={runAutoNow}
+            disabled={autoRunning}
+            className="inline-flex items-center gap-2 rounded-lg ring-1 ring-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+            data-testid="snapshot-auto-run-now"
+          >
+            <RefreshCw className={`h-3 w-3 ${autoRunning ? "animate-spin" : ""}`} />
+            {autoRunning ? "Lancement…" : "Lancer maintenant"}
+          </button>
+        </div>
+      </div>
 
       {/* Export */}
       <div className="rounded-lg ring-1 ring-sky-200 bg-white p-4 space-y-3" data-testid="snapshot-export-card">
@@ -1604,6 +1688,7 @@ const DbSnapshotsSection = () => {
                     <span className="font-semibold text-slate-700">{formatBytes(s.size_bytes)}</span>
                     <span className="text-slate-400">•</span>
                     <span className="text-slate-500">{s.total_documents} docs</span>
+                    {s.kind === "auto" ? <span className="rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold">AUTO</span> : <span className="rounded bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[9px] font-bold">MANUEL</span>}
                     {s.mask_secrets ? <span className="rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold">SECRETS MASQUÉS</span> : <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[9px] font-bold">SECRETS BRUTS</span>}
                   </div>
                   {editing?.id === s.id ? (

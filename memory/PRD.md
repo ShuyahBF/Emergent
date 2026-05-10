@@ -752,12 +752,14 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 
 ---
 
-## Iter34 (2026-05-10) — DB Snapshots + Visibilité contacts + Société autocomplete
+## Iter34 (2026-05-10) — DB Snapshots + Visibilité contacts + Société autocomplete + Auto-snapshot hebdo
 - **Backend** : 6 endpoints `/api/admin/snapshots*` pour exporter/importer/lister/modifier/supprimer des snapshots de toutes les collections métier (36 collections, ~76 docs en preview). Fichier `.json.gz` téléchargeable, masquage des secrets API par défaut. Mode import : `replace`, `merge`, ou `dry_run`. Tous les imports loggés dans `db_snapshot_imports`.
+- **Backend (Iter34b)** : Cron hebdomadaire `db_auto_snapshot_weekly` (dimanche 03:00 Africa/Abidjan) + endpoint `POST /api/admin/snapshots/auto-run` (run-now). Rotation automatique configurable (1..52, défaut 4). Snapshots auto étiquetés `kind="auto"` ; manuels (`kind="manual"`) jamais purgés. Champs `settings.auto_snapshot_enabled`, `auto_snapshot_keep`, `auto_snapshot_last_run_at`, `auto_snapshot_last_run_trigger`. Échecs `unlink()` désormais loggés (P1 résolu).
 - **Backend** : Nouveau helper `_resolve_visible_client_ids(user)` qui retourne TOUS les `client_id` qu'un utilisateur peut voir, en incluant les peers ayant le même `company` (case-insensitive, regex échappé). Appliqué à `me_list_contacts`, `me_update_contact`, `me_delete_contact`. Résout l'Issue 3 (visibilité contacts entre utilisateurs de la même société).
-- **Frontend** : Section "Sauvegarde de la base (Snapshot)" ajoutée dans `/admin/settings` (bulle NOUVEAU), avec UI d'export (commentaire + masquage), historique éditable (Pencil → input → Enregistrer), import (mode replace/merge + dry-run + commentaire), résumé d'import par collection, et historique des imports.
-- **Frontend** : Champ "Société (client)" dans la modale Contacts transformé en `<input list>` + `<datalist>` HTML5 → autocomplete natif (tape + filtre + saisie libre). Hint UX ajouté.
-- **Tests Iter29** : ✅ 12/12 backend pytest passed, 8/8 frontend criteria passed. Suite de régression créée : `/app/backend/tests/test_iter34_snapshots.py`.
+- **Frontend** : Section "Sauvegarde de la base (Snapshot)" dans `/admin/settings` (bulle NOUVEAU), avec UI d'export (commentaire + masquage), historique éditable + badges AUTO/MANUEL, import (mode replace/merge + dry-run + commentaire), résumé d'import par collection, historique des imports, **et bloc "Sauvegarde automatique hebdomadaire"** (toggle Activé/Désactivé, champ rotation, bouton "Lancer maintenant", affichage dernière exécution).
+- **Frontend** : Champ "Société (client)" dans la modale Contacts transformé en `<input list>` + `<datalist>` HTML5 → autocomplete natif. Hint UX ajouté.
+- **Tests Iter29** : ✅ 12/12 backend pytest passed, 8/8 frontend criteria passed. Suite de régression : `/app/backend/tests/test_iter34_snapshots.py`.
+- **Validation Iter34b (auto-snapshot)** : 4 runs successifs avec `keep=3` → exactement 1 snapshot purgé au 4ème run, 3 conservés. `last_run_at` + `trigger` correctement persistés. UI testée avec screenshot (toutes les test-ids présentes).
 
 ## Iter35 / Backlog suite
 ### 🟧 P1 (prochaine session)

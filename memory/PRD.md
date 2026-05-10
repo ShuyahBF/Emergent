@@ -792,3 +792,10 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - Transkribus OCR (manuscrits)
 - Caisse, Facturation, Catalogue, Tickets
 - Génération PDF côté serveur, Stripe Checkout
+- **Notifications proactives heatmap** (Iter34g sugg.) — détecter les pics d'activité anormaux (Mardi 14h +200% vs habitude) en comparant la heatmap courante à un baseline historique, et alerter l'admin via webhook Discord ou email
+- **Intégration Meta — Facebook Pages + Messenger + Ads** (P2, ~2-3 semaines) :
+   - Pages : publication, scheduler, lecture commentaires/likes/insights
+   - Messenger : webhook + envoi messages + bot conversationnel (architecture similaire à WhatsApp existant)
+   - Marketing API : campagnes pub, audiences custom depuis contacts CRM, reporting consolidé
+   - Pré-requis : Meta Business Manager vérifié, App Meta Developer + App Review, permissions `pages_manage_posts`, `pages_messaging`, `ads_management`, tokens longue durée
+   - Démarrage recommandé : Pages + Messenger d'abord (effort modéré, ROI immédiat), Ads en seconde phase

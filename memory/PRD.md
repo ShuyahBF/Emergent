@@ -799,10 +799,11 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 
 ## Iter35 / Backlog suite
 ### 🟧 P1 (prochaine session)
-- "Aperçu rapide" drawer latéral sur les rangées de Contacts (info + 3 derniers WA/SMS + actions) — confirmé par l'utilisateur, à implémenter
 - Snapshot v2 : validation de `version` au moment de l'import (future-proof)
-- Snapshot delete : logger les échecs `file.unlink()` pour visibilité ops
 - UX merge : ajouter un confirm doux pour le mode `merge` (actuellement seul `replace` confirme)
+
+### 🟨 P3 (Actions futures)
+- **"Aperçu rapide" drawer Contacts** — drawer latéral cliquable sur chaque ligne avec info contact + 3 derniers WA/SMS + actions rapides (envoyer WA/SMS/email, créer RDV, voir documents).
 
 ### 🟦 P0 technique persistant
 - **Refactor `server.py`** (>12 900 lignes) → modules `/app/backend/routes/*.py` — session dédiée requise

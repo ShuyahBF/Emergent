@@ -48,6 +48,11 @@ class UserCreateAdmin(BaseModel):
     account_status: str = "active"
     is_primary_client: bool = False
     whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164) — used by /admin/messaging
+    # iter32 — Optional canonical-link hint sent by the admin form. When
+    # present, the new user's `client_id` and `parent_client_id` are aligned
+    # to the given canonical client (same company), preventing the "user
+    # creates a fresh root that nobody else sees" footgun.
+    link_to_client_id: Optional[str] = None
 
 
 class UserUpdateAdmin(BaseModel):

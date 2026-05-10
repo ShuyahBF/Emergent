@@ -1,11 +1,11 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2 } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -16,6 +16,27 @@ export default function AdminClients() {
   const [loading, setLoading] = useState(false);
   const [catManagerOpen, setCatManagerOpen] = useState(false);
   const [waStats, setWaStats] = useState(null); // {client_id, full_name} object → triggers modal
+  // iter32 — Auto-suggest canonical client when a known `company` is typed
+  const [companyHint, setCompanyHint] = useState(null);
+  const [hintLoading, setHintLoading] = useState(false);
+
+  // Trigger hint lookup on company blur (or when editing existing user, skip).
+  // The endpoint is admin-only and returns the canonical user for that name
+  // if any exists. Call only on CREATE flows to avoid noise when editing.
+  const checkCompany = async (name) => {
+    if (editing?.id) return;  // editing existing — no auto-link
+    if (!name || !name.trim()) { setCompanyHint(null); return; }
+    setHintLoading(true);
+    try {
+      const r = await apiClient.get("/admin/resolve-company", { params: { company: name.trim() } });
+      // Only show banner if the canonical is NOT this same draft user
+      if (r.data?.found && r.data?.canonical_user) {
+        setCompanyHint(r.data);
+      } else {
+        setCompanyHint(null);
+      }
+    } catch { setCompanyHint(null); } finally { setHintLoading(false); }
+  };
 
   const load = () => apiClient.get("/admin/clients").then((r) => setItems(r.data));
   const loadCats = () => apiClient.get("/admin/client-categories").then((r) => setCategories(r.data));
@@ -29,9 +50,10 @@ export default function AdminClients() {
   const open = (it = null) => {
     setEditing(it);
     setForm(it ? { ...empty, ...it, password: "" } : empty);
+    setCompanyHint(null);
     setIsOpen(true);
   };
-  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
+  const close = () => { setIsOpen(false); setEditing(null); setForm(empty); setCompanyHint(null); };
 
   const submit = async (e) => {
     e.preventDefault(); setLoading(true);
@@ -174,7 +196,46 @@ export default function AdminClients() {
             <Input label={editing?.id ? "Mot de passe (laisser vide pour ne pas changer)" : "Mot de passe *"} type="password" value={form.password} onChange={(v) => setForm({ ...form, password: v })} required={!editing?.id} />
             <Input label="Téléphone" value={form.phone || ""} onChange={(v) => setForm({ ...form, phone: v })} />
             <Input label="N° WhatsApp (E.164)" value={form.whatsapp_number || ""} onChange={(v) => setForm({ ...form, whatsapp_number: v })} testid="client-whatsapp-number" />
-            <Input label="Entreprise" value={form.company || ""} onChange={(v) => setForm({ ...form, company: v })} />
+            <div className="space-y-1">
+              <label className="text-xs font-semibold text-slate-700 inline-flex items-center gap-1"><Building2 className="h-3 w-3" /> Entreprise</label>
+              <input
+                value={form.company || ""}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setForm((prev) => ({ ...prev, company: v, link_to_client_id: null }));
+                  setCompanyHint(null);
+                }}
+                onBlur={(e) => checkCompany(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="client-field-company"
+              />
+              {hintLoading && <p className="text-[10px] text-slate-400">Vérification…</p>}
+              {!editing?.id && companyHint?.found && companyHint.canonical_user && (
+                <div className="rounded-lg ring-1 ring-violet-200 bg-violet-50 p-2.5 text-[11px] space-y-1.5" data-testid="company-hint-banner">
+                  <p className="font-semibold inline-flex items-center gap-1 text-violet-900">
+                    <Link2 className="h-3 w-3" />
+                    Une entreprise « <strong>{companyHint.canonical_user.company}</strong> » existe déjà
+                    <span className="text-slate-500 font-normal"> ({companyHint.member_count} membre{companyHint.member_count > 1 ? "s" : ""})</span>
+                  </p>
+                  <p className="text-slate-700">
+                    Client canonique : <strong>{companyHint.canonical_user.full_name}</strong>
+                    <span className="text-slate-500"> ({companyHint.canonical_user.email}, {companyHint.canonical_user.role})</span>
+                  </p>
+                  <label className="flex items-start gap-2 cursor-pointer pt-1">
+                    <input
+                      type="checkbox"
+                      checked={form.link_to_client_id === companyHint.canonical_user.id}
+                      onChange={(e) => setForm((prev) => ({ ...prev, link_to_client_id: e.target.checked ? companyHint.canonical_user.id : null }))}
+                      className="mt-0.5 accent-violet-600"
+                      data-testid="company-hint-link-checkbox"
+                    />
+                    <span className="text-slate-800">
+                      <strong>Lier ce nouvel utilisateur au client canonique</strong> — il partagera ses contacts, médias, RGPD, fonctionnalités et facturation. <span className="text-slate-500">(recommandé sauf si vous créez réellement une entité distincte avec un nom identique)</span>
+                    </span>
+                  </label>
+                </div>
+              )}
+            </div>
             <Input label="Code client (utilisé pour la numérotation des interventions, ex. ACME)" value={form.client_code || ""} onChange={(v) => setForm({ ...form, client_code: v.toUpperCase() })} />
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Catégorie</label>

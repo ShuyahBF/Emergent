@@ -2399,6 +2399,24 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
     existing = await db.users.find_one({"email": payload.email.lower()})
     if existing:
         raise HTTPException(status_code=409, detail="Cet email est déjà utilisé")
+    # iter32 — Resolve canonical-link hint. The frontend may pass
+    # `link_to_client_id` after the admin accepts a "company already exists"
+    # suggestion. When set, we mirror parent_client_id + client_id so the new
+    # user inherits the existing client's scope (visible contacts, RGPD flags,
+    # features, billing). Without this, every new admin created with the same
+    # company name silently becomes a separate root → exactly the bug iter30
+    # exposed.
+    parent_client_id: Optional[str] = None
+    mirrored_client_id: Optional[str] = None
+    if payload.link_to_client_id:
+        canon = await db.users.find_one(
+            {"id": payload.link_to_client_id},
+            {"_id": 0, "id": 1, "company": 1, "logo_url": 1},
+        )
+        if not canon:
+            raise HTTPException(status_code=404, detail="Client canonique introuvable")
+        parent_client_id = canon["id"]
+        mirrored_client_id = canon["id"]
     doc = {
         "id": _uuid(),
         "email": payload.email.lower(),
@@ -2414,6 +2432,8 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "logo_url": payload.logo_url,
         "account_status": payload.account_status,
         "is_primary_client": False,
+        "parent_client_id": parent_client_id,
+        "client_id": mirrored_client_id,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -3270,6 +3290,49 @@ async def admin_clients_consistency(_: dict = Depends(get_current_admin)):
     share the same canonical client_id. Read-only; pair with
     /admin/realign-user-to-client to fix outliers."""
     return await _scan_clients_consistency()
+
+
+# ============================================================
+# iter32 — Auto-suggest canonical client when admin types a company name
+# in the "create user" form. The frontend calls this endpoint on blur and
+# offers to auto-link the new user to the existing canonical client.
+# ============================================================
+@api.get("/admin/resolve-company", tags=["Admin"])
+async def admin_resolve_company(company: str, _: dict = Depends(get_current_admin)):
+    """Resolve the canonical client for a given company name.
+
+    Returns ``{found: bool, canonical_user, member_count}``. The frontend uses
+    this to offer auto-link when creating a new user with a known company.
+    Match is case-insensitive and trim-tolerant.
+    """
+    name = (company or "").strip()
+    if not name:
+        return {"found": False, "company_input": ""}
+    pattern = f"^\\s*{re.escape(name)}\\s*$"
+    members = await db.users.find(
+        {
+            "company": {"$regex": pattern, "$options": "i"},
+            "account_status": {"$nin": ["disabled", "deleted", "blocked"]},
+        },
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1, "company": 1},
+    ).to_list(50)
+    if not members:
+        return {"found": False, "company_input": name}
+    # Canonical = first admin/superviseur, else first member
+    admins = [m for m in members if m.get("role") in ("admin", "superviseur")]
+    canonical = admins[0] if admins else members[0]
+    return {
+        "found": True,
+        "company_input": name,
+        "canonical_user": {
+            "id": canonical["id"],
+            "email": canonical.get("email"),
+            "full_name": canonical.get("full_name"),
+            "role": canonical.get("role"),
+            "company": canonical.get("company"),
+        },
+        "member_count": len(members),
+    }
 
 
 # ============================================================

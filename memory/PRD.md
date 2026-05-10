@@ -722,6 +722,15 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Section UI dans `/admin/settings`** : « 🟣 Cohérence multi-utilisateurs (panoramique) » bordée violette, affiche le résumé scanné/aligné/désaligné, déroule chaque groupe désaligné avec un bouton « Réaligner » par utilisateur (qui appelle `/admin/realign-user-to-client`). Bandeau vert si tout est cohérent.
 - **Test E2E** : 3 users SAWALI-2S (Ines admin + JF désaligné + Sara alignée) → canary boot logue exactement « 1 user(s) misaligned across 1 company group(s) » + endpoint retourne le détail correct.
 
+### 2026-05-10 — Iter32 : Auto-link à la création (prévention à la source)
+- **Constat** : iter31 détecte les désalignements après coup. Iter32 les empêche dès la création d'un nouvel utilisateur dans `/admin/clients`.
+- **Backend** :
+  - Champ optionnel `link_to_client_id` ajouté à `UserCreateAdmin` (models.py).
+  - Endpoint `GET /api/admin/resolve-company?company=...` — retourne `{found, canonical_user, member_count}` pour suggérer le client canonique d'un nom d'entreprise.
+  - `POST /api/admin/clients` honore `link_to_client_id` : mirrore `parent_client_id` et `client_id` sur le canonique → l'utilisateur hérite immédiatement des contacts, médias, RGPD, features, facturation.
+- **Frontend `AdminClients.jsx`** : à la sortie du champ « Entreprise » (onBlur), appel `/admin/resolve-company`. Si une entreprise existe déjà → bandeau violet **« Une entreprise X existe déjà (N membres) »** avec checkbox **« Lier ce nouvel utilisateur au client canonique »** (recommandé, coché par l'admin). Affiche le canonique (nom, email, rôle).
+- **Test E2E** : création admin TEST-IT32 → resolve-company détecte canonique → création membre AVEC link → `parent_client_id`+`client_id` mirrorés correctement → création UNLINKED → désaligné → iter31 canary détecte 1/3 misaligned.
+
 ---
 
 ## Test Credentials

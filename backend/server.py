@@ -11612,6 +11612,20 @@ async def on_startup():
     except Exception as exc:  # noqa: BLE001
         logger.warning("iter28 orphan-data migration failed: %s", exc)
 
+    # Regression sentinel: dry-run after migration to confirm no orphans remain.
+    # If any new orphan appears (e.g. introduced by a future code change), this
+    # warning will surface in the logs and admins can re-run via the UI button.
+    try:
+        post_check = await _migrate_orphan_client_data(dry_run=True)
+        if post_check["total_migrated"] > 0:
+            logger.warning(
+                "iter28 sentinel: %d orphan rows STILL present after auto-migration "
+                "across %d user(s) — investigate /admin/migrate-orphan-data",
+                post_check["total_migrated"], len(post_check["affected_users"]),
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("iter28 sentinel check failed: %s", exc)
+
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")

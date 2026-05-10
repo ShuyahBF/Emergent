@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -170,6 +170,7 @@ export default function AdminSettings() {
       </Section>
 
       <SupportLoadSection s={s} upd={upd} />
+      <OrphanDataSection />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
@@ -976,6 +977,116 @@ export default function AdminSettings() {
     </div>
   );
 }
+
+const OrphanDataSection = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  const inspect = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/migrate-orphan-data");
+      setData(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { inspect(); }, []);
+
+  const apply = async () => {
+    if (!window.confirm("Confirmer la migration ? Cette action re-tague les données orphelines vers le bon client_id (avec champ client_id_legacy conservé pour traçabilité).")) return;
+    setApplying(true);
+    try {
+      const r = await apiClient.post("/admin/migrate-orphan-data");
+      toast.success(`Migration appliquée : ${r.data.total_migrated} document(s) re-tagué(s) sur ${r.data.affected_users.length} utilisateur(s).`);
+      setData({ ...r.data, dry_run: true });  // refetch as dry-run for the canary
+      inspect();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setApplying(false); }
+  };
+
+  const total = data?.total_migrated ?? 0;
+  const collections = data?.per_collection_totals || {};
+  const users = data?.affected_users || [];
+
+  return (
+    <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-6 space-y-3" data-testid="admin-orphan-data-section">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Wrench className="h-4 w-4 text-amber-600" />
+          <h2 className="font-display font-semibold">
+            Diagnostic des données orphelines
+            {total === 0 && data && <CheckCircle2 className="inline h-4 w-4 text-emerald-600 ml-2" />}
+            {total > 0 && <AlertCircle className="inline h-4 w-4 text-rose-600 ml-2 animate-pulse" />}
+          </h2>
+        </div>
+        <button
+          onClick={inspect}
+          disabled={loading}
+          className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
+          data-testid="orphan-refresh-btn"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      <p className="text-xs text-slate-600">
+        Détecte les contacts/messages/SMS/planifications/liens-de-paiement encore tagués avec l'<code className="font-mono">id</code> d'un utilisateur suivi
+        au lieu de son <code className="font-mono">parent_client_id</code>. Ces rows sont invisibles à leur propriétaire.
+        La migration les re-tague vers le client parent et conserve l'ancien <code className="font-mono">client_id</code> dans <code className="font-mono">client_id_legacy</code>.
+      </p>
+
+      {data === null ? (
+        <p className="text-xs text-slate-400 italic">Chargement…</p>
+      ) : total === 0 ? (
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 inline-flex items-center gap-2" data-testid="orphan-status-clean">
+          <CheckCircle2 className="h-4 w-4" />
+          <span><strong>Aucune donnée orpheline détectée.</strong> Tout est cohérent.</span>
+        </div>
+      ) : (
+        <div className="space-y-3" data-testid="orphan-status-found">
+          <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
+            <p className="font-semibold mb-1">⚠️ {total} document(s) orphelin(s) détecté(s) sur {users.length} utilisateur(s)</p>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mt-2">
+              {Object.entries(collections).map(([k, v]) => (
+                <div key={k} className="bg-white rounded px-2 py-1 ring-1 ring-rose-200">
+                  <div className="text-[9px] uppercase tracking-wider text-slate-500">{k.replace(/_/g, " ")}</div>
+                  <div className={`font-mono font-bold ${v > 0 ? "text-rose-700" : "text-slate-400"}`}>{v}</div>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-lg ring-1 ring-slate-200 bg-white text-xs overflow-hidden">
+            <div className="px-3 py-2 bg-slate-50 font-semibold uppercase tracking-wider text-[10px] text-slate-600">Utilisateurs affectés</div>
+            <ul className="divide-y divide-slate-100 max-h-40 overflow-y-auto">
+              {users.map((u) => (
+                <li key={u.user_id} className="px-3 py-1.5 flex items-center justify-between">
+                  <span className="truncate"><strong>{u.user_label}</strong> <span className="text-slate-400">({u.user_email})</span></span>
+                  <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                    {Object.entries(u.per_collection).filter(([, v]) => v > 0).map(([k, v]) => `${k.split("_")[0]}:${v}`).join(" ")}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <button
+            onClick={apply}
+            disabled={applying || loading}
+            className="inline-flex items-center gap-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            data-testid="orphan-apply-btn"
+          >
+            <Database className="h-4 w-4" />
+            {applying ? "Application en cours…" : `Appliquer la migration (${total} document(s))`}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const Section = ({ icon: Icon, title, children }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">

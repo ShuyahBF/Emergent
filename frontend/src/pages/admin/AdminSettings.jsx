@@ -1659,8 +1659,26 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
             className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs bg-white"
             data-testid="snapshot-auto-email-to"
           />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                apiClient.get("/admin/snapshots/weekly-report-preview", { responseType: "blob" })
+                  .then((r) => {
+                    const blobUrl = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+                    window.open(blobUrl, "_blank");
+                    setTimeout(() => window.URL.revokeObjectURL(blobUrl), 60000);
+                  })
+                  .catch((err) => toast.error(err?.response?.data?.detail || "Erreur"));
+              }}
+              className="inline-flex items-center gap-1 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-100 px-2 py-1 text-[11px] font-semibold text-slate-700"
+              data-testid="snapshot-weekly-report-preview"
+            >
+              <FileArchive className="h-3 w-3" /> Aperçu du rapport PDF
+            </button>
+          </div>
           <p className="text-[10px] text-slate-500 leading-snug">
-            Le fichier <code>.json.gz</code> sera joint au message. Nécessite que <strong>SMTP</strong> soit configuré dans les paramètres.
+            Le fichier <code>.json.gz</code> et le <strong>rapport PDF hebdomadaire</strong> (KPIs, état de la plateforme, derniers contacts) seront joints au message. Nécessite que <strong>SMTP</strong> soit configuré dans les paramètres.
             {s.auto_snapshot_last_email_sent === false && s.auto_snapshot_email_enabled && (
               <span className="block text-rose-600 mt-0.5" data-testid="snapshot-auto-email-warn">
                 Le dernier envoi a échoué — vérifiez SMTP et l'adresse.

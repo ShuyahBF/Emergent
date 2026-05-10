@@ -22,23 +22,24 @@ async def get_smtp_settings() -> dict:
     }
 
 
-def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str, attachment: dict | None = None) -> bool:
+def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str, attachments: list[dict] | None = None) -> bool:
     """Blocking SMTP send. Always called via asyncio.to_thread + wait_for.
-    `attachment`, if provided, must be a dict {filename, content (bytes),
-    mime_type (e.g. "application/gzip")}."""
+    `attachments` is a list of dicts {filename, content (bytes), mime_type}."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = cfg["from_email"]
     msg["To"] = to_email
     msg.set_content(text_body or "Veuillez activer HTML pour voir ce message.")
     msg.add_alternative(html_body, subtype="html")
-    if attachment and attachment.get("content") is not None:
-        maintype, _, subtype = (attachment.get("mime_type") or "application/octet-stream").partition("/")
+    for att in (attachments or []):
+        if not att or att.get("content") is None:
+            continue
+        maintype, _, subtype = (att.get("mime_type") or "application/octet-stream").partition("/")
         msg.add_attachment(
-            attachment["content"],
+            att["content"],
             maintype=maintype or "application",
             subtype=subtype or "octet-stream",
-            filename=attachment.get("filename") or "attachment.bin",
+            filename=att.get("filename") or "attachment.bin",
         )
     if cfg["use_tls"]:
         ctx = ssl.create_default_context()
@@ -53,22 +54,27 @@ def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, tex
     return True
 
 
-async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "", attachment: dict | None = None, timeout_s: float = 6.0) -> bool:
+async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "", attachment: dict | None = None, attachments: list[dict] | None = None, timeout_s: float = 6.0) -> bool:
     """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured).
-    Optional `attachment` dict: {filename, content (bytes), mime_type}.
-    `timeout_s` is increased automatically when an attachment is present."""
+    Optional `attachment` dict OR list `attachments` of {filename, content, mime_type}.
+    `timeout_s` is increased automatically when any attachment is present."""
     cfg = await get_smtp_settings()
     if not cfg["host"] or not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
         logger.warning("SMTP not configured. Skipping email to %s.", to_email)
         return False
-    # Quick sanity checks to avoid hanging on obviously-wrong configs
     if "@" not in (cfg["from_email"] or ""):
         logger.warning("SMTP from_email looks invalid (%s). Skipping send.", cfg["from_email"])
         return False
+    # Normalize attachments list
+    atts: list[dict] = []
+    if attachment:
+        atts.append(attachment)
+    if attachments:
+        atts.extend(attachments)
     try:
-        effective_timeout = max(timeout_s, 30.0) if attachment else timeout_s
+        effective_timeout = max(timeout_s, 45.0) if atts else timeout_s
         return await asyncio.wait_for(
-            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body, attachment),
+            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body, atts),
             timeout=effective_timeout,
         )
     except asyncio.TimeoutError:

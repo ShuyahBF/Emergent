@@ -752,16 +752,16 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 
 ---
 
-## Iter34 (2026-05-10) — DB Snapshots + Visibilité contacts + Société autocomplete + Auto-snapshot hebdo + Email
-- **Backend** : 6 endpoints `/api/admin/snapshots*` pour exporter/importer/lister/modifier/supprimer des snapshots de toutes les collections métier (36 collections, ~76 docs en preview). Fichier `.json.gz` téléchargeable, masquage des secrets API par défaut. Mode import : `replace`, `merge`, ou `dry_run`. Tous les imports loggés dans `db_snapshot_imports`.
-- **Backend (Iter34b)** : Cron hebdomadaire `db_auto_snapshot_weekly` (dimanche 03:00 Africa/Abidjan) + endpoint `POST /api/admin/snapshots/auto-run` (run-now). Rotation automatique configurable (1..52, défaut 4). Snapshots auto étiquetés `kind="auto"` ; manuels (`kind="manual"`) jamais purgés.
-- **Backend (Iter34c)** : Envoi email automatique du snapshot en pièce jointe (`.json.gz`). `email_service.send_email()` étendu avec paramètre `attachment={filename, content, mime_type}`. Champs settings : `auto_snapshot_email_enabled`, `auto_snapshot_email_to`, `auto_snapshot_last_email_sent`, `auto_snapshot_last_email_to`. SMTP non configuré → snapshot créé normalement, email skippé proprement avec `sent:false`. Échecs `unlink()` désormais loggés.
-- **Backend** : Helper `_resolve_visible_client_ids(user)` bridge automatiquement les contacts entre utilisateurs partageant le même `company` (case-insensitive, regex échappé). Appliqué à `me_list_contacts`, `me_update_contact`, `me_delete_contact`. Résout l'Issue 3.
-- **Frontend** : Section "Sauvegarde de la base (Snapshot)" dans `/admin/settings` (bulle NOUVEAU), avec UI d'export, historique éditable + badges AUTO/MANUEL, import (replace/merge + dry-run), résumé import par collection, historique imports, bloc auto-snapshot (toggle + rotation + run-now + dernière exécution), **et bloc email** (toggle + adresse + statut dernier envoi OK/KO).
+## Iter34 (2026-05-10) — DB Snapshots + Visibilité contacts + Société autocomplete + Auto-snapshot hebdo + Email + Rapport PDF
+- **Backend** : 6 endpoints `/api/admin/snapshots*` pour exporter/importer/lister/modifier/supprimer des snapshots de toutes les collections métier. Fichier `.json.gz` téléchargeable, masquage des secrets API par défaut. Mode import : `replace`, `merge`, ou `dry_run`. Tous les imports loggés dans `db_snapshot_imports`.
+- **Backend (Iter34b)** : Cron hebdomadaire `db_auto_snapshot_weekly` + endpoint `POST /api/admin/snapshots/auto-run`. Rotation configurable (1..52, défaut 4). `kind="auto"` rotent, `kind="manual"` jamais purgés.
+- **Backend (Iter34c)** : Envoi email automatique du snapshot en pièce jointe (`.json.gz`). `email_service.send_email()` accepte désormais `attachments=[]` (liste, anciennement `attachment={}` toujours supporté). Timeout SMTP étendu à 45s avec pièces jointes.
+- **Backend (Iter34d)** : Module `/app/backend/health_report.py` génère un rapport PDF hebdomadaire via **reportlab 4.5** (1-2 pages A4, charte SAWALI navy/blue). Contenu : KPIs 7 jours (contacts/RDV/interventions/docs/paiements/messages WA-SMS), état plateforme (jauge support, incidents, planifications), 5 derniers contacts, fiche snapshot joint. Endpoint `GET /api/admin/snapshots/weekly-report-preview` permet aux admins de prévisualiser le PDF on-demand. Le PDF est attaché en complément du `.json.gz` lors de l'envoi auto.
+- **Backend** : Helper `_resolve_visible_client_ids(user)` bridge automatiquement les contacts entre utilisateurs partageant le même `company` (case-insensitive, regex échappé). Appliqué à `me_list_contacts`, `me_update_contact`, `me_delete_contact`.
+- **Frontend** : Section "Sauvegarde de la base (Snapshot)" dans `/admin/settings` avec UI d'export, historique éditable + badges AUTO/MANUEL, import (replace/merge + dry-run), bloc auto-snapshot (toggle + rotation + run-now + dernière exécution), bloc email (toggle + adresse + bouton **"Aperçu du rapport PDF"** + statut dernier envoi).
 - **Frontend** : Champ "Société (client)" dans la modale Contacts → `<input list>` + `<datalist>` HTML5 (autocomplete natif).
-- **Tests Iter29** : ✅ 12/12 backend pytest passed, 8/8 frontend criteria passed. Suite régression : `/app/backend/tests/test_iter34_snapshots.py`.
-- **Validation Iter34b** : 4 runs avec `keep=3` → exactement 1 purgé. UI testée par screenshot.
-- **Validation Iter34c** : 3 scénarios curl-testés (email disabled, enabled-no-recipient, enabled-with-recipient sans SMTP). Snapshots créés dans tous les cas, email graceful, statut persisté.
+- **Validation** : 12/12 backend pytest, 8/8 frontend criteria, 3 scénarios email curl-testés, PDF généré 3.2 kB (`%PDF-1.4`), `pdf_attached:True` confirmé dans la réponse de auto-run.
+- **Suite régression** : `/app/backend/tests/test_iter34_snapshots.py`.
 
 ## Iter35 / Backlog suite
 ### 🟧 P1 (prochaine session)

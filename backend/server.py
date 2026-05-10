@@ -3276,21 +3276,31 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
                 if file_path.exists():
                     content = file_path.read_bytes()
                     pretty_size = f"{len(content)/1024:.1f} kB"
-                    subject = f"[SAWALI] Sauvegarde DB hebdomadaire — {meta['file_name']}"
+                    # Build the companion weekly health report PDF
+                    pdf_bytes = b""
+                    pdf_attached = False
+                    try:
+                        from health_report import build_weekly_health_pdf
+                        pdf_bytes = await build_weekly_health_pdf(snapshot_meta=meta)
+                        pdf_attached = bool(pdf_bytes)
+                    except Exception as pdf_exc:  # noqa: BLE001
+                        logger.warning("Weekly PDF generation failed: %s", pdf_exc)
+                    subject = f"[SAWALI] Sauvegarde DB + Rapport hebdomadaire — {meta['file_name']}"
                     html = (
                         f"<div style=\"font-family:Arial,sans-serif;line-height:1.5\">"
-                        f"<h2 style=\"color:#0E1F3D\">SAWALI — Sauvegarde DB</h2>"
+                        f"<h2 style=\"color:#0E1F3D\">SAWALI — Sauvegarde DB &amp; Rapport hebdomadaire</h2>"
                         f"<p>Bonjour,</p>"
-                        f"<p>Voici votre sauvegarde automatique de la base SAWALI SMART SYSTEMS.</p>"
+                        f"<p>Voici votre sauvegarde automatique accompagnée du rapport de santé de la plateforme.</p>"
                         f"<ul>"
                         f"<li><strong>Date</strong> : {meta['created_at']}</li>"
                         f"<li><strong>Déclencheur</strong> : <code>{triggered_by}</code></li>"
                         f"<li><strong>Documents</strong> : {meta['total_documents']} sur {meta['collections_count']} collections</li>"
-                        f"<li><strong>Taille</strong> : {pretty_size}</li>"
+                        f"<li><strong>Taille snapshot</strong> : {pretty_size}</li>"
                         f"<li><strong>Secrets masqués</strong> : {'oui' if meta.get('mask_secrets') else 'non'}</li>"
+                        f"<li><strong>Rapport PDF</strong> : {'joint' if pdf_attached else 'non disponible'}</li>"
                         f"</ul>"
-                        f"<p>Le fichier <code>{meta['file_name']}</code> est joint à ce mail. "
-                        f"Conservez-le en lieu sûr — il contient l'ensemble des données métier (sans les fichiers binaires).</p>"
+                        f"<p>Pièces jointes : <code>{meta['file_name']}</code>"
+                        f"{' + <code>rapport-hebdomadaire.pdf</code>' if pdf_attached else ''}</p>"
                         f"<p style=\"color:#64748B;font-size:12px\">Pour désactiver l'envoi par email, "
                         f"rendez-vous dans Paramètres → Sauvegarde de la base.</p>"
                         f"</div>"
@@ -3300,17 +3310,26 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
                         f"Date: {meta['created_at']}\n"
                         f"Déclencheur: {triggered_by}\n"
                         f"Documents: {meta['total_documents']} ({meta['collections_count']} collections)\n"
-                        f"Taille: {pretty_size}\n"
+                        f"Taille snapshot: {pretty_size}\n"
+                        f"Rapport PDF joint: {'oui' if pdf_attached else 'non'}\n"
                     )
+                    atts = [{
+                        "filename": meta["file_name"],
+                        "content": content,
+                        "mime_type": "application/gzip",
+                    }]
+                    if pdf_attached:
+                        atts.append({
+                            "filename": f"rapport-hebdomadaire-{datetime.now(timezone.utc).strftime('%Y%m%d')}.pdf",
+                            "content": pdf_bytes,
+                            "mime_type": "application/pdf",
+                        })
                     sent = await send_email(
                         recipient, subject, html, text,
-                        attachment={
-                            "filename": meta["file_name"],
-                            "content": content,
-                            "mime_type": "application/gzip",
-                        },
+                        attachments=atts,
                     )
                     email_status["sent"] = bool(sent)
+                    email_status["pdf_attached"] = pdf_attached
                 else:
                     email_status["error"] = "fichier introuvable"
             except Exception as exc:  # noqa: BLE001
@@ -3337,6 +3356,22 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
 async def admin_run_auto_snapshot(user: dict = Depends(get_current_admin)):
     """Trigger the weekly auto-snapshot logic immediately (manual)."""
     return await _run_auto_snapshot(triggered_by=f"manual:{user.get('email','admin')}")
+
+
+@api.get("/admin/snapshots/weekly-report-preview", tags=["Admin"])
+async def admin_preview_weekly_report(_: dict = Depends(get_current_admin)):
+    """Render the weekly health-report PDF on-demand. Useful for the admin
+    to verify what gets attached to the snapshot email."""
+    try:
+        from health_report import build_weekly_health_pdf
+        pdf_bytes = await build_weekly_health_pdf(snapshot_meta=None)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Génération PDF échouée: {exc}")
+    return Response(
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": 'inline; filename="rapport-hebdomadaire-preview.pdf"'},
+    )
 
 
 @api.post("/admin/snapshots/import", tags=["Admin"])

@@ -768,6 +768,18 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 ## Iter34i (2026-05-10) — CSV export + Pipeline admin + Version auto-bump + Reset usage
 - **Backend** : `POST /api/admin/roadmap-actions` (création auto-numérotée par admin) + `DELETE` (protège les 16 entrées seed historiques HTTP 403) + `PATCH` étendu pour toggler `done` (auto-rempli `done_at`) et éditer title/backlog_ref/details/duration_h. Cost auto-recalculé via `duration_h × 25 000 XOF/h`.
 - **Backend** : `/api/version` calcule dynamiquement `1.<N>` où N = `count(roadmap_actions, done=true)`. Auto-bump à chaque livraison sans redéploiement.
+- **Backend** : `POST /api/admin/visits/reset` accepte `{purge_access_logs: bool}`. Mode `false` (défaut) → offset only. Mode `true` → suppression définitive des `visits` + `access_logs` + reset offset.
+- **Frontend** : Bouton "Nouvelle action" (form inline), toggle ✓ FAIT/À FAIRE cliquable, bouton suppression, et "Exporter CSV" (RFC 4180 + BOM UTF-8).
+- **Frontend** : Composant `ResetUsageButton` dans `/admin/usage` avec panneau de confirmation (checkbox "Purge complète" + confirm fort).
+
+## Iter34j (2026-05-10) — Vue Kanban À faire / En cours / Réalisée
+- **Backend** : Nouveau champ `status` sur `roadmap_actions` (enum `todo|in_progress|done`). Backfill automatique au prochain `GET /admin/roadmap-actions` (rows pré-existantes héritent `status` depuis `done`). PATCH `{status}` sync auto le boolean `done` + `done_at`. Validation HTTP 400 sur status invalide.
+- **Backend** : Totaux étendus : `done`, `in_progress`, `pending` (auparavant seulement done/pending). `POST /admin/roadmap-actions` accepte `status` optionnel à la création.
+- **Frontend** : Switcher **Tableau / Kanban** dans la section Suivi. Vue Kanban 3 colonnes (amber/sky/emerald) avec compteurs, cartes (code+titre+backlog+durée+coût), boutons "Déplacer →" pour basculer vers les 2 autres colonnes en 1 clic, et icône suppression sur chaque carte (seed protégé HTTP 403).
+- **Frontend** : Filtres étendus à 4 onglets (Toutes / Réalisées / En cours / À faire), synchronisés entre vue Tableau et Kanban.
+- **Validation curl** : 5 transitions testées (in_progress → done → todo + status invalide → 400). Backend retourne `status: "done"` pour tous les seeds après backfill. Screenshot UI confirme 3 colonnes rendues avec 23 cartes correctement réparties (1/1/21). ✓
+- **Backend** : `POST /api/admin/roadmap-actions` (création auto-numérotée par admin) + `DELETE` (protège les 16 entrées seed historiques HTTP 403) + `PATCH` étendu pour toggler `done` (auto-rempli `done_at`) et éditer title/backlog_ref/details/duration_h. Cost auto-recalculé via `duration_h × 25 000 XOF/h`.
+- **Backend** : `/api/version` calcule dynamiquement `1.<N>` où N = `count(roadmap_actions, done=true)`. Auto-bump à chaque livraison sans redéploiement.
 - **Backend** : `POST /api/admin/visits/reset` accepte `{purge_access_logs: bool}`. Mode `false` (défaut) → offset only (données conservées, compteur affiché 0). Mode `true` → suppression définitive des `visits` + `access_logs` + reset offset.
 - **Frontend** : Section Suivi étendue avec bouton "Nouvelle action" (form inline : titre + backlog_ref + détails + durée), bouton toggle ✓ FAIT/À FAIRE sur chaque ligne, bouton suppression (corbeille) sur chaque ligne, et bouton "Exporter CSV" (RFC 4180 + BOM UTF-8).
 - **Frontend** : Composant `ResetUsageButton` dans `/admin/usage` avec panneau de confirmation (checkbox "Purge complète" + confirm fort).

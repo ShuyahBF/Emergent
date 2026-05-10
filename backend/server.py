@@ -3710,6 +3710,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Bouton 'Réinitialiser' dans Usage & Facturation", "backlog_ref": "Iter34i",
      "duration_h": 0.2, "done": True,
      "details": "Bouton avec panneau de confirmation : mode 'Mettre à 0' (offset, données conservées) ou 'Purge complète' (suppression définitive des visits + access_logs). Confirm fort en cas de purge."},
+    {"code": "ACT-0021", "created_at": "2026-05-10T22:45:00+00:00", "done_at": "2026-05-10T23:10:00+00:00",
+     "title": "Vue Kanban (À faire / En cours / Réalisée)", "backlog_ref": "Iter34j",
+     "duration_h": 0.5, "done": True,
+     "details": "Nouveau champ `status` (todo|in_progress|done) sur roadmap_actions, backfill auto. Vue Kanban click-to-move 3 colonnes. Switcher Tableau/Kanban. Cartes avec code+titre+backlog+durée+coût+boutons déplacer."},
 ]
 
 
@@ -3731,6 +3735,7 @@ async def _seed_roadmap_actions() -> int:
             "duration_h": float(entry.get("duration_h") or 0),
             "cost_xof": int(round(float(entry.get("duration_h") or 0) * DEFAULT_ROADMAP_HOURLY_RATE_XOF)),
             "done": bool(entry.get("done")),
+            "status": "done" if entry.get("done") else "todo",
             "observations": "",
         }
         await db.roadmap_actions.insert_one(doc)
@@ -3740,8 +3745,15 @@ async def _seed_roadmap_actions() -> int:
 
 @api.get("/admin/roadmap-actions", tags=["Admin"])
 async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
-    """List every roadmap action ordered by code asc. Seeds on first call."""
+    """List every roadmap action ordered by code asc. Seeds on first call.
+    Iter34j: One-shot backfill of `status` for rows that pre-date the field."""
     await _seed_roadmap_actions()
+    # Iter34j backfill: rows without `status` get inferred from `done`
+    try:
+        await db.roadmap_actions.update_many({"status": {"$exists": False}, "done": True}, {"$set": {"status": "done"}})
+        await db.roadmap_actions.update_many({"status": {"$exists": False}}, {"$set": {"status": "todo"}})
+    except Exception:
+        pass
     items = [r async for r in db.roadmap_actions.find({}, {"_id": 0}).sort("code", 1)]
     total_h = sum(float(r.get("duration_h") or 0) for r in items if r.get("done"))
     total_xof = sum(int(r.get("cost_xof") or 0) for r in items if r.get("done"))
@@ -3749,8 +3761,9 @@ async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
         "items": items,
         "totals": {
             "count": len(items),
-            "done": sum(1 for r in items if r.get("done")),
-            "pending": sum(1 for r in items if not r.get("done")),
+            "done": sum(1 for r in items if r.get("status") == "done" or r.get("done")),
+            "in_progress": sum(1 for r in items if r.get("status") == "in_progress"),
+            "pending": sum(1 for r in items if (r.get("status") or "todo") == "todo" and not r.get("done")),
             "duration_h": round(total_h, 2),
             "cost_xof": total_xof,
             "hourly_rate_xof": DEFAULT_ROADMAP_HOURLY_RATE_XOF,
@@ -3760,10 +3773,12 @@ async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
 
 @api.patch("/admin/roadmap-actions/{code}", tags=["Admin"])
 async def admin_patch_roadmap_action(code: str, payload: Dict[str, Any] = Body(...), _: dict = Depends(get_current_admin)):
-    """Admins can edit `observations`, `done` (toggle), and (when adding their
-    own pending actions) `title`, `backlog_ref`, `details`, `duration_h`.
-    Auto-fills `done_at` when `done` flips to true and recomputes `cost_xof`
-    when `duration_h` changes. The auto-incremented `code` is immutable."""
+    """Admins can edit `observations`, `done`/`status`, and (for their own
+    pending actions) `title`, `backlog_ref`, `details`, `duration_h`.
+
+    Iter34j: `status` field supports the Kanban view: "todo" | "in_progress"
+    | "done". `done` boolean is kept in sync for backward compat. Setting
+    `status=done` flips `done=true` and stamps `done_at`."""
     update: Dict[str, Any] = {}
     if "observations" in payload:
         update["observations"] = (payload.get("observations") or "")[:2000]
@@ -3780,10 +3795,23 @@ async def admin_patch_roadmap_action(code: str, payload: Dict[str, Any] = Body(.
             raise HTTPException(status_code=400, detail="duration_h invalide")
         update["duration_h"] = duration_h
         update["cost_xof"] = int(round(duration_h * DEFAULT_ROADMAP_HOURLY_RATE_XOF))
-    if "done" in payload:
+    existing = await db.roadmap_actions.find_one({"code": code}, {"_id": 0, "done": 1, "done_at": 1, "status": 1})
+    if "status" in payload:
+        status = (payload.get("status") or "").strip().lower()
+        if status not in ("todo", "in_progress", "done"):
+            raise HTTPException(status_code=400, detail="status invalide (todo|in_progress|done)")
+        update["status"] = status
+        if status == "done":
+            update["done"] = True
+            if not existing or not existing.get("done_at"):
+                update["done_at"] = _now()
+        else:
+            update["done"] = False
+            update["done_at"] = None
+    elif "done" in payload:
         new_done = bool(payload["done"])
         update["done"] = new_done
-        existing = await db.roadmap_actions.find_one({"code": code}, {"_id": 0, "done": 1, "done_at": 1})
+        update["status"] = "done" if new_done else "todo"
         if new_done and (not existing or not existing.get("done_at")):
             update["done_at"] = _now()
         elif not new_done:
@@ -3830,6 +3858,11 @@ async def admin_create_roadmap_action(payload: Dict[str, Any] = Body(...), _: di
     except Exception:
         duration_h = 0.0
     done = bool(payload.get("done"))
+    status = (payload.get("status") or ("done" if done else "todo")).lower()
+    if status not in ("todo", "in_progress", "done"):
+        status = "todo"
+    if status == "done":
+        done = True
     doc = {
         "id": _uuid(),
         "code": code,
@@ -3841,6 +3874,7 @@ async def admin_create_roadmap_action(payload: Dict[str, Any] = Body(...), _: di
         "duration_h": duration_h,
         "cost_xof": int(round(duration_h * DEFAULT_ROADMAP_HOURLY_RATE_XOF)),
         "done": done,
+        "status": status,
         "observations": "",
     }
     await db.roadmap_actions.insert_one(doc)

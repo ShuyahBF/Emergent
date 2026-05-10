@@ -1415,6 +1415,7 @@ const RoadmapTrackerSection = () => {
   const [editing, setEditing] = useState(null);  // {code, observations}
   const [creating, setCreating] = useState(false);
   const [newForm, setNewForm] = useState({ title: "", backlog_ref: "", details: "", duration_h: 0 });
+  const [view, setView] = useState("table");  // table | kanban
   const TITLE = "Suivi des actions (historique du travail)";
 
   const load = async () => {
@@ -1444,6 +1445,18 @@ const RoadmapTrackerSection = () => {
     try {
       await apiClient.patch(`/admin/roadmap-actions/${it.code}`, { done: !it.done });
       toast.success(it.done ? "Action marquée À faire" : "Action marquée comme réalisée");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const setStatus = async (it, newStatus) => {
+    if ((it.status || (it.done ? "done" : "todo")) === newStatus) return;
+    try {
+      await apiClient.patch(`/admin/roadmap-actions/${it.code}`, { status: newStatus });
+      const labels = { todo: "À faire", in_progress: "En cours", done: "Réalisée" };
+      toast.success(`Action déplacée → ${labels[newStatus]}`);
       await load();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -1520,8 +1533,10 @@ const RoadmapTrackerSection = () => {
   };
 
   const items = (data.items || []).filter((r) => {
-    if (filter === "done") return r.done;
-    if (filter === "pending") return !r.done;
+    const status = r.status || (r.done ? "done" : "todo");
+    if (filter === "done") return status === "done";
+    if (filter === "in_progress") return status === "in_progress";
+    if (filter === "pending") return status === "todo";
     return true;
   });
   const totals = data.totals || {};
@@ -1639,21 +1654,36 @@ const RoadmapTrackerSection = () => {
         </div>
       )}
 
-      {/* Filter */}
-      <div className="inline-flex rounded ring-1 ring-slate-200 bg-white p-0.5">
-        {[["all", `Toutes (${totals.count || 0})`], ["done", `Réalisées (${totals.done || 0})`], ["pending", `À faire (${totals.pending || 0})`]].map(([v, l]) => (
-          <button
-            key={v}
-            onClick={() => setFilter(v)}
-            className={`px-3 py-1 text-[11px] rounded ${filter === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
-            data-testid={`roadmap-filter-${v}`}
-          >
-            {l}
-          </button>
-        ))}
+      {/* View switcher + Filter */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <div className="inline-flex rounded ring-1 ring-slate-200 bg-white p-0.5">
+          {[["all", `Toutes (${totals.count || 0})`], ["done", `Réalisées (${totals.done || 0})`], ["in_progress", `En cours (${totals.in_progress || 0})`], ["pending", `À faire (${totals.pending || 0})`]].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setFilter(v)}
+              className={`px-3 py-1 text-[11px] rounded ${filter === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              data-testid={`roadmap-filter-${v}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="inline-flex rounded ring-1 ring-slate-200 bg-white p-0.5 ml-auto">
+          {[["table", "Tableau"], ["kanban", "Kanban"]].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setView(v)}
+              className={`px-3 py-1 text-[11px] rounded ${view === v ? "bg-slate-800 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+              data-testid={`roadmap-view-${v}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
       </div>
 
-      {/* Table */}
+      {/* Table or Kanban */}
+      {view === "table" ? (
       <div className="rounded-lg ring-1 ring-slate-200 bg-white overflow-x-auto" data-testid="roadmap-table">
         <table className="w-full text-xs min-w-[920px]">
           <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-600">
@@ -1736,8 +1766,88 @@ const RoadmapTrackerSection = () => {
           </tbody>
         </table>
       </div>
+      ) : (
+        <RoadmapKanban items={items} onMove={setStatus} onDelete={removeAction} />
+      )}
     </div>
     </Filterable>
+  );
+};
+
+const RoadmapKanban = ({ items, onMove, onDelete }) => {
+  const cols = [
+    { id: "todo", label: "À faire", ring: "ring-amber-200", bg: "bg-amber-50/40", border: "border-amber-200", text: "text-amber-700" },
+    { id: "in_progress", label: "En cours", ring: "ring-sky-200", bg: "bg-sky-50/40", border: "border-sky-200", text: "text-sky-700" },
+    { id: "done", label: "Réalisée", ring: "ring-emerald-200", bg: "bg-emerald-50/40", border: "border-emerald-200", text: "text-emerald-700" },
+  ];
+  const grouped = { todo: [], in_progress: [], done: [] };
+  items.forEach((it) => {
+    const s = it.status || (it.done ? "done" : "todo");
+    if (grouped[s]) grouped[s].push(it);
+  });
+  return (
+    <div className="grid md:grid-cols-3 gap-3" data-testid="roadmap-kanban">
+      {cols.map((col) => (
+        <div key={col.id} className={`rounded-lg ring-1 ${col.ring} ${col.bg} flex flex-col`} data-testid={`kanban-col-${col.id}`}>
+          <div className={`px-3 py-2 border-b ${col.border} flex items-center justify-between`}>
+            <h3 className={`text-xs font-semibold ${col.text} uppercase tracking-wider`}>{col.label}</h3>
+            <span className={`rounded-full bg-white ring-1 ${col.ring} ${col.text} px-2 text-[10px] font-bold`}>
+              {grouped[col.id].length}
+            </span>
+          </div>
+          <div className="p-2 space-y-2 max-h-[480px] overflow-y-auto">
+            {grouped[col.id].length === 0 ? (
+              <p className="text-[10px] text-slate-400 italic text-center py-8">Aucune carte</p>
+            ) : grouped[col.id].map((it) => (
+              <RoadmapKanbanCard key={it.code} item={it} cols={cols} currentCol={col.id} onMove={onMove} onDelete={onDelete} />
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+};
+
+const RoadmapKanbanCard = ({ item, cols, currentCol, onMove, onDelete }) => {
+  const otherCols = cols.filter((c) => c.id !== currentCol);
+  const btnClass = {
+    todo: "ring-amber-300 text-amber-700 hover:bg-amber-50",
+    in_progress: "ring-sky-300 text-sky-700 hover:bg-sky-50",
+    done: "ring-emerald-300 text-emerald-700 hover:bg-emerald-50",
+  };
+  return (
+    <div className="rounded-lg bg-white ring-1 ring-slate-200 p-2.5 shadow-sm hover:shadow-md transition" data-testid={`kanban-card-${item.code}`}>
+      <div className="flex items-start justify-between gap-1.5 mb-1">
+        <span className="font-mono text-[10px] font-bold text-indigo-700">{item.code}</span>
+        <button
+          onClick={() => onDelete(item)}
+          className="text-rose-300 hover:text-rose-600 transition"
+          title="Supprimer"
+          data-testid={`kanban-delete-${item.code}`}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+      <p className="text-[11px] font-semibold text-slate-800 leading-snug">{item.title}</p>
+      {item.backlog_ref && <p className="text-[9px] text-slate-500 mt-0.5">{item.backlog_ref}</p>}
+      <div className="flex items-center justify-between mt-2 text-[10px] text-slate-500">
+        <span className="font-mono">{(item.duration_h || 0).toFixed(2)} h</span>
+        <span className="font-mono">{(item.cost_xof || 0).toLocaleString("fr-FR")} XOF</span>
+      </div>
+      <div className="flex items-center gap-1 mt-2 pt-2 border-t border-slate-100">
+        <span className="text-[9px] text-slate-400 mr-auto">Déplacer →</span>
+        {otherCols.map((c) => (
+          <button
+            key={c.id}
+            onClick={() => onMove(item, c.id)}
+            className={`text-[9px] font-semibold rounded px-1.5 py-0.5 ring-1 ${btnClass[c.id]}`}
+            data-testid={`kanban-move-${item.code}-${c.id}`}
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 };
 

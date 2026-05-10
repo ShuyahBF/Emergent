@@ -3694,6 +3694,22 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Bug fix RGPD: SMS/WhatsApp envoyaient le numéro masqué", "backlog_ref": "Iter34h",
      "duration_h": 0.25, "done": True,
      "details": "Helper _resolve_real_phone(contact_id, field) restaure le numéro réel depuis la DB au moment de l'envoi. Appliqué à /me/whatsapp/send, /me/whatsapp/send-text, /me/sms/send."},
+    {"code": "ACT-0017", "created_at": "2026-05-10T22:00:00+00:00", "done_at": "2026-05-10T22:10:00+00:00",
+     "title": "Export CSV du Suivi des actions", "backlog_ref": "Iter34i",
+     "duration_h": 0.2, "done": True,
+     "details": "Bouton 'Exporter CSV' avec séparateur `;` + BOM UTF-8 (Excel-FR friendly). Échappement RFC 4180. Filename auto-daté."},
+    {"code": "ACT-0018", "created_at": "2026-05-10T22:10:00+00:00", "done_at": "2026-05-10T22:25:00+00:00",
+     "title": "Création/Toggle/Suppression d'actions depuis l'UI admin", "backlog_ref": "Iter34i",
+     "duration_h": 0.4, "done": True,
+     "details": "POST /api/admin/roadmap-actions (création auto-numérotée). PATCH étendu pour toggler `done` (auto-rempli `done_at`). DELETE protège les 16 entrées du seed historique."},
+    {"code": "ACT-0019", "created_at": "2026-05-10T22:25:00+00:00", "done_at": "2026-05-10T22:30:00+00:00",
+     "title": "Version auto-bumpée depuis le compteur d'actions livrées", "backlog_ref": "Iter34i",
+     "duration_h": 0.15, "done": True,
+     "details": "Endpoint /api/version calcule désormais `1.<N>` où N = nombre d'actions roadmap réalisées. Visible en bas-gauche de chaque page via VersionStamp."},
+    {"code": "ACT-0020", "created_at": "2026-05-10T22:30:00+00:00", "done_at": "2026-05-10T22:40:00+00:00",
+     "title": "Bouton 'Réinitialiser' dans Usage & Facturation", "backlog_ref": "Iter34i",
+     "duration_h": 0.2, "done": True,
+     "details": "Bouton avec panneau de confirmation : mode 'Mettre à 0' (offset, données conservées) ou 'Purge complète' (suppression définitive des visits + access_logs). Confirm fort en cas de purge."},
 ]
 
 
@@ -3744,19 +3760,107 @@ async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
 
 @api.patch("/admin/roadmap-actions/{code}", tags=["Admin"])
 async def admin_patch_roadmap_action(code: str, payload: Dict[str, Any] = Body(...), _: dict = Depends(get_current_admin)):
-    """Admins can only edit the `observations` field. Other fields are
-    intentionally read-only — they are set by the dev when an action lands."""
+    """Admins can edit `observations`, `done` (toggle), and (when adding their
+    own pending actions) `title`, `backlog_ref`, `details`, `duration_h`.
+    Auto-fills `done_at` when `done` flips to true and recomputes `cost_xof`
+    when `duration_h` changes. The auto-incremented `code` is immutable."""
     update: Dict[str, Any] = {}
     if "observations" in payload:
         update["observations"] = (payload.get("observations") or "")[:2000]
+    if "title" in payload:
+        update["title"] = (payload.get("title") or "").strip()[:200]
+    if "backlog_ref" in payload:
+        update["backlog_ref"] = (payload.get("backlog_ref") or "").strip()[:100]
+    if "details" in payload:
+        update["details"] = (payload.get("details") or "").strip()[:1000]
+    if "duration_h" in payload:
+        try:
+            duration_h = max(0.0, float(payload["duration_h"]))
+        except Exception:
+            raise HTTPException(status_code=400, detail="duration_h invalide")
+        update["duration_h"] = duration_h
+        update["cost_xof"] = int(round(duration_h * DEFAULT_ROADMAP_HOURLY_RATE_XOF))
+    if "done" in payload:
+        new_done = bool(payload["done"])
+        update["done"] = new_done
+        existing = await db.roadmap_actions.find_one({"code": code}, {"_id": 0, "done": 1, "done_at": 1})
+        if new_done and (not existing or not existing.get("done_at")):
+            update["done_at"] = _now()
+        elif not new_done:
+            update["done_at"] = None
     if not update:
-        raise HTTPException(status_code=400, detail="Aucun champ modifiable fourni (seul `observations` est éditable)")
+        raise HTTPException(status_code=400, detail="Aucun champ modifiable fourni")
     update["updated_at"] = _now()
     res = await db.roadmap_actions.update_one({"code": code}, {"$set": update})
     if res.matched_count == 0:
         raise HTTPException(status_code=404, detail="Action introuvable")
     item = await db.roadmap_actions.find_one({"code": code}, {"_id": 0})
     return item
+
+
+def _next_roadmap_code(existing_codes: List[str]) -> str:
+    """Compute the next sequential `ACT-####` based on the maximum existing
+    numeric suffix. New entries always start with 'ACT-' to remain sortable
+    alphabetically with the seed."""
+    max_n = 0
+    for c in existing_codes:
+        try:
+            n = int((c or "").split("-")[-1])
+            if n > max_n:
+                max_n = n
+        except Exception:
+            continue
+    return f"ACT-{max_n + 1:04d}"
+
+
+@api.post("/admin/roadmap-actions", tags=["Admin"])
+async def admin_create_roadmap_action(payload: Dict[str, Any] = Body(...), _: dict = Depends(get_current_admin)):
+    """Admin-driven creation of a pending action. Auto-numbered. Default
+    `done=False`; can be flipped via the existing PATCH endpoint when
+    delivered."""
+    title = (payload.get("title") or "").strip()
+    if not title:
+        raise HTTPException(status_code=400, detail="Le titre est obligatoire")
+    await _seed_roadmap_actions()
+    existing_codes = await db.roadmap_actions.distinct("code")
+    code = _next_roadmap_code(existing_codes)
+    duration_h = 0.0
+    try:
+        duration_h = max(0.0, float(payload.get("duration_h") or 0))
+    except Exception:
+        duration_h = 0.0
+    done = bool(payload.get("done"))
+    doc = {
+        "id": _uuid(),
+        "code": code,
+        "created_at": _now(),
+        "done_at": _now() if done else None,
+        "title": title[:200],
+        "backlog_ref": (payload.get("backlog_ref") or "").strip()[:100],
+        "details": (payload.get("details") or "").strip()[:1000],
+        "duration_h": duration_h,
+        "cost_xof": int(round(duration_h * DEFAULT_ROADMAP_HOURLY_RATE_XOF)),
+        "done": done,
+        "observations": "",
+    }
+    await db.roadmap_actions.insert_one(doc)
+    out = dict(doc)
+    out.pop("_id", None)
+    return out
+
+
+@api.delete("/admin/roadmap-actions/{code}", tags=["Admin"])
+async def admin_delete_roadmap_action(code: str, _: dict = Depends(get_current_admin)):
+    """Only admin-created (non-seed) entries can be deleted to keep the
+    historical log intact. Seed entries start with ACT-0001..ACT-0016 and are
+    protected — admins can edit them but not delete."""
+    seed_codes = {e["code"] for e in ROADMAP_SEED}
+    if code in seed_codes:
+        raise HTTPException(status_code=403, detail="Les actions du seed historique ne peuvent pas être supprimées")
+    res = await db.roadmap_actions.delete_one({"code": code})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Action introuvable")
+    return {"ok": True, "code": code}
 
 
 
@@ -5895,8 +5999,23 @@ _BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
 
 @api.get("/version", tags=["Public"])
 async def get_version():
-    """Returns the running build's version + last-restart time."""
-    return {"version": _BUILD_VERSION, "started_at": _BUILD_TIME_ISO}
+    """Returns the running build's version + last-restart time.
+
+    Iter34i: The minor version auto-bumps from the count of delivered
+    roadmap actions stored in `db.roadmap_actions`. Manual major releases
+    can be forced via the APP_VERSION env var (then we append the action
+    count as a build number). Result format: `1.<N>` or `<APP_VERSION>.<N>`.
+    """
+    try:
+        done_count = await db.roadmap_actions.count_documents({"done": True})
+    except Exception:
+        done_count = 0
+    env_ver = (os.environ.get("APP_VERSION") or "").strip()
+    if env_ver:
+        version = f"{env_ver}.{done_count}"
+    else:
+        version = f"1.{done_count}"
+    return {"version": version, "started_at": _BUILD_TIME_ISO, "actions_done": done_count}
 
 
 # ====================================================================
@@ -12365,15 +12484,33 @@ async def public_visit_trend(days: int = 7):
 
 
 @api.post("/admin/visits/reset", tags=["Admin"])
-async def admin_reset_visit_counter(_: dict = Depends(get_current_admin)):
-    """Resets the publicly displayed counter to zero (real visits remain in DB)."""
+async def admin_reset_visit_counter(payload: Dict[str, Any] = Body(default={}), _: dict = Depends(get_current_admin)):
+    """Resets the publicly displayed visits counter to zero (real visits
+    remain in DB by default — only the offset moves).
+
+    Iter34i: When `purge_access_logs=true`, also wipes `db.access_logs` and
+    `db.visits` so the platform restarts from a clean analytics slate. The
+    setting `usage_reset_at` is recorded so the UI can show "Compteur réinitialisé
+    le …" rather than confusing the admin with stale histograms."""
+    purge = bool(payload.get("purge_access_logs"))
     real = await db.visits.count_documents({})
+    access_log_count = 0
+    if purge:
+        access_log_count = await db.access_logs.count_documents({})
+        await db.access_logs.delete_many({})
+        await db.visits.delete_many({})
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"visits_counter_offset": 0, "usage_reset_at": _now(), "updated_at": _now()}},
+            upsert=True,
+        )
+        return {"ok": True, "displayed_count": 0, "real_count": 0, "purged_visits": real, "purged_access_logs": access_log_count}
     await db.settings.update_one(
         {"_id": "global"},
         {"$set": {"visits_counter_offset": -real, "updated_at": _now()}},
         upsert=True,
     )
-    return {"ok": True, "displayed_count": 0, "real_count": real}
+    return {"ok": True, "displayed_count": 0, "real_count": real, "purged_visits": 0, "purged_access_logs": 0}
 
 
 # ====================================================================

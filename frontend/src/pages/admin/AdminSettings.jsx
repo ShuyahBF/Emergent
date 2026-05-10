@@ -1413,6 +1413,8 @@ const RoadmapTrackerSection = () => {
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("all");  // all | done | pending
   const [editing, setEditing] = useState(null);  // {code, observations}
+  const [creating, setCreating] = useState(false);
+  const [newForm, setNewForm] = useState({ title: "", backlog_ref: "", details: "", duration_h: 0 });
   const TITLE = "Suivi des actions (historique du travail)";
 
   const load = async () => {
@@ -1432,6 +1434,45 @@ const RoadmapTrackerSection = () => {
       await apiClient.patch(`/admin/roadmap-actions/${editing.code}`, { observations: editing.observations });
       toast.success("Observation enregistrée");
       setEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const toggleDone = async (it) => {
+    try {
+      await apiClient.patch(`/admin/roadmap-actions/${it.code}`, { done: !it.done });
+      toast.success(it.done ? "Action marquée À faire" : "Action marquée comme réalisée");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const removeAction = async (it) => {
+    if (!window.confirm(`Supprimer définitivement ${it.code} — « ${it.title} » ?`)) return;
+    try {
+      await apiClient.delete(`/admin/roadmap-actions/${it.code}`);
+      toast.success("Action supprimée");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Suppression impossible (actions du seed historique protégées)");
+    }
+  };
+
+  const createAction = async () => {
+    if (!newForm.title.trim()) { toast.error("Le titre est obligatoire"); return; }
+    try {
+      await apiClient.post("/admin/roadmap-actions", {
+        title: newForm.title.trim(),
+        backlog_ref: newForm.backlog_ref.trim(),
+        details: newForm.details.trim(),
+        duration_h: parseFloat(newForm.duration_h) || 0,
+      });
+      toast.success("Action ajoutée au pipeline");
+      setCreating(false);
+      setNewForm({ title: "", backlog_ref: "", details: "", duration_h: 0 });
       await load();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -1495,6 +1536,13 @@ const RoadmapTrackerSection = () => {
         </div>
         <div className="flex items-center gap-2">
           <button
+            onClick={() => setCreating((v) => !v)}
+            className="text-xs inline-flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white px-2.5 py-1 font-semibold"
+            data-testid="roadmap-new-btn"
+          >
+            <Sparkles className="h-3 w-3" /> {creating ? "Annuler" : "Nouvelle action"}
+          </button>
+          <button
             onClick={exportCsv}
             disabled={loading || items.length === 0}
             className="text-xs inline-flex items-center gap-1 rounded ring-1 ring-indigo-300 bg-white px-2 py-1 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
@@ -1515,6 +1563,59 @@ const RoadmapTrackerSection = () => {
       <p className="text-xs text-slate-600">
         Liste auto-incrémentée des évolutions livrées avec date, durée et coût approximatifs. Seule la colonne <strong>Observations</strong> est modifiable depuis cette page — les autres colonnes sont alimentées automatiquement à chaque livraison.
       </p>
+
+      {/* New-action inline form */}
+      {creating && (
+        <div className="rounded-lg ring-1 ring-indigo-300 bg-white p-3 space-y-2" data-testid="roadmap-new-form">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <input
+              autoFocus
+              value={newForm.title}
+              onChange={(e) => setNewForm({ ...newForm, title: e.target.value })}
+              placeholder="Titre de l'action (obligatoire)"
+              className="rounded border border-slate-300 px-2 py-1.5 text-xs"
+              data-testid="roadmap-new-title"
+            />
+            <input
+              value={newForm.backlog_ref}
+              onChange={(e) => setNewForm({ ...newForm, backlog_ref: e.target.value })}
+              placeholder="Référence backlog (ex: P1, User-request)"
+              className="rounded border border-slate-300 px-2 py-1.5 text-xs"
+              data-testid="roadmap-new-backlog"
+            />
+          </div>
+          <textarea
+            rows={2}
+            value={newForm.details}
+            onChange={(e) => setNewForm({ ...newForm, details: e.target.value })}
+            placeholder="Détails / contexte (optionnel)"
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs resize-y"
+            data-testid="roadmap-new-details"
+          />
+          <div className="flex items-center gap-2 flex-wrap">
+            <label className="text-xs text-slate-700 inline-flex items-center gap-1.5">
+              Durée estimée (h) :
+              <input
+                type="number"
+                step="0.25"
+                min={0}
+                value={newForm.duration_h}
+                onChange={(e) => setNewForm({ ...newForm, duration_h: e.target.value })}
+                className="w-20 rounded border border-slate-300 px-1.5 py-1 text-xs"
+                data-testid="roadmap-new-duration"
+              />
+            </label>
+            <span className="text-[10px] text-slate-500">≈ {(parseFloat(newForm.duration_h || 0) * 25000).toLocaleString("fr-FR")} XOF</span>
+            <button
+              onClick={createAction}
+              className="ml-auto rounded bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1 text-xs font-semibold"
+              data-testid="roadmap-new-save"
+            >
+              Ajouter au pipeline
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Totals strip */}
       {totals && (
@@ -1565,11 +1666,12 @@ const RoadmapTrackerSection = () => {
               <th className="px-2 py-2 text-right">Coût (XOF)</th>
               <th className="px-2 py-2 text-center">État</th>
               <th className="px-2 py-2 text-left">Observations (modifiable)</th>
+              <th className="px-2 py-2"></th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 ? (
-              <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 italic">Aucune action pour ce filtre.</td></tr>
+              <tr><td colSpan={9} className="px-3 py-6 text-center text-slate-400 italic">Aucune action pour ce filtre.</td></tr>
             ) : items.map((it) => (
               <tr key={it.code} className="border-t border-slate-100 hover:bg-slate-50/40" data-testid={`roadmap-row-${it.code}`}>
                 <td className="px-2 py-1.5 font-mono font-semibold text-indigo-700">{it.code}</td>
@@ -1583,11 +1685,14 @@ const RoadmapTrackerSection = () => {
                 <td className="px-2 py-1.5 text-right font-mono text-slate-700">{(it.duration_h || 0).toFixed(2)} h</td>
                 <td className="px-2 py-1.5 text-right font-mono text-slate-700">{(it.cost_xof || 0).toLocaleString("fr-FR")}</td>
                 <td className="px-2 py-1.5 text-center">
-                  {it.done ? (
-                    <span className="rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold">✓ FAIT</span>
-                  ) : (
-                    <span className="rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[9px] font-bold">À FAIRE</span>
-                  )}
+                  <button
+                    onClick={() => toggleDone(it)}
+                    className={`rounded px-1.5 py-0.5 text-[9px] font-bold transition hover:scale-105 ${it.done ? "bg-emerald-100 text-emerald-700 hover:bg-emerald-200" : "bg-amber-100 text-amber-700 hover:bg-amber-200"}`}
+                    title={it.done ? "Cliquer pour remettre 'À faire'" : "Cliquer pour marquer 'Réalisée'"}
+                    data-testid={`roadmap-toggle-${it.code}`}
+                  >
+                    {it.done ? "✓ FAIT" : "À FAIRE"}
+                  </button>
                 </td>
                 <td className="px-2 py-1.5 max-w-[280px]">
                   {editing?.code === it.code ? (
@@ -1615,6 +1720,16 @@ const RoadmapTrackerSection = () => {
                       <Pencil className="h-3 w-3 text-slate-300 group-hover:text-indigo-500 shrink-0 mt-0.5" />
                     </div>
                   )}
+                </td>
+                <td className="px-2 py-1.5 text-center">
+                  <button
+                    onClick={() => removeAction(it)}
+                    className="text-rose-400 hover:text-rose-700 transition"
+                    title="Supprimer (uniquement actions admin)"
+                    data-testid={`roadmap-delete-${it.code}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
                 </td>
               </tr>
             ))}

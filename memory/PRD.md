@@ -764,6 +764,14 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Bug fix mobile (Iter34g)** : La jauge support technique disparaissait sur mobile à cause de `hidden md:block` dans `MarketingNav.jsx`. Fix : suppression du `hidden`, gauge inline rendue plus compacte (`px-2 sm:px-4`, label tronqué à 150px max sur mobile, hour markers avec icône Headphones toujours visible).
 
 ## Iter34h (2026-05-10) — Suivi des actions + Bugfix RGPD SMS/WA
+
+## Iter34i (2026-05-10) — CSV export + Pipeline admin + Version auto-bump + Reset usage
+- **Backend** : `POST /api/admin/roadmap-actions` (création auto-numérotée par admin) + `DELETE` (protège les 16 entrées seed historiques HTTP 403) + `PATCH` étendu pour toggler `done` (auto-rempli `done_at`) et éditer title/backlog_ref/details/duration_h. Cost auto-recalculé via `duration_h × 25 000 XOF/h`.
+- **Backend** : `/api/version` calcule dynamiquement `1.<N>` où N = `count(roadmap_actions, done=true)`. Auto-bump à chaque livraison sans redéploiement.
+- **Backend** : `POST /api/admin/visits/reset` accepte `{purge_access_logs: bool}`. Mode `false` (défaut) → offset only (données conservées, compteur affiché 0). Mode `true` → suppression définitive des `visits` + `access_logs` + reset offset.
+- **Frontend** : Section Suivi étendue avec bouton "Nouvelle action" (form inline : titre + backlog_ref + détails + durée), bouton toggle ✓ FAIT/À FAIRE sur chaque ligne, bouton suppression (corbeille) sur chaque ligne, et bouton "Exporter CSV" (RFC 4180 + BOM UTF-8).
+- **Frontend** : Composant `ResetUsageButton` dans `/admin/usage` avec panneau de confirmation (checkbox "Purge complète" + confirm fort).
+- **Validation curl** : `/version` → "1.16" puis "1.17" après création d'une action done, retour "1.16" après suppression. Seed protégé : DELETE ACT-0001 → HTTP 403. Purge complète : 1735 visits + 608 access_logs supprimés ✓.
 - **Backend** : Nouvelle collection `db.roadmap_actions` (auto-numérotation `ACT-0001…`) avec seed initial de 16 actions livrées dans cette session. Endpoints : `GET /api/admin/roadmap-actions` (liste + totals) et `PATCH /api/admin/roadmap-actions/{code}` (seul `observations` modifiable, autres champs verrouillés HTTP 400).
 - **Frontend** : Composant `RoadmapTrackerSection` dans `/admin/settings` (bulle NOUVEAU). 4 KPI cards (total/réalisées/durée cumulée/coût cumulé @ 25 000 XOF/h), filtre Toutes/Réalisées/À faire, tableau avec N°, dates, action+backlog+détails, durée, coût, état, et zone Observations éditable inline (textarea → bouton Enregistrer).
 - **Backend BugFix RGPD** : Helper `_resolve_real_phone(contact_id, field, fallback)` qui restaure le numéro réel depuis `db.directory_contacts` quand un contact_id est fourni. Évite que les numéros masqués par l'anonymisation arrivent jusqu'aux providers SMS/WA. Appliqué à `/me/whatsapp/send`, `/me/whatsapp/send-text`, `/me/sms/send`.

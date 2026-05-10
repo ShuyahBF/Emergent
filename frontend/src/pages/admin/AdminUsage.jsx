@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins, Users, Eye, Building2 } from "lucide-react";
+import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins, Users, Eye, Building2, Trash2 } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 /*
@@ -144,6 +144,7 @@ export default function AdminUsage() {
           >
             <Download className="h-4 w-4" /> CSV
           </button>
+          <ResetUsageButton onDone={load} />
         </div>
       </div>
 
@@ -394,6 +395,81 @@ const _fmtDate = (iso) => {
   } catch {
     return iso;
   }
+};
+
+// ============================================================
+// Iter34i — Reset usage counters (compteur visites + access_logs)
+// ============================================================
+const ResetUsageButton = ({ onDone }) => {
+  const [open, setOpen] = useState(false);
+  const [purge, setPurge] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const run = async () => {
+    if (purge && !window.confirm("⚠️ Vous allez SUPPRIMER définitivement toutes les visites enregistrées et toutes les traces d'accès (access_logs). Cette action est IRRÉVERSIBLE. Continuer ?")) return;
+    setBusy(true);
+    try {
+      const r = await apiClient.post("/admin/visits/reset", { purge_access_logs: purge });
+      if (purge) {
+        toast.success(`Réinitialisation complète : ${r.data?.purged_visits || 0} visites + ${r.data?.purged_access_logs || 0} logs supprimés`);
+      } else {
+        toast.success(`Compteur remis à 0 — ${r.data?.real_count || 0} visites masquées (conservées en base)`);
+      }
+      setOpen(false);
+      setPurge(false);
+      onDone && onDone();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1 rounded-lg ring-1 ring-rose-300 bg-white text-rose-700 hover:bg-rose-50 px-3 py-1.5 text-sm"
+        data-testid="usage-reset-btn"
+      >
+        <Trash2 className="h-4 w-4" /> Réinitialiser
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full mt-2 w-80 rounded-lg ring-1 ring-slate-200 bg-white shadow-xl p-3 z-50 space-y-2" data-testid="usage-reset-panel">
+          <p className="text-xs font-semibold text-slate-700">Réinitialiser le compteur d'usage</p>
+          <p className="text-[11px] text-slate-500 leading-snug">
+            Idéal après des phases de simulation pour partir d'une base propre des usages réels.
+          </p>
+          <label className="flex items-start gap-2 text-[11px] text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={purge}
+              onChange={(e) => setPurge(e.target.checked)}
+              className="mt-0.5"
+              data-testid="usage-reset-purge"
+            />
+            <span>
+              <span className="font-semibold">Purge complète</span> — supprimer définitivement les visites + traces d'accès. Sinon, simple offset (les données restent en base et sont masquées).
+            </span>
+          </label>
+          <div className="flex items-center justify-end gap-2 pt-1">
+            <button
+              onClick={() => { setOpen(false); setPurge(false); }}
+              className="text-[11px] text-slate-500 hover:text-slate-900 px-2 py-1"
+            >
+              Annuler
+            </button>
+            <button
+              onClick={run}
+              disabled={busy}
+              className={`text-[11px] font-semibold px-3 py-1 rounded ${purge ? "bg-rose-600 hover:bg-rose-700" : "bg-amber-600 hover:bg-amber-700"} text-white disabled:opacity-50`}
+              data-testid="usage-reset-confirm"
+            >
+              {busy ? "…" : purge ? "Purger TOUT" : "Mettre à 0"}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 };
 
 const UserActivityCard = () => {

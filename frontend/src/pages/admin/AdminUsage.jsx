@@ -400,6 +400,7 @@ const UserActivityCard = () => {
   const [period, setPeriod] = useState("week");
   const [company, setCompany] = useState("");
   const [data, setData] = useState(null);
+  const [heatmap, setHeatmap] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const load = async () => {
@@ -407,8 +408,14 @@ const UserActivityCard = () => {
     try {
       const params = { period, limit: 10 };
       if (company) params.company = company;
-      const r = await apiClient.get("/admin/user-activity", { params });
+      const [r, hm] = await Promise.all([
+        apiClient.get("/admin/user-activity", { params }),
+        // The heatmap always shows "month" granularity for stability,
+        // but is filtered by the same company. Period filter applies via param.
+        apiClient.get("/admin/user-activity/heatmap", { params: { ...params, period: period === "today" ? "week" : period } }),
+      ]);
       setData(r.data);
+      setHeatmap(hm.data);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally { setLoading(false); }
@@ -541,6 +548,84 @@ const UserActivityCard = () => {
             <p className="px-3 py-6 text-center text-[11px] text-slate-400 italic">Aucune visite enregistrée.</p>
           )}
         </div>
+      </div>
+
+      {/* Heatmap — Mon→Sun × 0h→23h */}
+      <ActivityHeatmap heatmap={heatmap} />
+    </div>
+  );
+};
+
+const ActivityHeatmap = ({ heatmap }) => {
+  if (!heatmap || !heatmap.matrix) return null;
+  const matrix = heatmap.matrix;
+  const peakCount = Math.max(1, heatmap.peak?.count || 0);
+  const weekdays = heatmap.weekdays || ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"];
+
+  // Color scale: white → sky → indigo. Intensity is sqrt-scaled so low values
+  // remain visible while peak bursts dominate.
+  const cellColor = (n) => {
+    if (n === 0) return { bg: "rgba(241, 245, 249, 1)", fg: "rgba(148, 163, 184, 0.6)" };
+    const ratio = Math.sqrt(n / peakCount);
+    const alpha = 0.15 + ratio * 0.85;
+    return { bg: `rgba(30, 144, 255, ${alpha.toFixed(2)})`, fg: ratio > 0.5 ? "white" : "rgba(15, 23, 42, 0.85)" };
+  };
+
+  return (
+    <div className="rounded-lg ring-1 ring-slate-200 overflow-hidden" data-testid="user-activity-heatmap">
+      <div className="px-3 py-2 bg-slate-50 text-[10px] uppercase tracking-wider font-semibold text-slate-600 flex items-center justify-between gap-2">
+        <span className="inline-flex items-center gap-1.5">
+          <Activity className="h-3 w-3" /> Carte de chaleur — heures d'activité (UTC)
+        </span>
+        <span className="text-slate-500 font-normal normal-case">
+          Total {heatmap.total.toLocaleString("fr-FR")} · pic {heatmap.peak?.count || 0}
+          {heatmap.peak?.day !== null && heatmap.peak?.hour !== null && (
+            <> · {weekdays[heatmap.peak.day]} {String(heatmap.peak.hour).padStart(2, "0")}h</>
+          )}
+        </span>
+      </div>
+      <div className="overflow-x-auto p-3">
+        <table className="text-[9px] min-w-[640px]" data-testid="heatmap-grid">
+          <thead>
+            <tr>
+              <th className="w-10"></th>
+              {Array.from({ length: 24 }).map((_, h) => (
+                <th key={h} className={`text-center text-slate-400 font-mono px-0.5 py-1 ${h % 3 === 0 ? "" : "opacity-50"}`}>
+                  {h % 3 === 0 ? `${String(h).padStart(2, "0")}h` : ""}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {matrix.map((row, wd) => (
+              <tr key={wd}>
+                <td className="text-right pr-2 text-slate-500 font-semibold">{weekdays[wd]}</td>
+                {row.map((n, h) => {
+                  const { bg, fg } = cellColor(n);
+                  return (
+                    <td key={h} className="p-0">
+                      <div
+                        className="aspect-square w-full min-w-[18px] flex items-center justify-center font-mono"
+                        style={{ backgroundColor: bg, color: fg }}
+                        title={`${weekdays[wd]} ${String(h).padStart(2, "0")}h — ${n} visite(s)`}
+                        data-testid={`heatmap-cell-${wd}-${h}`}
+                      >
+                        {n > 0 ? n : ""}
+                      </div>
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <div className="px-3 pb-3 flex items-center gap-1.5 text-[9px] text-slate-500">
+        <span>Faible</span>
+        {[0.15, 0.3, 0.5, 0.7, 1.0].map((a, i) => (
+          <span key={i} className="inline-block h-2.5 w-5 rounded-sm" style={{ backgroundColor: `rgba(30, 144, 255, ${a})` }} />
+        ))}
+        <span>Élevée</span>
       </div>
     </div>
   );

@@ -109,11 +109,14 @@ def _delta_label(current: int, previous: int) -> str:
 
 
 async def _gather_user_activity_7d(since_iso: str, until_iso: str) -> Dict[str, Any]:
-    """Collect last logins (top 5) + top pages (top 5) over the last 7 days
-    for the PDF report. Joins access_logs with users for the company label."""
+    """Collect last logins (top 5) + top pages (top 5) + a 7×24 heatmap of
+    hits over the last 7 days for the PDF report. Joins access_logs with
+    users for the company label."""
     win = {"$gte": since_iso, "$lt": until_iso}
     last_logins: List[Dict[str, Any]] = []
     top_pages: List[Dict[str, Any]] = []
+    matrix = [[0] * 24 for _ in range(7)]
+    peak_count = 0
     try:
         user_pipeline = [
             {"$match": {"created_at": win}},
@@ -162,7 +165,24 @@ async def _gather_user_activity_7d(since_iso: str, until_iso: str) -> Dict[str, 
             })
     except Exception:
         pass
-    return {"last_logins": last_logins, "top_pages": top_pages}
+    # Heatmap (7×24) — read raw timestamps and bucket in-memory
+    try:
+        cursor = db.access_logs.find({"created_at": win}, {"_id": 0, "created_at": 1})
+        async for doc in cursor:
+            try:
+                d = datetime.fromisoformat((doc.get("created_at") or "").replace("Z", "+00:00"))
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=timezone.utc)
+                wd = d.weekday()
+                hr = d.hour
+                matrix[wd][hr] += 1
+                if matrix[wd][hr] > peak_count:
+                    peak_count = matrix[wd][hr]
+            except Exception:
+                continue
+    except Exception:
+        pass
+    return {"last_logins": last_logins, "top_pages": top_pages, "heatmap": matrix, "heatmap_peak": peak_count}
 
 
 async def _gather_settings_meta() -> Dict[str, Any]:
@@ -409,6 +429,65 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
                 ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
             ]))
             story.append(pages_tbl)
+
+        # Heatmap (Mon→Sun × 0h→23h)
+        if user_activity.get("heatmap"):
+            story.append(Spacer(1, 4))
+            story.append(Paragraph("<font color='#334155' size='9'><b>Heures d'activité (UTC) — carte de chaleur</b></font>", body))
+            heat_matrix = user_activity["heatmap"]
+            heat_peak = max(1, user_activity.get("heatmap_peak") or 0)
+            weekdays_short = ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"]
+            # Header row: hour markers every 3h, the rest stays empty for clarity
+            header = [""]
+            for h in range(24):
+                header.append(f"{h:02d}h" if h % 3 == 0 else "")
+            heat_rows = [header]
+            for wd, row in enumerate(heat_matrix):
+                heat_rows.append([weekdays_short[wd], *[str(n) if n else "·" for n in row]])
+            heat_tbl = Table(
+                heat_rows,
+                colWidths=[14 * mm, *[6.5 * mm] * 24],
+                rowHeights=[7 * mm, *[7 * mm] * 7],
+                hAlign="LEFT",
+            )
+            heat_style = [
+                ("FONTSIZE", (0, 0), (-1, 0), 7),
+                ("FONTSIZE", (0, 1), (-1, -1), 7.5),
+                ("ALIGN", (0, 0), (-1, -1), "CENTER"),
+                ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+                ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#F1F5F9")),
+                ("TEXTCOLOR", (0, 1), (0, -1), SLATE_700),
+                ("FONTNAME", (0, 1), (0, -1), "Helvetica-Bold"),
+                ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+                ("TEXTCOLOR", (1, 0), (-1, 0), SLATE_500),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
+                ("LINEAFTER", (0, 0), (0, -1), 0.7, colors.HexColor("#CBD5E1")),
+                ("LINEBELOW", (0, 0), (-1, 0), 0.7, colors.HexColor("#CBD5E1")),
+                ("INNERGRID", (1, 1), (-1, -1), 0.25, colors.HexColor("#E2E8F0")),
+                ("TOPPADDING", (0, 0), (-1, -1), 0),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+                ("LEFTPADDING", (0, 0), (-1, -1), 1),
+                ("RIGHTPADDING", (0, 0), (-1, -1), 1),
+            ]
+            for r_idx, row in enumerate(heat_matrix, start=1):
+                for c_idx, n in enumerate(row, start=1):
+                    if n <= 0:
+                        heat_style.append(("TEXTCOLOR", (c_idx, r_idx), (c_idx, r_idx), colors.HexColor("#CBD5E1")))
+                        continue
+                    ratio = (n / heat_peak) ** 0.5
+                    alpha = 0.18 + ratio * 0.82
+                    # Pre-blend RGB(30,144,255) over white at `alpha` to keep
+                    # PDF readers honest (some don't render alpha-channel BG)
+                    rr = int(round((1 - alpha) * 255 + alpha * 30))
+                    gg = int(round((1 - alpha) * 255 + alpha * 144))
+                    bb = int(round((1 - alpha) * 255 + alpha * 255))
+                    bg = colors.Color(rr / 255, gg / 255, bb / 255)
+                    heat_style.append(("BACKGROUND", (c_idx, r_idx), (c_idx, r_idx), bg))
+                    if ratio > 0.55:
+                        heat_style.append(("TEXTCOLOR", (c_idx, r_idx), (c_idx, r_idx), colors.white))
+                        heat_style.append(("FONTNAME", (c_idx, r_idx), (c_idx, r_idx), "Helvetica-Bold"))
+            heat_tbl.setStyle(TableStyle(heat_style))
+            story.append(heat_tbl)
 
     # État de la plateforme
     story.append(Paragraph("État de la plateforme", h2))

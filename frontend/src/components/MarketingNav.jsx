@@ -30,9 +30,9 @@ export default function MarketingNav() {
     <header className="glass-nav sticky top-0 z-50 backdrop-blur-md bg-[#081226]/85 border-b border-white/5" data-testid="marketing-navbar">
       {/* Thin top strip — Support technique gauge centered. The component
           returns null (whole strip vanishes) when the admin disables the gauge
-          so we never leave an empty band. Hidden on small screens to save
-          vertical space. */}
-      <div className="hidden md:block" data-testid="navbar-support-gauge-wrap">
+          so we never leave an empty band. Always visible (responsive
+          compaction is handled inside `SupportLoadGauge inline`). */}
+      <div data-testid="navbar-support-gauge-wrap">
         <SupportLoadGauge inline />
       </div>
 

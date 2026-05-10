@@ -62,23 +62,23 @@ export default function SupportLoadGauge({ inline = false }) {
   if (inline) {
     return (
       <div
-        className="w-full flex items-center justify-center px-4 py-1 border-b border-white/5"
+        className="w-full flex items-center justify-center px-2 sm:px-4 py-1 border-b border-white/5"
         data-testid="support-load-gauge-strip"
       >
         <div
-          className="inline-flex items-center gap-2 text-[11px] text-slate-100 px-2.5 py-1 rounded-full ring-1 ring-white/10 bg-white/5 backdrop-blur-sm"
+          className="inline-flex items-center gap-1.5 sm:gap-2 text-[10px] sm:text-[11px] text-slate-100 px-2 py-1 rounded-full ring-1 ring-white/10 bg-white/5 backdrop-blur-sm max-w-full"
           data-testid="support-load-gauge-inline"
           role="status"
           aria-label={`Niveau d'occupation du support : ${level} sur 7 — ${headline}`}
           title={`Support : ${headline} (${level}/7)`}
         >
-          <Headphones className="h-3 w-3 opacity-70 hidden sm:block" />
+          <Headphones className="h-3 w-3 opacity-70 shrink-0" />
           <span className="opacity-60 uppercase tracking-[0.18em] text-[9px] hidden md:inline">Support</span>
           <Bars level={level} />
-          <span className="font-semibold" style={{ color: dominantColor }}>
+          <span className="font-semibold truncate max-w-[150px] sm:max-w-none" style={{ color: dominantColor }}>
             {headline}
           </span>
-          <span className="opacity-50 text-[9px] hidden lg:inline">{level}/7</span>
+          <span className="opacity-50 text-[9px] hidden sm:inline">{level}/7</span>
         </div>
       </div>
     );

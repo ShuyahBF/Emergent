@@ -3127,6 +3127,74 @@ async def admin_user_activity(
     }
 
 
+@api.get("/admin/user-activity/heatmap", tags=["Admin"])
+async def admin_user_activity_heatmap(
+    period: str = "month",
+    company: Optional[str] = None,
+    _: dict = Depends(get_current_admin),
+):
+    """Returns a 7×24 grid of hit counts (rows = weekdays 0..6 Mon→Sun,
+    cols = hours 0..23 UTC). Useful for identifying peak activity windows.
+    Period accepts: today | week | month | quarter | year | days=N (1..365)."""
+    period_norm = (period or "month").lower()
+    now = datetime.now(timezone.utc)
+    days_map = {"today": 1, "day": 1, "week": 7, "month": 30, "quarter": 90, "year": 365}
+    days = days_map.get(period_norm, 30)
+    if period_norm.startswith("days="):
+        try:
+            days = max(1, min(int(period_norm.split("=", 1)[1]), 365))
+        except Exception:
+            days = 30
+    since = (now - timedelta(days=days)).isoformat()
+    log_q: Dict[str, Any] = {"created_at": {"$gte": since}}
+
+    # Company filter — same logic as /admin/user-activity
+    if company:
+        emails = await db.users.distinct(
+            "email",
+            {"company": {"$regex": f"^{re.escape(company)}$", "$options": "i"}},
+        )
+        emails = [(e or "").lower() for e in emails if e]
+        if not emails:
+            return {"period": period_norm, "days": days, "company": company,
+                    "matrix": [[0] * 24 for _ in range(7)], "total": 0, "peak": {"day": None, "hour": None, "count": 0}}
+        log_q["user_email"] = {"$in": emails}
+
+    matrix = [[0] * 24 for _ in range(7)]
+    total = 0
+    peak = {"day": None, "hour": None, "count": 0}
+    try:
+        cursor = db.access_logs.find(log_q, {"_id": 0, "created_at": 1})
+        async for r in cursor:
+            iso = r.get("created_at") or ""
+            try:
+                d = datetime.fromisoformat(iso.replace("Z", "+00:00"))
+                if d.tzinfo is None:
+                    d = d.replace(tzinfo=timezone.utc)
+            except Exception:
+                continue
+            # Python weekday: Monday=0..Sunday=6 (matches our grid)
+            wd = d.weekday()
+            hr = d.hour
+            matrix[wd][hr] += 1
+            total += 1
+            if matrix[wd][hr] > peak["count"]:
+                peak = {"day": wd, "hour": hr, "count": matrix[wd][hr]}
+    except Exception:
+        pass
+
+    return {
+        "period": period_norm,
+        "days": days,
+        "company": company,
+        "since": since,
+        "matrix": matrix,  # 7 rows (Mon→Sun) × 24 cols (0h→23h)
+        "total": total,
+        "peak": peak,
+        "weekdays": ["Lun", "Mar", "Mer", "Jeu", "Ven", "Sam", "Dim"],
+    }
+
+
 
 
 @api.get("/admin/migrate-orphan-data", tags=["Admin"])

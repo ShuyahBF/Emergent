@@ -1632,6 +1632,47 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
             {autoRunning ? "Lancement…" : "Lancer maintenant"}
           </button>
         </div>
+
+        {/* Email delivery */}
+        <div className="rounded ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2" data-testid="snapshot-auto-email-block">
+          <div className="flex items-center justify-between gap-3 flex-wrap">
+            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-700 inline-flex items-center gap-1.5">
+              <Mail className="h-3 w-3" /> Envoi par email (copie offsite)
+            </div>
+            <label className="inline-flex items-center gap-2 text-[11px] text-slate-700 select-none">
+              <input
+                type="checkbox"
+                checked={!!s.auto_snapshot_email_enabled}
+                disabled={autoSaving}
+                onChange={(e) => { upd("auto_snapshot_email_enabled", e.target.checked); saveAutoSettings({ auto_snapshot_email_enabled: e.target.checked }); }}
+                data-testid="snapshot-auto-email-toggle"
+              />
+              <span>{s.auto_snapshot_email_enabled ? "Activé" : "Désactivé"}</span>
+            </label>
+          </div>
+          <input
+            type="email"
+            value={s.auto_snapshot_email_to || ""}
+            onChange={(e) => upd("auto_snapshot_email_to", e.target.value)}
+            onBlur={(e) => saveAutoSettings({ auto_snapshot_email_to: e.target.value })}
+            placeholder="admin@votreentreprise.com"
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs bg-white"
+            data-testid="snapshot-auto-email-to"
+          />
+          <p className="text-[10px] text-slate-500 leading-snug">
+            Le fichier <code>.json.gz</code> sera joint au message. Nécessite que <strong>SMTP</strong> soit configuré dans les paramètres.
+            {s.auto_snapshot_last_email_sent === false && s.auto_snapshot_email_enabled && (
+              <span className="block text-rose-600 mt-0.5" data-testid="snapshot-auto-email-warn">
+                Le dernier envoi a échoué — vérifiez SMTP et l'adresse.
+              </span>
+            )}
+            {s.auto_snapshot_last_email_sent === true && s.auto_snapshot_last_email_to && (
+              <span className="block text-emerald-700 mt-0.5" data-testid="snapshot-auto-email-ok">
+                Dernier envoi OK → <strong>{s.auto_snapshot_last_email_to}</strong>
+              </span>
+            )}
+          </p>
+        </div>
       </div>
 
       {/* Export */}

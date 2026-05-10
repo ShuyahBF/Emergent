@@ -105,7 +105,7 @@ from auth import (
     get_current_user,
     get_current_admin,
 )
-from email_service import send_otp_email
+from email_service import send_otp_email, send_email
 from recaptcha import verify_recaptcha
 import google_calendar as gcal
 
@@ -3236,7 +3236,9 @@ AUTO_SNAPSHOT_DEFAULT_KEEP = 4
 
 async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
     """Create an auto snapshot then prune older auto snapshots beyond the
-    rotation window. Idempotent (safe to call manually too)."""
+    rotation window. Idempotent (safe to call manually too). If
+    settings.auto_snapshot_email_enabled and a recipient is configured, the
+    .json.gz file is sent as an SMTP attachment to that address."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     keep = int(s.get("auto_snapshot_keep") or AUTO_SNAPSHOT_DEFAULT_KEEP)
     keep = max(1, min(keep, 52))  # clamp 1..52 weeks
@@ -3263,6 +3265,59 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
             logger.warning("Auto-snapshot %s file delete failed: %s", a.get("id"), exc)
         await db.db_snapshots.delete_one({"id": a["id"]})
         deleted += 1
+    # Email delivery (best-effort, never blocks rotation)
+    email_status: Dict[str, Any] = {"enabled": bool(s.get("auto_snapshot_email_enabled")), "sent": False, "to": None}
+    if s.get("auto_snapshot_email_enabled"):
+        recipient = (s.get("auto_snapshot_email_to") or "").strip()
+        if recipient and "@" in recipient:
+            email_status["to"] = recipient
+            try:
+                file_path = SNAPSHOTS_DIR / meta["file_name"]
+                if file_path.exists():
+                    content = file_path.read_bytes()
+                    pretty_size = f"{len(content)/1024:.1f} kB"
+                    subject = f"[SAWALI] Sauvegarde DB hebdomadaire — {meta['file_name']}"
+                    html = (
+                        f"<div style=\"font-family:Arial,sans-serif;line-height:1.5\">"
+                        f"<h2 style=\"color:#0E1F3D\">SAWALI — Sauvegarde DB</h2>"
+                        f"<p>Bonjour,</p>"
+                        f"<p>Voici votre sauvegarde automatique de la base SAWALI SMART SYSTEMS.</p>"
+                        f"<ul>"
+                        f"<li><strong>Date</strong> : {meta['created_at']}</li>"
+                        f"<li><strong>Déclencheur</strong> : <code>{triggered_by}</code></li>"
+                        f"<li><strong>Documents</strong> : {meta['total_documents']} sur {meta['collections_count']} collections</li>"
+                        f"<li><strong>Taille</strong> : {pretty_size}</li>"
+                        f"<li><strong>Secrets masqués</strong> : {'oui' if meta.get('mask_secrets') else 'non'}</li>"
+                        f"</ul>"
+                        f"<p>Le fichier <code>{meta['file_name']}</code> est joint à ce mail. "
+                        f"Conservez-le en lieu sûr — il contient l'ensemble des données métier (sans les fichiers binaires).</p>"
+                        f"<p style=\"color:#64748B;font-size:12px\">Pour désactiver l'envoi par email, "
+                        f"rendez-vous dans Paramètres → Sauvegarde de la base.</p>"
+                        f"</div>"
+                    )
+                    text = (
+                        f"Sauvegarde DB SAWALI — {meta['file_name']}\n"
+                        f"Date: {meta['created_at']}\n"
+                        f"Déclencheur: {triggered_by}\n"
+                        f"Documents: {meta['total_documents']} ({meta['collections_count']} collections)\n"
+                        f"Taille: {pretty_size}\n"
+                    )
+                    sent = await send_email(
+                        recipient, subject, html, text,
+                        attachment={
+                            "filename": meta["file_name"],
+                            "content": content,
+                            "mime_type": "application/gzip",
+                        },
+                    )
+                    email_status["sent"] = bool(sent)
+                else:
+                    email_status["error"] = "fichier introuvable"
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("Auto-snapshot email failed: %s", exc)
+                email_status["error"] = str(exc)
+        else:
+            email_status["error"] = "auto_snapshot_email_to non configuré"
     # Persist last_run marker on settings for the UI
     await db.settings.update_one(
         {"_id": "global"},
@@ -3270,10 +3325,12 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
             "auto_snapshot_last_run_at": _now(),
             "auto_snapshot_last_run_id": meta["id"],
             "auto_snapshot_last_run_trigger": triggered_by,
+            "auto_snapshot_last_email_sent": email_status.get("sent", False),
+            "auto_snapshot_last_email_to": email_status.get("to"),
         }},
         upsert=True,
     )
-    return {"snapshot": meta, "deleted": deleted, "kept": min(len(autos) + 1 - deleted, keep)}
+    return {"snapshot": meta, "deleted": deleted, "kept": min(len(autos) + 1 - deleted, keep), "email": email_status}
 
 
 @api.post("/admin/snapshots/auto-run", tags=["Admin"])

@@ -354,6 +354,10 @@ class SettingsUpdate(BaseModel):
     # max 52). Manual snapshots never rotate.
     auto_snapshot_enabled: Optional[bool] = None
     auto_snapshot_keep: Optional[int] = None  # rotation window (1..52)
+    # Email delivery (offsite copy). When enabled, the .json.gz is sent as
+    # an SMTP attachment to `auto_snapshot_email_to`.
+    auto_snapshot_email_enabled: Optional[bool] = None
+    auto_snapshot_email_to: Optional[str] = None  # recipient address
 
     # --- Support Technique Load Gauge (0-7 — like cellular signal bars) ---
     # Visible at the top of every public page. Configurable from Admin

@@ -22,29 +22,41 @@ async def get_smtp_settings() -> dict:
     }
 
 
-def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str) -> bool:
-    """Blocking SMTP send. Always called via asyncio.to_thread + wait_for."""
+def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, text_body: str, attachment: dict | None = None) -> bool:
+    """Blocking SMTP send. Always called via asyncio.to_thread + wait_for.
+    `attachment`, if provided, must be a dict {filename, content (bytes),
+    mime_type (e.g. "application/gzip")}."""
     msg = EmailMessage()
     msg["Subject"] = subject
     msg["From"] = cfg["from_email"]
     msg["To"] = to_email
     msg.set_content(text_body or "Veuillez activer HTML pour voir ce message.")
     msg.add_alternative(html_body, subtype="html")
+    if attachment and attachment.get("content") is not None:
+        maintype, _, subtype = (attachment.get("mime_type") or "application/octet-stream").partition("/")
+        msg.add_attachment(
+            attachment["content"],
+            maintype=maintype or "application",
+            subtype=subtype or "octet-stream",
+            filename=attachment.get("filename") or "attachment.bin",
+        )
     if cfg["use_tls"]:
         ctx = ssl.create_default_context()
-        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=5) as server:
+        with smtplib.SMTP(cfg["host"], cfg["port"], timeout=15) as server:
             server.starttls(context=ctx)
             server.login(cfg["user"], cfg["password"])
             server.send_message(msg)
     else:
-        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=5) as server:
+        with smtplib.SMTP_SSL(cfg["host"], cfg["port"], timeout=15) as server:
             server.login(cfg["user"], cfg["password"])
             server.send_message(msg)
     return True
 
 
-async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "") -> bool:
-    """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured)."""
+async def send_email(to_email: str, subject: str, html_body: str, text_body: str = "", attachment: dict | None = None, timeout_s: float = 6.0) -> bool:
+    """Returns True if email was sent successfully, False otherwise (e.g. SMTP not configured).
+    Optional `attachment` dict: {filename, content (bytes), mime_type}.
+    `timeout_s` is increased automatically when an attachment is present."""
     cfg = await get_smtp_settings()
     if not cfg["host"] or not cfg["user"] or not cfg["password"] or not cfg["from_email"]:
         logger.warning("SMTP not configured. Skipping email to %s.", to_email)
@@ -54,13 +66,13 @@ async def send_email(to_email: str, subject: str, html_body: str, text_body: str
         logger.warning("SMTP from_email looks invalid (%s). Skipping send.", cfg["from_email"])
         return False
     try:
-        # Hard cap: never block the event loop more than ~6 seconds
+        effective_timeout = max(timeout_s, 30.0) if attachment else timeout_s
         return await asyncio.wait_for(
-            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body),
-            timeout=6.0,
+            asyncio.to_thread(_send_email_sync, cfg, to_email, subject, html_body, text_body, attachment),
+            timeout=effective_timeout,
         )
     except asyncio.TimeoutError:
-        logger.error("SMTP send timed out (>6s) for %s — skipping.", to_email)
+        logger.error("SMTP send timed out for %s — skipping.", to_email)
         return False
     except Exception as e:  # noqa: BLE001
         logger.error("SMTP send failed: %s", e)

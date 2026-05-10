@@ -23,6 +23,9 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+from reportlab.graphics.shapes import Drawing
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.widgets.markers import makeMarker
 
 from db import db
 
@@ -87,6 +90,74 @@ async def _gather_settings_meta() -> Dict[str, Any]:
     }
 
 
+async def _gather_30d_series(now: datetime) -> Dict[str, List[int]]:
+    """Returns daily counts for the last 30 days for: contacts, appointments,
+    whatsapp messages. Indexed oldest→newest. Aggregation done in-memory off a
+    single fetch per collection to keep it cheap on small datasets."""
+    days = 30
+    series_keys = ("contacts", "appointments", "wa_messages")
+    series: Dict[str, List[int]] = {k: [0] * days for k in series_keys}
+    start = (now - timedelta(days=days - 1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    start_iso = start.isoformat()
+
+    def _bucket(iso_str: str) -> int:
+        try:
+            d = datetime.fromisoformat(iso_str.replace("Z", "+00:00"))
+        except Exception:
+            return -1
+        if d.tzinfo is None:
+            d = d.replace(tzinfo=timezone.utc)
+        delta = (d.date() - start.date()).days
+        return delta if 0 <= delta < days else -1
+
+    async def _fill(coll_name: str, key: str, date_field: str = "created_at"):
+        try:
+            cursor = db[coll_name].find(
+                {date_field: {"$gte": start_iso}},
+                {"_id": 0, date_field: 1},
+            )
+            async for doc in cursor:
+                idx = _bucket(doc.get(date_field) or "")
+                if idx >= 0:
+                    series[key][idx] += 1
+        except Exception:
+            pass
+
+    await _fill("directory_contacts", "contacts")
+    await _fill("appointments", "appointments")
+    await _fill("whatsapp_messages", "wa_messages")
+    return series
+
+
+def _build_trend_chart(series: List[int], color: colors.Color, width: float = 170 * mm, height: float = 28 * mm) -> Drawing:
+    """Tiny line chart for a 30-day series. No axes labels — just the curve
+    with a baseline + a marker on the last point."""
+    days = len(series)
+    data = [list(enumerate(series))]
+    drawing = Drawing(width, height)
+    lp = LinePlot()
+    lp.x = 6
+    lp.y = 6
+    lp.height = height - 12
+    lp.width = width - 12
+    lp.data = data
+    lp.lines[0].strokeColor = color
+    lp.lines[0].strokeWidth = 1.4
+    lp.lines.symbol = makeMarker("FilledCircle")
+    lp.lines[0].symbol.fillColor = color
+    lp.lines[0].symbol.strokeColor = color
+    lp.lines[0].symbol.size = 3
+    lp.xValueAxis.visible = 0
+    lp.yValueAxis.visible = 0
+    lp.xValueAxis.valueMin = 0
+    lp.xValueAxis.valueMax = days - 1
+    max_y = max(series) if series else 0
+    lp.yValueAxis.valueMin = 0
+    lp.yValueAxis.valueMax = max(1, max_y)
+    drawing.add(lp)
+    return drawing
+
+
 def _kv_row(label: str, value: str | int, accent: bool = False) -> List[Any]:
     return [
         Paragraph(f"<font color='#64748B' size='8'>{label}</font>", getSampleStyleSheet()["BodyText"]),
@@ -107,6 +178,7 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
 
     stats = await _gather_stats(since_iso, until_iso)
     smeta = await _gather_settings_meta()
+    trend_30d = await _gather_30d_series(now)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -161,6 +233,24 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
         ("RIGHTPADDING", (0, 0), (-1, -1), 6),
     ]))
     story.append(kpi_table)
+
+    # Tendance 30 jours — sparklines
+    story.append(Paragraph("Tendance des 30 derniers jours", h2))
+    trend_specs = [
+        ("Nouveaux contacts / jour", trend_30d.get("contacts", []), SAWALI_BLUE),
+        ("RDV créés / jour", trend_30d.get("appointments", []), EMERALD),
+        ("Messages WhatsApp reçus / jour", trend_30d.get("wa_messages", []), colors.HexColor("#7C3AED")),
+    ]
+    for label, serie, color in trend_specs:
+        total = sum(serie)
+        peak = max(serie) if serie else 0
+        story.append(Paragraph(
+            f"<font color='#334155'><b>{label}</b></font>"
+            f" &nbsp;&nbsp; <font color='#64748B' size='8'>total : {total} · pic : {peak}</font>",
+            body,
+        ))
+        story.append(_build_trend_chart(serie, color, width=170 * mm, height=24 * mm))
+        story.append(Spacer(1, 4))
 
     # État de la plateforme
     story.append(Paragraph("État de la plateforme", h2))

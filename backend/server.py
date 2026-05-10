@@ -2982,6 +2982,195 @@ async def admin_run_orphan_data_migration(_: dict = Depends(get_current_admin)):
 
 
 # ============================================================
+# iter30 — Per-user client-scope diagnostic & realignment.
+#
+# When two users belong to the same business client but see different sets of
+# contacts, the root cause is almost always one of these:
+#
+#   1. Their `users.client_id` fields point to different values (mis-bridged)
+#   2. Their contacts/messages were created under different `client_id` scopes
+#   3. One user has no `parent_client_id` so iter28's auto-mirror didn't fire
+#
+# This endpoint accepts an email and returns:
+#   • The user's full identity chain (id, role, parent_client_id, client_id,
+#     tracked_user_id)
+#   • The canonical client_id for that user (resolved via parent_client_id, or
+#     by looking up another user with the same company name & admin role)
+#   • A peer list (other users sharing the same canonical client_id)
+#   • Per-user contact counts (each peer's visible scope)
+#   • A realign plan: which fields/rows need to be retagged to put this user
+#     in sync with the canonical scope
+#
+# Together with the POST sibling (`/admin/realign-user-to-client`) the admin
+# can repair production without ad-hoc SQL.
+# ============================================================
+@api.get("/admin/client-data-diagnostic", tags=["Admin"])
+async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current_admin)):
+    email_norm = (email or "").strip().lower()
+    if not email_norm:
+        raise HTTPException(status_code=400, detail="Email requis")
+    user = await db.users.find_one(
+        {"email": {"$regex": f"^{re.escape(email_norm)}$", "$options": "i"}},
+        {"_id": 0, "password_hash": 0},
+    )
+    if not user:
+        raise HTTPException(status_code=404, detail=f"Utilisateur introuvable : {email_norm}")
+
+    uid = user["id"]
+    declared_client_id = user.get("client_id")
+    parent_client_id = user.get("parent_client_id")
+    company = (user.get("company") or "").strip()
+    role = user.get("role")
+
+    # Canonical client_id resolution priority:
+    #   1) parent_client_id (set when this user was created via tracked-user bridge)
+    #   2) For admin/superviseur users: their OWN id (they ARE the client root)
+    #   3) Otherwise: look up another admin/superviseur with the same company name
+    canonical: Optional[str] = None
+    canonical_source = None
+    canonical_user: Optional[dict] = None
+    if parent_client_id:
+        canonical = parent_client_id
+        canonical_source = "parent_client_id"
+    elif role in ("admin", "superviseur"):
+        canonical = uid
+        canonical_source = "self (admin/superviseur)"
+    elif company:
+        # Find an admin or superviseur with the same company; case-insensitive trim
+        same_company = await db.users.find_one(
+            {
+                "company": {"$regex": f"^\\s*{re.escape(company)}\\s*$", "$options": "i"},
+                "role": {"$in": ["admin", "superviseur"]},
+            },
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1},
+        )
+        if same_company:
+            canonical = same_company["id"]
+            canonical_source = f"company match → {same_company.get('email')}"
+            canonical_user = same_company
+    # Hydrate the canonical user if we have an id but didn't already fetch it
+    if canonical and not canonical_user:
+        canonical_user = await db.users.find_one(
+            {"id": canonical},
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
+        )
+
+    effective_scope = declared_client_id or uid
+
+    # Peers — users that the canonical client_id should encompass
+    peers: List[dict] = []
+    if canonical:
+        async for p in db.users.find(
+            {
+                "$or": [
+                    {"id": canonical},
+                    {"client_id": canonical},
+                    {"parent_client_id": canonical},
+                ],
+            },
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1, "client_id": 1, "parent_client_id": 1},
+        ):
+            # For each peer, count contacts they currently see (apply the
+            # iter29 read rule: filter on their effective scope).
+            peer_scope = p.get("client_id") or p["id"]
+            peer_contacts = await db.directory_contacts.count_documents({"client_id": peer_scope})
+            p["effective_scope"] = peer_scope
+            p["scope_matches_canonical"] = (peer_scope == canonical)
+            p["visible_contacts"] = peer_contacts
+            peers.append(p)
+
+    # Realign plan — what needs to change to put this user in sync
+    realign_plan: Dict[str, Any] = {"needed": False, "actions": []}
+    if canonical and canonical != effective_scope:
+        realign_plan["needed"] = True
+        # Action 1 — fix the user's own client_id field
+        if declared_client_id != canonical:
+            realign_plan["actions"].append({
+                "type": "set_user_client_id",
+                "from": declared_client_id,
+                "to": canonical,
+                "user_id": uid,
+            })
+        # Action 2 — count rows tagged under the wrong client_id that should be retagged
+        wrong_scope = effective_scope
+        for coll in ["directory_contacts", "whatsapp_messages", "sms_messages",
+                     "whatsapp_schedules", "payment_links"]:
+            cnt = await db[coll].count_documents({"client_id": wrong_scope})
+            if cnt > 0:
+                realign_plan["actions"].append({
+                    "type": "retag_rows",
+                    "collection": coll,
+                    "from": wrong_scope,
+                    "to": canonical,
+                    "count": cnt,
+                })
+
+    return {
+        "user": {
+            "id": uid,
+            "email": user.get("email"),
+            "full_name": user.get("full_name"),
+            "company": company,
+            "role": role,
+            "client_id": declared_client_id,
+            "parent_client_id": parent_client_id,
+            "tracked_user_id": user.get("tracked_user_id"),
+            "effective_scope": effective_scope,
+        },
+        "canonical": {
+            "client_id": canonical,
+            "source": canonical_source,
+            "user": canonical_user,
+        },
+        "peers": peers,
+        "realign_plan": realign_plan,
+    }
+
+
+@api.post("/admin/realign-user-to-client", tags=["Admin"])
+async def admin_realign_user_to_client(
+    payload: Dict[str, Any] = Body(...),
+    _: dict = Depends(get_current_admin),
+):
+    """Apply the realign_plan returned by /admin/client-data-diagnostic.
+
+    Body: ``{"email": "user@example.com", "dry_run": false}``.
+    The endpoint re-runs the diagnostic, then applies the proposed actions
+    atomically per collection: stamps `client_id` to the canonical value and
+    keeps the previous one in `client_id_legacy` (for traceability).
+    Idempotent.
+    """
+    email = (payload.get("email") or "").strip().lower()
+    dry_run = bool(payload.get("dry_run"))
+    if not email:
+        raise HTTPException(status_code=400, detail="Email requis")
+    diag = await admin_client_data_diagnostic(email=email, _={"role": "admin"})
+    plan = diag["realign_plan"]
+    if not plan["needed"]:
+        return {"ok": True, "applied": False, "reason": "Aucun désalignement détecté"}
+    if dry_run:
+        return {"ok": True, "applied": False, "diagnostic": diag, "dry_run": True}
+
+    applied: List[Dict[str, Any]] = []
+    for action in plan["actions"]:
+        if action["type"] == "set_user_client_id":
+            await db.users.update_one(
+                {"id": action["user_id"]},
+                {"$set": {"client_id": action["to"], "client_id_legacy": action.get("from"),
+                          "updated_at": _now()}},
+            )
+            applied.append(action)
+        elif action["type"] == "retag_rows":
+            res = await db[action["collection"]].update_many(
+                {"client_id": action["from"], "client_id_legacy": {"$exists": False}},
+                {"$set": {"client_id": action["to"], "client_id_legacy": action["from"]}},
+            )
+            applied.append({**action, "modified_count": int(getattr(res, "modified_count", 0) or 0)})
+
+    return {"ok": True, "applied": True, "actions": applied, "diagnostic_after": await admin_client_data_diagnostic(email=email, _={"role": "admin"})}
+
+
+# ============================================================
 # Campaign Efficiency dashboard — quantifies the WhatsApp-first
 # strategy versus SMS:
 #   • WA delivery rate (sent_ok / total)

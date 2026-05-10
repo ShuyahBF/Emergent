@@ -171,6 +171,7 @@ export default function AdminSettings() {
 
       <SupportLoadSection s={s} upd={upd} />
       <OrphanDataSection />
+      <ClientDataDiagnosticSection />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
@@ -977,6 +978,156 @@ export default function AdminSettings() {
     </div>
   );
 }
+
+const ClientDataDiagnosticSection = () => {
+  const [email, setEmail] = useState("");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [applying, setApplying] = useState(false);
+
+  const inspect = async () => {
+    if (!email.trim()) { toast.error("Email requis"); return; }
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/client-data-diagnostic", { params: { email: email.trim() } });
+      setData(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+      setData(null);
+    } finally { setLoading(false); }
+  };
+
+  const apply = async () => {
+    if (!data?.realign_plan?.needed) return;
+    if (!window.confirm(`Réaligner les données de ${data.user.email} vers le client canonique ${data.canonical.client_id?.slice(0, 8)}… ? Cette action retague les rows et conserve l'ancien client_id dans client_id_legacy.`)) return;
+    setApplying(true);
+    try {
+      const r = await apiClient.post("/admin/realign-user-to-client", { email: data.user.email, dry_run: false });
+      toast.success(`Réalignement appliqué : ${r.data.actions?.length || 0} action(s).`);
+      setData(r.data.diagnostic_after || null);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setApplying(false); }
+  };
+
+  const u = data?.user;
+  const can = data?.canonical;
+  const plan = data?.realign_plan;
+
+  return (
+    <div className="rounded-xl border-2 border-sky-200 bg-sky-50/40 p-6 space-y-3" data-testid="admin-client-data-diagnostic-section">
+      <div className="flex items-center gap-2">
+        <Wrench className="h-4 w-4 text-sky-600" />
+        <h2 className="font-display font-semibold">Diagnostic visibilité par utilisateur</h2>
+      </div>
+      <p className="text-xs text-slate-600">
+        Si deux utilisateurs d'un même client ne voient pas les mêmes contacts/messages, entrez l'email du moins privilégié.
+        L'outil trace son <code className="font-mono">client_id</code>, identifie le client canonique de son entreprise (via <code className="font-mono">parent_client_id</code> ou via le nom de société),
+        liste ses pairs et indique précisément ce qu'il faut retaguer pour aligner sa visibilité.
+      </p>
+
+      <div className="flex gap-2">
+        <input
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && inspect()}
+          placeholder="user@exemple.com"
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="cdd-email-input"
+        />
+        <button
+          onClick={inspect}
+          disabled={loading || !email.trim()}
+          className="inline-flex items-center gap-1 rounded-lg bg-sky-600 hover:bg-sky-700 text-white px-3 py-2 text-sm font-semibold disabled:opacity-50"
+          data-testid="cdd-inspect-btn"
+        >
+          {loading ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Activity className="h-4 w-4" />}
+          Diagnostiquer
+        </button>
+      </div>
+
+      {data && u && (
+        <div className="space-y-3 mt-2">
+          <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3 text-xs space-y-1" data-testid="cdd-user-block">
+            <div><strong>{u.full_name || u.email}</strong> <span className="text-slate-400">— {u.role}</span></div>
+            <div className="font-mono text-[11px] text-slate-600 break-all">
+              id: {u.id}<br />
+              client_id: <span className={u.client_id ? "" : "text-rose-600"}>{u.client_id || "—"}</span><br />
+              parent_client_id: {u.parent_client_id || "—"}<br />
+              tracked_user_id: {u.tracked_user_id || "—"}<br />
+              <strong>effective_scope (lit):</strong> {u.effective_scope}
+            </div>
+          </div>
+
+          {can && can.client_id ? (
+            <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs">
+              <p><strong>Client canonique résolu</strong> via <em>{can.source}</em> :</p>
+              <p className="font-mono mt-1">{can.client_id}{can.user && ` (${can.user.email})`}</p>
+            </div>
+          ) : (
+            <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs">
+              <strong>⚠️ Aucun client canonique trouvé.</strong> L'utilisateur n'a ni <code className="font-mono">parent_client_id</code> ni admin/superviseur partageant son nom de société. Ajustez d'abord son <code className="font-mono">parent_client_id</code> ou son <code className="font-mono">company</code>.
+            </div>
+          )}
+
+          {data.peers?.length > 0 && (
+            <div className="rounded-lg ring-1 ring-slate-200 bg-white text-xs overflow-hidden">
+              <div className="px-3 py-2 bg-slate-50 font-semibold uppercase tracking-wider text-[10px]">Pairs ({data.peers.length})</div>
+              <ul className="divide-y divide-slate-100 max-h-44 overflow-y-auto">
+                {data.peers.map((p) => (
+                  <li key={p.id} className="px-3 py-1.5 flex items-center justify-between gap-2">
+                    <span className="truncate">
+                      <strong>{p.full_name || p.email}</strong>
+                      <span className="text-slate-400 text-[10px]"> ({p.role})</span>
+                    </span>
+                    <span className="text-[10px] font-mono shrink-0">
+                      <span className={p.scope_matches_canonical ? "text-emerald-700" : "text-rose-700 font-bold"}>
+                        {p.scope_matches_canonical ? "✓" : "✗"}
+                      </span>{" "}
+                      {p.visible_contacts} contacts
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+
+          {plan?.needed ? (
+            <div className="space-y-2" data-testid="cdd-plan-block">
+              <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs space-y-1">
+                <p className="font-semibold">⚠️ {plan.actions.length} action(s) requise(s) pour aligner cet utilisateur :</p>
+                {plan.actions.map((a, i) => (
+                  <div key={i} className="font-mono text-[11px] bg-white px-2 py-1 rounded ring-1 ring-rose-200">
+                    {a.type === "set_user_client_id" && (
+                      <>users.client_id : <span className="text-rose-600">{a.from || "null"}</span> → <span className="text-emerald-700">{String(a.to).slice(0, 8)}…</span></>
+                    )}
+                    {a.type === "retag_rows" && (
+                      <>{a.collection} : retag <strong>{a.count}</strong> row(s) <span className="text-rose-600">{String(a.from).slice(0, 8)}…</span> → <span className="text-emerald-700">{String(a.to).slice(0, 8)}…</span></>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <button
+                onClick={apply}
+                disabled={applying}
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+                data-testid="cdd-apply-btn"
+              >
+                <Database className="h-4 w-4" />
+                {applying ? "Application…" : "Appliquer le réalignement"}
+              </button>
+            </div>
+          ) : (
+            <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs text-emerald-900 inline-flex items-center gap-2" data-testid="cdd-aligned">
+              <CheckCircle2 className="h-4 w-4" /> <strong>Cet utilisateur est correctement aligné</strong> sur son client canonique.
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 
 const OrphanDataSection = () => {
   const [data, setData] = useState(null);

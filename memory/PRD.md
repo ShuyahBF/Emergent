@@ -703,12 +703,17 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
   - `POST /api/me/contacts` force `shared:true` à la création (cohérence des futures lectures par d'éventuels filtres legacy).
   - Audit : champs `last_edited_by_id`, `last_edited_by_label`, `last_edited_at` stampés quand l'éditeur n'est pas le propriétaire.
 - **Migration startup `iter29`** : normalise tous les contacts existants à `shared:true` (idempotent — testé : « 1 row normalized » sur un contact legacy `shared:false`).
-- **Frontend `Contacts.jsx`** :
-  - Badge « 🤝 Équipe » avec sous-titre « par {owner_label} » remplace la dichotomie Privé/Partagé.
-  - Toggle « Partager » remplacé par un encart explicatif vert « Visible par toute l'équipe » + affichage de `last_edited_by_label` si différent du propriétaire.
-  - Default `shared:true` pour les nouveaux formulaires.
-- **Bibliothèque de Médias** : déjà entièrement partagée par client (vérifié dans `me_media_library`) — aucune action requise.
-- Tests reproducteurs : 2 users (Alice, Bob) du même client, contact privé créé par Alice → Bob LE VOIT (5/5 contacts visibles), Bob L'ÉDITE avec succès, ownership préservé, `last_edited_by_label = Bob` stampé correctement.
+- **Frontend `Contacts.jsx`** : badge « 🤝 Équipe » + sous-titre « par {owner_label} », encart explicatif « Visible par toute l'équipe », default `shared:true`.
+- **Bibliothèque de Médias** : déjà entièrement partagée par client.
+- Tests reproducteurs : 2 users (Alice, Bob) du même client → contact privé créé par Alice → Bob LE VOIT, L'ÉDITE avec succès.
+
+### 2026-05-10 — Iter30 : Diagnostic & réalignement client par utilisateur
+- **Constat** : iter29 ne suffit pas si deux users d'un même client n'ont pas le même `client_id` en base (cas réel signalé : `jfrancois.ouoba@gmail.com` et `ines.zoundi@sawalismartsystems.com` du client SAWALI-2S avaient des scopes séparés).
+- **Backend** :
+  - `GET /api/admin/client-data-diagnostic?email=…` — résout le client canonique d'un user via priorité : `parent_client_id` → admin de même `company` → self si admin/superviseur. Retourne pairs, scopes effectifs, plan de réalignement détaillé (set_user_client_id + retag par collection).
+  - `POST /api/admin/realign-user-to-client {email, dry_run?}` — applique le plan, conserve l'ancien `client_id` dans `client_id_legacy`. Idempotent.
+- **Frontend `AdminSettings.jsx`** : nouvelle section bordée bleue « 🔍 Diagnostic visibilité par utilisateur » avec input email, bouton diagnostiquer, affichage user/canonique/pairs/plan, bouton « Appliquer le réalignement ».
+- **Test E2E** : reproducer scenario prod (Ines admin SAWALI-2S, JF tracked sans `parent_client_id`, contacts éparpillés sur 2 ids) → diagnostic identifie le canonique via `company match`, applique le plan, JF passe de 2 à 5 contacts visibles, Ines passe à 5 aussi, ownership préservé.
 
 ---
 

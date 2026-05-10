@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -17,6 +17,7 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  "Sauvegarde de la base (Snapshot)": "2026-05-10",
   "Diagnostic des données orphelines": "2026-05-09",
   "Cohérence multi-utilisateurs (panoramique)": "2026-05-10",
   "Diagnostic visibilité par utilisateur": "2026-05-10",
@@ -333,6 +334,7 @@ export default function AdminSettings() {
       </Section>
 
       <SupportLoadSection s={s} upd={upd} />
+      <DbSnapshotsSection />
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
@@ -1395,6 +1397,343 @@ const ClientDataDiagnosticSection = () => {
           )}
         </div>
       )}
+    </div>
+    </Filterable>
+  );
+};
+
+
+// ============================================================
+// iter34 — DB Snapshot Section (Production → Preview restore)
+// ============================================================
+const formatBytes = (bytes) => {
+  if (!bytes) return "0 B";
+  const u = ["B", "kB", "MB", "GB"];
+  let i = 0;
+  let n = bytes;
+  while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
+  return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
+};
+
+const DbSnapshotsSection = () => {
+  const [list, setList] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [creating, setCreating] = useState(false);
+  const [comment, setComment] = useState("");
+  const [maskSecrets, setMaskSecrets] = useState(true);
+  const [editing, setEditing] = useState(null);  // {id, comment}
+  const [importMode, setImportMode] = useState("replace");
+  const [importDryRun, setImportDryRun] = useState(true);
+  const [importComment, setImportComment] = useState("");
+  const [importing, setImporting] = useState(false);
+  const [lastImport, setLastImport] = useState(null);
+  const [imports, setImports] = useState([]);
+  const fileInputRef = useRef(null);
+  const TITLE = "Sauvegarde de la base (Snapshot)";
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [a, b] = await Promise.all([
+        apiClient.get("/admin/snapshots"),
+        apiClient.get("/admin/snapshots/imports"),
+      ]);
+      setList(a.data?.snapshots || []);
+      setImports(b.data?.imports || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const create = async () => {
+    setCreating(true);
+    try {
+      const r = await apiClient.post("/admin/snapshots", { comment, mask_secrets: maskSecrets });
+      toast.success(`Snapshot créé (${formatBytes(r.data.size_bytes)}, ${r.data.total_documents} documents)`);
+      setComment("");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setCreating(false); }
+  };
+
+  const download = async (snap) => {
+    try {
+      const r = await apiClient.get(`/admin/snapshots/${snap.id}/download`, { responseType: "blob" });
+      const url = window.URL.createObjectURL(new Blob([r.data]));
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = snap.file_name || `snapshot_${snap.id}.json.gz`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de téléchargement");
+    }
+  };
+
+  const removeSnap = async (snap) => {
+    if (!window.confirm(`Supprimer définitivement ce snapshot du ${new Date(snap.created_at).toLocaleString("fr-FR")} ?`)) return;
+    try {
+      await apiClient.delete(`/admin/snapshots/${snap.id}`);
+      toast.success("Snapshot supprimé");
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const saveComment = async () => {
+    if (!editing) return;
+    try {
+      await apiClient.patch(`/admin/snapshots/${editing.id}`, { comment: editing.comment });
+      toast.success("Commentaire mis à jour");
+      setEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const onPickFile = () => fileInputRef.current?.click();
+  const onFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!importDryRun && importMode === "replace") {
+      if (!window.confirm("⚠️ Mode REMPLACER actif : toutes les collections vont être VIDÉES puis remplies par le snapshot. Cette action est IRRÉVERSIBLE. Continuer ?")) return;
+    }
+    setImporting(true);
+    setLastImport(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", importMode);
+      fd.append("dry_run", importDryRun ? "true" : "false");
+      fd.append("comment", importComment || "");
+      const r = await apiClient.post("/admin/snapshots/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setLastImport(r.data);
+      if (r.data?.dry_run) {
+        toast.info("Aperçu (dry-run) calculé. Vérifiez le résumé ci-dessous puis désactivez le dry-run pour appliquer.");
+      } else {
+        toast.success("Import appliqué avec succès");
+        setImportComment("");
+      }
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'import");
+    } finally { setImporting(false); }
+  };
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-sky-200 bg-sky-50/40 p-6 space-y-4" data-testid="admin-db-snapshots-section">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Cloud className="h-4 w-4 text-sky-600" />
+          <h2 className="font-display font-semibold">Sauvegarde de la base (Snapshot)</h2>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
+          data-testid="snapshots-refresh-btn"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      <p className="text-xs text-slate-600">
+        Exportez l'état actuel des données métier (utilisateurs, contacts, RDV, interventions, documents, paramètres…) sous forme de fichier <code className="font-mono">.json.gz</code> téléchargeable.
+        Les <strong>tokens API et secrets</strong> sont masqués par défaut. Les <strong>fichiers binaires</strong> (PDF, images uploadés) ne sont <strong>pas</strong> inclus.
+        Pour répliquer la prod sur ce preview : exportez depuis la prod, téléchargez le fichier, puis utilisez le bloc « Importer un snapshot » plus bas.
+      </p>
+
+      {/* Export */}
+      <div className="rounded-lg ring-1 ring-sky-200 bg-white p-4 space-y-3" data-testid="snapshot-export-card">
+        <div className="text-xs font-semibold uppercase tracking-wider text-sky-700 flex items-center gap-1.5"><FileArchive className="h-3.5 w-3.5" /> Créer un nouveau snapshot</div>
+        <input
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          placeholder="Commentaire (ex: avant migration v2.4)"
+          maxLength={500}
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="snapshot-comment-input"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={maskSecrets}
+              onChange={(e) => setMaskSecrets(e.target.checked)}
+              data-testid="snapshot-mask-toggle"
+            />
+            Masquer les tokens et secrets API
+          </label>
+          <button
+            onClick={create}
+            disabled={creating}
+            className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm font-semibold hover:bg-sawali-blue-light disabled:opacity-50"
+            data-testid="snapshot-create-btn"
+          >
+            <Save className="h-4 w-4" />
+            {creating ? "Création…" : "Créer le snapshot maintenant"}
+          </button>
+        </div>
+      </div>
+
+      {/* History */}
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white overflow-hidden" data-testid="snapshot-history-card">
+        <div className="px-3 py-2 bg-slate-50 font-semibold uppercase tracking-wider text-[10px] text-slate-600 flex items-center justify-between">
+          <span>Historique ({list.length})</span>
+          <span className="font-normal normal-case text-slate-400">Ordonné du plus récent au plus ancien</span>
+        </div>
+        {list.length === 0 ? (
+          <p className="px-3 py-6 text-center text-xs text-slate-400 italic">Aucun snapshot pour le moment.</p>
+        ) : (
+          <ul className="divide-y divide-slate-100 max-h-72 overflow-y-auto text-xs">
+            {list.map((s) => (
+              <li key={s.id} className="px-3 py-2 flex flex-col sm:flex-row sm:items-center gap-2" data-testid={`snapshot-row-${s.id}`}>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-mono text-[11px] text-slate-700">{new Date(s.created_at).toLocaleString("fr-FR")}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-600">{s.author_email}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="font-semibold text-slate-700">{formatBytes(s.size_bytes)}</span>
+                    <span className="text-slate-400">•</span>
+                    <span className="text-slate-500">{s.total_documents} docs</span>
+                    {s.mask_secrets ? <span className="rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold">SECRETS MASQUÉS</span> : <span className="rounded bg-amber-100 text-amber-800 px-1.5 py-0.5 text-[9px] font-bold">SECRETS BRUTS</span>}
+                  </div>
+                  {editing?.id === s.id ? (
+                    <div className="mt-1 flex items-center gap-2">
+                      <input
+                        autoFocus
+                        value={editing.comment}
+                        onChange={(e) => setEditing({ ...editing, comment: e.target.value })}
+                        onKeyDown={(e) => { if (e.key === "Enter") saveComment(); if (e.key === "Escape") setEditing(null); }}
+                        className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                        data-testid={`snapshot-edit-input-${s.id}`}
+                      />
+                      <button onClick={saveComment} className="text-[11px] text-emerald-700 font-semibold" data-testid={`snapshot-edit-save-${s.id}`}>Enregistrer</button>
+                      <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500">Annuler</button>
+                    </div>
+                  ) : (
+                    <div className="mt-0.5 text-slate-600 italic flex items-center gap-1.5">
+                      <span className="truncate">{s.comment || <span className="text-slate-300">(aucun commentaire)</span>}</span>
+                      <button onClick={() => setEditing({ id: s.id, comment: s.comment || "" })} className="text-slate-400 hover:text-sawali-blue shrink-0" title="Modifier le commentaire" data-testid={`snapshot-edit-btn-${s.id}`}>
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    </div>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => download(s)}
+                    className="inline-flex items-center gap-1 rounded bg-sky-600 hover:bg-sky-700 text-white px-2 py-1 text-[11px] font-semibold"
+                    title="Télécharger"
+                    data-testid={`snapshot-download-${s.id}`}
+                  >
+                    <Download className="h-3 w-3" /> Télécharger
+                  </button>
+                  <button
+                    onClick={() => removeSnap(s)}
+                    className="inline-flex items-center gap-1 rounded border border-rose-300 text-rose-700 hover:bg-rose-50 px-2 py-1 text-[11px] font-semibold"
+                    title="Supprimer"
+                    data-testid={`snapshot-delete-${s.id}`}
+                  >
+                    <Trash2 className="h-3 w-3" />
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {/* Import */}
+      <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50/60 p-4 space-y-3" data-testid="snapshot-import-card">
+        <div className="text-xs font-semibold uppercase tracking-wider text-amber-700 flex items-center gap-1.5"><Upload className="h-3.5 w-3.5" /> Importer un snapshot</div>
+        <p className="text-[11px] text-slate-600">
+          Téléversez un fichier <code>.json.gz</code> (ou <code>.json</code>) précédemment exporté depuis la prod.
+          Activez d'abord le mode <strong>Aperçu (dry-run)</strong> pour voir l'impact sans écrire.
+        </p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="text-xs text-slate-700">
+            <span className="block font-semibold mb-1">Mode</span>
+            <select
+              value={importMode}
+              onChange={(e) => setImportMode(e.target.value)}
+              className="rounded border border-slate-300 px-2 py-1.5 text-xs bg-white"
+              data-testid="snapshot-import-mode"
+            >
+              <option value="replace">Remplacer (vide puis ré-insère)</option>
+              <option value="merge">Fusionner (upsert par id/email)</option>
+            </select>
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+            <input
+              type="checkbox"
+              checked={importDryRun}
+              onChange={(e) => setImportDryRun(e.target.checked)}
+              data-testid="snapshot-import-dryrun"
+            />
+            Aperçu (dry-run, n'écrit rien)
+          </label>
+          <input
+            value={importComment}
+            onChange={(e) => setImportComment(e.target.value)}
+            placeholder="Commentaire (optionnel)"
+            maxLength={500}
+            className="flex-1 min-w-[200px] rounded border border-slate-300 px-2 py-1.5 text-xs"
+            data-testid="snapshot-import-comment"
+          />
+        </div>
+        <div className="flex items-center gap-2">
+          <input ref={fileInputRef} type="file" accept=".gz,.json,application/gzip,application/json" className="hidden" onChange={onFileChange} data-testid="snapshot-import-file-input" />
+          <button
+            onClick={onPickFile}
+            disabled={importing}
+            className="inline-flex items-center gap-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 text-sm font-semibold disabled:opacity-50"
+            data-testid="snapshot-import-btn"
+          >
+            <Upload className="h-4 w-4" />
+            {importing ? "Import en cours…" : "Choisir un fichier et importer"}
+          </button>
+        </div>
+
+        {lastImport && (
+          <div className={`rounded p-3 text-xs ${lastImport.dry_run ? "bg-sky-50 ring-1 ring-sky-200" : "bg-emerald-50 ring-1 ring-emerald-200"}`} data-testid="snapshot-import-summary">
+            <p className="font-semibold mb-1">
+              {lastImport.dry_run ? "Aperçu (dry-run)" : "Import appliqué"} — mode {lastImport.mode}
+            </p>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
+              {Object.entries(lastImport.summary || {}).filter(([, v]) => (v.incoming || 0) > 0 || (v.before || 0) > 0).map(([k, v]) => (
+                <div key={k} className="bg-white rounded px-2 py-1 ring-1 ring-slate-200 font-mono">
+                  <div className="font-semibold text-slate-700">{k}</div>
+                  <div className="text-slate-500">avant {v.before} → après {v.after ?? "—"} (entrant {v.incoming})</div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {imports.length > 0 && (
+          <details className="text-xs">
+            <summary className="cursor-pointer text-slate-600 hover:text-slate-900 font-semibold">Historique des imports ({imports.length})</summary>
+            <ul className="mt-2 divide-y divide-slate-100 ring-1 ring-slate-200 rounded bg-white max-h-40 overflow-y-auto">
+              {imports.map((it) => (
+                <li key={it.id} className="px-2 py-1.5 flex items-center justify-between gap-2" data-testid={`snapshot-import-log-${it.id}`}>
+                  <span className="font-mono text-[10px]">{new Date(it.created_at).toLocaleString("fr-FR")}</span>
+                  <span className="text-slate-600 truncate">{it.author_email} • {it.mode}{it.dry_run ? " (dry-run)" : ""}</span>
+                  <span className="text-slate-400 truncate italic max-w-[40%]">{it.comment || "—"}</span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+      </div>
     </div>
     </Filterable>
   );

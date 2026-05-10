@@ -17,6 +17,7 @@ import secrets
 import shutil
 import uuid
 import asyncio
+import gzip
 import hashlib
 import hmac
 import base64
@@ -2999,6 +3000,275 @@ async def admin_run_orphan_data_migration(_: dict = Depends(get_current_admin)):
     re-migrate already-migrated rows (guarded by `client_id_legacy` presence).
     """
     return await _migrate_orphan_client_data(dry_run=False)
+
+
+# ============================================================
+# iter34 — DB Snapshots (Production → Preview safe restore)
+#
+# Admin can export the current MongoDB state to a gzipped JSON file,
+# download it, and import it on another environment (typically: prod → preview)
+# without ever touching binary uploads on disk. All snapshots are listed
+# with their author, date, size and a free-text comment that can be edited.
+#
+# Sensitive credentials (API tokens, SMTP password, webhook secrets) are
+# masked at export time so the file can be safely shared. User password
+# hashes are PRESERVED (admins want to log in with their prod password
+# on preview); only API/3rd-party secrets are masked.
+# ============================================================
+SNAPSHOTS_DIR = Path("/app/backend/snapshots")
+SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
+
+SNAPSHOT_COLLECTIONS = [
+    "users", "directory_contacts", "contacts", "appointments", "interventions",
+    "documents", "tracked_users", "contents", "client_notes", "client_tasks",
+    "user_notes", "user_reports", "user_suivis", "document_categories",
+    "client_categories", "subscription_categories", "subscription_plans",
+    "subscription_orders", "formations", "formation_modules",
+    "formation_enrollments", "blog_posts", "case_studies", "testimonials",
+    "deployments", "newsletter", "incidents", "settings", "automations",
+    "payments", "payment_links", "sms_schedules", "whatsapp_schedules",
+    "forms", "form_submissions", "media_library",
+]
+
+SENSITIVE_SETTINGS_KEYS = {
+    "smtp_password", "google_client_secret", "recaptcha_secret_key",
+    "tracking_auth_header", "webhook_token", "webhook_basic_pass",
+    "notes_webhook_token", "notes_webhook_basic_pass",
+    "health_webhook_token", "health_webhook_basic_pass",
+    "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key",
+    "n8n_webhook_token", "n8n_webhook_basic_pass",
+    "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
+    "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
+    "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+    "sms_ovh_application_secret", "sms_ovh_consumer_key",
+    "pawapay_api_token",
+}
+SNAPSHOT_MASK = "***MASKED***"
+
+
+def _mask_settings_doc(doc: dict) -> dict:
+    out = dict(doc)
+    for k in SENSITIVE_SETTINGS_KEYS:
+        if k in out and out[k]:
+            out[k] = SNAPSHOT_MASK
+    return out
+
+
+def _json_default(obj):
+    if isinstance(obj, datetime):
+        return obj.isoformat()
+    try:
+        return str(obj)
+    except Exception:
+        return None
+
+
+async def _build_snapshot_payload(mask_secrets: bool = True) -> tuple[dict, dict]:
+    """Returns (payload, stats). payload is the full snapshot dict ready to be
+    serialized to JSON. stats is a {collection: count} mapping."""
+    collections: Dict[str, List[Dict[str, Any]]] = {}
+    stats: Dict[str, int] = {}
+    for name in SNAPSHOT_COLLECTIONS:
+        cursor = db[name].find({}, {"_id": 0})
+        rows = [r async for r in cursor]
+        if name == "settings" and mask_secrets:
+            rows = [_mask_settings_doc(r) for r in rows]
+        collections[name] = rows
+        stats[name] = len(rows)
+    payload = {
+        "version": 1,
+        "exported_at": _now(),
+        "mask_secrets": bool(mask_secrets),
+        "collections": collections,
+        "stats": stats,
+    }
+    return payload, stats
+
+
+async def _apply_snapshot(payload: dict, mode: str, dry_run: bool = False) -> dict:
+    """Restore a snapshot. mode='replace' wipes each collection before insert.
+    mode='merge' upserts by `id` field (or by `email` for users). Returns a
+    summary dict {collection: {before, after, action}}."""
+    collections = payload.get("collections") or {}
+    summary: Dict[str, Dict[str, Any]] = {}
+    for name in SNAPSHOT_COLLECTIONS:
+        rows = collections.get(name) or []
+        before = await db[name].count_documents({})
+        if dry_run:
+            summary[name] = {"before": before, "incoming": len(rows), "action": "dry-run"}
+            continue
+        if mode == "replace":
+            await db[name].delete_many({})
+            if rows:
+                # remove any stray _id keys
+                clean = [{k: v for k, v in r.items() if k != "_id"} for r in rows]
+                await db[name].insert_many(clean)
+            after = await db[name].count_documents({})
+            summary[name] = {"before": before, "after": after, "incoming": len(rows), "action": "replaced"}
+        elif mode == "merge":
+            merged = 0
+            inserted = 0
+            for r in rows:
+                key = None
+                if name == "users" and r.get("email"):
+                    key = {"email": r["email"]}
+                elif r.get("id"):
+                    key = {"id": r["id"]}
+                if not key:
+                    await db[name].insert_one({k: v for k, v in r.items() if k != "_id"})
+                    inserted += 1
+                    continue
+                doc = {k: v for k, v in r.items() if k != "_id"}
+                res = await db[name].update_one(key, {"$set": doc}, upsert=True)
+                if res.upserted_id is not None:
+                    inserted += 1
+                else:
+                    merged += 1
+            after = await db[name].count_documents({})
+            summary[name] = {"before": before, "after": after, "incoming": len(rows), "merged": merged, "inserted": inserted, "action": "merged"}
+        else:
+            raise HTTPException(status_code=400, detail=f"mode invalide: {mode}")
+    return summary
+
+
+@api.get("/admin/snapshots", tags=["Admin"])
+async def admin_list_snapshots(_: dict = Depends(get_current_admin)):
+    """List all snapshots ordered by created_at desc."""
+    docs = [r async for r in db.db_snapshots.find({}, {"_id": 0}).sort("created_at", -1)]
+    return {"snapshots": docs, "count": len(docs)}
+
+
+@api.post("/admin/snapshots", tags=["Admin"])
+async def admin_create_snapshot(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_admin)):
+    """Create a new snapshot of all business collections.
+    Body: {comment?: str, mask_secrets?: bool=True}
+    """
+    comment = (payload.get("comment") or "").strip()[:500]
+    mask_secrets = bool(payload.get("mask_secrets", True))
+    snap_id = _uuid()
+    file_name = f"snapshot_{snap_id}.json.gz"
+    file_path = SNAPSHOTS_DIR / file_name
+
+    snap_payload, stats = await _build_snapshot_payload(mask_secrets=mask_secrets)
+    raw = json.dumps(snap_payload, ensure_ascii=False, default=_json_default).encode("utf-8")
+    compressed = gzip.compress(raw, compresslevel=6)
+    file_path.write_bytes(compressed)
+
+    meta = {
+        "id": snap_id,
+        "created_at": _now(),
+        "author_id": user.get("id"),
+        "author_email": user.get("email"),
+        "comment": comment,
+        "size_bytes": len(compressed),
+        "raw_size_bytes": len(raw),
+        "collections_count": len([k for k, v in stats.items() if v > 0]),
+        "total_documents": sum(stats.values()),
+        "stats": stats,
+        "mask_secrets": mask_secrets,
+        "file_name": file_name,
+    }
+    await db.db_snapshots.insert_one(dict(meta))
+    return serialize(meta)
+
+
+@api.get("/admin/snapshots/{snap_id}/download", tags=["Admin"])
+async def admin_download_snapshot(snap_id: str, _: dict = Depends(get_current_admin)):
+    meta = await db.db_snapshots.find_one({"id": snap_id}, {"_id": 0})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Snapshot introuvable")
+    file_path = SNAPSHOTS_DIR / meta["file_name"]
+    if not file_path.exists():
+        raise HTTPException(status_code=410, detail="Fichier physique manquant")
+    return FileResponse(str(file_path), media_type="application/gzip", filename=meta["file_name"])
+
+
+@api.patch("/admin/snapshots/{snap_id}", tags=["Admin"])
+async def admin_update_snapshot(snap_id: str, payload: Dict[str, Any] = Body(...), _: dict = Depends(get_current_admin)):
+    update: Dict[str, Any] = {}
+    if "comment" in payload:
+        update["comment"] = (payload.get("comment") or "").strip()[:500]
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+    update["updated_at"] = _now()
+    res = await db.db_snapshots.update_one({"id": snap_id}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Snapshot introuvable")
+    meta = await db.db_snapshots.find_one({"id": snap_id}, {"_id": 0})
+    return serialize(meta)
+
+
+@api.delete("/admin/snapshots/{snap_id}", tags=["Admin"])
+async def admin_delete_snapshot(snap_id: str, _: dict = Depends(get_current_admin)):
+    meta = await db.db_snapshots.find_one({"id": snap_id}, {"_id": 0})
+    if not meta:
+        raise HTTPException(status_code=404, detail="Snapshot introuvable")
+    file_path = SNAPSHOTS_DIR / meta["file_name"]
+    try:
+        if file_path.exists():
+            file_path.unlink()
+    except Exception:
+        pass
+    await db.db_snapshots.delete_one({"id": snap_id})
+    return {"ok": True, "id": snap_id}
+
+
+@api.post("/admin/snapshots/import", tags=["Admin"])
+async def admin_import_snapshot(
+    file: UploadFile = File(...),
+    mode: str = Form("replace"),
+    dry_run: str = Form("false"),
+    comment: str = Form(""),
+    user: dict = Depends(get_current_admin),
+):
+    """Import a snapshot file. mode = 'replace' | 'merge'. dry_run='true' to
+    preview what would happen. Always logs into db.db_snapshots with
+    kind='import'."""
+    if mode not in ("replace", "merge"):
+        raise HTTPException(status_code=400, detail="mode doit être 'replace' ou 'merge'")
+    is_dry = str(dry_run).lower() in ("1", "true", "yes", "on")
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    # Try gzip then plain JSON
+    try:
+        if file.filename and file.filename.endswith(".gz"):
+            data = gzip.decompress(raw)
+        else:
+            try:
+                data = gzip.decompress(raw)
+            except Exception:
+                data = raw
+        payload = json.loads(data.decode("utf-8"))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Fichier invalide: {e}")
+    if not isinstance(payload, dict) or "collections" not in payload:
+        raise HTTPException(status_code=400, detail="Format de snapshot non reconnu")
+    summary = await _apply_snapshot(payload, mode=mode, dry_run=is_dry)
+    # Persist an import log entry
+    log = {
+        "id": _uuid(),
+        "kind": "import",
+        "created_at": _now(),
+        "author_id": user.get("id"),
+        "author_email": user.get("email"),
+        "comment": (comment or "").strip()[:500],
+        "mode": mode,
+        "dry_run": is_dry,
+        "source_filename": file.filename,
+        "size_bytes": len(raw),
+        "summary": summary,
+        "exported_at": payload.get("exported_at"),
+    }
+    await db.db_snapshot_imports.insert_one(dict(log))
+    return {"ok": True, "dry_run": is_dry, "mode": mode, "summary": summary, "import_id": log["id"]}
+
+
+@api.get("/admin/snapshots/imports", tags=["Admin"])
+async def admin_list_snapshot_imports(_: dict = Depends(get_current_admin)):
+    docs = [r async for r in db.db_snapshot_imports.find({}, {"_id": 0}).sort("created_at", -1).limit(50)]
+    return {"imports": docs, "count": len(docs)}
+
 
 
 # ============================================================
@@ -7614,6 +7884,38 @@ async def _resolve_client_id(user: dict) -> Optional[str]:
     return user.get("parent_client_id") or user.get("client_id")
 
 
+async def _resolve_visible_client_ids(user: dict) -> List[str]:
+    """Iter34 — Resolve ALL client_ids whose contacts/messages this user
+    legitimately sees. Bridges historical client_id misalignments by including:
+      • the user's canonical client_id and parent_client_id
+      • their own id (legacy contacts created when the row was self-owned)
+      • every other admin/parent user sharing the SAME `company` (case-insensitive)
+
+    This guarantees that two users typed with the same employer name see each
+    other's directory even if their client_id pointers were never re-aligned.
+    """
+    ids: set[str] = set()
+    for k in ("client_id", "parent_client_id", "id"):
+        v = user.get(k)
+        if v:
+            ids.add(v)
+    company = (user.get("company") or "").strip()
+    if company:
+        try:
+            cursor = db.users.find(
+                {"company": {"$regex": f"^{re.escape(company)}$", "$options": "i"}},
+                {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1},
+            )
+            async for u in cursor:
+                for k in ("id", "client_id", "parent_client_id"):
+                    v = u.get(k)
+                    if v:
+                        ids.add(v)
+        except Exception:
+            pass
+    return list(ids) if ids else [user.get("id")]
+
+
 @api.get("/me/notifications/counts", tags=["Portail Client"])
 async def me_notifications_counts(user: dict = Depends(get_current_user)):
     """Return the count of new items per module since the user last visited that module."""
@@ -7861,16 +8163,19 @@ class ContactUpdate(BaseModel):
 async def me_list_contacts(user: dict = Depends(get_current_user)):
     """List ALL contacts of the user's client scope.
 
-    Sharing model (iter29 onward): every contact created by ANY user of a
-    client is visible to every other user of the same client (mirrors the
-    shared-bank model already used by the Media Library). The legacy `shared`
-    boolean is preserved on existing rows for traceability but no longer gates
-    visibility. RGPD: per-client anonymization flags still apply for non-
+    Sharing model (iter29 onward, refined iter34): every contact created by
+    ANY user of a client is visible to every other user of the same client
+    (mirrors the shared-bank model already used by the Media Library). The
+    legacy `shared` boolean is preserved on existing rows for traceability but
+    no longer gates visibility. Iter34 widens the scope by also including any
+    other client_id belonging to a peer user with the SAME company name —
+    this bridges historical client_id misalignments without forcing a manual
+    realign. RGPD: per-client anonymization flags still apply for non-
     privileged roles, regardless of who owns the contact.
     """
-    client_scope = (user.get("client_id") or user.get("id"))
+    client_ids = await _resolve_visible_client_ids(user)
     items = await db.directory_contacts.find(
-        {"client_id": client_scope}, {"_id": 0},
+        {"client_id": {"$in": client_ids}}, {"_id": 0},
     ).sort("name", 1).to_list(2000)
     flags = await _resolve_anon_flags(user)
     if any(flags.values()):
@@ -7922,10 +8227,11 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
     if not existing:
         raise HTTPException(status_code=404, detail="Contact introuvable")
     # Iter29 collaborative model: any user within the same client_scope can edit
-    # any contact (matches the visibility rule). Privileged roles can edit
+    # any contact (matches the visibility rule). Iter34 widens scope to include
+    # peer users sharing the same company name. Privileged roles can edit
     # cross-client too. Legacy admin override is still respected.
-    client_scope = (user.get("client_id") or user.get("id"))
-    if existing.get("client_id") != client_scope and user.get("role") not in ("admin", "superviseur"):
+    client_ids = await _resolve_visible_client_ids(user)
+    if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     # Same policy on update: if tags is explicitly cleared while the policy is on, reject
@@ -7950,9 +8256,10 @@ async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
     if not existing:
         return {"ok": True}  # already gone, idempotent
     # Iter29 collaborative model: any user within the same client_scope can
-    # delete any contact (matches the visibility/edit rules).
-    client_scope = (user.get("client_id") or user.get("id"))
-    if existing.get("client_id") != client_scope and user.get("role") not in ("admin", "superviseur"):
+    # delete any contact (matches the visibility/edit rules). Iter34 widens to
+    # peers sharing the same company name.
+    client_ids = await _resolve_visible_client_ids(user)
+    if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Suppression non autorisée")
     await db.directory_contacts.delete_one({"id": cid})
     return {"ok": True}

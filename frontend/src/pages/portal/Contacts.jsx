@@ -704,15 +704,19 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
           <Input label="Nom *" value={form.name} onChange={(v) => setForm({ ...form, name: v })} testid="contact-field-name" />
           <div>
             <label className="block text-xs font-semibold mb-1">Société (client)</label>
-            <select
+            <input
+              list="contact-company-options"
               value={form.company || ""}
               onChange={(e) => setForm({ ...form, company: e.target.value })}
+              placeholder="Tapez ou sélectionnez…"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
               data-testid="contact-field-company"
-            >
-              <option value="">— Choisir —</option>
+              autoComplete="off"
+            />
+            <datalist id="contact-company-options">
               {companyOpts.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
-            </select>
+            </datalist>
+            <p className="text-[10px] text-slate-400 mt-0.5">Tapez quelques lettres pour filtrer la liste, ou saisissez un nouveau nom.</p>
           </div>
           <Input label="Téléphone (E.164)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+225xxxxxxxx" testid="contact-field-phone" />
           <Input label="WhatsApp (E.164)" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} placeholder="+225xxxxxxxx" testid="contact-field-whatsapp" />

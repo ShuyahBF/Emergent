@@ -2,7 +2,7 @@
 
 > **Document de synthèse** consultable et exportable.
 > Toutes les itérations livrées sur ce CRM/Portail, classées par date, avec leurs réalisations, leurs suggestions et leurs prochaines actions.
-> Disponible aussi en ligne dans **Admin → Paramètres → 📒 Journal des évolutions** (avec bouton « Télécharger »).
+> Fichier de référence : `/app/memory/CHANGELOG.md`
 
 ---
 
@@ -122,6 +122,7 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 - **Stripe Checkout** pour Formations payantes
 - **Export CSV** des interventions / RDV
 - **Liluvine intelligent** couplé à la jauge support
+- **Audit régulier des interfaces et de la cohérence des données** : se réserver des sessions de revue pure (sans implémentation) pour parcourir chaque écran admin et portail, vérifier les données affichées, les filtres, les permissions, et la cohérence visuelle après chaque vague de fonctionnalités. _(Préoccupation utilisateur du 2026-05-10 : « à force d'implémenter, j'en oublie de contrôler les interfaces et la cohérence des données ».)_
 
 ### 🔴 BLOQUÉ
 - **QR Code "encodePCS"** (en attente de la lib C# de votre côté)
@@ -146,11 +147,11 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
-## 📥 Comment exporter ce document
+## 📥 Comment consulter / exporter ce document
 
-- **Depuis l'application** : Admin → Paramètres → « 📒 Journal des évolutions » → bouton **« Télécharger (Markdown) »**
-- **Depuis le code** : fichier `/app/memory/CHANGELOG.md`
-- **Endpoint API** (admin authentifié) : `GET /api/admin/changelog`
+- **Dans le code** : fichier `/app/memory/CHANGELOG.md` (Markdown lisible directement)
+- **Depuis votre poste** : ouvrez le fichier avec n'importe quel éditeur Markdown (VS Code, Typora, GitHub) ou copiez-collez le contenu dans Word/Google Docs
+- **Conversion PDF/Word** : Pandoc (`pandoc CHANGELOG.md -o CHANGELOG.pdf`) ou copier-coller dans un traitement de texte avec format Markdown
 
 ---
 

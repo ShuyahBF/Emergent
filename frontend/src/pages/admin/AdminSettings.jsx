@@ -1,9 +1,153 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useMemo, useRef, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
+
+// ============================================================
+// iter33 — Searchable Settings + "Nouveau" bubble system
+// ----------------------------------------------------------
+// Context shared by every <Section> and the 4 custom cards. Each card calls
+// useSettingsFilter() to:
+//   • Hide itself if the search query doesn't match its title
+//   • Render a blue "NEW" bubble when its `addedAt` is recent AND the user
+//     hasn't dismissed/used it for 3 full days yet (per-browser, localStorage)
+// The toolbar at the top of the page provides the search input and a
+// jump-to-section dropdown built from the list of registered titles.
+// ============================================================
+const NEW_SECTIONS = {
+  "Diagnostic des données orphelines": "2026-05-09",
+  "Cohérence multi-utilisateurs (panoramique)": "2026-05-10",
+  "Diagnostic visibilité par utilisateur": "2026-05-10",
+  "Jauge d'occupation du Support technique": "2026-05-01",
+  "Compteur de visites (page d'accueil)": "2026-04-30",
+  "Bandeau d'incident (public + portail)": "2026-04-30",
+  "Santé applicative — Alertes & rapports": "2026-04-30",
+  "Authentification — OTP par domaine": "2026-04-26",
+};
+const STORAGE_KEY_SEEN = "sawali_settings_first_seen_v1";
+const NEW_WINDOW_DAYS = 14;
+const SEEN_FADE_DAYS = 3;
+function readSeen() {
+  try { return JSON.parse(localStorage.getItem(STORAGE_KEY_SEEN) || "{}"); } catch { return {}; }
+}
+function writeSeen(map) {
+  try { localStorage.setItem(STORAGE_KEY_SEEN, JSON.stringify(map)); } catch { /* ignore */ }
+}
+const SettingsFilterCtx = createContext(null);
+const useSettingsFilter = () => useContext(SettingsFilterCtx);
+function isStillNew(title, seenMap) {
+  const addedAt = NEW_SECTIONS[title];
+  if (!addedAt) return false;
+  const now = Date.now();
+  const added = new Date(addedAt).getTime();
+  if (isNaN(added) || (now - added) / 86400000 > NEW_WINDOW_DAYS) return false;
+  const seen = seenMap?.[title];
+  if (!seen) return true;
+  return (now - new Date(seen).getTime()) / 86400000 < SEEN_FADE_DAYS;
+}
+function slugify(title) {
+  return (title || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+}
+
+const Filterable = ({ title, anchorId, children }) => {
+  const ctx = useSettingsFilter();
+  const ref = useRef(null);
+  const [, force] = useState(0);
+  useEffect(() => {
+    if (!ctx) return;
+    ctx.register(title, anchorId);
+    return () => ctx.unregister(title);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title, anchorId]);
+  useEffect(() => {
+    if (!ref.current || !ctx) return;
+    if (!isStillNew(title, ctx.seenMap || {})) return;
+    const obs = new IntersectionObserver((entries) => {
+      entries.forEach((e) => {
+        if (e.isIntersecting && !ctx.seenMap[title]) {
+          ctx.markSeen(title);
+          force((n) => n + 1);
+        }
+      });
+    }, { threshold: 0.4 });
+    obs.observe(ref.current);
+    return () => obs.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [title]);
+  if (ctx?.search) {
+    if (!title.toLowerCase().includes(ctx.search.toLowerCase())) return null;
+  }
+  const showNew = isStillNew(title, ctx?.seenMap || {});
+  return (
+    <div ref={ref} id={anchorId} className="relative scroll-mt-32" data-settings-anchor={anchorId}>
+      {showNew && (
+        <span
+          className="absolute -top-2 -left-2 z-10 inline-flex items-center gap-1 rounded-full bg-sky-600 text-white px-2 py-0.5 text-[10px] font-bold shadow-lg ring-2 ring-white animate-pulse"
+          title={`Nouveau (${NEW_SECTIONS[title]}) — disparaîtra ${SEEN_FADE_DAYS} jours après votre première consultation`}
+          data-testid={`new-badge-${anchorId}`}
+        >
+          • NOUVEAU
+        </span>
+      )}
+      {children}
+    </div>
+  );
+};
+
+const SettingsToolbar = () => {
+  const ctx = useSettingsFilter();
+  const titles = useMemo(() => Object.keys(ctx?.registry || {}).sort((a, b) => a.localeCompare(b)), [ctx?.registry]);
+  if (!ctx) return null;
+  const newCount = titles.filter((t) => isStillNew(t, ctx.seenMap)).length;
+  const matchCount = ctx.search ? titles.filter((t) => t.toLowerCase().includes(ctx.search.toLowerCase())).length : titles.length;
+  return (
+    <div className="sticky top-0 z-30 -mx-3 sm:-mx-6 lg:-mx-10 px-3 sm:px-6 lg:px-10 py-3 bg-slate-50/95 backdrop-blur border-b border-slate-200" data-testid="settings-toolbar">
+      <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <input
+            value={ctx.search}
+            onChange={(e) => ctx.setSearch(e.target.value)}
+            placeholder="Rechercher un paramètre par son titre…"
+            className="w-full pl-9 pr-9 py-2 rounded-lg border border-slate-300 text-sm bg-white"
+            data-testid="settings-search-input"
+          />
+          {ctx.search && (
+            <button onClick={() => ctx.setSearch("")} className="absolute right-2 top-2 text-slate-400 hover:text-slate-700" data-testid="settings-search-clear">
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+        <div className="relative shrink-0">
+          <select
+            value=""
+            onChange={(e) => {
+              const t = e.target.value;
+              if (t && ctx.registry[t]) {
+                document.getElementById(ctx.registry[t])?.scrollIntoView({ behavior: "smooth", block: "start" });
+              }
+            }}
+            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm pr-8 appearance-none w-full sm:w-72"
+            data-testid="settings-jump-select"
+          >
+            <option value="">Aller à un paramètre…{newCount > 0 ? `  (${newCount} nouveau${newCount > 1 ? "x" : ""})` : ""}</option>
+            {titles.map((t) => (
+              <option key={t} value={t}>{isStillNew(t, ctx.seenMap) ? "🆕  " : ""}{t}</option>
+            ))}
+          </select>
+          <ChevronDown className="h-4 w-4 absolute right-2 top-2.5 text-slate-400 pointer-events-none" />
+        </div>
+      </div>
+      {ctx.search && (
+        <p className="text-[11px] text-slate-500 mt-1.5 ml-1" data-testid="settings-filter-info">
+          {matchCount} paramètre(s) trouvé(s) pour « {ctx.search} »
+        </p>
+      )}
+    </div>
+  );
+};
 
 export default function AdminSettings() {
   const [s, setS] = useState({});
@@ -51,12 +195,31 @@ export default function AdminSettings() {
 
   const upd = (k, v) => setS({ ...s, [k]: v });
 
+  // iter33 — Settings filter context state
+  const [search, setSearch] = useState("");
+  const [registry, setRegistry] = useState({});  // {title: anchorId}
+  const [seenMap, setSeenMap] = useState(() => readSeen());
+  const register = (title, anchorId) => setRegistry((m) => (m[title] === anchorId ? m : { ...m, [title]: anchorId }));
+  const unregister = (title) => setRegistry((m) => { const n = { ...m }; delete n[title]; return n; });
+  const markSeen = (title) => setSeenMap((m) => {
+    if (m[title]) return m;
+    const n = { ...m, [title]: new Date().toISOString() };
+    writeSeen(n);
+    return n;
+  });
+  const filterCtxValue = useMemo(
+    () => ({ search, setSearch, registry, register, unregister, seenMap, markSeen }),
+    [search, registry, seenMap],
+  );
+
   return (
+    <SettingsFilterCtx.Provider value={filterCtxValue}>
     <div className="space-y-8" data-testid="admin-settings-page">
       <div>
         <h1 className="text-2xl font-display font-bold">Paramètres</h1>
         <p className="text-sm text-slate-500">Configurez reCAPTCHA, l'envoi d'OTP par email et Google Calendar.</p>
       </div>
+      <SettingsToolbar />
 
       <Section icon={ShieldCheck} title="Google reCAPTCHA v2">
         <Toggle label="Activer reCAPTCHA" value={!!s.recaptcha_enabled} onChange={(v) => upd("recaptcha_enabled", v)} testid="toggle-recaptcha" />
@@ -977,6 +1140,7 @@ export default function AdminSettings() {
         <Save className="h-4 w-4" /> {loading ? "Enregistrement..." : "Enregistrer les paramètres"}
       </button>
     </div>
+    </SettingsFilterCtx.Provider>
   );
 }
 
@@ -1009,8 +1173,10 @@ const ClientsConsistencySection = () => {
   };
 
   const total = data?.misaligned_users_total ?? 0;
+  const TITLE = "Cohérence multi-utilisateurs (panoramique)";
 
   return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
     <div className="rounded-xl border-2 border-violet-200 bg-violet-50/40 p-6 space-y-3" data-testid="admin-clients-consistency-section">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1077,6 +1243,7 @@ const ClientsConsistencySection = () => {
         </div>
       )}
     </div>
+    </Filterable>
   );
 };
 
@@ -1115,8 +1282,10 @@ const ClientDataDiagnosticSection = () => {
   const u = data?.user;
   const can = data?.canonical;
   const plan = data?.realign_plan;
+  const TITLE = "Diagnostic visibilité par utilisateur";
 
   return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
     <div className="rounded-xl border-2 border-sky-200 bg-sky-50/40 p-6 space-y-3" data-testid="admin-client-data-diagnostic-section">
       <div className="flex items-center gap-2">
         <Wrench className="h-4 w-4 text-sky-600" />
@@ -1227,6 +1396,7 @@ const ClientDataDiagnosticSection = () => {
         </div>
       )}
     </div>
+    </Filterable>
   );
 };
 
@@ -1263,8 +1433,10 @@ const OrphanDataSection = () => {
   const total = data?.total_migrated ?? 0;
   const collections = data?.per_collection_totals || {};
   const users = data?.affected_users || [];
+  const TITLE = "Diagnostic des données orphelines";
 
   return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
     <div className="rounded-xl border-2 border-amber-200 bg-amber-50/40 p-6 space-y-3" data-testid="admin-orphan-data-section">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
@@ -1337,16 +1509,25 @@ const OrphanDataSection = () => {
         </div>
       )}
     </div>
+    </Filterable>
   );
 };
 
 
-const Section = ({ icon: Icon, title, children }) => (
-  <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3">
-    <div className="flex items-center gap-2"><Icon className="h-4 w-4 text-sawali-blue" /><h2 className="font-display font-semibold">{title}</h2></div>
-    {children}
-  </div>
-);
+const Section = ({ icon: Icon, title, children }) => {
+  const anchorId = `s-${slugify(title)}`;
+  return (
+    <Filterable title={title} anchorId={anchorId}>
+      <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-3" data-section-title={title}>
+        <div className="flex items-center gap-2">
+          {Icon && <Icon className="h-4 w-4 text-sawali-blue" />}
+          <h2 className="font-display font-semibold">{title}</h2>
+        </div>
+        {children}
+      </div>
+    </Filterable>
+  );
+};
 const Input = ({ label, value, onChange, type = "text", placeholder, testid }) => {
   const handleFocus = (e) => {
     // If value is the masked sentinel, clear it on focus so the user can type a new one

@@ -2552,6 +2552,39 @@ def _anon_phone(phone: Optional[str]) -> Optional[str]:
     return f"+{keep_first} {masked_middle[:2]} {masked_middle[2:4]} {masked_middle[4:6]} {keep_last}".replace("  ", " ").strip()
 
 
+async def _resolve_real_phone(contact_id: Optional[str], field: str, fallback: str = "") -> str:
+    """Iter34h — RGPD anonymization preserves real phone numbers in the DB but
+    masks them in API responses. When the user clicks "Send SMS/WhatsApp" the
+    frontend ships a masked value back. This helper restores the REAL phone
+    number from the directory_contacts row, bypassing the anonymization.
+
+    Args:
+        contact_id: Optional contact UUID. When provided, fetch the row and
+            return its `phone` (for SMS) or `whatsapp` (for WhatsApp).
+        field: "phone" or "whatsapp"
+        fallback: The masked/raw value submitted by the frontend. Used when
+            contact_id is missing or the row has no value in that field.
+
+    Returns: the real phone number ready to send to SMS/WA providers.
+    """
+    if not contact_id:
+        return (fallback or "").strip()
+    try:
+        row = await db.directory_contacts.find_one(
+            {"id": contact_id},
+            {"_id": 0, "phone": 1, "whatsapp": 1},
+        )
+        if row:
+            real = (row.get(field) or "").strip()
+            if real:
+                return real
+    except Exception:
+        pass
+    return (fallback or "").strip()
+
+
+
+
 async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
     """Return the anon_* flags that apply to the current viewer.
     Privileged roles (admin/superviseur/moderateur) get all flags as False so
@@ -3238,7 +3271,7 @@ SNAPSHOT_COLLECTIONS = [
     "formation_enrollments", "blog_posts", "case_studies", "testimonials",
     "deployments", "newsletter", "incidents", "settings", "automations",
     "payments", "payment_links", "sms_schedules", "whatsapp_schedules",
-    "forms", "form_submissions", "media_library",
+    "forms", "form_submissions", "media_library", "roadmap_actions",
 ]
 
 SENSITIVE_SETTINGS_KEYS = {
@@ -3583,6 +3616,149 @@ async def admin_preview_weekly_report(_: dict = Depends(get_current_admin)):
         media_type="application/pdf",
         headers={"Content-Disposition": 'inline; filename="rapport-hebdomadaire-preview.pdf"'},
     )
+
+
+# ============================================================
+# Iter34h — Roadmap actions tracker
+# Auto-numbered log of every dev iteration (manual seed below). Admins can
+# edit only the `observations` column from the UI. All other fields are
+# auto-populated by the developer when each task lands.
+# ============================================================
+DEFAULT_ROADMAP_HOURLY_RATE_XOF = 25000  # ~50 USD/h dev rate, adjustable below
+
+# Seed list — chronological ordering preserved. `code` is the human-readable
+# auto number ("ACT-0001"…) and is the canonical ID on disk. Done items have
+# `done_at` set; pending items keep it null.
+ROADMAP_SEED: List[Dict[str, Any]] = [
+    {"code": "ACT-0001", "created_at": "2026-05-09T00:00:00+00:00", "done_at": "2026-05-09T18:30:00+00:00",
+     "title": "Diagnostic des données orphelines", "backlog_ref": "Iter28",
+     "duration_h": 2.0, "done": True,
+     "details": "Endpoint /api/admin/migrate-orphan-data + UI bouton dans /admin/settings pour réaligner contacts/RDV/interventions sans client_id valide."},
+    {"code": "ACT-0002", "created_at": "2026-05-10T00:00:00+00:00", "done_at": "2026-05-10T08:00:00+00:00",
+     "title": "Contact Collaborative Model (shared by default)", "backlog_ref": "Iter29",
+     "duration_h": 1.5, "done": True,
+     "details": "Le champ `shared=true` est désormais le défaut sur les nouveaux contacts."},
+    {"code": "ACT-0003", "created_at": "2026-05-10T08:00:00+00:00", "done_at": "2026-05-10T11:30:00+00:00",
+     "title": "Cohérence multi-utilisateurs (canary + UI Realignment)", "backlog_ref": "Iter30+31",
+     "duration_h": 3.0, "done": True,
+     "details": "Diagnostic visibilité par utilisateur + bouton 'Résoudre' qui réaligne automatiquement client_id."},
+    {"code": "ACT-0004", "created_at": "2026-05-10T11:30:00+00:00", "done_at": "2026-05-10T13:00:00+00:00",
+     "title": "Auto-link user→company à la création", "backlog_ref": "Iter32",
+     "duration_h": 1.0, "done": True,
+     "details": "Au moment de la création d'un user tracked, son client_id est lié automatiquement au parent de la même `company`."},
+    {"code": "ACT-0005", "created_at": "2026-05-10T13:00:00+00:00", "done_at": "2026-05-10T15:00:00+00:00",
+     "title": "Recherche/filtre + bulles NOUVEAU dans /admin/settings", "backlog_ref": "Iter33",
+     "duration_h": 2.0, "done": True,
+     "details": "Toolbar sticky avec input de recherche, dropdown 'Aller à', 9 sections marquées NOUVEAU avec fade automatique après 3 jours."},
+    {"code": "ACT-0006", "created_at": "2026-05-10T15:00:00+00:00", "done_at": "2026-05-10T17:00:00+00:00",
+     "title": "DB Snapshots — Export/Import depuis /admin/settings", "backlog_ref": "Iter34",
+     "duration_h": 2.0, "done": True,
+     "details": "6 endpoints /api/admin/snapshots* : create/list/download/patch/delete/import. Masquage automatique des secrets. Modes replace/merge + dry-run."},
+    {"code": "ACT-0007", "created_at": "2026-05-10T17:00:00+00:00", "done_at": "2026-05-10T17:30:00+00:00",
+     "title": "Société autocomplete (datalist) dans Contacts.jsx", "backlog_ref": "Iter34",
+     "duration_h": 0.5, "done": True,
+     "details": "Champ Société → <input list> HTML5 avec datalist (filtrage natif + saisie libre)."},
+    {"code": "ACT-0008", "created_at": "2026-05-10T17:30:00+00:00", "done_at": "2026-05-10T18:00:00+00:00",
+     "title": "Visibilité partagée des contacts entre utilisateurs même société", "backlog_ref": "Iter34/Issue 3",
+     "duration_h": 0.5, "done": True,
+     "details": "Helper _resolve_visible_client_ids() bridge contacts entre users du même `company` (case-insensitive)."},
+    {"code": "ACT-0009", "created_at": "2026-05-10T18:00:00+00:00", "done_at": "2026-05-10T18:30:00+00:00",
+     "title": "Auto-snapshot hebdomadaire (cron dimanche 03:00)", "backlog_ref": "Iter34b",
+     "duration_h": 0.5, "done": True,
+     "details": "APScheduler `db_auto_snapshot_weekly` + endpoint /api/admin/snapshots/auto-run + UI toggle + rotation configurable (1..52)."},
+    {"code": "ACT-0010", "created_at": "2026-05-10T18:30:00+00:00", "done_at": "2026-05-10T19:00:00+00:00",
+     "title": "Envoi email du snapshot + Rapport PDF hebdomadaire", "backlog_ref": "Iter34c+d",
+     "duration_h": 0.5, "done": True,
+     "details": "send_email() étendu pour pièces jointes multiples. Module health_report.py génère un PDF reportlab (charte SAWALI). Bouton 'Aperçu PDF' dans /admin/settings."},
+    {"code": "ACT-0011", "created_at": "2026-05-10T19:00:00+00:00", "done_at": "2026-05-10T19:30:00+00:00",
+     "title": "Tendance 30 jours + WoW arrows dans le rapport PDF", "backlog_ref": "Iter34e+f",
+     "duration_h": 0.5, "done": True,
+     "details": "3 sparklines (contacts/RDV/WA) via reportlab LinePlot. Comparaison Semaine vs S-1 avec arrows ↑↓= colorés sur 7 KPIs."},
+    {"code": "ACT-0012", "created_at": "2026-05-10T19:30:00+00:00", "done_at": "2026-05-10T20:00:00+00:00",
+     "title": "KPI 'Connexions & pages visitées' dans /admin/usage", "backlog_ref": "Iter34f",
+     "duration_h": 0.5, "done": True,
+     "details": "GET /api/admin/user-activity avec filtres période + société. UserActivityCard avec 3 mini-KPIs + 2 tables (derniers logins, top pages)."},
+    {"code": "ACT-0013", "created_at": "2026-05-10T20:00:00+00:00", "done_at": "2026-05-10T20:30:00+00:00",
+     "title": "Carte de chaleur 7×24 (Lun-Dim × 0h-23h)", "backlog_ref": "Iter34g",
+     "duration_h": 0.5, "done": True,
+     "details": "GET /api/admin/user-activity/heatmap. Frontend ActivityHeatmap (cellules cliquables, tooltips). Rendu PDF avec coloration RGB pré-mélangée."},
+    {"code": "ACT-0014", "created_at": "2026-05-10T20:30:00+00:00", "done_at": "2026-05-10T20:45:00+00:00",
+     "title": "Bug fix: Jauge support invisible sur mobile", "backlog_ref": "Iter34g",
+     "duration_h": 0.25, "done": True,
+     "details": "Cause: `hidden md:block` dans MarketingNav.jsx. Fix: gauge inline compacte sur mobile avec label tronqué."},
+    {"code": "ACT-0015", "created_at": "2026-05-10T21:00:00+00:00", "done_at": "2026-05-10T21:30:00+00:00",
+     "title": "Suivi des actions (Roadmap tracker) dans /admin/settings", "backlog_ref": "Iter34h",
+     "duration_h": 0.5, "done": True,
+     "details": "Nouvelle collection db.roadmap_actions + 2 endpoints (GET liste, PATCH observations). UI tableau dans /admin/settings filtrable avec numéro auto, dates, durée, coût estimé, observations éditables admin."},
+    {"code": "ACT-0016", "created_at": "2026-05-10T21:30:00+00:00", "done_at": "2026-05-10T21:45:00+00:00",
+     "title": "Bug fix RGPD: SMS/WhatsApp envoyaient le numéro masqué", "backlog_ref": "Iter34h",
+     "duration_h": 0.25, "done": True,
+     "details": "Helper _resolve_real_phone(contact_id, field) restaure le numéro réel depuis la DB au moment de l'envoi. Appliqué à /me/whatsapp/send, /me/whatsapp/send-text, /me/sms/send."},
+]
+
+
+async def _seed_roadmap_actions() -> int:
+    """Insert any missing seed entries into db.roadmap_actions. Idempotent."""
+    inserted = 0
+    for entry in ROADMAP_SEED:
+        existing = await db.roadmap_actions.find_one({"code": entry["code"]}, {"_id": 0, "code": 1})
+        if existing:
+            continue
+        doc = {
+            "id": _uuid(),
+            "code": entry["code"],
+            "created_at": entry["created_at"],
+            "done_at": entry.get("done_at"),
+            "title": entry["title"],
+            "backlog_ref": entry.get("backlog_ref") or "",
+            "details": entry.get("details") or "",
+            "duration_h": float(entry.get("duration_h") or 0),
+            "cost_xof": int(round(float(entry.get("duration_h") or 0) * DEFAULT_ROADMAP_HOURLY_RATE_XOF)),
+            "done": bool(entry.get("done")),
+            "observations": "",
+        }
+        await db.roadmap_actions.insert_one(doc)
+        inserted += 1
+    return inserted
+
+
+@api.get("/admin/roadmap-actions", tags=["Admin"])
+async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
+    """List every roadmap action ordered by code asc. Seeds on first call."""
+    await _seed_roadmap_actions()
+    items = [r async for r in db.roadmap_actions.find({}, {"_id": 0}).sort("code", 1)]
+    total_h = sum(float(r.get("duration_h") or 0) for r in items if r.get("done"))
+    total_xof = sum(int(r.get("cost_xof") or 0) for r in items if r.get("done"))
+    return {
+        "items": items,
+        "totals": {
+            "count": len(items),
+            "done": sum(1 for r in items if r.get("done")),
+            "pending": sum(1 for r in items if not r.get("done")),
+            "duration_h": round(total_h, 2),
+            "cost_xof": total_xof,
+            "hourly_rate_xof": DEFAULT_ROADMAP_HOURLY_RATE_XOF,
+        },
+    }
+
+
+@api.patch("/admin/roadmap-actions/{code}", tags=["Admin"])
+async def admin_patch_roadmap_action(code: str, payload: Dict[str, Any] = Body(...), _: dict = Depends(get_current_admin)):
+    """Admins can only edit the `observations` field. Other fields are
+    intentionally read-only — they are set by the dev when an action lands."""
+    update: Dict[str, Any] = {}
+    if "observations" in payload:
+        update["observations"] = (payload.get("observations") or "")[:2000]
+    if not update:
+        raise HTTPException(status_code=400, detail="Aucun champ modifiable fourni (seul `observations` est éditable)")
+    update["updated_at"] = _now()
+    res = await db.roadmap_actions.update_one({"code": code}, {"$set": update})
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Action introuvable")
+    item = await db.roadmap_actions.find_one({"code": code}, {"_id": 0})
+    return item
+
+
 
 
 @api.post("/admin/snapshots/import", tags=["Admin"])
@@ -8848,7 +9024,9 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     )
     if not allowed:
         raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
-    to = (payload.to or "").strip()
+    # Iter34h — RGPD: resolve real WhatsApp number from contact_id if available,
+    # to bypass any frontend-side anonymization mask.
+    to = await _resolve_real_phone(payload.contact_id, "whatsapp", payload.to or "")
     if not to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
     result = await _wa_send_template(to, payload.template_name, payload.language_code or "fr", payload.components)
@@ -9005,7 +9183,8 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
         raise HTTPException(status_code=400, detail="Le message ne peut pas être vide")
     if len(text) > 4096:
         raise HTTPException(status_code=400, detail="Message trop long (4096 caractères max)")
-    to = (payload.to or "").strip()
+    # Iter34h — RGPD: resolve real WhatsApp number from contact_id if available
+    to = await _resolve_real_phone(payload.contact_id, "whatsapp", payload.to or "")
     if not to:
         raise HTTPException(status_code=400, detail="Numéro destinataire requis")
 
@@ -9347,9 +9526,11 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
         raise HTTPException(status_code=400, detail="Message vide")
     if len(payload.message) > 800:
         raise HTTPException(status_code=400, detail="Message trop long (>800 caractères)")
-    if not (payload.to or "").strip():
+    # Iter34h — RGPD: resolve real phone number from contact_id if available
+    real_to = await _resolve_real_phone(payload.contact_id, "phone", payload.to or "")
+    if not real_to:
         raise HTTPException(status_code=400, detail="Destinataire requis")
-    result = await _sms_dispatch(payload.provider or "auto", payload.to, payload.message, payload.sender)
+    result = await _sms_dispatch(payload.provider or "auto", real_to, payload.message, payload.sender)
     pay_slug = _extract_pay_slug(payload.message)
     doc = {
         "id": _uuid(),
@@ -9360,8 +9541,8 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
         "contact_id": payload.contact_id,
         "provider": result.get("provider"),
         "sender": payload.sender,
-        "msisdn": payload.to,
-        "msisdn_digits": "".join(ch for ch in (payload.to or "") if ch.isdigit()),
+        "msisdn": real_to,
+        "msisdn_digits": "".join(ch for ch in real_to if ch.isdigit()),
         "message": payload.message,
         "length": len(payload.message),
         "status": result.get("status"),

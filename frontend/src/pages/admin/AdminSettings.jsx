@@ -17,6 +17,7 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  "Suivi des actions (historique du travail)": "2026-05-10",
   "Sauvegarde de la base (Snapshot)": "2026-05-10",
   "Diagnostic des données orphelines": "2026-05-09",
   "Cohérence multi-utilisateurs (panoramique)": "2026-05-10",
@@ -335,6 +336,7 @@ export default function AdminSettings() {
 
       <SupportLoadSection s={s} upd={upd} />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      <RoadmapTrackerSection />
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
@@ -1404,8 +1406,184 @@ const ClientDataDiagnosticSection = () => {
 
 
 // ============================================================
-// iter34 — DB Snapshot Section (Production → Preview restore)
+// iter34h — Roadmap tracker (historique des actions développées)
 // ============================================================
+const RoadmapTrackerSection = () => {
+  const [data, setData] = useState({ items: [], totals: null });
+  const [loading, setLoading] = useState(false);
+  const [filter, setFilter] = useState("all");  // all | done | pending
+  const [editing, setEditing] = useState(null);  // {code, observations}
+  const TITLE = "Suivi des actions (historique du travail)";
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/roadmap-actions");
+      setData(r.data || { items: [], totals: null });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const saveObs = async () => {
+    if (!editing) return;
+    try {
+      await apiClient.patch(`/admin/roadmap-actions/${editing.code}`, { observations: editing.observations });
+      toast.success("Observation enregistrée");
+      setEditing(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const fmt = (iso) => {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
+  };
+
+  const items = (data.items || []).filter((r) => {
+    if (filter === "done") return r.done;
+    if (filter === "pending") return !r.done;
+    return true;
+  });
+  const totals = data.totals || {};
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-indigo-200 bg-indigo-50/30 p-6 space-y-4" data-testid="admin-roadmap-tracker-section">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <ClipboardList className="h-4 w-4 text-indigo-600" />
+          <h2 className="font-display font-semibold">Suivi des actions (historique du travail)</h2>
+        </div>
+        <button
+          onClick={load}
+          disabled={loading}
+          className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
+          data-testid="roadmap-refresh"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      <p className="text-xs text-slate-600">
+        Liste auto-incrémentée des évolutions livrées avec date, durée et coût approximatifs. Seule la colonne <strong>Observations</strong> est modifiable depuis cette page — les autres colonnes sont alimentées automatiquement à chaque livraison.
+      </p>
+
+      {/* Totals strip */}
+      {totals && (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs" data-testid="roadmap-totals">
+          <div className="rounded ring-1 ring-indigo-200 bg-white p-2">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Total actions</div>
+            <div className="font-bold text-slate-800">{totals.count || 0}</div>
+          </div>
+          <div className="rounded ring-1 ring-emerald-200 bg-white p-2">
+            <div className="text-[10px] uppercase tracking-wider text-emerald-700">Réalisées</div>
+            <div className="font-bold text-emerald-700">{totals.done || 0}</div>
+          </div>
+          <div className="rounded ring-1 ring-slate-200 bg-white p-2">
+            <div className="text-[10px] uppercase tracking-wider text-slate-500">Durée cumulée</div>
+            <div className="font-bold text-slate-800">{(totals.duration_h || 0).toFixed(1)} h</div>
+          </div>
+          <div className="rounded ring-1 ring-amber-200 bg-white p-2">
+            <div className="text-[10px] uppercase tracking-wider text-amber-700">Coût cumulé</div>
+            <div className="font-bold text-amber-700">{(totals.cost_xof || 0).toLocaleString("fr-FR")} XOF</div>
+          </div>
+        </div>
+      )}
+
+      {/* Filter */}
+      <div className="inline-flex rounded ring-1 ring-slate-200 bg-white p-0.5">
+        {[["all", `Toutes (${totals.count || 0})`], ["done", `Réalisées (${totals.done || 0})`], ["pending", `À faire (${totals.pending || 0})`]].map(([v, l]) => (
+          <button
+            key={v}
+            onClick={() => setFilter(v)}
+            className={`px-3 py-1 text-[11px] rounded ${filter === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+            data-testid={`roadmap-filter-${v}`}
+          >
+            {l}
+          </button>
+        ))}
+      </div>
+
+      {/* Table */}
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white overflow-x-auto" data-testid="roadmap-table">
+        <table className="w-full text-xs min-w-[920px]">
+          <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-600">
+            <tr>
+              <th className="px-2 py-2 text-left">N°</th>
+              <th className="px-2 py-2 text-left">Créée le</th>
+              <th className="px-2 py-2 text-left">Action / Backlog</th>
+              <th className="px-2 py-2 text-left">Réalisée le</th>
+              <th className="px-2 py-2 text-right">Durée</th>
+              <th className="px-2 py-2 text-right">Coût (XOF)</th>
+              <th className="px-2 py-2 text-center">État</th>
+              <th className="px-2 py-2 text-left">Observations (modifiable)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.length === 0 ? (
+              <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 italic">Aucune action pour ce filtre.</td></tr>
+            ) : items.map((it) => (
+              <tr key={it.code} className="border-t border-slate-100 hover:bg-slate-50/40" data-testid={`roadmap-row-${it.code}`}>
+                <td className="px-2 py-1.5 font-mono font-semibold text-indigo-700">{it.code}</td>
+                <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmt(it.created_at)}</td>
+                <td className="px-2 py-1.5">
+                  <div className="font-semibold text-slate-800">{it.title}</div>
+                  {it.backlog_ref && <div className="text-[10px] text-slate-500">{it.backlog_ref}</div>}
+                  {it.details && <div className="text-[10px] text-slate-400 mt-0.5 max-w-[400px]">{it.details}</div>}
+                </td>
+                <td className="px-2 py-1.5 text-slate-500 whitespace-nowrap">{fmt(it.done_at)}</td>
+                <td className="px-2 py-1.5 text-right font-mono text-slate-700">{(it.duration_h || 0).toFixed(2)} h</td>
+                <td className="px-2 py-1.5 text-right font-mono text-slate-700">{(it.cost_xof || 0).toLocaleString("fr-FR")}</td>
+                <td className="px-2 py-1.5 text-center">
+                  {it.done ? (
+                    <span className="rounded bg-emerald-100 text-emerald-700 px-1.5 py-0.5 text-[9px] font-bold">✓ FAIT</span>
+                  ) : (
+                    <span className="rounded bg-amber-100 text-amber-700 px-1.5 py-0.5 text-[9px] font-bold">À FAIRE</span>
+                  )}
+                </td>
+                <td className="px-2 py-1.5 max-w-[280px]">
+                  {editing?.code === it.code ? (
+                    <div className="flex flex-col gap-1">
+                      <textarea
+                        autoFocus
+                        rows={2}
+                        value={editing.observations}
+                        onChange={(e) => setEditing({ ...editing, observations: e.target.value })}
+                        className="w-full rounded border border-slate-300 px-2 py-1 text-[11px] resize-y"
+                        data-testid={`roadmap-obs-input-${it.code}`}
+                      />
+                      <div className="flex gap-1">
+                        <button onClick={saveObs} className="text-[11px] text-emerald-700 font-semibold hover:underline" data-testid={`roadmap-obs-save-${it.code}`}>
+                          Enregistrer
+                        </button>
+                        <button onClick={() => setEditing(null)} className="text-[11px] text-slate-500 hover:underline">Annuler</button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex items-start gap-1.5 cursor-pointer group" onClick={() => setEditing({ code: it.code, observations: it.observations || "" })} data-testid={`roadmap-obs-display-${it.code}`}>
+                      <span className="text-slate-600 italic flex-1">
+                        {it.observations || <span className="text-slate-300">(cliquer pour ajouter)</span>}
+                      </span>
+                      <Pencil className="h-3 w-3 text-slate-300 group-hover:text-indigo-500 shrink-0 mt-0.5" />
+                    </div>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    </Filterable>
+  );
+};
+
+
 const formatBytes = (bytes) => {
   if (!bytes) return "0 B";
   const u = ["B", "kB", "MB", "GB"];

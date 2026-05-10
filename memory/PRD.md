@@ -773,6 +773,13 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Frontend** : Composant `ResetUsageButton` dans `/admin/usage` avec panneau de confirmation (checkbox "Purge complète" + confirm fort).
 
 ## Iter34j (2026-05-10) — Vue Kanban À faire / En cours / Réalisée
+
+## Iter34k (2026-05-10) — Page "Mon compte" + Demande de modification
+- **Backend** : `GET /api/me/account-detail` retourne identity (nom, email, role, phone, whatsapp, avatar, company, birth_date), parent_client (employer rattaché), last_seen_at (avant-dernière connexion, pas la session courante), et counters (reports, suivis, contacts visibles via `_resolve_visible_client_ids`).
+- **Backend** : `POST /api/me/profile-update-request` enregistre une demande de modification (message + liste de champs ciblés) dans `db.profile_update_requests` avec status=pending. Validation message obligatoire et ≤1500 caractères.
+- **Frontend** : Nouvelle page `/portal/my-account` avec avatar/initiales gradient, sections Identité + Société & rattachement (toutes en **lecture seule** avec icône cadenas), bandeau "Dernière connexion", 3 KPI cards (Rapports/Suivis/Contacts), et formulaire "Demande de modification" (6 checkboxes pré-définies + textarea + bouton "Envoyer à l'admin").
+- **Frontend** : Link `account-menu-link` ajouté au pied de la sidebar du portail (clic sur "Connecté en tant que" → ouvre `/portal/my-account`).
+- **Validation** : 4 tests curl ✓ (account-detail retour complet, post request OK, message vide → 400, fields filtré à 10 max). Screenshot UI confirme tous les blocs rendus avec icônes cadenas visibles et données réelles de l'admin.
 - **Backend** : Nouveau champ `status` sur `roadmap_actions` (enum `todo|in_progress|done`). Backfill automatique au prochain `GET /admin/roadmap-actions` (rows pré-existantes héritent `status` depuis `done`). PATCH `{status}` sync auto le boolean `done` + `done_at`. Validation HTTP 400 sur status invalide.
 - **Backend** : Totaux étendus : `done`, `in_progress`, `pending` (auparavant seulement done/pending). `POST /admin/roadmap-actions` accepte `status` optionnel à la création.
 - **Frontend** : Switcher **Tableau / Kanban** dans la section Suivi. Vue Kanban 3 colonnes (amber/sky/emerald) avec compteurs, cartes (code+titre+backlog+durée+coût), boutons "Déplacer →" pour basculer vers les 2 autres colonnes en 1 clic, et icône suppression sur chaque carte (seed protégé HTTP 403).

@@ -199,11 +199,17 @@ export default function PortalLayout({ admin = false }) {
       </nav>
 
       <div className="mt-8 border-t border-white/10 pt-4">
-        <div className="px-3 py-2">
-          <p className="text-xs text-slate-400">Connecté en tant que</p>
+        <NavLink
+          to="/portal/my-account"
+          onClick={() => setOpen(false)}
+          className="block px-3 py-2 rounded-lg hover:bg-white/5 transition group"
+          data-testid="account-menu-link"
+        >
+          <p className="text-xs text-slate-400 group-hover:text-sawali-blue-light transition">Connecté en tant que</p>
           <p className="text-sm text-white truncate">{user.full_name}</p>
           <p className="text-xs text-sawali-blue-light truncate">{user.email}</p>
-        </div>
+          <p className="text-[10px] text-slate-500 mt-0.5 group-hover:text-slate-300 transition">→ Voir mon compte</p>
+        </NavLink>
         <div className="px-3 py-2 mt-1 rounded-lg bg-white/5 ring-1 ring-white/10 space-y-1.5" data-testid="wa-notifier-controls">
           <p className="text-[10px] uppercase tracking-wider text-slate-400 inline-flex items-center gap-1.5">
             <Bell className="h-3 w-3" /> Alerte WhatsApp

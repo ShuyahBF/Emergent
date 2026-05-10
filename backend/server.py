@@ -1326,6 +1326,96 @@ async def me_account(user: dict = Depends(get_current_user)):
     }
 
 
+@api.get("/me/account-detail", tags=["Portail Client"])
+async def me_account_detail(user: dict = Depends(get_current_user)):
+    """Iter34k — Read-only account profile shown in the user-menu "Mon
+    compte" page. Returns identity + company hierarchy + phone numbers +
+    last-login (excluding the current session) + counters for Rapports,
+    Suivis, Contacts (shared by the same company/client).
+    """
+    parent_id = user.get("parent_client_id") or user.get("client_id") or user.get("id")
+    # Parent client information (employer/company owner)
+    parent = await db.users.find_one(
+        {"id": parent_id}, {"_id": 0, "full_name": 1, "company": 1, "email": 1}
+    ) if parent_id and parent_id != user.get("id") else None
+    # Previous login: ignore the very last access_log row (current session)
+    prev_logins_cursor = db.access_logs.find(
+        {"user_email": (user.get("email") or "").lower()},
+        {"_id": 0, "created_at": 1},
+    ).sort("created_at", -1).limit(2)
+    prev_logins = [r async for r in prev_logins_cursor]
+    last_seen = prev_logins[1]["created_at"] if len(prev_logins) >= 2 else None
+
+    # Counters scoped to the user's effective client_id span
+    client_ids = await _resolve_visible_client_ids(user)
+    reports_count = await db.user_reports.count_documents({"user_id": user["id"]})
+    suivis_count = await db.user_suivis.count_documents({"user_id": user["id"]})
+    contacts_count = await db.directory_contacts.count_documents(
+        {"client_id": {"$in": client_ids}}
+    )
+
+    return {
+        "identity": {
+            "full_name": user.get("full_name"),
+            "email": user.get("email"),
+            "role": user.get("role"),
+            "phone": user.get("phone"),
+            "whatsapp": user.get("whatsapp") or user.get("phone"),
+            "avatar_url": user.get("avatar_url"),
+            "company": user.get("company"),
+            "birth_date": user.get("birth_date"),
+        },
+        "parent_client": {
+            "id": parent_id if parent else None,
+            "full_name": parent.get("full_name") if parent else None,
+            "company": parent.get("company") if parent else None,
+            "email": parent.get("email") if parent else None,
+        } if parent else None,
+        "last_seen_at": last_seen,
+        "counters": {
+            "reports": reports_count,
+            "suivis": suivis_count,
+            "contacts": contacts_count,
+        },
+    }
+
+
+@api.post("/me/profile-update-request", tags=["Portail Client"])
+async def me_request_profile_update(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+    """Iter34k — Submit a free-form request to the admin to correct identity,
+    surname spelling, birth date, phone numbers, etc. Stored in
+    `db.profile_update_requests` for admin review; admin sees them in
+    `/admin/settings` (separate section in a follow-up iter)."""
+    message = (payload.get("message") or "").strip()
+    if not message:
+        raise HTTPException(status_code=400, detail="Le message est obligatoire")
+    if len(message) > 1500:
+        raise HTTPException(status_code=400, detail="Message trop long (1500 caractères max)")
+    fields = payload.get("fields") or []
+    if not isinstance(fields, list):
+        fields = []
+    doc = {
+        "id": _uuid(),
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_full_name": user.get("full_name"),
+        "company": user.get("company"),
+        "parent_client_id": user.get("parent_client_id") or user.get("client_id"),
+        "fields": [str(f)[:60] for f in fields[:10]],
+        "message": message,
+        "status": "pending",
+        "created_at": _now(),
+        "resolved_at": None,
+        "admin_note": "",
+    }
+    await db.profile_update_requests.insert_one(doc)
+    out = dict(doc)
+    out.pop("_id", None)
+    return out
+
+
+
+
 @api.get("/me/appointments", tags=["Portail Client"])
 async def me_appointments(user: dict = Depends(get_current_user)):
     """All users belonging to the same client see the same set of RDV.
@@ -3714,6 +3804,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Vue Kanban (À faire / En cours / Réalisée)", "backlog_ref": "Iter34j",
      "duration_h": 0.5, "done": True,
      "details": "Nouveau champ `status` (todo|in_progress|done) sur roadmap_actions, backfill auto. Vue Kanban click-to-move 3 colonnes. Switcher Tableau/Kanban. Cartes avec code+titre+backlog+durée+coût+boutons déplacer."},
+    {"code": "ACT-0022", "created_at": "2026-05-10T23:15:00+00:00", "done_at": "2026-05-10T23:35:00+00:00",
+     "title": "Page 'Mon compte' (informations utilisateur lecture seule)", "backlog_ref": "Iter34k",
+     "duration_h": 0.5, "done": True,
+     "details": "Endpoints /me/account-detail (identity+parent_client+last_seen+counters Rapports/Suivis/Contacts) + /me/profile-update-request. Page /portal/my-account cliquable depuis le profil dans la sidebar. Lecture seule avec icône cadenas + formulaire de demande de modification à l'admin (checkboxes des champs + message)."},
 ]
 
 

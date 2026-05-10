@@ -817,6 +817,7 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Refactor du monolithe `server.py`** (>12 500 lignes) → `/app/backend/routes/` modulaire. Session dédiée requise.
 
 ### 🟨 P2 / P3
+- **Drag & drop HTML5 sur le Kanban** (P3) — déplacer les cartes entre colonnes par glisser-déposer en plus des boutons actuels. Améliore l'UX fluide sans casser la simplicité existante (~30 min).
 - Transkribus OCR (manuscrits)
 - Caisse, Facturation, Catalogue, Tickets
 - Génération PDF côté serveur, Stripe Checkout

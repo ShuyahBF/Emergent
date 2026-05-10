@@ -1445,6 +1445,39 @@ const RoadmapTrackerSection = () => {
     } catch { return iso; }
   };
 
+  const exportCsv = () => {
+    // Build CSV from the currently-filtered rows. Excel-FR friendly: `;`
+    // separator + UTF-8 BOM so accents render correctly when opened directly.
+    const escape = (v) => {
+      const s = (v ?? "").toString().replace(/"/g, '""');
+      return /[";\n\r]/.test(s) ? `"${s}"` : s;
+    };
+    const headers = ["N°", "Créée le", "Réalisée le", "Action", "Référence backlog", "Détails", "Durée (h)", "Coût (XOF)", "État", "Observations"];
+    const rows = items.map((it) => [
+      it.code,
+      it.created_at || "",
+      it.done_at || "",
+      it.title || "",
+      it.backlog_ref || "",
+      (it.details || "").replace(/\s+/g, " "),
+      (it.duration_h || 0).toString().replace(".", ","),
+      (it.cost_xof || 0).toString(),
+      it.done ? "FAIT" : "À FAIRE",
+      it.observations || "",
+    ]);
+    const csv = [headers, ...rows].map((r) => r.map(escape).join(";")).join("\r\n");
+    const blob = new Blob(["\ufeff" + csv], { type: "text/csv;charset=utf-8;" });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `suivi-actions-sawali-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+    toast.success(`${rows.length} ligne(s) exportée(s)`);
+  };
+
   const items = (data.items || []).filter((r) => {
     if (filter === "done") return r.done;
     if (filter === "pending") return !r.done;
@@ -1460,14 +1493,24 @@ const RoadmapTrackerSection = () => {
           <ClipboardList className="h-4 w-4 text-indigo-600" />
           <h2 className="font-display font-semibold">Suivi des actions (historique du travail)</h2>
         </div>
-        <button
-          onClick={load}
-          disabled={loading}
-          className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
-          data-testid="roadmap-refresh"
-        >
-          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={exportCsv}
+            disabled={loading || items.length === 0}
+            className="text-xs inline-flex items-center gap-1 rounded ring-1 ring-indigo-300 bg-white px-2 py-1 text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+            data-testid="roadmap-export-csv"
+          >
+            <Download className="h-3 w-3" /> Exporter CSV
+          </button>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
+            data-testid="roadmap-refresh"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+          </button>
+        </div>
       </div>
       <p className="text-xs text-slate-600">
         Liste auto-incrémentée des évolutions livrées avec date, durée et coût approximatifs. Seule la colonne <strong>Observations</strong> est modifiable depuis cette page — les autres colonnes sont alimentées automatiquement à chaque livraison.

@@ -296,6 +296,78 @@ async def _next_intervention_number(client_doc: dict) -> str:
     return f"INT-{year}-{code}-{seq:04d}"
 
 
+async def _migrate_orphan_client_data(dry_run: bool = False) -> Dict[str, Any]:
+    """Re-tag CRM data orphaned by the iter24 ``client_id`` mirror migration.
+
+    Bridged tracked-user accounts had their ``users.client_id`` switched from
+    empty to ``parent_client_id`` in iter24. Historical rows (contacts,
+    messages, schedules, payment links) created BEFORE that mirror are still
+    tagged with the user's OWN ``id`` (because the legacy creation path
+    resolved scope as ``user.client_id || user.id`` and fell through to the
+    user id). Those rows are now invisible to the user after the mirror.
+
+    This function reassigns ``client_id`` to the parent_client_id on every
+    affected document, and stores the previous value in ``client_id_legacy``
+    for traceability and reversibility. The legacy field also acts as the
+    idempotency guard so the migration is safe to re-run.
+
+    When ``dry_run=True``, no writes happen — the function returns the counts
+    of documents that **would** be migrated. Useful from the admin endpoint
+    before applying.
+    """
+    collections = [
+        "directory_contacts",
+        "whatsapp_messages",
+        "sms_messages",
+        "whatsapp_schedules",
+        "payment_links",
+    ]
+    per_user: List[Dict[str, Any]] = []
+    totals = {c: 0 for c in collections}
+    grand_total = 0
+    bridged_cur = db.users.find(
+        {
+            "role": "client",
+            "parent_client_id": {"$exists": True, "$nin": [None, ""]},
+        },
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "parent_client_id": 1},
+    )
+    async for u in bridged_cur:
+        uid = u.get("id")
+        pid = u.get("parent_client_id")
+        if not uid or not pid or uid == pid:
+            # Skip rows where the user is its own parent or fields missing
+            continue
+        per_coll: Dict[str, int] = {}
+        for coll_name in collections:
+            q = {"client_id": uid, "client_id_legacy": {"$exists": False}}
+            if dry_run:
+                cnt = await db[coll_name].count_documents(q)
+            else:
+                res = await db[coll_name].update_many(
+                    q,
+                    {"$set": {"client_id": pid, "client_id_legacy": uid}},
+                )
+                cnt = int(getattr(res, "modified_count", 0) or 0)
+            per_coll[coll_name] = cnt
+            totals[coll_name] += cnt
+            grand_total += cnt
+        if any(v > 0 for v in per_coll.values()):
+            per_user.append({
+                "user_id": uid,
+                "user_email": u.get("email"),
+                "user_label": u.get("full_name") or u.get("email"),
+                "parent_client_id": pid,
+                "per_collection": per_coll,
+            })
+    return {
+        "dry_run": dry_run,
+        "per_collection_totals": totals,
+        "total_migrated": grand_total,
+        "affected_users": per_user,
+    }
+
+
 async def _next_contact_unique_code(client_doc: dict) -> str:
     """Generate a stable, never-reissued unique code for a CRM contact.
     Format: ``YYYY-CODE-NNNN`` where CODE is the parent client's slug (or
@@ -2891,6 +2963,22 @@ async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_curr
         "last_inbound_at": last_inbound_at,
         "last_activity_at": last_at,
     }
+
+
+@api.get("/admin/migrate-orphan-data", tags=["Admin"])
+async def admin_inspect_orphan_data(_: dict = Depends(get_current_admin)):
+    """Inspect what the iter28 orphan-data migration WOULD do (no writes).
+    Returns per-user and per-collection counts. Use the POST variant below to
+    actually apply the migration."""
+    return await _migrate_orphan_client_data(dry_run=True)
+
+
+@api.post("/admin/migrate-orphan-data", tags=["Admin"])
+async def admin_run_orphan_data_migration(_: dict = Depends(get_current_admin)):
+    """Apply the iter28 orphan-data migration. Idempotent — re-running won't
+    re-migrate already-migrated rows (guarded by `client_id_legacy` presence).
+    """
+    return await _migrate_orphan_client_data(dry_run=False)
 
 
 # ============================================================
@@ -11494,13 +11582,36 @@ async def on_startup():
         await db.users.update_many(
             {
                 "role": "client",
-                "parent_client_id": {"$exists": True, "$ne": None, "$ne": ""},
+                "parent_client_id": {"$exists": True, "$nin": [None, ""]},
                 "$or": [{"client_id": {"$exists": False}}, {"client_id": None}, {"client_id": ""}],
             },
             [{"$set": {"client_id": "$parent_client_id"}}],
         )
     except Exception as exc:  # noqa: BLE001
         logger.warning("tracked-user client_id mirror backfill failed: %s", exc)
+
+    # ============================================================
+    # iter28 HOTFIX — Re-tag historical CRM data orphaned by iter24.
+    #
+    # Context: iter24's `client_id` mirror migration set `users.client_id =
+    # parent_client_id` on bridged tracked-user accounts. Reads now resolve
+    # scope via `user.client_id`, but historical contacts/messages/schedules
+    # created BEFORE iter24 are still tagged with the user's OWN id (because
+    # back then `client_scope = user.client_id || user.id` fell back to the
+    # user id when client_id was empty). Result: those rows became invisible
+    # to the bridged user after iter24.
+    #
+    # This migration re-tags those rows to the parent_client_id and stores
+    # the previous value in `client_id_legacy` for traceability/rollback.
+    # Idempotent — guarded by `client_id_legacy` not existing yet.
+    # ============================================================
+    try:
+        result = await _migrate_orphan_client_data()
+        if result["total_migrated"] > 0:
+            logger.info("iter28 orphan-data migration: %s", result)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("iter28 orphan-data migration failed: %s", exc)
+
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")
     await db.whatsapp_schedules.create_index("status")

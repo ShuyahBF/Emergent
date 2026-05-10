@@ -681,6 +681,14 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Nouvelle section dans `/admin/usage`** : « ⚡ Efficacité de campagne — stratégie WhatsApp-first » avec 4 KPI cards (Délivrance WA, Délivrance SMS, Repli SMS, Économie estimée) + BarChart empilé (3 stack groups : WA, SMS, fallback) sur 30 jours glissants. Re-fetch automatique au changement de période.
 - Tests : `/app/backend/tests/test_sawali_iter27.py` — 9/9 pytest pass + frontend confirmé live (4 KPIs + chart + re-fetch sur sélection de période).
 
+### 2026-05-09 — Iter28 : 🚨 HOTFIX production — récupération des contacts orphelins
+- **Root cause** : la migration iter24 (mirror `client_id ← parent_client_id` sur les comptes bridgés) a déplacé le scope de lecture des utilisateurs suivis. Les contacts/messages créés AVANT iter24 étaient tagués `client_id = user.id` (fallback du legacy code) et sont devenus invisibles après iter24 (le scope filtre maintenant sur `parent_client_id`).
+- **Fix** : nouvelle fonction `_migrate_orphan_client_data(dry_run)` qui re-tague les rows orphelines vers le `parent_client_id`, en conservant l'ancien `client_id` dans `client_id_legacy` (traçabilité + rollback). Couvre `directory_contacts`, `whatsapp_messages`, `sms_messages`, `whatsapp_schedules`, `payment_links`. Idempotente (guard `client_id_legacy: $exists:false`).
+- **Auto au startup** : la migration s'exécute automatiquement au prochain boot (logguée si `total_migrated > 0`).
+- **Endpoint admin** : `GET /api/admin/migrate-orphan-data` (dry-run, prévisualise) et `POST /api/admin/migrate-orphan-data` (apply). Permet le contrôle manuel sans redémarrer.
+- **Bug Mongo collatéral** : `{"$ne": None, "$ne": ""}` (dict-key collision) remplacé par `{"$nin": [None, ""]}` dans 2 endroits.
+- Tests : reproduction réelle en preview (3 contacts orphelins + WA + SMS d'un user bridgé synthétique) → migration recovers 5/5 docs, idempotence vérifiée (2e dry-run = 0).
+
 ---
 
 ## Test Credentials

@@ -80,6 +80,91 @@ async def _gather_stats(since_iso: str, until_iso: str) -> Dict[str, Any]:
     return stats
 
 
+async def _gather_prev_week_stats(since_iso: str, prev_until_iso: str) -> Dict[str, int]:
+    """Same counters as _gather_stats but for the previous-7-days window. Used
+    for WoW (week-over-week) variation arrows on the KPI cards."""
+    prev_win = {"$gte": since_iso, "$lt": prev_until_iso}
+    return {
+        "contacts": await _count("directory_contacts", {"created_at": prev_win}),
+        "appointments": await _count("appointments", {"created_at": prev_win}),
+        "interventions": await _count("interventions", {"created_at": prev_win}),
+        "documents": await _count("documents", {"created_at": prev_win}),
+        "payments": await _count("payments", {"created_at": prev_win}),
+        "wa_messages": await _count("whatsapp_messages", {"created_at": prev_win}),
+        "sms_messages": await _count("sms_messages", {"created_at": prev_win}),
+    }
+
+
+def _delta_label(current: int, previous: int) -> str:
+    """Pretty WoW variation string with arrow + percent. Returns HTML inline."""
+    if previous == 0 and current == 0:
+        return ""
+    if previous == 0:
+        return "<font color='#16A34A' size='7'>↑ nouveau</font>"
+    delta = current - previous
+    pct = (delta / previous) * 100 if previous else 0
+    arrow = "↑" if delta > 0 else ("↓" if delta < 0 else "=")
+    color = "#16A34A" if delta > 0 else ("#E11D48" if delta < 0 else "#64748B")
+    return f"<font color='{color}' size='7'>{arrow} {pct:+.0f}% vs S-1</font>"
+
+
+async def _gather_user_activity_7d(since_iso: str, until_iso: str) -> Dict[str, Any]:
+    """Collect last logins (top 5) + top pages (top 5) over the last 7 days
+    for the PDF report. Joins access_logs with users for the company label."""
+    win = {"$gte": since_iso, "$lt": until_iso}
+    last_logins: List[Dict[str, Any]] = []
+    top_pages: List[Dict[str, Any]] = []
+    try:
+        user_pipeline = [
+            {"$match": {"created_at": win}},
+            {"$group": {
+                "_id": "$user_email",
+                "user_name": {"$last": "$user_name"},
+                "role": {"$last": "$role"},
+                "last_seen_at": {"$max": "$created_at"},
+                "hits": {"$sum": 1},
+            }},
+            {"$sort": {"last_seen_at": -1}},
+            {"$limit": 5},
+        ]
+        async for r in db.access_logs.aggregate(user_pipeline):
+            email = (r.get("_id") or "")
+            u = await db.users.find_one({"email": email}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+            last_logins.append({
+                "user_email": email,
+                "user_name": r.get("user_name") or u.get("full_name") or email,
+                "role": r.get("role") or "—",
+                "company": u.get("company") or "—",
+                "last_seen_at": r.get("last_seen_at"),
+                "hits": r.get("hits", 0),
+            })
+    except Exception:
+        pass
+    try:
+        page_pipeline = [
+            {"$match": {"created_at": win}},
+            {"$group": {
+                "_id": {"module": "$module", "page": "$page"},
+                "hits": {"$sum": 1},
+                "users": {"$addToSet": "$user_email"},
+            }},
+            {"$project": {"module": "$_id.module", "page": "$_id.page", "hits": 1,
+                          "unique_users": {"$size": "$users"}}},
+            {"$sort": {"hits": -1}},
+            {"$limit": 5},
+        ]
+        async for r in db.access_logs.aggregate(page_pipeline):
+            top_pages.append({
+                "module": r.get("module") or "—",
+                "page": r.get("page") or "—",
+                "hits": r.get("hits", 0),
+                "unique_users": r.get("unique_users", 0),
+            })
+    except Exception:
+        pass
+    return {"last_logins": last_logins, "top_pages": top_pages}
+
+
 async def _gather_settings_meta() -> Dict[str, Any]:
     s = await db.settings.find_one({"_id": "global"}) or {}
     return {
@@ -158,9 +243,12 @@ def _build_trend_chart(series: List[int], color: colors.Color, width: float = 17
     return drawing
 
 
-def _kv_row(label: str, value: str | int, accent: bool = False) -> List[Any]:
+def _kv_row(label: str, value: str | int, accent: bool = False, delta_html: str = "") -> List[Any]:
+    label_html = f"<font color='#64748B' size='8'>{label}</font>"
+    if delta_html:
+        label_html += f"<br/>{delta_html}"
     return [
-        Paragraph(f"<font color='#64748B' size='8'>{label}</font>", getSampleStyleSheet()["BodyText"]),
+        Paragraph(label_html, getSampleStyleSheet()["BodyText"]),
         Paragraph(
             f"<font color='{'#1E90FF' if accent else '#0E1F3D'}' size='14'><b>{value}</b></font>",
             getSampleStyleSheet()["BodyText"],
@@ -179,6 +267,10 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
     stats = await _gather_stats(since_iso, until_iso)
     smeta = await _gather_settings_meta()
     trend_30d = await _gather_30d_series(now)
+    # WoW comparison data: previous 7-day window
+    prev_start = (week_ago - timedelta(days=7)).isoformat()
+    prev_stats = await _gather_prev_week_stats(prev_start, since_iso)
+    user_activity = await _gather_user_activity_7d(since_iso, until_iso)
 
     buf = BytesIO()
     doc = SimpleDocTemplate(
@@ -202,22 +294,29 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
         sub,
     ))
 
-    # Activité de la semaine — KPI cards (2x3 grid)
+    # Activité de la semaine — KPI cards (3x3 grid avec WoW)
     story.append(Paragraph("Activité des 7 derniers jours", h2))
     kpi_data = [
         [
-            *_kv_row("Nouveaux contacts", stats["contacts_new_week"], accent=True),
-            *_kv_row("RDV créés", stats["appointments_new_week"], accent=True),
+            *_kv_row("Nouveaux contacts", stats["contacts_new_week"], accent=True,
+                     delta_html=_delta_label(stats["contacts_new_week"], prev_stats["contacts"])),
+            *_kv_row("RDV créés", stats["appointments_new_week"], accent=True,
+                     delta_html=_delta_label(stats["appointments_new_week"], prev_stats["appointments"])),
             *_kv_row("RDV à venir (7j)", stats["appointments_upcoming_7d"]),
         ],
         [
-            *_kv_row("Interventions", stats["interventions_new_week"]),
-            *_kv_row("Documents", stats["documents_new_week"]),
-            *_kv_row("Paiements", stats["payments_new_week"]),
+            *_kv_row("Interventions", stats["interventions_new_week"],
+                     delta_html=_delta_label(stats["interventions_new_week"], prev_stats["interventions"])),
+            *_kv_row("Documents", stats["documents_new_week"],
+                     delta_html=_delta_label(stats["documents_new_week"], prev_stats["documents"])),
+            *_kv_row("Paiements", stats["payments_new_week"],
+                     delta_html=_delta_label(stats["payments_new_week"], prev_stats["payments"])),
         ],
         [
-            *_kv_row("Messages WhatsApp", stats["wa_messages_week"]),
-            *_kv_row("Messages SMS", stats["sms_messages_week"]),
+            *_kv_row("Messages WhatsApp", stats["wa_messages_week"],
+                     delta_html=_delta_label(stats["wa_messages_week"], prev_stats["wa_messages"])),
+            *_kv_row("Messages SMS", stats["sms_messages_week"],
+                     delta_html=_delta_label(stats["sms_messages_week"], prev_stats["sms_messages"])),
             *_kv_row("Formations actives", stats["formations_active"]),
         ],
     ]
@@ -251,6 +350,65 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
         ))
         story.append(_build_trend_chart(serie, color, width=170 * mm, height=24 * mm))
         story.append(Spacer(1, 4))
+
+    # Connexions & visites — last 7 days
+    if user_activity["last_logins"] or user_activity["top_pages"]:
+        story.append(Paragraph("Connexions & pages visitées (7 derniers jours)", h2))
+        if user_activity["last_logins"]:
+            login_rows = [["Utilisateur", "Société", "Rôle", "Dernière activité", "Visites"]]
+            for u in user_activity["last_logins"]:
+                last_h = "—"
+                try:
+                    last_h = datetime.fromisoformat((u.get("last_seen_at") or "").replace("Z", "+00:00")).strftime("%d/%m %H:%M")
+                except Exception:
+                    pass
+                login_rows.append([
+                    u.get("user_name") or u.get("user_email") or "—",
+                    u.get("company") or "—",
+                    u.get("role") or "—",
+                    last_h,
+                    str(u.get("hits", 0)),
+                ])
+            login_tbl = Table(login_rows, colWidths=[50 * mm, 42 * mm, 22 * mm, 30 * mm, 18 * mm], hAlign="LEFT")
+            login_tbl.setStyle(TableStyle([
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("BACKGROUND", (0, 0), (-1, 0), SAWALI_NAVY),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#F1F5F9")),
+                ("ALIGN", (-1, 0), (-1, -1), "RIGHT"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(login_tbl)
+            story.append(Spacer(1, 4))
+        if user_activity["top_pages"]:
+            story.append(Paragraph("<font color='#334155' size='9'><b>Top pages visitées</b></font>", body))
+            page_rows = [["Module", "Page", "Visites", "Utilisateurs"]]
+            for p in user_activity["top_pages"]:
+                page = (p.get("page") or "—")
+                if len(page) > 50:
+                    page = page[:48] + "…"
+                page_rows.append([
+                    p.get("module") or "—",
+                    page,
+                    str(p.get("hits", 0)),
+                    str(p.get("unique_users", 0)),
+                ])
+            pages_tbl = Table(page_rows, colWidths=[35 * mm, 95 * mm, 18 * mm, 22 * mm], hAlign="LEFT")
+            pages_tbl.setStyle(TableStyle([
+                ("FONTSIZE", (0, 0), (-1, -1), 8.5),
+                ("BACKGROUND", (0, 0), (-1, 0), SAWALI_NAVY),
+                ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
+                ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+                ("INNERGRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#F1F5F9")),
+                ("ALIGN", (-2, 0), (-1, -1), "RIGHT"),
+                ("TOPPADDING", (0, 0), (-1, -1), 4),
+                ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+            ]))
+            story.append(pages_tbl)
 
     # État de la plateforme
     story.append(Paragraph("État de la plateforme", h2))

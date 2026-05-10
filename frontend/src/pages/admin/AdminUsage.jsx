@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Link } from "react-router-dom";
-import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins } from "lucide-react";
+import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins, Users, Eye, Building2 } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 
 /*
@@ -154,6 +154,9 @@ export default function AdminUsage() {
         <KpiCard icon={Send} color="indigo" label="SMS envoyés" value={totals.sms_sent_ok || 0} subtitle={`${totals.sms_sent_ko || 0} échec(s) • ${totals.sms_total || 0} tot.`} testid="kpi-sms-sent" />
         <KpiCard icon={CreditCard} color="amber" label="Coût total estimé" value={((totals.wa_cost || 0) + (totals.sms_cost || 0)).toLocaleString("fr-FR", { maximumFractionDigits: 0 })} subtitle={`WA ${(totals.wa_cost || 0).toLocaleString("fr-FR")} • SMS ${(totals.sms_cost || 0).toLocaleString("fr-FR")} XOF`} testid="kpi-total-cost" />
       </div>
+
+      {/* Iter34f — User activity card (last logins + top pages, filterable) */}
+      <UserActivityCard />
 
       {/* Campaign Efficiency dashboard — quantifies WA-first strategy vs SMS */}
       {campaign && (
@@ -372,3 +375,173 @@ const Dot = ({ on, color, label }) => (
     {label}
   </span>
 );
+
+// ============================================================
+// Iter34f — User activity (last logins + top pages, filterable)
+// ============================================================
+const PERIOD_LABELS = [
+  { value: "today", label: "Aujourd'hui" },
+  { value: "week", label: "7 jours" },
+  { value: "month", label: "30 jours" },
+  { value: "quarter", label: "90 jours" },
+  { value: "year", label: "1 an" },
+];
+
+const _fmtDate = (iso) => {
+  if (!iso) return "—";
+  try {
+    return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+  } catch {
+    return iso;
+  }
+};
+
+const UserActivityCard = () => {
+  const [period, setPeriod] = useState("week");
+  const [company, setCompany] = useState("");
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const params = { period, limit: 10 };
+      if (company) params.company = company;
+      const r = await apiClient.get("/admin/user-activity", { params });
+      setData(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [period, company]);
+
+  const totals = data?.totals || { hits: 0, unique_users: 0, unique_companies: 0 };
+
+  return (
+    <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4 space-y-4" data-testid="user-activity-card">
+      <div className="flex items-center justify-between flex-wrap gap-3">
+        <h2 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
+          <Users className="h-4 w-4 text-sawali-blue" /> Connexions & pages visitées
+        </h2>
+        <div className="flex items-center gap-2 flex-wrap">
+          <div className="inline-flex rounded ring-1 ring-slate-200 p-0.5 bg-slate-50">
+            {PERIOD_LABELS.map((p) => (
+              <button
+                key={p.value}
+                onClick={() => setPeriod(p.value)}
+                className={`px-2.5 py-1 text-[11px] rounded ${period === p.value ? "bg-sawali-blue text-white" : "text-slate-600 hover:bg-white"}`}
+                data-testid={`user-activity-period-${p.value}`}
+              >
+                {p.label}
+              </button>
+            ))}
+          </div>
+          <div className="relative inline-flex items-center">
+            <Building2 className="h-3.5 w-3.5 text-slate-400 absolute left-2 pointer-events-none" />
+            <select
+              value={company}
+              onChange={(e) => setCompany(e.target.value)}
+              className="appearance-none rounded ring-1 ring-slate-200 bg-white pl-7 pr-8 py-1 text-[11px] min-w-[160px]"
+              data-testid="user-activity-company-filter"
+            >
+              <option value="">Toutes les sociétés</option>
+              {(data?.company_options || []).map((c) => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={load}
+            disabled={loading}
+            className="inline-flex items-center gap-1 rounded ring-1 ring-slate-200 bg-white hover:bg-slate-50 px-2 py-1 text-[11px] text-slate-600"
+            data-testid="user-activity-refresh"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      {/* Mini KPIs */}
+      <div className="grid grid-cols-3 gap-3">
+        <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50 p-3" data-testid="user-activity-kpi-hits">
+          <p className="text-[10px] uppercase tracking-wider text-sky-700 font-semibold">Visites de pages</p>
+          <p className="text-2xl font-display font-bold text-slate-900">{totals.hits.toLocaleString("fr-FR")}</p>
+        </div>
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3" data-testid="user-activity-kpi-users">
+          <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-semibold">Utilisateurs actifs</p>
+          <p className="text-2xl font-display font-bold text-slate-900">{totals.unique_users}</p>
+        </div>
+        <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3" data-testid="user-activity-kpi-companies">
+          <p className="text-[10px] uppercase tracking-wider text-amber-700 font-semibold">Sociétés actives</p>
+          <p className="text-2xl font-display font-bold text-slate-900">{totals.unique_companies}</p>
+        </div>
+      </div>
+
+      {/* Tables */}
+      <div className="grid lg:grid-cols-2 gap-4">
+        <div className="rounded-lg ring-1 ring-slate-200 overflow-hidden" data-testid="user-activity-logins">
+          <div className="px-3 py-2 bg-slate-50 text-[10px] uppercase tracking-wider font-semibold text-slate-600 flex items-center gap-1.5">
+            <Users className="h-3 w-3" /> Derniers utilisateurs connectés
+          </div>
+          {data?.last_logins?.length ? (
+            <table className="w-full text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-slate-100">
+                  <th className="text-left px-3 py-1.5">Utilisateur</th>
+                  <th className="text-left px-3 py-1.5">Société</th>
+                  <th className="text-left px-3 py-1.5">Dernière activité</th>
+                  <th className="text-right px-3 py-1.5">Visites</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.last_logins.map((u) => (
+                  <tr key={u.user_email} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                    <td className="px-3 py-1.5">
+                      <div className="font-medium text-slate-700 truncate max-w-[160px]" title={u.user_email}>{u.user_name || u.user_email}</div>
+                      <div className="text-[10px] text-slate-400 truncate max-w-[160px]" title={u.user_email}>{u.user_email}</div>
+                    </td>
+                    <td className="px-3 py-1.5 text-slate-600 truncate max-w-[120px]">{u.company || "—"}</td>
+                    <td className="px-3 py-1.5 text-slate-500">{_fmtDate(u.last_seen_at)}</td>
+                    <td className="px-3 py-1.5 text-right font-mono font-semibold text-slate-700">{u.hits}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="px-3 py-6 text-center text-[11px] text-slate-400 italic">Aucune activité sur la période sélectionnée.</p>
+          )}
+        </div>
+
+        <div className="rounded-lg ring-1 ring-slate-200 overflow-hidden" data-testid="user-activity-pages">
+          <div className="px-3 py-2 bg-slate-50 text-[10px] uppercase tracking-wider font-semibold text-slate-600 flex items-center gap-1.5">
+            <Eye className="h-3 w-3" /> Top pages visitées
+          </div>
+          {data?.top_pages?.length ? (
+            <table className="w-full text-xs">
+              <thead className="text-[10px] uppercase tracking-wider text-slate-500">
+                <tr className="border-b border-slate-100">
+                  <th className="text-left px-3 py-1.5">Module</th>
+                  <th className="text-left px-3 py-1.5">Page</th>
+                  <th className="text-right px-3 py-1.5">Visites</th>
+                  <th className="text-right px-3 py-1.5">Util.</th>
+                </tr>
+              </thead>
+              <tbody>
+                {data.top_pages.map((p, i) => (
+                  <tr key={`${p.module}-${p.page}-${i}`} className="border-b border-slate-50 last:border-0 hover:bg-slate-50/60">
+                    <td className="px-3 py-1.5 text-slate-700 capitalize truncate max-w-[80px]">{p.module || "—"}</td>
+                    <td className="px-3 py-1.5 text-slate-500 font-mono text-[11px] truncate max-w-[180px]" title={p.page}>{p.page || "—"}</td>
+                    <td className="px-3 py-1.5 text-right font-mono font-semibold text-slate-700">{p.hits}</td>
+                    <td className="px-3 py-1.5 text-right text-slate-500">{p.unique_users}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          ) : (
+            <p className="px-3 py-6 text-center text-[11px] text-slate-400 italic">Aucune visite enregistrée.</p>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};

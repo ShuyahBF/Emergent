@@ -2986,6 +2986,149 @@ async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_curr
     }
 
 
+# ============================================================
+# Iter34f — User activity summary (last logins + page visits).
+# Period: today | week | month | days={N}. Optional company filter to scope
+# to a single client's users. Reads from db.access_logs (recorded by the SPA
+# on every route change) and joins with db.users for company labels.
+# ============================================================
+@api.get("/admin/user-activity", tags=["Admin"])
+async def admin_user_activity(
+    period: str = "week",
+    company: Optional[str] = None,
+    limit: int = 10,
+    _: dict = Depends(get_current_admin),
+):
+    """Returns:
+      - last_logins[]: { user_email, user_name, role, company, last_seen_at, hits, last_page }
+      - top_pages[]:   { module, page, hits, unique_users }
+      - totals: { hits, unique_users, unique_companies }
+    """
+    period_norm = (period or "week").lower()
+    now = datetime.now(timezone.utc)
+    days_map = {"today": 1, "day": 1, "week": 7, "month": 30, "quarter": 90, "year": 365}
+    days = days_map.get(period_norm, 7)
+    if period_norm.startswith("days="):
+        try:
+            days = max(1, min(int(period_norm.split("=", 1)[1]), 365))
+        except Exception:
+            days = 7
+    since = (now - timedelta(days=days)).isoformat()
+
+    # Build the email→company mapping (case-insensitive company filter)
+    user_q: Dict[str, Any] = {}
+    if company:
+        user_q["company"] = {"$regex": f"^{re.escape(company)}$", "$options": "i"}
+    users_by_email: Dict[str, Dict[str, Any]] = {}
+    async for u in db.users.find(user_q, {"_id": 0, "email": 1, "full_name": 1, "company": 1, "role": 1}):
+        em = (u.get("email") or "").lower()
+        if em:
+            users_by_email[em] = u
+
+    log_q: Dict[str, Any] = {"created_at": {"$gte": since}}
+    if company:
+        if not users_by_email:
+            return {"period": period_norm, "days": days, "company": company,
+                    "last_logins": [], "top_pages": [],
+                    "totals": {"hits": 0, "unique_users": 0, "unique_companies": 0},
+                    "company_options": []}
+        log_q["user_email"] = {"$in": list(users_by_email.keys())}
+
+    user_pipeline = [
+        {"$match": log_q},
+        {"$group": {
+            "_id": "$user_email",
+            "user_name": {"$last": "$user_name"},
+            "role": {"$last": "$role"},
+            "last_seen_at": {"$max": "$created_at"},
+            "last_page": {"$last": "$page"},
+            "last_module": {"$last": "$module"},
+            "hits": {"$sum": 1},
+        }},
+        {"$sort": {"last_seen_at": -1}},
+        {"$limit": max(1, min(limit, 100))},
+    ]
+    last_logins: List[Dict[str, Any]] = []
+    async for r in db.access_logs.aggregate(user_pipeline):
+        email = (r.get("_id") or "").lower()
+        u = users_by_email.get(email) if users_by_email else None
+        if not u:
+            u = await db.users.find_one({"email": email}, {"_id": 0, "company": 1, "full_name": 1, "role": 1}) or {}
+        last_logins.append({
+            "user_email": r.get("_id"),
+            "user_name": r.get("user_name") or u.get("full_name"),
+            "role": r.get("role") or u.get("role"),
+            "company": u.get("company"),
+            "last_seen_at": r.get("last_seen_at"),
+            "last_page": r.get("last_page"),
+            "last_module": r.get("last_module"),
+            "hits": r.get("hits", 0),
+        })
+
+    page_pipeline = [
+        {"$match": log_q},
+        {"$group": {
+            "_id": {"module": "$module", "page": "$page"},
+            "hits": {"$sum": 1},
+            "users": {"$addToSet": "$user_email"},
+        }},
+        {"$project": {
+            "module": "$_id.module",
+            "page": "$_id.page",
+            "hits": 1,
+            "unique_users": {"$size": "$users"},
+        }},
+        {"$sort": {"hits": -1}},
+        {"$limit": max(1, min(limit, 100))},
+    ]
+    top_pages: List[Dict[str, Any]] = []
+    async for r in db.access_logs.aggregate(page_pipeline):
+        top_pages.append({
+            "module": r.get("module") or "—",
+            "page": r.get("page") or "—",
+            "hits": r.get("hits", 0),
+            "unique_users": r.get("unique_users", 0),
+        })
+
+    totals_pipeline = [
+        {"$match": log_q},
+        {"$group": {
+            "_id": None,
+            "hits": {"$sum": 1},
+            "users": {"$addToSet": "$user_email"},
+        }},
+    ]
+    totals = {"hits": 0, "unique_users": 0, "unique_companies": 0}
+    async for r in db.access_logs.aggregate(totals_pipeline):
+        emails = [(e or "").lower() for e in (r.get("users") or [])]
+        totals["hits"] = r.get("hits", 0)
+        totals["unique_users"] = len(emails)
+        if emails:
+            comps = await db.users.distinct(
+                "company",
+                {"email": {"$in": emails}, "company": {"$nin": [None, ""]}},
+            )
+            totals["unique_companies"] = len(comps)
+
+    company_options = await db.users.distinct(
+        "company", {"company": {"$nin": [None, ""]}, "role": {"$in": ["client", "admin", "superviseur"]}}
+    )
+    company_options = sorted([c for c in company_options if c])
+
+    return {
+        "period": period_norm,
+        "days": days,
+        "company": company,
+        "since": since,
+        "last_logins": last_logins,
+        "top_pages": top_pages,
+        "totals": totals,
+        "company_options": company_options,
+    }
+
+
+
+
 @api.get("/admin/migrate-orphan-data", tags=["Admin"])
 async def admin_inspect_orphan_data(_: dict = Depends(get_current_admin)):
     """Inspect what the iter28 orphan-data migration WOULD do (no writes).

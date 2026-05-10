@@ -689,6 +689,27 @@ PawaPay v2 a changé son schéma : `failureReason` et `rejectionReason` sont dé
 - **Bug Mongo collatéral** : `{"$ne": None, "$ne": ""}` (dict-key collision) remplacé par `{"$nin": [None, ""]}` dans 2 endroits.
 - Tests : reproduction réelle en preview (3 contacts orphelins + WA + SMS d'un user bridgé synthétique) → migration recovers 5/5 docs, idempotence vérifiée (2e dry-run = 0).
 
+### 2026-05-09 — Iter28b : UI admin migration + canari de régression
+- **Section UI dans `/admin/settings`** : « 🔧 Diagnostic des données orphelines » avec dry-run automatique au chargement, compteurs par collection, liste des utilisateurs affectés, bouton « Appliquer la migration » (avec confirm) et bouton « Actualiser ».
+- **Canari de régression au boot** : après l'auto-migration, un dry-run vérifie qu'aucun orphelin ne subsiste. Log `WARNING` immédiat si détection (futur changement de code introduisant un nouveau cas).
+- Test reproducer : 5 contacts orphelins synthétiques → dry-run via endpoint admin → `total_migrated: 5` détecté correctement.
+
+### 2026-05-10 — Iter29 : Modèle collaboratif des contacts (shared by default)
+- **Changement de modèle** : tous les contacts du Centre de Messagerie sont désormais visibles ET modifiables par tous les utilisateurs du même client (cohérent avec la Bibliothèque de Médias).
+- **Backend** :
+  - `GET /api/me/contacts` ne filtre plus que sur `client_id` (suppression du filtre `shared:true`/`owner_id`).
+  - `PUT /api/me/contacts/{cid}` autorise tout user du même client (plus seulement le propriétaire ou admin).
+  - `DELETE /api/me/contacts/{cid}` même règle.
+  - `POST /api/me/contacts` force `shared:true` à la création (cohérence des futures lectures par d'éventuels filtres legacy).
+  - Audit : champs `last_edited_by_id`, `last_edited_by_label`, `last_edited_at` stampés quand l'éditeur n'est pas le propriétaire.
+- **Migration startup `iter29`** : normalise tous les contacts existants à `shared:true` (idempotent — testé : « 1 row normalized » sur un contact legacy `shared:false`).
+- **Frontend `Contacts.jsx`** :
+  - Badge « 🤝 Équipe » avec sous-titre « par {owner_label} » remplace la dichotomie Privé/Partagé.
+  - Toggle « Partager » remplacé par un encart explicatif vert « Visible par toute l'équipe » + affichage de `last_edited_by_label` si différent du propriétaire.
+  - Default `shared:true` pour les nouveaux formulaires.
+- **Bibliothèque de Médias** : déjà entièrement partagée par client (vérifié dans `me_media_library`) — aucune action requise.
+- Tests reproducteurs : 2 users (Alice, Bob) du même client, contact privé créé par Alice → Bob LE VOIT (5/5 contacts visibles), Bob L'ÉDITE avec succès, ownership préservé, `last_edited_by_label = Bob` stampé correctement.
+
 ---
 
 ## Test Credentials

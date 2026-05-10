@@ -7505,14 +7505,19 @@ class ContactUpdate(BaseModel):
 
 @api.get("/me/contacts", tags=["Portail Client"])
 async def me_list_contacts(user: dict = Depends(get_current_user)):
-    """List contacts: owned by me + shared within my client scope.
-    RGPD: applies per-client anonymization flags for non-privileged roles."""
+    """List ALL contacts of the user's client scope.
+
+    Sharing model (iter29 onward): every contact created by ANY user of a
+    client is visible to every other user of the same client (mirrors the
+    shared-bank model already used by the Media Library). The legacy `shared`
+    boolean is preserved on existing rows for traceability but no longer gates
+    visibility. RGPD: per-client anonymization flags still apply for non-
+    privileged roles, regardless of who owns the contact.
+    """
     client_scope = (user.get("client_id") or user.get("id"))
-    query = {"$or": [
-        {"client_id": client_scope, "owner_id": user["id"]},
-        {"client_id": client_scope, "shared": True},
-    ]}
-    items = await db.directory_contacts.find(query, {"_id": 0}).sort("name", 1).to_list(2000)
+    items = await db.directory_contacts.find(
+        {"client_id": client_scope}, {"_id": 0},
+    ).sort("name", 1).to_list(2000)
     flags = await _resolve_anon_flags(user)
     if any(flags.values()):
         items = [_apply_anon_to_contact(c, flags) for c in items]
@@ -7536,12 +7541,18 @@ async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_cur
         {"_id": 0, "id": 1, "client_code": 1, "company": 1, "full_name": 1},
     ) or {"id": client_scope}
     unique_code = await _next_contact_unique_code(client_doc)
+    payload_data = payload.model_dump()
+    # Iter29 collaborative model: every contact is shared across the client's
+    # users by design. The `shared` flag is forced True so any legacy code path
+    # that still inspects it (filters, exports, integrations) keeps working
+    # correctly without an explicit override.
+    payload_data["shared"] = True
     doc = {
         "id": _uuid(),
         "client_id": client_scope,
         "owner_id": user["id"],
         "owner_label": user.get("full_name") or user.get("email"),
-        **payload.model_dump(),
+        **payload_data,
         "unique_code": unique_code,
         "created_at": _now(),
         "updated_at": _now(),
@@ -7556,7 +7567,11 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+    # Iter29 collaborative model: any user within the same client_scope can edit
+    # any contact (matches the visibility rule). Privileged roles can edit
+    # cross-client too. Legacy admin override is still respected.
+    client_scope = (user.get("client_id") or user.get("id"))
+    if existing.get("client_id") != client_scope and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     # Same policy on update: if tags is explicitly cleared while the policy is on, reject
@@ -7566,6 +7581,11 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
         if not any((t or "").strip() for t in new_tags):
             raise HTTPException(status_code=400, detail="Au moins un tag est requis (politique d'administration)")
     update["updated_at"] = _now()
+    # Track the last-editor for auditability when the editor isn't the owner
+    if existing.get("owner_id") != user["id"]:
+        update["last_edited_by_id"] = user["id"]
+        update["last_edited_by_label"] = user.get("full_name") or user.get("email")
+        update["last_edited_at"] = _now()
     await db.directory_contacts.update_one({"id": cid}, {"$set": update})
     return {"ok": True}
 
@@ -7573,7 +7593,12 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
 @api.delete("/me/contacts/{cid}", tags=["Portail Client"])
 async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
-    if existing and existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+    if not existing:
+        return {"ok": True}  # already gone, idempotent
+    # Iter29 collaborative model: any user within the same client_scope can
+    # delete any contact (matches the visibility/edit rules).
+    client_scope = (user.get("client_id") or user.get("id"))
+    if existing.get("client_id") != client_scope and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Suppression non autorisée")
     await db.directory_contacts.delete_one({"id": cid})
     return {"ok": True}
@@ -11625,6 +11650,23 @@ async def on_startup():
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("iter28 sentinel check failed: %s", exc)
+
+    # Iter29 — Force every CRM contact into the new shared model. This is a
+    # no-op for new contacts (they already get shared:true at creation), but
+    # normalizes legacy private contacts so any code path that still inspects
+    # the boolean keeps working. Idempotent.
+    try:
+        res29 = await db.directory_contacts.update_many(
+            {"$or": [{"shared": False}, {"shared": {"$exists": False}}]},
+            {"$set": {"shared": True}},
+        )
+        if int(getattr(res29, "modified_count", 0) or 0) > 0:
+            logger.info(
+                "iter29 contacts shared-by-default migration: %d rows normalized",
+                res29.modified_count,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("iter29 contacts shared migration failed: %s", exc)
 
     await db.whatsapp_messages.create_index("client_id")
     await db.whatsapp_messages.create_index("created_at")

@@ -421,14 +421,19 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
       </td>
       <td className="px-3 py-2 hidden 2xl:table-cell text-slate-600 max-w-[220px] truncate" title={c.email || ""}>{c.email || "—"}</td>
       <td className="px-3 py-2 hidden 2xl:table-cell">
-        {c.shared ? (
-          <span className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-            <Share2 className="h-2.5 w-2.5" /> Partagé
-          </span>
-        ) : (
-          <span className="text-[10px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
-            <Lock className="h-2.5 w-2.5" /> Privé
-          </span>
+        {/* Iter29 — Tous les contacts sont collaboratifs (visibles + éditables
+            par tout user du même client). On affiche un badge "Équipe" pour
+            le rappeler aux utilisateurs et un sous-titre avec l'auteur. */}
+        <span
+          className="text-[10px] bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+          title={c.owner_label ? `Créé par ${c.owner_label}` : "Visible par toute l'équipe"}
+        >
+          <Share2 className="h-2.5 w-2.5" /> Équipe
+        </span>
+        {c.owner_label && (
+          <div className="text-[9px] text-slate-400 mt-0.5 truncate max-w-[120px]" title={c.owner_label}>
+            par {c.owner_label}
+          </div>
         )}
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap">
@@ -505,7 +510,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
   // (client/tracked) see the photo but cannot replace or remove it.
   const canManagePhoto = ["admin", "superviseur", "moderateur"].includes(role);
   const [form, setForm] = useState(() => contact || {
-    name: "", phone: "", whatsapp: "", email: "", company: "", notes: "", tags: [], shared: false,
+    name: "", phone: "", whatsapp: "", email: "", company: "", notes: "", tags: [], shared: true,
   });
   const [saving, setSaving] = useState(false);
   const [tagInput, setTagInput] = useState("");
@@ -712,15 +717,21 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
           <Input label="Téléphone (E.164)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+225xxxxxxxx" testid="contact-field-phone" />
           <Input label="WhatsApp (E.164)" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} placeholder="+225xxxxxxxx" testid="contact-field-whatsapp" />
           <Input label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="contact-field-email" />
-          <label className="flex items-center gap-2 text-sm mt-6">
-            <input
-              type="checkbox"
-              checked={!!form.shared}
-              onChange={(e) => setForm({ ...form, shared: e.target.checked })}
-              data-testid="contact-field-shared"
-            />
-            Partager avec les autres utilisateurs de mon client
-          </label>
+          {/* Iter29 — Plus de toggle "partager" : tous les contacts sont
+              désormais visibles et modifiables par tous les utilisateurs du
+              même client (modèle collaboratif, identique à la Bibliothèque de
+              Médias). On laisse un encart explicatif à la place. */}
+          <div className="mt-6 p-2.5 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 text-[11px] text-emerald-900 inline-flex items-start gap-2" data-testid="contact-shared-notice">
+            <Share2 className="h-3.5 w-3.5 mt-0.5 shrink-0" />
+            <span>
+              <strong>Visible par toute l'équipe.</strong> Ce contact sera accessible et modifiable par tous les utilisateurs de votre client.
+              {form.last_edited_by_label && form.last_edited_by_label !== form.owner_label && (
+                <span className="block text-[10px] text-slate-500 mt-0.5">
+                  Dernière modification par {form.last_edited_by_label}
+                </span>
+              )}
+            </span>
+          </div>
         </div>
         <div>
           <label className="block text-xs font-semibold mb-1">Notes</label>

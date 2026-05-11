@@ -68,6 +68,16 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34n : Garde-fou automatique sur changement de `company`
+✅ **PUT /admin/clients/{id}** : quand l'admin modifie le champ `company` d'un utilisateur, le backend déclenche automatiquement la même logique que `/admin/realign-user-to-client` (relink_parent + retag rows + set client_id). Empêche définitivement la réapparition de la classe de bugs rabo.f.
+✅ Le payload de réponse expose maintenant :
+   - `auto_realign: {applied: true, to_company, to_canonical_id, actions_count}` quand le système a auto-corrigé,
+   - `auto_realign: {applied: false, reason: 'no_canonical_for_company', typed_company}` quand la société typée ne matche aucun admin/primaire (typo probable),
+   - `auto_realign: null` quand rien à faire.
+✅ Frontend `AdminClients.jsx` : toast vert "Pointeur parent recalibré automatiquement…" ou toast warning "Société sans canonique" pendant 7-9s.
+✅ Tests : `test_iter34n_company_guard.py` (3/3 verts) — auto-fix complet, détection typo, no-op si autre champ.
+✅ Roadmap : `ACT-0026` seedée.
+
 ### 2026-05-11 — Itération 34m : Bug fix — Détection du pointeur `parent_client_id` périmé
 ✅ **Cas réel signalé** : `rabo.f@sawalismartsystems.com` affichait dans sa page **Mon compte** un "Client lié = Clinique CMCO", alors que dans la liste admin des clients il apparaissait sous "SAWALI SMART SYSTEMS". L'admin avait modifié son champ `company` mais le pointeur `parent_client_id` continuait de viser le client CMCO.
 ✅ **Root cause** : le diagnostic `/admin/client-data-diagnostic` faisait confiance au `parent_client_id` comme source canonique, donc il déclarait "Aucun désalignement détecté" même quand la société typée différait de la société du parent. L'admin ne pouvait pas réaligner.

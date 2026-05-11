@@ -3862,6 +3862,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Bug fix — Détection & réparation du pointeur parent_client_id périmé", "backlog_ref": "Iter34m",
      "duration_h": 0.75, "done": True,
      "details": "Cas rabo.f@sawalismartsystems.com : `company` typé 'SAWALI SMART SYSTEMS' mais `parent_client_id` pointait encore vers 'Clinique CMCO'. Le diagnostic disait 'Aucun désalignement' car il faisait confiance au parent_client_id. Fix: cross-check de la company du parent vs typed company → bascule sur la company typée si admin canonical trouvé, nouvelle action `relink_parent`, exposé en UI dans /admin/settings (alert rose + ligne dans le plan de réalignement). 2 tests E2E pytest verts."},
+    {"code": "ACT-0026", "created_at": "2026-05-11T01:20:00+00:00", "done_at": "2026-05-11T02:00:00+00:00",
+     "title": "Garde-fou auto-realign quand `company` change dans /admin/clients", "backlog_ref": "Iter34n",
+     "duration_h": 0.5, "done": True,
+     "details": "PUT /admin/clients/{id} détecte les changements de `company` et déclenche en arrière-plan la même logique que /admin/realign-user-to-client (relink_parent + retag rows + set client_id). Le payload de réponse expose `auto_realign: {applied, to_company, to_canonical_id, actions_count}` ou `{applied:false, reason:'no_canonical_for_company'}` quand la société typée ne matche aucun admin/primaire. Frontend AdminClients.jsx affiche un toast vert succès ou un toast warning explicite. 3 tests pytest verts (auto-fix, typo unresolvable, no-change-no-action)."},
 ]
 
 
@@ -5049,8 +5053,81 @@ async def admin_update_client(
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     update["updated_at"] = _now()
+
+    # Iter34n — Auto-guard: when admin changes the `company` text, the user's
+    # parent_client_id might still anchor to a stale company (the rabo.f
+    # bug fixed in iter34m). Detect the mismatch BEFORE writing the update
+    # and try to auto-realign so the UI stays internally consistent
+    # without forcing the admin to run the diagnostic manually.
+    auto_realign: Optional[Dict[str, Any]] = None
+    if "company" in update:
+        before = await db.users.find_one(
+            {"id": client_id},
+            {"_id": 0, "id": 1, "email": 1, "company": 1, "role": 1},
+        )
+        if before:
+            new_company = (update.get("company") or "").strip()
+            old_company = (before.get("company") or "").strip()
+            company_changed = new_company.lower() != old_company.lower()
+            if company_changed and new_company and before.get("role") not in ("admin",):
+                # Apply the user update first, then trigger the same logic
+                # the diagnostic uses. We reuse the existing endpoint as a
+                # function call so behaviour stays in sync.
+                await db.users.update_one({"id": client_id}, {"$set": update})
+                try:
+                    diag = await admin_client_data_diagnostic(
+                        email=before.get("email") or "", _={"role": "admin"}
+                    )
+                    plan = diag.get("realign_plan") or {}
+                    if plan.get("needed") and diag.get("parent_company_mismatch"):
+                        # Auto-apply silently. Same rules as the manual
+                        # /admin/realign-user-to-client endpoint.
+                        for action in plan["actions"]:
+                            if action["type"] == "relink_parent":
+                                await db.users.update_one(
+                                    {"id": action["user_id"]},
+                                    {"$set": {
+                                        "parent_client_id": action["to_parent"],
+                                        "parent_client_id_legacy": action.get("from_parent"),
+                                        "client_id": action["to_parent"],
+                                        "updated_at": _now(),
+                                    }},
+                                )
+                            elif action["type"] == "set_user_client_id":
+                                await db.users.update_one(
+                                    {"id": action["user_id"]},
+                                    {"$set": {
+                                        "client_id": action["to"],
+                                        "client_id_legacy": action.get("from"),
+                                        "updated_at": _now(),
+                                    }},
+                                )
+                            elif action["type"] == "retag_rows":
+                                await db[action["collection"]].update_many(
+                                    {"client_id": action["from"], "client_id_legacy": {"$exists": False}},
+                                    {"$set": {"client_id": action["to"], "client_id_legacy": action["from"]}},
+                                )
+                        auto_realign = {
+                            "applied": True,
+                            "to_company": (diag.get("canonical") or {}).get("user", {}).get("company") if diag.get("canonical") else None,
+                            "to_canonical_id": (diag.get("canonical") or {}).get("client_id"),
+                            "actions_count": len(plan["actions"]),
+                        }
+                    elif diag.get("parent_company_mismatch"):
+                        # Mismatch detected but no canonical resolvable
+                        # (e.g. typo in company name, or no admin/primary
+                        # carries that exact name). Surface it instead of
+                        # silently leaving the user broken.
+                        auto_realign = {
+                            "applied": False,
+                            "reason": "no_canonical_for_company",
+                            "typed_company": new_company,
+                        }
+                except Exception:
+                    pass
+                return {"ok": True, "auto_realign": auto_realign}
     await db.users.update_one({"id": client_id}, {"$set": update})
-    return {"ok": True}
+    return {"ok": True, "auto_realign": auto_realign}
 
 
 @api.delete("/admin/clients/{client_id}", tags=["Admin"])

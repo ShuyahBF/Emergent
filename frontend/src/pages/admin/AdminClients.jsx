@@ -61,8 +61,24 @@ export default function AdminClients() {
       if (editing?.id) {
         const payload = { ...form };
         if (!payload.password) delete payload.password;
-        await apiClient.put(`/admin/clients/${editing.id}`, payload);
+        const r = await apiClient.put(`/admin/clients/${editing.id}`, payload);
         toast.success("Client mis à jour");
+        // Iter34n — Surface the auto-realign guard rail when the admin
+        // edits a user's `company` field. If the parent_client_id was
+        // stale (rabo.f-style bug) we either auto-fixed it or detected an
+        // unresolvable typo that the admin needs to address.
+        const ar = r?.data?.auto_realign;
+        if (ar?.applied) {
+          toast.success(
+            `Pointeur parent recalibré automatiquement sur "${ar.to_company || "client canonique"}" (${ar.actions_count} action${ar.actions_count > 1 ? "s" : ""}).`,
+            { duration: 7000 }
+          );
+        } else if (ar && ar.reason === "no_canonical_for_company") {
+          toast.warning(
+            `Société "${ar.typed_company}" sans client canonique trouvé. Vérifiez l'orthographe ou désignez un Client Primaire pour cette société.`,
+            { duration: 9000 }
+          );
+        }
       } else {
         await apiClient.post("/admin/clients", form);
         toast.success("Client créé");

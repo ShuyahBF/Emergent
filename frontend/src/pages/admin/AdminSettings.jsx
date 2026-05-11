@@ -17,6 +17,7 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  "Restauration des contacts/messages (revert retag)": "2026-05-11",
   "Demandes de modification de profil (utilisateurs)": "2026-05-11",
   "Suivi des actions (historique du travail)": "2026-05-10",
   "Sauvegarde de la base (Snapshot)": "2026-05-10",
@@ -342,6 +343,7 @@ export default function AdminSettings() {
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
+      <RevertRetagSection />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
@@ -1424,6 +1426,151 @@ const ClientDataDiagnosticSection = () => {
     </Filterable>
   );
 };
+
+
+// ============================================================
+// iter34o — Recovery panel for the over-broad retag bug.
+// Lets the admin run a dry-run first (count rows per collection),
+// optionally scope by from/to client_id, and then apply the revert.
+// ============================================================
+const RevertRetagSection = () => {
+  const TITLE = "Restauration des contacts/messages (revert retag)";
+  const COLLECTIONS = [
+    { id: "directory_contacts", label: "Contacts" },
+    { id: "whatsapp_messages", label: "Messages WhatsApp" },
+    { id: "sms_messages", label: "Messages SMS" },
+    { id: "whatsapp_schedules", label: "Programmations WhatsApp" },
+    { id: "payment_links", label: "Liens de paiement" },
+  ];
+  const [selected, setSelected] = useState(COLLECTIONS.map((c) => c.id));
+  const [fromCid, setFromCid] = useState("");
+  const [toCid, setToCid] = useState("");
+  const [preview, setPreview] = useState(null);  // dry-run result
+  const [busy, setBusy] = useState(false);
+
+  const toggle = (id) => setSelected((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id]);
+
+  const run = async (dry_run) => {
+    setBusy(true);
+    try {
+      const body = { dry_run, collections: selected };
+      if (fromCid.trim()) body.from_client_id = fromCid.trim();
+      if (toCid.trim()) body.to_client_id = toCid.trim();
+      const r = await apiClient.post("/admin/contacts/revert-retag", body);
+      setPreview(r.data);
+      if (!dry_run) {
+        const mods = (r.data.results || []).reduce((acc, x) => acc + (x.modified_count || 0), 0);
+        toast.success(`Restauration appliquée : ${mods} ligne(s) modifiée(s).`);
+      } else {
+        toast.success(`Aperçu : ${r.data.total_rows || 0} ligne(s) éligible(s).`);
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  const apply = async () => {
+    if (!preview) { toast.error("Lancez d'abord l'aperçu (dry-run)."); return; }
+    const total = preview.total_rows || 0;
+    if (total === 0) { toast.info("Rien à restaurer."); return; }
+    if (!window.confirm(`Restaurer ${total} ligne(s) vers leur client_id d'origine ? Cette opération est idempotente — les lignes déjà restaurées seront ignorées.`)) return;
+    run(false);
+  };
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-amber-300 bg-amber-50/40 p-6 space-y-3" data-testid="admin-revert-retag-section">
+      <div className="flex items-center gap-2">
+        <RotateCcw className="h-4 w-4 text-amber-700" />
+        <h2 className="font-display font-semibold">{TITLE}</h2>
+      </div>
+      <p className="text-xs text-slate-700">
+        Avant iter34o, le réalignement d'un utilisateur (ex : rabo.f) retaguait <strong>toutes</strong> les rows de la société source vers la cible — ce qui déplaçait les contacts des autres clients par erreur.
+        Les valeurs d'origine sont conservées dans <code className="font-mono bg-white px-1 rounded text-[10px]">client_id_legacy</code>.
+        Cette fonction restaure ces rows à leur état d'avant le retag. Idempotente — vous pouvez la relancer sans risque.
+      </p>
+
+      <div className="grid sm:grid-cols-2 gap-2">
+        {COLLECTIONS.map((c) => (
+          <label key={c.id} className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+            <input
+              type="checkbox"
+              checked={selected.includes(c.id)}
+              onChange={() => toggle(c.id)}
+              data-testid={`revert-coll-${c.id}`}
+            />
+            {c.label} <span className="text-slate-400 font-mono text-[10px]">({c.id})</span>
+          </label>
+        ))}
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Limite à un client_id d'origine (optionnel)</label>
+          <input
+            value={fromCid}
+            onChange={(e) => setFromCid(e.target.value)}
+            placeholder="ex: CMCO_id"
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-mono"
+            data-testid="revert-from-cid"
+          />
+        </div>
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Limite à un client_id cible (optionnel)</label>
+          <input
+            value={toCid}
+            onChange={(e) => setToCid(e.target.value)}
+            placeholder="ex: SAWALI_admin_id"
+            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs font-mono"
+            data-testid="revert-to-cid"
+          />
+        </div>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <button
+          onClick={() => run(true)}
+          disabled={busy || selected.length === 0}
+          className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-amber-400 bg-white hover:bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-900 disabled:opacity-50"
+          data-testid="revert-preview-btn"
+        >
+          {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />}
+          Aperçu (dry-run)
+        </button>
+        <button
+          onClick={apply}
+          disabled={busy || !preview || (preview?.total_rows || 0) === 0}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+          data-testid="revert-apply-btn"
+        >
+          <Database className="h-3 w-3" /> Appliquer la restauration
+        </button>
+      </div>
+
+      {preview && (
+        <div className="rounded-lg ring-1 ring-amber-200 bg-white p-3 text-xs space-y-1" data-testid="revert-preview-block">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            {preview.dry_run ? "Aperçu — aucune écriture effectuée" : "Résultat appliqué"} — Total : <strong>{preview.total_rows || 0}</strong> ligne(s)
+          </p>
+          <ul className="divide-y divide-slate-100">
+            {(preview.results || []).map((r) => (
+              <li key={r.collection} className="flex items-center justify-between py-1 font-mono text-[11px]">
+                <span>{r.collection}</span>
+                <span>
+                  {r.count} éligible(s)
+                  {r.modified_count != null && <span className="text-emerald-700 font-semibold"> · {r.modified_count} restauré(s)</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+    </Filterable>
+  );
+};
+
+
 
 
 // ============================================================

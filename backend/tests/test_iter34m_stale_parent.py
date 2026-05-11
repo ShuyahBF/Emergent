@@ -100,11 +100,15 @@ def stale_parent_user(mongo, admin_h):
     })
 
     # 4. A contact row currently scoped to CMCO that the user should keep
-    # access to after realignment.
+    # access to after realignment. Iter34o requires `owner_id` to scope
+    # the retag — without it, the contact is considered "not owned by this
+    # user" and stays at CMCO (the desired behaviour to avoid moving
+    # contacts owned by other CMCO users).
     contact_id = str(uuid.uuid4())
     mongo.directory_contacts.insert_one({
         "id": contact_id,
         "client_id": cmco_id,
+        "owner_id": rabo_id,
         "full_name": "Stale Contact",
         "phone": "+22612345678",
         "created_at": "2026-05-11T00:00:00+00:00",

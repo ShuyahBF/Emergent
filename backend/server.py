@@ -3866,6 +3866,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Garde-fou auto-realign quand `company` change dans /admin/clients", "backlog_ref": "Iter34n",
      "duration_h": 0.5, "done": True,
      "details": "PUT /admin/clients/{id} détecte les changements de `company` et déclenche en arrière-plan la même logique que /admin/realign-user-to-client (relink_parent + retag rows + set client_id). Le payload de réponse expose `auto_realign: {applied, to_company, to_canonical_id, actions_count}` ou `{applied:false, reason:'no_canonical_for_company'}` quand la société typée ne matche aucun admin/primaire. Frontend AdminClients.jsx affiche un toast vert succès ou un toast warning explicite. 3 tests pytest verts (auto-fix, typo unresolvable, no-change-no-action)."},
+    {"code": "ACT-0027", "created_at": "2026-05-11T08:30:00+00:00", "done_at": "2026-05-11T09:30:00+00:00",
+     "title": "Bug fix critique — Retag trop large + endpoint de restauration + auto-scroll chat", "backlog_ref": "Iter34o",
+     "duration_h": 1.0, "done": True,
+     "details": "ROOT CAUSE: le retag de iter34m/n bougeait toutes les rows partageant client_id=old_scope (ex: tous les contacts CMCO migraient vers SAWALI quand on alignait rabo.f). FIX prospectif: filtrage owner_id/sender_id/created_by/author_id/user_id → seules les rows démontrablement appartenant à l'utilisateur réaligné bougent. FIX rétroactif: nouvel endpoint POST /admin/contacts/revert-retag (dry-run + apply, idempotent, filtres from/to/collections, restaure users.parent_client_id_legacy aussi). UI: section dédiée dans /admin/settings (cases à cocher par collection, aperçu avant action). BONUS UX: la fenêtre de discussion WhatsApp dans /portal/contacts auto-scrolle désormais sur le dernier message (initial 'auto', suivants 'smooth'). 4 tests pytest verts (retag owner-scoped, dry-run, apply+idempotent, from-filter)."},
 ]
 
 
@@ -4280,11 +4284,26 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
                 "to": canonical,
                 "user_id": uid,
             })
-        # Action 2 — count rows tagged under the wrong client_id that should be retagged
+        # Action 2 — count rows tagged under the wrong client_id that should be retagged.
+        # Iter34o — CRITICAL: filter by owner_id/sender_id/etc. so we ONLY
+        # move rows demonstrably owned by THIS user. Before this fix the
+        # retag moved ALL rows at wrong_scope (e.g. all CMCO contacts when
+        # realigning rabo.f), breaking the legitimate users of the source
+        # client. The visible-scope bridge in _resolve_visible_client_ids
+        # already handles cross-client visibility via company matching, so
+        # we no longer need a wholesale retag.
         wrong_scope = effective_scope
+        owner_filter: Dict[str, Any] = {"$or": [
+            {"owner_id": uid},
+            {"sender_id": uid},
+            {"created_by": uid},
+            {"author_id": uid},
+            {"user_id": uid},
+        ]}
         for coll in ["directory_contacts", "whatsapp_messages", "sms_messages",
                      "whatsapp_schedules", "payment_links"]:
-            cnt = await db[coll].count_documents({"client_id": wrong_scope})
+            q: Dict[str, Any] = {"client_id": wrong_scope, **owner_filter}
+            cnt = await db[coll].count_documents(q)
             if cnt > 0:
                 realign_plan["actions"].append({
                     "type": "retag_rows",
@@ -4292,6 +4311,7 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
                     "from": wrong_scope,
                     "to": canonical,
                     "count": cnt,
+                    "owner_uid": uid,  # remembered so the apply step uses the same filter
                 })
 
     return {
@@ -4366,13 +4386,111 @@ async def admin_realign_user_to_client(
             )
             applied.append(action)
         elif action["type"] == "retag_rows":
+            # Iter34o — Use the same owner_uid filter to scope the retag.
+            owner_uid = action.get("owner_uid")
+            base_q: Dict[str, Any] = {"client_id": action["from"], "client_id_legacy": {"$exists": False}}
+            if owner_uid:
+                base_q["$or"] = [
+                    {"owner_id": owner_uid},
+                    {"sender_id": owner_uid},
+                    {"created_by": owner_uid},
+                    {"author_id": owner_uid},
+                    {"user_id": owner_uid},
+                ]
             res = await db[action["collection"]].update_many(
-                {"client_id": action["from"], "client_id_legacy": {"$exists": False}},
+                base_q,
                 {"$set": {"client_id": action["to"], "client_id_legacy": action["from"]}},
             )
             applied.append({**action, "modified_count": int(getattr(res, "modified_count", 0) or 0)})
 
     return {"ok": True, "applied": True, "actions": applied, "diagnostic_after": await admin_client_data_diagnostic(email=email, _={"role": "admin"})}
+
+
+# ============================================================
+# Iter34o — Recovery endpoint for the over-broad retag bug.
+# ----------------------------------------------------------
+# Before iter34o the retag step moved every row at `client_id == old_scope`
+# regardless of ownership. When the admin realigned rabo.f@SAWALI the
+# entire CMCO contact base ended up tagged SAWALI. The original values are
+# safely preserved in `client_id_legacy` — this endpoint restores them.
+# ============================================================
+@api.post("/admin/contacts/revert-retag", tags=["Admin"])
+async def admin_revert_retag(
+    payload: Optional[Dict[str, Any]] = Body(default=None),
+    _: dict = Depends(get_current_admin),
+):
+    """Restore `client_id ← client_id_legacy` on every row where the legacy
+    field is set across all retag-affected collections.
+
+    Body (all optional):
+      • ``dry_run`` (bool, default true) — preview the counts without writing.
+      • ``collections`` (list[str]) — limit to a specific subset (e.g. only
+        ``directory_contacts``). Default: all five.
+      • ``from_client_id`` (str) — restrict to rows previously tagged with this
+        ``client_id_legacy`` value (case: only revert one client's data).
+      • ``to_client_id`` (str) — restrict to rows currently tagged with this
+        ``client_id`` (case: only revert what was moved into this canonical).
+
+    Idempotent: once a row is reverted, the legacy field is deleted so a
+    second run is a no-op.
+    """
+    payload = payload or {}
+    dry_run = bool(payload.get("dry_run", True))
+    requested = payload.get("collections")
+    all_colls = ["directory_contacts", "whatsapp_messages", "sms_messages",
+                 "whatsapp_schedules", "payment_links"]
+    if requested:
+        colls = [c for c in requested if c in all_colls]
+        if not colls:
+            raise HTTPException(status_code=400, detail=f"Aucune collection valide. Options: {all_colls}")
+    else:
+        colls = all_colls
+    base_filter: Dict[str, Any] = {"client_id_legacy": {"$exists": True, "$nin": [None, ""]}}
+    if payload.get("from_client_id"):
+        base_filter["client_id_legacy"] = payload["from_client_id"]
+    if payload.get("to_client_id"):
+        base_filter["client_id"] = payload["to_client_id"]
+
+    results: List[Dict[str, Any]] = []
+    for coll in colls:
+        cnt = await db[coll].count_documents(base_filter)
+        action: Dict[str, Any] = {"collection": coll, "count": cnt}
+        if not dry_run and cnt > 0:
+            # Use the aggregation pipeline update form so we can use $unset
+            # and copy a field value into another in a single pass.
+            res = await db[coll].update_many(
+                base_filter,
+                [
+                    {"$set": {"client_id": "$client_id_legacy"}},
+                    {"$unset": "client_id_legacy"},
+                ],
+            )
+            action["modified_count"] = int(getattr(res, "modified_count", 0) or 0)
+        results.append(action)
+
+    # Also revert users.parent_client_id_legacy + users.client_id_legacy when
+    # present, so the user-pointer side of iter34m is also undone.
+    user_filter: Dict[str, Any] = {"parent_client_id_legacy": {"$exists": True, "$nin": [None, ""]}}
+    user_count = await db.users.count_documents(user_filter)
+    user_action: Dict[str, Any] = {"collection": "users", "count": user_count}
+    if not dry_run and user_count > 0:
+        res = await db.users.update_many(
+            user_filter,
+            [
+                {"$set": {"parent_client_id": "$parent_client_id_legacy"}},
+                {"$unset": ["parent_client_id_legacy", "client_id_legacy"]},
+            ],
+        )
+        user_action["modified_count"] = int(getattr(res, "modified_count", 0) or 0)
+    results.append(user_action)
+
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "filter": {k: str(v) if not isinstance(v, dict) else v for k, v in base_filter.items()},
+        "results": results,
+        "total_rows": sum(r["count"] for r in results),
+    }
 
 
 # ============================================================
@@ -5103,8 +5221,19 @@ async def admin_update_client(
                                     }},
                                 )
                             elif action["type"] == "retag_rows":
+                                # Iter34o — owner-scoped retag.
+                                owner_uid = action.get("owner_uid")
+                                base_q: Dict[str, Any] = {"client_id": action["from"], "client_id_legacy": {"$exists": False}}
+                                if owner_uid:
+                                    base_q["$or"] = [
+                                        {"owner_id": owner_uid},
+                                        {"sender_id": owner_uid},
+                                        {"created_by": owner_uid},
+                                        {"author_id": owner_uid},
+                                        {"user_id": owner_uid},
+                                    ]
                                 await db[action["collection"]].update_many(
-                                    {"client_id": action["from"], "client_id_legacy": {"$exists": False}},
+                                    base_q,
                                     {"$set": {"client_id": action["to"], "client_id_legacy": action["from"]}},
                                 )
                         auto_realign = {

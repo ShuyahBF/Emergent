@@ -68,6 +68,19 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34o : Bug fix critique — Retag trop large (post-déploiement rabo.f)
+🚨 **Cause racine identifiée en production** : après le réalignement de rabo.f, **tous** les contacts/messages WA/SMS de Clinique CMCO ont été migrés vers SAWALI (pas seulement ceux de rabo.f). Le code retaguait `directory_contacts WHERE client_id=CMCO_id → SAWALI_id` sans filtre d'appartenance.
+✅ **Fix prospectif** : le retag filtre désormais par `owner_id/sender_id/created_by/author_id/user_id == user.id`. Seules les rows démontrablement appartenant à l'utilisateur réaligné bougent. Les contacts des autres utilisateurs de la même société source restent intacts.
+✅ **Fix rétroactif** : nouvel endpoint `POST /admin/contacts/revert-retag` qui restaure `client_id ← client_id_legacy` sur toutes les collections (idempotent, dry-run par défaut, filtres `from_client_id`/`to_client_id`/`collections`). Restaure également `users.parent_client_id_legacy`.
+✅ **UI** : nouvelle section "Restauration des contacts/messages (revert retag)" dans `/admin/settings` avec checkboxes par collection + aperçu obligatoire avant application + confirm modal.
+✅ **Bonus UX chat** : la fenêtre de conversation WhatsApp dans `/portal/contacts` auto-scrolle désormais sur le dernier message (initial `auto`, mises à jour `smooth`), comme dans WhatsApp/Messenger.
+✅ **Tests** : 4 nouveaux tests pytest (`test_iter34o_revert_retag.py`) + tests iter34m mis à jour pour `owner_id` ; **16/16 verts**.
+✅ **Roadmap** : `ACT-0027` seedée.
+ℹ️ **Action requise en production** :
+   1. Déployer cette correction (Save to GitHub).
+   2. `/admin/settings` → "Restauration des contacts/messages" → cocher au moins `directory_contacts` et `whatsapp_messages` → "Aperçu (dry-run)" → vérifier le total → "Appliquer la restauration".
+   3. Recommencer le réalignement de rabo.f si nécessaire (la nouvelle version ne touchera que ses propres contacts).
+
 ### 2026-05-11 — Itération 34n : Garde-fou automatique sur changement de `company`
 ✅ **PUT /admin/clients/{id}** : quand l'admin modifie le champ `company` d'un utilisateur, le backend déclenche automatiquement la même logique que `/admin/realign-user-to-client` (relink_parent + retag rows + set client_id). Empêche définitivement la réapparition de la classe de bugs rabo.f.
 ✅ Le payload de réponse expose maintenant :

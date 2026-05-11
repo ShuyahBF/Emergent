@@ -1229,6 +1229,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Iter34o — Auto-scroll to the latest message so the composer is always
+  // anchored on the last exchange (matches WhatsApp/Messenger UX).
+  const scrollEndRef = React.useRef(null);
+  const scrollContainerRef = React.useRef(null);
 
   const load = async () => {
     setLoading(true);
@@ -1285,6 +1289,27 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const canSendText = !!data.can_send_text;
   const windowExpires = data.window_expires_at;
 
+  // Iter34o — Whenever the message list changes (initial load, refresh,
+  // send), jump the scroll container straight to the bottom so the latest
+  // exchange is always in view. We use `behavior:"auto"` for the very
+  // first render and "smooth" once the user is already in the modal.
+  const initialScrollDone = React.useRef(false);
+  useEffect(() => {
+    if (!scrollContainerRef.current || loading) return;
+    const el = scrollContainerRef.current;
+    const behavior = initialScrollDone.current ? "smooth" : "auto";
+    // Use a microtask so React has committed message bubbles before we
+    // measure scrollHeight.
+    requestAnimationFrame(() => {
+      try {
+        el.scrollTo({ top: el.scrollHeight, behavior });
+      } catch {
+        el.scrollTop = el.scrollHeight;
+      }
+      initialScrollDone.current = true;
+    });
+  }, [messages.length, loading]);
+
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
@@ -1316,7 +1341,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50">
+        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
           {loading ? (
             <p className="text-center text-slate-500 text-sm">Chargement…</p>
           ) : messages.length === 0 ? (
@@ -1324,6 +1349,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           ) : (
             messages.map((m) => <MessageBubble key={m.id} m={m} />)
           )}
+          <div ref={scrollEndRef} data-testid="conversation-scroll-end" />
         </div>
         {/* Free-form text composer (only allowed within Meta 24h window) */}
         <div className="border-t border-slate-200 bg-white">

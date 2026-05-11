@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2 } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
@@ -46,6 +46,25 @@ export default function AdminClients() {
   }, []);
 
   const catOf = (slug) => categories.find((c) => c.slug === slug);
+
+  // Iter34p — Group rows by role with a fixed display order. Each section
+  // gets a labelled header above the user rows so the admin can scan
+  // categories at a glance (Admins, Superviseurs, Clients, Modérateurs…).
+  const groupedByRole = useMemo(() => {
+    const ROLE_ORDER = [
+      { role: "admin", label: "Admins clients", color: "#b45309" },
+      { role: "superviseur", label: "Superviseurs", color: "#1E90FF" },
+      { role: "client", label: "Clients", color: "#475569" },
+      { role: "moderateur", label: "Modérateurs", color: "#a21caf" },
+    ];
+    const groups = ROLE_ORDER.map((g) => ({ ...g, rows: [] }));
+    const fallback = { role: "other", label: "Autres rôles", color: "#64748b", rows: [] };
+    items.forEach((c) => {
+      const target = groups.find((g) => g.role === c.role) || fallback;
+      target.rows.push(c);
+    });
+    return [...groups, fallback].filter((g) => g.rows.length > 0);
+  }, [items]);
 
   const open = (it = null) => {
     setEditing(it);
@@ -145,60 +164,77 @@ export default function AdminClients() {
           </thead>
           <tbody>
             {items.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
-            {items.map((c) => (
-              <tr key={c.id} className={`border-t border-slate-100 ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`} data-testid={`client-row-${c.id}`}>
-                <td className="px-4 py-3 font-medium">
-                  <div className="flex items-center gap-2">
-                    {c.is_primary_client && (
-                      <span title="Client primaire (Superviseur)" className="inline-flex items-center justify-center text-amber-500">
-                        <Star className="h-4 w-4 fill-amber-400" />
-                      </span>
-                    )}
-                    <span>{c.full_name}</span>
-                  </div>
-                </td>
-                <td className="px-4 py-3 text-slate-600">{c.email}</td>
-                <td className="px-4 py-3 text-slate-600">
-                  {(() => {
-                    const cat = catOf(c.category_slug);
-                    return cat ? (
-                      <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded" style={{ background: (cat.color || "#1E90FF") + "15", color: cat.color || "#1E90FF" }}>
-                        <CategoryIcon name={cat.icon} color={cat.color} className="h-3 w-3" />
-                        {cat.label}
-                      </span>
-                    ) : (c.company || "-");
-                  })()}
-                </td>
-                <td className="px-4 py-3 text-slate-600 text-xs">
-                  {c.country ? (
-                    <span>{c.country}{c.city ? <span className="text-slate-400"> · {c.city}</span> : null}</span>
-                  ) : (
-                    <span className="text-slate-400">-</span>
-                  )}
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-0.5 rounded border ${c.role === "superviseur" ? "bg-sawali-blue/10 text-sawali-blue border-sawali-blue/30" : c.role === "admin" ? "bg-amber-50 text-amber-700 border-amber-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>{c.role}</span>
-                </td>
-                <td className="px-4 py-3">
-                  <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
-                </td>
-                <td className="px-4 py-3 text-right">
-                  {c.is_primary_client ? (
-                    <button onClick={() => unsetPrimary(c.id)} title="Retirer le statut primaire" className="text-amber-500 hover:text-amber-600 mr-3" data-testid={`unset-primary-${c.id}`}>
-                      <StarOff className="h-4 w-4 inline" />
-                    </button>
-                  ) : (
-                    <button onClick={() => setPrimary(c.id)} title="Désigner comme client primaire (Superviseur)" className="text-slate-400 hover:text-amber-500 mr-3" data-testid={`set-primary-${c.id}`}>
-                      <Star className="h-4 w-4 inline" />
-                    </button>
-                  )}
-                  <Link to={`/admin/clients/${c.id}/timeline`} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`timeline-client-${c.id}`} title="Timeline CRM"><Activity className="h-4 w-4 inline" /></Link>
-                  <Link to={`/admin/clients/${c.id}/features`} className="text-slate-500 hover:text-fuchsia-600 mr-3" data-testid={`features-client-${c.id}`} title="SMART Communications"><ShieldCheck className="h-4 w-4 inline" /></Link>
-                  <button onClick={() => setWaStats(c)} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`wa-stats-${c.id}`} title="Consommation WhatsApp"><MessageCircle className="h-4 w-4 inline" /></button>
-                  <button onClick={() => open(c)} className="text-slate-500 hover:text-sawali-blue mr-3" data-testid={`edit-client-${c.id}`}><Edit className="h-4 w-4 inline" /></button>
-                  <button onClick={() => del(c.id)} className="text-slate-500 hover:text-rose-600" data-testid={`del-client-${c.id}`}><Trash2 className="h-4 w-4 inline" /></button>
-                </td>
-              </tr>
+            {groupedByRole.map(({ role, label, color, rows }) => (
+              <React.Fragment key={role}>
+                <tr className="bg-gradient-to-r from-slate-100/80 via-slate-50 to-transparent">
+                  <td colSpan={7} className="px-4 py-2">
+                    <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color }} data-testid={`clients-group-${role}`}>
+                      <UsersIcon className="h-3.5 w-3.5" />
+                      <span>{label}</span>
+                      <span className="rounded-full bg-white ring-1 ring-slate-200 px-2 py-0.5 text-slate-700 text-[10px] tabular-nums">{rows.length}</span>
+                    </div>
+                  </td>
+                </tr>
+                {rows.map((c) => (
+                  <tr
+                    key={c.id}
+                    className={`border-t border-slate-100 hover:bg-sky-50/70 hover:ring-1 hover:ring-sky-200 transition-colors ${c.is_primary_client ? "bg-sawali-blue/5" : ""}`}
+                    data-testid={`client-row-${c.id}`}
+                  >
+                    <td className="px-4 py-3 font-medium">
+                      <div className="flex items-center gap-2">
+                        {c.is_primary_client && (
+                          <span title="Client primaire (Superviseur)" className="inline-flex items-center justify-center text-amber-500">
+                            <Star className="h-4 w-4 fill-amber-400" />
+                          </span>
+                        )}
+                        <span>{c.full_name}</span>
+                      </div>
+                    </td>
+                    <td className="px-4 py-3 text-slate-600">{c.email}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      {(() => {
+                        const cat = catOf(c.category_slug);
+                        return cat ? (
+                          <span className="inline-flex items-center gap-1.5 text-xs px-2 py-1 rounded" style={{ background: (cat.color || "#1E90FF") + "15", color: cat.color || "#1E90FF" }}>
+                            <CategoryIcon name={cat.icon} color={cat.color} className="h-3 w-3" />
+                            {cat.label}
+                          </span>
+                        ) : (c.company || "-");
+                      })()}
+                    </td>
+                    <td className="px-4 py-3 text-slate-600 text-xs">
+                      {c.country ? (
+                        <span>{c.country}{c.city ? <span className="text-slate-400"> · {c.city}</span> : null}</span>
+                      ) : (
+                        <span className="text-slate-400">-</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-0.5 rounded border ${c.role === "superviseur" ? "bg-sawali-blue/10 text-sawali-blue border-sawali-blue/30" : c.role === "admin" ? "bg-amber-50 text-amber-700 border-amber-200" : c.role === "moderateur" ? "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>{c.role}</span>
+                    </td>
+                    <td className="px-4 py-3">
+                      <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {c.is_primary_client ? (
+                        <button onClick={() => unsetPrimary(c.id)} title="Retirer le statut primaire" className="text-amber-500 hover:text-amber-600 mr-3" data-testid={`unset-primary-${c.id}`}>
+                          <StarOff className="h-4 w-4 inline" />
+                        </button>
+                      ) : (
+                        <button onClick={() => setPrimary(c.id)} title="Désigner comme client primaire (Superviseur)" className="text-slate-400 hover:text-amber-500 mr-3" data-testid={`set-primary-${c.id}`}>
+                          <Star className="h-4 w-4 inline" />
+                        </button>
+                      )}
+                      <Link to={`/admin/clients/${c.id}/timeline`} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`timeline-client-${c.id}`} title="Timeline CRM"><Activity className="h-4 w-4 inline" /></Link>
+                      <Link to={`/admin/clients/${c.id}/features`} className="text-slate-500 hover:text-fuchsia-600 mr-3" data-testid={`features-client-${c.id}`} title="SMART Communications"><ShieldCheck className="h-4 w-4 inline" /></Link>
+                      <button onClick={() => setWaStats(c)} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`wa-stats-${c.id}`} title="Consommation WhatsApp"><MessageCircle className="h-4 w-4 inline" /></button>
+                      <button onClick={() => open(c)} className="text-slate-500 hover:text-sawali-blue mr-3" data-testid={`edit-client-${c.id}`}><Edit className="h-4 w-4 inline" /></button>
+                      <button onClick={() => del(c.id)} className="text-slate-500 hover:text-rose-600" data-testid={`del-client-${c.id}`}><Trash2 className="h-4 w-4 inline" /></button>
+                    </td>
+                  </tr>
+                ))}
+              </React.Fragment>
             ))}
           </tbody>
         </table>

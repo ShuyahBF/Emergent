@@ -2523,9 +2523,29 @@ async def supervisor_update_admin_client(
 # ADMIN - Clients
 # ====================================================================
 @api.get("/admin/clients", tags=["Admin"])
-async def admin_list_clients(_: dict = Depends(get_current_admin)):
+async def admin_list_clients(
+    include_roles: Optional[str] = None,
+    _: dict = Depends(get_current_admin),
+):
+    """List all users that should be visible in the Admin → Clients module.
+
+    Iter34p — Default scope widened to include `admin` (client roots) and
+    `moderateur` so the admin can see and manage every account. The
+    SAWALI super-admin (admin@sawalismartsystems.com) is always excluded
+    because the platform itself owns this row.
+
+    Optional query param `include_roles` (comma-separated) overrides the
+    default scope. Example: ``?include_roles=client,superviseur``.
+    """
+    if include_roles:
+        roles = [r.strip() for r in include_roles.split(",") if r.strip()]
+    else:
+        roles = ["client", "superviseur", "admin", "moderateur"]
     users = await db.users.find(
-        {"role": {"$in": ["client", "superviseur"]}},
+        {
+            "role": {"$in": roles},
+            "email": {"$nin": ["admin@sawalismartsystems.com"]},
+        },
         {"_id": 0, "password_hash": 0},
     ).to_list(2000)
     return users
@@ -2725,11 +2745,20 @@ async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
     """Return the anon_* flags that apply to the current viewer.
     Privileged roles (admin/superviseur/moderateur) get all flags as False so
     they always see the data in clear. Other users inherit the parent client's
-    flags — false (no anonymization) by default."""
+    flags — false (no anonymization) by default.
+
+    Iter34p — Resolution priority for `parent_id`:
+      1. `parent_client_id` (the explicit canonical pointer set by iter28/m)
+      2. `client_id` (legacy field, may equal self for root users)
+      3. `id` (last resort fallback)
+    Previously we only checked `client_id or id`, so a tracked/child user
+    whose `client_id` happened to be null or self-id would skip the parent's
+    RGPD settings entirely.
+    """
     role = (viewer.get("role") or "").lower()
     if role in RGPD_PRIVILEGED_ROLES:
         return {"anon_name": False, "anon_company": False, "anon_email": False, "anon_phone": False, "anon_whatsapp": False}
-    parent_id = viewer.get("client_id") or viewer.get("id")
+    parent_id = viewer.get("parent_client_id") or viewer.get("client_id") or viewer.get("id")
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
     feats = _normalize_features((parent or {}).get("features"))
     return {
@@ -2914,7 +2943,7 @@ async def me_get_features(user: dict = Depends(get_current_user)):
             "pawapay_mnos": list(DEFAULT_CLIENT_PAWAPAY_MNOS),
             "inherited_from": None,
         }
-    parent_id = user.get("client_id") or user["id"]
+    parent_id = user.get("parent_client_id") or user.get("client_id") or user["id"]
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
     feats = _normalize_features((parent or {}).get("features"))
     mnos = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
@@ -3870,6 +3899,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Bug fix critique — Retag trop large + endpoint de restauration + auto-scroll chat", "backlog_ref": "Iter34o",
      "duration_h": 1.0, "done": True,
      "details": "ROOT CAUSE: le retag de iter34m/n bougeait toutes les rows partageant client_id=old_scope (ex: tous les contacts CMCO migraient vers SAWALI quand on alignait rabo.f). FIX prospectif: filtrage owner_id/sender_id/created_by/author_id/user_id → seules les rows démontrablement appartenant à l'utilisateur réaligné bougent. FIX rétroactif: nouvel endpoint POST /admin/contacts/revert-retag (dry-run + apply, idempotent, filtres from/to/collections, restaure users.parent_client_id_legacy aussi). UI: section dédiée dans /admin/settings (cases à cocher par collection, aperçu avant action). BONUS UX: la fenêtre de discussion WhatsApp dans /portal/contacts auto-scrolle désormais sur le dernier message (initial 'auto', suivants 'smooth'). 4 tests pytest verts (retag owner-scoped, dry-run, apply+idempotent, from-filter)."},
+    {"code": "ACT-0028", "created_at": "2026-05-11T10:00:00+00:00", "done_at": "2026-05-11T13:30:00+00:00",
+     "title": "Visibilité cross-scope + Héritage RGPD + UI Centre Messagerie/Clients", "backlog_ref": "Iter34p",
+     "duration_h": 2.5, "done": True,
+     "details": "7 fixes en un seul shot. (1) Bug 'Contact introuvable' : /me/contacts/{cid}/messages, /me/contacts/{cid}/messages/mark-read, /me/whatsapp/unread et /me/sms/messages utilisent désormais _resolve_visible_client_ids (au lieu de client_scope seul). (2) Héritage RGPD : /me/features et _resolve_anon_flags utilisent désormais parent_client_id en priorité sur client_id. (3) Centre Messagerie: header affiche société + client lié dans des pills sky/emerald. (4) Centre Messagerie: colonne email réduite à 140px, mobile-only context phone passé en bleu. (5) Module Clients: endpoint /admin/clients inclut admin + moderateur (sauf SAWALI seed), UI groupée par rôle avec en-tête coloré. (6) Hover highlight (hover:bg-sky-50 + hover:ring-1 hover:ring-sky-200) sur lignes contacts, lignes clients et bulles de message. (7) Numéros de contact en text-sky-600 (téléphone + whatsapp). 3 tests pytest verts (admin_clients roles, cross-scope messages, RGPD inheritance via JWT forge)."},
 ]
 
 
@@ -9827,11 +9860,15 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
 @api.get("/me/whatsapp/unread", tags=["Portail Client"])
 async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
     """Return per-contact unread counts plus a global total of inbound WA messages
-    where `read_by_us_at` is null. Used by the sidebar badge and per-contact pastille."""
-    client_scope = (user.get("client_id") or user.get("id"))
-    base_q = {"direction": "inbound", "read_by_us_at": None}
+    where `read_by_us_at` is null. Used by the sidebar badge and per-contact pastille.
+
+    Iter34p — Uses _resolve_visible_client_ids so pastilles stay accurate
+    after a realignment (the contact_ids reported here match the ones the
+    user sees through /me/contacts)."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    base_q: Dict[str, Any] = {"direction": "inbound", "read_by_us_at": None}
     if user.get("role") != "admin":
-        base_q["client_id"] = client_scope
+        base_q["client_id"] = {"$in": visible_scope}
     pipeline = [
         {"$match": base_q},
         {"$group": {"_id": "$contact_id", "n": {"$sum": 1}}},
@@ -9849,8 +9886,13 @@ async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
 @api.post("/me/contacts/{cid}/messages/mark-read", tags=["Portail Client"])
 async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_current_user)):
     """Mark all inbound WA messages of a given contact as read (sets read_by_us_at)."""
-    client_scope = (user.get("client_id") or user.get("id"))
-    contact = await db.directory_contacts.find_one({"id": cid, "client_id": client_scope}, {"_id": 0})
+    # Iter34p — Use the visible-scope resolution so we find the contact even
+    # when its client_id is one of the historical/peer values (rabo.f-style
+    # data is now legitimately accessed via the company bridge).
+    visible_scope = await _resolve_visible_client_ids(user)
+    contact = await db.directory_contacts.find_one(
+        {"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0},
+    )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
     norm_phones: List[str] = []
@@ -9862,7 +9904,7 @@ async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_curre
     if norm_phones:
         or_clauses.append({"phone_digits": {"$in": norm_phones}})
     res = await db.whatsapp_messages.update_many(
-        {"client_id": client_scope, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
+        {"client_id": {"$in": visible_scope}, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
         {"$set": {"read_by_us_at": _now(), "read_by_us_id": user["id"]}},
     )
     return {"ok": True, "updated": int(getattr(res, "modified_count", 0) or 0)}
@@ -10154,8 +10196,13 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
 
 @api.get("/me/sms/messages", tags=["Portail Client"])
 async def me_sms_messages(limit: int = 100, contact_id: Optional[str] = None, user: dict = Depends(get_current_user)):
-    client_scope = (user.get("client_id") or user.get("id"))
-    query: Dict[str, Any] = {} if user.get("role") == "admin" else {"client_id": client_scope}
+    # Iter34p — Resolve full visible scope so SMS stays visible after a
+    # realignment/migration (same fix as me_contact_messages).
+    if user.get("role") == "admin":
+        query: Dict[str, Any] = {}
+    else:
+        visible_scope = await _resolve_visible_client_ids(user)
+        query = {"client_id": {"$in": visible_scope}}
     if contact_id:
         query["contact_id"] = contact_id
     items = await db.sms_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
@@ -10789,9 +10836,15 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
     """Return the full WhatsApp conversation for a contact of the directory.
     Includes outbound messages (sent via /me/whatsapp/send), inbound messages
     captured by the Meta webhook, and the status-update timeline
-    (sent/delivered/read/failed) with timestamps."""
-    client_scope = (user.get("client_id") or user.get("id"))
-    contact = await db.directory_contacts.find_one({"id": cid, "client_id": client_scope}, {"_id": 0})
+    (sent/delivered/read/failed) with timestamps.
+
+    Iter34p — Uses _resolve_visible_client_ids so the contact stays
+    accessible after a realignment/migration even if its client_id matches
+    a peer/legacy value rather than the viewer's own client_id."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    contact = await db.directory_contacts.find_one(
+        {"id": cid, "client_id": {"$in": visible_scope}}, {"_id": 0},
+    )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
     # Match by contact_id OR by exact phone number (covers inbound messages from unknown senders)
@@ -10804,7 +10857,7 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
     if norm_phones:
         or_clauses.append({"phone_digits": {"$in": norm_phones}})
     items = await db.whatsapp_messages.find(
-        {"client_id": client_scope, "$or": or_clauses},
+        {"client_id": {"$in": visible_scope}, "$or": or_clauses},
         {"_id": 0},
     ).sort("created_at", 1).to_list(1000)
     # Compute the 24h Meta customer service window from the latest inbound

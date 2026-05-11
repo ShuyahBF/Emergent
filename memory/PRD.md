@@ -68,6 +68,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34p : Visibilité cross-scope + Héritage RGPD + UI Centre Messagerie/Clients
+✅ **Bug critique #6** : "Contact introuvable" au clic sur l'historique. Cause : `/me/contacts/{cid}/messages` et 3 autres endpoints filtraient sur `client_id=client_scope` exclusivement, sans utiliser `_resolve_visible_client_ids`. Fix : 4 endpoints désormais sur la résolution visible-scope (`me/contacts/{cid}/messages`, `mark-read`, `me/whatsapp/unread`, `me/sms/messages`). Plus jamais de 404 après une migration/réalignement.
+✅ **Bug #3 Héritage RGPD** : `/me/features` et `_resolve_anon_flags` utilisent désormais `parent_client_id → client_id → id` (au lieu de `client_id → id`). Les flags anon_* du Client lié sont correctement hérités pour tous les utilisateurs enfants.
+✅ **UI Centre de Messagerie** : header affiche maintenant Société (pill bleu sky) + Client lié (pill emerald) à côté du titre. Colonne email rétrécie à 140px (le bouton Historique s'affiche). Numéros de téléphone & WhatsApp en `text-sky-600`. Hover highlight (`hover:bg-sky-50` + ring) sur lignes contacts et bulles de messages.
+✅ **Module Clients** : `GET /admin/clients` inclut désormais `admin + moderateur` (sauf l'admin seed SAWALI). UI groupée par rôle avec en-têtes colorés (Admins / Superviseurs / Clients / Modérateurs). Hover highlight sur lignes.
+✅ **Tests** : 3 nouveaux tests (`test_iter34p_visibility_rgpd.py`) — admin/clients roles, cross-scope messages, RGPD inheritance via JWT forge. **31/31 tests iter34 verts**.
+✅ **Roadmap** : `ACT-0028` seedée.
+
 ### 2026-05-11 — Itération 34o : Bug fix critique — Retag trop large (post-déploiement rabo.f)
 🚨 **Cause racine identifiée en production** : après le réalignement de rabo.f, **tous** les contacts/messages WA/SMS de Clinique CMCO ont été migrés vers SAWALI (pas seulement ceux de rabo.f). Le code retaguait `directory_contacts WHERE client_id=CMCO_id → SAWALI_id` sans filtre d'appartenance.
 ✅ **Fix prospectif** : le retag filtre désormais par `owner_id/sender_id/created_by/author_id/user_id == user.id`. Seules les rows démontrablement appartenant à l'utilisateur réaligné bougent. Les contacts des autres utilisateurs de la même société source restent intacts.

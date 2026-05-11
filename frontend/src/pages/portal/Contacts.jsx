@@ -6,7 +6,7 @@ import {
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
-  CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox,
+  CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -89,6 +89,7 @@ function ContactAvatar({ contact, size = 32 }) {
   - Click a row to view the full conversation timeline.
 */
 export default function Contacts() {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [clients, setClients] = useState([]); // roster used for company dropdown
   const [loading, setLoading] = useState(true);
@@ -97,6 +98,9 @@ export default function Contacts() {
   const [modal, setModal] = useState(null); // {type:'edit'|'wa'|'history', contact?}
   const [smartFeatures, setSmartFeatures] = useState({ whatsapp: true, sms: true, ai: true, payments: true });
   const [unread, setUnread] = useState({ total: 0, by_contact: {} });
+  // Iter34p — Affiche société + client lié à côté du titre. Lecture via
+  // /me/account-detail pour récupérer le parent canonique.
+  const [accountInfo, setAccountInfo] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -134,6 +138,7 @@ export default function Contacts() {
     loadUnread();
     loadPending();
     apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
+    apiClient.get("/me/account-detail").then((r) => setAccountInfo(r.data)).catch(() => {});
   }, []);
   useEffect(() => {
     const t = setInterval(() => { loadUnread(); loadPending(); }, 30000);
@@ -181,10 +186,25 @@ export default function Contacts() {
   return (
     <div className="max-w-6xl space-y-5" data-testid="contacts-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Communication</p>
-          <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-            <Users className="h-5 w-5 text-sawali-blue" /> Centre de Messagerie
+          <h1 className="text-2xl font-display font-bold flex items-center gap-2 flex-wrap">
+            <Users className="h-5 w-5 text-sawali-blue" />
+            <span>Centre de Messagerie</span>
+            {(user?.company || accountInfo?.parent_client?.company) && (
+              <span className="inline-flex items-center gap-2 text-[11px] font-medium font-sans normal-case tracking-normal ml-2" data-testid="messagerie-context-pill">
+                {user?.company && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-700 px-2.5 py-1 ring-1 ring-sky-200" title="Société de votre compte">
+                    <Building2 className="h-3 w-3" /> {user.company}
+                  </span>
+                )}
+                {accountInfo?.parent_client?.full_name && accountInfo.parent_client.full_name !== user?.full_name && (
+                  <span className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-700 px-2.5 py-1 ring-1 ring-emerald-200" title="Client lié (compte canonique)">
+                    <Link2 className="h-3 w-3" /> Client lié : {accountInfo.parent_client.full_name}
+                  </span>
+                )}
+              </span>
+            )}
           </h1>
           <p className="text-[11px] text-slate-500 mt-0.5">Répertoire de contacts unifié — WhatsApp, SMS &amp; planifications</p>
         </div>
@@ -328,7 +348,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
   };
 
   return (
-    <tr className="border-t border-slate-100 hover:bg-slate-50" data-testid={`contact-row-${c.id}`}>
+    <tr className="border-t border-slate-100 hover:bg-sky-50/70 hover:ring-1 hover:ring-sky-200 transition-colors" data-testid={`contact-row-${c.id}`}>
       <td className="px-3 py-2">
         <div className="flex items-start gap-2.5">
           <ContactAvatar contact={c} size={36} />
@@ -362,7 +382,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             {/* Mobile-only context (visible when Société/Téléphone columns are hidden) */}
             <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 space-y-0.5">
               {c.company && <div className="truncate">{c.company}</div>}
-              {c.phone && <div className="font-mono">{c.phone}</div>}
+              {c.phone && <div className="font-mono text-sky-600">{c.phone}</div>}
             </div>
             {c.tags?.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
@@ -377,8 +397,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
         </div>
       </td>
       <td className="px-3 py-2 hidden sm:table-cell text-slate-600">{c.company || "—"}</td>
-      <td className="px-3 py-2 hidden md:table-cell text-slate-600 font-mono text-[12px]">{c.phone || "—"}</td>
-      <td className="px-3 py-2 text-slate-600 font-mono text-[12px]">
+      <td className="px-3 py-2 hidden md:table-cell text-sky-600 font-mono text-[12px]" data-testid={`contact-phone-${c.id}`}>{c.phone || "—"}</td>
+      <td className="px-3 py-2 text-sky-600 font-mono text-[12px]">
         {editingWa ? (
           <div className="flex items-center gap-1">
             <input
@@ -419,7 +439,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
           </button>
         )}
       </td>
-      <td className="px-3 py-2 hidden 2xl:table-cell text-slate-600 max-w-[220px] truncate" title={c.email || ""}>{c.email || "—"}</td>
+      <td className="px-2 py-2 hidden 2xl:table-cell text-slate-600 max-w-[140px] truncate text-[11px]" title={c.email || ""}>{c.email || "—"}</td>
       <td className="px-3 py-2 hidden 2xl:table-cell">
         {/* Iter29 — Tous les contacts sont collaboratifs (visibles + éditables
             par tout user du même client). On affiche un badge "Équipe" pour
@@ -1432,9 +1452,9 @@ const MessageBubble = ({ m }) => {
   const body = m.body || `Template : ${m.template_name || "—"}`;
 
   return (
-    <div className={`flex ${outbound ? "justify-end" : "justify-start"}`} data-testid={`msg-${m.id}`}>
+    <div className={`flex group ${outbound ? "justify-end" : "justify-start"} hover:bg-sky-50/40 -mx-3 px-3 py-1 rounded-md transition-colors`} data-testid={`msg-${m.id}`}>
       <div
-        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm ${
+        className={`max-w-[80%] rounded-2xl px-4 py-2.5 text-sm shadow-sm transition-shadow group-hover:shadow-md ${
           outbound ? "bg-sawali-blue text-white" : "bg-white ring-1 ring-slate-200 text-slate-900"
         }`}
       >

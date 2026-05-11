@@ -1414,6 +1414,52 @@ async def me_request_profile_update(payload: Dict[str, Any] = Body(...), user: d
     return out
 
 
+# ----- Admin side (Iter34l) ---------------------------------------------
+@api.get("/admin/profile-requests", tags=["Admin"])
+async def admin_profile_requests_list(
+    status: str = "all",
+    limit: int = 200,
+    _: dict = Depends(get_current_admin),
+):
+    """Iter34l — List user-submitted requests to update their own profile.
+    `status` = pending | processed | all. Newest first."""
+    q: Dict[str, Any] = {}
+    if status in ("pending", "processed"):
+        q["status"] = status
+    items = await db.profile_update_requests.find(q, {"_id": 0}).sort("created_at", -1).to_list(max(1, min(int(limit or 200), 1000)))
+    pending_count = await db.profile_update_requests.count_documents({"status": "pending"})
+    return {"items": items, "pending_count": pending_count}
+
+
+@api.patch("/admin/profile-requests/{req_id}", tags=["Admin"])
+async def admin_profile_requests_update(
+    req_id: str,
+    payload: Dict[str, Any] = Body(...),
+    admin: dict = Depends(get_current_admin),
+):
+    """Iter34l — Mark a profile-update request as processed (or back to pending)
+    and optionally attach an admin note."""
+    existing = await db.profile_update_requests.find_one({"id": req_id})
+    if not existing:
+        raise HTTPException(status_code=404, detail="Demande introuvable")
+    update: Dict[str, Any] = {}
+    if "status" in payload:
+        new_status = (payload.get("status") or "").strip().lower()
+        if new_status not in ("pending", "processed"):
+            raise HTTPException(status_code=400, detail="Statut invalide (pending | processed)")
+        update["status"] = new_status
+        update["resolved_at"] = _now() if new_status == "processed" else None
+        update["resolved_by_email"] = admin.get("email") if new_status == "processed" else None
+    if "admin_note" in payload:
+        note = (payload.get("admin_note") or "").strip()
+        if len(note) > 2000:
+            raise HTTPException(status_code=400, detail="Note trop longue (2000 caractères max)")
+        update["admin_note"] = note
+    if not update:
+        raise HTTPException(status_code=400, detail="Rien à mettre à jour")
+    await db.profile_update_requests.update_one({"id": req_id}, {"$set": update})
+    out = await db.profile_update_requests.find_one({"id": req_id}, {"_id": 0})
+    return out
 
 
 @api.get("/me/appointments", tags=["Portail Client"])
@@ -3808,6 +3854,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Page 'Mon compte' (informations utilisateur lecture seule)", "backlog_ref": "Iter34k",
      "duration_h": 0.5, "done": True,
      "details": "Endpoints /me/account-detail (identity+parent_client+last_seen+counters Rapports/Suivis/Contacts) + /me/profile-update-request. Page /portal/my-account cliquable depuis le profil dans la sidebar. Lecture seule avec icône cadenas + formulaire de demande de modification à l'admin (checkboxes des champs + message)."},
+    {"code": "ACT-0024", "created_at": "2026-05-10T23:45:00+00:00", "done_at": "2026-05-11T00:30:00+00:00",
+     "title": "Admin UI — Demandes de modification de profil (utilisateurs)", "backlog_ref": "Iter34l",
+     "duration_h": 0.75, "done": True,
+     "details": "Endpoints GET/PATCH /admin/profile-requests (filtres pending/processed/all, note interne, marquer traitée/rouvrir). Section dédiée dans /admin/settings avec badge 'X en attente' + filtres + note admin. Compteur `admin_profile_requests` ajouté à /me/notifications/counts → badge sur le lien Paramètres du sidebar (clear automatique quand pending=0). 7 tests pytest verts."},
 ]
 
 
@@ -8756,6 +8806,14 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
         counts["contacts_unread"] = await db.whatsapp_messages.count_documents(wa_q)
     except Exception:
         counts["contacts_unread"] = 0
+    # Iter34l — Admin-only: pending profile-update requests (status-driven, not visit-driven)
+    try:
+        if is_admin:
+            counts["admin_profile_requests"] = await db.profile_update_requests.count_documents({"status": "pending"})
+        else:
+            counts["admin_profile_requests"] = 0
+    except Exception:
+        counts["admin_profile_requests"] = 0
     return {"counts": counts, "generated_at": _now()}
 
 

@@ -68,6 +68,18 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34l : Admin UI — Demandes de modification de profil
+✅ **Backend (server.py + 60 lignes)** :
+   - `GET /api/admin/profile-requests?status=pending|processed|all` (liste + `pending_count`)
+   - `PATCH /api/admin/profile-requests/{id}` : `status` (pending|processed) + `admin_note` (≤2000). Auto-rempli `resolved_at` & `resolved_by_email` quand traitée.
+   - Compteur `admin_profile_requests` ajouté à `/me/notifications/counts` (admin only, basé sur `status=pending`).
+✅ **Frontend** :
+   - Nouvelle section `ProfileRequestsSection` dans `AdminSettings.jsx` (border rose, badge "X en attente" pulsé, 3 onglets de filtre, refresh, lignes expandables avec champs ciblés en chips, message complet, textarea note interne, boutons "Marquer comme traitée" / "Enregistrer la note" / "Rouvrir").
+   - Badge rouge `admin_profile_requests` ajouté au lien sidebar **Paramètres** (`noMarkSeen: true` — clear uniquement quand une demande est traitée).
+   - Title bubble "• NOUVEAU" pour 14 jours.
+✅ **Tests** : `backend/tests/test_iter34l_profile_requests.py` (7/7 passants) — list/filter, mark processed + note + reopen, badge count, 400 (status invalide / note >2000), 404 (id inexistant).
+✅ **Roadmap** : entrée `ACT-0024` ajoutée au seed `ROADMAP_SEED`. Version auto-bumpée à 1.22.
+
 ### 2026-05-09 — Itération 54 : Audit RGPD Preview + Filtre par Client dans SMS Bulk
 ✅ **Endpoint `GET /admin/rgpd-preview/{client_id}`** : retourne 5 échantillons de chaque collection anonymisable (contacts, appointments, interventions, documents) avec le couple `{original, masked}` côte à côte. Utilise les flags actuels du parent client. Permet à l'admin d'auditer la configuration RGPD avant de déployer en production.
 ✅ **Page `/admin/clients/:client_id/rgpd-preview`** : panneau "Audit RGPD" avec :

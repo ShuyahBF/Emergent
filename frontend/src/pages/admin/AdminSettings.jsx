@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -17,6 +17,7 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  "Demandes de modification de profil (utilisateurs)": "2026-05-11",
   "Suivi des actions (historique du travail)": "2026-05-10",
   "Sauvegarde de la base (Snapshot)": "2026-05-10",
   "Diagnostic des données orphelines": "2026-05-09",
@@ -335,6 +336,7 @@ export default function AdminSettings() {
       </Section>
 
       <SupportLoadSection s={s} upd={upd} />
+      <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
       <RoadmapTrackerSection />
       <OrphanDataSection />
@@ -1403,6 +1405,249 @@ const ClientDataDiagnosticSection = () => {
     </Filterable>
   );
 };
+
+
+// ============================================================
+// iter34l — Demandes de modification de profil envoyées par les
+// utilisateurs depuis leur page "Mon compte". Admin peut filtrer
+// (pending/processed/all), saisir une note interne et marquer
+// la demande comme traitée. Le compteur "admin_profile_requests"
+// du sidebar se met à jour automatiquement.
+// ============================================================
+const FIELD_LABELS = {
+  full_name: "Identité (nom & prénom)",
+  birth_date: "Date de naissance",
+  phone: "Numéro de téléphone",
+  whatsapp: "Numéro WhatsApp",
+  email: "Adresse email",
+  company: "Société / entreprise",
+};
+const ProfileRequestsSection = () => {
+  const TITLE = "Demandes de modification de profil (utilisateurs)";
+  const [data, setData] = useState({ items: [], pending_count: 0 });
+  const [filter, setFilter] = useState("pending");  // pending | processed | all
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState({});  // {id: true}
+  const [drafts, setDrafts] = useState({});  // {id: noteString}
+  const [savingId, setSavingId] = useState(null);
+
+  const load = async (f = filter) => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get(`/admin/profile-requests?status=${encodeURIComponent(f)}`);
+      setData(r.data || { items: [], pending_count: 0 });
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { load(filter); /* eslint-disable-next-line */ }, [filter]);
+
+  const onToggle = (id) => setExpanded((e) => ({ ...e, [id]: !e[id] }));
+
+  const updateOne = async (id, payload, successMsg) => {
+    setSavingId(id);
+    try {
+      await apiClient.patch(`/admin/profile-requests/${id}`, payload);
+      toast.success(successMsg || "Mis à jour");
+      await load(filter);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSavingId(null); }
+  };
+
+  const markProcessed = (it) => {
+    const note = drafts[it.id] ?? it.admin_note ?? "";
+    updateOne(it.id, { status: "processed", admin_note: note }, "Demande marquée comme traitée");
+  };
+  const reopen = (it) => updateOne(it.id, { status: "pending" }, "Demande remise en attente");
+  const saveNoteOnly = (it) => {
+    const note = drafts[it.id] ?? it.admin_note ?? "";
+    updateOne(it.id, { admin_note: note }, "Note enregistrée");
+  };
+
+  const fmt = (iso) => {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch { return iso; }
+  };
+
+  const items = data.items || [];
+  const pendingCount = data.pending_count || 0;
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-rose-200 bg-rose-50/30 p-6 space-y-4" data-testid="admin-profile-requests-section">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <UserCog className="h-4 w-4 text-rose-600" />
+          <h2 className="font-display font-semibold">{TITLE}</h2>
+          {pendingCount > 0 && (
+            <span
+              className="inline-flex items-center gap-1 rounded-full bg-rose-600 text-white px-2 py-0.5 text-[10px] font-bold tabular-nums animate-pulse"
+              data-testid="profile-requests-pending-badge"
+              title={`${pendingCount} demande(s) en attente de traitement`}
+            >
+              {pendingCount} en attente
+            </span>
+          )}
+        </div>
+        <div className="inline-flex rounded-lg ring-1 ring-rose-200 bg-white overflow-hidden text-xs">
+          {[
+            { id: "pending", label: "En attente" },
+            { id: "processed", label: "Traitées" },
+            { id: "all", label: "Toutes" },
+          ].map((t) => (
+            <button
+              key={t.id}
+              onClick={() => setFilter(t.id)}
+              className={`px-3 py-1.5 font-semibold ${filter === t.id ? "bg-rose-600 text-white" : "text-slate-600 hover:bg-rose-50"}`}
+              data-testid={`profile-requests-filter-${t.id}`}
+            >
+              {t.label}
+            </button>
+          ))}
+          <button
+            onClick={() => load(filter)}
+            disabled={loading}
+            className="px-2 py-1.5 text-slate-500 hover:bg-rose-50 border-l border-rose-100"
+            title="Rafraîchir"
+            data-testid="profile-requests-refresh"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} />
+          </button>
+        </div>
+      </div>
+
+      <p className="text-xs text-slate-600">
+        Les utilisateurs peuvent envoyer ici une demande de correction (faute d'orthographe sur le nom, nouveau numéro, etc.)
+        depuis leur page <strong>Mon compte</strong>. Traitez-la, notez ce qui a été modifié, puis cliquez sur
+        « Marquer comme traitée » — le compteur du bandeau latéral se mettra à jour automatiquement.
+      </p>
+
+      {loading && !items.length && (
+        <p className="text-center text-xs text-slate-400 py-6">Chargement…</p>
+      )}
+
+      {!loading && !items.length && (
+        <p className="text-center text-xs text-slate-400 py-6 italic" data-testid="profile-requests-empty">
+          {filter === "pending" ? "Aucune demande en attente — tout est à jour 🎉" : filter === "processed" ? "Aucune demande traitée pour le moment." : "Aucune demande pour le moment."}
+        </p>
+      )}
+
+      <ul className="space-y-2">
+        {items.map((it) => {
+          const isOpen = !!expanded[it.id];
+          const isProcessed = it.status === "processed";
+          const noteDraft = drafts[it.id] ?? it.admin_note ?? "";
+          return (
+            <li
+              key={it.id}
+              className={`rounded-lg ring-1 ${isProcessed ? "ring-emerald-200 bg-emerald-50/40" : "ring-rose-200 bg-white"}`}
+              data-testid={`profile-request-row-${it.id}`}
+            >
+              <button
+                type="button"
+                onClick={() => onToggle(it.id)}
+                className="w-full flex items-start gap-3 p-3 text-left hover:bg-rose-50/40"
+                data-testid={`profile-request-toggle-${it.id}`}
+              >
+                <span className={`mt-0.5 inline-flex items-center justify-center h-6 w-6 rounded-full text-white text-xs font-bold ${isProcessed ? "bg-emerald-600" : "bg-rose-600"}`}>
+                  {isProcessed ? <Check className="h-3.5 w-3.5" /> : <Inbox className="h-3.5 w-3.5" />}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-900 truncate">
+                    {it.user_full_name || it.user_email || "Utilisateur inconnu"}
+                    {it.company && <span className="text-slate-500 font-normal"> — {it.company}</span>}
+                  </p>
+                  <p className="text-[11px] text-slate-500 truncate font-mono">{it.user_email}</p>
+                  <p className="text-xs text-slate-700 mt-1 line-clamp-2">{it.message}</p>
+                  <div className="flex items-center gap-2 mt-1 flex-wrap">
+                    <span className="text-[10px] text-slate-400">Reçue le {fmt(it.created_at)}</span>
+                    {isProcessed && it.resolved_at && (
+                      <span className="text-[10px] text-emerald-700 font-semibold">• Traitée le {fmt(it.resolved_at)}{it.resolved_by_email ? ` par ${it.resolved_by_email}` : ""}</span>
+                    )}
+                    {(it.fields || []).length > 0 && (
+                      <span className="text-[10px] text-indigo-700">• {it.fields.length} champ(s) ciblé(s)</span>
+                    )}
+                  </div>
+                </div>
+                <ChevronDown className={`h-4 w-4 text-slate-400 transition-transform shrink-0 mt-1 ${isOpen ? "rotate-180" : ""}`} />
+              </button>
+
+              {isOpen && (
+                <div className="border-t border-rose-100 p-3 space-y-3" data-testid={`profile-request-detail-${it.id}`}>
+                  {(it.fields || []).length > 0 && (
+                    <div>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Champs concernés</p>
+                      <div className="flex flex-wrap gap-1">
+                        {(it.fields || []).map((f) => (
+                          <span key={f} className="inline-block rounded-full bg-indigo-100 text-indigo-700 text-[10px] font-semibold px-2 py-0.5">
+                            {FIELD_LABELS[f] || f}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  <div>
+                    <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Message complet de l'utilisateur</p>
+                    <p className="text-sm text-slate-800 whitespace-pre-wrap rounded bg-slate-50 ring-1 ring-slate-200 p-2">{it.message}</p>
+                  </div>
+                  <div>
+                    <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1 flex items-center gap-1">
+                      <MessageSquare className="h-3 w-3" /> Note interne (admin)
+                    </label>
+                    <textarea
+                      rows={3}
+                      value={noteDraft}
+                      onChange={(e) => setDrafts((d) => ({ ...d, [it.id]: e.target.value }))}
+                      placeholder="Ex: Nom corrigé en BDD le 11/05, prévenir l'utilisateur par WA."
+                      maxLength={2000}
+                      className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm resize-y"
+                      data-testid={`profile-request-note-${it.id}`}
+                    />
+                    <p className="text-[10px] text-slate-400 text-right mt-0.5">{noteDraft.length}/2000</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {!isProcessed ? (
+                      <button
+                        onClick={() => markProcessed(it)}
+                        disabled={savingId === it.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        data-testid={`profile-request-mark-processed-${it.id}`}
+                      >
+                        <Check className="h-3.5 w-3.5" /> Marquer comme traitée
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => reopen(it)}
+                        disabled={savingId === it.id}
+                        className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-rose-300 text-rose-700 hover:bg-rose-50 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                        data-testid={`profile-request-reopen-${it.id}`}
+                      >
+                        <RotateCcw className="h-3.5 w-3.5" /> Rouvrir
+                      </button>
+                    )}
+                    <button
+                      onClick={() => saveNoteOnly(it)}
+                      disabled={savingId === it.id || noteDraft === (it.admin_note || "")}
+                      className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-slate-300 hover:bg-slate-50 px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+                      data-testid={`profile-request-save-note-${it.id}`}
+                    >
+                      <Save className="h-3.5 w-3.5" /> Enregistrer la note
+                    </button>
+                  </div>
+                </div>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
+    </Filterable>
+  );
+};
+
 
 
 // ============================================================

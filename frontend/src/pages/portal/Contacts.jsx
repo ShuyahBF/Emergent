@@ -175,13 +175,37 @@ export default function Contacts() {
     return opts.sort((a, b) => a.label.localeCompare(b.label));
   }, [clients, items]);
 
+  // Iter34r — Quick share-filter pill: tous / partagés / privés / non-lus
+  const [shareFilter, setShareFilter] = useState("all");
+
   const filtered = items.filter((c) => {
     if (companyFilter && (c.company || "") !== companyFilter) return false;
+    if (shareFilter === "shared" && !c.shared) return false;
+    if (shareFilter === "private" && c.shared) return false;
+    if (shareFilter === "unread" && !(unread.by_contact && unread.by_contact[c.id])) return false;
     if (!filter.trim()) return true;
     const q = filter.toLowerCase();
     return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
       .some((v) => (v || "").toLowerCase().includes(q));
   });
+
+  // Live counts for the pills (respect company + search filters, ignore the
+  // share filter itself so the counts reflect "what's available to switch to").
+  const shareCounts = useMemo(() => {
+    const base = items.filter((c) => {
+      if (companyFilter && (c.company || "") !== companyFilter) return false;
+      if (!filter.trim()) return true;
+      const q = filter.toLowerCase();
+      return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
+        .some((v) => (v || "").toLowerCase().includes(q));
+    });
+    return {
+      all: base.length,
+      shared: base.filter((c) => c.shared).length,
+      private: base.filter((c) => !c.shared).length,
+      unread: base.filter((c) => unread.by_contact && unread.by_contact[c.id]).length,
+    };
+  }, [items, companyFilter, filter, unread]);
 
   return (
     <div className="max-w-6xl space-y-5" data-testid="contacts-page">
@@ -246,6 +270,34 @@ export default function Contacts() {
           {companyOptions.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
         </select>
         <span className="text-xs text-slate-500">{filtered.length} contact(s)</span>
+      </div>
+
+      {/* Iter34r — Quick share-filter pills with live counts */}
+      <div className="flex items-center gap-2 flex-wrap -mt-1" data-testid="contacts-share-filter">
+        {[
+          { id: "all", label: "Tous", icon: Users, base: "bg-slate-900 text-white ring-slate-900", inactive: "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50" },
+          { id: "shared", label: "Partagés équipe", icon: Share2, base: "bg-emerald-100 text-emerald-700 ring-emerald-300", inactive: "bg-white text-slate-600 ring-slate-200 hover:bg-emerald-50" },
+          { id: "private", label: "Privés", icon: Lock, base: "bg-amber-100 text-amber-700 ring-amber-300", inactive: "bg-white text-slate-600 ring-slate-200 hover:bg-amber-50" },
+          { id: "unread", label: "Non-lus", icon: Inbox, base: "bg-rose-100 text-rose-700 ring-rose-300", inactive: "bg-white text-slate-600 ring-slate-200 hover:bg-rose-50" },
+        ].map((p) => {
+          const Icon = p.icon;
+          const active = shareFilter === p.id;
+          const count = shareCounts[p.id] || 0;
+          return (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => setShareFilter(p.id)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${active ? p.base : p.inactive}`}
+              data-testid={`share-filter-${p.id}`}
+              title={`Afficher : ${p.label}`}
+            >
+              <Icon className="h-3 w-3" />
+              {p.label}
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? "bg-white/30" : "bg-slate-100"}`}>{count}</span>
+            </button>
+          );
+        })}
       </div>
 
       {pendingImports.length > 0 && (

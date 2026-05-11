@@ -3907,6 +3907,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Filtres rapides par rôle avec compteurs dans le module Clients", "backlog_ref": "Iter34q",
      "duration_h": 0.5, "done": True,
      "details": "Pills cliquables au-dessus du tableau (Tous / Admins clients / Superviseurs / Clients / Modérateurs / Autres) avec compteurs en direct. Filtrage actif via useMemo + roleFilter state. Pills colorées (sky/amber/fuchsia/slate) selon le rôle, état actif distinct, hover. Compteurs respectent le scope visible (admin SAWALI seed exclu). Empty-state contextualisé quand filtre vide. UX inspirée des filtres GitHub Issues."},
+    {"code": "ACT-0030", "created_at": "2026-05-11T15:00:00+00:00", "done_at": "2026-05-11T15:20:00+00:00",
+     "title": "Filtres rapides 'Partagés/Privés/Non-lus' au Centre de Messagerie", "backlog_ref": "Iter34r",
+     "duration_h": 0.3, "done": True,
+     "details": "4 pills cliquables au-dessus du tableau Centre de Messagerie (Tous / Partagés équipe / Privés / Non-lus) avec compteurs vivants qui respectent les autres filtres (search + société). Couleurs slate/emerald/amber/rose par catégorie, état actif distinct (background fort), inactif (hover coloré subtil). Toggle 100% client-side via useMemo."},
 ]
 
 

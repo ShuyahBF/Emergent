@@ -68,6 +68,9 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34r : Filtres rapides "Partagés/Privés/Non-lus" au Centre de Messagerie
+✅ 4 pills cliquables (Tous / Partagés équipe / Privés / Non-lus) au-dessus du tableau de contacts avec compteurs vivants. Compteurs respectent les autres filtres (recherche texte + société). Couleurs slate/emerald/amber/rose, état actif fort, inactif subtil avec hover coloré. Toggle 100% client-side via useMemo.
+
 ### 2026-05-11 — Itération 34q : Filtres rapides par rôle dans le module Clients
 ✅ Pills cliquables au-dessus du tableau (Tous / Admins clients / Superviseurs / Clients / Modérateurs / Autres) avec compteurs en direct. Pills colorées par rôle (sky/amber/fuchsia/slate) avec état actif distinct. Empty-state contextualisé quand filtre vide.
 ✅ Implémenté via `useMemo` + `roleFilter` state, sans appel réseau supplémentaire. Toggle instantané.

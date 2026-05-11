@@ -3858,6 +3858,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Admin UI — Demandes de modification de profil (utilisateurs)", "backlog_ref": "Iter34l",
      "duration_h": 0.75, "done": True,
      "details": "Endpoints GET/PATCH /admin/profile-requests (filtres pending/processed/all, note interne, marquer traitée/rouvrir). Section dédiée dans /admin/settings avec badge 'X en attente' + filtres + note admin. Compteur `admin_profile_requests` ajouté à /me/notifications/counts → badge sur le lien Paramètres du sidebar (clear automatique quand pending=0). 7 tests pytest verts."},
+    {"code": "ACT-0025", "created_at": "2026-05-11T00:30:00+00:00", "done_at": "2026-05-11T01:15:00+00:00",
+     "title": "Bug fix — Détection & réparation du pointeur parent_client_id périmé", "backlog_ref": "Iter34m",
+     "duration_h": 0.75, "done": True,
+     "details": "Cas rabo.f@sawalismartsystems.com : `company` typé 'SAWALI SMART SYSTEMS' mais `parent_client_id` pointait encore vers 'Clinique CMCO'. Le diagnostic disait 'Aucun désalignement' car il faisait confiance au parent_client_id. Fix: cross-check de la company du parent vs typed company → bascule sur la company typée si admin canonical trouvé, nouvelle action `relink_parent`, exposé en UI dans /admin/settings (alert rose + ligne dans le plan de réalignement). 2 tests E2E pytest verts."},
 ]
 
 
@@ -4175,6 +4179,57 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
             {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
         )
 
+    # Iter34m — Stale-parent detection.
+    # When an admin edits a user's `company` text without updating
+    # `parent_client_id`, the pointer keeps anchoring them to the old client
+    # (e.g. rabo.f@sawalismartsystems.com had company="SAWALI SMART SYSTEMS"
+    # typed but parent_client_id still pointed to "Clinique CMCO"). The
+    # original diagnostic trusted parent_client_id and reported "Aucun
+    # désalignement détecté". Now we cross-check the canonical's company
+    # against the user's typed company; if they differ, we try to recompute
+    # the canonical via the typed company, override it, and emit a new
+    # `relink_parent` action so the realign endpoint can patch
+    # `parent_client_id` in addition to retagging rows.
+    parent_company_mismatch = False
+    parent_company_observed: Optional[str] = None
+    typed_company_norm = company.lower().strip()
+    if (
+        canonical_source == "parent_client_id"
+        and typed_company_norm
+        and canonical_user
+    ):
+        parent_company_observed = (canonical_user.get("company") or "").strip() or None
+        canonical_company_norm = (parent_company_observed or "").lower().strip()
+        if canonical_company_norm and typed_company_norm != canonical_company_norm:
+            # The typed company and the parent's company disagree — find a
+            # better canonical anchor from the typed company (admin first,
+            # then any user marked as primary client for that company).
+            better = await db.users.find_one(
+                {
+                    "company": {"$regex": f"^\\s*{re.escape(company)}\\s*$", "$options": "i"},
+                    "role": {"$in": ["admin", "superviseur"]},
+                },
+                {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
+            )
+            if not better:
+                better = await db.users.find_one(
+                    {
+                        "company": {"$regex": f"^\\s*{re.escape(company)}\\s*$", "$options": "i"},
+                        "is_primary_client": True,
+                    },
+                    {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
+                )
+            if better and better["id"] != canonical:
+                parent_company_mismatch = True
+                canonical = better["id"]
+                canonical_source = f"company match (parent_client_id obsolète) → {better.get('email')}"
+                canonical_user = better
+                # Recompute peers under the corrected canonical
+                # (the next block already walks db.users with the new canonical)
+            else:
+                # Surface the mismatch even when we cannot auto-fix it.
+                parent_company_mismatch = True
+
     effective_scope = declared_client_id or uid
 
     # Peers — users that the canonical client_id should encompass
@@ -4201,6 +4256,16 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
 
     # Realign plan — what needs to change to put this user in sync
     realign_plan: Dict[str, Any] = {"needed": False, "actions": []}
+    # Iter34m — first emit the relink_parent action when a stale parent
+    # pointer was detected AND auto-resolved to a new canonical.
+    if parent_company_mismatch and canonical and parent_client_id and parent_client_id != canonical:
+        realign_plan["needed"] = True
+        realign_plan["actions"].append({
+            "type": "relink_parent",
+            "user_id": uid,
+            "from_parent": parent_client_id,
+            "to_parent": canonical,
+        })
     if canonical and canonical != effective_scope:
         realign_plan["needed"] = True
         # Action 1 — fix the user's own client_id field
@@ -4242,6 +4307,8 @@ async def admin_client_data_diagnostic(email: str, _: dict = Depends(get_current
             "source": canonical_source,
             "user": canonical_user,
         },
+        "parent_company_mismatch": parent_company_mismatch,
+        "parent_company_observed": parent_company_observed,
         "peers": peers,
         "realign_plan": realign_plan,
     }
@@ -4278,6 +4345,20 @@ async def admin_realign_user_to_client(
                 {"id": action["user_id"]},
                 {"$set": {"client_id": action["to"], "client_id_legacy": action.get("from"),
                           "updated_at": _now()}},
+            )
+            applied.append(action)
+        elif action["type"] == "relink_parent":
+            # Iter34m — Stale-parent fix. Update parent_client_id and mirror
+            # client_id to the new canonical so subsequent queries scope
+            # correctly. Preserve the old value in *_legacy fields.
+            await db.users.update_one(
+                {"id": action["user_id"]},
+                {"$set": {
+                    "parent_client_id": action["to_parent"],
+                    "parent_client_id_legacy": action.get("from_parent"),
+                    "client_id": action["to_parent"],
+                    "updated_at": _now(),
+                }},
             )
             applied.append(action)
         elif action["type"] == "retag_rows":

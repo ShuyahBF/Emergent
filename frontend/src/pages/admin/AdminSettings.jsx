@@ -1336,6 +1336,22 @@ const ClientDataDiagnosticSection = () => {
             </div>
           </div>
 
+          {data.parent_company_mismatch && (
+            <div className="rounded-lg ring-2 ring-rose-300 bg-rose-50 p-3 text-xs" data-testid="cdd-parent-mismatch">
+              <p className="font-semibold text-rose-900">⚠️ Pointeur parent périmé détecté</p>
+              <p className="text-rose-800 mt-1">
+                Le compte affiche <code className="font-mono bg-white px-1 rounded">company = "{u.company || "—"}"</code>{" "}
+                mais son <code className="font-mono bg-white px-1 rounded">parent_client_id</code> pointe encore vers le
+                client <code className="font-mono bg-white px-1 rounded">"{data.parent_company_observed || "?"}"</code>.
+              </p>
+              <p className="text-rose-800 mt-1">
+                {can?.client_id
+                  ? "→ Le réalignement va recâbler le parent vers le client canonique de la société typée et retaguer les rows associées."
+                  : "→ Impossible de résoudre automatiquement un client canonique pour cette société (aucun admin/superviseur ne porte exactement ce nom). Corrigez l'orthographe de la société, ou définissez un client primaire pour cette société, puis relancez le diagnostic."}
+              </p>
+            </div>
+          )}
+
           {can && can.client_id ? (
             <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs">
               <p><strong>Client canonique résolu</strong> via <em>{can.source}</em> :</p>
@@ -1377,6 +1393,9 @@ const ClientDataDiagnosticSection = () => {
                   <div key={i} className="font-mono text-[11px] bg-white px-2 py-1 rounded ring-1 ring-rose-200">
                     {a.type === "set_user_client_id" && (
                       <>users.client_id : <span className="text-rose-600">{a.from || "null"}</span> → <span className="text-emerald-700">{String(a.to).slice(0, 8)}…</span></>
+                    )}
+                    {a.type === "relink_parent" && (
+                      <>users.parent_client_id : <span className="text-rose-600">{String(a.from_parent || "null").slice(0, 8)}…</span> → <span className="text-emerald-700">{String(a.to_parent).slice(0, 8)}…</span> <span className="text-slate-500">(+ mirror client_id)</span></>
                     )}
                     {a.type === "retag_rows" && (
                       <>{a.collection} : retag <strong>{a.count}</strong> row(s) <span className="text-rose-600">{String(a.from).slice(0, 8)}…</span> → <span className="text-emerald-700">{String(a.to).slice(0, 8)}…</span></>

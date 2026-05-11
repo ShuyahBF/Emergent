@@ -68,6 +68,19 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34m : Bug fix — Détection du pointeur `parent_client_id` périmé
+✅ **Cas réel signalé** : `rabo.f@sawalismartsystems.com` affichait dans sa page **Mon compte** un "Client lié = Clinique CMCO", alors que dans la liste admin des clients il apparaissait sous "SAWALI SMART SYSTEMS". L'admin avait modifié son champ `company` mais le pointeur `parent_client_id` continuait de viser le client CMCO.
+✅ **Root cause** : le diagnostic `/admin/client-data-diagnostic` faisait confiance au `parent_client_id` comme source canonique, donc il déclarait "Aucun désalignement détecté" même quand la société typée différait de la société du parent. L'admin ne pouvait pas réaligner.
+✅ **Fix backend** :
+   - Cross-check de la société du parent canonique vs la société typée du user (case-insensitive, trim).
+   - Si mismatch ET un admin/superviseur (ou client primaire) porte exactement la société typée → bascule du canonique vers ce dernier, nouvelle action `relink_parent` ajoutée au plan.
+   - Si mismatch mais pas de canonique trouvé → flag `parent_company_mismatch` exposé (UI affiche un message pour corriger l'orthographe ou désigner un client primaire).
+   - `POST /admin/realign-user-to-client` applique `relink_parent` (set `parent_client_id`+`client_id` au nouveau canonique, conservation legacy).
+✅ **Fix frontend** : `ClientDataDiagnosticSection` affiche un encart rose "Pointeur parent périmé détecté" + ligne dédiée pour `relink_parent` dans le plan de réalignement.
+✅ **Tests** : `test_iter34m_stale_parent.py` reproduit le scénario rabo.f en BDD (CMCO + SAWALI + child user stale) et valide diagnostic+repair. 2/2 verts.
+✅ **Roadmap** : `ACT-0025` seedée. Version auto-bumpée à 1.23.
+ℹ️ **Action requise en production** : déployer cette correction (Save to GitHub), puis dans `/admin/settings` → "Diagnostic visibilité par utilisateur", entrer `rabo.f@sawalismartsystems.com`, vérifier l'alerte rose, et cliquer "Appliquer le réalignement".
+
 ### 2026-05-11 — Itération 34l : Admin UI — Demandes de modification de profil
 ✅ **Backend (server.py + 60 lignes)** :
    - `GET /api/admin/profile-requests?status=pending|processed|all` (liste + `pending_count`)

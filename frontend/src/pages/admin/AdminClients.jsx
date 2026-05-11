@@ -225,9 +225,9 @@ export default function AdminClients() {
             )}
             {groupedByRole.map(({ role, label, color, rows }) => (
               <React.Fragment key={role}>
-                <tr className="bg-gradient-to-r from-slate-100/80 via-slate-50 to-transparent">
+                <tr className="bg-gradient-to-r from-sky-100/80 via-sky-50/60 to-transparent">
                   <td colSpan={7} className="px-4 py-2">
-                    <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider" style={{ color }} data-testid={`clients-group-${role}`}>
+                    <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-sawali-blue" data-testid={`clients-group-${role}`}>
                       <UsersIcon className="h-3.5 w-3.5" />
                       <span>{label}</span>
                       <span className="rounded-full bg-white ring-1 ring-slate-200 px-2 py-0.5 text-slate-700 text-[10px] tabular-nums">{rows.length}</span>

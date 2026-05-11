@@ -1,8 +1,9 @@
 import { useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock } from "lucide-react";
+import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight } from "lucide-react";
 
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
@@ -138,6 +139,36 @@ export default function MyAccount() {
               <Row icon={UsersIcon} label="Client lié" value={parent ? `${parent.full_name || "—"}${parent.company ? ` — ${parent.company}` : ""}` : "Aucun (compte principal)"} testid="account-field-parent-client" />
             </div>
           </section>
+
+          {/* Iter34s — Raccourci SMART Communications (admin only).
+              Permet à l'admin SAWALI (et plus généralement à tout admin)
+              de configurer depuis sa propre fiche les fonctions héritées
+              par ses utilisateurs liés (RGPD, WA, SMS, IA, paiements…). */}
+          {(user?.role === "admin" || user?.role === "superviseur") && (
+            <Link
+              to={`/admin/clients/${user.id}/features`}
+              className="block rounded-xl ring-1 ring-fuchsia-200 bg-gradient-to-br from-fuchsia-50 via-white to-sky-50 p-5 hover:ring-2 hover:ring-fuchsia-300 transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md group"
+              data-testid="account-smart-communications-link"
+            >
+              <div className="flex items-center justify-between gap-4">
+                <div className="flex items-start gap-3 min-w-0">
+                  <div className="rounded-lg bg-fuchsia-600/10 ring-1 ring-fuchsia-300 p-2 shrink-0">
+                    <ShieldCheck className="h-5 w-5 text-fuchsia-600" />
+                  </div>
+                  <div className="min-w-0">
+                    <h2 className="font-display font-semibold text-sm text-slate-900 flex items-center gap-1.5">
+                      SMART Communications
+                      <span className="rounded-full bg-fuchsia-600 text-white text-[9px] px-1.5 py-0.5 uppercase tracking-wider">Admin</span>
+                    </h2>
+                    <p className="text-xs text-slate-600 mt-0.5">
+                      Configurez les fonctionnalités RGPD, WhatsApp, SMS, IA et paiements de votre compte. Ces réglages seront automatiquement <strong>hérités par tous vos utilisateurs liés</strong>.
+                    </p>
+                  </div>
+                </div>
+                <ArrowRight className="h-4 w-4 text-fuchsia-600 group-hover:translate-x-1 transition-transform shrink-0" />
+              </div>
+            </Link>
+          )}
 
           {/* Last seen */}
           <section className="rounded-xl ring-1 ring-amber-200 bg-amber-50/40 p-4" data-testid="account-last-seen">

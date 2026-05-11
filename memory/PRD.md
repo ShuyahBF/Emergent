@@ -68,6 +68,10 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34s : Raccourci SMART Communications dans 'Mon compte' + titres bleus groupes Clients
+✅ `/portal/my-account` : nouvelle carte cliquable **SMART Communications** (visible uniquement pour `admin`/`superviseur`) avec gradient fuchsia/sky, icône ShieldCheck, badge "ADMIN", flèche → mène vers `/admin/clients/{user.id}/features`. Permet à l'admin SAWALI de paramétrer ses propres flags RGPD/WA/SMS/IA/paiements depuis sa fiche personnelle. Ces réglages sont **hérités par tous ses utilisateurs liés** (logique de résolution `parent_client_id` livrée en iter34p).
+✅ `/admin/clients` : les en-têtes des groupes (ADMINS CLIENTS, CLIENTS, MODÉRATEURS, etc.) passent en `text-sawali-blue` avec gradient `from-sky-100/80 via-sky-50/60 to-transparent` — beaucoup plus visibles que le slate précédent.
+
 ### 2026-05-11 — Itération 34r : Filtres rapides "Partagés/Privés/Non-lus" au Centre de Messagerie
 ✅ 4 pills cliquables (Tous / Partagés équipe / Privés / Non-lus) au-dessus du tableau de contacts avec compteurs vivants. Compteurs respectent les autres filtres (recherche texte + société). Couleurs slate/emerald/amber/rose, état actif fort, inactif subtil avec hover coloré. Toggle 100% client-side via useMemo.
 

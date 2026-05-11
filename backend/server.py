@@ -3911,6 +3911,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Filtres rapides 'Partagés/Privés/Non-lus' au Centre de Messagerie", "backlog_ref": "Iter34r",
      "duration_h": 0.3, "done": True,
      "details": "4 pills cliquables au-dessus du tableau Centre de Messagerie (Tous / Partagés équipe / Privés / Non-lus) avec compteurs vivants qui respectent les autres filtres (search + société). Couleurs slate/emerald/amber/rose par catégorie, état actif distinct (background fort), inactif (hover coloré subtil). Toggle 100% client-side via useMemo."},
+    {"code": "ACT-0031", "created_at": "2026-05-11T16:00:00+00:00", "done_at": "2026-05-11T16:20:00+00:00",
+     "title": "Raccourci SMART Communications sur 'Mon compte' + titres bleus des groupes Clients", "backlog_ref": "Iter34s",
+     "duration_h": 0.3, "done": True,
+     "details": "1) /portal/my-account : nouvelle carte 'SMART Communications' (admin/superviseur only) avec gradient fuchsia/sky, badge ADMIN, mène vers /admin/clients/{user.id}/features. Permet à l'admin SAWALI de paramétrer RGPD/WA/SMS/IA/paiements depuis sa propre fiche — réglages hérités par tous les utilisateurs liés (logique iter34p). 2) /admin/clients : les en-têtes de groupe (ADMINS CLIENTS, CLIENTS, etc.) passent en text-sawali-blue avec gradient sky-100 — bien plus visibles que le slate précédent."},
 ]
 
 

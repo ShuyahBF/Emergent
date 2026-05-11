@@ -9,6 +9,9 @@ const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_numb
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
+  // Iter34q — Active role filter for the quick-filter pills above the table.
+  // "all" shows every group; a specific role narrows down to that group only.
+  const [roleFilter, setRoleFilter] = useState("all");
   const [categories, setCategories] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -50,21 +53,35 @@ export default function AdminClients() {
   // Iter34p — Group rows by role with a fixed display order. Each section
   // gets a labelled header above the user rows so the admin can scan
   // categories at a glance (Admins, Superviseurs, Clients, Modérateurs…).
+  // Iter34q adds a role-level filter so the admin can narrow the view.
+  const ROLE_ORDER = useMemo(() => [
+    { role: "admin", label: "Admins clients", color: "#b45309", bg: "bg-amber-50", ring: "ring-amber-200", text: "text-amber-700" },
+    { role: "superviseur", label: "Superviseurs", color: "#1E90FF", bg: "bg-sky-50", ring: "ring-sky-200", text: "text-sky-700" },
+    { role: "client", label: "Clients", color: "#475569", bg: "bg-slate-50", ring: "ring-slate-200", text: "text-slate-700" },
+    { role: "moderateur", label: "Modérateurs", color: "#a21caf", bg: "bg-fuchsia-50", ring: "ring-fuchsia-200", text: "text-fuchsia-700" },
+  ], []);
+
+  const roleCounts = useMemo(() => {
+    const counts = { all: items.length, other: 0 };
+    ROLE_ORDER.forEach((g) => { counts[g.role] = 0; });
+    items.forEach((c) => {
+      if (counts[c.role] != null) counts[c.role]++;
+      else counts.other++;
+    });
+    return counts;
+  }, [items, ROLE_ORDER]);
+
   const groupedByRole = useMemo(() => {
-    const ROLE_ORDER = [
-      { role: "admin", label: "Admins clients", color: "#b45309" },
-      { role: "superviseur", label: "Superviseurs", color: "#1E90FF" },
-      { role: "client", label: "Clients", color: "#475569" },
-      { role: "moderateur", label: "Modérateurs", color: "#a21caf" },
-    ];
-    const groups = ROLE_ORDER.map((g) => ({ ...g, rows: [] }));
     const fallback = { role: "other", label: "Autres rôles", color: "#64748b", rows: [] };
+    const groups = ROLE_ORDER.map((g) => ({ ...g, rows: [] }));
     items.forEach((c) => {
       const target = groups.find((g) => g.role === c.role) || fallback;
       target.rows.push(c);
     });
-    return [...groups, fallback].filter((g) => g.rows.length > 0);
-  }, [items]);
+    const all = [...groups, fallback].filter((g) => g.rows.length > 0);
+    if (roleFilter === "all") return all;
+    return all.filter((g) => g.role === roleFilter);
+  }, [items, roleFilter, ROLE_ORDER]);
 
   const open = (it = null) => {
     setEditing(it);
@@ -149,6 +166,45 @@ export default function AdminClients() {
         </div>
       </div>
 
+      {/* Iter34q — Quick role filter pills with live counts */}
+      <div className="flex items-center gap-2 flex-wrap" data-testid="clients-role-filter">
+        <button
+          onClick={() => setRoleFilter("all")}
+          className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${roleFilter === "all" ? "bg-slate-900 text-white ring-slate-900" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+          data-testid="role-filter-all"
+        >
+          Tous
+          <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${roleFilter === "all" ? "bg-white/20" : "bg-slate-100"}`}>{roleCounts.all}</span>
+        </button>
+        {ROLE_ORDER.filter((g) => roleCounts[g.role] > 0).map((g) => {
+          const active = roleFilter === g.role;
+          return (
+            <button
+              key={g.role}
+              onClick={() => setRoleFilter(g.role)}
+              className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${active ? `${g.bg} ${g.text} ring-current` : "bg-white text-slate-600 ring-slate-200 hover:" + g.bg}`}
+              style={active ? { borderColor: g.color } : undefined}
+              data-testid={`role-filter-${g.role}`}
+              title={`Afficher uniquement les ${g.label}`}
+            >
+              <UsersIcon className="h-3 w-3" />
+              {g.label}
+              <span className={`rounded-full px-1.5 py-0.5 text-[10px] tabular-nums ${active ? "bg-white/70" : "bg-slate-100"}`}>{roleCounts[g.role]}</span>
+            </button>
+          );
+        })}
+        {roleCounts.other > 0 && (
+          <button
+            onClick={() => setRoleFilter("other")}
+            className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 transition-colors ${roleFilter === "other" ? "bg-slate-100 text-slate-700 ring-slate-300" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+            data-testid="role-filter-other"
+          >
+            Autres
+            <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums">{roleCounts.other}</span>
+          </button>
+        )}
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
         <table className="w-full text-sm min-w-[940px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
@@ -164,6 +220,9 @@ export default function AdminClients() {
           </thead>
           <tbody>
             {items.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
+            {items.length > 0 && groupedByRole.length === 0 && (
+              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client dans cette catégorie de rôle.</td></tr>
+            )}
             {groupedByRole.map(({ role, label, color, rows }) => (
               <React.Fragment key={role}>
                 <tr className="bg-gradient-to-r from-slate-100/80 via-slate-50 to-transparent">

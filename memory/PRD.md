@@ -68,6 +68,10 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-11 — Itération 34q : Filtres rapides par rôle dans le module Clients
+✅ Pills cliquables au-dessus du tableau (Tous / Admins clients / Superviseurs / Clients / Modérateurs / Autres) avec compteurs en direct. Pills colorées par rôle (sky/amber/fuchsia/slate) avec état actif distinct. Empty-state contextualisé quand filtre vide.
+✅ Implémenté via `useMemo` + `roleFilter` state, sans appel réseau supplémentaire. Toggle instantané.
+
 ### 2026-05-11 — Itération 34p : Visibilité cross-scope + Héritage RGPD + UI Centre Messagerie/Clients
 ✅ **Bug critique #6** : "Contact introuvable" au clic sur l'historique. Cause : `/me/contacts/{cid}/messages` et 3 autres endpoints filtraient sur `client_id=client_scope` exclusivement, sans utiliser `_resolve_visible_client_ids`. Fix : 4 endpoints désormais sur la résolution visible-scope (`me/contacts/{cid}/messages`, `mark-read`, `me/whatsapp/unread`, `me/sms/messages`). Plus jamais de 404 après une migration/réalignement.
 ✅ **Bug #3 Héritage RGPD** : `/me/features` et `_resolve_anon_flags` utilisent désormais `parent_client_id → client_id → id` (au lieu de `client_id → id`). Les flags anon_* du Client lié sont correctement hérités pour tous les utilisateurs enfants.

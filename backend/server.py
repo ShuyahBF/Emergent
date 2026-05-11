@@ -3903,6 +3903,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Visibilité cross-scope + Héritage RGPD + UI Centre Messagerie/Clients", "backlog_ref": "Iter34p",
      "duration_h": 2.5, "done": True,
      "details": "7 fixes en un seul shot. (1) Bug 'Contact introuvable' : /me/contacts/{cid}/messages, /me/contacts/{cid}/messages/mark-read, /me/whatsapp/unread et /me/sms/messages utilisent désormais _resolve_visible_client_ids (au lieu de client_scope seul). (2) Héritage RGPD : /me/features et _resolve_anon_flags utilisent désormais parent_client_id en priorité sur client_id. (3) Centre Messagerie: header affiche société + client lié dans des pills sky/emerald. (4) Centre Messagerie: colonne email réduite à 140px, mobile-only context phone passé en bleu. (5) Module Clients: endpoint /admin/clients inclut admin + moderateur (sauf SAWALI seed), UI groupée par rôle avec en-tête coloré. (6) Hover highlight (hover:bg-sky-50 + hover:ring-1 hover:ring-sky-200) sur lignes contacts, lignes clients et bulles de message. (7) Numéros de contact en text-sky-600 (téléphone + whatsapp). 3 tests pytest verts (admin_clients roles, cross-scope messages, RGPD inheritance via JWT forge)."},
+    {"code": "ACT-0029", "created_at": "2026-05-11T14:00:00+00:00", "done_at": "2026-05-11T14:30:00+00:00",
+     "title": "Filtres rapides par rôle avec compteurs dans le module Clients", "backlog_ref": "Iter34q",
+     "duration_h": 0.5, "done": True,
+     "details": "Pills cliquables au-dessus du tableau (Tous / Admins clients / Superviseurs / Clients / Modérateurs / Autres) avec compteurs en direct. Filtrage actif via useMemo + roleFilter state. Pills colorées (sky/amber/fuchsia/slate) selon le rôle, état actif distinct, hover. Compteurs respectent le scope visible (admin SAWALI seed exclu). Empty-state contextualisé quand filtre vide. UX inspirée des filtres GitHub Issues."},
 ]
 
 

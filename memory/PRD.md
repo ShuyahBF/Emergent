@@ -68,6 +68,15 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-12 — Itération 34t-x : 6 demandes utilisateur (Anonymisation contenus, Exports, Toasts live, Anti-doublon formulaires)
+✅ **#1 Anonymisation contenus** : 3 nouveaux flags `anon_rapports`, `anon_suivis`, `anon_communications` ajoutés à `DEFAULT_CLIENT_FEATURES`. Helper `_resolve_content_restrictions()` + enforcement sur `me_list_notes` (rapports/suivis), `me_contact_messages` (WhatsApp), `me_sms_messages`. Quand activé → seuls le créateur et les admins/superviseurs voient le contenu. UI : 3 toggles bleus dans SMART Communications avec descriptions claires.
+✅ **#2 Code unique en bleu** : `text-sky-600 font-bold` sur les codes 2026-SAWALISM-XXXX dans le Centre de Messagerie.
+✅ **#3 Export contacts** : 3 nouveaux endpoints `/me/contacts/export.csv` (avec BOM UTF-8 pour Excel), `.json`, `.pdf` (ReportLab landscape A4 avec en-tête SAWALI bleu). Dropdown UI dans Contacts.jsx avec téléchargement direct via Blob.
+✅ **#4 Toasts temps réel** : collection `activity_events` + endpoint `/me/recent-activity?since=...`. Helper `_log_activity()` wiré sur 7 mutations critiques (contact create/update/delete, note create/update/delete, SMS sent, WA sent, WA received). Hook frontend `useActivityFeedNotifier.js` polle toutes les 8s, affiche un toast Sonner par event (avec icône d'action), suppress les actions du viewer lui-même. Cursor persisté en sessionStorage.
+✅ **#5 Tableau des soumissions** : endpoint `/me/forms/{form_id}/submissions-table` + composant `SubmissionsTable` dans FormAnalyticsDetail.jsx avec tableau brut, en-tête sticky, hover sky, troncature `max-w-[220px]`.
+✅ **#6 Anti-doublon formulaires** : check 409 en cas de titre déjà utilisé (case-insensitive) sur POST et PUT. Endpoint `/me/forms/title-suggestions` + modal de création avec `<datalist>` autocomplete + détection live du conflit (bordure rose + bouton désactivé).
+✅ **Tests** : 31/31 iter34 verts. Roadmap `ACT-0032`.
+
 ### 2026-05-11 — Itération 34s : Raccourci SMART Communications dans 'Mon compte' + titres bleus groupes Clients
 ✅ `/portal/my-account` : nouvelle carte cliquable **SMART Communications** (visible uniquement pour `admin`/`superviseur`) avec gradient fuchsia/sky, icône ShieldCheck, badge "ADMIN", flèche → mène vers `/admin/clients/{user.id}/features`. Permet à l'admin SAWALI de paramétrer ses propres flags RGPD/WA/SMS/IA/paiements depuis sa fiche personnelle. Ces réglages sont **hérités par tous ses utilisateurs liés** (logique de résolution `parent_client_id` livrée en iter34p).
 ✅ `/admin/clients` : les en-têtes des groupes (ADMINS CLIENTS, CLIENTS, MODÉRATEURS, etc.) passent en `text-sawali-blue` avec gradient `from-sky-100/80 via-sky-50/60 to-transparent` — beaucoup plus visibles que le slate précédent.

@@ -10,6 +10,7 @@ import { apiClient } from "@/lib/api";
 import IncidentBanner from "@/components/IncidentBanner";
 import VersionStamp from "@/components/VersionStamp";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
+import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -122,6 +123,8 @@ export default function PortalLayout({ admin = false }) {
 
   // Web Notifications + son sur nouveaux WA
   const waNotifier = useWhatsAppNotifier();
+  // Iter34x — toasts live des actions des autres utilisateurs liés
+  useActivityFeedNotifier(!!user);
 
   // Access log every page change for any logged-in portal user
   useEffect(() => {

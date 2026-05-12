@@ -9,9 +9,14 @@ import ShareFormModal from "@/components/ShareFormModal";
 export default function FormsList() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [creating, setCreating] = useState(false);
   const [filter, setFilter] = useState("mine");
   const [shareForm, setShareForm] = useState(null);
+  // Iter34t — Modal-based "Nouveau formulaire" flow with title validation
+  // and autocomplete suggestions (existing titles for the same client scope).
+  const [createOpen, setCreateOpen] = useState(false);
+  const [newTitle, setNewTitle] = useState("");
+  const [suggestions, setSuggestions] = useState([]);
+  const [creating, setCreating] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
@@ -22,6 +27,21 @@ export default function FormsList() {
   };
   useEffect(() => { load(); }, []);
 
+  const openCreate = async () => {
+    setNewTitle("");
+    setCreateOpen(true);
+    try {
+      const r = await apiClient.get("/me/forms/title-suggestions");
+      setSuggestions(r.data?.items || []);
+    } catch { setSuggestions([]); }
+  };
+
+  const titleConflict = (() => {
+    const norm = newTitle.trim().toLowerCase();
+    if (!norm) return null;
+    return suggestions.find((s) => (s.title || "").trim().toLowerCase() === norm) || null;
+  })();
+
   const filtered = items.filter((f) => {
     if (filter === "mine") return f.is_mine;
     if (filter === "public") return !f.is_mine && f.is_public;
@@ -29,10 +49,14 @@ export default function FormsList() {
   });
 
   const create = async () => {
+    const t = newTitle.trim();
+    if (!t) { toast.error("Saisissez un titre"); return; }
+    if (titleConflict) { toast.error(`« ${titleConflict.title} » existe déjà (${titleConflict.number})`); return; }
     setCreating(true);
     try {
-      const r = await apiClient.post("/me/forms", { title: "Nouveau formulaire", is_public: false });
+      const r = await apiClient.post("/me/forms", { title: t, is_public: false });
       toast.success(`Formulaire ${r.data.number} créé`);
+      setCreateOpen(false);
       navigate(`/portal/forms/${r.data.id}/edit`);
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
     finally { setCreating(false); }
@@ -59,7 +83,7 @@ export default function FormsList() {
           </h1>
         </div>
         <button
-          onClick={create}
+          onClick={openCreate}
           disabled={creating}
           className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50"
           data-testid="form-create-btn"
@@ -132,6 +156,58 @@ export default function FormsList() {
       )}
 
       {shareForm && <ShareFormModal form={shareForm} onClose={() => setShareForm(null)} />}
+
+      {createOpen && (
+        <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={() => !creating && setCreateOpen(false)} data-testid="form-create-modal">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <h2 className="font-display font-bold text-lg flex items-center gap-2">
+              <FileText className="h-5 w-5 text-sawali-blue" /> Nouveau formulaire
+            </h2>
+            <p className="text-xs text-slate-600">
+              Saisissez un titre unique pour ce formulaire. Les titres existants pour votre compte sont proposés ci-dessous — choisissez un nom différent pour éviter les doublons.
+            </p>
+            <div>
+              <label className="block text-[10px] uppercase tracking-wider text-slate-500 font-semibold mb-1">Titre du formulaire</label>
+              <input
+                value={newTitle}
+                onChange={(e) => setNewTitle(e.target.value)}
+                placeholder="Ex: Fiche d'admission patient"
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${titleConflict ? "border-rose-400 ring-2 ring-rose-200" : "border-slate-300 focus:border-sawali-blue"}`}
+                list="form-title-suggestions"
+                autoFocus
+                data-testid="form-new-title-input"
+              />
+              <datalist id="form-title-suggestions">
+                {suggestions.map((s) => <option key={s.number} value={s.title}>{s.number}</option>)}
+              </datalist>
+              {titleConflict && (
+                <p className="mt-1 text-xs text-rose-600 flex items-center gap-1" data-testid="form-title-conflict">
+                  ⚠️ Un formulaire portant ce titre existe déjà : <strong>{titleConflict.number}</strong>
+                </p>
+              )}
+              {!titleConflict && suggestions.length > 0 && (
+                <p className="mt-1 text-[10px] text-slate-400">{suggestions.length} titre(s) existant(s) — saisissez quelques lettres pour voir les suggestions</p>
+              )}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-1">
+              <button
+                onClick={() => setCreateOpen(false)}
+                disabled={creating}
+                className="px-3 py-1.5 text-sm rounded-lg ring-1 ring-slate-300 hover:bg-slate-50"
+                data-testid="form-create-cancel"
+              >Annuler</button>
+              <button
+                onClick={create}
+                disabled={creating || !newTitle.trim() || !!titleConflict}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-sm font-semibold rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue-light disabled:opacity-50"
+                data-testid="form-create-confirm"
+              >
+                <Plus className="h-3.5 w-3.5" /> Créer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

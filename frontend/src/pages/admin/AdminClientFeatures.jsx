@@ -97,6 +97,35 @@ const FEATURE_META = [
     bg: "bg-rose-50",
     rgpd: true,
   },
+  // Iter34u — Content-level restrictions: when ON, the corresponding kind
+  // of resource is visible ONLY to its creator (plus admin/superviseur).
+  {
+    key: "anon_rapports",
+    label: "Restriction — Rapports (créateur uniquement)",
+    description: "Quand activé, seuls le créateur et les admins/superviseurs peuvent visualiser les Rapports. Les autres utilisateurs liés ne voient pas le contenu.",
+    icon: ShieldCheck,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    rgpd: true,
+  },
+  {
+    key: "anon_suivis",
+    label: "Restriction — Suivis (créateur uniquement)",
+    description: "Quand activé, seuls le créateur et les admins/superviseurs peuvent visualiser les Suivis.",
+    icon: ShieldCheck,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    rgpd: true,
+  },
+  {
+    key: "anon_communications",
+    label: "Restriction — Communications (SMS, WhatsApp, Paiements…)",
+    description: "Quand activé, seuls le créateur et les admins/superviseurs peuvent voir les SMS, WhatsApp et liens de paiement émis/reçus.",
+    icon: ShieldCheck,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    rgpd: true,
+  },
   {
     key: "wa_sound_alerts",
     label: "Alerte sonore WhatsApp",
@@ -110,7 +139,7 @@ const FEATURE_META = [
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, wa_sound_alerts: true });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

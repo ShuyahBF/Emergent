@@ -333,7 +333,83 @@ export default function FormAnalyticsDetail() {
               )}
             </div>
           </div>
+
+          {/* Iter34v — Tableau brut des soumissions (visible + exportable) */}
+          <SubmissionsTable fid={fid} dateFrom={dateFrom} dateTo={dateTo} />
         </>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Iter34v — Tableau brut des soumissions formulaire (avec données réelles)
+// ============================================================
+function SubmissionsTable({ fid, dateFrom, dateTo }) {
+  const [data, setData] = React.useState({ columns: [], rows: [] });
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    apiClient.get(`/me/forms/${fid}/submissions-table`, {
+      params: { date_from: dateFrom, date_to: dateTo },
+    })
+      .then((r) => { if (!cancelled) setData(r.data || { columns: [], rows: [] }); })
+      .catch(() => { /* noop */ })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [fid, dateFrom, dateTo]);
+
+  const { columns = [], rows = [] } = data;
+  if (loading) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-400 text-sm">Chargement du tableau des soumissions…</div>;
+
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid="submissions-table-block">
+      <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+        <div>
+          <h3 className="font-display font-semibold text-sm">Tableau des soumissions</h3>
+          <p className="text-[10px] text-slate-500">Vue brute — chaque ligne = 1 soumission, chaque colonne = 1 champ du formulaire</p>
+        </div>
+        <span className="rounded-full bg-sky-100 text-sky-700 px-2 py-0.5 text-[10px] font-semibold tabular-nums" data-testid="submissions-table-count">{rows.length} ligne(s)</span>
+      </div>
+      {rows.length === 0 ? (
+        <p className="px-4 py-8 text-center text-slate-400 text-sm italic">Aucune soumission pour cette période.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-slate-600 uppercase tracking-wider">
+              <tr>
+                <th className="text-left px-3 py-2 sticky left-0 bg-slate-50">Date</th>
+                <th className="text-left px-3 py-2">Auteur</th>
+                {columns.map((c) => (
+                  <th key={c.id} className="text-left px-3 py-2 whitespace-nowrap">{c.label}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {rows.map((r) => (
+                <tr key={r.id} className="border-t border-slate-100 hover:bg-sky-50/60" data-testid={`submission-row-${r.id}`}>
+                  <td className="px-3 py-2 sticky left-0 bg-white text-slate-500 text-[10px]">
+                    {r.created_at ? new Date(r.created_at).toLocaleString("fr-FR") : "—"}
+                  </td>
+                  <td className="px-3 py-2">
+                    {r.anonymous
+                      ? <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5 text-[10px]">Anonyme</span>
+                      : <span className="font-medium text-slate-700">{r.user_label}</span>}
+                  </td>
+                  {columns.map((c) => {
+                    const v = r[c.id];
+                    const text = v == null || v === "" ? "—" : (typeof v === "object" ? JSON.stringify(v) : String(v));
+                    return (
+                      <td key={c.id} className="px-3 py-2 max-w-[220px] truncate text-slate-800" title={text}>{text}</td>
+                    );
+                  })}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );

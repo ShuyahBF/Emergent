@@ -6,7 +6,7 @@ import {
   Send, X, History, RefreshCw, Pencil, Check, Clock,
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
-  CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2,
+  CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -88,6 +88,54 @@ function ContactAvatar({ contact, size = 32 }) {
   - Send WA template from the row.
   - Click a row to view the full conversation timeline.
 */
+// Iter34w — Lightweight export dropdown (CSV / JSON / PDF) using a token
+// added to the URL so the browser downloads the file directly. We piggyback
+// on the existing API auth header by using `apiClient` to fetch as Blob.
+function ContactsExportMenu() {
+  const [open, setOpen] = React.useState(false);
+  const [busy, setBusy] = React.useState(false);
+  const download = async (format) => {
+    setBusy(true);
+    try {
+      const r = await apiClient.get(`/me/contacts/export.${format}`, { responseType: "blob" });
+      const blob = new Blob([r.data], { type: r.headers["content-type"] || "application/octet-stream" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const fname = (r.headers["content-disposition"] || "").match(/filename="?([^"]+)"?/);
+      a.download = fname ? fname[1] : `contacts.${format}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Export ${format.toUpperCase()} téléchargé`);
+    } catch (err) {
+      toast.error("Erreur lors de l'export");
+    } finally { setBusy(false); setOpen(false); }
+  };
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        disabled={busy}
+        className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm disabled:opacity-60"
+        data-testid="contacts-export-btn"
+      >
+        <Download className="h-4 w-4" />
+        Exporter
+      </button>
+      {open && (
+        <div className="absolute right-0 mt-1 w-44 rounded-lg ring-1 ring-slate-200 bg-white shadow-lg py-1 z-20" data-testid="contacts-export-menu">
+          <button onClick={() => download("csv")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-csv-btn">CSV (Excel)</button>
+          <button onClick={() => download("json")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-json-btn">JSON</button>
+          <button onClick={() => download("pdf")} className="w-full text-left px-3 py-1.5 text-xs hover:bg-sky-50" data-testid="export-pdf-btn">PDF</button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+
 export default function Contacts() {
   const { user } = useAuth();
   const [items, setItems] = useState([]);
@@ -242,6 +290,8 @@ export default function Contacts() {
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
             Actualiser
           </button>
+          {/* Iter34w — Exports list */}
+          <ContactsExportMenu />
           <button
             onClick={() => setModal({ type: "edit" })}
             className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"
@@ -424,7 +474,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             </button>
             {c.unique_code && (
               <div
-                className="text-[10px] text-slate-500 font-mono mt-0.5 inline-flex items-center gap-1"
+                className="text-[11px] text-sky-600 font-mono font-bold mt-0.5 inline-flex items-center gap-1"
                 title="Code Unique inaltérable du contact"
                 data-testid={`contact-unique-code-${c.id}`}
               >

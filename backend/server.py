@@ -2639,6 +2639,13 @@ DEFAULT_CLIENT_FEATURES = {
     "anon_email": False,
     "anon_phone": False,
     "anon_whatsapp": False,
+    # Iter34u — Content-level restrictions: when ON, each resource of the
+    # given kind is visible ONLY to its creator (created_by_id == viewer.id)
+    # plus privileged roles (admin/superviseur/moderateur). Listing endpoints
+    # filter them out from the response; detail endpoints return 403.
+    "anon_rapports": False,        # restricts reports (kind=rapport)
+    "anon_suivis": False,          # restricts follow-ups (kind=suivi)
+    "anon_communications": False,  # restricts SMS, WhatsApp & payment_links
     # Allow tracked users to enable the WhatsApp inbound sound alert. When OFF,
     # the sound toggle is hidden in their portal sidebar.
     "wa_sound_alerts": True,
@@ -2739,6 +2746,24 @@ async def _resolve_real_phone(contact_id: Optional[str], field: str, fallback: s
     return (fallback or "").strip()
 
 
+
+
+async def _resolve_content_restrictions(viewer: dict) -> Dict[str, bool]:
+    """Iter34u — Return the anon_rapports / anon_suivis / anon_communications
+    flags that apply to the given viewer. Privileged roles always see
+    everything (flags reported as False). Other users inherit the parent
+    client's configuration (parent_client_id priority over client_id)."""
+    role = (viewer.get("role") or "").lower()
+    if role in RGPD_PRIVILEGED_ROLES:
+        return {"anon_rapports": False, "anon_suivis": False, "anon_communications": False}
+    parent_id = viewer.get("parent_client_id") or viewer.get("client_id") or viewer.get("id")
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+    feats = _normalize_features((parent or {}).get("features"))
+    return {
+        "anon_rapports": bool(feats.get("anon_rapports")),
+        "anon_suivis": bool(feats.get("anon_suivis")),
+        "anon_communications": bool(feats.get("anon_communications")),
+    }
 
 
 async def _resolve_anon_flags(viewer: dict) -> Dict[str, bool]:
@@ -3915,6 +3940,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Raccourci SMART Communications sur 'Mon compte' + titres bleus des groupes Clients", "backlog_ref": "Iter34s",
      "duration_h": 0.3, "done": True,
      "details": "1) /portal/my-account : nouvelle carte 'SMART Communications' (admin/superviseur only) avec gradient fuchsia/sky, badge ADMIN, mène vers /admin/clients/{user.id}/features. Permet à l'admin SAWALI de paramétrer RGPD/WA/SMS/IA/paiements depuis sa propre fiche — réglages hérités par tous les utilisateurs liés (logique iter34p). 2) /admin/clients : les en-têtes de groupe (ADMINS CLIENTS, CLIENTS, etc.) passent en text-sawali-blue avec gradient sky-100 — bien plus visibles que le slate précédent."},
+    {"code": "ACT-0032", "created_at": "2026-05-12T22:00:00+00:00", "done_at": "2026-05-12T23:00:00+00:00",
+     "title": "Anonymisation des contenus + Exports contacts + Toasts live + Anti-doublon formulaires + Code en bleu", "backlog_ref": "Iter34tuvwx",
+     "duration_h": 3.5, "done": True,
+     "details": "6 demandes utilisateur livrées en parallèle. (#1) 3 nouveaux flags anon_rapports / anon_suivis / anon_communications avec helper _resolve_content_restrictions + enforcement sur me_list_notes, me_contact_messages, me_sms_messages. UI dans SMART Communications. (#2) Code unique contacts en font-bold + text-sky-600. (#3) Endpoints /me/contacts/export.{csv,json,pdf} + dropdown UI dans Contacts.jsx (ContactsExportMenu). (#4) Activity feed via polling : table activity_events + endpoint /me/recent-activity + hook useActivityFeedNotifier.js (toasts Sonner toutes les 8s pour Contact/Rapport/Suivi/SMS/WhatsApp, suppression auto des actions du viewer). (#5) Endpoint /me/forms/{form_id}/submissions-table + composant SubmissionsTable dans FormAnalyticsDetail (tableau brut visible + ligne hover sky). (#6) Endpoint /me/forms/title-suggestions + check 409 sur POST /me/forms et PUT /me/forms/{id} si nom dupliqué. UI : modal de création avec datalist autocomplete + détection live du conflit (bordure rose + message + bouton Créer désactivé). 31/31 tests iter34 verts."},
 ]
 
 
@@ -6889,6 +6918,13 @@ async def me_list_notes(
         else:
             query["$or"] = text_or
     items = await coll.find(query, {"_id": 0}).sort("created_at", -1).to_list(2000)
+    # Iter34u — Apply content-level restrictions (anon_rapports / anon_suivis)
+    # when active. Privileged roles already bypass via the helper.
+    restrictions = await _resolve_content_restrictions(user)
+    restricted = (kind == "rapport" and restrictions.get("anon_rapports")) or \
+                 (kind == "suivi" and restrictions.get("anon_suivis"))
+    if restricted:
+        items = [it for it in items if it.get("owner_id") == user["id"]]
     return await _attach_my_rating(items, kind, user["id"])
 
 
@@ -6955,6 +6991,10 @@ async def me_create_note(
     }
     await coll.insert_one(doc.copy())
     doc.pop("_id", None)
+    # Iter34x — activity feed (rapport / suivi)
+    activity_kind = "rapport" if kind == "reports" else "suivi"
+    user_client = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    await _log_activity(client_id=user_client, kind=activity_kind, action="created", label=title, actor=user, target_id=doc["id"])
     # Await the webhook synchronously so the real upstream status can be
     # returned to the caller (and displayed via popup on the frontend).
     webhook_result = await _fire_notes_webhook("created", kind, doc, user)
@@ -6991,6 +7031,9 @@ async def me_update_note(
     update["updated_at"] = _now()
     await coll.update_one({"id": note_id}, {"$set": update})
     refreshed = await coll.find_one({"id": note_id}, {"_id": 0}) or {**existing, **update}
+    activity_kind = "rapport" if kind == "reports" else "suivi"
+    user_client = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    await _log_activity(client_id=user_client, kind=activity_kind, action="updated", label=refreshed.get("title") or "(sans titre)", actor=user, target_id=note_id)
     webhook_result = await _fire_notes_webhook("updated", kind, refreshed, user)
     return {"ok": True, "webhook_result": webhook_result}
 
@@ -7009,6 +7052,9 @@ async def me_delete_note(
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Note introuvable")
     if existing:
+        activity_kind = "rapport" if kind == "reports" else "suivi"
+        user_client = user.get("parent_client_id") or user.get("client_id") or user["id"]
+        await _log_activity(client_id=user_client, kind=activity_kind, action="deleted", label=existing.get("title") or "(sans titre)", actor=user, target_id=note_id)
         webhook_result = await _fire_notes_webhook("deleted", kind, existing, user)
         return {"ok": True, "webhook_result": webhook_result}
     return {"ok": True}
@@ -9093,6 +9139,60 @@ async def _resolve_visible_client_ids(user: dict) -> List[str]:
     return list(ids) if ids else [user.get("id")]
 
 
+# ============================================================
+# Iter34x — Real-time activity feed (polling-based).
+# Every CUD on Contact, Rapport, Suivi, SMS, WhatsApp is logged into
+# `activity_events` with `{client_id, kind, action, label, actor, ts}`.
+# Connected clients poll /me/recent-activity every 8 seconds to learn
+# what happened since their `since` cursor; the frontend then shows a
+# Sonner toast (suppressing actions performed by the polling user itself).
+# ============================================================
+async def _log_activity(*, client_id: str, kind: str, action: str, label: str, actor: dict, target_id: Optional[str] = None):
+    """Best-effort write of a single activity event. Never raises."""
+    try:
+        await db.activity_events.insert_one({
+            "id": _uuid(),
+            "client_id": client_id,
+            "kind": kind,         # contact | rapport | suivi | sms | whatsapp
+            "action": action,     # created | updated | deleted | received | sent
+            "label": (label or "")[:160],
+            "target_id": target_id,
+            "actor_id": actor.get("id"),
+            "actor_label": actor.get("full_name") or actor.get("email") or "—",
+            "ts": _now(),
+        })
+    except Exception:
+        pass
+
+
+@api.get("/me/recent-activity", tags=["Portail Client"])
+async def me_recent_activity(
+    since: Optional[str] = None,
+    limit: int = 20,
+    user: dict = Depends(get_current_user),
+):
+    """Return new activity events for the user's visible scope since the
+    `since` ISO timestamp. The frontend uses this to display floating
+    toasts in near real-time. Events triggered by the requester are
+    returned so the client can decide to suppress them locally."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    q: Dict[str, Any] = {"client_id": {"$in": visible_scope}}
+    if since:
+        try:
+            # The `ts` field on activity_events is an ISO string (from _now()),
+            # so the comparison is string-based.
+            q["ts"] = {"$gt": since}
+        except Exception:
+            pass
+    items = await db.activity_events.find(q, {"_id": 0}).sort("ts", -1).to_list(min(max(limit, 1), 100))
+    items.reverse()  # chronological order for toast stacking
+    return {
+        "events": items,
+        "server_now": _now(),
+        "viewer_id": user.get("id"),
+    }
+
+
 @api.get("/me/notifications/counts", tags=["Portail Client"])
 async def me_notifications_counts(user: dict = Depends(get_current_user)):
     """Return the count of new items per module since the user last visited that module."""
@@ -9344,6 +9444,104 @@ class ContactUpdate(BaseModel):
     photo_url: Optional[str] = None
 
 
+@api.get("/me/contacts/export.csv", tags=["Portail Client"])
+async def me_export_contacts_csv(user: dict = Depends(get_current_user)):
+    """Iter34w — Export the directory as CSV (Excel-compatible, UTF-8 BOM)."""
+    client_ids = await _resolve_visible_client_ids(user)
+    items = await db.directory_contacts.find({"client_id": {"$in": client_ids}}, {"_id": 0}).sort("name", 1).to_list(5000)
+    flags = await _resolve_anon_flags(user)
+    if any(flags.values()):
+        items = [_apply_anon_to_contact(c, flags) for c in items]
+    import csv, io
+    buf = io.StringIO()
+    buf.write("\ufeff")  # Excel UTF-8 BOM
+    writer = csv.writer(buf, delimiter=";")
+    writer.writerow(["Code unique", "Nom", "Société", "Téléphone", "WhatsApp", "Email", "Tags", "Partagé", "Créé le"])
+    for c in items:
+        writer.writerow([
+            c.get("unique_code") or "",
+            c.get("name") or "",
+            c.get("company") or "",
+            c.get("phone") or "",
+            c.get("whatsapp") or "",
+            c.get("email") or "",
+            ", ".join(c.get("tags") or []),
+            "Oui" if c.get("shared") else "Non",
+            (c.get("created_at") or ""),
+        ])
+    body = buf.getvalue().encode("utf-8")
+    fname = f"contacts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.csv"
+    return Response(content=body, media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api.get("/me/contacts/export.json", tags=["Portail Client"])
+async def me_export_contacts_json(user: dict = Depends(get_current_user)):
+    client_ids = await _resolve_visible_client_ids(user)
+    items = await db.directory_contacts.find({"client_id": {"$in": client_ids}}, {"_id": 0}).sort("name", 1).to_list(5000)
+    flags = await _resolve_anon_flags(user)
+    if any(flags.values()):
+        items = [_apply_anon_to_contact(c, flags) for c in items]
+    body = json.dumps({"generated_at": _now(), "count": len(items), "contacts": items}, ensure_ascii=False, indent=2, default=str).encode("utf-8")
+    fname = f"contacts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.json"
+    return Response(content=body, media_type="application/json; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+@api.get("/me/contacts/export.pdf", tags=["Portail Client"])
+async def me_export_contacts_pdf(user: dict = Depends(get_current_user)):
+    """Iter34w — Generate a PDF listing of the visible directory (ReportLab)."""
+    client_ids = await _resolve_visible_client_ids(user)
+    items = await db.directory_contacts.find({"client_id": {"$in": client_ids}}, {"_id": 0}).sort("name", 1).to_list(5000)
+    flags = await _resolve_anon_flags(user)
+    if any(flags.values()):
+        items = [_apply_anon_to_contact(c, flags) for c in items]
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    import io
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=24, bottomMargin=24, leftMargin=24, rightMargin=24, title="Liste des contacts")
+    styles = getSampleStyleSheet()
+    now_str = datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M')
+    story = [
+        Paragraph("<b>SAWALI Smart Systems — Liste des contacts</b>", styles["Title"]),
+        Paragraph(f"Généré le {now_str} — {len(items)} contact(s) — Utilisateur : {user.get('email') or user.get('id')}", styles["Normal"]),
+        Spacer(1, 10),
+    ]
+    head = ["#", "Code", "Nom", "Société", "Téléphone", "WhatsApp", "Email"]
+    data: List[List[str]] = [head]
+    for i, c in enumerate(items, start=1):
+        data.append([
+            str(i),
+            c.get("unique_code") or "",
+            (c.get("name") or "")[:48],
+            (c.get("company") or "")[:32],
+            c.get("phone") or "",
+            c.get("whatsapp") or "",
+            (c.get("email") or "")[:42],
+        ])
+    tbl = Table(data, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E90FF")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(tbl)
+    doc.build(story)
+    body = buf.getvalue()
+    fname = f"contacts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
+    return Response(content=body, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
 @api.get("/me/contacts", tags=["Portail Client"])
 async def me_list_contacts(user: dict = Depends(get_current_user)):
     """List ALL contacts of the user's client scope.
@@ -9403,6 +9601,8 @@ async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_cur
     }
     await db.directory_contacts.insert_one(doc.copy())
     doc.pop("_id", None)
+    # Iter34x — activity feed for live toasts
+    await _log_activity(client_id=doc["client_id"], kind="contact", action="created", label=doc.get("name") or "(sans nom)", actor=user, target_id=doc["id"])
     return doc
 
 
@@ -9432,6 +9632,7 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
         update["last_edited_by_label"] = user.get("full_name") or user.get("email")
         update["last_edited_at"] = _now()
     await db.directory_contacts.update_one({"id": cid}, {"$set": update})
+    await _log_activity(client_id=existing.get("client_id"), kind="contact", action="updated", label=existing.get("name") or "(sans nom)", actor=user, target_id=cid)
     return {"ok": True}
 
 
@@ -9447,6 +9648,7 @@ async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
     if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Suppression non autorisée")
     await db.directory_contacts.delete_one({"id": cid})
+    await _log_activity(client_id=existing.get("client_id"), kind="contact", action="deleted", label=existing.get("name") or "(sans nom)", actor=user, target_id=cid)
     return {"ok": True}
 
 
@@ -9701,6 +9903,8 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     }
     try: await db.whatsapp_messages.insert_one(log.copy())
     except Exception: pass
+    if log.get("status") in ("sent", "queued") and log.get("client_id"):
+        await _log_activity(client_id=log["client_id"], kind="whatsapp", action="sent", label=f"→ {contact_doc.get('name') or to_number}", actor=user, target_id=log.get("id"))
     log.pop("_id", None)
     return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
 
@@ -10201,6 +10405,8 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
     }
     await db.sms_messages.insert_one(doc.copy())
     doc.pop("_id", None)
+    if result.get("ok"):
+        await _log_activity(client_id=parent_id, kind="sms", action="sent", label=f"→ {real_to}", actor=user, target_id=doc["id"])
     return {"ok": result.get("ok"), "provider": result.get("provider"), "status": result.get("status"),
             "error": None if result.get("ok") else _safe_text(result.get("api_message")),
             "http_status": result.get("http_status"), "id": doc["id"]}
@@ -10218,6 +10424,11 @@ async def me_sms_messages(limit: int = 100, contact_id: Optional[str] = None, us
     if contact_id:
         query["contact_id"] = contact_id
     items = await db.sms_messages.find(query, {"_id": 0}).sort("created_at", -1).to_list(min(max(limit, 1), 500))
+    # Iter34u — When anon_communications is ON, restrict to SMS exchanged by
+    # the current user only.
+    restrictions = await _resolve_content_restrictions(user)
+    if restrictions.get("anon_communications"):
+        items = [m for m in items if (m.get("sender_id") == user["id"] or m.get("owner_id") == user["id"])]
     return items
 
 
@@ -10872,6 +11083,11 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
         {"client_id": {"$in": visible_scope}, "$or": or_clauses},
         {"_id": 0},
     ).sort("created_at", 1).to_list(1000)
+    # Iter34u — When anon_communications is ON, restrict to messages
+    # exchanged by the current user only (sender_id or owner_id match).
+    restrictions = await _resolve_content_restrictions(user)
+    if restrictions.get("anon_communications"):
+        items = [m for m in items if (m.get("sender_id") == user["id"] or m.get("owner_id") == user["id"])]
     # Compute the 24h Meta customer service window from the latest inbound
     last_inbound_at: Optional[str] = None
     for m in reversed(items):
@@ -10986,6 +11202,15 @@ async def whatsapp_webhook_incoming(request: Request):
                         "read_by_us_at": None,
                     }
                     await db.whatsapp_messages.insert_one(doc)
+                    # Iter34x — activity log for inbound WA
+                    await _log_activity(
+                        client_id=scope_for_msg,
+                        kind="whatsapp",
+                        action="received",
+                        label=f"← {profile_name or (contact or {}).get('name') or from_num}",
+                        actor={"id": "_system_", "full_name": "WhatsApp webhook"},
+                        target_id=doc.get("id"),
+                    )
                     # Persist the latest profile name on the contact (or create a
                     # "wa_unmapped" record so the admin can review and import it).
                     if profile_name:
@@ -12221,6 +12446,21 @@ async def me_list_forms(user: dict = Depends(get_current_user)):
 @api.post("/me/forms", tags=["Formulaires"])
 async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_user)):
     client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
+    # Iter34t — Reject duplicate form titles within the same client scope
+    # (case-insensitive, trimmed). The frontend exposes /me/forms/title-suggestions
+    # so users can autocomplete + check before submitting.
+    title_norm = (payload.title or "").strip()
+    if not title_norm:
+        raise HTTPException(status_code=400, detail="Titre requis")
+    existing = await db.forms.find_one(
+        {"client_id": client_scope, "title": {"$regex": f"^\\s*{re.escape(title_norm)}\\s*$", "$options": "i"}},
+        {"_id": 0, "id": 1, "title": 1, "number": 1},
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Un formulaire portant le titre « {existing.get('title')} » existe déjà ({existing.get('number')}). Choisissez un autre titre.",
+        )
     client = await db.users.find_one({"id": client_scope}, {"_id": 0, "client_code": 1, "company": 1, "full_name": 1})
     code = (client or {}).get("client_code") or _slugify_code((client or {}).get("company") or (client or {}).get("full_name") or "X")
     number = await _next_form_number(code)
@@ -12229,7 +12469,7 @@ async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_u
         "client_id": client_scope,
         "client_code": code,
         "number": f"FORM-{code}-{number:04d}",
-        "title": payload.title,
+        "title": title_norm,
         "description": payload.description or "",
         "is_public": payload.is_public,
         "pages": [p.model_dump() for p in (payload.pages or [FormPage(id=_uuid(), title="Page 1", fields=[])])],
@@ -12241,6 +12481,26 @@ async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_u
     }
     await db.forms.insert_one(doc.copy())
     return _form_serialize(doc)
+
+
+# Iter34t — Expose existing form titles for the same client scope so the
+# create form UI can suggest them as a datalist (prevents typo duplicates).
+@api.get("/me/forms/title-suggestions", tags=["Formulaires"])
+async def me_forms_title_suggestions(user: dict = Depends(get_current_user)):
+    client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
+    items = await db.forms.find({"client_id": client_scope}, {"_id": 0, "title": 1, "number": 1}).sort("created_at", -1).to_list(500)
+    seen = set()
+    out: List[Dict[str, str]] = []
+    for it in items:
+        t = (it.get("title") or "").strip()
+        if not t:
+            continue
+        key = t.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        out.append({"title": t, "number": it.get("number")})
+    return {"items": out}
 
 
 @api.get("/me/forms/{form_id}", tags=["Formulaires"])
@@ -12264,6 +12524,26 @@ async def me_update_form(form_id: str, payload: FormUpdate, user: dict = Depends
         raise HTTPException(status_code=404, detail="Formulaire introuvable")
     await _require_owner_or_admin(form, user)
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Iter34t — block rename to a name already in use by another form of the
+    # same client scope.
+    if "title" in update:
+        new_title = (update["title"] or "").strip()
+        if not new_title:
+            raise HTTPException(status_code=400, detail="Titre requis")
+        dup = await db.forms.find_one(
+            {
+                "client_id": form.get("client_id"),
+                "id": {"$ne": form_id},
+                "title": {"$regex": f"^\\s*{re.escape(new_title)}\\s*$", "$options": "i"},
+            },
+            {"_id": 0, "id": 1, "title": 1, "number": 1},
+        )
+        if dup:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Un autre formulaire porte déjà ce titre ({dup.get('number')}).",
+            )
+        update["title"] = new_title
     if "pages" in update:
         update["pages"] = [p if isinstance(p, dict) else p.model_dump() for p in update["pages"]]
     update["updated_at"] = _now()
@@ -12667,6 +12947,66 @@ async def me_form_analytics_detail(
         "by_country": agg["by_country"],
         "top_authors": agg["top_authors"],
         "recent": recent,
+    }
+
+
+# Iter34v — Tabular view of submissions for a form.
+# Used by the UI to render submissions inline (instead of relying solely on
+# the aggregated analytics) so the admin can confirm the data BEFORE exporting.
+@api.get("/me/forms/{form_id}/submissions-table", tags=["Formulaires"])
+async def me_form_submissions_table(
+    form_id: str,
+    user: dict = Depends(get_current_user),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    limit: int = Query(500, ge=1, le=5000),
+):
+    form = await db.forms.find_one({"id": form_id}, {"_id": 0})
+    if not form:
+        raise HTTPException(status_code=404, detail="Formulaire introuvable")
+    await _require_owner_or_admin(form, user)
+    df = _parse_date(date_from); dt = _parse_date(date_to)
+    match: Dict[str, Any] = {"form_id": form_id}
+    rng: Dict[str, Any] = {}
+    if df: rng["$gte"] = df.isoformat()
+    if dt: rng["$lte"] = dt.isoformat()
+    if rng:
+        match["created_at"] = rng
+    # Flatten the form pages into ordered (id, label) tuples for the columns
+    columns: List[Dict[str, str]] = []
+    seen = set()
+    for page in (form.get("pages") or []):
+        for field in (page.get("fields") or []):
+            fid = field.get("id")
+            if fid and fid not in seen:
+                seen.add(fid)
+                columns.append({"id": fid, "label": field.get("label") or fid, "type": field.get("type") or "text"})
+    subs = await db.form_submissions.find(match, {"_id": 0}).sort("created_at", -1).to_list(limit)
+    rows: List[Dict[str, Any]] = []
+    for s in subs:
+        ts = s.get("created_at")
+        ts_str = ts.isoformat() if isinstance(ts, datetime) else str(ts or "")
+        row: Dict[str, Any] = {
+            "id": s.get("id"),
+            "created_at": ts_str,
+            "user_label": s.get("user_label") or "—",
+            "anonymous": bool(s.get("anonymous")),
+            "respondent_email": s.get("respondent_email") or "",
+            "geo": s.get("geo") or {},
+            "source_ip": s.get("source_ip") or "",
+        }
+        data = s.get("data") or {}
+        for col in columns:
+            v = data.get(col["id"])
+            if isinstance(v, (list, dict)):
+                v = json.dumps(v, ensure_ascii=False)
+            row[col["id"]] = v
+        rows.append(row)
+    return {
+        "form": {"id": form["id"], "number": form.get("number"), "title": form.get("title")},
+        "columns": columns,
+        "rows": rows,
+        "total": len(rows),
     }
 
 

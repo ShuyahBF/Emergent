@@ -566,6 +566,7 @@ export default function AdminSettings() {
         <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
         <WaTestPanel />
+        <WaWebhookLogsPanel />
       </Section>
 
       <Section icon={Mic} title="Transcription audio (OpenAI Whisper)">
@@ -2943,6 +2944,115 @@ const WaTestPanel = () => {
               </li>
             ))}
           </ul>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Iter35a — Webhook payloads inspector. Show the last N raw payloads Meta
+// has pushed to /api/whatsapp/webhook so the admin can debug "I'm not
+// receiving messages" without server log access. Each row is collapsible
+// and shows the parsed JSON.
+const WaWebhookLogsPanel = () => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [opened, setOpened] = useState({});
+  const [expanded, setExpanded] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/whatsapp/webhook-logs?limit=50");
+      setItems(r.data?.items || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec du chargement des logs");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearAll = async () => {
+    if (!window.confirm("Purger tous les logs de webhook ?")) return;
+    try {
+      const r = await apiClient.delete("/admin/whatsapp/webhook-logs");
+      toast.success(`${r.data?.deleted || 0} logs supprimés`);
+      setItems([]);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-dashed border-amber-400/60 bg-amber-50/50 p-4 space-y-3" data-testid="wa-webhook-logs-panel">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="text-xs text-slate-600">
+          <p className="font-semibold text-slate-800">Inspecter les payloads Meta entrants</p>
+          <p>Affiche les 50 derniers appels reçus sur <code className="bg-white px-1 rounded">/api/whatsapp/webhook</code>. Utile quand vos clients vous écrivent et que rien n'apparaît : vous voyez ici si Meta vous appelle bien (et exactement quel JSON il envoie).</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => { setOpened((o) => ({ ...o, root: !o.root })); if (!opened.root) load(); }}
+            data-testid="wa-webhook-logs-toggle"
+            className="inline-flex items-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:brightness-110"
+          >
+            {opened.root ? "Fermer" : "Charger les payloads"}
+          </button>
+          {opened.root && (
+            <>
+              <button
+                type="button"
+                onClick={load}
+                disabled={loading}
+                data-testid="wa-webhook-logs-refresh"
+                className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 border hover:bg-slate-50 disabled:opacity-60"
+              >
+                {loading ? <RotateCcw className="h-3.5 w-3.5 animate-spin" /> : <RotateCcw className="h-3.5 w-3.5" />}
+                Actualiser
+              </button>
+              <button
+                type="button"
+                onClick={clearAll}
+                data-testid="wa-webhook-logs-clear"
+                className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-rose-700 border hover:bg-rose-50"
+              >
+                Purger
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+      {opened.root && (
+        <div className="space-y-2" data-testid="wa-webhook-logs-list">
+          {loading && <p className="text-xs text-slate-500">Chargement…</p>}
+          {!loading && items.length === 0 && (
+            <p className="text-xs text-slate-500 italic">Aucun appel reçu. Si vos clients vous écrivent et que ce panneau reste vide, votre webhook n'est pas accessible par Meta (vérifiez l'URL et le Verify Token dans Meta Business Suite → WhatsApp → Configuration).</p>
+          )}
+          {!loading && items.map((it) => {
+            const isExp = expanded[it.id];
+            const hasErr = (it.errors || []).length > 0;
+            return (
+              <div key={it.id} className={`rounded border ${hasErr ? "border-rose-300 bg-rose-50/40" : "border-slate-200 bg-white"} p-2 text-xs`} data-testid={`wa-webhook-log-${it.id}`}>
+                <div className="flex items-center justify-between gap-2 cursor-pointer" onClick={() => setExpanded((e) => ({ ...e, [it.id]: !e[it.id] }))}>
+                  <div className="flex-1">
+                    <span className="font-semibold text-slate-800">{new Date(it.received_at).toLocaleString("fr-FR")}</span>
+                    <span className="ml-2 text-slate-500">{it.entry_count} entry{it.entry_count > 1 ? "ies" : "y"} · {it.extracted_messages} msg · {it.extracted_statuses} status · inserted={it.inserted_messages}</span>
+                  </div>
+                  {hasErr && <span className="rounded bg-rose-100 text-rose-800 px-1.5 py-0.5 text-[10px] font-semibold">{it.errors.length} erreur(s)</span>}
+                </div>
+                {isExp && (
+                  <pre className="mt-2 p-2 bg-slate-900 text-emerald-200 rounded overflow-auto max-h-64 text-[10px] leading-relaxed">{JSON.stringify(it.body, null, 2)}</pre>
+                )}
+                {isExp && hasErr && (
+                  <div className="mt-2 p-2 bg-rose-50 border border-rose-200 rounded text-rose-900">
+                    <div className="font-semibold mb-1">Erreurs d'extraction :</div>
+                    <ul className="list-disc ml-4">{it.errors.map((e, i) => <li key={i}>{e}</li>)}</ul>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

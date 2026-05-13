@@ -3531,46 +3531,128 @@ async def _build_snapshot_payload(mask_secrets: bool = True) -> tuple[dict, dict
 async def _apply_snapshot(payload: dict, mode: str, dry_run: bool = False) -> dict:
     """Restore a snapshot. mode='replace' wipes each collection before insert.
     mode='merge' upserts by `id` field (or by `email` for users). Returns a
-    summary dict {collection: {before, after, action}}."""
+    summary dict {collection: {before, after, action, error?}}.
+
+    Hardened (iter35a): per-collection try/except so one bad collection
+    doesn't 500 the whole import; insert_many uses ordered=False to skip
+    duplicate-key rows; settings is special-cased to preserve the
+    `_id='global'` singleton anchor.
+    """
     collections = payload.get("collections") or {}
     summary: Dict[str, Dict[str, Any]] = {}
+    if mode not in ("replace", "merge"):
+        raise HTTPException(status_code=400, detail=f"mode invalide: {mode}")
+
+    INSERT_CHUNK = 500
+    # Settings docs are singletons keyed by string _id (e.g., 'global'). The
+    # snapshot strips _id on export → we must restore it for these docs.
+    SETTINGS_SINGLETON_COLLECTIONS = {"settings"}
+
+    def _strip_id(r: dict) -> dict:
+        return {k: v for k, v in r.items() if k != "_id"}
+
+    def _settings_anchor_id(r: dict) -> str:
+        # If we ever export with _id preserved use it; otherwise default to 'global'.
+        return r.get("_id_anchor") or r.get("settings_key") or "global"
+
     for name in SNAPSHOT_COLLECTIONS:
+        # Only act on collections that are actually present in the snapshot.
+        # A partial snapshot must NOT cascade-wipe unrelated collections.
+        if name not in collections:
+            continue
         rows = collections.get(name) or []
-        before = await db[name].count_documents({})
+        try:
+            before = await db[name].count_documents({})
+        except Exception as exc:  # noqa: BLE001
+            summary[name] = {"before": None, "incoming": len(rows), "action": "error", "error": f"count failed: {exc}"}
+            continue
+
         if dry_run:
             summary[name] = {"before": before, "incoming": len(rows), "action": "dry-run"}
             continue
-        if mode == "replace":
-            await db[name].delete_many({})
-            if rows:
-                # remove any stray _id keys
-                clean = [{k: v for k, v in r.items() if k != "_id"} for r in rows]
-                await db[name].insert_many(clean)
-            after = await db[name].count_documents({})
-            summary[name] = {"before": before, "after": after, "incoming": len(rows), "action": "replaced"}
-        elif mode == "merge":
-            merged = 0
-            inserted = 0
-            for r in rows:
-                key = None
-                if name == "users" and r.get("email"):
-                    key = {"email": r["email"]}
-                elif r.get("id"):
-                    key = {"id": r["id"]}
-                if not key:
-                    await db[name].insert_one({k: v for k, v in r.items() if k != "_id"})
-                    inserted += 1
-                    continue
-                doc = {k: v for k, v in r.items() if k != "_id"}
-                res = await db[name].update_one(key, {"$set": doc}, upsert=True)
-                if res.upserted_id is not None:
-                    inserted += 1
-                else:
-                    merged += 1
-            after = await db[name].count_documents({})
-            summary[name] = {"before": before, "after": after, "incoming": len(rows), "merged": merged, "inserted": inserted, "action": "merged"}
-        else:
-            raise HTTPException(status_code=400, detail=f"mode invalide: {mode}")
+
+        try:
+            if mode == "replace":
+                await db[name].delete_many({})
+                inserted_n = 0
+                errors: List[str] = []
+                if rows:
+                    if name in SETTINGS_SINGLETON_COLLECTIONS:
+                        # Singleton(s) with string _id — insert one-by-one and
+                        # re-anchor the `_id` to its canonical value so future
+                        # `find_one({"_id": "global"})` still resolves.
+                        for r in rows:
+                            doc = _strip_id(r)
+                            doc["_id"] = _settings_anchor_id(r)
+                            try:
+                                await db[name].replace_one({"_id": doc["_id"]}, doc, upsert=True)
+                                inserted_n += 1
+                            except Exception as exc:  # noqa: BLE001
+                                errors.append(str(exc)[:150])
+                    else:
+                        clean = [_strip_id(r) for r in rows]
+                        # Chunked, unordered: keep going on duplicate-key / validation errors
+                        for i in range(0, len(clean), INSERT_CHUNK):
+                            batch = clean[i:i + INSERT_CHUNK]
+                            try:
+                                res = await db[name].insert_many(batch, ordered=False)
+                                inserted_n += len(res.inserted_ids)
+                            except Exception as exc:  # noqa: BLE001
+                                # BulkWriteError still inserts the non-conflicting docs
+                                details = getattr(exc, "details", None) or {}
+                                ok_n = (details.get("nInserted") if isinstance(details, dict) else None)
+                                if isinstance(ok_n, int):
+                                    inserted_n += ok_n
+                                errors.append(f"batch {i // INSERT_CHUNK}: {str(exc)[:200]}")
+                after = await db[name].count_documents({})
+                entry = {"before": before, "after": after, "incoming": len(rows),
+                         "inserted": inserted_n, "action": "replaced"}
+                if errors:
+                    entry["errors"] = errors[:5]
+                    entry["error_count"] = len(errors)
+                summary[name] = entry
+
+            else:  # merge
+                merged = 0
+                inserted_n = 0
+                errors: List[str] = []
+                for r in rows:
+                    try:
+                        key = None
+                        if name == "users" and r.get("email"):
+                            key = {"email": r["email"]}
+                        elif name in SETTINGS_SINGLETON_COLLECTIONS:
+                            key = {"_id": _settings_anchor_id(r)}
+                        elif r.get("id"):
+                            key = {"id": r["id"]}
+                        doc = _strip_id(r)
+                        if name in SETTINGS_SINGLETON_COLLECTIONS:
+                            doc["_id"] = _settings_anchor_id(r)
+                        if not key:
+                            await db[name].insert_one(doc)
+                            inserted_n += 1
+                            continue
+                        res = await db[name].update_one(key, {"$set": doc}, upsert=True)
+                        if res.upserted_id is not None:
+                            inserted_n += 1
+                        else:
+                            merged += 1
+                    except Exception as exc:  # noqa: BLE001
+                        errors.append(str(exc)[:200])
+                after = await db[name].count_documents({})
+                entry = {"before": before, "after": after, "incoming": len(rows),
+                         "merged": merged, "inserted": inserted_n, "action": "merged"}
+                if errors:
+                    entry["errors"] = errors[:5]
+                    entry["error_count"] = len(errors)
+                summary[name] = entry
+
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("snapshot apply collection=%s failed", name)
+            summary[name] = {"before": before, "incoming": len(rows), "action": "error",
+                             "error": str(exc)[:300]}
+            continue
+
     return summary
 
 
@@ -4177,7 +4259,16 @@ async def admin_import_snapshot(
         raise HTTPException(status_code=400, detail=f"Fichier invalide: {e}")
     if not isinstance(payload, dict) or "collections" not in payload:
         raise HTTPException(status_code=400, detail="Format de snapshot non reconnu")
-    summary = await _apply_snapshot(payload, mode=mode, dry_run=is_dry)
+    try:
+        summary = await _apply_snapshot(payload, mode=mode, dry_run=is_dry)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("snapshot import crashed (dry_run=%s, mode=%s)", is_dry, mode)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Échec de l'importation: {str(exc)[:300]}",
+        )
     # Persist an import log entry
     log = {
         "id": _uuid(),
@@ -11160,11 +11251,34 @@ async def whatsapp_webhook_verify(
 @api.post("/whatsapp/webhook", tags=["Webhook"])
 async def whatsapp_webhook_incoming(request: Request):
     """Receive Meta Cloud API events: new inbound messages + outbound status updates.
-    Shape: {object:'whatsapp_business_account', entry:[{changes:[{value:{...}}]}]}"""
+    Shape: {object:'whatsapp_business_account', entry:[{changes:[{value:{...}}]}]}
+
+    Hardened (iter35a): every webhook hit is persisted to
+    `db.wa_webhook_logs` (capped to ~200 entries) with the raw payload + an
+    extraction summary so production issues can be diagnosed without server
+    access. Lookup via GET /api/admin/whatsapp/webhook-logs.
+    """
+    raw_bytes = b""
     try:
-        body = await request.json()
-    except Exception:
-        return {"ok": True}  # malformed → don't let Meta retry
+        raw_bytes = await request.body()
+    except Exception:  # noqa: BLE001
+        pass
+
+    body: Dict[str, Any] = {}
+    parse_error = None
+    try:
+        body = json.loads(raw_bytes.decode("utf-8")) if raw_bytes else {}
+    except Exception as exc:  # noqa: BLE001
+        parse_error = str(exc)[:200]
+
+    # ------------------------------------------------------------------
+    # Persist a debug log entry (best-effort, never blocks Meta).
+    # We keep only the last ~200 entries via a periodic prune.
+    # ------------------------------------------------------------------
+    extracted_messages = 0
+    extracted_statuses = 0
+    inserted_messages = 0
+    errors: List[str] = []
 
     client_scope = None  # our app uses per-install WABA, so scope = primary client/superviseur
     try:
@@ -11188,6 +11302,7 @@ async def whatsapp_webhook_incoming(request: Request):
                     profile_by_wa[wa_id] = pname
             # --- Inbound messages ---
             for msg in val.get("messages") or []:
+                extracted_messages += 1
                 try:
                     from_num = msg.get("from") or ""
                     digits_only = "".join(ch for ch in from_num if ch.isdigit())
@@ -11199,10 +11314,23 @@ async def whatsapp_webhook_incoming(request: Request):
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
                         text_body = f"[{mtype} reçu]"
                     elif mtype == "button":
-                        text_body = (msg.get("button") or {}).get("text")
+                        # Quick-reply button on a template — `button.text` is
+                        # the visible label, `button.payload` the data.
+                        btn = msg.get("button") or {}
+                        text_body = btn.get("text") or btn.get("payload")
                     elif mtype == "interactive":
                         interactive = msg.get("interactive") or {}
-                        text_body = (interactive.get("button_reply") or interactive.get("list_reply") or {}).get("title")
+                        reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
+                        text_body = reply.get("title") or reply.get("id")
+                    elif mtype == "reaction":
+                        text_body = f"[réaction {((msg.get('reaction') or {}).get('emoji') or '')}]"
+                    elif mtype == "location":
+                        loc = msg.get("location") or {}
+                        text_body = f"[position {loc.get('latitude')},{loc.get('longitude')}]"
+                    elif mtype == "contacts":
+                        text_body = "[carte de contact reçue]"
+                    else:
+                        text_body = f"[{mtype} non géré]"
                     ts_raw = int(msg.get("timestamp") or 0)
                     ts_iso = datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat() if ts_raw else _now()
                     # Find contact by phone within the scope
@@ -11228,6 +11356,7 @@ async def whatsapp_webhook_incoming(request: Request):
                         "read_by_us_at": None,
                     }
                     await db.whatsapp_messages.insert_one(doc)
+                    inserted_messages += 1
                     # Iter34x — activity log for inbound WA
                     await _log_activity(
                         client_id=scope_for_msg,
@@ -11288,9 +11417,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("liluvine cmd parse failed: %s", exc)
                 except Exception as exc:  # noqa: BLE001
+                    err = f"inbound[{mtype if 'mtype' in locals() else '?'}]: {exc!r}"
+                    errors.append(err[:250])
                     logger.warning("WA inbound parse failed: %s", exc)
             # --- Status updates for outbound ---
             for st in val.get("statuses") or []:
+                extracted_statuses += 1
                 try:
                     mid = st.get("id")
                     status_val = st.get("status") or ""  # sent | delivered | read | failed
@@ -11315,10 +11447,76 @@ async def whatsapp_webhook_incoming(request: Request):
                         if errs:
                             update["wa_error_code"] = errs[0].get("code")
                             update["wa_error_message"] = errs[0].get("message") or errs[0].get("title")
-                    await db.whatsapp_messages.update_one({"message_id": mid}, {"$set": update})
+                    # Match by both possible keys (legacy schema used `message_id`,
+                    # new inbound schema uses `wa_message_id`). Try both.
+                    res = await db.whatsapp_messages.update_one(
+                        {"$or": [{"message_id": mid}, {"wa_message_id": mid}]},
+                        {"$set": update},
+                    )
+                    if res.matched_count == 0:
+                        # Stash so the matching outbound row can self-heal later
+                        await db.wa_pending_statuses.update_one(
+                            {"message_id": mid},
+                            {"$set": {**update, "message_id": mid, "received_at": _now()}},
+                            upsert=True,
+                        )
                 except Exception as exc:  # noqa: BLE001
+                    errors.append(f"status: {exc!r}"[:250])
                     logger.warning("WA status parse failed: %s", exc)
+
+    # Persist the debug log entry (best-effort)
+    try:
+        log_entry = {
+            "id": _uuid(),
+            "received_at": _now(),
+            "client_ip": (request.client.host if request.client else None),
+            "headers": {k: v for k, v in request.headers.items() if k.lower() in (
+                "user-agent", "x-hub-signature", "x-hub-signature-256", "content-type", "x-forwarded-for",
+            )},
+            "raw_bytes_len": len(raw_bytes),
+            "parse_error": parse_error,
+            "object": body.get("object"),
+            "entry_count": len(body.get("entry") or []),
+            "extracted_messages": extracted_messages,
+            "extracted_statuses": extracted_statuses,
+            "inserted_messages": inserted_messages,
+            "errors": errors[:10],
+            "body": body if len(raw_bytes) < 30000 else {"_truncated": True, "preview": (raw_bytes[:2000].decode("utf-8", errors="replace") if raw_bytes else "")},
+        }
+        await db.wa_webhook_logs.insert_one(log_entry)
+        # Cap retention at 200 entries (delete oldest beyond)
+        total = await db.wa_webhook_logs.count_documents({})
+        if total > 220:
+            cutoff = await db.wa_webhook_logs.find(
+                {}, {"_id": 0, "received_at": 1}
+            ).sort("received_at", -1).skip(200).limit(1).to_list(1)
+            if cutoff:
+                await db.wa_webhook_logs.delete_many({"received_at": {"$lt": cutoff[0]["received_at"]}})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("wa_webhook_logs persist failed: %s", exc)
+
     return {"ok": True}
+
+
+@api.get("/admin/whatsapp/webhook-logs", tags=["Admin"])
+async def admin_list_wa_webhook_logs(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: dict = Depends(get_current_admin),
+):
+    """Iter35a — Read the last `limit` raw webhook payloads received from
+    Meta. Useful when inbound messages stop appearing in the UI: lets the
+    admin verify Meta is actually hitting the endpoint and inspect the
+    exact payload shape (button vs interactive vs text)."""
+    items = await db.wa_webhook_logs.find({}, {"_id": 0}).sort("received_at", -1).to_list(limit)
+    return {"items": items, "count": len(items)}
+
+
+@api.delete("/admin/whatsapp/webhook-logs", tags=["Admin"])
+async def admin_clear_wa_webhook_logs(_: dict = Depends(get_current_admin)):
+    """Purge all stored webhook payloads."""
+    res = await db.wa_webhook_logs.delete_many({})
+    return {"ok": True, "deleted": res.deleted_count}
+
 
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
@@ -12197,7 +12395,12 @@ async def admin_delete_schedule(sid: str, _: dict = Depends(get_current_admin)):
 
 
 async def _run_scheduled_whatsapp():
-    """Cron job (runs every minute) — execute any pending schedule whose scheduled_at <= now."""
+    """Cron job (runs every minute) — execute any pending schedule whose scheduled_at <= now.
+
+    Iter35a hardening: per-schedule try/except so one failing schedule doesn't
+    leave others stuck in `running`. The final status update also captures
+    a top-level `error` string in result_summary on hard failure.
+    """
     try:
         now_iso = datetime.now(timezone.utc).isoformat()
         due = await db.whatsapp_schedules.find(
@@ -12358,6 +12561,21 @@ async def _run_scheduled_whatsapp():
                 })
             sent_ok = sum(1 for x in results if x["ok"])
             final_status = "done" if sent_ok > 0 or not results else "failed"
+            # Iter35a — surface a human-readable reason when the whole batch failed
+            # so the user can debug from the UI (was previously a silent "failed"
+            # without any reason in result_summary).
+            top_error = None
+            if final_status == "failed":
+                if results:
+                    first_err = next((x.get("error") for x in results if not x.get("ok") and x.get("error")), None)
+                    if first_err:
+                        top_error = first_err
+                    else:
+                        top_error = f"Tous les envois ont échoué ({len(results)}/{len(results)})"
+                elif skipped:
+                    top_error = f"Aucun destinataire valide ({len(skipped)} ignorés)"
+                else:
+                    top_error = "Aucun destinataire dans la programmation"
             await db.whatsapp_schedules.update_one(
                 {"id": sc["id"]},
                 {"$set": {
@@ -12369,13 +12587,27 @@ async def _run_scheduled_whatsapp():
                         "skipped_count": len(skipped),
                         "skipped": skipped,
                         "results": results,
+                        "error": top_error,
                     },
                     "finished_at": _now(),
                     "updated_at": _now(),
                 }},
             )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("scheduled_whatsapp runner failed: %s", exc)
+        logger.exception("scheduled_whatsapp runner failed")
+        # Release any schedule we may have left stuck in `running` so a retry can re-claim it
+        try:
+            await db.whatsapp_schedules.update_many(
+                {"status": "running", "started_at": {"$lte": _now()}},
+                {"$set": {
+                    "status": "failed",
+                    "result_summary": {"error": f"Crash interne du planificateur: {str(exc)[:200]}"},
+                    "finished_at": _now(),
+                    "updated_at": _now(),
+                }},
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
 
 # ====================================================================

@@ -3,6 +3,30 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter35a (2026-05-13) — 3 P0 production bug fixes
+
+🔴 **Fixed (production-impacting)** :
+- **Snapshot Import** (`POST /api/admin/snapshots/import`) :
+  - Now preserves `settings._id="global"` singleton anchor in REPLACE mode (was wiping it → all subsequent settings lookups returned None, breaking WhatsApp/SMTP/payment config).
+  - Partial snapshots no longer cascade-wipe unrelated collections (only acts on collections actually present in the payload).
+  - Per-collection try/except surfaces `action: "error"` with reason instead of HTTP 500.
+  - `insert_many(ordered=False)` + chunked batches of 500 → resilient against duplicate-key & validation errors.
+- **WhatsApp Webhook** (`POST /api/whatsapp/webhook`) :
+  - Persists EVERY hit (raw payload + extraction summary) to `db.wa_webhook_logs` (capped to 200 entries).
+  - Handles `button`, `interactive`, `reaction`, `location`, `contacts` message types explicitly (was missing reaction/location/contacts).
+  - Status updates match by both `wa_message_id` and legacy `message_id`; unmatched statuses go to `wa_pending_statuses` for later reconciliation.
+  - New admin endpoints: `GET /api/admin/whatsapp/webhook-logs?limit=N` + `DELETE /api/admin/whatsapp/webhook-logs`.
+  - New UI panel in Admin Settings → WhatsApp section: "Inspecter les payloads Meta entrants" (collapsible, JSON-pretty, error-highlighted).
+- **Scheduled WhatsApp sends** (`_run_scheduled_whatsapp`) :
+  - `result_summary.error` now surfaces a human-readable reason when sent_ok=0 (was silent "failed").
+  - Top-level scheduler crash now releases stuck `running` schedules back to `failed` with the error.
+
+✅ **Tests**: `backend/tests/test_iter35a_critical_bugs.py` — 6 new tests, all pass. Existing `test_iter34_snapshots.py` (12 tests) still passes.
+
+🚨 **Production deployment required** : Click "Save to GitHub" in this conversation to push these fixes to your live site.
+
+---
+
 ## User Choices
 - **OTP** : par email via SMTP (paramétrable depuis l'admin)
 - **Captcha** : Google reCAPTCHA v2 (clés paramétrables admin)

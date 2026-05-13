@@ -11518,6 +11518,179 @@ async def admin_clear_wa_webhook_logs(_: dict = Depends(get_current_admin)):
     return {"ok": True, "deleted": res.deleted_count}
 
 
+# ============================================================
+# Iter35b — WhatsApp inbound silence detector.
+#
+# Why: when Meta stops calling our webhook (token mismatch, ad-account
+# review, regional outage, …) the symptom is invisible to the user — they
+# see their outbound bulk sends succeed but never get the replies. The
+# CRM looks empty even though customers ARE replying.
+#
+# How: every 4 hours we count outbound WA messages sent in the trailing
+# `window_hours` (default 24) and webhook hits received in the same
+# window. If outbound >= `threshold` AND inbound == 0, we fire an alert
+# (email + optional Discord) and stamp `wa_silence_alert_last_fired_at`
+# to avoid spamming. The check is also exposed as a manual admin endpoint.
+# ============================================================
+async def _run_wa_silence_check(triggered_by: str = "cron") -> dict:
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    enabled = bool(s.get("wa_silence_alert_enabled"))
+    threshold = int(s.get("wa_silence_alert_threshold") or 3)
+    window_hours = max(1, min(int(s.get("wa_silence_alert_window_hours") or 24), 168))
+
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=window_hours)
+    cutoff_iso = cutoff.isoformat()
+
+    # Count outbound WA messages sent in the window (direction != inbound).
+    # The schema mixes legacy {to, template_name} rows and new {direction: 'outbound'}
+    # rows, so we count any message that isn't explicitly marked inbound.
+    outbound_n = await db.whatsapp_messages.count_documents({
+        "$and": [
+            {"created_at": {"$gte": cutoff_iso}},
+            {"direction": {"$ne": "inbound"}},
+        ],
+    })
+    inbound_webhook_n = await db.wa_webhook_logs.count_documents({
+        "received_at": {"$gte": cutoff_iso},
+    })
+    # Optional: also count inbound messages persisted (catches the case where
+    # webhook IS firing but logs got purged).
+    inbound_msg_n = await db.whatsapp_messages.count_documents({
+        "$and": [
+            {"created_at": {"$gte": cutoff_iso}},
+            {"direction": "inbound"},
+        ],
+    })
+
+    silent = (outbound_n >= threshold) and (inbound_webhook_n == 0) and (inbound_msg_n == 0)
+
+    result = {
+        "ok": True,
+        "enabled": enabled,
+        "window_hours": window_hours,
+        "threshold": threshold,
+        "outbound_count": outbound_n,
+        "inbound_webhook_count": inbound_webhook_n,
+        "inbound_message_count": inbound_msg_n,
+        "silent": silent,
+        "fired": False,
+        "triggered_by": triggered_by,
+        "checked_at": _now(),
+    }
+
+    if not (enabled and silent):
+        return result
+
+    # Throttle — only fire once per window_hours
+    last_fired = s.get("wa_silence_alert_last_fired_at")
+    if last_fired:
+        try:
+            last_dt = datetime.fromisoformat(last_fired.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - last_dt).total_seconds() < window_hours * 3600:
+                result["fired"] = False
+                result["throttled_until"] = (last_dt + timedelta(hours=window_hours)).isoformat()
+                return result
+        except Exception:  # noqa: BLE001
+            pass
+
+    # ----- Fire the alert -----
+    recipient = (s.get("wa_silence_alert_email_to") or s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
+    discord_url = (s.get("wa_silence_alert_discord_webhook") or "").strip()
+
+    subject = f"[SAWALI ALERT] WhatsApp silence ({window_hours}h)"
+    html = (
+        f"<div style='font-family:Arial,sans-serif;'>"
+        f"<h3 style='color:#EF4444'>🚨 Aucun webhook WhatsApp reçu depuis {window_hours} h</h3>"
+        f"<p>Votre instance a envoyé <b>{outbound_n}</b> message(s) WhatsApp ces dernières <b>{window_hours}</b> heures, "
+        f"mais Meta n'a appelé votre webhook <code>/api/whatsapp/webhook</code> <b>0 fois</b>.</p>"
+        f"<p>Symptômes probables :</p>"
+        f"<ul>"
+        f"<li>Verify Token modifié côté Meta sans mise à jour ici (ou vice-versa)</li>"
+        f"<li>URL du webhook expirée / fermée côté Meta Business Suite</li>"
+        f"<li>Numéro de téléphone WABA temporairement suspendu</li>"
+        f"<li>Incident régional côté Meta (vérifier <a href='https://metastatus.com/'>metastatus.com</a>)</li>"
+        f"</ul>"
+        f"<p><b>Action recommandée :</b> ouvrez <a href='https://business.facebook.com/wa/manage/home/'>Meta Business Suite → WhatsApp → Configuration</a> "
+        f"et cliquez « Tester » sur la ligne du webhook. Puis ouvrez votre panneau d'admin → Paramètres → "
+        f"« Inspecter les payloads Meta entrants » pour confirmer.</p>"
+        f"<hr/><p style='color:#64748B;font-size:12px;'>Détection automatique — {result['checked_at']}.</p>"
+        f"</div>"
+    )
+    text = (
+        f"WA SILENCE — {outbound_n} outbound, 0 inbound on the last {window_hours}h.\n"
+        f"Check Meta Business Suite → WhatsApp → Configuration."
+    )
+
+    sent_email = False
+    try:
+        from email_service import send_email
+        sent_email = bool(await send_email(recipient, subject, html, text))
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("WA silence alert email failed: %s", exc)
+
+    sent_discord = False
+    if discord_url and discord_url.startswith("http"):
+        try:
+            async with httpx.AsyncClient(timeout=10) as http:
+                disc_payload = {
+                    "content": (
+                        f"🚨 **WhatsApp silence** — {outbound_n} message(s) envoyé(s) en {window_hours} h, "
+                        f"0 webhook reçu. Vérifiez Meta Business Suite → WhatsApp → Configuration."
+                    ),
+                }
+                r = await http.post(discord_url, json=disc_payload)
+                sent_discord = r.status_code < 300
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WA silence discord alert failed: %s", exc)
+
+    await db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {"wa_silence_alert_last_fired_at": _now(), "updated_at": _now()}},
+        upsert=True,
+    )
+    # Audit trail
+    try:
+        await db.wa_silence_alerts.insert_one({
+            "id": _uuid(),
+            "fired_at": _now(),
+            "window_hours": window_hours,
+            "outbound_count": outbound_n,
+            "inbound_webhook_count": inbound_webhook_n,
+            "inbound_message_count": inbound_msg_n,
+            "email_to": recipient if sent_email else None,
+            "email_sent": sent_email,
+            "discord_sent": sent_discord,
+            "triggered_by": triggered_by,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+    result.update({"fired": True, "email_sent": sent_email, "discord_sent": sent_discord, "email_to": recipient})
+    return result
+
+
+@api.post("/admin/whatsapp/silence-check", tags=["Admin"])
+async def admin_run_wa_silence_check(_: dict = Depends(get_current_admin)):
+    """Manually run the WhatsApp silence detector (also runs every 4h via cron).
+    Returns the counts and whether an alert was fired. Useful for testing
+    your email/Discord webhook configuration."""
+    return await _run_wa_silence_check(triggered_by="manual")
+
+
+@api.get("/admin/whatsapp/silence-alerts", tags=["Admin"])
+async def admin_list_wa_silence_alerts(
+    limit: int = Query(default=50, ge=1, le=200),
+    _: dict = Depends(get_current_admin),
+):
+    """List past silence alerts (audit trail)."""
+    items = await db.wa_silence_alerts.find({}, {"_id": 0}).sort("fired_at", -1).to_list(limit)
+    return {"items": items, "count": len(items)}
+
+
+
+
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
 async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
@@ -14392,6 +14565,16 @@ async def on_startup():
                 id="uptime_monitor_hourly",
                 replace_existing=True,
                 misfire_grace_time=600,
+            )
+            # Iter35b — every 4h check whether Meta is calling our WA webhook.
+            async def _scheduled_wa_silence():
+                await _run_wa_silence_check(triggered_by="cron:4h")
+            _scheduler.add_job(
+                _scheduled_wa_silence,
+                CronTrigger(hour="*/4", minute=20, timezone="Africa/Abidjan"),
+                id="wa_silence_detector_4h",
+                replace_existing=True,
+                misfire_grace_time=900,
             )
             # Minute-level WhatsApp scheduler — drains pending schedules due for send.
             _scheduler.add_job(

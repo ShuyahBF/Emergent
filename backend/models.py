@@ -474,6 +474,16 @@ class SettingsUpdate(BaseModel):
     wa_app_id: Optional[str] = None                  # Meta App ID (webhook verification)
     wa_verify_token: Optional[str] = None            # Shared secret for webhook GET verification
     wa_default_language: Optional[str] = None        # Default template language code (e.g. 'fr')
+    # Iter35b — WhatsApp inbound-silence detector
+    # When at least `wa_silence_alert_threshold` outbound messages were sent
+    # in the trailing `wa_silence_alert_window_hours` window AND zero webhook
+    # hits were received from Meta in the same window, fire an alert.
+    # Throttled to once per window via `wa_silence_alert_last_fired_at`.
+    wa_silence_alert_enabled: Optional[bool] = None
+    wa_silence_alert_threshold: Optional[int] = None  # default 3
+    wa_silence_alert_window_hours: Optional[int] = None  # default 24
+    wa_silence_alert_email_to: Optional[str] = None  # defaults to health_email_to
+    wa_silence_alert_discord_webhook: Optional[str] = None  # optional Discord webhook URL
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

@@ -567,6 +567,7 @@ export default function AdminSettings() {
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
         <WaTestPanel />
         <WaWebhookLogsPanel />
+        <WaSilenceAlertPanel s={s} upd={upd} />
       </Section>
 
       <Section icon={Mic} title="Transcription audio (OpenAI Whisper)">
@@ -3053,6 +3054,139 @@ const WaWebhookLogsPanel = () => {
               </div>
             );
           })}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Iter35b — WhatsApp silence detector. Notifies admin (email + optional
+// Discord) when our app sends WA messages but receives ZERO webhook hits
+// from Meta over the configured window. Catches "Meta stopped calling us"
+// failures that would otherwise go undetected for days.
+const WaSilenceAlertPanel = ({ s, upd }) => {
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  const runNow = async () => {
+    setRunning(true);
+    setResult(null);
+    try {
+      const r = await apiClient.post("/admin/whatsapp/silence-check");
+      setResult(r.data);
+      if (r.data?.fired) toast.success("Alerte envoyée (email" + (r.data?.discord_sent ? " + Discord" : "") + ")");
+      else if (r.data?.silent) toast(r.data?.throttled_until ? "Alerte récente — anti-spam actif" : "Silence détecté mais alerte non envoyée");
+      else toast.success("Tout va bien — Meta vous appelle correctement");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  const loadHistory = async () => {
+    try {
+      const r = await apiClient.get("/admin/whatsapp/silence-alerts");
+      setHistory(r.data?.items || []);
+      setHistoryOpen(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec du chargement");
+    }
+  };
+
+  return (
+    <div className="rounded-lg border border-dashed border-rose-300 bg-rose-50/40 p-4 space-y-3" data-testid="wa-silence-alert-panel">
+      <div className="text-xs text-slate-600">
+        <p className="font-semibold text-slate-800">Détecteur de silence WhatsApp (Iter35b)</p>
+        <p>
+          Vous prévient automatiquement par email (et Discord en option) si vous avez envoyé des messages WhatsApp
+          mais que Meta n'a appelé <b>aucun webhook</b> en retour pendant la fenêtre configurée.
+          Le job tourne toutes les 4 h ; vous pouvez aussi le déclencher manuellement ci-dessous.
+        </p>
+      </div>
+      <Toggle
+        label="Activer la détection automatique"
+        value={!!s.wa_silence_alert_enabled}
+        onChange={(v) => upd("wa_silence_alert_enabled", v)}
+        testid="wa-silence-alert-enabled"
+      />
+      <div className="grid sm:grid-cols-3 gap-3">
+        <Input
+          label="Seuil (nb msg envoyés)"
+          type="number"
+          value={String(s.wa_silence_alert_threshold ?? 3)}
+          onChange={(v) => upd("wa_silence_alert_threshold", parseInt(v) || 3)}
+          placeholder="3"
+          testid="wa-silence-threshold"
+        />
+        <Input
+          label="Fenêtre (heures)"
+          type="number"
+          value={String(s.wa_silence_alert_window_hours ?? 24)}
+          onChange={(v) => upd("wa_silence_alert_window_hours", parseInt(v) || 24)}
+          placeholder="24"
+          testid="wa-silence-window"
+        />
+        <Input
+          label="Email destinataire (vide = celui de la santé)"
+          value={s.wa_silence_alert_email_to || ""}
+          onChange={(v) => upd("wa_silence_alert_email_to", v)}
+          placeholder={s.health_email_to || "admin@example.com"}
+          testid="wa-silence-email"
+        />
+      </div>
+      <Input
+        label="Webhook Discord (optionnel — pour ping #ops)"
+        value={s.wa_silence_alert_discord_webhook || ""}
+        onChange={(v) => upd("wa_silence_alert_discord_webhook", v)}
+        placeholder="https://discord.com/api/webhooks/…"
+        testid="wa-silence-discord"
+      />
+      <div className="flex items-center gap-2 flex-wrap">
+        <button
+          type="button"
+          onClick={runNow}
+          disabled={running}
+          data-testid="wa-silence-run-now"
+          className="inline-flex items-center gap-2 rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:brightness-110 disabled:opacity-60"
+        >
+          {running ? <RotateCcw className="h-3.5 w-3.5 animate-spin" /> : <AlertCircle className="h-3.5 w-3.5" />}
+          {running ? "Vérification…" : "Lancer une vérification maintenant"}
+        </button>
+        <button
+          type="button"
+          onClick={loadHistory}
+          data-testid="wa-silence-history"
+          className="inline-flex items-center gap-2 rounded-lg bg-white px-3 py-2 text-xs font-semibold text-slate-700 border hover:bg-slate-50"
+        >
+          Historique des alertes
+        </button>
+      </div>
+      {result && (
+        <div className={`p-3 rounded text-xs ${result.fired ? "bg-rose-100 text-rose-900" : result.silent ? "bg-amber-100 text-amber-900" : "bg-emerald-100 text-emerald-900"}`} data-testid="wa-silence-result">
+          <div className="font-semibold mb-1">
+            {result.fired ? "🚨 Alerte envoyée" : result.silent ? "⚠️ Silence détecté (pas d'envoi : anti-spam)" : "✅ Communication OK"}
+          </div>
+          <div>Fenêtre : {result.window_hours} h · Seuil : {result.threshold}</div>
+          <div>Envoyés : <b>{result.outbound_count}</b> · Webhooks reçus : <b>{result.inbound_webhook_count}</b> · Messages entrants : <b>{result.inbound_message_count}</b></div>
+          {result.fired && result.email_to && <div>Email envoyé à : <code>{result.email_to}</code> {result.discord_sent && " + Discord ✓"}</div>}
+          {result.throttled_until && <div className="mt-1 text-[11px]">Prochaine alerte possible après : {new Date(result.throttled_until).toLocaleString("fr-FR")}</div>}
+        </div>
+      )}
+      {historyOpen && (
+        <div className="space-y-1 text-xs" data-testid="wa-silence-history-list">
+          {history.length === 0 && <p className="italic text-slate-500">Aucune alerte enregistrée pour le moment.</p>}
+          {history.map((h) => (
+            <div key={h.id} className="bg-white border rounded p-2">
+              <div className="font-semibold">{new Date(h.fired_at).toLocaleString("fr-FR")}</div>
+              <div className="text-slate-600">
+                {h.outbound_count} envoyés · 0 reçus · fenêtre {h.window_hours} h ·{" "}
+                {h.email_sent ? "email ✓" : "email ✗"} · {h.discord_sent ? "discord ✓" : "—"} · {h.triggered_by}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

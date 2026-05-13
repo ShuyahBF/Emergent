@@ -3,7 +3,19 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35a (2026-05-13) — 3 P0 production bug fixes
+## Latest — Iter35b (2026-05-13) — WhatsApp silence detector
+
+🟢 **Nouvelle alerte automatique** :
+- Cron `_run_wa_silence_check` lancé toutes les 4 h (Africa/Abidjan, minute 20).
+- Compare le nombre de messages WhatsApp **sortants** (24 h glissantes par défaut) au nombre de webhooks Meta reçus.
+- Si outbound ≥ seuil ET webhooks reçus = 0 → envoie un email + Discord (optionnel) à l'admin pour le prévenir.
+- Throttle : une seule alerte par fenêtre pour éviter le spam (`wa_silence_alert_last_fired_at`).
+- Audit trail dans `db.wa_silence_alerts`.
+- **Endpoints admin** : `POST /api/admin/whatsapp/silence-check` (manuel), `GET /api/admin/whatsapp/silence-alerts` (historique).
+- **UI** : Admin Settings → WhatsApp → "Détecteur de silence WhatsApp" (Iter35b). Toggle, seuil, fenêtre, email, webhook Discord, bouton de test manuel, historique.
+- **Tests** : `backend/tests/test_iter35b_wa_silence.py` (4 tests verts).
+
+## Iter35a (2026-05-13) — 3 P0 production bug fixes
 
 🔴 **Fixed (production-impacting)** :
 - **Snapshot Import** (`POST /api/admin/snapshots/import`) :

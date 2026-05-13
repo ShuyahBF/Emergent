@@ -3957,6 +3957,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Activity feed élargi (rdv/intervention/paiement) + Interventions UI (Client picker + voice note + filtre) + Filtre client Suivis", "backlog_ref": "Iter34y",
      "duration_h": 1.5, "done": True,
      "details": "Élargissement de l'activity feed iter34x: _log_activity wired aussi sur appointments.insert, interventions.insert/delete, payment_links.insert (kinds = appointment / intervention / payment), 3 nouveaux labels FR dans useActivityFeedNotifier. Page Interventions entièrement refondue: dropdown filtre dans l'en-tête de colonne Client lié (compteurs par client), colonne 'Note vocale' avec audio player inline, modal de création avec select Client lié (chargé depuis /me/clients) et nouveau composant VoiceNoteRecorder (MediaRecorder → /me/upload → voice_note_url). Models InterventionCreate/Update + UserNoteCreate/Update enrichis du champ voice_note_url. Page Suivis (UserNotes.jsx) reçoit un select 'Tous les clients liés' avec compteurs par client, useMemo filtré côté front. 31/31 tests iter34 verts maintenus."},
+    {"code": "ACT-0034", "created_at": "2026-05-13T00:30:00+00:00", "done_at": "2026-05-13T00:45:00+00:00",
+     "title": "Transcription automatique des notes vocales (Whisper)", "backlog_ref": "Iter34z",
+     "duration_h": 0.25, "done": True,
+     "details": "VoiceNoteRecorder appelle /transcribe (Whisper) automatiquement après l'upload réussi. Affiche un textarea éditable sous le lecteur audio + bouton 'Re-transcrire' (réutilise le blob en mémoire). Stockage du texte dans voice_note_transcript (ajouté aux models InterventionCreate/Update + UserNoteCreate/Update). Toast Info dégradé quand OpenAI non configuré (503) — la note vocale est sauvegardée quand même. Affichage du transcript en italique sur la liste des interventions sous le player (line-clamp-2 + tooltip)."},
 ]
 
 

@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2 } from "lucide-react";
+import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText } from "lucide-react";
 import { toast } from "sonner";
 
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
@@ -152,7 +152,14 @@ export default function ClientInterventions() {
                   <td className="px-4 py-3"><span className={`text-xs px-2 py-1 rounded ${status.color}`}>{status.label}</span></td>
                   <td className="px-4 py-3">
                     {i.voice_note_url ? (
-                      <audio controls src={i.voice_note_url} className="h-8 max-w-[180px]" data-testid={`intervention-audio-${i.id}`} />
+                      <div className="space-y-1">
+                        <audio controls src={i.voice_note_url} className="h-8 max-w-[180px]" data-testid={`intervention-audio-${i.id}`} />
+                        {i.voice_note_transcript && (
+                          <p className="text-[10px] text-slate-600 italic line-clamp-2 max-w-[220px]" title={i.voice_note_transcript} data-testid={`intervention-transcript-${i.id}`}>
+                            « {i.voice_note_transcript} »
+                          </p>
+                        )}
+                      </div>
                     ) : <span className="text-[10px] text-slate-400">—</span>}
                   </td>
                   {deletable && (
@@ -194,6 +201,7 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
     duration_hours: "",
     client_id: user?.client_id || user?.parent_client_id || user?.id || "",
     voice_note_url: "",
+    voice_note_transcript: "",
   });
   const [saving, setSaving] = useState(false);
 
@@ -213,6 +221,7 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
         duration_hours: form.duration_hours ? Number(form.duration_hours) : null,
         attachments: [],
         voice_note_url: form.voice_note_url || null,
+        voice_note_transcript: form.voice_note_transcript || null,
       };
       await apiClient.post("/me/interventions", payload);
       toast.success("Intervention créée");
@@ -278,7 +287,9 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
 
         <VoiceNoteRecorder
           value={form.voice_note_url}
+          transcript={form.voice_note_transcript}
           onChange={(url) => setForm({ ...form, voice_note_url: url })}
+          onTranscriptChange={(t) => setForm({ ...form, voice_note_transcript: t })}
         />
 
         <div className="flex justify-end gap-2 pt-2">
@@ -295,12 +306,43 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
 // ============================================================
 // Iter34y — Voice note recorder (MediaRecorder → /me/upload-audio)
 // Returns the absolute URL of the stored audio in onChange.
+// Iter34z — Adds optional automatic transcription via /transcribe so the
+// user sees the spoken text right under the audio player. The transcript
+// is stored in the parent form state via onTranscriptChange.
 // ============================================================
-function VoiceNoteRecorder({ value, onChange }) {
+function VoiceNoteRecorder({ value, transcript, onChange, onTranscriptChange }) {
   const [recording, setRecording] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
   const mediaRef = useRef(null);
   const chunksRef = useRef([]);
+  const lastBlobRef = useRef(null);
+
+  const transcribe = async (blob) => {
+    if (!blob) return;
+    setTranscribing(true);
+    try {
+      const fd = new FormData();
+      const mime = (blob.type || "audio/webm").split(";")[0];
+      const ext = mime.split("/")[1] || "webm";
+      fd.append("file", blob, `intervention-${Date.now()}.${ext}`);
+      fd.append("language", "fr");
+      const r = await apiClient.post("/transcribe", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      if (r.data?.text) {
+        onTranscriptChange?.(r.data.text);
+        toast.success("Transcription terminée");
+      } else {
+        toast.warning("Transcription vide");
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      if (err?.response?.status === 503) {
+        toast.info("Transcription non configurée (clé OpenAI manquante). La note vocale est sauvegardée sans texte.");
+      } else {
+        toast.error(detail || "Transcription échouée");
+      }
+    } finally { setTranscribing(false); }
+  };
 
   const start = async () => {
     if (!navigator.mediaDevices?.getUserMedia || typeof window.MediaRecorder === "undefined") {
@@ -317,6 +359,7 @@ function VoiceNoteRecorder({ value, onChange }) {
       rec.onstop = async () => {
         const blob = new Blob(chunksRef.current, { type: rec.mimeType || "audio/webm" });
         stream.getTracks().forEach((t) => t.stop());
+        lastBlobRef.current = blob;
         setUploading(true);
         try {
           const fd = new FormData();
@@ -326,6 +369,8 @@ function VoiceNoteRecorder({ value, onChange }) {
           if (r.data?.public_url || r.data?.url) {
             onChange(r.data.public_url || r.data.url);
             toast.success("Note vocale enregistrée");
+            // Fire-and-forget transcription
+            transcribe(blob);
           } else {
             toast.error("Upload échoué");
           }
@@ -346,6 +391,11 @@ function VoiceNoteRecorder({ value, onChange }) {
       mediaRef.current = null;
     }
     setRecording(false);
+  };
+
+  const retranscribe = () => {
+    if (lastBlobRef.current) transcribe(lastBlobRef.current);
+    else toast.info("Aucun audio à retranscrire (réenregistrez la note vocale)");
   };
 
   return (
@@ -371,9 +421,32 @@ function VoiceNoteRecorder({ value, onChange }) {
       {value && (
         <div className="flex items-center gap-2">
           <audio controls src={value} className="flex-1 h-8" data-testid="intervention-voice-preview" />
-          <button type="button" onClick={() => onChange("")} className="text-xs text-rose-600 hover:underline inline-flex items-center gap-1" data-testid="intervention-voice-remove">
+          <button type="button" onClick={() => { onChange(""); onTranscriptChange?.(""); lastBlobRef.current = null; }} className="text-xs text-rose-600 hover:underline inline-flex items-center gap-1" data-testid="intervention-voice-remove">
             <MicOff className="h-3 w-3" /> Supprimer
           </button>
+        </div>
+      )}
+      {/* Iter34z — Transcription preview + editable area */}
+      {(value || transcribing || (transcript || "")) && (
+        <div className="rounded-md bg-white ring-1 ring-amber-100 p-2 space-y-1">
+          <div className="flex items-center justify-between gap-2">
+            <label className="text-[10px] uppercase tracking-wider text-amber-800 font-semibold flex items-center gap-1">
+              <FileText className="h-2.5 w-2.5" /> Transcription
+              {transcribing && <RefreshCw className="h-2.5 w-2.5 animate-spin" />}
+            </label>
+            {lastBlobRef.current && !transcribing && (
+              <button type="button" onClick={retranscribe} className="text-[10px] text-amber-700 hover:underline" data-testid="intervention-voice-retranscribe">Re-transcrire</button>
+            )}
+          </div>
+          <textarea
+            value={transcript || ""}
+            onChange={(e) => onTranscriptChange?.(e.target.value)}
+            rows={2}
+            placeholder={transcribing ? "Transcription en cours…" : "La transcription apparaîtra ici. Vous pouvez l'éditer librement."}
+            disabled={transcribing}
+            className="w-full text-xs rounded border border-amber-100 px-2 py-1 resize-y bg-amber-50/30"
+            data-testid="intervention-voice-transcript"
+          />
         </div>
       )}
     </div>

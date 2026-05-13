@@ -68,6 +68,9 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-13 — Itération 34z : Transcription automatique des notes vocales (Whisper)
+✅ Le composant `VoiceNoteRecorder` appelle automatiquement `/transcribe` (Whisper) après chaque upload réussi. Textarea éditable affichée sous le lecteur audio + bouton "Re-transcrire" (réutilise le blob en mémoire). Le texte est sauvegardé dans `voice_note_transcript` (nouveau champ ajouté à `InterventionCreate/Update` + `UserNoteCreate/Update`). Toast Info dégradé si OpenAI non configuré (HTTP 503) — la note vocale est conservée même sans transcription. Sur la liste des interventions, le transcript est affiché en italique sous le player (line-clamp-2 + tooltip pour voir le texte complet).
+
 ### 2026-05-13 — Itération 34y : Toasts élargis + Interventions (Client lié + note vocale) + Filtres Suivis
 ✅ **Activity feed élargi** : `_log_activity` désormais wired sur `appointments` (création), `interventions` (création + suppression), `payment_links` (création). 3 nouveaux libellés FR dans `useActivityFeedNotifier.js` (Rendez-vous, Intervention, Paiement) → toasts live multi-utilisateurs.
 ✅ **Page Interventions refondue** : (1) en-tête de colonne **Client lié** avec dropdown filtre + compteurs par client. (2) Colonne dédiée **Note vocale** avec lecteur audio inline. (3) Modal de création avec **select Client lié** (chargé depuis `/me/clients`) + composant `VoiceNoteRecorder` (MediaRecorder → `/me/upload` → URL renvoyée dans `voice_note_url`). Modèles `InterventionCreate/Update` enrichis du champ `voice_note_url`.

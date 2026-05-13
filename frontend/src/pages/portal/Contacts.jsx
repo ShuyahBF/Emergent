@@ -1992,7 +1992,7 @@ const SmsModal = ({ contact, onClose, onSent }) => {
                   data-testid="sms-message"
                 />
                 <p className="text-[10px] text-slate-400 mt-0.5">
-                  Astuce : utilisez le bouton « Insérer un lien de paiement » pour ajouter un lien `/pay/{slug}`.
+                  Astuce : utilisez le bouton « Insérer un lien de paiement » pour ajouter un lien <code>/pay/&#123;slug&#125;</code>.
                 </p>
               </div>
             </>

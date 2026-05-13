@@ -2379,12 +2379,32 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
       if (r.data?.dry_run) {
         toast.info("Aperçu (dry-run) calculé. Vérifiez le résumé ci-dessous puis désactivez le dry-run pour appliquer.");
       } else {
-        toast.success("Import appliqué avec succès");
+        // Iter35c — richer success/error toast based on summary + notifications.
+        const summary = r.data?.summary || {};
+        const totalErrors = Object.values(summary).filter((v) => v?.action === "error").length;
+        const impacted = Object.values(summary).filter((v) => (v?.incoming || 0) > 0 || (v?.action || "") === "replaced").length;
+        const notif = r.data?.notifications || {};
+        const emailOk = notif?.email?.sent;
+        const waOk = notif?.whatsapp?.any_sent;
+        if (totalErrors > 0) {
+          toast.warning(
+            `Import terminé avec ${totalErrors} erreur(s) sur ${impacted} collection(s). Voir le détail ci-dessous.`,
+            { duration: 8000 }
+          );
+        } else {
+          toast.success(
+            `✅ Import appliqué — ${impacted} collection(s) impactée(s). ` +
+              (emailOk ? "Email envoyé ✓" : "Email ✗") +
+              (waOk ? " · WhatsApp envoyé ✓" : (notif?.whatsapp?.attempts?.length ? " · WhatsApp ✗" : "")),
+            { duration: 8000 }
+          );
+        }
         setImportComment("");
       }
       await load();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur d'import");
+      toast.error(err?.response?.data?.detail || "Erreur d'import", { duration: 10000 });
+      setLastImport({ error: err?.response?.data?.detail || String(err) });
     } finally { setImporting(false); }
   };
 
@@ -2707,18 +2727,88 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
         </div>
 
         {lastImport && (
-          <div className={`rounded p-3 text-xs ${lastImport.dry_run ? "bg-sky-50 ring-1 ring-sky-200" : "bg-emerald-50 ring-1 ring-emerald-200"}`} data-testid="snapshot-import-summary">
-            <p className="font-semibold mb-1">
-              {lastImport.dry_run ? "Aperçu (dry-run)" : "Import appliqué"} — mode {lastImport.mode}
-            </p>
-            <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
-              {Object.entries(lastImport.summary || {}).filter(([, v]) => (v.incoming || 0) > 0 || (v.before || 0) > 0).map(([k, v]) => (
-                <div key={k} className="bg-white rounded px-2 py-1 ring-1 ring-slate-200 font-mono">
-                  <div className="font-semibold text-slate-700">{k}</div>
-                  <div className="text-slate-500">avant {v.before} → après {v.after ?? "—"} (entrant {v.incoming})</div>
+          <div className="space-y-2" data-testid="snapshot-import-summary">
+            {/* Iter35c — prominent global status banner */}
+            {lastImport.error ? (
+              <div className="rounded-lg p-4 bg-rose-50 ring-2 ring-rose-300 text-rose-900" data-testid="snapshot-import-banner-error">
+                <p className="font-semibold text-base mb-1">❌ Échec de l'importation</p>
+                <p className="text-sm">{lastImport.error}</p>
+              </div>
+            ) : (() => {
+              const summary = lastImport.summary || {};
+              const errorCount = Object.values(summary).filter((v) => v?.action === "error").length;
+              const impacted = Object.values(summary).filter((v) => (v?.incoming || 0) > 0 || (v?.action || "") === "replaced" || (v?.action || "") === "merged").length;
+              const isDry = lastImport.dry_run;
+              const allOk = errorCount === 0 && !isDry;
+              const palette = isDry
+                ? "bg-sky-50 ring-sky-300 text-sky-900"
+                : errorCount > 0
+                ? "bg-amber-50 ring-amber-300 text-amber-900"
+                : "bg-emerald-50 ring-emerald-300 text-emerald-900";
+              const icon = isDry ? "🔍" : errorCount > 0 ? "⚠️" : "✅";
+              const headline = isDry
+                ? `Aperçu (dry-run) — ${impacted} collection(s) seraient impactée(s)`
+                : errorCount > 0
+                ? `Import terminé avec ${errorCount} erreur(s)`
+                : `Import appliqué avec succès — ${impacted} collection(s) impactée(s)`;
+              return (
+                <div className={`rounded-lg p-4 ring-2 ${palette}`} data-testid={`snapshot-import-banner-${isDry ? "dry" : errorCount > 0 ? "warn" : "ok"}`}>
+                  <p className="font-semibold text-base mb-1">{icon} {headline}</p>
+                  <p className="text-xs">Mode : <b>{lastImport.mode}</b> · Import ID : <code className="font-mono">{lastImport.import_id}</code></p>
+                  {/* Notification dispatch status (real imports only) */}
+                  {!isDry && lastImport.notifications && (
+                    <div className="mt-2 grid sm:grid-cols-2 gap-2 text-xs">
+                      <div className={`rounded px-2 py-1.5 bg-white ring-1 ${lastImport.notifications.email?.sent ? "ring-emerald-300" : "ring-rose-300"}`} data-testid="snapshot-import-email-status">
+                        <span className="font-semibold">📧 Email : </span>
+                        {lastImport.notifications.email?.sent ? (
+                          <span className="text-emerald-700">envoyé à <code>{lastImport.notifications.email.to}</code></span>
+                        ) : (
+                          <span className="text-rose-700">
+                            non envoyé — {lastImport.notifications.email?.error || "raison inconnue"}
+                          </span>
+                        )}
+                      </div>
+                      <div className={`rounded px-2 py-1.5 bg-white ring-1 ${lastImport.notifications.whatsapp?.any_sent ? "ring-emerald-300" : "ring-amber-300"}`} data-testid="snapshot-import-wa-status">
+                        <span className="font-semibold">💬 WhatsApp : </span>
+                        {lastImport.notifications.whatsapp?.any_sent ? (
+                          <span className="text-emerald-700">
+                            envoyé à {lastImport.notifications.whatsapp.attempts.filter((a) => a.ok).length}/{lastImport.notifications.whatsapp.attempts.length} destinataire(s)
+                          </span>
+                        ) : (lastImport.notifications.whatsapp?.attempts?.length || 0) > 0 ? (
+                          <span className="text-amber-700">
+                            tentatives échouées ({lastImport.notifications.whatsapp.attempts.length}) — {lastImport.notifications.whatsapp.attempts[0]?.error || "hors fenêtre 24h ?"}
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">{lastImport.notifications.whatsapp?.error || "aucun destinataire configuré"}</span>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              ))}
-            </div>
+              );
+            })()}
+
+            {/* Per-collection table */}
+            {!lastImport.error && (
+              <div className={`rounded p-3 text-xs ${lastImport.dry_run ? "bg-sky-50 ring-1 ring-sky-200" : "bg-emerald-50 ring-1 ring-emerald-200"}`}>
+                <p className="font-semibold mb-1 text-slate-700">Détail par collection</p>
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-1.5 text-[11px]">
+                  {Object.entries(lastImport.summary || {}).filter(([, v]) => (v.incoming || 0) > 0 || (v.before || 0) > 0 || v.action === "error").map(([k, v]) => (
+                    <div key={k} className={`rounded px-2 py-1 ring-1 font-mono ${v.action === "error" ? "bg-rose-50 ring-rose-300" : "bg-white ring-slate-200"}`} data-testid={`snapshot-import-row-${k}`}>
+                      <div className="font-semibold text-slate-700 flex items-center gap-1">
+                        {k}
+                        {v.action === "error" && <span className="text-rose-600">⚠️</span>}
+                      </div>
+                      {v.action === "error" ? (
+                        <div className="text-rose-600 text-[10px]">{v.error}</div>
+                      ) : (
+                        <div className="text-slate-500">avant {v.before} → après {v.after ?? "—"} (entrant {v.incoming})</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
 

@@ -4228,6 +4228,170 @@ async def admin_delete_roadmap_action(code: str, _: dict = Depends(get_current_a
 
 
 
+async def _dispatch_snapshot_import_recap(
+    summary: dict,
+    *,
+    mode: str,
+    comment: str,
+    source_filename: Optional[str],
+    size_bytes: int,
+    user: dict,
+) -> dict:
+    """Iter35c — Send a recap of a snapshot import to the admin by email
+    and (best-effort) WhatsApp. Returns {email: {...}, whatsapp: {...}}.
+
+    Email is mandatory if SMTP is configured. WhatsApp uses `_wa_send_text`,
+    which only works inside Meta's 24h customer service window — we attempt
+    it anyway and capture the error in the result so the UI can show
+    "WA non disponible (fenêtre 24h)" instead of failing the whole call.
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    # Build the summary table -- ignore unchanged collections (incoming=0 and before=0)
+    rows = []
+    total_after = 0
+    total_before = 0
+    total_incoming = 0
+    has_error = False
+    error_lines: List[str] = []
+    for name, info in (summary or {}).items():
+        before = info.get("before") if info.get("before") is not None else 0
+        after = info.get("after") if info.get("after") is not None else before
+        incoming = info.get("incoming") or 0
+        action = info.get("action") or "?"
+        if action == "error":
+            has_error = True
+            error_lines.append(f"{name}: {info.get('error', 'erreur')}")
+        if incoming == 0 and (before or 0) == 0 and action not in ("error",):
+            continue
+        rows.append({"name": name, "before": before, "after": after, "incoming": incoming, "action": action})
+        total_after += (after or 0)
+        total_before += (before or 0)
+        total_incoming += incoming
+    rows.sort(key=lambda r: r["name"])
+
+    when_str = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    actor = user.get("email") or user.get("full_name") or "Admin"
+    headline = (
+        "✅ Import de snapshot appliqué"
+        if not has_error
+        else "⚠️ Import de snapshot terminé AVEC ERREURS"
+    )
+
+    # ---------- Email body ----------
+    table_rows = "".join(
+        f"<tr><td style='padding:4px 8px;border:1px solid #E2E8F0;font-family:monospace;'>{r['name']}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{r['before']}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{r['after']}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{r['incoming']}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;'>{r['action']}</td></tr>"
+        for r in rows
+    ) or "<tr><td colspan='5' style='padding:8px;color:#94A3B8;text-align:center;'>Aucune collection impactée</td></tr>"
+    errors_html = ""
+    if error_lines:
+        errors_html = (
+            "<p style='color:#B91C1C;font-weight:600;margin-top:12px;'>Erreurs rencontrées :</p>"
+            f"<ul style='color:#7F1D1D;'>{''.join(f'<li><code>{e}</code></li>' for e in error_lines[:10])}</ul>"
+        )
+    html = (
+        f"<div style='font-family:Arial,sans-serif;max-width:720px;'>"
+        f"<h3 style='color:{'#16A34A' if not has_error else '#D97706'};margin-bottom:8px;'>{headline}</h3>"
+        f"<p style='margin:4px 0;color:#475569;'>Effectué le <b>{when_str}</b> par <b>{actor}</b>.</p>"
+        f"<p style='margin:4px 0;color:#475569;'>Fichier : <code>{source_filename or '—'}</code> "
+        f"({(size_bytes / 1024):.1f} Ko) · Mode : <b>{mode}</b>" +
+        (f" · Commentaire : <i>{comment}</i>" if (comment or '').strip() else "") +
+        f"</p>"
+        f"<table style='border-collapse:collapse;margin-top:8px;font-size:13px;'>"
+        f"<thead style='background:#F1F5F9;'><tr>"
+        f"<th style='padding:4px 8px;border:1px solid #E2E8F0;text-align:left;'>Collection</th>"
+        f"<th style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>Avant</th>"
+        f"<th style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>Après</th>"
+        f"<th style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>Entrants</th>"
+        f"<th style='padding:4px 8px;border:1px solid #E2E8F0;text-align:left;'>Action</th>"
+        f"</tr></thead><tbody>{table_rows}</tbody>"
+        f"<tfoot style='background:#F8FAFC;font-weight:bold;'>"
+        f"<tr><td style='padding:4px 8px;border:1px solid #E2E8F0;'>TOTAL</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{total_before}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{total_after}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;text-align:right;'>{total_incoming}</td>"
+        f"<td style='padding:4px 8px;border:1px solid #E2E8F0;'>—</td></tr></tfoot>"
+        f"</table>"
+        f"{errors_html}"
+        f"<p style='color:#64748B;font-size:12px;margin-top:16px;'>Notification automatique — SAWALI Smart Systems CRM.</p>"
+        f"</div>"
+    )
+    text = (
+        f"{headline}\n"
+        f"Effectué le {when_str} par {actor}.\n"
+        f"Fichier {source_filename or '—'} ({(size_bytes / 1024):.1f} Ko) · mode={mode}"
+        + (f" · commentaire={comment}" if (comment or '').strip() else "")
+        + f"\n\nCollections impactées ({len(rows)}):\n"
+        + "\n".join(f"  • {r['name']}: {r['before']}→{r['after']} (entrants {r['incoming']}, {r['action']})" for r in rows[:20])
+        + (f"\n\nErreurs:\n" + "\n".join(f"  ! {e}" for e in error_lines[:10]) if error_lines else "")
+    )
+
+    # ---------- Send email ----------
+    email_recipient = (s.get("auto_snapshot_email_to") or s.get("health_email_to") or SUPER_ADMIN_EMAIL or "").strip().lower()
+    email_status: Dict[str, Any] = {"to": email_recipient, "sent": False, "error": None}
+    if email_recipient and "@" in email_recipient:
+        try:
+            from email_service import send_email
+            sent = await send_email(
+                email_recipient,
+                f"[SAWALI] {headline} ({len(rows)} collection(s))",
+                html,
+                text,
+            )
+            email_status["sent"] = bool(sent)
+            if not sent:
+                email_status["error"] = "send_email retourne False (SMTP non configuré ?)"
+        except Exception as exc:  # noqa: BLE001
+            email_status["error"] = str(exc)[:200]
+            logger.warning("snapshot import recap email failed: %s", exc)
+    else:
+        email_status["error"] = "Aucune adresse destinataire configurée"
+
+    # ---------- Send WhatsApp recap (best effort) ----------
+    wa_status: Dict[str, Any] = {"attempts": [], "any_sent": False}
+    wa_recipients_raw = s.get("liluvine_remote_admin_phones") or []
+    if not wa_recipients_raw and s.get("company_whatsapp"):
+        wa_recipients_raw = [s.get("company_whatsapp")]
+    # Dedup & normalize
+    seen_set = set()
+    wa_recipients: List[str] = []
+    for p in wa_recipients_raw:
+        digits = "".join(ch for ch in (p or "") if ch.isdigit())
+        if digits and digits not in seen_set:
+            seen_set.add(digits)
+            wa_recipients.append(digits)
+
+    if wa_recipients:
+        wa_text = (
+            f"{headline}\n"
+            f"{when_str} · par {actor}\n"
+            f"Fichier: {source_filename or '—'} ({(size_bytes / 1024):.0f} Ko)\n"
+            f"Mode: {mode} · {len(rows)} collection(s) impactée(s)\n"
+            f"Total: {total_before} → {total_after} (entrants {total_incoming})"
+            + (f"\n⚠️ {len(error_lines)} erreur(s)" if error_lines else "")
+        )
+        for phone in wa_recipients[:5]:  # cap at 5 admins
+            try:
+                wr = await _wa_send_text(phone, wa_text)
+                wa_status["attempts"].append({
+                    "to": phone,
+                    "ok": bool(wr.get("ok")),
+                    "error": wr.get("error") if not wr.get("ok") else None,
+                })
+                if wr.get("ok"):
+                    wa_status["any_sent"] = True
+            except Exception as exc:  # noqa: BLE001
+                wa_status["attempts"].append({"to": phone, "ok": False, "error": str(exc)[:200]})
+    else:
+        wa_status["error"] = "Aucun numéro admin WhatsApp configuré (Paramètres → Liluvine)"
+
+    return {"email": email_status, "whatsapp": wa_status, "has_error": has_error, "rows_count": len(rows)}
+
+
+
 @api.post("/admin/snapshots/import", tags=["Admin"])
 async def admin_import_snapshot(
     file: UploadFile = File(...),
@@ -4238,7 +4402,11 @@ async def admin_import_snapshot(
 ):
     """Import a snapshot file. mode = 'replace' | 'merge'. dry_run='true' to
     preview what would happen. Always logs into db.db_snapshots with
-    kind='import'."""
+    kind='import'.
+
+    Iter35c — on a non-dry-run import, also dispatches a recap notification
+    by email and (best-effort) WhatsApp to the admin, with the per-collection
+    summary table and a global success/error headline."""
     if mode not in ("replace", "merge"):
         raise HTTPException(status_code=400, detail="mode doit être 'replace' ou 'merge'")
     is_dry = str(dry_run).lower() in ("1", "true", "yes", "on")
@@ -4285,7 +4453,31 @@ async def admin_import_snapshot(
         "exported_at": payload.get("exported_at"),
     }
     await db.db_snapshot_imports.insert_one(dict(log))
-    return {"ok": True, "dry_run": is_dry, "mode": mode, "summary": summary, "import_id": log["id"]}
+
+    # Iter35c — on real imports only (not dry-run), notify admin by email + WA.
+    notifications: Optional[Dict[str, Any]] = None
+    if not is_dry:
+        try:
+            notifications = await _dispatch_snapshot_import_recap(
+                summary,
+                mode=mode,
+                comment=(comment or "").strip(),
+                source_filename=file.filename,
+                size_bytes=len(raw),
+                user=user,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("snapshot import recap dispatch failed: %s", exc)
+            notifications = {"error": str(exc)[:200]}
+
+    return {
+        "ok": True,
+        "dry_run": is_dry,
+        "mode": mode,
+        "summary": summary,
+        "import_id": log["id"],
+        "notifications": notifications,
+    }
 
 
 @api.get("/admin/snapshots/imports", tags=["Admin"])

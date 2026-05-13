@@ -3,7 +3,18 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35b (2026-05-13) — WhatsApp silence detector
+## Latest — Iter35c (2026-05-13) — Snapshot import recap (email + WhatsApp)
+
+🟢 **Nouvelle fonctionnalité** :
+- Après chaque import de snapshot **sans dry-run**, l'API envoie automatiquement :
+  - **📧 Email récapitulatif** au destinataire configuré (`auto_snapshot_email_to` ou `health_email_to` ou super-admin) avec un tableau HTML détaillant chaque collection impactée (avant/après/entrants/action), surligné en vert si OK, orange si erreurs.
+  - **💬 WhatsApp** (best-effort) à chaque numéro admin déclaré dans `liluvine_remote_admin_phones` (jusqu'à 5), via `_wa_send_text` — fonctionne uniquement dans la fenêtre 24h de service client de Meta.
+- **Toast frontend** plus riche : indique le nombre de collections impactées, statut email, statut WhatsApp.
+- **Bannière de confirmation prominente** sous le bouton d'import : couleur verte (succès), ambre (erreurs partielles), rose (échec). Chaque statut de notification (email/WA) affiché avec destinataire et erreur éventuelle.
+- **Réponse API enrichie** : `{ok, dry_run, mode, summary, import_id, notifications: {email, whatsapp, has_error, rows_count}}`.
+- **Tests** : `backend/tests/test_iter35c_import_recap.py` (3/3 verts).
+
+## Iter35b (2026-05-13) — WhatsApp silence detector
 
 🟢 **Nouvelle alerte automatique** :
 - Cron `_run_wa_silence_check` lancé toutes les 4 h (Africa/Abidjan, minute 20).

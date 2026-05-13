@@ -22,6 +22,9 @@ const KIND_LABELS = {
   suivi: "Suivi",
   sms: "SMS",
   whatsapp: "WhatsApp",
+  intervention: "Intervention",
+  appointment: "Rendez-vous",
+  payment: "Paiement",
 };
 
 const ACTION_LABELS = {

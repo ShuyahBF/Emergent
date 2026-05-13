@@ -48,6 +48,8 @@ export default function UserNotesPage() {
   const [authors, setAuthors] = useState([]);
   const [filterAuthor, setFilterAuthor] = useState("");
   const [filterQ, setFilterQ] = useState("");
+  // Iter34y — Filtre par client lié pour les Suivis
+  const [filterClient, setFilterClient] = useState("");
   const [clients, setClients] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -65,6 +67,11 @@ export default function UserNotesPage() {
     },
   }).then((r) => setItems(r.data)).catch(() => {});
   const [smartFeatures, setSmartFeatures] = useState({ ai: true });
+  // Iter34y — Filtre client appliqué côté front (l'API ne le supporte pas pour les suivis).
+  const filteredItems = useMemo(() => {
+    if (!filterClient) return items;
+    return items.filter((it) => it.client_id === filterClient);
+  }, [items, filterClient]);
   useEffect(() => {
     if (!meta) return;
     load();
@@ -174,20 +181,34 @@ export default function UserNotesPage() {
             data-testid="notes-filter-q"
           />
         </div>
-        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="notes-filter-apply">Filtrer</button>
-        {(filterAuthor || filterQ) && (
-          <button type="button" onClick={() => { setFilterAuthor(""); setFilterQ(""); setTimeout(load, 0); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-rose-300 hover:text-rose-600" data-testid="notes-filter-clear">Effacer</button>
+        {kind === "suivis" && clients.length > 0 && (
+          <select
+            value={filterClient}
+            onChange={(e) => setFilterClient(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+            data-testid="notes-filter-client"
+            title="Filtrer par Client lié"
+          >
+            <option value="">Tous les clients liés</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{c.full_name || c.company} ({items.filter((it) => it.client_id === c.id).length})</option>
+            ))}
+          </select>
         )}
-        <span className="text-xs text-slate-500 ml-auto">{items.length} résultat{items.length > 1 ? "s" : ""}</span>
+        <button type="submit" className="rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="notes-filter-apply">Filtrer</button>
+        {(filterAuthor || filterQ || filterClient) && (
+          <button type="button" onClick={() => { setFilterAuthor(""); setFilterQ(""); setFilterClient(""); setTimeout(load, 0); }} className="rounded-lg border border-slate-300 px-3 py-2 text-sm text-slate-600 hover:border-rose-300 hover:text-rose-600" data-testid="notes-filter-clear">Effacer</button>
+        )}
+        <span className="text-xs text-slate-500 ml-auto">{filteredItems.length} résultat{filteredItems.length > 1 ? "s" : ""}{filterClient ? " (filtré)" : ""}</span>
       </form>
 
-      {items.length === 0 ? (
+      {filteredItems.length === 0 ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500" data-testid={`empty-${kind}`}>
           Aucun {meta.singular} encore enregistré.
         </div>
       ) : (
         <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((n) => (
+          {filteredItems.map((n) => (
             <NoteCard
               key={n.id}
               n={n}

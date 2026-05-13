@@ -2087,6 +2087,13 @@ async def me_create_payment_link(payload: PaymentLinkCreate, user: dict = Depend
     await db.payment_links.insert_one(doc.copy())
     doc.pop("_id", None)
     doc["status"] = _payment_link_status(doc)
+    # Iter34y — activity feed (payment link)
+    try:
+        client_id_log = doc.get("client_id") or user.get("parent_client_id") or user.get("client_id") or user["id"]
+        amount_str = f"{doc.get('amount')} {doc.get('currency') or ''}".strip()
+        await _log_activity(client_id=client_id_log, kind="payment", action="created", label=f"Lien — {amount_str} ({doc.get('description') or '—'})", actor=user, target_id=doc["id"])
+    except Exception:
+        pass
     return doc
 
 
@@ -2413,6 +2420,8 @@ async def me_create_appointment(
     doc["gcal_event_id"] = event_id
     await db.appointments.insert_one(doc.copy())
     doc.pop("_id", None)
+    # Iter34y — activity feed (appointment)
+    await _log_activity(client_id=user["id"], kind="appointment", action="created", label=doc.get("subject") or "(rendez-vous)", actor=user, target_id=doc["id"])
     # Fire automation: appointment.created
     try:
         sched_human = doc["scheduled_at"]
@@ -3944,6 +3953,10 @@ ROADMAP_SEED: List[Dict[str, Any]] = [
      "title": "Anonymisation des contenus + Exports contacts + Toasts live + Anti-doublon formulaires + Code en bleu", "backlog_ref": "Iter34tuvwx",
      "duration_h": 3.5, "done": True,
      "details": "6 demandes utilisateur livrées en parallèle. (#1) 3 nouveaux flags anon_rapports / anon_suivis / anon_communications avec helper _resolve_content_restrictions + enforcement sur me_list_notes, me_contact_messages, me_sms_messages. UI dans SMART Communications. (#2) Code unique contacts en font-bold + text-sky-600. (#3) Endpoints /me/contacts/export.{csv,json,pdf} + dropdown UI dans Contacts.jsx (ContactsExportMenu). (#4) Activity feed via polling : table activity_events + endpoint /me/recent-activity + hook useActivityFeedNotifier.js (toasts Sonner toutes les 8s pour Contact/Rapport/Suivi/SMS/WhatsApp, suppression auto des actions du viewer). (#5) Endpoint /me/forms/{form_id}/submissions-table + composant SubmissionsTable dans FormAnalyticsDetail (tableau brut visible + ligne hover sky). (#6) Endpoint /me/forms/title-suggestions + check 409 sur POST /me/forms et PUT /me/forms/{id} si nom dupliqué. UI : modal de création avec datalist autocomplete + détection live du conflit (bordure rose + message + bouton Créer désactivé). 31/31 tests iter34 verts."},
+    {"code": "ACT-0033", "created_at": "2026-05-13T00:00:00+00:00", "done_at": "2026-05-13T00:30:00+00:00",
+     "title": "Activity feed élargi (rdv/intervention/paiement) + Interventions UI (Client picker + voice note + filtre) + Filtre client Suivis", "backlog_ref": "Iter34y",
+     "duration_h": 1.5, "done": True,
+     "details": "Élargissement de l'activity feed iter34x: _log_activity wired aussi sur appointments.insert, interventions.insert/delete, payment_links.insert (kinds = appointment / intervention / payment), 3 nouveaux labels FR dans useActivityFeedNotifier. Page Interventions entièrement refondue: dropdown filtre dans l'en-tête de colonne Client lié (compteurs par client), colonne 'Note vocale' avec audio player inline, modal de création avec select Client lié (chargé depuis /me/clients) et nouveau composant VoiceNoteRecorder (MediaRecorder → /me/upload → voice_note_url). Models InterventionCreate/Update + UserNoteCreate/Update enrichis du champ voice_note_url. Page Suivis (UserNotes.jsx) reçoit un select 'Tous les clients liés' avec compteurs par client, useMemo filtré côté front. 31/31 tests iter34 verts maintenus."},
 ]
 
 
@@ -7108,6 +7121,8 @@ async def me_create_intervention(
     }
     await db.interventions.insert_one(doc.copy())
     doc.pop("_id", None)
+    # Iter34y — activity feed (intervention)
+    await _log_activity(client_id=payload.client_id, kind="intervention", action="created", label=doc.get("title") or doc.get("intervention_number") or "(intervention)", actor=user, target_id=doc["id"])
     webhook_result = await _fire_intervention_webhook("created", doc)
     doc["webhook_result"] = webhook_result
     # Fire automation: intervention.created (portal client)
@@ -7128,9 +7143,13 @@ async def me_create_intervention(
 async def me_delete_intervention(int_id: str, user: dict = Depends(get_current_user)):
     if not _can_delete_records(user):
         raise HTTPException(status_code=403, detail="Suppression réservée aux rôles Administrateur / Superviseur")
+    existing = await db.interventions.find_one({"id": int_id}, {"_id": 0})
     res = await db.interventions.delete_one({"id": int_id})
     if res.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Intervention introuvable")
+    # Iter34y — activity feed
+    if existing:
+        await _log_activity(client_id=existing.get("client_id"), kind="intervention", action="deleted", label=existing.get("title") or existing.get("intervention_number") or "(intervention)", actor=user, target_id=int_id)
     return {"ok": True}
 
 

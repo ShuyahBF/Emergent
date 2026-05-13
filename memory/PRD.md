@@ -68,6 +68,13 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ## CHANGELOG
 
+### 2026-05-13 — Itération 34y : Toasts élargis + Interventions (Client lié + note vocale) + Filtres Suivis
+✅ **Activity feed élargi** : `_log_activity` désormais wired sur `appointments` (création), `interventions` (création + suppression), `payment_links` (création). 3 nouveaux libellés FR dans `useActivityFeedNotifier.js` (Rendez-vous, Intervention, Paiement) → toasts live multi-utilisateurs.
+✅ **Page Interventions refondue** : (1) en-tête de colonne **Client lié** avec dropdown filtre + compteurs par client. (2) Colonne dédiée **Note vocale** avec lecteur audio inline. (3) Modal de création avec **select Client lié** (chargé depuis `/me/clients`) + composant `VoiceNoteRecorder` (MediaRecorder → `/me/upload` → URL renvoyée dans `voice_note_url`). Modèles `InterventionCreate/Update` enrichis du champ `voice_note_url`.
+✅ **Suivis** : nouveau **select "Tous les clients liés"** dans la barre de filtre des suivis avec compteurs par client. `useMemo` filtre l'affichage instantanément.
+✅ Modèles `UserNoteCreate/Update` enrichis de `voice_note_url` (note vocale facultative déjà supportée par les suivis via transcription).
+✅ Tests 31/31 maintenus verts.
+
 ### 2026-05-12 — Itération 34t-x : 6 demandes utilisateur (Anonymisation contenus, Exports, Toasts live, Anti-doublon formulaires)
 ✅ **#1 Anonymisation contenus** : 3 nouveaux flags `anon_rapports`, `anon_suivis`, `anon_communications` ajoutés à `DEFAULT_CLIENT_FEATURES`. Helper `_resolve_content_restrictions()` + enforcement sur `me_list_notes` (rapports/suivis), `me_contact_messages` (WhatsApp), `me_sms_messages`. Quand activé → seuls le créateur et les admins/superviseurs voient le contenu. UI : 3 toggles bleus dans SMART Communications avec descriptions claires.
 ✅ **#2 Code unique en bleu** : `text-sky-600 font-bold` sur les codes 2026-SAWALISM-XXXX dans le Centre de Messagerie.

@@ -229,6 +229,8 @@ class InterventionCreate(BaseModel):
     duration_hours: Optional[float] = None
     attachments: List[str] = []
     images: Optional[List[dict]] = None  # [{file_id, url, filename}], max 10
+    # Iter34y — Note vocale facultative (URL retournée par /me/upload-audio).
+    voice_note_url: Optional[str] = None
 
 
 class InterventionUpdate(BaseModel):
@@ -240,6 +242,8 @@ class InterventionUpdate(BaseModel):
     duration_hours: Optional[float] = None
     attachments: Optional[List[str]] = None
     images: Optional[List[dict]] = None
+    client_id: Optional[str] = None  # iter34y — permet de re-rattacher l'intervention
+    voice_note_url: Optional[str] = None
 
 
 # ====================================================================
@@ -607,6 +611,7 @@ class UserNoteCreate(BaseModel):
     event_date: Optional[str] = None  # ISO datetime ; required for suivis
     images: Optional[List[dict]] = None  # max 10
     is_private: Optional[bool] = None  # True → only the author + admins; False/None → shared within client
+    voice_note_url: Optional[str] = None  # iter34y — note vocale facultative
 
 
 class UserNoteUpdate(BaseModel):
@@ -617,6 +622,7 @@ class UserNoteUpdate(BaseModel):
     event_date: Optional[str] = None
     images: Optional[List[dict]] = None
     is_private: Optional[bool] = None
+    voice_note_url: Optional[str] = None
 
 
 class RatingCreate(BaseModel):

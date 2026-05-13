@@ -9108,6 +9108,9 @@ MODULE_COUNT_QUERIES = {
     "reports": ("user_notes_reports", "created_at", "owner_id"),
     "suivis": ("user_notes_suivis", "created_at", "owner_id"),
     "formations": ("formation_enrollments", "created_at", "user_id"),
+    # Iter34aa — Module Paiements (était envoyé par le sidebar mais absent du dict
+    # → /me/notifications/mark-seen retournait 400 "Module inconnu : payments")
+    "payments": ("payment_links", "created_at", "client_id"),
     # Admin-only
     "admin_clients": ("users", "created_at", "_ADMIN_"),
     "admin_appointments": ("appointments", "created_at", "_ADMIN_"),

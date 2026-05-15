@@ -115,6 +115,9 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 - Actuellement >10 300 lignes — devient critique pour maintenabilité.
 
 ### 🟦 Future
+- **🔔 Versioning + Notification email à chaque modification de secret (P2)** — Plutôt qu'un rappel mensuel, déclencher à chaque création/modification d'un secret API : (a) email à l'admin avec qui/quand/quelle clé (jamais la valeur), (b) versioning des secrets (rollback possible vers une version précédente). À combiner avec le coffre-fort iter35e.
+- **🔊 Notifications vocales Alexa Echo — Option 1 Voice Monkey (P2)** — Ajouter dans Admin Settings un bloc "Notifications vocales Alexa Echo" : toggle + URL webhook Voice Monkey + checkboxes des événements déclencheurs (SMS reçu, WhatsApp reçu, RDV imminent, niveau support critique). Quand un événement choisi survient, faire un `POST` vers le webhook Voice Monkey → Alexa joue un son + énonce le message. Travail estimé : ~2-3 h. Coût : 0 €/5 €/mois selon volume.
+- **🔊 Notifications vocales Alexa Echo — Option 3 Home Assistant (P3, après Option 1)** — Évolution de l'option ci-dessus : remplacer Voice Monkey par une instance Home Assistant locale (intégration `alexa_media_player`). Plus puissant et sans dépendance tierce, mais nécessite que le client ait HA déployé chez lui (Raspberry Pi). Le champ admin devient "URL Home Assistant + token long-lived".
 - ErrorBoundary global sur toutes les routes /portal/* et /admin/*
 - **Composant `<ResponsiveTable>` réutilisable** (avec props `<Column hideBelow="sm">`) pour standardiser le pattern responsive sur tous les tableaux et éviter les répétitions à la main (issue de l'itération 49).
 - Tags sur payment_links (filtrage dashboard par campagne)

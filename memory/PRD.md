@@ -3,7 +3,40 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35e (2026-05-13) — Coffre-fort des secrets (Secrets Vault)
+## Latest — Iter35f+g+h (2026-05-15) — Batches 1+2+3 (60/60 tests verts)
+
+### 🐛 Iter35f — Batch 1 : 4 bugs production fixés
+- Édition contact RGPD : ne sauvegarde plus les valeurs masquées (`**`) → ne clobber plus la vraie valeur
+- Email admin client : `UserUpdateAdmin` accepte enfin `email` (lowercase + unique check + 409 sur conflit)
+- Fenêtre 24h WhatsApp : `_wa_last_inbound_iso` accepte liste de client_ids (élargi via `_resolve_visible_client_ids`)
+- Bulk WhatsApp "0 envoyé" : scope élargi + fail-fast 404 si aucun contact résolu
+
+### ✨ Iter35g — Batch 2 : Transferts multi-utilisateurs + Notes/Tâches personnels
+- `POST /admin/tracked-users/bulk-transfer` : transfère jusqu'à 200 tracked users vers un autre client en une opération, persiste l'historique dans `db.tracked_user_transfers`
+- UI : checkboxes par ligne + dropdown sticky + bouton "Transférer la sélection"
+- Nouveaux kinds `notes` & `tasks` dans `/me/notes/{kind}` (mêmes endpoints que reports/suivis → voix + Whisper inclus)
+- 4 tuiles dashboard : Rapports / Suivis / Notes / Tâches
+- `client_notes` / `client_tasks` (admin per-client) gagnent aussi `voice_note_url` + `voice_note_transcript`
+- Préfixe NTE-xxxx pour Notes, TSK-xxxx pour Tâches
+- Snapshot collections étendues
+
+### 🎯 Iter35h — Batch 3 : Rôle `demo` complet
+- Nouveau rôle `demo` (USER_ROLES) avec quotas par défaut : WA 2 / SMS 1 / IA 1 / Whisper 2 / Contacts 5 / Paiements 0 / Stockage 5 Mo / expire 14 jours
+- Helper `_enforce_demo_quota(user, key, increment)` — atomique, raise 403 explicite si quota dépassé
+- Wired sur 7 endpoints : `/me/whatsapp/send-text`, `/me/whatsapp/bulk`, `/me/sms/send`, `/transcribe`, `/me/ai/summarize`, `/me/contacts`, `/me/payment-links`, `/me/upload`
+- Compte expiré → `account_status="expired"` + log dans `db.demo_expiry_events` + 403 sur chaque appel API
+- Nouveau endpoint `GET /me/demo/status` : countdown jours + jauges de tous les quotas (utilisé par la bannière)
+- Nouveau composant frontend `DemoBanner.jsx` collé en haut du portail (PortalLayout) — countdown + gauges expandables, refresh 60 s
+- Admin Clients : pill filtre `Démos` ajoutée + form étendu (date d'expiration + 7 inputs quotas) quand role=demo sélectionné
+- Endpoints admin pour gérer les expirations : `GET /admin/demo/expiry-events`, `POST /admin/demo/expiry-events/{id}/resolve`
+
+✅ **Tests** : 24 nouveaux (7 iter35f + 10 iter35g + 7 iter35h) + 36 régressions = **60/60 verts**
+
+🚨 **Save to GitHub requis** pour déployer en production.
+
+---
+
+
 
 🟢 **Nouvelle fonctionnalité majeure** :
 - **Export chiffré** des tokens API + paramètres associés via `POST /api/admin/secrets/export` (body `{password, comment}`) — AES-256-GCM + PBKDF2-HMAC-SHA256 (200 000 itérations), salt + nonce aléatoires, ciphertext base64. Le fichier JSON téléchargé est **inutilisable sans le mot de passe**.

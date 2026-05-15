@@ -1,6 +1,7 @@
 """Authentication: bcrypt password hashing, JWT tokens, OTP generation."""
 import os
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
@@ -67,6 +68,44 @@ async def get_current_user(
         raise HTTPException(status_code=401, detail="Utilisateur introuvable")
     if user.get("account_status") != "active":
         raise HTTPException(status_code=403, detail="Compte désactivé")
+    # Iter35h — demo expiration check. We auto-disable the account so the
+    # user can't access anything beyond the expiry; a side-effect emits an
+    # entry on `db.demo_expiry_events` for the admin to review.
+    if user.get("role") == "demo" and user.get("demo_expires_at"):
+        try:
+            exp_str = str(user["demo_expires_at"]).replace("Z", "+00:00")
+            exp_dt = datetime.fromisoformat(exp_str)
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            if datetime.now(timezone.utc) > exp_dt:
+                already = await db.demo_expiry_events.find_one(
+                    {"user_id": user["id"], "resolved": {"$ne": True}},
+                    {"_id": 0, "id": 1},
+                )
+                if not already:
+                    await db.demo_expiry_events.insert_one({
+                        "id": str(uuid.uuid4()),
+                        "user_id": user["id"],
+                        "user_email": user.get("email"),
+                        "user_full_name": user.get("full_name"),
+                        "expired_at": exp_dt.isoformat(),
+                        "detected_at": datetime.now(timezone.utc).isoformat(),
+                        "resolved": False,
+                    })
+                # Mark the account as expired (idempotent)
+                await db.users.update_one(
+                    {"id": user["id"]},
+                    {"$set": {"account_status": "expired",
+                              "updated_at": datetime.now(timezone.utc).isoformat()}},
+                )
+                raise HTTPException(
+                    status_code=403,
+                    detail="Compte de démonstration expiré. Contactez l'administrateur.",
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            pass
     return user
 
 

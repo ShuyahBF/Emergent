@@ -544,6 +544,111 @@ def _can_rate(user: dict) -> bool:
     return _can_delete_records(user)
 
 
+# ============================================================
+# Iter35h — Demo role enforcement.
+# A `demo` user has hard usage quotas (WA / SMS / IA / Whisper / contacts /
+# payments / storage) and an expiration date. Each quota-bound endpoint
+# calls `_enforce_demo_quota(user, key)` BEFORE the action; the helper
+# raises 403 with a clear French message when the quota is reached.
+# Counters live on the user doc itself (`demo_usage`).
+# ============================================================
+QUOTA_KEY_WA = "whatsapp_sends"
+QUOTA_KEY_SMS = "sms_sends"
+QUOTA_KEY_AI = "ai_generations"
+QUOTA_KEY_TRANSCRIBE = "transcriptions"
+QUOTA_KEY_CONTACTS = "directory_contacts"
+QUOTA_KEY_PAYMENTS = "payments"
+QUOTA_KEY_STORAGE = "attachments_bytes"
+
+
+def _is_demo(user: dict) -> bool:
+    return (user or {}).get("role") == "demo"
+
+
+def _demo_quota_for(user: dict, key: str) -> int:
+    """Resolve the configured limit for the user. Falls back to defaults
+    from models.DEMO_DEFAULT_QUOTAS if no override is present on the doc."""
+    from models import DEMO_DEFAULT_QUOTAS  # local import to avoid circular at module top
+    overrides = (user or {}).get("demo_quotas") or {}
+    if key in overrides:
+        try:
+            return int(overrides[key])
+        except (TypeError, ValueError):
+            pass
+    return int(DEMO_DEFAULT_QUOTAS.get(key, 0))
+
+
+async def _demo_usage(user_id: str) -> Dict[str, int]:
+    u = await db.users.find_one({"id": user_id}, {"_id": 0, "demo_usage": 1}) or {}
+    return dict((u.get("demo_usage") or {}))
+
+
+async def _enforce_demo_quota(user: dict, key: str, *, increment: int = 1) -> Dict[str, Any]:
+    """Atomic check-and-increment of a demo quota counter.
+
+    For numeric usage (`increment >= 1`): if usage + increment exceeds the
+    quota, raises 403 with the current/limit values. Otherwise increments
+    the counter and returns the new state.
+
+    For storage (`key == QUOTA_KEY_STORAGE`): `increment` is the byte size
+    to add — same check/inc semantics.
+
+    For DB-row caps (e.g. `directory_contacts`): pass increment=0 and the
+    helper re-counts the live row count instead of incrementing (so the
+    check is always accurate even if rows were deleted).
+    """
+    if not _is_demo(user):
+        return {"is_demo": False, "ok": True}
+    limit = _demo_quota_for(user, key)
+    # Quota = 0 means "feature disabled outright"
+    if limit <= 0 and increment > 0:
+        raise HTTPException(
+            status_code=403,
+            detail=f"Compte de démonstration — fonctionnalité « {key} » désactivée.",
+        )
+    usage = await _demo_usage(user["id"])
+    if key == QUOTA_KEY_CONTACTS:
+        # Live row count, ignore the stored counter
+        current = await db.directory_contacts.count_documents({
+            "client_id": user["id"],
+        })
+    else:
+        current = int(usage.get(key, 0))
+    new_total = current + max(0, int(increment))
+    if new_total > limit:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"Quota démo atteint pour « {key} » : {current}/{limit}. "
+                "Contactez l'administrateur pour passer en compte standard."
+            ),
+        )
+    if increment > 0 and key != QUOTA_KEY_CONTACTS:
+        # Atomic $inc; we don't care about the prior value beyond the check above
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$inc": {f"demo_usage.{key}": int(increment)}, "$set": {"updated_at": _now()}},
+        )
+    return {"is_demo": True, "ok": True, "key": key, "before": current, "after": new_total, "limit": limit}
+
+
+def _demo_is_expired(user: dict) -> bool:
+    if not _is_demo(user):
+        return False
+    exp = (user or {}).get("demo_expires_at")
+    if not exp:
+        return False
+    try:
+        dt = datetime.fromisoformat(str(exp).replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc) > dt
+    except Exception:
+        return False
+
+
+
+
 def _can_consult_all_docs(user: dict) -> bool:
     """Moderation+ can read/upload documents of all clients (but only Admin/Superviseur can delete)."""
     return _is_elevated_creator(user)
@@ -2038,6 +2143,7 @@ def _payment_link_status(d: Dict[str, Any]) -> str:
 
 @api.post("/me/payment-links", tags=["Portail Client"])
 async def me_create_payment_link(payload: PaymentLinkCreate, user: dict = Depends(get_current_user)):
+    await _enforce_demo_quota(user, QUOTA_KEY_PAYMENTS)  # Iter35h
     parent_id = user.get("client_id") or user["id"]
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1, "pawapay_mnos": 1, "company": 1, "logo_url": 1})
     if user.get("role") not in ("admin", "superviseur"):
@@ -2600,6 +2706,14 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "is_primary_client": False,
         "parent_client_id": parent_client_id,
         "client_id": mirrored_client_id,
+        # Iter35h — demo role: persist quota + expiry, default 14 days if unset
+        "demo_expires_at": (
+            payload.demo_expires_at
+            or ((datetime.now(timezone.utc) + timedelta(days=14)).isoformat()
+                if payload.role == "demo" else None)
+        ),
+        "demo_quotas": payload.demo_quotas or None,
+        "demo_usage": {} if payload.role == "demo" else None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -3464,7 +3578,9 @@ SNAPSHOTS_DIR.mkdir(parents=True, exist_ok=True)
 SNAPSHOT_COLLECTIONS = [
     "users", "directory_contacts", "contacts", "appointments", "interventions",
     "documents", "tracked_users", "contents", "client_notes", "client_tasks",
-    "user_notes", "user_reports", "user_suivis", "document_categories",
+    "user_notes", "user_reports", "user_suivis", "user_notes_personal",
+    "user_tasks_personal",  # Iter35g — personal portal notes & tasks
+    "document_categories",
     "client_categories", "subscription_categories", "subscription_plans",
     "subscription_orders", "formations", "formation_modules",
     "formation_enrollments", "blog_posts", "case_studies", "testimonials",
@@ -5631,6 +5747,8 @@ async def admin_client_timeline(
 # ====================================================================
 class ClientNoteCreate(BaseModel):
     text: str
+    voice_note_url: Optional[str] = None  # Iter35g — note vocale facultative
+    voice_note_transcript: Optional[str] = None  # Iter35g — transcription Whisper auto
 
 
 class ClientTaskCreate(BaseModel):
@@ -5638,6 +5756,8 @@ class ClientTaskCreate(BaseModel):
     description: Optional[str] = None
     due_at: Optional[str] = None  # ISO-8601 (date or datetime)
     remind_via_whatsapp: bool = False
+    voice_note_url: Optional[str] = None  # Iter35g
+    voice_note_transcript: Optional[str] = None  # Iter35g
 
 
 class ClientTaskUpdate(BaseModel):
@@ -5646,6 +5766,8 @@ class ClientTaskUpdate(BaseModel):
     due_at: Optional[str] = None
     status: Optional[str] = None  # 'open' | 'done'
     remind_via_whatsapp: Optional[bool] = None
+    voice_note_url: Optional[str] = None  # Iter35g
+    voice_note_transcript: Optional[str] = None  # Iter35g
 
 
 async def _ensure_client_exists(client_id: str) -> dict:
@@ -5676,6 +5798,8 @@ async def admin_create_note(
         "id": _uuid(),
         "client_id": client_id,
         "text": text,
+        "voice_note_url": payload.voice_note_url or None,  # Iter35g
+        "voice_note_transcript": payload.voice_note_transcript or None,  # Iter35g
         "author_id": admin_user["id"],
         "author_label": admin_user.get("full_name") or admin_user.get("email"),
         "created_at": _now(),
@@ -5725,6 +5849,8 @@ async def admin_create_task(
         "due_at": due_iso,
         "status": "open",
         "remind_via_whatsapp": bool(payload.remind_via_whatsapp),
+        "voice_note_url": payload.voice_note_url or None,  # Iter35g
+        "voice_note_transcript": payload.voice_note_transcript or None,  # Iter35g
         "reminder_sent_at": None,
         "author_id": admin_user["id"],
         "author_label": admin_user.get("full_name") or admin_user.get("email"),
@@ -6781,6 +6907,7 @@ async def transcribe_audio(
 ):
     """Accepts a short audio file (webm/mp3/m4a/wav/ogg, ≤25 Mo) and returns
     the transcribed text using OpenAI Whisper."""
+    await _enforce_demo_quota(user, QUOTA_KEY_TRANSCRIBE)  # Iter35h
     s = await db.settings.find_one({"_id": "global"}) or {}
     api_key = (s.get("openai_api_key") or "").strip()
     model = (s.get("openai_whisper_model") or "whisper-1").strip()
@@ -6894,6 +7021,7 @@ async def _persist_ai_summary(user: dict, provider: str, model: Optional[str], p
 
 @api.post("/me/ai/summarize", tags=["Portail Client"])
 async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_current_user)):
+    await _enforce_demo_quota(user, QUOTA_KEY_AI)  # Iter35h
     s = await db.settings.find_one({"_id": "global"}) or {}
     provider = (s.get("ai_summary_provider") or "openai").lower()
     if provider not in ("openai", "n8n"):
@@ -7227,6 +7355,106 @@ async def admin_delete_tracked(tu_id: str, _: dict = Depends(get_current_admin))
     return {"ok": True}
 
 
+# ============================================================
+# Iter35g — Bulk transfer of tracked users to another client.
+# Admin selects a list of tracked-user IDs and a target client_id; we
+# update both `tracked_users.client_id` AND the bridged
+# `users.parent_client_id` + `users.client_id` so the next login picks up
+# the new scope. Returns a per-row summary so the UI can show which rows
+# moved (and which were skipped because already there or unknown).
+# ============================================================
+class BulkTransferTrackedRequest(BaseModel):
+    tracked_user_ids: List[str]
+    target_client_id: str
+
+
+@api.post("/admin/tracked-users/bulk-transfer", tags=["Admin"])
+async def admin_bulk_transfer_tracked(
+    payload: BulkTransferTrackedRequest,
+    admin_user: dict = Depends(get_current_admin),
+):
+    if not payload.tracked_user_ids:
+        raise HTTPException(status_code=400, detail="Aucun utilisateur sélectionné")
+    if len(payload.tracked_user_ids) > 200:
+        raise HTTPException(status_code=400, detail="Maximum 200 utilisateurs par transfert")
+    target_id = (payload.target_client_id or "").strip()
+    if not target_id:
+        raise HTTPException(status_code=400, detail="Client cible requis")
+    target = await db.users.find_one(
+        {"id": target_id, "role": {"$in": ["client", "superviseur"]}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1},
+    )
+    if not target:
+        raise HTTPException(status_code=404, detail="Client cible introuvable")
+
+    moved: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    now_iso = _now()
+    for tu_id in payload.tracked_user_ids:
+        tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
+        if not tu:
+            skipped.append({"id": tu_id, "reason": "introuvable"})
+            continue
+        old_client_id = tu.get("client_id")
+        if old_client_id == target_id:
+            skipped.append({"id": tu_id, "name": tu.get("name") or tu.get("email"), "reason": "déjà sur ce client"})
+            continue
+        # Update tracked_users row
+        await db.tracked_users.update_one(
+            {"id": tu_id},
+            {"$set": {
+                "client_id": target_id,
+                "previous_client_id": old_client_id,
+                "transferred_at": now_iso,
+                "transferred_by_id": admin_user.get("id"),
+                "transferred_by_label": admin_user.get("full_name") or admin_user.get("email"),
+                "updated_at": now_iso,
+            }},
+        )
+        # Update bridged users row if any (so login next time picks up the new scope)
+        if tu.get("user_account_id"):
+            await db.users.update_one(
+                {"id": tu["user_account_id"]},
+                {"$set": {
+                    "client_id": target_id,
+                    "parent_client_id": target_id,
+                    "client_id_legacy": old_client_id,
+                    "parent_client_id_legacy": old_client_id,
+                    "updated_at": now_iso,
+                }},
+            )
+        moved.append({
+            "id": tu_id,
+            "name": tu.get("name") or tu.get("email"),
+            "from": old_client_id,
+            "to": target_id,
+        })
+    # Audit log
+    try:
+        await db.tracked_user_transfers.insert_one({
+            "id": _uuid(),
+            "created_at": now_iso,
+            "actor_id": admin_user.get("id"),
+            "actor_email": admin_user.get("email"),
+            "target_client_id": target_id,
+            "target_company": target.get("company"),
+            "moved_count": len(moved),
+            "skipped_count": len(skipped),
+            "moved": moved,
+            "skipped": skipped,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "ok": True,
+        "target": {"id": target_id, "company": target.get("company"), "email": target.get("email")},
+        "moved": moved,
+        "skipped": skipped,
+        "moved_count": len(moved),
+        "skipped_count": len(skipped),
+    }
+
+
 @api.post("/admin/tracked-users/{tu_id}/set-password", tags=["Admin"])
 async def admin_set_tracked_password(
     tu_id: str,
@@ -7460,9 +7688,19 @@ async def me_branding(user: dict = Depends(get_current_user)):
 # USER NOTES — Rapports & Suivis
 # ====================================================================
 def _user_notes_collection(kind: str):
-    if kind not in ("reports", "suivis"):
+    # Iter35g — extended with "notes" and "tasks" — personal notes & tasks
+    # for portal users (same UI/model as reports/suivis, voice + transcription
+    # inherited for free). Separate from the admin per-client `client_notes`
+    # / `client_tasks` collections which stay unchanged.
+    mapping = {
+        "reports": db.user_reports,
+        "suivis": db.user_suivis,
+        "notes": db.user_notes_personal,
+        "tasks": db.user_tasks_personal,
+    }
+    if kind not in mapping:
         raise HTTPException(status_code=404, detail="Type inconnu")
-    return db.user_reports if kind == "reports" else db.user_suivis
+    return mapping[kind]
 
 
 @api.get("/me/notes/{kind}", tags=["Portail Client"])
@@ -7553,7 +7791,9 @@ async def me_create_note(
             raise HTTPException(status_code=400, detail="Client concerné requis pour un suivi")
 
     images = _validate_images(payload.images, max_count=10)
-    prefix = "RPT" if kind == "reports" else "SUI"
+    # Iter35g — prefix per kind
+    prefix_map = {"reports": "RPT", "suivis": "SUI", "notes": "NTE", "tasks": "TSK"}
+    prefix = prefix_map.get(kind, "DOC")
     numero = await _next_simple_number(prefix)
 
     doc = {
@@ -7571,6 +7811,10 @@ async def me_create_note(
         "event_date": (payload.event_date or None) if kind == "suivis" else None,
         "images": images,
         "is_private": bool(payload.is_private),
+        # Iter35g — Voice note + Whisper transcription fields (already in the
+        # UserNoteCreate model since iter34y/34z, just need to persist them).
+        "voice_note_url": payload.voice_note_url or None,
+        "voice_note_transcript": payload.voice_note_transcript or None,
         "ip": _client_ip_from_request(request),
         "user_agent": request.headers.get("user-agent"),
         "created_at": _now(),
@@ -7578,8 +7822,9 @@ async def me_create_note(
     }
     await coll.insert_one(doc.copy())
     doc.pop("_id", None)
-    # Iter34x — activity feed (rapport / suivi)
-    activity_kind = "rapport" if kind == "reports" else "suivi"
+    # Iter34x — activity feed (rapport / suivi / note / tâche)
+    activity_kind_map = {"reports": "rapport", "suivis": "suivi", "notes": "note", "tasks": "tache"}
+    activity_kind = activity_kind_map.get(kind, "note")
     user_client = user.get("parent_client_id") or user.get("client_id") or user["id"]
     await _log_activity(client_id=user_client, kind=activity_kind, action="created", label=title, actor=user, target_id=doc["id"])
     # Await the webhook synchronously so the real upstream status can be
@@ -7651,16 +7896,91 @@ async def me_delete_note(
 async def me_notes_summary(user: dict = Depends(get_current_user)):
     """Returns counts and last update timestamps to display dashboard buttons.
     Elevated users see global counts (all notes); others see only their own.
+
+    Iter35g — extended with "notes" and "tasks" kinds (personal user notes/tasks,
+    same model as reports/suivis with voice + transcription baked in).
     """
     base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
     rep_count = await db.user_reports.count_documents(base)
     sui_count = await db.user_suivis.count_documents(base)
+    notes_count = await db.user_notes_personal.count_documents(base)
+    tasks_count = await db.user_tasks_personal.count_documents(base)
     rep_last = await db.user_reports.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
     sui_last = await db.user_suivis.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    notes_last = await db.user_notes_personal.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
+    tasks_last = await db.user_tasks_personal.find_one(base, {"_id": 0, "updated_at": 1}, sort=[("updated_at", -1)])
     return {
         "reports": {"count": rep_count, "last_updated": (rep_last or {}).get("updated_at")},
         "suivis": {"count": sui_count, "last_updated": (sui_last or {}).get("updated_at")},
+        "notes": {"count": notes_count, "last_updated": (notes_last or {}).get("updated_at")},
+        "tasks": {"count": tasks_count, "last_updated": (tasks_last or {}).get("updated_at")},
     }
+
+
+@api.get("/me/demo/status", tags=["Portail Client"])
+async def me_demo_status(user: dict = Depends(get_current_user)):
+    """Iter35h — Frontend uses this endpoint to render the persistent
+    demo-account banner (countdown + quota gauges). Returns 200 with
+    `is_demo: false` for every non-demo account so the front can call it
+    unconditionally without 4xx handling."""
+    if not _is_demo(user):
+        return {"is_demo": False}
+    from models import DEMO_DEFAULT_QUOTAS
+    overrides = user.get("demo_quotas") or {}
+    usage = user.get("demo_usage") or {}
+    keys = list(set(list(DEMO_DEFAULT_QUOTAS.keys()) + list(overrides.keys())))
+    quotas = {}
+    for k in keys:
+        limit = int(overrides.get(k, DEMO_DEFAULT_QUOTAS.get(k, 0)) or 0)
+        if k == QUOTA_KEY_CONTACTS:
+            used = await db.directory_contacts.count_documents({"client_id": user["id"]})
+        else:
+            used = int(usage.get(k, 0))
+        quotas[k] = {"used": used, "limit": limit, "percent": min(100, int((used / limit) * 100)) if limit else 0}
+    expires_at = user.get("demo_expires_at")
+    days_left = None
+    if expires_at:
+        try:
+            exp_dt = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+            if exp_dt.tzinfo is None:
+                exp_dt = exp_dt.replace(tzinfo=timezone.utc)
+            delta = exp_dt - datetime.now(timezone.utc)
+            days_left = max(0, int(delta.total_seconds() // 86400)) if delta.total_seconds() > 0 else 0
+        except Exception:
+            pass
+    return {
+        "is_demo": True,
+        "expires_at": expires_at,
+        "days_left": days_left,
+        "quotas": quotas,
+    }
+
+
+@api.get("/admin/demo/expiry-events", tags=["Admin"])
+async def admin_list_demo_expiry_events(
+    only_unresolved: bool = Query(default=True),
+    _: dict = Depends(get_current_admin),
+):
+    """Demo accounts that have expired — admin reviews and decides:
+    keep disabled, extend the expiry, or delete entirely."""
+    q = {}
+    if only_unresolved:
+        q = {"resolved": {"$ne": True}}
+    items = await db.demo_expiry_events.find(q, {"_id": 0}).sort("detected_at", -1).limit(200).to_list(200)
+    return {"items": items, "count": len(items)}
+
+
+@api.post("/admin/demo/expiry-events/{ev_id}/resolve", tags=["Admin"])
+async def admin_resolve_demo_expiry(ev_id: str, _: dict = Depends(get_current_admin)):
+    res = await db.demo_expiry_events.update_one(
+        {"id": ev_id, "resolved": {"$ne": True}},
+        {"$set": {"resolved": True, "resolved_at": _now()}},
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Événement introuvable")
+    return {"ok": True}
+
+
 
 
 # ====================================================================
@@ -7753,7 +8073,7 @@ async def me_delete_document(doc_id: str, user: dict = Depends(get_current_user)
 # Portal-side file upload — same behaviour as /admin/upload but allowed for Moderation+
 @api.post("/me/upload", tags=["Portail Client"])
 async def me_upload(request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
-    if not _can_consult_all_docs(user):
+    if not _can_consult_all_docs(user) and not _is_demo(user):
         raise HTTPException(status_code=403, detail="Téléversement réservé aux rôles Modération / Administrateur / Superviseur")
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
@@ -7762,6 +8082,16 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
     with target.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     size = target.stat().st_size
+    # Iter35h — demo storage cap (post-write check, rollback if exceeded).
+    if _is_demo(user):
+        try:
+            await _enforce_demo_quota(user, QUOTA_KEY_STORAGE, increment=size)
+        except HTTPException:
+            try:
+                target.unlink(missing_ok=True)
+            except Exception:
+                pass
+            raise
     ext_suffix = (suffix.lstrip(".") or "").lower()
     public_path = f"/api/files/{file_id}{('.' + ext_suffix) if ext_suffix else ''}"
     file_doc = {
@@ -10164,6 +10494,8 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
 
 @api.post("/me/contacts", tags=["Portail Client"])
 async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_current_user)):
+    # Iter35h — demo: enforce contact-count cap (uses live row count).
+    await _enforce_demo_quota(user, QUOTA_KEY_CONTACTS, increment=1)
     # Enforce admin-configured "tag mandatory" policy: at least one tag is
     # required when settings.contacts_require_tag is True. Helps keep the
     # directory searchable / categorized.
@@ -10647,12 +10979,13 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
     """Send a free-form text WhatsApp message — only allowed within the Meta 24h
     customer service window (i.e. the contact has written to us in the last 24h)."""
     allowed = (
-        user.get("role") in ("client", "admin")
+        user.get("role") in ("client", "admin", "demo")
         or _is_elevated_creator(user)
         or _is_tracked_user(user)
     )
     if not allowed:
         raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
+    await _enforce_demo_quota(user, QUOTA_KEY_WA)  # Iter35h
     text = (payload.text or "").strip()
     if not text:
         raise HTTPException(status_code=400, detail="Le message ne peut pas être vide")
@@ -11008,8 +11341,9 @@ async def me_sms_send(payload: MeSmsSendRequest, request: Request, user: dict = 
     if user.get("role") not in ("admin", "superviseur"):
         parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
         feats = _normalize_features((parent or {}).get("features"))
-        if not feats.get("sms"):
+        if not feats.get("sms") and user.get("role") != "demo":
             raise HTTPException(status_code=403, detail="SMS non autorisé pour votre compte")
+    await _enforce_demo_quota(user, QUOTA_KEY_SMS)  # Iter35h
     if not (payload.message or "").strip():
         raise HTTPException(status_code=400, detail="Message vide")
     if len(payload.message) > 800:
@@ -11450,6 +11784,9 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
         raise HTTPException(status_code=400, detail="Aucun destinataire sélectionné")
     if len(payload.contact_ids) > 500:
         raise HTTPException(status_code=400, detail="Maximum 500 destinataires par envoi")
+
+    # Iter35h — demo: each recipient counts as one send (pre-resolve check).
+    await _enforce_demo_quota(user, QUOTA_KEY_WA, increment=len(payload.contact_ids))
 
     # Iter35f — widen lookup to every visible client_id (so contacts that
     # were retagged to a peer/legacy client_id remain reachable). Before

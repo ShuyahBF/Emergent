@@ -59,6 +59,8 @@ export default function AdminClients() {
     { role: "superviseur", label: "Superviseurs", color: "#1E90FF", bg: "bg-sky-50", ring: "ring-sky-200", text: "text-sky-700" },
     { role: "client", label: "Clients", color: "#475569", bg: "bg-slate-50", ring: "ring-slate-200", text: "text-slate-700" },
     { role: "moderateur", label: "Modérateurs", color: "#a21caf", bg: "bg-fuchsia-50", ring: "ring-fuchsia-200", text: "text-fuchsia-700" },
+    // Iter35h — Demo accounts (limited features, expiration date)
+    { role: "demo", label: "Démos", color: "#d97706", bg: "bg-orange-50", ring: "ring-orange-200", text: "text-orange-700" },
   ], []);
 
   const roleCounts = useMemo(() => {
@@ -391,7 +393,7 @@ export default function AdminClients() {
               <p className="mt-1 text-[11px] text-slate-500">Affiché dans la sidebar du portail à la place du logo SAWALI quand l'utilisateur de ce client est connecté.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }]} />
+              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }, { v: "demo", l: "Démo (limité)" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
             </div>
 
@@ -407,6 +409,42 @@ export default function AdminClients() {
                 <Input label="Devise (XOF, EUR, USD…)" value={form.wa_currency || "XOF"} onChange={(v) => setForm({ ...form, wa_currency: (v || "").toUpperCase() })} testid="client-wa-currency" />
               </div>
             </div>
+
+            {/* Iter35h — Demo account configuration */}
+            {form.role === "demo" && (
+              <div className="rounded-lg border-2 border-orange-300 bg-orange-50/50 p-3 space-y-2" data-testid="demo-config-section">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-semibold text-orange-900">⏳ Configuration du compte de démonstration</span>
+                </div>
+                <p className="text-[11px] text-orange-800">
+                  Ce compte bénéficie de quotas limités sur WhatsApp / SMS / IA / transcription / contacts / paiements / stockage,
+                  et expire automatiquement à la date choisie. Les valeurs vides utilisent les défauts (WA 2, SMS 1, IA 1, Whisper 2, Contacts 5, Paiements 0, Stockage 5 Mo).
+                </p>
+                <Input
+                  label="Date d'expiration (YYYY-MM-DD ou ISO)"
+                  type="date"
+                  value={(form.demo_expires_at || "").slice(0, 10)}
+                  onChange={(v) => setForm({ ...form, demo_expires_at: v ? `${v}T23:59:59+00:00` : null })}
+                  testid="demo-expires-at"
+                />
+                <div className="grid grid-cols-3 gap-2">
+                  <Input label="Quota WA" type="number" value={(form.demo_quotas?.whatsapp_sends ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), whatsapp_sends: v === "" ? null : Number(v) } })} testid="demo-quota-wa" />
+                  <Input label="Quota SMS" type="number" value={(form.demo_quotas?.sms_sends ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), sms_sends: v === "" ? null : Number(v) } })} testid="demo-quota-sms" />
+                  <Input label="Quota IA" type="number" value={(form.demo_quotas?.ai_generations ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), ai_generations: v === "" ? null : Number(v) } })} testid="demo-quota-ai" />
+                  <Input label="Quota Transcr." type="number" value={(form.demo_quotas?.transcriptions ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), transcriptions: v === "" ? null : Number(v) } })} testid="demo-quota-whisper" />
+                  <Input label="Quota Contacts" type="number" value={(form.demo_quotas?.directory_contacts ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), directory_contacts: v === "" ? null : Number(v) } })} testid="demo-quota-contacts" />
+                  <Input label="Quota Paiements" type="number" value={(form.demo_quotas?.payments ?? "") + ""} onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), payments: v === "" ? null : Number(v) } })} testid="demo-quota-payments" />
+                </div>
+                <Input
+                  label="Stockage max (Mo)"
+                  type="number"
+                  value={(form.demo_quotas?.attachments_bytes ?? "") === "" ? "" : Math.round((form.demo_quotas?.attachments_bytes || 0) / 1024 / 1024)}
+                  onChange={(v) => setForm({ ...form, demo_quotas: { ...(form.demo_quotas || {}), attachments_bytes: v === "" ? null : Number(v) * 1024 * 1024 } })}
+                  testid="demo-quota-storage-mb"
+                />
+              </div>
+            )}
+
             <button type="submit" disabled={loading} className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-client-button">
               {loading ? "Enregistrement..." : "Enregistrer"}
             </button>

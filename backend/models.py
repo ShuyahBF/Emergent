@@ -1,6 +1,6 @@
 """Pydantic models for SAWALI SMART SYSTEMS API."""
 from datetime import datetime, timezone
-from typing import Optional, List, Any
+from typing import Optional, List, Any, Dict
 from pydantic import BaseModel, Field, EmailStr, ConfigDict
 import uuid
 
@@ -48,6 +48,9 @@ class UserCreateAdmin(BaseModel):
     account_status: str = "active"
     is_primary_client: bool = False
     whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164) — used by /admin/messaging
+    # Iter35h — demo role configuration (only meaningful when role=='demo')
+    demo_expires_at: Optional[str] = None
+    demo_quotas: Optional[Dict[str, Optional[int]]] = None
     # iter32 — Optional canonical-link hint sent by the admin form. When
     # present, the new user's `client_id` and `parent_client_id` are aligned
     # to the given canonical client (same company), preventing the "user
@@ -72,9 +75,28 @@ class UserUpdateAdmin(BaseModel):
     wa_unit_cost: Optional[float] = None  # Per-message cost billed to this client
     wa_currency: Optional[str] = None  # ISO code (XOF, EUR, USD…)
     whatsapp_number: Optional[str] = None  # Dedicated WhatsApp number (E.164) used by /admin/messaging
+    # Iter35h — demo role configuration
+    demo_expires_at: Optional[str] = None
+    demo_quotas: Optional[Dict[str, Optional[int]]] = None
 
 
-USER_ROLES = ["client", "admin", "superviseur"]
+USER_ROLES = ["client", "admin", "superviseur", "demo"]
+
+
+# ====================================================================
+# Iter35h — Demo role quotas (per-account hard limits enforced on key APIs).
+# Keys MUST match the QUOTA_KEY_* constants in server.py.
+# ====================================================================
+DEMO_DEFAULT_QUOTAS = {
+    "whatsapp_sends": 2,        # template + free-form combined
+    "sms_sends": 1,
+    "ai_generations": 1,
+    "transcriptions": 2,
+    "directory_contacts": 10,   # max rows in directory_contacts
+    "payments": 0,              # no payment link creation
+    "attachments_bytes": 5 * 1024 * 1024,  # 5 Mo total storage
+}
+DEMO_DEFAULT_EXPIRY_DAYS = 14
 
 
 # ====================================================================

@@ -15,6 +15,10 @@ export default function AdminTrackedUsers() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [pwdDialog, setPwdDialog] = useState(null); // tracked user being password-managed
+  // Iter35g — bulk transfer state
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [transferTarget, setTransferTarget] = useState("");
+  const [transferring, setTransferring] = useState(false);
 
   const load = () => apiClient.get("/admin/tracked-users").then((r) => setItems(r.data));
   useEffect(() => {
@@ -33,6 +37,50 @@ export default function AdminTrackedUsers() {
   };
   const del = async (id) => { if (!window.confirm("Supprimer ?")) return; await apiClient.delete(`/admin/tracked-users/${id}`); await load(); };
   const cName = (id) => clients.find((c) => c.id === id)?.full_name || id;
+
+  // Iter35g — Bulk transfer helpers
+  const toggleSelect = (id) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const toggleSelectGroup = (groupItems, allSelected) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      for (const u of groupItems) {
+        if (allSelected) next.delete(u.id); else next.add(u.id);
+      }
+      return next;
+    });
+  };
+  const clearSelection = () => { setSelectedIds(new Set()); setTransferTarget(""); };
+  const doBulkTransfer = async () => {
+    if (selectedIds.size === 0) { toast.error("Sélectionnez au moins un utilisateur"); return; }
+    if (!transferTarget) { toast.error("Choisissez un client de destination"); return; }
+    const targetClient = clients.find((c) => c.id === transferTarget);
+    const targetLabel = targetClient ? `${targetClient.full_name}${targetClient.company ? ` (${targetClient.company})` : ""}` : transferTarget;
+    if (!window.confirm(`Transférer ${selectedIds.size} utilisateur(s) vers ${targetLabel} ?`)) return;
+    setTransferring(true);
+    try {
+      const r = await apiClient.post("/admin/tracked-users/bulk-transfer", {
+        tracked_user_ids: Array.from(selectedIds),
+        target_client_id: transferTarget,
+      });
+      const moved = r.data?.moved_count || 0;
+      const skipped = r.data?.skipped_count || 0;
+      if (moved > 0) {
+        toast.success(`✅ ${moved} utilisateur(s) transféré(s) vers ${targetLabel}${skipped ? ` · ${skipped} ignoré(s)` : ""}`, { duration: 8000 });
+      } else {
+        toast.warning(`Aucun transfert effectué (${skipped} ignoré(s))`);
+      }
+      clearSelection();
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec du transfert");
+    } finally { setTransferring(false); }
+  };
 
   const revoke = async (u) => {
     if (!window.confirm(`Révoquer l'accès portail de ${u.name} ?`)) return;
@@ -90,15 +138,67 @@ export default function AdminTrackedUsers() {
         </div>
       )}
 
-      {groupedByClient.map((group) => (
+      {/* Iter35g — Bulk transfer toolbar (sticky at top when something is selected) */}
+      {selectedIds.size > 0 && (
+        <div className="sticky top-2 z-30 rounded-xl border-2 border-sawali-blue bg-sawali-blue/5 shadow-lg p-3 flex items-center gap-3 flex-wrap" data-testid="tracked-bulk-toolbar">
+          <span className="font-semibold text-sm text-sawali-blue">
+            {selectedIds.size} utilisateur(s) sélectionné(s)
+          </span>
+          <span className="text-xs text-slate-500">→</span>
+          <select
+            value={transferTarget}
+            onChange={(e) => setTransferTarget(e.target.value)}
+            className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm bg-white flex-1 min-w-[200px]"
+            data-testid="tracked-bulk-target"
+          >
+            <option value="">Choisir le client de destination…</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.full_name}{c.company ? ` — ${c.company}` : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={doBulkTransfer}
+            disabled={transferring || !transferTarget}
+            className="rounded-lg bg-sawali-blue text-white px-4 py-1.5 text-sm font-semibold hover:bg-sawali-blue-light disabled:opacity-50"
+            data-testid="tracked-bulk-transfer-btn"
+          >
+            {transferring ? "Transfert…" : "Transférer la sélection"}
+          </button>
+          <button
+            onClick={clearSelection}
+            className="rounded-lg bg-white text-slate-700 px-3 py-1.5 text-sm border border-slate-300 hover:bg-slate-50"
+            data-testid="tracked-bulk-clear"
+          >
+            Annuler
+          </button>
+        </div>
+      )}
+
+      {groupedByClient.map((group) => {
+        const groupIds = group.list.map((u) => u.id);
+        const allInGroupSelected = groupIds.length > 0 && groupIds.every((id) => selectedIds.has(id));
+        return (
         <div key={group.client_id} className="rounded-xl border border-slate-200 bg-white overflow-x-auto" data-testid={`tracked-group-${group.client_id}`}>
-          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800">{group.client_name}</h2>
+          <div className="px-4 py-3 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between flex-wrap gap-2">
+            <div className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={allInGroupSelected}
+                onChange={() => toggleSelectGroup(group.list, allInGroupSelected)}
+                className="cursor-pointer accent-sawali-blue"
+                title={allInGroupSelected ? "Désélectionner tout le groupe" : "Sélectionner tout le groupe"}
+                data-testid={`tracked-group-select-all-${group.client_id}`}
+              />
+              <h2 className="font-semibold text-slate-800">{group.client_name}</h2>
+            </div>
             <span className="text-xs text-slate-500">{group.list.length} utilisateur{group.list.length > 1 ? "s" : ""}</span>
           </div>
-          <table className="w-full text-sm min-w-[860px]">
+          <table className="w-full text-sm min-w-[900px]">
             <thead className="bg-white text-xs uppercase text-slate-600">
               <tr>
+                <th className="text-left px-3 py-3 w-10"></th>
                 <th className="text-left px-4 py-3">Nom</th>
                 <th className="text-left px-4 py-3">Email</th>
                 <th className="text-left px-4 py-3">Rôle</th>
@@ -110,7 +210,16 @@ export default function AdminTrackedUsers() {
             </thead>
             <tbody>
               {group.list.map((u) => (
-                <tr key={u.id} className="border-t border-slate-100" data-testid={`tracked-row-${u.id}`}>
+                <tr key={u.id} className={`border-t border-slate-100 ${selectedIds.has(u.id) ? "bg-sawali-blue/5" : ""}`} data-testid={`tracked-row-${u.id}`}>
+                  <td className="px-3 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selectedIds.has(u.id)}
+                      onChange={() => toggleSelect(u.id)}
+                      className="cursor-pointer accent-sawali-blue"
+                      data-testid={`tracked-select-${u.id}`}
+                    />
+                  </td>
                   <td className="px-4 py-3 font-medium">{u.name}</td>
                   <td className="px-4 py-3 text-slate-600">{u.email || "-"}</td>
                   <td className="px-4 py-3">
@@ -152,7 +261,8 @@ export default function AdminTrackedUsers() {
             </tbody>
           </table>
         </div>
-      ))}
+        );
+      })}
 
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={close}>

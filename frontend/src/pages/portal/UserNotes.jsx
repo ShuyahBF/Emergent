@@ -16,6 +16,9 @@ import { getFileIcon } from "@/lib/fileIcons";
 const KIND_META = {
   reports: { label: "Rapports", singular: "rapport", icon: FileText, accent: "#1E90FF" },
   suivis: { label: "Suivis", singular: "suivi", icon: ClipboardList, accent: "#10B981" },
+  // Iter35g — personal Notes & Tasks (same UX as reports/suivis, voice + transcription inherited)
+  notes: { label: "Notes", singular: "note", icon: FileText, accent: "#A855F7" },
+  tasks: { label: "Tâches", singular: "tâche", icon: ClipboardList, accent: "#F59E0B" },
 };
 
 const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false };

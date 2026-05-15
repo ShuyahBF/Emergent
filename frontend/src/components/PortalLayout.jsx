@@ -8,6 +8,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import IncidentBanner from "@/components/IncidentBanner";
+import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
@@ -287,6 +288,7 @@ export default function PortalLayout({ admin = false }) {
 
       {/* Main column scrolls independently — keeps the sidebar perfectly stable. */}
       <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden">
+        <DemoBanner />
         <IncidentBanner />
         <header className="lg:hidden sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
           <button onClick={() => setOpen(true)} aria-label="Menu" data-testid="portal-menu-toggle">

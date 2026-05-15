@@ -42,7 +42,12 @@ const NoteCard = ({ to, label, accent, count, lastUpdated, icon: Icon, testid })
 
 export default function ClientDashboard() {
   const [data, setData] = useState(null);
-  const [notes, setNotes] = useState({ reports: { count: 0, last_updated: null }, suivis: { count: 0, last_updated: null } });
+  const [notes, setNotes] = useState({
+    reports: { count: 0, last_updated: null },
+    suivis: { count: 0, last_updated: null },
+    notes: { count: 0, last_updated: null },
+    tasks: { count: 0, last_updated: null },
+  });
   const [features, setFeatures] = useState({ show_reports_button: true, show_suivis_button: true });
   const [smartFeatures, setSmartFeatures] = useState({ whatsapp: true, sms: true, ai: true, payments: true });
   const [showAi, setShowAi] = useState(false);
@@ -94,13 +99,16 @@ export default function ClientDashboard() {
       </div>
 
       {(features.show_reports_button || features.show_suivis_button) && (
-        <div className="grid sm:grid-cols-2 gap-4" data-testid="dashboard-notes-section">
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="dashboard-notes-section">
           {features.show_reports_button && (
             <NoteCard to="/portal/notes/reports" label="rapports" accent="#1E90FF" count={notes.reports.count} lastUpdated={notes.reports.last_updated} icon={FileText} testid="dashboard-reports-btn" />
           )}
           {features.show_suivis_button && (
             <NoteCard to="/portal/notes/suivis" label="suivis" accent="#10B981" count={notes.suivis.count} lastUpdated={notes.suivis.last_updated} icon={ClipboardList} testid="dashboard-suivis-btn" />
           )}
+          {/* Iter35g — Notes & Tâches personnelles (transcription vocale Whisper incluse) */}
+          <NoteCard to="/portal/notes/notes" label="notes" accent="#A855F7" count={notes.notes.count} lastUpdated={notes.notes.last_updated} icon={FileText} testid="dashboard-notes-btn" />
+          <NoteCard to="/portal/notes/tasks" label="tâches" accent="#F59E0B" count={notes.tasks.count} lastUpdated={notes.tasks.last_updated} icon={ClipboardList} testid="dashboard-tasks-btn" />
         </div>
       )}
 

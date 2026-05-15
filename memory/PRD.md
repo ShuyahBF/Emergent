@@ -3,10 +3,24 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35c (2026-05-13) — Snapshot import recap (email + WhatsApp)
+## Latest — Iter35e (2026-05-13) — Coffre-fort des secrets (Secrets Vault)
 
-🟢 **Nouvelle fonctionnalité** :
-- Après chaque import de snapshot **sans dry-run**, l'API envoie automatiquement :
+🟢 **Nouvelle fonctionnalité majeure** :
+- **Export chiffré** des tokens API + paramètres associés via `POST /api/admin/secrets/export` (body `{password, comment}`) — AES-256-GCM + PBKDF2-HMAC-SHA256 (200 000 itérations), salt + nonce aléatoires, ciphertext base64. Le fichier JSON téléchargé est **inutilisable sans le mot de passe**.
+- **Restauration** via `POST /api/admin/secrets/import` (file + password + dry_run + overwrite_filled). Le mode **dry-run** liste ce qui serait restauré sans rien modifier. Le mode `overwrite_filled=false` (défaut) ne touche pas aux clés déjà renseignées (protection contre l'écrasement involontaire d'un token fraîchement saisi).
+- **Liste des clés** via `GET /api/admin/secrets/keys` — retourne le statut populé/vide de chaque clé du coffre (sans révéler les valeurs).
+- **Audit trail** via `GET /api/admin/secrets/audit` — chaque export/import est journalisé (acteur, date, nb clés, **jamais** le mot de passe).
+- **49 clés vaultables** : tous les tokens secrets (`SENSITIVE_SETTINGS_KEYS`) + les IDs non-secrets pénibles à ressaisir (WABA ID, SMTP host, Google client_id, URLs des webhooks, méthodes/auth_type SMS, environment PawaPay, modèles OpenAI, etc.).
+- **UI Admin Settings** : nouveau panneau "Coffre-fort des secrets (Iter35e)" en haut, juste après "Sauvegarde DB". Permet :
+  - Vue d'ensemble (clés renseignées/vides/total) avec détail expandable
+  - Création d'un coffre (champ + confirmation mot de passe + commentaire, téléchargement direct)
+  - Restauration (sélection fichier + mot de passe + dry-run + écraser-ou-non + résultat détaillé par clé)
+  - Journal d'activité expandable
+- **Tests** : `backend/tests/test_iter35e_secrets_vault.py` — 11/11 verts (RBAC, roundtrip, mauvais mot de passe, format corrompu, audit, etc.).
+
+
+
+## Iter35c (2026-05-13) — Snapshot import recap (email + WhatsApp)
   - **📧 Email récapitulatif** au destinataire configuré (`auto_snapshot_email_to` ou `health_email_to` ou super-admin) avec un tableau HTML détaillant chaque collection impactée (avant/après/entrants/action), surligné en vert si OK, orange si erreurs.
   - **💬 WhatsApp** (best-effort) à chaque numéro admin déclaré dans `liluvine_remote_admin_phones` (jusqu'à 5), via `_wa_send_text` — fonctionne uniquement dans la fenêtre 24h de service client de Meta.
 - **Toast frontend** plus riche : indique le nombre de collections impactées, statut email, statut WhatsApp.

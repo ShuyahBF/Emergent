@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useMemo, useRef, createContext, useContext } from "react";
+import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -339,6 +339,7 @@ export default function AdminSettings() {
       <SupportLoadSection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      <SecretsVaultSection />
       <RoadmapTrackerSection />
       <OrphanDataSection />
       <ClientsConsistencySection />
@@ -2273,6 +2274,302 @@ const formatBytes = (bytes) => {
   while (n >= 1024 && i < u.length - 1) { n /= 1024; i++; }
   return `${n.toFixed(n >= 10 || i === 0 ? 0 : 1)} ${u[i]}`;
 };
+
+// ============================================================
+// Iter35e — Secrets Vault (Coffre-fort des secrets).
+// Encrypted export/restore of every API token + non-secret config the
+// admin would otherwise have to re-enter by hand after an incident.
+// Bundle is encrypted client-side-safe (AES-256-GCM + PBKDF2-200k) with
+// a password the admin chooses and remembers. Server never persists it.
+// ============================================================
+const SecretsVaultSection = () => {
+  const [keys, setKeys] = useState(null);
+  const [loadingKeys, setLoadingKeys] = useState(false);
+  // Export state
+  const [exportPwd, setExportPwd] = useState("");
+  const [exportPwd2, setExportPwd2] = useState("");
+  const [exportComment, setExportComment] = useState("");
+  const [exporting, setExporting] = useState(false);
+  // Import state
+  const importInputRef = useRef(null);
+  const [importPwd, setImportPwd] = useState("");
+  const [importDry, setImportDry] = useState(true);
+  const [overwriteFilled, setOverwriteFilled] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const [lastImport, setLastImport] = useState(null);
+  // Audit state
+  const [audit, setAudit] = useState([]);
+  const [auditOpen, setAuditOpen] = useState(false);
+
+  const loadKeys = useCallback(async () => {
+    setLoadingKeys(true);
+    try {
+      const r = await apiClient.get("/admin/secrets/keys");
+      setKeys(r.data || null);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally {
+      setLoadingKeys(false);
+    }
+  }, []);
+
+  useEffect(() => { loadKeys(); }, [loadKeys]);
+
+  const doExport = async () => {
+    if (exportPwd.length < 8) { toast.error("Mot de passe : 8 caractères minimum"); return; }
+    if (exportPwd !== exportPwd2) { toast.error("Les mots de passe ne correspondent pas"); return; }
+    setExporting(true);
+    try {
+      const r = await apiClient.post("/admin/secrets/export", {
+        password: exportPwd,
+        comment: exportComment,
+      });
+      // Trigger file download
+      const blob = new Blob([JSON.stringify(r.data.envelope, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = r.data.filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success(`Coffre-fort téléchargé (${r.data.keys_count} clés chiffrées). Conservez ce fichier en lieu sûr.`, { duration: 8000 });
+      setExportPwd(""); setExportPwd2(""); setExportComment("");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'export");
+    } finally { setExporting(false); }
+  };
+
+  const onImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!importPwd) { toast.error("Saisissez d'abord le mot de passe"); return; }
+    setImporting(true); setLastImport(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("password", importPwd);
+      fd.append("dry_run", importDry ? "true" : "false");
+      fd.append("overwrite_filled", overwriteFilled ? "true" : "false");
+      const r = await apiClient.post("/admin/secrets/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      setLastImport(r.data);
+      if (r.data?.dry_run) {
+        toast.info(`Aperçu : ${(r.data.plan || []).filter(p => p.will_apply).length}/${r.data.plan?.length || 0} clés seraient restaurées`);
+      } else {
+        toast.success(`✅ ${r.data.applied_count} clé(s) restaurée(s) — votre coffre-fort est intact.`, { duration: 8000 });
+        await loadKeys();
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'import");
+    } finally { setImporting(false); }
+  };
+
+  const loadAudit = async () => {
+    try {
+      const r = await apiClient.get("/admin/secrets/audit");
+      setAudit(r.data?.items || []);
+      setAuditOpen(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    }
+  };
+
+  return (
+    <div className="rounded-xl border-2 border-purple-200 bg-purple-50/40 p-6 space-y-4" data-testid="admin-secrets-vault-section">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div className="flex items-center gap-2">
+          <Lock className="h-4 w-4 text-purple-600" />
+          <h2 className="font-display font-semibold">Coffre-fort des secrets (Iter35e)</h2>
+        </div>
+        <button
+          onClick={loadKeys}
+          disabled={loadingKeys}
+          className="text-xs inline-flex items-center gap-1 text-slate-500 hover:text-slate-900 transition"
+          data-testid="vault-refresh-btn"
+        >
+          <RefreshCw className={`h-3 w-3 ${loadingKeys ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      <p className="text-xs text-slate-700">
+        Sauvegarde <strong>chiffrée</strong> (AES-256-GCM + PBKDF2 200 000 itérations) de tous vos tokens API (WhatsApp, SMTP,
+        SMS, PawaPay, Google, OpenAI, webhooks…) plus les paramètres associés. Le fichier <code>.json</code> est
+        chiffré <strong>avant</strong> de quitter le serveur — sans votre mot de passe, le contenu est inutilisable.
+        En cas d'incident (snapshot raté, env reset, nouvelle installation), restaurez vos credentials en un clic.
+      </p>
+
+      {/* Status overview */}
+      {keys && (
+        <div className="rounded-lg ring-1 ring-purple-200 bg-white p-3 text-xs" data-testid="vault-status">
+          <div className="font-semibold text-slate-700 mb-1.5">État actuel du coffre</div>
+          <div className="flex items-center gap-3 flex-wrap">
+            <span className="text-emerald-700 font-semibold">
+              {keys.populated} clé(s) renseignée(s)
+            </span>
+            <span className="text-slate-400">·</span>
+            <span className="text-slate-500">{keys.total - keys.populated} clé(s) vide(s)</span>
+            <span className="text-slate-400">·</span>
+            <span className="text-slate-500">{keys.total} clés au total surveillées</span>
+          </div>
+          <details className="mt-2">
+            <summary className="cursor-pointer text-slate-600 hover:text-slate-900">Voir le détail des clés</summary>
+            <div className="mt-2 grid grid-cols-2 sm:grid-cols-3 gap-1 text-[10px]">
+              {(keys.keys || []).map((k) => (
+                <div key={k.key} className={`rounded px-1.5 py-1 ring-1 ${k.populated ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-slate-50 ring-slate-200 text-slate-500"}`} data-testid={`vault-key-${k.key}`}>
+                  <span className="font-mono">{k.key}</span>
+                  {k.is_secret && <span className="ml-1 text-rose-600" title="Secret">🔐</span>}
+                  {k.populated ? <span className="ml-1 text-emerald-600">✓</span> : <span className="ml-1 text-slate-400">—</span>}
+                </div>
+              ))}
+            </div>
+          </details>
+        </div>
+      )}
+
+      {/* Export panel */}
+      <div className="rounded-lg ring-1 ring-purple-200 bg-white p-4 space-y-3" data-testid="vault-export-card">
+        <div className="text-xs font-semibold uppercase tracking-wider text-purple-700 flex items-center gap-1.5">
+          <Save className="h-3.5 w-3.5" /> Exporter (créer un coffre)
+        </div>
+        <p className="text-xs text-slate-500">
+          Choisissez un mot de passe <strong>fort</strong> et que vous retiendrez : <strong>il sera impossible de récupérer le contenu sans</strong>. Stockez le fichier téléchargé dans un endroit hors de votre serveur (gestionnaire de mots de passe, clé USB, mail privé).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-2">
+          <label className="text-xs font-semibold">
+            Mot de passe (min. 8 car.)
+            <input type="password" value={exportPwd} onChange={(e) => setExportPwd(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd" autoComplete="new-password" />
+          </label>
+          <label className="text-xs font-semibold">
+            Confirmer le mot de passe
+            <input type="password" value={exportPwd2} onChange={(e) => setExportPwd2(e.target.value)} placeholder="••••••••" className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="vault-export-pwd2" autoComplete="new-password" />
+          </label>
+        </div>
+        <input
+          value={exportComment}
+          onChange={(e) => setExportComment(e.target.value)}
+          maxLength={200}
+          placeholder="Commentaire (ex: snapshot pré-migration 2026-05-13)"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="vault-export-comment"
+        />
+        <button
+          onClick={doExport}
+          disabled={exporting || exportPwd.length < 8 || exportPwd !== exportPwd2}
+          className="inline-flex items-center gap-2 rounded-lg bg-purple-600 text-white px-4 py-2 text-sm font-semibold hover:bg-purple-700 disabled:opacity-50"
+          data-testid="vault-export-btn"
+        >
+          <Save className="h-4 w-4" />
+          {exporting ? "Création…" : "Télécharger le coffre chiffré"}
+        </button>
+      </div>
+
+      {/* Import panel */}
+      <div className="rounded-lg ring-1 ring-purple-200 bg-white p-4 space-y-3" data-testid="vault-import-card">
+        <div className="text-xs font-semibold uppercase tracking-wider text-purple-700 flex items-center gap-1.5">
+          <Upload className="h-3.5 w-3.5" /> Restaurer un coffre
+        </div>
+        <p className="text-xs text-slate-500">
+          Importez un fichier <code>sawali-vault-*.json</code> précédemment téléchargé et saisissez son mot de passe.
+          Le mode « aperçu » liste ce qui sera restauré sans rien modifier.
+        </p>
+        <input
+          type="password"
+          value={importPwd}
+          onChange={(e) => setImportPwd(e.target.value)}
+          placeholder="Mot de passe du coffre"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="vault-import-pwd"
+          autoComplete="off"
+        />
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+            <input type="checkbox" checked={importDry} onChange={(e) => setImportDry(e.target.checked)} data-testid="vault-import-dry" />
+            Aperçu (dry-run) — ne rien modifier
+          </label>
+          <label className="inline-flex items-center gap-2 text-xs text-slate-700">
+            <input type="checkbox" checked={overwriteFilled} onChange={(e) => setOverwriteFilled(e.target.checked)} data-testid="vault-import-overwrite" />
+            Écraser les clés déjà renseignées
+          </label>
+        </div>
+        <input
+          ref={importInputRef}
+          type="file"
+          accept=".json,application/json"
+          onChange={onImportFile}
+          className="hidden"
+          data-testid="vault-import-input"
+        />
+        <button
+          onClick={() => importInputRef.current?.click()}
+          disabled={importing || !importPwd}
+          className="inline-flex items-center gap-2 rounded-lg bg-amber-600 text-white px-4 py-2 text-sm font-semibold hover:bg-amber-700 disabled:opacity-50"
+          data-testid="vault-import-btn"
+        >
+          <Upload className="h-4 w-4" />
+          {importing ? "Restauration…" : "Choisir le coffre et restaurer"}
+        </button>
+
+        {lastImport && (
+          <div className={`rounded p-3 text-xs ${lastImport.dry_run ? "bg-sky-50 ring-1 ring-sky-300" : "bg-emerald-50 ring-1 ring-emerald-300"}`} data-testid="vault-import-result">
+            <p className="font-semibold text-slate-800 mb-1">
+              {lastImport.dry_run ? "🔍 Aperçu" : "✅ Restauration appliquée"}
+              {lastImport.bundle_exported_at && (
+                <span className="text-slate-500 font-normal ml-2">
+                  · coffre du {new Date(lastImport.bundle_exported_at).toLocaleString("fr-FR")}
+                  {lastImport.bundle_exported_by && ` · par ${lastImport.bundle_exported_by}`}
+                </span>
+              )}
+            </p>
+            {lastImport.bundle_comment && <p className="italic text-slate-600 mb-1">« {lastImport.bundle_comment} »</p>}
+            <p>
+              <strong>{lastImport.applied_count}</strong> clé(s) {lastImport.dry_run ? "seraient" : "ont été"} restaurée(s) sur <strong>{lastImport.incoming_count}</strong> présentes dans le coffre.
+            </p>
+            <details className="mt-2">
+              <summary className="cursor-pointer text-slate-600">Détail par clé</summary>
+              <div className="mt-1 grid grid-cols-1 sm:grid-cols-2 gap-1 text-[10px]">
+                {(lastImport.plan || []).map((p) => (
+                  <div key={p.key} className={`rounded px-1.5 py-1 ring-1 ${p.will_apply ? "bg-white ring-emerald-200" : "bg-slate-100 ring-slate-200 text-slate-500"}`}>
+                    <span className="font-mono">{p.key}</span>
+                    {p.is_secret && <span className="ml-1 text-rose-600">🔐</span>}
+                    {p.will_apply ? <span className="ml-1 text-emerald-600">✓ appliquera</span> : <span className="ml-1 text-slate-400">⊘ déjà rempli</span>}
+                  </div>
+                ))}
+              </div>
+            </details>
+          </div>
+        )}
+      </div>
+
+      {/* Audit trail */}
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3" data-testid="vault-audit-card">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-600">Journal d'activité</span>
+          <button onClick={loadAudit} className="text-xs text-purple-700 hover:underline" data-testid="vault-audit-btn">
+            {auditOpen ? "Actualiser" : "Charger le journal"}
+          </button>
+        </div>
+        {auditOpen && (
+          <div className="mt-2 max-h-48 overflow-y-auto text-[11px]">
+            {audit.length === 0 && <p className="italic text-slate-400">Aucune action enregistrée.</p>}
+            {audit.map((a) => (
+              <div key={a.id} className="flex items-center gap-2 py-1 border-b last:border-0 border-slate-100" data-testid={`vault-audit-${a.id}`}>
+                <span className="font-mono text-slate-500">{new Date(a.created_at).toLocaleString("fr-FR")}</span>
+                <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold ${a.action === "export" ? "bg-purple-100 text-purple-700" : a.action === "import" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-600"}`}>
+                  {a.action.toUpperCase()}
+                </span>
+                <span className="text-slate-700">{a.actor_email}</span>
+                {a.action === "export" && <span className="text-slate-500">→ {a.keys_count} clés</span>}
+                {a.action.startsWith("import") && <span className="text-slate-500">→ {a.applied_count}/{a.incoming_count} appliquées</span>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
 
 const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} }) => {
   const [list, setList] = useState([]);

@@ -4486,6 +4486,274 @@ async def admin_list_snapshot_imports(_: dict = Depends(get_current_admin)):
     return {"imports": docs, "count": len(docs)}
 
 
+# ============================================================
+# Iter35e — Secrets Vault.
+#
+# Why: when production has an incident (snapshot wipe, env reset, fresh
+# install), the admin currently has to re-enter every API token by hand
+# (WA, SMTP, SMS providers, PawaPay, OpenAI, Google…). The Vault solves
+# this with an offline, password-encrypted bundle the admin can keep on
+# their own device and restore in one click.
+#
+# Crypto: PBKDF2-HMAC-SHA256 (200k iterations) → AES-256-GCM. The output
+# file is a JSON envelope:
+#   { "v": 1, "alg": "AES-256-GCM/PBKDF2-SHA256-200k", "salt": b64, "nonce": b64, "ct": b64 }
+# We never persist the password. We never persist the bundle on the server.
+# ============================================================
+# Allow-list of settings keys (a superset of SENSITIVE_SETTINGS_KEYS adds
+# every other field that is awkward/painful to re-enter — Google client_id,
+# Whatsapp WABA id, SMTP host, etc).
+VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
+    # WhatsApp Business (non-secret but needed)
+    "wa_business_account_id", "wa_phone_number_id", "wa_app_id", "wa_default_language",
+    # SMTP (smtp_password is already in sensitive, add the rest)
+    "smtp_host", "smtp_port", "smtp_user", "smtp_from_email", "smtp_use_tls",
+    # Google OAuth & calendar (non-secret IDs)
+    "google_client_id", "google_calendar_email", "google_calendar_password_hint",
+    # reCAPTCHA site key
+    "recaptcha_site_key", "recaptcha_enabled",
+    # Webhook urls (the secret is the token/pass)
+    "webhook_base_url", "webhook_auth_type", "webhook_basic_user",
+    "notes_webhook_url", "notes_webhook_auth_type", "notes_webhook_basic_user",
+    "health_webhook_url", "health_webhook_auth_type", "health_webhook_basic_user",
+    "n8n_webhook_url", "n8n_webhook_auth_type", "n8n_webhook_basic_user",
+    # SMS providers — URLs + auth types + senders
+    "sms_orange_enabled", "sms_orange_url", "sms_orange_method", "sms_orange_auth_type",
+    "sms_orange_basic_user", "sms_orange_header_name", "sms_orange_sender",
+    "sms_moov_enabled", "sms_moov_url", "sms_moov_method", "sms_moov_auth_type",
+    "sms_moov_basic_user", "sms_moov_header_name", "sms_moov_sender",
+    "sms_telecel_enabled", "sms_telecel_url", "sms_telecel_method", "sms_telecel_auth_type",
+    "sms_telecel_basic_user", "sms_telecel_header_name", "sms_telecel_sender",
+    "sms_ovh_enabled", "sms_ovh_application_key", "sms_ovh_service_name", "sms_ovh_sender",
+    # PawaPay
+    "pawapay_environment", "pawapay_api_token_sandbox", "pawapay_api_token_production",
+    "pawapay_callback_secret", "pawapay_default_country",
+    # OpenAI
+    "openai_whisper_model", "openai_chat_model", "ai_summary_provider",
+    # Tracking
+    "tracking_base_url", "tracking_endpoint",
+    # Agenda / Liluvine
+    "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
+    "support_load_webhook_secret", "liluvine_remote_secret", "liluvine_remote_admin_phones",
+})
+
+
+def _vault_encrypt(plaintext: bytes, password: str) -> dict:
+    """Encrypt the plaintext bundle with a user-chosen password.
+    Uses PBKDF2-HMAC-SHA256 (200k iterations) for key derivation, then
+    AES-256-GCM for authenticated encryption."""
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    import base64
+    import os as _os
+
+    if not password or len(password) < 8:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 8 caractères")
+    salt = _os.urandom(16)
+    nonce = _os.urandom(12)
+    kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=200_000)
+    key = kdf.derive(password.encode("utf-8"))
+    aes = AESGCM(key)
+    ct = aes.encrypt(nonce, plaintext, associated_data=b"sawali-vault-v1")
+    return {
+        "v": 1,
+        "alg": "AES-256-GCM/PBKDF2-SHA256-200k",
+        "salt": base64.b64encode(salt).decode("ascii"),
+        "nonce": base64.b64encode(nonce).decode("ascii"),
+        "ct": base64.b64encode(ct).decode("ascii"),
+        "created_at": _now(),
+    }
+
+
+def _vault_decrypt(envelope: dict, password: str) -> bytes:
+    from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
+    from cryptography.hazmat.primitives import hashes
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.exceptions import InvalidTag
+    import base64
+
+    if not isinstance(envelope, dict) or "ct" not in envelope or envelope.get("v") != 1:
+        raise HTTPException(status_code=400, detail="Format de coffre-fort non reconnu")
+    try:
+        salt = base64.b64decode(envelope["salt"])
+        nonce = base64.b64decode(envelope["nonce"])
+        ct = base64.b64decode(envelope["ct"])
+    except Exception:
+        raise HTTPException(status_code=400, detail="Format de coffre-fort corrompu")
+    if not password:
+        raise HTTPException(status_code=400, detail="Mot de passe requis")
+    # AES-GCM requires nonce=12 bytes; validate up-front to give a clean
+    # 400 instead of leaking a ValueError from the crypto lib.
+    if len(nonce) != 12 or len(salt) < 8:
+        raise HTTPException(status_code=400, detail="Coffre-fort altéré (champ salt/nonce invalide)")
+    try:
+        kdf = PBKDF2HMAC(algorithm=hashes.SHA256(), length=32, salt=salt, iterations=200_000)
+        key = kdf.derive(password.encode("utf-8"))
+        aes = AESGCM(key)
+        return aes.decrypt(nonce, ct, associated_data=b"sawali-vault-v1")
+    except InvalidTag:
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect ou fichier altéré")
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(status_code=400, detail=f"Coffre-fort illisible: {exc}")
+
+
+@api.get("/admin/secrets/keys", tags=["Admin"])
+async def admin_list_vault_keys(_: dict = Depends(get_current_admin)):
+    """List the settings keys saved by the vault, and which of them are
+    currently populated (without revealing values)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    out = []
+    for k in VAULT_KEYS:
+        v = s.get(k)
+        if isinstance(v, bool):
+            populated = True  # toggles are always meaningful
+        elif isinstance(v, (int, float)):
+            populated = v != 0
+        elif isinstance(v, list):
+            populated = len(v) > 0
+        else:
+            populated = bool((v or "").strip()) if isinstance(v, str) else (v is not None)
+        out.append({"key": k, "populated": populated, "is_secret": k in SENSITIVE_SETTINGS_KEYS})
+    out.sort(key=lambda x: (not x["populated"], x["key"]))
+    return {"keys": out, "total": len(out), "populated": sum(1 for x in out if x["populated"])}
+
+
+@api.post("/admin/secrets/export", tags=["Admin"])
+async def admin_vault_export(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_admin)):
+    """Export an AES-256-GCM encrypted bundle of every vaultable setting.
+    Body: {"password": str, "comment": str?}. Returns a JSON envelope the
+    admin must download and store offline. Never persisted on the server."""
+    password = (payload.get("password") or "").strip()
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Mot de passe trop court (8 caractères minimum)")
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    bundle = {k: s.get(k) for k in VAULT_KEYS if k in s}
+    plaintext = json.dumps({
+        "kind": "sawali-secrets-vault",
+        "version": 1,
+        "exported_at": _now(),
+        "exported_by": user.get("email"),
+        "comment": (payload.get("comment") or "").strip()[:200],
+        "settings": bundle,
+    }, ensure_ascii=False, default=_json_default).encode("utf-8")
+    envelope = _vault_encrypt(plaintext, password)
+    # Audit log (no secrets!)
+    try:
+        await db.vault_audit.insert_one({
+            "id": _uuid(),
+            "action": "export",
+            "created_at": _now(),
+            "actor_id": user.get("id"),
+            "actor_email": user.get("email"),
+            "keys_count": len(bundle),
+            "comment": (payload.get("comment") or "").strip()[:200],
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    return {
+        "ok": True,
+        "envelope": envelope,
+        "filename": f"sawali-vault-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.json",
+        "keys_count": len(bundle),
+    }
+
+
+@api.post("/admin/secrets/import", tags=["Admin"])
+async def admin_vault_import(
+    file: UploadFile = File(...),
+    password: str = Form(...),
+    dry_run: str = Form("false"),
+    overwrite_filled: str = Form("false"),
+    user: dict = Depends(get_current_admin),
+):
+    """Restore a previously-exported vault.
+    - dry_run=true : decrypt + return the list of keys that would be
+      restored (without applying them).
+    - dry_run=false : apply.
+    - overwrite_filled=false : only restore keys that are EMPTY in the
+      current settings doc (safe default — never clobber a freshly typed
+      value with an older one).
+    - overwrite_filled=true : restore every key from the bundle."""
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    try:
+        envelope = json.loads(raw.decode("utf-8"))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Fichier non parsable: {exc}")
+    is_dry = str(dry_run).lower() in ("1", "true", "yes", "on")
+    overwrite = str(overwrite_filled).lower() in ("1", "true", "yes", "on")
+    plaintext = _vault_decrypt(envelope, password)
+    try:
+        bundle_doc = json.loads(plaintext.decode("utf-8"))
+    except Exception:
+        raise HTTPException(status_code=400, detail="Contenu déchiffré invalide")
+    if bundle_doc.get("kind") != "sawali-secrets-vault":
+        raise HTTPException(status_code=400, detail="Ce fichier ne semble pas être un coffre-fort SAWALI")
+    incoming = bundle_doc.get("settings") or {}
+    current = await db.settings.find_one({"_id": "global"}) or {}
+
+    plan: List[Dict[str, Any]] = []
+    update: Dict[str, Any] = {}
+    for k in VAULT_KEYS:
+        if k not in incoming:
+            continue
+        new_v = incoming[k]
+        if new_v is None or new_v == "":
+            continue
+        old_v = current.get(k)
+        was_filled = bool(old_v) if not isinstance(old_v, bool) else True
+        will_apply = (not was_filled) or overwrite
+        plan.append({
+            "key": k,
+            "was_filled": was_filled,
+            "will_apply": will_apply,
+            "is_secret": k in SENSITIVE_SETTINGS_KEYS,
+        })
+        if will_apply and not is_dry:
+            update[k] = new_v
+
+    if not is_dry and update:
+        update["updated_at"] = _now()
+        await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+
+    try:
+        await db.vault_audit.insert_one({
+            "id": _uuid(),
+            "action": "import_dry" if is_dry else "import",
+            "created_at": _now(),
+            "actor_id": user.get("id"),
+            "actor_email": user.get("email"),
+            "incoming_count": len(incoming),
+            "applied_count": len(update),
+            "overwrite_filled": overwrite,
+            "bundle_exported_at": bundle_doc.get("exported_at"),
+            "bundle_exported_by": bundle_doc.get("exported_by"),
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+    return {
+        "ok": True,
+        "dry_run": is_dry,
+        "overwrite_filled": overwrite,
+        "bundle_exported_at": bundle_doc.get("exported_at"),
+        "bundle_exported_by": bundle_doc.get("exported_by"),
+        "bundle_comment": bundle_doc.get("comment"),
+        "incoming_count": len(incoming),
+        "applied_count": len(update),
+        "plan": plan,
+    }
+
+
+@api.get("/admin/secrets/audit", tags=["Admin"])
+async def admin_vault_audit(_: dict = Depends(get_current_admin)):
+    """Audit trail of every vault export/import action."""
+    items = await db.vault_audit.find({}, {"_id": 0}).sort("created_at", -1).limit(100).to_list(100)
+    return {"items": items, "count": len(items)}
+
+
 
 # ============================================================
 # iter30 — Per-user client-scope diagnostic & realignment.

@@ -5810,6 +5810,25 @@ async def admin_update_client(
     update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "password"}
     if "client_code" in update:
         update["client_code"] = (update["client_code"] or "").strip().upper() or None
+    # Iter35f — handle email updates safely (normalize + uniqueness check).
+    # Prior to iter35f, the `email` field was missing from UserUpdateAdmin
+    # so the admin UI silently dropped any change. Now we normalize to
+    # lowercase + strip whitespace, then make sure no other account holds
+    # the same email before writing.
+    if "email" in update:
+        new_email = (update["email"] or "").strip().lower()
+        if not new_email or "@" not in new_email:
+            raise HTTPException(status_code=400, detail="Adresse email invalide")
+        update["email"] = new_email
+        clash = await db.users.find_one(
+            {"email": new_email, "id": {"$ne": client_id}},
+            {"_id": 0, "id": 1, "email": 1},
+        )
+        if clash:
+            raise HTTPException(
+                status_code=409,
+                detail=f"L'email {new_email} est déjà utilisé par un autre compte",
+            )
     if payload.password:
         update["password_hash"] = hash_password(payload.password)
     update["updated_at"] = _now()
@@ -10183,6 +10202,20 @@ async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_cur
     return doc
 
 
+def _is_anon_masked_value(value: Any) -> bool:
+    """Iter35f — Detect if a string was produced by our RGPD anonymizers
+    (`_anon_name` → `J***`, `_anon_email` → `j***@gmail.com`, `_anon_phone`
+    → `+22 ** ** ** 89`). Used by update endpoints to AVOID saving the
+    masked sentinel back into the DB and clobbering the real value when
+    the user leaves a RGPD-masked field untouched.
+
+    Heuristic: any string containing TWO OR MORE consecutive asterisks is
+    considered a mask. Real customer data should never legitimately contain
+    `**` (phone masks use `**`, name/email masks use `***`).
+    """
+    return isinstance(value, str) and "**" in value
+
+
 @api.put("/me/contacts/{cid}", tags=["Portail Client"])
 async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depends(get_current_user)):
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
@@ -10196,6 +10229,15 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
     if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # Iter35f — RGPD: a frontend that displays anonymized values may resend
+    # them back on save (the user didn't touch the field). Detect the
+    # `***` sentinel and DROP that key so we never overwrite the real
+    # value with its mask. Applies to name, company, email, phone, whatsapp.
+    masked_skipped: List[str] = []
+    for k in ("name", "company", "email", "phone", "whatsapp"):
+        if k in update and _is_anon_masked_value(update[k]):
+            update.pop(k)
+            masked_skipped.append(k)
     # Same policy on update: if tags is explicitly cleared while the policy is on, reject
     s = await db.settings.find_one({"_id": "global"}) or {}
     if s.get("contacts_require_tag") and "tags" in update:
@@ -10210,7 +10252,7 @@ async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depen
         update["last_edited_at"] = _now()
     await db.directory_contacts.update_one({"id": cid}, {"$set": update})
     await _log_activity(client_id=existing.get("client_id"), kind="contact", action="updated", label=existing.get("name") or "(sans nom)", actor=user, target_id=cid)
-    return {"ok": True}
+    return {"ok": True, "masked_skipped": masked_skipped}
 
 
 @api.delete("/me/contacts/{cid}", tags=["Portail Client"])
@@ -10548,9 +10590,16 @@ async def _wa_send_text(to_e164: str, text: str) -> dict:
         return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
 
 
-async def _wa_last_inbound_iso(client_scope: str, *, contact_id: Optional[str] = None, phone_digits: Optional[str] = None) -> Optional[str]:
+async def _wa_last_inbound_iso(client_scope: Any, *, contact_id: Optional[str] = None, phone_digits: Optional[str] = None) -> Optional[str]:
     """Return the ISO timestamp of the most recent inbound WA message in the user's scope
-    matching either the contact_id or the phone_digits. Used to compute the 24h window."""
+    matching either the contact_id or the phone_digits. Used to compute the 24h window.
+
+    Iter35f — `client_scope` may now be a list[str] (from _resolve_visible_client_ids)
+    so a user whose own `client_id` differs from where the webhook anchored
+    the inbound (e.g. on the primary superviseur) still finds the message
+    and can answer within the 24h window. Backwards-compat: a single string
+    is still accepted.
+    """
     or_clauses: List[Dict[str, Any]] = []
     if contact_id:
         or_clauses.append({"contact_id": contact_id})
@@ -10558,7 +10607,15 @@ async def _wa_last_inbound_iso(client_scope: str, *, contact_id: Optional[str] =
         or_clauses.append({"phone_digits": phone_digits})
     if not or_clauses:
         return None
-    q = {"client_id": client_scope, "direction": "inbound", "$or": or_clauses}
+    scope_q: Dict[str, Any]
+    if isinstance(client_scope, (list, set, tuple)):
+        scope_list = [s for s in client_scope if s]
+        scope_q = {"client_id": {"$in": scope_list}} if scope_list else {}
+    elif client_scope:
+        scope_q = {"client_id": client_scope}
+    else:
+        scope_q = {}
+    q = {**scope_q, "direction": "inbound", "$or": or_clauses}
     doc = await db.whatsapp_messages.find_one(q, {"_id": 0, "received_at": 1, "created_at": 1}, sort=[("created_at", -1)])
     if not doc:
         return None
@@ -10610,7 +10667,11 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
     digits_only = "".join(ch for ch in to if ch.isdigit())
 
     # Verify 24h window: must have a recent inbound from this contact/phone
-    last_iso = await _wa_last_inbound_iso(client_scope, contact_id=payload.contact_id, phone_digits=digits_only)
+    # Iter35f — widen the lookup to every visible client_id of the user
+    # (the webhook may have anchored the inbound on the primary superviseur,
+    # whose client_id differs from the user's own).
+    visible_scope = await _resolve_visible_client_ids(user)
+    last_iso = await _wa_last_inbound_iso(visible_scope, contact_id=payload.contact_id, phone_digits=digits_only)
     if not _wa_window_open(last_iso):
         raise HTTPException(
             status_code=409,
@@ -11390,11 +11451,27 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
     if len(payload.contact_ids) > 500:
         raise HTTPException(status_code=400, detail="Maximum 500 destinataires par envoi")
 
-    # Resolve contacts within the user's scope (directory_contacts.client_id == parent)
+    # Iter35f — widen lookup to every visible client_id (so contacts that
+    # were retagged to a peer/legacy client_id remain reachable). Before
+    # this fix, a strict {client_id: parent_id} filter returned 0 contacts
+    # after an admin retag → bulk send silently reported "0 message envoyé".
+    visible_scope = await _resolve_visible_client_ids(user)
     contacts = await db.directory_contacts.find(
-        {"id": {"$in": payload.contact_ids}, "client_id": parent_id},
+        {"id": {"$in": payload.contact_ids}, "client_id": {"$in": visible_scope}},
         {"_id": 0},
     ).to_list(len(payload.contact_ids))
+
+    # Iter35f — fail fast with a clear error when NO contact resolves
+    # (was silently returning sent_ok=0 → frontend toast "0 message envoyé"
+    # which looked like a delivery problem rather than a scope mismatch).
+    if not contacts:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"Aucun contact retrouvé parmi les {len(payload.contact_ids)} ID(s) sélectionné(s). "
+                "Vos contacts ont peut-être été réassignés à un autre client — actualisez la liste."
+            ),
+        )
 
     # Schedule-for-later branch: persist recipients and let the cron pick it up.
     if payload.scheduled_at:

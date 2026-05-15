@@ -57,6 +57,7 @@ class UserCreateAdmin(BaseModel):
 
 class UserUpdateAdmin(BaseModel):
     full_name: Optional[str] = None
+    email: Optional[str] = None  # Iter35f — admin email updates were silently dropped before
     phone: Optional[str] = None
     company: Optional[str] = None
     client_code: Optional[str] = None

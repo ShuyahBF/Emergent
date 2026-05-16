@@ -183,7 +183,7 @@ class TestSendMediaValidation:
 
     def test_400_when_file_empty(self, admin_h, db, admin_user):
         scope = _client_scope(admin_user)
-        digits = "228" + uuid.uuid4().hex[:9]
+        digits = "228" + str(int(time.time() * 1000))[-9:]
         inb = _seed_inbound(db, client_scope=scope, phone_digits=digits, suffix="_e")
         try:
             files = {"file": ("empty.jpg", b"", "image/jpeg")}
@@ -199,7 +199,7 @@ class TestSendMediaValidation:
 
     def test_413_when_file_too_large(self, admin_h, db, admin_user):
         scope = _client_scope(admin_user)
-        digits = "228" + uuid.uuid4().hex[:9]
+        digits = "229" + str(int(time.time() * 1000))[-9:]
         inb = _seed_inbound(db, client_scope=scope, phone_digits=digits, suffix="_l")
         try:
             big = b"\xff\xd8\xff" + b"a" * (16 * 1024 * 1024 + 10)
@@ -217,7 +217,7 @@ class TestSendMediaValidation:
         """Happy path through validation; even when Meta refuses, response must be
         a 200 JSON containing ok/error/http_status/media_url/kind."""
         scope = _client_scope(admin_user)
-        digits = "228" + uuid.uuid4().hex[:9]
+        digits = "230" + str(int(time.time() * 1000))[-9:]
         inb = _seed_inbound(db, client_scope=scope, phone_digits=digits, suffix="_h")
         try:
             from PIL import Image

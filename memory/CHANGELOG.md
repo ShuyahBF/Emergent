@@ -109,6 +109,22 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35l — Médias WhatsApp (réception + envoi + filigrane + transcription) — 2026-05-16
+
+**Livré (P0)** :
+- **Réception médias WA** : le webhook Meta télécharge automatiquement les images/audio/vidéo/PDF (via `/v21.0/{media_id}` puis l'URL signée), persiste le binaire dans `UPLOAD_DIR` + collection `files`, et l'expose via `/api/files/{id}.ext`. Champs DB ajoutés sur `whatsapp_messages` : `media_id`, `media_url`, `media_mime_type`, `media_filename`, `media_size_bytes`, `media_kind`, `media_caption`, `voice_note_transcript`.
+- **Envoi médias WA** : nouvel endpoint `POST /api/me/whatsapp/send-media` (multipart : `to`, `contact_id`, `caption`, `file`). Validations : 403 si toggle off, 409 hors fenêtre 24h, 413 si > 16 Mo, 400 si vide. Format Meta : `type=image|document|audio|video`, body `{link, caption?, filename?}` via `_wa_send_media`.
+- **Filigrane + QR sur images sortantes** : `_wa_apply_image_watermark_qr` ajoute un texte semi-transparent en bas à droite + un QR code en haut à gauche, sur fond blanc/sombre arrondi, avant l'envoi. Configurable globalement.
+- **Transcription auto Whisper sur notes vocales reçues** : si toggle `wa_voice_transcribe_enabled` ON, `_wa_transcribe_audio_file` invoque OpenAI Whisper sur le binaire téléchargé et stocke le texte dans `voice_note_transcript`.
+- **Admin toggles RGPD** : nouvelle section "Médias WhatsApp" dans `/admin/settings` avec 4 toggles (`wa_allow_terminal_media`, `wa_voice_transcribe_enabled`, `wa_watermark_enabled`, `wa_qr_enabled`) + 2 champs texte (`wa_watermark_text`, `wa_qr_payload`).
+- **UI Contacts (chat 1:1)** : bouton 📎 "Joindre" dans le composer (image/audio/vidéo/PDF, ≤16 Mo) avec aperçu + légende, et bulles enrichies pour rendre images (thumbnail cliquable), audio (player HTML5), vidéo (player), PDF (lien téléchargeable). Transcript en italique sous le player audio.
+
+**Tests** : 19 tests pytest verts (`tests/test_iter35l_wa_media.py` — 8 unit + `tests/test_iter35l_wa_media_http.py` — 11 HTTP intégration, incluant régressions sur `send-text`, webhook inbound et webhook-logs).
+
+**Dépendance ajoutée** : `qrcode==8.2` (Pillow déjà présent).
+
+---
+
 ## 🔭 Backlog priorisé (Next Actions)
 
 ### 🟡 P1 — Refactoring technique

@@ -11283,23 +11283,28 @@ async def _orange_get_token(cfg: Dict[str, Any]) -> Dict[str, Any]:
         return {"access_token": cached["access_token"], "cached": True}
     import base64 as _b64
     basic = _b64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    # Iter35i-fix1 — use `data=` (dict) so httpx encodes the body AND sets the
+    # Content-Type header itself. Previously we used `content=b"grant_type=..."`
+    # with a manually-set Content-Type header, but httpx 0.27+ drops the manual
+    # header when `content=` is bytes, causing Orange to reply:
+    #   {"error":"invalid_request","error_description":"Unsupported media type,
+    #    Content-Type header must be application/x-www-form-urlencoded."}
     headers = {
         "Authorization": f"Basic {basic}",
-        "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
     }
-    # IMPORTANT: form-urlencoded body, NOT JSON. This is the line that fixes
-    # the "Missing grant_type in body" error.
-    body = "grant_type=client_credentials"
+    data = {"grant_type": "client_credentials"}
     try:
         async with httpx.AsyncClient(timeout=15) as http:
-            r = await http.post(oauth_url, headers=headers, content=body)
+            r = await http.post(oauth_url, headers=headers, data=data)
             try:
                 doc = r.json()
             except Exception:
                 doc = {"raw": r.text[:300]}
             if r.status_code >= 300:
-                return {"error": f"OAuth Orange {r.status_code}: {doc}"}
+                # Surface a short diagnostic that's useful from the UI
+                err_msg = doc.get("error_description") or doc.get("error") or str(doc)[:300]
+                return {"error": f"OAuth Orange {r.status_code}: {err_msg}"}
             access_token = (doc or {}).get("access_token")
             expires_in = int((doc or {}).get("expires_in") or 3600)
             if not access_token:

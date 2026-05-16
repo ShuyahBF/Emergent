@@ -2701,6 +2701,7 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
   };
 
   const onPickFile = () => fileInputRef.current?.click();
+  const [uploadProgress, setUploadProgress] = useState(0);
   const onFileChange = async (e) => {
     const file = e.target.files?.[0];
     e.target.value = "";
@@ -2710,13 +2711,29 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
     }
     setImporting(true);
     setLastImport(null);
+    setUploadProgress(0);
     try {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("mode", importMode);
       fd.append("dry_run", importDryRun ? "true" : "false");
       fd.append("comment", importComment || "");
-      const r = await apiClient.post("/admin/snapshots/import", fd, { headers: { "Content-Type": "multipart/form-data" } });
+      const sizeKo = Math.round(file.size / 1024);
+      // Iter35j — explicit 10-min timeout + upload progress so the user
+      // doesn't think "nothing is happening" on a >5 Mo snapshot.
+      const r = await apiClient.post("/admin/snapshots/import", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+        timeout: 600000,
+        onUploadProgress: (evt) => {
+          if (evt.total) {
+            const pct = Math.round((evt.loaded / evt.total) * 100);
+            setUploadProgress(pct);
+            if (pct === 100) {
+              toast(`📤 Fichier transféré (${sizeKo} Ko), application en cours… (peut prendre jusqu'à 5 min sur une grosse base)`, { duration: 6000 });
+            }
+          }
+        },
+      });
       setLastImport(r.data);
       if (r.data?.dry_run) {
         toast.info("Aperçu (dry-run) calculé. Vérifiez le résumé ci-dessous puis désactivez le dry-run pour appliquer.");
@@ -2745,9 +2762,20 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
       }
       await load();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur d'import", { duration: 10000 });
-      setLastImport({ error: err?.response?.data?.detail || String(err) });
-    } finally { setImporting(false); }
+      // Iter35j — surface ALL flavors of failure so the user never sees "rien ne se passe":
+      //   - axios timeout (code='ECONNABORTED'): proxy killed the request after N seconds
+      //   - network: backend or ingress dropped the connection
+      //   - 4xx/5xx with backend detail
+      console.error("snapshot import failed", err);
+      let msg = err?.response?.data?.detail;
+      if (!msg) {
+        if (err?.code === "ECONNABORTED") msg = "⏱️ Délai dépassé — la base est peut-être trop grosse. Essayez de l'importer en plusieurs morceaux (export par catégorie).";
+        else if (err?.message?.includes("Network")) msg = "🌐 Erreur réseau — la connexion a été coupée avant la fin de l'import. Réessayez avec une connexion stable.";
+        else msg = err?.message || "Erreur inconnue lors de l'import";
+      }
+      toast.error(msg, { duration: 12000 });
+      setLastImport({ error: msg });
+    } finally { setImporting(false); setUploadProgress(0); }
   };
 
   const runAutoNow = async () => {
@@ -3067,6 +3095,24 @@ const DbSnapshotsSection = ({ s = {}, upd = () => {}, reloadSettings = () => {} 
             {importing ? "Import en cours…" : "Choisir un fichier et importer"}
           </button>
         </div>
+
+        {/* Iter35j — upload progress bar (visible during file transfer) */}
+        {importing && uploadProgress > 0 && uploadProgress < 100 && (
+          <div className="mt-2" data-testid="snapshot-upload-progress">
+            <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
+              <span>📤 Transfert du fichier…</span>
+              <span className="font-mono font-semibold">{uploadProgress}%</span>
+            </div>
+            <div className="h-2 rounded bg-slate-200 overflow-hidden">
+              <div className="h-full bg-amber-500 transition-all" style={{ width: `${uploadProgress}%` }} />
+            </div>
+          </div>
+        )}
+        {importing && uploadProgress >= 100 && (
+          <div className="mt-2 rounded bg-amber-50 border border-amber-200 px-3 py-2 text-xs text-amber-900" data-testid="snapshot-applying">
+            ⏳ Application du snapshot sur la base… (peut prendre jusqu'à 5 min pour les grosses bases — ne fermez pas la page)
+          </div>
+        )}
 
         {lastImport && (
           <div className="space-y-2" data-testid="snapshot-import-summary">

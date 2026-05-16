@@ -765,14 +765,14 @@ async def health():
 # AUTH
 # ====================================================================
 @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
-async def auth_login(payload: LoginRequest):
+async def auth_login(payload: LoginRequest, request: Request):
     user = await db.users.find_one({"email": payload.email.lower()})
     if not user or not verify_password(payload.password, user["password_hash"]):
         raise HTTPException(status_code=401, detail="Identifiants invalides")
     if user.get("account_status") != "active":
         raise HTTPException(status_code=403, detail="Compte désactivé")
 
-    captcha = await verify_recaptcha(payload.captcha_token)
+    captcha = await verify_recaptcha(payload.captcha_token, request=request)
     if not captcha["success"]:
         raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
 
@@ -11283,14 +11283,12 @@ async def _orange_get_token(cfg: Dict[str, Any]) -> Dict[str, Any]:
         return {"access_token": cached["access_token"], "cached": True}
     import base64 as _b64
     basic = _b64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
-    # Iter35i-fix1 — use `data=` (dict) so httpx encodes the body AND sets the
-    # Content-Type header itself. Previously we used `content=b"grant_type=..."`
-    # with a manually-set Content-Type header, but httpx 0.27+ drops the manual
-    # header when `content=` is bytes, causing Orange to reply:
-    #   {"error":"invalid_request","error_description":"Unsupported media type,
-    #    Content-Type header must be application/x-www-form-urlencoded."}
+    # Iter35i-fix2 — belt-and-suspenders : send `data=dict` (httpx encodes
+    # AND sets Content-Type) AND also explicit Content-Type header (some
+    # corporate proxies strip auto-headers). + verbose logging on failure.
     headers = {
         "Authorization": f"Basic {basic}",
+        "Content-Type": "application/x-www-form-urlencoded",
         "Accept": "application/json",
     }
     data = {"grant_type": "client_credentials"}
@@ -11302,7 +11300,13 @@ async def _orange_get_token(cfg: Dict[str, Any]) -> Dict[str, Any]:
             except Exception:
                 doc = {"raw": r.text[:300]}
             if r.status_code >= 300:
-                # Surface a short diagnostic that's useful from the UI
+                logger.warning(
+                    "Orange OAuth fail %s url=%s req_ct=%s req_body=%s resp=%s",
+                    r.status_code, oauth_url,
+                    r.request.headers.get("Content-Type"),
+                    r.request.content[:200] if r.request.content else b"",
+                    str(doc)[:300],
+                )
                 err_msg = doc.get("error_description") or doc.get("error") or str(doc)[:300]
                 return {"error": f"OAuth Orange {r.status_code}: {err_msg}"}
             access_token = (doc or {}).get("access_token")

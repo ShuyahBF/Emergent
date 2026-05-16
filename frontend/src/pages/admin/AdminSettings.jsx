@@ -739,8 +739,53 @@ export default function AdminSettings() {
                 <option value="bearer">Bearer Token</option>
                 <option value="basic">Basic Auth</option>
                 <option value="header">En-tête personnalisé (API Key)</option>
+                {/* Iter35i — Orange Developer / Moov / Telecel OAuth2 client_credentials */}
+                <option value="orange_oauth">OAuth2 client_credentials (Orange Developer)</option>
               </select>
             </div>
+            {s[`sms_${op.key}_auth_type`] === "orange_oauth" && (
+              <div className="rounded-lg border-2 border-orange-300 bg-orange-50/40 p-3 space-y-2" data-testid={`sms-${op.key}-oauth-block`}>
+                <p className="text-[11px] text-orange-900">
+                  <strong>Mode Orange Developer.</strong> Génère automatiquement un token Bearer via{" "}
+                  <code>POST {`{oauth_url}`}</code> avec{" "}
+                  <code>Authorization: Basic base64(client_id:client_secret)</code> et un corps{" "}
+                  <code>grant_type=client_credentials</code> au format <code>x-www-form-urlencoded</code>.
+                  Corrige l'erreur « Missing grant_type in body » du flow générique.
+                </p>
+                <Input
+                  label="URL OAuth (défaut : https://api.orange.com/oauth/v3/token)"
+                  value={s[`sms_${op.key}_oauth_url`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_oauth_url`, v)}
+                  placeholder="https://api.orange.com/oauth/v3/token"
+                  testid={`sms-${op.key}-oauth-url`}
+                />
+                <Input
+                  label="Client ID"
+                  value={s[`sms_${op.key}_client_id`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_client_id`, v)}
+                  placeholder="abc123…"
+                  testid={`sms-${op.key}-client-id`}
+                />
+                <Input
+                  label="Client Secret"
+                  type="password"
+                  value={s[`sms_${op.key}_client_secret`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_client_secret`, v)}
+                  placeholder={s[`sms_${op.key}_client_secret`] === "********" ? "(défini)" : ""}
+                  testid={`sms-${op.key}-client-secret`}
+                />
+                <Input
+                  label="Numéro émetteur Orange (format E.164, ex. +22670000000)"
+                  value={s[`sms_${op.key}_sender_msisdn`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_sender_msisdn`, v)}
+                  placeholder="+22670000000"
+                  testid={`sms-${op.key}-sender-msisdn`}
+                />
+                <p className="text-[10px] text-orange-700">
+                  💡 Pour Orange, laissez « URL de l'API SMS » sur <code>https://api.orange.com/smsmessaging/v1</code> — on construit automatiquement le chemin <code>/outbound/tel:&lt;sender&gt;/requests</code>.
+                </p>
+              </div>
+            )}
             {s[`sms_${op.key}_auth_type`] === "bearer" && (
               <Input
                 label="Token Bearer"

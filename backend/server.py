@@ -3597,8 +3597,11 @@ SENSITIVE_SETTINGS_KEYS = {
     "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key",
     "n8n_webhook_token", "n8n_webhook_basic_pass",
     "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
+    "sms_orange_client_secret",  # Iter35i — Orange OAuth client_credentials
     "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
+    "sms_moov_client_secret",
     "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+    "sms_telecel_client_secret",
     "sms_ovh_application_secret", "sms_ovh_consumer_key",
     "pawapay_api_token",
 }
@@ -4636,10 +4639,13 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     # SMS providers — URLs + auth types + senders
     "sms_orange_enabled", "sms_orange_url", "sms_orange_method", "sms_orange_auth_type",
     "sms_orange_basic_user", "sms_orange_header_name", "sms_orange_sender",
+    "sms_orange_oauth_url", "sms_orange_client_id", "sms_orange_sender_msisdn",  # Iter35i
     "sms_moov_enabled", "sms_moov_url", "sms_moov_method", "sms_moov_auth_type",
     "sms_moov_basic_user", "sms_moov_header_name", "sms_moov_sender",
+    "sms_moov_oauth_url", "sms_moov_client_id", "sms_moov_sender_msisdn",
     "sms_telecel_enabled", "sms_telecel_url", "sms_telecel_method", "sms_telecel_auth_type",
     "sms_telecel_basic_user", "sms_telecel_header_name", "sms_telecel_sender",
+    "sms_telecel_oauth_url", "sms_telecel_client_id", "sms_telecel_sender_msisdn",
     "sms_ovh_enabled", "sms_ovh_application_key", "sms_ovh_service_name", "sms_ovh_sender",
     # PawaPay
     "pawapay_environment", "pawapay_api_token_sandbox", "pawapay_api_token_production",
@@ -9162,9 +9168,9 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
     # mask sensitive
     masked = dict(s)
     for k in ("smtp_password", "google_client_secret", "recaptcha_secret_key", "google_calendar_password_hint", "tracking_auth_header", "webhook_token", "webhook_basic_pass", "notes_webhook_token", "notes_webhook_basic_pass", "health_webhook_token", "health_webhook_basic_pass", "wa_access_token", "wa_verify_token", "openai_api_key", "openai_chat_api_key", "n8n_webhook_token", "n8n_webhook_basic_pass",
-                "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
-                "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
-                "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+                "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value", "sms_orange_client_secret",
+                "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value", "sms_moov_client_secret",
+                "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value", "sms_telecel_client_secret",
                 "sms_ovh_application_secret", "sms_ovh_consumer_key",
                 "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
                 "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret"):
@@ -9186,9 +9192,9 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "wa_access_token", "wa_verify_token",
         "openai_api_key", "openai_chat_api_key",
         "n8n_webhook_token", "n8n_webhook_basic_pass",
-        "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value",
-        "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value",
-        "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value",
+        "sms_orange_token", "sms_orange_basic_pass", "sms_orange_header_value", "sms_orange_client_secret",
+        "sms_moov_token", "sms_moov_basic_pass", "sms_moov_header_value", "sms_moov_client_secret",
+        "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value", "sms_telecel_client_secret",
         "sms_ovh_application_secret", "sms_ovh_consumer_key",
         "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
         "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
@@ -11133,6 +11139,11 @@ def _sms_provider_cfg(s: Dict[str, Any], provider: str) -> Optional[Dict[str, An
             "sender": s.get(f"sms_{p}_sender"),
             "payload_template": s.get(f"sms_{p}_payload_template"),
             "content_type": (s.get(f"sms_{p}_content_type") or "json").lower(),
+            # Iter35i — Orange Developer OAuth2 client_credentials flow
+            "oauth_url": s.get(f"sms_{p}_oauth_url"),
+            "client_id": s.get(f"sms_{p}_client_id"),
+            "client_secret": s.get(f"sms_{p}_client_secret"),
+            "sender_msisdn": s.get(f"sms_{p}_sender_msisdn"),
         }
     if p == "ovh":
         if not s.get("sms_ovh_enabled"):
@@ -11236,8 +11247,160 @@ async def _sms_send_ovh(cfg: Dict[str, Any], msisdn_e164: str, message: str, sen
         return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
 
 
+# ============================================================
+# Iter35i — Orange Developer SMS API (OAuth2 client_credentials).
+#
+# Orange's official SMS API at https://api.orange.com/smsmessaging/v1 needs:
+#  1. POST {oauth_url} with `Authorization: Basic base64(client_id:client_secret)`
+#     and body `grant_type=client_credentials` ENCODED AS form-urlencoded.
+#     This was the failing step — the generic flow sent JSON / no body, so
+#     Orange answered: {"error":"invalid_request","error_description":"Missing grant_type in body"}
+#  2. POST {url}/outbound/tel%3A%2B<sender>/requests with the OAuth Bearer
+#     and a specific JSON envelope `outboundSMSMessageRequest`.
+#
+# We cache the access_token in memory for `expires_in - 60s` to avoid
+# pestering the token endpoint on every send.
+# ============================================================
+_ORANGE_TOKEN_CACHE: Dict[str, Dict[str, Any]] = {}
+
+
+async def _orange_get_token(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Fetch (and cache) the OAuth2 client_credentials access token.
+
+    Returns the parsed token document on success or {"error": ...} otherwise.
+    The cache key combines the OAuth URL + client_id so re-configuring
+    credentials invalidates the cached token.
+    """
+    oauth_url = (cfg.get("oauth_url") or "https://api.orange.com/oauth/v3/token").strip()
+    client_id = (cfg.get("client_id") or "").strip()
+    client_secret = (cfg.get("client_secret") or "").strip()
+    if not client_id or not client_secret:
+        return {"error": "Identifiants OAuth Orange manquants (client_id ou client_secret)"}
+    cache_key = f"{oauth_url}|{client_id}"
+    cached = _ORANGE_TOKEN_CACHE.get(cache_key)
+    now_ts = datetime.now(timezone.utc).timestamp()
+    if cached and cached.get("expires_at", 0) > now_ts + 5:
+        return {"access_token": cached["access_token"], "cached": True}
+    import base64 as _b64
+    basic = _b64.b64encode(f"{client_id}:{client_secret}".encode("utf-8")).decode("ascii")
+    headers = {
+        "Authorization": f"Basic {basic}",
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Accept": "application/json",
+    }
+    # IMPORTANT: form-urlencoded body, NOT JSON. This is the line that fixes
+    # the "Missing grant_type in body" error.
+    body = "grant_type=client_credentials"
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.post(oauth_url, headers=headers, content=body)
+            try:
+                doc = r.json()
+            except Exception:
+                doc = {"raw": r.text[:300]}
+            if r.status_code >= 300:
+                return {"error": f"OAuth Orange {r.status_code}: {doc}"}
+            access_token = (doc or {}).get("access_token")
+            expires_in = int((doc or {}).get("expires_in") or 3600)
+            if not access_token:
+                return {"error": f"OAuth Orange: pas d'access_token dans la réponse ({doc})"}
+            _ORANGE_TOKEN_CACHE[cache_key] = {
+                "access_token": access_token,
+                "expires_at": now_ts + max(60, expires_in - 60),
+            }
+            return {"access_token": access_token, "expires_in": expires_in, "cached": False}
+    except httpx.TimeoutException:
+        return {"error": "OAuth Orange: timeout"}
+    except Exception as exc:  # noqa: BLE001
+        return {"error": f"OAuth Orange: {exc!r}"[:300]}
+
+
+async def _sms_send_orange_oauth(cfg: Dict[str, Any], msisdn_digits: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
+    """Send via Orange Developer SMS API using the cached OAuth bearer."""
+    tok = await _orange_get_token(cfg)
+    if "error" in tok:
+        return {"ok": False, "status": "failed", "api_message": tok["error"]}
+    access_token = tok["access_token"]
+
+    # Sender: Orange expects the registered MSISDN in international format,
+    # URL-encoded inside the path (tel:+22507..., where + → %2B).
+    sender_msisdn = (sender or cfg.get("sender_msisdn") or cfg.get("sender") or "").strip()
+    if not sender_msisdn:
+        return {"ok": False, "status": "failed", "api_message": "Numéro émetteur (sender_msisdn) requis pour Orange OAuth"}
+    sender_clean = sender_msisdn if sender_msisdn.startswith("+") else f"+{sender_msisdn}"
+
+    # Build endpoint URL — allow the admin's configured URL to be either:
+    #   - the bare base (https://api.orange.com/smsmessaging/v1) → we append
+    #     /outbound/tel%3A%2B<sender>/requests
+    #   - the fully-resolved one with tel placeholder
+    import urllib.parse as _urlp
+    base_url = (cfg.get("url") or "https://api.orange.com/smsmessaging/v1").strip().rstrip("/")
+    encoded_sender = _urlp.quote(f"tel:{sender_clean}", safe="")
+    if "/outbound/" not in base_url:
+        endpoint = f"{base_url}/outbound/{encoded_sender}/requests"
+    else:
+        endpoint = base_url  # admin gave the full URL
+
+    dest = msisdn_digits if msisdn_digits.startswith("+") else f"+{msisdn_digits}"
+    body = {
+        "outboundSMSMessageRequest": {
+            "address": f"tel:{dest}",
+            "senderAddress": f"tel:{sender_clean}",
+            "outboundSMSTextMessage": {"message": message},
+        }
+    }
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+    }
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.post(endpoint, headers=headers, json=body)
+            try:
+                resp = r.json()
+            except Exception:
+                resp = {"raw": r.text[:500]}
+            if r.status_code == 401:
+                # Token may have just expired between cache check and request:
+                # purge cache and retry ONCE.
+                cache_key = f"{(cfg.get('oauth_url') or 'https://api.orange.com/oauth/v3/token').strip()}|{(cfg.get('client_id') or '').strip()}"
+                _ORANGE_TOKEN_CACHE.pop(cache_key, None)
+                tok2 = await _orange_get_token(cfg)
+                if "access_token" in tok2:
+                    headers["Authorization"] = f"Bearer {tok2['access_token']}"
+                    r = await http.post(endpoint, headers=headers, json=body)
+                    try:
+                        resp = r.json()
+                    except Exception:
+                        resp = {"raw": r.text[:500]}
+            ok = 200 <= r.status_code < 300
+            api_msg = None
+            if isinstance(resp, dict):
+                # Orange's error shape varies; surface the most useful field
+                fault = (resp.get("requestError") or {}).get("serviceException") or (resp.get("requestError") or {}).get("policyException")
+                if fault:
+                    api_msg = f"{fault.get('messageId', '')}: {fault.get('text', '')}"
+                else:
+                    api_msg = resp.get("message") or None
+            return {
+                "ok": ok,
+                "status": "sent" if ok else "failed",
+                "http_status": r.status_code,
+                "api_message": _safe_text(api_msg) or (None if ok else f"HTTP {r.status_code}"),
+                "raw_response": resp,
+            }
+    except httpx.TimeoutException:
+        return {"ok": False, "status": "failed", "api_message": "Orange OAuth send timeout"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
+
+
 async def _sms_send_generic(cfg: Dict[str, Any], msisdn: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
     """Send via a generic configurable HTTP webhook (Orange/Moov/Telecel BFA)."""
+    # Iter35i — branch off to the dedicated Orange Developer OAuth2 flow.
+    if (cfg.get("auth_type") or "").lower() == "orange_oauth":
+        return await _sms_send_orange_oauth(cfg, msisdn, message, sender)
     url = (cfg.get("url") or "").strip()
     if not url:
         return {"ok": False, "status": "failed", "api_message": f"URL non configurée pour {cfg.get('name')}"}

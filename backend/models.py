@@ -547,6 +547,11 @@ class SettingsUpdate(BaseModel):
     sms_orange_sender: Optional[str] = None  # caller-id / from
     sms_orange_payload_template: Optional[str] = None  # JSON template with {phone}/{message}/{sender}
     sms_orange_content_type: Optional[str] = None  # "json" | "form" — defaults to json
+    # Iter35i — Orange Developer OAuth2 client_credentials flow
+    sms_orange_oauth_url: Optional[str] = None  # default https://api.orange.com/oauth/v3/token
+    sms_orange_client_id: Optional[str] = None
+    sms_orange_client_secret: Optional[str] = None  # masked
+    sms_orange_sender_msisdn: Optional[str] = None  # E.164 number registered with Orange
 
     sms_moov_enabled: Optional[bool] = None
     sms_moov_url: Optional[str] = None
@@ -560,6 +565,10 @@ class SettingsUpdate(BaseModel):
     sms_moov_sender: Optional[str] = None
     sms_moov_payload_template: Optional[str] = None
     sms_moov_content_type: Optional[str] = None
+    sms_moov_oauth_url: Optional[str] = None
+    sms_moov_client_id: Optional[str] = None
+    sms_moov_client_secret: Optional[str] = None  # masked
+    sms_moov_sender_msisdn: Optional[str] = None
 
     sms_telecel_enabled: Optional[bool] = None
     sms_telecel_url: Optional[str] = None
@@ -573,6 +582,10 @@ class SettingsUpdate(BaseModel):
     sms_telecel_sender: Optional[str] = None
     sms_telecel_payload_template: Optional[str] = None
     sms_telecel_content_type: Optional[str] = None
+    sms_telecel_oauth_url: Optional[str] = None
+    sms_telecel_client_id: Optional[str] = None
+    sms_telecel_client_secret: Optional[str] = None  # masked
+    sms_telecel_sender_msisdn: Optional[str] = None
 
     # Default SMS provider used when the caller doesn't specify one.
     # Values: "orange" | "moov" | "telecel" | "ovh" | "auto" (auto = pick by phone prefix).

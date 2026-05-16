@@ -127,7 +127,7 @@ PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 #   - APP_GIT_SHA    : short git SHA of /app (best-effort, "unknown" if not a repo)
 #   - APP_BUILT_AT   : ISO timestamp of the latest commit (best-effort) or process start
 #   - APP_STARTED_AT : ISO timestamp the FastAPI process booted (always set)
-APP_VERSION = os.environ.get("APP_VERSION", "iter35n")
+APP_VERSION = os.environ.get("APP_VERSION", "1.0")
 APP_STARTED_AT = datetime.now(timezone.utc).isoformat()
 try:
     import subprocess as _subproc

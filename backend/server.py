@@ -11405,11 +11405,104 @@ async def _sms_send_orange_oauth(cfg: Dict[str, Any], msisdn_digits: str, messag
         return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
 
 
-async def _sms_send_generic(cfg: Dict[str, Any], msisdn: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
+async def _sms_send_via_webhook(cfg: Dict[str, Any], msisdn: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
+    """Iter35k — Bridge mode: POST a simple JSON payload to a user-controlled
+    webhook (typically an n8n / Make / Zapier workflow). The webhook does
+    the heavy lifting (OAuth, retries, provider-specific format) and returns
+    a response that we surface to the admin UI.
+
+    Outbound payload sent to the webhook:
+        {
+            "provider": "orange|moov|telecel",
+            "phone": "+22607332313",
+            "message": "Hello",
+            "sender": "+22677000155"   # may be None
+        }
+
+    Expected webhook response shape (anything else is best-effort parsed):
+        {
+            "status": "sent" | "failed",         # OR
+            "ok": true | false,                  # OR
+            "success": true | false,
+            "api_message": "Optional human readable message",
+            "raw": { ...provider raw response... }
+        }
+    Webhook may also include `Authorization: Bearer <token>` if
+    `auth_type=webhook` AND `token` (in sms_*_token) is set — used to
+    secure your n8n endpoint.
+    """
+    url = (cfg.get("url") or "").strip()
+    if not url.startswith(("http://", "https://")):
+        return {"ok": False, "status": "failed", "api_message": "URL webhook invalide (vide ou non http(s))"}
+    payload = {
+        "provider": cfg.get("name") or "unknown",
+        "phone": msisdn if msisdn.startswith("+") else f"+{msisdn}",
+        "message": message,
+        "sender": (sender or cfg.get("sender") or cfg.get("sender_msisdn")),
+    }
+    headers = {"Content-Type": "application/json", "Accept": "application/json"}
+    token = (cfg.get("token") or "").strip()
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.post(url, headers=headers, json=payload)
+            try:
+                resp = r.json()
+            except Exception:
+                resp = {"raw": r.text[:500]}
+            # Tolerant success detection
+            ok_http = 200 <= r.status_code < 300
+            ok_body = False
+            api_msg = None
+            if isinstance(resp, dict):
+                status_val = (resp.get("status") or "").lower()
+                ok_body = (
+                    resp.get("ok") is True
+                    or resp.get("success") is True
+                    or status_val in ("sent", "ok", "success", "delivered")
+                )
+                # n8n's $json.error.* shape from your workflow
+                err = resp.get("error") or {}
+                if isinstance(err, dict) and (err.get("status") not in (None, 200, "200")):
+                    ok_body = False
+                    api_msg = f"{err.get('status')} {err.get('code', '')}: {err.get('message', '')}".strip()
+                else:
+                    api_msg = (
+                        resp.get("api_message")
+                        or resp.get("message")
+                        or resp.get("maReponse")
+                        or None
+                    )
+                # If the webhook responds 200 with NO explicit ok/status field,
+                # consider it a success (your workflow does this).
+                if ok_http and not ok_body and "ok" not in resp and "status" not in resp and "success" not in resp and not (isinstance(err, dict) and err):
+                    ok_body = True
+            ok = ok_http and ok_body
+            return {
+                "ok": ok,
+                "status": "sent" if ok else "failed",
+                "http_status": r.status_code,
+                "api_message": _safe_text(api_msg) or (None if ok else f"HTTP {r.status_code}"),
+                "raw_response": resp,
+            }
+    except httpx.TimeoutException:
+        return {"ok": False, "status": "failed", "api_message": "Webhook timeout (>30s)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": "failed", "api_message": str(exc)[:300]}
+
+
+
     """Send via a generic configurable HTTP webhook (Orange/Moov/Telecel BFA)."""
     # Iter35i — branch off to the dedicated Orange Developer OAuth2 flow.
     if (cfg.get("auth_type") or "").lower() == "orange_oauth":
         return await _sms_send_orange_oauth(cfg, msisdn, message, sender)
+    # Iter35k — branch off to the n8n-style webhook bridge: we just POST
+    # {phone, message, sender, provider} as JSON to the configured URL
+    # (the user's workflow handles all the provider-specific OAuth/SMS calls)
+    # and we parse whatever the webhook returns.
+    if (cfg.get("auth_type") or "").lower() == "webhook":
+        return await _sms_send_via_webhook(cfg, msisdn, message, sender)
     url = (cfg.get("url") or "").strip()
     if not url:
         return {"ok": False, "status": "failed", "api_message": f"URL non configurée pour {cfg.get('name')}"}

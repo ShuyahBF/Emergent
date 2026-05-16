@@ -741,8 +741,41 @@ export default function AdminSettings() {
                 <option value="header">En-tête personnalisé (API Key)</option>
                 {/* Iter35i — Orange Developer / Moov / Telecel OAuth2 client_credentials */}
                 <option value="orange_oauth">OAuth2 client_credentials (Orange Developer)</option>
+                {/* Iter35k — Webhook bridge (n8n/Make/Zapier) */}
+                <option value="webhook">Webhook personnalisé (n8n / Make / Zapier)</option>
               </select>
             </div>
+            {s[`sms_${op.key}_auth_type`] === "webhook" && (
+              <div className="rounded-lg border-2 border-indigo-300 bg-indigo-50/40 p-3 space-y-2" data-testid={`sms-${op.key}-webhook-block`}>
+                <p className="text-[11px] text-indigo-900">
+                  <strong>Mode webhook (n8n / Make / Zapier).</strong> Notre serveur fait un{" "}
+                  <code>POST</code> JSON vers <code>{`{URL ci-dessus}`}</code> avec le payload :
+                </p>
+                <pre className="text-[10px] bg-white border border-indigo-200 rounded p-2 overflow-x-auto">{`{
+  "provider": "${op.key}",
+  "phone": "+22607332313",
+  "message": "Bonjour…",
+  "sender": "+22677000155"
+}`}</pre>
+                <p className="text-[11px] text-indigo-900">
+                  Votre workflow doit retourner soit un statut HTTP 200 vide,
+                  soit un JSON <code>{`{ "ok": true }`}</code> ou{" "}
+                  <code>{`{ "status": "sent" }`}</code>. En cas d'erreur :{" "}
+                  <code>{`{ "error": { "status": 400, "code": "...", "message": "..." } }`}</code>.
+                </p>
+                <Input
+                  label="Token Bearer pour sécuriser l'appel (facultatif)"
+                  type="password"
+                  value={s[`sms_${op.key}_token`] || ""}
+                  onChange={(v) => upd(`sms_${op.key}_token`, v)}
+                  placeholder={s[`sms_${op.key}_token`] === "********" ? "(défini)" : "Laisser vide si le webhook est public"}
+                  testid={`sms-${op.key}-webhook-token`}
+                />
+                <p className="text-[10px] text-indigo-700">
+                  💡 Pensez à renseigner <strong>URL de l'API SMS</strong> ci-dessus avec l'URL de votre webhook (ex. <code>https://n8n.exemple.com/webhook/88e0f7b3-…</code>).
+                </p>
+              </div>
+            )}
             {s[`sms_${op.key}_auth_type`] === "orange_oauth" && (
               <div className="rounded-lg border-2 border-orange-300 bg-orange-50/40 p-3 space-y-2" data-testid={`sms-${op.key}-oauth-block`}>
                 <p className="text-[11px] text-orange-900">

@@ -109,6 +109,17 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35n — Version stamp + Réactivité WA + Filtre/Nettoyage médias WA — 2026-05-16
+
+**Livré** :
+- **Version stamp** sur la page de connexion (`/login`) — affiche `iter35n · {git_sha} · {build_date}` en bas de la carte, lu via le nouvel endpoint **public** `GET /api/version`. Permet à l'utilisateur de confirmer la version déployée avant de se connecter.
+- **Score réactivité WhatsApp** — chaque envoi (texte/média) qui répond à un inbound encore non répondu stamp `reply_to_inbound_id` + `reply_seconds` sur le message outbound. Nouveau bloc "⚡ Mon score réactivité WhatsApp" dans la carte dashboard avec : temps moyen, médiane, plus rapide, nombre de réponses (sur 7/30/90j). Pour les rôles élevés (admin/superviseur/admin-tracked) : classement de l'équipe (top 10 par temps moyen). Fenêtre de validité = 7 jours (au-delà, n'est plus considéré comme une "réponse"). Endpoint : `GET /api/me/dashboard/wa-reply-stats?days=N`.
+- **Filtre "WhatsApp" + Nettoyage** sur la bibliothèque partagée — boutons "Tous / WhatsApp" en haut. Pour admin/superviseur : bouton "Nettoyer les inutilisés" en mode WhatsApp qui dry-run d'abord (liste des médias WA non référencés par aucun rapport/suivi/note/intervention) puis confirme. Endpoints : `GET /api/me/media-library?source=whatsapp_inbound`, `POST /api/me/media-library/wa-cleanup?dry_run=true|false`.
+
+**Tests** : 6 nouveaux pytest verts (`tests/test_iter35n_version_reply_cleanup.py`). Cumul iter35l+m+n = **32 tests verts**.
+
+---
+
 ## 🆕 Iter35m — Réutilisation médias WA + Synthèse Dashboard + Notes ciblées — 2026-05-16
 
 **Livré (P0)** :

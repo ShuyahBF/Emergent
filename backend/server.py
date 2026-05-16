@@ -120,6 +120,31 @@ POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
 
 
+# ---------- Iter35n — Version stamp ----------
+# Surfaced via GET /api/version so the login page (and any UI) can display
+# which build is currently deployed. We compute it once at import time:
+#   - APP_VERSION    : human-readable tag (env var, falls back to "iter35n")
+#   - APP_GIT_SHA    : short git SHA of /app (best-effort, "unknown" if not a repo)
+#   - APP_BUILT_AT   : ISO timestamp of the latest commit (best-effort) or process start
+#   - APP_STARTED_AT : ISO timestamp the FastAPI process booted (always set)
+APP_VERSION = os.environ.get("APP_VERSION", "iter35n")
+APP_STARTED_AT = datetime.now(timezone.utc).isoformat()
+try:
+    import subprocess as _subproc
+    _root = Path(__file__).resolve().parent.parent
+    APP_GIT_SHA = _subproc.check_output(
+        ["git", "-C", str(_root), "rev-parse", "--short", "HEAD"],
+        stderr=_subproc.DEVNULL,
+    ).decode("ascii", errors="ignore").strip() or "unknown"
+    APP_BUILT_AT = _subproc.check_output(
+        ["git", "-C", str(_root), "log", "-1", "--format=%cI"],
+        stderr=_subproc.DEVNULL,
+    ).decode("ascii", errors="ignore").strip() or None
+except Exception:  # noqa: BLE001
+    APP_GIT_SHA = "unknown"
+    APP_BUILT_AT = None
+
+
 def _public_base_url(request: Optional["Request"] = None) -> str:
     """Resolve the public base URL for absolute links (OAuth redirects, file URLs).
 
@@ -759,6 +784,19 @@ async def root():
 @api.get("/health", tags=["Santé"])
 async def health():
     return {"status": "ok"}
+
+
+@api.get("/version", tags=["Santé"])
+async def version():
+    """Iter35n — Public version stamp. Surfaced on the login page so users
+    can confirm which build they are about to authenticate against. Always
+    returns 200 (never auth-protected); contains no secrets."""
+    return {
+        "version": APP_VERSION,
+        "git_sha": APP_GIT_SHA,
+        "built_at": APP_BUILT_AT,
+        "started_at": APP_STARTED_AT,
+    }
 
 
 # ====================================================================
@@ -6824,10 +6862,20 @@ async def admin_document_logs(file_id: Optional[str] = None, _: dict = Depends(g
 # Media library (shared per-client bank for WhatsApp templates)
 # ============================================================
 @api.get("/me/media-library", tags=["Portail Client"])
-async def me_media_library(user: dict = Depends(get_current_user)):
-    """All media items uploaded by users of the same client. Shared bank."""
+async def me_media_library(
+    source: Optional[str] = None,  # Iter35n — filter by `source` (e.g. "whatsapp_inbound")
+    user: dict = Depends(get_current_user),
+):
+    """All media items uploaded by users of the same client. Shared bank.
+
+    Iter35n — `source` query filter narrows the listing (typically
+    `?source=whatsapp_inbound` to isolate WhatsApp re-saved media).
+    """
     client_scope = user.get("client_id") or user.get("id")
-    items = await db.media_library.find({"client_id": client_scope}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    q: Dict[str, Any] = {"client_id": client_scope}
+    if source:
+        q["source"] = source
+    items = await db.media_library.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
     return items
 
 
@@ -6898,6 +6946,69 @@ async def me_media_library_delete(media_id: str, user: dict = Depends(get_curren
     await db.media_library.delete_one({"id": media_id})
     # Best-effort: keep the underlying file in case other places reference it
     return {"ok": True}
+
+
+# Iter35n — Cleanup unused WhatsApp media library entries. "Unused" means the
+# underlying file_id is not referenced by any rapport/suivi/note image. Admin
+# can dry-run first to preview what will be deleted.
+@api.post("/me/media-library/wa-cleanup", tags=["Portail Client"])
+async def me_media_library_wa_cleanup(
+    dry_run: bool = Query(default=True),
+    user: dict = Depends(get_current_user),
+):
+    """Delete WhatsApp-sourced media library entries whose underlying file is
+    no longer referenced anywhere else. Admin/superviseur/admin-tracked only."""
+    if not (user.get("role") in ("admin", "superviseur") or _is_elevated_creator(user)):
+        raise HTTPException(status_code=403, detail="Réservé aux rôles élevés")
+    client_scope = user.get("client_id") or user.get("id")
+    candidates = await db.media_library.find(
+        {"client_id": client_scope, "source": "whatsapp_inbound"},
+        {"_id": 0, "id": 1, "file_id": 1, "label": 1, "public_url": 1, "kind": 1, "created_at": 1},
+    ).to_list(2000)
+    if not candidates:
+        return {"ok": True, "dry_run": dry_run, "examined": 0, "to_delete": [], "deleted": 0}
+
+    file_ids = [c.get("file_id") for c in candidates if c.get("file_id")]
+
+    # Collect every file_id referenced anywhere else in user content. We look
+    # at notes/reports/suivis images arrays + interventions attachments.
+    referenced: set[str] = set()
+    for coll_name, field in (
+        ("user_reports", "images"),
+        ("user_suivis", "images"),
+        ("user_notes_personal", "images"),
+        ("user_tasks_personal", "images"),
+        ("interventions", "attachments"),
+    ):
+        try:
+            cursor = db[coll_name].find({field: {"$exists": True, "$ne": []}}, {"_id": 0, field: 1})
+            async for d in cursor:
+                for img in d.get(field) or []:
+                    fid = (img or {}).get("file_id") or (img or {}).get("id")
+                    if fid:
+                        referenced.add(fid)
+                    url = (img or {}).get("url") or ""
+                    # /api/files/{file_id}.ext — extract the bare id
+                    if "/api/files/" in url:
+                        bare = url.split("/api/files/", 1)[1].split(".", 1)[0].split("?", 1)[0]
+                        if bare:
+                            referenced.add(bare)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("wa-cleanup ref scan failed for %s: %s", coll_name, exc)
+
+    to_delete = [c for c in candidates if c.get("file_id") and c["file_id"] not in referenced]
+    deleted = 0
+    if not dry_run and to_delete:
+        ids_to_remove = [c["id"] for c in to_delete]
+        res = await db.media_library.delete_many({"id": {"$in": ids_to_remove}, "client_id": client_scope})
+        deleted = res.deleted_count or 0
+    return {
+        "ok": True,
+        "dry_run": dry_run,
+        "examined": len(candidates),
+        "to_delete": [{"id": c["id"], "label": c.get("label"), "kind": c.get("kind")} for c in to_delete],
+        "deleted": deleted,
+    }
 
 
 # ============================================================
@@ -11291,6 +11402,81 @@ async def _wa_transcribe_audio_file(path: Path, language: str = "fr") -> Optiona
         return None
 
 
+# =====================================================================
+# Iter35n — WhatsApp reply-time tracker.
+# When a user sends an outbound text/media to a contact, we look up the most
+# recent unanswered inbound from that contact (in the visible scope) and
+# compute the elapsed seconds. The result is stamped on the outbound
+# message document (`reply_to_inbound_id`, `reply_seconds`) so dashboards
+# can aggregate the per-user average. The lookup is "unanswered" in the
+# sense that no other outbound by ANY user in the scope was sent between
+# the inbound and now — once one user replies, the timer is consumed for
+# all teammates (this matches the way agents share an inbox).
+# =====================================================================
+async def _wa_compute_reply_window(
+    client_scope: Any,
+    *,
+    contact_id: Optional[str] = None,
+    phone_digits: Optional[str] = None,
+    now_iso: Optional[str] = None,
+) -> Optional[Dict[str, Any]]:
+    """Resolve `{inbound_id, inbound_received_at, reply_seconds}` for the most
+    recent unanswered inbound from the given contact, or None when nothing
+    qualifies (no inbound in the last 7 days, or last activity is outbound).
+    """
+    or_clauses: List[Dict[str, Any]] = []
+    if contact_id:
+        or_clauses.append({"contact_id": contact_id})
+    if phone_digits:
+        or_clauses.append({"phone_digits": phone_digits})
+    if not or_clauses:
+        return None
+    scope_q: Dict[str, Any]
+    if isinstance(client_scope, (list, set, tuple)):
+        scope_list = [s for s in client_scope if s]
+        scope_q = {"client_id": {"$in": scope_list}} if scope_list else {}
+    elif client_scope:
+        scope_q = {"client_id": client_scope}
+    else:
+        scope_q = {}
+    # Look at the latest message of either direction. If it's outbound, the
+    # inbound was already answered, so we don't stamp anything.
+    last_msg = await db.whatsapp_messages.find_one(
+        {**scope_q, "$or": or_clauses},
+        {"_id": 0, "id": 1, "direction": 1, "received_at": 1, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    if not last_msg or last_msg.get("direction") != "inbound":
+        return None
+    inbound_id = last_msg.get("id")
+    inbound_at = last_msg.get("received_at") or last_msg.get("created_at")
+    if not inbound_at:
+        return None
+    try:
+        ts = datetime.fromisoformat(inbound_at.replace("Z", "+00:00"))
+        if ts.tzinfo is None:
+            ts = ts.replace(tzinfo=timezone.utc)
+    except Exception:
+        return None
+    now_dt = datetime.now(timezone.utc)
+    if now_iso:
+        try:
+            now_dt = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+            if now_dt.tzinfo is None:
+                now_dt = now_dt.replace(tzinfo=timezone.utc)
+        except Exception:
+            pass
+    delta = (now_dt - ts).total_seconds()
+    # Cap at 7 days — anything older is rarely a "reply" and skews averages.
+    if delta < 0 or delta > 7 * 24 * 3600:
+        return None
+    return {
+        "inbound_id": inbound_id,
+        "inbound_received_at": inbound_at,
+        "reply_seconds": int(delta),
+    }
+
+
 async def _wa_last_inbound_iso(client_scope: Any, *, contact_id: Optional[str] = None, phone_digits: Optional[str] = None) -> Optional[str]:
     """Return the ISO timestamp of the most recent inbound WA message in the user's scope
     matching either the contact_id or the phone_digits. Used to compute the 24h window.
@@ -11381,6 +11567,15 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
         )
 
     result = await _wa_send_text(to, text)
+    # Iter35n — Compute reply-time for the most recent unanswered inbound
+    reply_window = None
+    if result.get("ok"):
+        try:
+            reply_window = await _wa_compute_reply_window(
+                visible_scope, contact_id=payload.contact_id, phone_digits=digits_only,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WA reply-window calc failed (text): %s", exc)
     log = {
         "id": _uuid(),
         "client_id": client_scope,
@@ -11404,12 +11599,16 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
         "failed_at": None if result["ok"] else _now(),
         "created_at": _now(),
     }
+    if reply_window:
+        log["reply_to_inbound_id"] = reply_window["inbound_id"]
+        log["reply_to_inbound_received_at"] = reply_window["inbound_received_at"]
+        log["reply_seconds"] = reply_window["reply_seconds"]
     try:
         await db.whatsapp_messages.insert_one(log.copy())
     except Exception:
         pass
     log.pop("_id", None)
-    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
+    return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"], "reply_seconds": (reply_window or {}).get("reply_seconds")}
 
 
 # =====================================================================
@@ -11550,6 +11749,16 @@ async def me_whatsapp_send_media(
         filename=file.filename,
     )
 
+    # Iter35n — Compute reply-time for the most recent unanswered inbound
+    reply_window = None
+    if result.get("ok"):
+        try:
+            reply_window = await _wa_compute_reply_window(
+                visible_scope, contact_id=contact_id, phone_digits=digits_only,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("WA reply-window calc failed (media): %s", exc)
+
     # Log into whatsapp_messages
     client_scope = (user.get("client_id") or user.get("id"))
     log = {
@@ -11582,6 +11791,10 @@ async def me_whatsapp_send_media(
         "failed_at": None if result["ok"] else _now(),
         "created_at": _now(),
     }
+    if reply_window:
+        log["reply_to_inbound_id"] = reply_window["inbound_id"]
+        log["reply_to_inbound_received_at"] = reply_window["inbound_received_at"]
+        log["reply_seconds"] = reply_window["reply_seconds"]
     try:
         await db.whatsapp_messages.insert_one(log.copy())
     except Exception:
@@ -11769,6 +11982,82 @@ async def me_wa_media_summary(
         "top_contacts": top_contacts,
         "last_items": last_items,
     }
+
+
+# =====================================================================
+# Iter35n — GET /me/dashboard/wa-reply-stats?days=7|30|90
+# Surface the WhatsApp reply-time score for the current user (and the
+# team's leaderboard for elevated viewers) so the dashboard can highlight
+# "dynamic" responders.
+# =====================================================================
+@api.get("/me/dashboard/wa-reply-stats", tags=["Portail Client"])
+async def me_wa_reply_stats(
+    days: int = Query(default=7, ge=1, le=365),
+    user: dict = Depends(get_current_user),
+):
+    """Return per-user WhatsApp reply-time aggregates for the trailing window.
+
+    Shape:
+      {
+        days,
+        me: {avg_seconds, median_seconds, replies, fastest_seconds},
+        team: [{user_id, label, avg_seconds, replies, fastest_seconds} …]  // elevated only
+      }
+    """
+    visible_scope = await _resolve_visible_client_ids(user)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    base_q: Dict[str, Any] = {
+        "client_id": {"$in": visible_scope},
+        "direction": "outbound",
+        "reply_seconds": {"$exists": True, "$ne": None, "$gt": 0},
+        "$or": [
+            {"sent_at": {"$gte": since}},
+            {"created_at": {"$gte": since}},
+        ],
+    }
+
+    # ---- Per-user (me) ----
+    my_q = {**base_q, "sender_id": user["id"]}
+    my_durations: List[int] = []
+    async for d in db.whatsapp_messages.find(my_q, {"_id": 0, "reply_seconds": 1}):
+        rs = int(d.get("reply_seconds") or 0)
+        if rs > 0:
+            my_durations.append(rs)
+    my_durations.sort()
+    me_block = {
+        "avg_seconds": int(sum(my_durations) / len(my_durations)) if my_durations else None,
+        "median_seconds": my_durations[len(my_durations) // 2] if my_durations else None,
+        "replies": len(my_durations),
+        "fastest_seconds": my_durations[0] if my_durations else None,
+    }
+
+    # ---- Team leaderboard (elevated viewers only) ----
+    team: List[Dict[str, Any]] = []
+    if _is_elevated_creator(user) or user.get("role") in ("admin", "superviseur"):
+        pipeline = [
+            {"$match": base_q},
+            {"$group": {
+                "_id": "$sender_id",
+                "label": {"$last": "$sender_label"},
+                "avg_seconds": {"$avg": "$reply_seconds"},
+                "replies": {"$sum": 1},
+                "fastest_seconds": {"$min": "$reply_seconds"},
+            }},
+            {"$sort": {"avg_seconds": 1}},
+            {"$limit": 10},
+        ]
+        async for row in db.whatsapp_messages.aggregate(pipeline):
+            if not row.get("_id"):
+                continue
+            team.append({
+                "user_id": row["_id"],
+                "label": row.get("label") or row["_id"][:8],
+                "avg_seconds": int(row["avg_seconds"]) if row.get("avg_seconds") is not None else None,
+                "replies": row.get("replies") or 0,
+                "fastest_seconds": int(row["fastest_seconds"]) if row.get("fastest_seconds") is not None else None,
+            })
+
+    return {"days": days, "me": me_block, "team": team}
 
 
 # ---------- Unread inbound counters + mark-read ----------

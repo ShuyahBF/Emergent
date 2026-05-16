@@ -22,13 +22,21 @@ export default function MediaLibrary() {
   const [uploading, setUploading] = useState(false);
   const [filter, setFilter] = useState("");
   const [kindFilter, setKindFilter] = useState("");
+  const [sourceFilter, setSourceFilter] = useState(""); // Iter35n — "" | "whatsapp_inbound"
   const [clients, setClients] = useState([]);
   const [targetClientId, setTargetClientId] = useState("");
+  // Iter35n — WhatsApp media cleanup state
+  const [cleanup, setCleanup] = useState(null); // {to_delete, examined} after dry-run
+  const [cleaning, setCleaning] = useState(false);
+
+  const isElevated = user?.role === "admin" || user?.role === "superviseur";
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/me/media-library");
+      const r = await apiClient.get("/me/media-library", {
+        params: sourceFilter ? { source: sourceFilter } : {},
+      });
       setItems(r.data || []);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
@@ -41,7 +49,39 @@ export default function MediaLibrary() {
     if (isAdmin) {
       apiClient.get("/me/clients-roster").then((r) => setClients(r.data || [])).catch(() => {});
     }
-  }, [isAdmin]);
+    // eslint-disable-next-line
+  }, [isAdmin, sourceFilter]);
+
+  // Iter35n — WhatsApp media cleanup (admin/superviseur)
+  const previewCleanup = async () => {
+    setCleaning(true);
+    try {
+      const r = await apiClient.post("/me/media-library/wa-cleanup?dry_run=true");
+      setCleanup(r.data);
+      if (!r.data?.to_delete?.length) {
+        toast.info("Aucun média WhatsApp inutilisé à supprimer.");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setCleaning(false);
+    }
+  };
+  const confirmCleanup = async () => {
+    if (!cleanup?.to_delete?.length) return;
+    if (!window.confirm(`Supprimer définitivement ${cleanup.to_delete.length} média(s) WhatsApp inutilisé(s) ?`)) return;
+    setCleaning(true);
+    try {
+      const r = await apiClient.post("/me/media-library/wa-cleanup?dry_run=false");
+      toast.success(`${r.data?.deleted || 0} média(s) supprimé(s)`);
+      setCleanup(null);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setCleaning(false);
+    }
+  };
 
   const upload = async (file) => {
     if (!file) return;
@@ -170,7 +210,62 @@ export default function MediaLibrary() {
           <option value="document">Documents (PDF)</option>
           <option value="video">Vidéos</option>
         </select>
+        {/* Iter35n — Source filter (WhatsApp re-saved vs all) */}
+        <div className="inline-flex rounded-lg ring-1 ring-slate-300 bg-slate-50 p-0.5" data-testid="media-source-filter">
+          <button
+            onClick={() => setSourceFilter("")}
+            className={`text-xs px-2.5 py-1 rounded-md transition ${sourceFilter === "" ? "bg-sawali-blue text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+            data-testid="media-source-all"
+          >
+            Tous
+          </button>
+          <button
+            onClick={() => setSourceFilter("whatsapp_inbound")}
+            className={`text-xs px-2.5 py-1 rounded-md transition ${sourceFilter === "whatsapp_inbound" ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+            data-testid="media-source-wa"
+            title="Images sauvegardées depuis le chat WhatsApp"
+          >
+            WhatsApp
+          </button>
+        </div>
         <span className="text-xs text-slate-500">{filtered.length} média(s)</span>
+        {/* Iter35n — Cleanup unused WA media (admin / superviseur) */}
+        {isElevated && sourceFilter === "whatsapp_inbound" && (
+          <div className="ml-auto flex items-center gap-2" data-testid="media-cleanup-wrapper">
+            {!cleanup ? (
+              <button
+                onClick={previewCleanup}
+                disabled={cleaning}
+                className="inline-flex items-center gap-1 rounded-lg border border-amber-300 bg-amber-50 hover:bg-amber-100 px-2.5 py-1.5 text-xs text-amber-900 disabled:opacity-50"
+                data-testid="media-cleanup-preview"
+                title="Aperçu des médias WA non référencés (rapports/suivis/notes)"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Nettoyer les inutilisés
+              </button>
+            ) : (
+              <>
+                <span className="text-xs text-amber-900 bg-amber-50 ring-1 ring-amber-200 rounded px-2 py-1">
+                  {cleanup.to_delete?.length || 0} / {cleanup.examined} à supprimer
+                </span>
+                <button
+                  onClick={() => setCleanup(null)}
+                  className="text-xs text-slate-600 hover:underline"
+                  data-testid="media-cleanup-cancel"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={confirmCleanup}
+                  disabled={cleaning || !cleanup.to_delete?.length}
+                  className="inline-flex items-center gap-1 rounded-lg bg-rose-600 text-white hover:bg-rose-700 px-2.5 py-1.5 text-xs disabled:opacity-40"
+                  data-testid="media-cleanup-confirm"
+                >
+                  <Trash2 className="h-3.5 w-3.5" /> Confirmer
+                </button>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {loading ? (

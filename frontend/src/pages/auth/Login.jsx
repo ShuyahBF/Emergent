@@ -19,11 +19,18 @@ export default function Login() {
   const [otp, setOtp] = useState("");
   const [devOtp, setDevOtp] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Iter35n — Surface the deployed version on the login page
+  const [versionInfo, setVersionInfo] = useState(null);
   const captchaRef = useRef(null);
 
   useEffect(() => {
     if (user) navigate(user.role === "admin" ? "/admin" : "/portal");
   }, [user, navigate]);
+
+  // Iter35n — Fetch backend version once on mount (public endpoint)
+  useEffect(() => {
+    apiClient.get("/version").then((r) => setVersionInfo(r.data)).catch(() => {});
+  }, []);
 
   // Deep-link auto-prefill : if the user arrived via /launch?t=..., the Launch
   // page has stashed the decoded claims in sessionStorage — consume them once.
@@ -224,6 +231,19 @@ export default function Login() {
           <p className="mt-6 text-center text-xs text-slate-500">
             <Link to="/" className="text-sawali-blue underline">← Retour au site public</Link>
           </p>
+
+          {/* Iter35n — Version stamp displayed at the bottom of the card */}
+          {versionInfo && (
+            <p
+              className="mt-2 text-center text-[10px] text-slate-400 font-mono select-text"
+              data-testid="login-version-stamp"
+              title={`Démarré le ${versionInfo.started_at || "?"}`}
+            >
+              {versionInfo.version || "—"}
+              {versionInfo.git_sha && versionInfo.git_sha !== "unknown" ? ` · ${versionInfo.git_sha}` : ""}
+              {versionInfo.built_at ? ` · ${new Date(versionInfo.built_at).toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "2-digit" })}` : ""}
+            </p>
+          )}
         </div>
       </div>
     </div>

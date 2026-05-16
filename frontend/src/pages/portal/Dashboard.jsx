@@ -160,13 +160,19 @@ function WaMediaSummaryCard() {
   const [days, setDays] = useState(7);
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Iter35n — Reply-time stats (avg/median/replies) for the same window
+  const [reply, setReply] = useState(null);
 
   useEffect(() => {
     setLoading(true);
-    apiClient.get(`/me/dashboard/wa-media-summary?days=${days}`)
-      .then((r) => setData(r.data))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    Promise.all([
+      apiClient.get(`/me/dashboard/wa-media-summary?days=${days}`).then((r) => r.data).catch(() => null),
+      apiClient.get(`/me/dashboard/wa-reply-stats?days=${days}`).then((r) => r.data).catch(() => null),
+    ]).then(([m, rs]) => {
+      setData(m);
+      setReply(rs);
+      setLoading(false);
+    });
   }, [days]);
 
   const counts = data?.counts || { image: 0, audio: 0, video: 0, document: 0, total: 0 };
@@ -203,6 +209,9 @@ function WaMediaSummaryCard() {
         <p className="text-sm text-slate-500 italic">Chargement…</p>
       ) : (
         <>
+          {/* Iter35n — Reply-time score (per-user + optional team leaderboard) */}
+          {reply && <ReplyTimeBlock reply={reply} />}
+
           {/* Counts row */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
             <CountTile label="Total" value={counts.total} color="slate" testid="wa-media-count-total" />
@@ -281,6 +290,78 @@ const CountTile = ({ label, value, color, testid }) => {
     </div>
   );
 };
+
+// Iter35n — Format a duration in seconds to a compact FR string
+const fmtDuration = (s) => {
+  if (s == null) return "—";
+  if (s < 60) return `${s} s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 24 * 3600) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m ? `${h} h ${m} min` : `${h} h`;
+  }
+  return `${Math.floor(s / 86400)} j`;
+};
+
+// Iter35n — Reply-time card body. Shows the user's avg/median/replies +
+// (when elevated) a leaderboard of the fastest teammates.
+const ReplyTimeBlock = ({ reply }) => {
+  const me = reply?.me || {};
+  const team = reply?.team || [];
+  const days = reply?.days || 7;
+  const noData = !me.replies;
+  return (
+    <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/60 p-3 space-y-2" data-testid="wa-reply-stats">
+      <div className="flex items-center gap-2 mb-1">
+        <p className="text-[11px] uppercase tracking-widest text-emerald-800 font-semibold">
+          ⚡ Mon score réactivité WhatsApp
+        </p>
+        <span className="text-[10px] text-emerald-700/70 ml-auto">{days} j</span>
+      </div>
+      {noData ? (
+        <p className="text-xs text-emerald-800/70 italic">
+          Aucun message répondu sur la période. Réponds rapidement à un message reçu pour voir ton score apparaître ici.
+        </p>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <ReplyTile label="Temps moyen" value={fmtDuration(me.avg_seconds)} primary testid="wa-reply-avg" />
+          <ReplyTile label="Médiane" value={fmtDuration(me.median_seconds)} testid="wa-reply-median" />
+          <ReplyTile label="Plus rapide" value={fmtDuration(me.fastest_seconds)} testid="wa-reply-fastest" />
+          <ReplyTile label="Réponses" value={`${me.replies}`} testid="wa-reply-count" />
+        </div>
+      )}
+      {team.length > 1 && (
+        <details className="mt-2">
+          <summary className="text-[11px] text-emerald-800 font-semibold cursor-pointer hover:underline" data-testid="wa-reply-team-toggle">
+            🏆 Classement de l'équipe ({team.length})
+          </summary>
+          <ol className="mt-2 space-y-1.5 text-xs">
+            {team.map((t, i) => (
+              <li key={t.user_id} className="flex items-center justify-between rounded bg-white ring-1 ring-emerald-200 px-2 py-1.5" data-testid={`wa-reply-team-${i}`}>
+                <span className="flex items-center gap-2 min-w-0">
+                  <span className={`text-[10px] font-mono w-5 text-center ${i === 0 ? "text-amber-600 font-bold" : "text-slate-500"}`}>#{i + 1}</span>
+                  <span className="truncate">{t.label}</span>
+                </span>
+                <span className="flex items-center gap-3 text-[11px] tabular-nums shrink-0">
+                  <span className="text-emerald-700 font-semibold">{fmtDuration(t.avg_seconds)}</span>
+                  <span className="text-slate-500">{t.replies} rép.</span>
+                </span>
+              </li>
+            ))}
+          </ol>
+        </details>
+      )}
+    </div>
+  );
+};
+
+const ReplyTile = ({ label, value, primary, testid }) => (
+  <div className={`rounded ring-1 px-2 py-1.5 ${primary ? "bg-emerald-600 text-white ring-emerald-700 shadow-sm" : "bg-white ring-emerald-200 text-emerald-900"}`} data-testid={testid}>
+    <p className={`text-[9px] uppercase tracking-wider ${primary ? "text-white/80" : "text-emerald-700/80"}`}>{label}</p>
+    <p className="text-base font-display font-bold tabular-nums leading-tight">{value}</p>
+  </div>
+);
 
 const absoluteFileUrl = (u) => {
   if (!u) return "";

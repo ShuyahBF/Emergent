@@ -10928,6 +10928,283 @@ async def _wa_send_text(to_e164: str, text: str) -> dict:
         return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
 
 
+# =====================================================================
+# Iter35l — WhatsApp media (inbound download + outbound send + watermark)
+# =====================================================================
+WA_MEDIA_MAX_BYTES = 64 * 1024 * 1024  # Meta's hard cap is 100MB for video/document, 16MB for image. We pick a safe 64MB.
+WA_MEDIA_KIND_BY_MIME = {
+    "image/jpeg": "image", "image/jpg": "image", "image/png": "image", "image/webp": "image",
+    "audio/aac": "audio", "audio/mp4": "audio", "audio/mpeg": "audio", "audio/amr": "audio",
+    "audio/ogg": "audio", "audio/opus": "audio", "audio/webm": "audio",
+    "video/mp4": "video", "video/3gpp": "video",
+    "application/pdf": "document",
+}
+
+_EXT_BY_MIME = {
+    "image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+    "audio/aac": ".aac", "audio/mp4": ".m4a", "audio/mpeg": ".mp3",
+    "audio/amr": ".amr", "audio/ogg": ".ogg", "audio/opus": ".opus", "audio/webm": ".webm",
+    "video/mp4": ".mp4", "video/3gpp": ".3gp",
+    "application/pdf": ".pdf",
+}
+
+
+def _wa_kind_for_mime(mime: str) -> str:
+    """Map a MIME type to one of (image|audio|video|document)."""
+    base = (mime or "").split(";", 1)[0].strip().lower()
+    if base in WA_MEDIA_KIND_BY_MIME:
+        return WA_MEDIA_KIND_BY_MIME[base]
+    if base.startswith("image/"):
+        return "image"
+    if base.startswith("audio/"):
+        return "audio"
+    if base.startswith("video/"):
+        return "video"
+    return "document"
+
+
+async def _wa_download_inbound_media(media_id: str) -> dict:
+    """Download a Meta WhatsApp inbound media binary using its media_id.
+
+    1) GET https://graph.facebook.com/{version}/{media_id} → returns metadata
+       containing a short-lived `url` and `mime_type`.
+    2) GET that url with the same Bearer token → returns the raw binary.
+
+    The binary is persisted under UPLOAD_DIR with a stable filename based on
+    the file_id, mirrored into db.files so /api/files/{id}.ext can serve it,
+    and the public URL is returned alongside MIME / size metadata.
+
+    Returns: {ok, file_id?, public_url?, mime_type?, size_bytes?, filename?, error?}
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    if not access_token:
+        return {"ok": False, "error": "WhatsApp non configuré (token manquant)"}
+    if not media_id:
+        return {"ok": False, "error": "media_id manquant"}
+    meta_url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{media_id}"
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.get(meta_url, headers={"Authorization": f"Bearer {access_token}"})
+            if r.status_code >= 300:
+                return {"ok": False, "error": f"HTTP {r.status_code} sur Graph media metadata"}
+            meta = r.json() or {}
+            bin_url = meta.get("url")
+            mime = (meta.get("mime_type") or "application/octet-stream").split(";", 1)[0].strip()
+            declared_size = int(meta.get("file_size") or 0)
+            if not bin_url:
+                return {"ok": False, "error": "URL binaire manquante dans la réponse Meta"}
+            if declared_size and declared_size > WA_MEDIA_MAX_BYTES:
+                return {"ok": False, "error": f"Média trop volumineux ({declared_size} octets)"}
+            # Download the binary (still authenticated)
+            r2 = await http.get(bin_url, headers={"Authorization": f"Bearer {access_token}"}, timeout=60)
+            if r2.status_code >= 300:
+                return {"ok": False, "error": f"HTTP {r2.status_code} lors du téléchargement"}
+            raw = r2.content
+            if len(raw) > WA_MEDIA_MAX_BYTES:
+                return {"ok": False, "error": "Média trop volumineux"}
+            ext = _EXT_BY_MIME.get(mime) or mimetypes.guess_extension(mime) or ".bin"
+            file_id = _uuid()
+            stored_name = f"{file_id}{ext}"
+            target = UPLOAD_DIR / stored_name
+            try:
+                target.write_bytes(raw)
+            except Exception as exc:  # noqa: BLE001
+                return {"ok": False, "error": f"Écriture disque échouée: {exc!r}"}
+            display_name = f"wa-inbound{ext}"
+            file_doc = {
+                "id": file_id,
+                "filename": display_name,
+                "stored_name": stored_name,
+                "extension": ext.lstrip(".") if ext else None,
+                "content_type": mime,
+                "size": len(raw),
+                "url": f"/api/files/{file_id}{ext}",
+                "uploaded_at": _now(),
+                "uploaded_by_id": "_wa_webhook_",
+                "uploaded_by_email": "whatsapp-webhook",
+                "uploaded_from_ip": None,
+                "wa_media_id": media_id,
+            }
+            try:
+                await db.files.insert_one(file_doc.copy())
+            except Exception:
+                pass
+            return {
+                "ok": True,
+                "file_id": file_id,
+                "stored_name": stored_name,
+                "public_url": f"/api/files/{file_id}{ext}",
+                "mime_type": mime,
+                "size_bytes": len(raw),
+                "filename": display_name,
+                "kind": _wa_kind_for_mime(mime),
+            }
+    except httpx.TimeoutException:
+        return {"ok": False, "error": "Timeout"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:300]}
+
+
+def _wa_apply_image_watermark_qr(
+    src_path: Path,
+    *,
+    watermark_text: Optional[str],
+    qr_payload: Optional[str],
+) -> Path:
+    """Burn a discrete watermark (bottom-right) + optional QR code on the source
+    image and write the result to a new file alongside the original. Returns the
+    new Path. If both inputs are falsy or processing fails, returns the original.
+    """
+    if not (watermark_text or qr_payload):
+        return src_path
+    try:
+        from PIL import Image, ImageDraw, ImageFont
+    except Exception:
+        return src_path
+    try:
+        img = Image.open(src_path).convert("RGBA")
+    except Exception:
+        return src_path
+    W, H = img.size
+    overlay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    # ----- Watermark text (bottom-right, semi-transparent white on dark pill) -----
+    if (watermark_text or "").strip():
+        text = watermark_text.strip()[:120]
+        # Pick a font scale ~ 2.2% of the image height (min 14, max 36)
+        font_size = max(14, min(36, int(H * 0.022)))
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", font_size)
+        except Exception:
+            font = ImageFont.load_default()
+        try:
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw, th = bbox[2] - bbox[0], bbox[3] - bbox[1]
+        except Exception:
+            tw, th = font_size * len(text) // 2, font_size
+        pad = max(6, font_size // 3)
+        x = W - tw - pad * 2 - 12
+        y = H - th - pad * 2 - 12
+        # Dark pill background
+        draw.rounded_rectangle((x, y, x + tw + pad * 2, y + th + pad * 2), radius=pad, fill=(0, 0, 0, 140))
+        draw.text((x + pad, y + pad - 2), text, font=font, fill=(255, 255, 255, 235))
+    # ----- QR code (top-left, ~10% of width, slight white border) -----
+    if (qr_payload or "").strip():
+        try:
+            import qrcode  # local import — heavy
+            qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_M, box_size=4, border=1)
+            qr.add_data(qr_payload.strip())
+            qr.make(fit=True)
+            qr_img = qr.make_image(fill_color="black", back_color="white").convert("RGBA")
+            qr_size = max(72, min(220, int(W * 0.12)))
+            qr_img = qr_img.resize((qr_size, qr_size), Image.NEAREST)
+            qx, qy = 16, 16
+            # White rounded backdrop for contrast
+            draw.rounded_rectangle((qx - 6, qy - 6, qx + qr_size + 6, qy + qr_size + 6), radius=8, fill=(255, 255, 255, 235))
+            overlay.alpha_composite(qr_img, (qx, qy))
+        except Exception:
+            pass
+    out = Image.alpha_composite(img, overlay).convert("RGB")
+    dst = src_path.with_name(src_path.stem + "_wm.jpg")
+    try:
+        out.save(dst, format="JPEG", quality=88, optimize=True)
+    except Exception:
+        return src_path
+    return dst
+
+
+async def _wa_send_media(
+    to_e164: str,
+    kind: str,
+    *,
+    public_url: str,
+    caption: Optional[str] = None,
+    filename: Optional[str] = None,
+) -> dict:
+    """Send a free-form WhatsApp media message (image/document/audio/video).
+    ONLY allowed inside the 24h customer service window. Caller is responsible
+    for verifying the window before invocation."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = s.get("wa_access_token")
+    phone_number_id = s.get("wa_phone_number_id")
+    if not access_token or not phone_number_id:
+        return {"ok": False, "error": "WhatsApp non configuré", "status": None, "message_id": None, "raw": None}
+    to_clean = _normalize_wa_phone(to_e164)
+    if len(to_clean) < 6:
+        return {"ok": False, "status": None, "message_id": None,
+                "error": f"Numéro invalide « {to_e164} »", "raw": None}
+    if kind not in ("image", "document", "audio", "video"):
+        return {"ok": False, "status": None, "message_id": None, "error": f"Type média non géré: {kind}", "raw": None}
+    media_obj: Dict[str, Any] = {"link": public_url}
+    if caption and kind in ("image", "document", "video"):
+        media_obj["caption"] = caption[:1024]
+    if kind == "document" and filename:
+        media_obj["filename"] = filename
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": kind,
+        kind: media_obj,
+    }
+    url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=30) as http:
+            r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:2000]}
+            if r.status_code < 300:
+                mid = None
+                if isinstance(raw, dict) and raw.get("messages"):
+                    mid = raw["messages"][0].get("id")
+                return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
+            err_msg = None
+            err_code = None
+            if isinstance(raw, dict):
+                err_obj = raw.get("error") or {}
+                err_msg = err_obj.get("message") or str(raw)[:500]
+                err_code = err_obj.get("code")
+            return {"ok": False, "status": r.status_code, "message_id": None,
+                    "error": err_msg or f"HTTP {r.status_code}", "error_code": err_code, "raw": raw}
+    except httpx.TimeoutException:
+        return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
+
+
+async def _wa_transcribe_audio_file(path: Path, language: str = "fr") -> Optional[str]:
+    """Best-effort Whisper transcription of a saved audio file. Returns None on failure.
+    Used by the WhatsApp inbound webhook when `wa_voice_transcribe_enabled` is on."""
+    try:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        api_key = (s.get("openai_api_key") or "").strip()
+        model = (s.get("openai_whisper_model") or "whisper-1").strip()
+        if not api_key:
+            return None
+        if not path.exists() or path.stat().st_size < 200:
+            return None
+        if path.stat().st_size > 25 * 1024 * 1024:
+            return None
+        raw = path.read_bytes()
+        async with httpx.AsyncClient(timeout=60) as http:
+            files = {"file": (path.name, raw, mimetypes.guess_type(path.name)[0] or "audio/ogg")}
+            data = {"model": model, "language": (language or "fr")[:5]}
+            r = await http.post(
+                "https://api.openai.com/v1/audio/transcriptions",
+                headers={"Authorization": f"Bearer {api_key}"},
+                files=files,
+                data=data,
+            )
+            if r.status_code >= 300:
+                return None
+            payload = r.json()
+            return (payload.get("text") or "").strip() or None
+    except Exception:
+        return None
+
+
 async def _wa_last_inbound_iso(client_scope: Any, *, contact_id: Optional[str] = None, phone_digits: Optional[str] = None) -> Optional[str]:
     """Return the ISO timestamp of the most recent inbound WA message in the user's scope
     matching either the contact_id or the phone_digits. Used to compute the 24h window.
@@ -11047,6 +11324,191 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
         pass
     log.pop("_id", None)
     return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
+
+
+# =====================================================================
+# Iter35l — POST /me/whatsapp/send-media
+# Send an image/document/audio/video to a contact (multipart upload).
+# Constraints:
+#   - 24h Meta customer-service window (same rule as send-text).
+#   - Images: optional watermark + QR (admin-configurable in settings).
+#   - Files are persisted via the media_library so each public URL is
+#     stable and ext-visible (e.g. /api/files/{id}.jpg) — accepted by Meta.
+# =====================================================================
+WA_SEND_MEDIA_MAX_BYTES = 16 * 1024 * 1024  # 16MB — Meta image cap; safe for our PoC for all types
+
+
+@api.post("/me/whatsapp/send-media", tags=["Portail Client"])
+async def me_whatsapp_send_media(
+    request: Request,
+    to: str = Form(...),
+    contact_id: Optional[str] = Form(None),
+    tracked_user_id: Optional[str] = Form(None),
+    caption: Optional[str] = Form(None),
+    add_watermark: Optional[str] = Form(None),  # "1"/"0"/empty (defaults to admin setting)
+    add_qr: Optional[str] = Form(None),         # "1"/"0"/empty (defaults to admin setting)
+    file: UploadFile = File(...),
+    user: dict = Depends(get_current_user),
+):
+    """Send a free-form WhatsApp media message inside the Meta 24h window."""
+    allowed = (
+        user.get("role") in ("client", "admin", "demo")
+        or _is_elevated_creator(user)
+        or _is_tracked_user(user)
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des médias WhatsApp")
+
+    # Admin-level RGPD toggle: terminal upload of media may be globally disabled
+    s_root = await db.settings.find_one({"_id": "global"}) or {}
+    if not bool(s_root.get("wa_allow_terminal_media", True)):
+        raise HTTPException(status_code=403, detail="L'envoi de médias depuis ce terminal a été désactivé par l'administrateur.")
+
+    await _enforce_demo_quota(user, QUOTA_KEY_WA)
+
+    # Resolve real phone (RGPD anonymization restore)
+    real_to = await _resolve_real_phone(contact_id, "whatsapp", to or "")
+    if not real_to:
+        raise HTTPException(status_code=400, detail="Numéro destinataire requis")
+
+    digits_only = "".join(ch for ch in real_to if ch.isdigit())
+
+    # 24h customer-service window
+    visible_scope = await _resolve_visible_client_ids(user)
+    last_iso = await _wa_last_inbound_iso(visible_scope, contact_id=contact_id, phone_digits=digits_only)
+    if not _wa_window_open(last_iso):
+        raise HTTPException(
+            status_code=409,
+            detail="Fenêtre 24h fermée — aucun message reçu de ce contact dans les dernières 24 heures.",
+        )
+
+    # Save the upload locally
+    suffix = Path(file.filename or "").suffix.lower()
+    content_type = (file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream").split(";", 1)[0].strip()
+    kind = _wa_kind_for_mime(content_type)
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(status_code=400, detail="Fichier vide")
+    if len(raw) > WA_SEND_MEDIA_MAX_BYTES:
+        raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {WA_SEND_MEDIA_MAX_BYTES // (1024*1024)} Mo)")
+
+    file_id = _uuid()
+    safe_name = f"{file_id}{suffix}"
+    target = UPLOAD_DIR / safe_name
+    target.write_bytes(raw)
+
+    # Optional image watermark + QR
+    if kind == "image":
+        wm_on = bool(s_root.get("wa_watermark_enabled", True))
+        qr_on = bool(s_root.get("wa_qr_enabled", True))
+        # Allow per-request override (form fields). Treat empty string as "use default".
+        if isinstance(add_watermark, str) and add_watermark.strip() in ("0", "false", "no"):
+            wm_on = False
+        elif isinstance(add_watermark, str) and add_watermark.strip() in ("1", "true", "yes"):
+            wm_on = True
+        if isinstance(add_qr, str) and add_qr.strip() in ("0", "false", "no"):
+            qr_on = False
+        elif isinstance(add_qr, str) and add_qr.strip() in ("1", "true", "yes"):
+            qr_on = True
+        wm_text = (s_root.get("wa_watermark_text") or s_root.get("company_name") or "SAWALI SMART SYSTEMS").strip() if wm_on else None
+        qr_payload = (s_root.get("wa_qr_payload") or s_root.get("company_website") or "").strip() if qr_on else None
+        if not qr_payload and qr_on:
+            # Fallback to public base url so the QR always means something
+            base = _public_base_url(request) or (PUBLIC_BASE_URL or "")
+            qr_payload = (base or "").rstrip("/") or None
+        if wm_text or qr_payload:
+            new_path = _wa_apply_image_watermark_qr(target, watermark_text=wm_text, qr_payload=qr_payload)
+            if new_path != target:
+                # Replace stored bytes with the watermarked version (new ext .jpg)
+                try:
+                    target.unlink(missing_ok=True)
+                except Exception:
+                    pass
+                suffix = new_path.suffix
+                safe_name = f"{file_id}{suffix}"
+                target = UPLOAD_DIR / safe_name
+                new_path.rename(target)
+                content_type = "image/jpeg"
+                kind = "image"
+                raw = target.read_bytes()  # refresh size
+
+    # Persist into files collection so /api/files/{id}.ext can serve it externally (Meta accesses by URL)
+    ext = suffix.lstrip(".") or ""
+    public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
+    public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    file_doc = {
+        "id": file_id,
+        "filename": file.filename or safe_name,
+        "stored_name": safe_name,
+        "extension": ext or None,
+        "content_type": content_type,
+        "size": target.stat().st_size,
+        "url": public_path,
+        "public_url": public_url,
+        "uploaded_at": _now(),
+        "uploaded_by_id": user.get("id"),
+        "uploaded_by_email": user.get("email"),
+        "uploaded_from_ip": _client_ip_from_request(request),
+    }
+    try:
+        await db.files.insert_one(file_doc.copy())
+    except Exception:
+        pass
+
+    # Send to WhatsApp Cloud API
+    result = await _wa_send_media(
+        real_to,
+        kind,
+        public_url=public_url,
+        caption=caption,
+        filename=file.filename,
+    )
+
+    # Log into whatsapp_messages
+    client_scope = (user.get("client_id") or user.get("id"))
+    log = {
+        "id": _uuid(),
+        "client_id": client_scope,
+        "direction": "outbound",
+        "sender_id": user["id"],
+        "sender_label": user.get("full_name") or user.get("email"),
+        "to": real_to,
+        "phone_digits": digits_only,
+        "template_name": None,
+        "language_code": None,
+        "message_type": kind,
+        "body": caption or f"[{kind} envoyé]",
+        "media_id": file_id,
+        "media_url": public_path,
+        "media_mime_type": content_type,
+        "media_filename": file.filename,
+        "media_size_bytes": file_doc["size"],
+        "media_kind": kind,
+        "media_caption": caption,
+        "contact_id": contact_id,
+        "tracked_user_id": tracked_user_id,
+        "ok": result["ok"],
+        "status": result["status"],
+        "message_id": result["message_id"],
+        "error": result.get("error"),
+        "wa_status": "sent" if result["ok"] else "failed",
+        "sent_at": _now() if result["ok"] else None,
+        "failed_at": None if result["ok"] else _now(),
+        "created_at": _now(),
+    }
+    try:
+        await db.whatsapp_messages.insert_one(log.copy())
+    except Exception:
+        pass
+    log.pop("_id", None)
+    return {
+        "ok": result["ok"],
+        "message_id": result["message_id"],
+        "error": result.get("error"),
+        "http_status": result["status"],
+        "media_url": public_path,
+        "kind": kind,
+    }
 
 
 # ---------- Unread inbound counters + mark-read ----------
@@ -12448,10 +12910,29 @@ async def whatsapp_webhook_incoming(request: Request):
                     profile_name = profile_by_wa.get(from_num) or profile_by_wa.get(digits_only)
                     mtype = msg.get("type") or "text"
                     text_body = None
+                    media_info: Optional[Dict[str, Any]] = None  # populated when we download a binary
+                    media_caption: Optional[str] = None
                     if mtype == "text":
                         text_body = (msg.get("text") or {}).get("body")
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
-                        text_body = f"[{mtype} reçu]"
+                        # Iter35l — Try to download the binary from Meta Graph
+                        # (URL expires ~5min) and persist it locally so the chat
+                        # UI can render the actual media (image/audio/PDF/etc.).
+                        media_obj = msg.get(mtype) or {}
+                        media_caption = (media_obj.get("caption") or "").strip() or None
+                        media_id_in = media_obj.get("id")
+                        if media_id_in:
+                            try:
+                                dl = await _wa_download_inbound_media(media_id_in)
+                            except Exception as exc:  # noqa: BLE001
+                                dl = {"ok": False, "error": f"download crash: {exc!r}"}
+                            if dl.get("ok"):
+                                media_info = dl
+                                text_body = media_caption or f"[{mtype} reçu]"
+                            else:
+                                text_body = f"[{mtype} reçu — téléchargement échoué: {dl.get('error') or 'inconnu'}]"
+                        else:
+                            text_body = f"[{mtype} reçu]"
                     elif mtype == "button":
                         # Quick-reply button on a template — `button.text` is
                         # the visible label, `button.payload` the data.
@@ -12494,6 +12975,29 @@ async def whatsapp_webhook_incoming(request: Request):
                         "created_at": _now(),
                         "read_by_us_at": None,
                     }
+                    if media_info:
+                        doc["media_id"] = media_info.get("file_id")
+                        doc["media_wa_id"] = (msg.get(mtype) or {}).get("id")
+                        doc["media_url"] = media_info.get("public_url")
+                        doc["media_mime_type"] = media_info.get("mime_type")
+                        doc["media_filename"] = media_info.get("filename")
+                        doc["media_size_bytes"] = media_info.get("size_bytes")
+                        doc["media_kind"] = media_info.get("kind")
+                        if media_caption:
+                            doc["media_caption"] = media_caption
+                        # Iter35l — auto-transcribe voice notes when toggle ON
+                        if media_info.get("kind") == "audio":
+                            try:
+                                s_root = await db.settings.find_one({"_id": "global"}) or {}
+                                if bool(s_root.get("wa_voice_transcribe_enabled", True)):
+                                    stored = UPLOAD_DIR / media_info["stored_name"]
+                                    transcript = await _wa_transcribe_audio_file(stored, language="fr")
+                                    if transcript:
+                                        doc["voice_note_transcript"] = transcript
+                                        # Prepend a hint so the bubble's primary text shows the transcript
+                                        doc["body"] = transcript if not media_caption else f"{media_caption}\n— {transcript}"
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("WA voice transcribe failed: %s", exc)
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
                     # Iter34x — activity log for inbound WA

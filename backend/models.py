@@ -507,6 +507,14 @@ class SettingsUpdate(BaseModel):
     wa_silence_alert_window_hours: Optional[int] = None  # default 24
     wa_silence_alert_email_to: Optional[str] = None  # defaults to health_email_to
     wa_silence_alert_discord_webhook: Optional[str] = None  # optional Discord webhook URL
+
+    # Iter35l — WhatsApp media (inbound/outbound + watermark + QR + RGPD)
+    wa_allow_terminal_media: Optional[bool] = None       # default True — allow file picker in chat
+    wa_voice_transcribe_enabled: Optional[bool] = None    # default True — auto-Whisper on inbound voice notes
+    wa_watermark_enabled: Optional[bool] = None           # default True
+    wa_watermark_text: Optional[str] = None               # default = company name
+    wa_qr_enabled: Optional[bool] = None                  # default True
+    wa_qr_payload: Optional[str] = None                   # default = public base url
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

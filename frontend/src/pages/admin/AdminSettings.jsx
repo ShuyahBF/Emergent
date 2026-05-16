@@ -571,6 +571,54 @@ export default function AdminSettings() {
         <WaSilenceAlertPanel s={s} upd={upd} />
       </Section>
 
+      <Section icon={Upload} title="Médias WhatsApp (réception, envoi, filigrane)">
+        <p className="text-xs text-slate-500">
+          Réglages liés à l'envoi/réception d'images, audio, vidéos et PDF sur WhatsApp.
+          Le filigrane discret et le QR code sont automatiquement appliqués sur les <strong>images sortantes</strong>.
+          Les notes vocales reçues peuvent être transcrites automatiquement par OpenAI Whisper.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle
+            label="Autoriser l'envoi de médias depuis ce terminal"
+            value={s.wa_allow_terminal_media !== false}
+            onChange={(v) => upd("wa_allow_terminal_media", v)}
+            testid="toggle-wa-terminal-media"
+          />
+          <Toggle
+            label="Transcrire automatiquement les notes vocales reçues (Whisper)"
+            value={s.wa_voice_transcribe_enabled !== false}
+            onChange={(v) => upd("wa_voice_transcribe_enabled", v)}
+            testid="toggle-wa-voice-transcribe"
+          />
+          <Toggle
+            label="Filigrane sur les images envoyées"
+            value={s.wa_watermark_enabled !== false}
+            onChange={(v) => upd("wa_watermark_enabled", v)}
+            testid="toggle-wa-watermark"
+          />
+          <Toggle
+            label="QR code sur les images envoyées"
+            value={s.wa_qr_enabled !== false}
+            onChange={(v) => upd("wa_qr_enabled", v)}
+            testid="toggle-wa-qr"
+          />
+        </div>
+        <Input
+          label="Texte du filigrane (par défaut : nom de l'entreprise)"
+          value={s.wa_watermark_text || ""}
+          onChange={(v) => upd("wa_watermark_text", v)}
+          placeholder="SAWALI SMART SYSTEMS"
+          testid="wa-watermark-text"
+        />
+        <Input
+          label="Charge utile du QR code (URL ou texte ; par défaut : site web)"
+          value={s.wa_qr_payload || ""}
+          onChange={(v) => upd("wa_qr_payload", v)}
+          placeholder="https://votre-site.com"
+          testid="wa-qr-payload"
+        />
+      </Section>
+
       <Section icon={Mic} title="Transcription audio (OpenAI Whisper)">
         <p className="text-xs text-slate-500">
           Permet à l'utilisateur d'enregistrer sa voix pour rédiger un Rapport ou un Suivi.

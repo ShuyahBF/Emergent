@@ -7,6 +7,7 @@ import {
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
+  Paperclip, Mic, Play,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1351,6 +1352,11 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
+  // Iter35l — Media attach state. `pendingFile` holds the local File picked by
+  // the user but not yet uploaded. We show a small preview row above the text
+  // composer and let them add a caption before pressing Envoyer.
+  const [pendingFile, setPendingFile] = useState(null); // { file, kind, previewUrl }
+  const fileInputRef = React.useRef(null);
   // Iter34o — Auto-scroll to the latest message so the composer is always
   // anchored on the last exchange (matches WhatsApp/Messenger UX).
   const scrollEndRef = React.useRef(null);
@@ -1383,18 +1389,31 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
 
   const sendFreeText = async () => {
     const body = (text || "").trim();
-    if (!body) { toast.error("Le message est vide"); return; }
+    if (!body && !pendingFile) { toast.error("Le message est vide"); return; }
     if (!contact.whatsapp) { toast.error("Numéro WhatsApp manquant"); return; }
     setSending(true);
     try {
-      const r = await apiClient.post("/me/whatsapp/send-text", {
-        to: contact.whatsapp,
-        text: body,
-        contact_id: contact.id,
-      });
+      let r;
+      if (pendingFile) {
+        const fd = new FormData();
+        fd.append("to", contact.whatsapp);
+        fd.append("contact_id", contact.id);
+        if (body) fd.append("caption", body);
+        fd.append("file", pendingFile.file);
+        r = await apiClient.post("/me/whatsapp/send-media", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+      } else {
+        r = await apiClient.post("/me/whatsapp/send-text", {
+          to: contact.whatsapp,
+          text: body,
+          contact_id: contact.id,
+        });
+      }
       if (r.data?.ok) {
-        toast.success("Message envoyé");
+        toast.success(pendingFile ? "Média envoyé" : "Message envoyé");
         setText("");
+        clearPendingFile();
         await load();
       } else {
         toast.error(r.data?.error || "Échec d'envoi");
@@ -1406,6 +1425,38 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       setSending(false);
     }
   };
+
+  const onPickFile = (e) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
+    if (f.size > 16 * 1024 * 1024) {
+      toast.error("Fichier trop volumineux (max 16 Mo)");
+      e.target.value = "";
+      return;
+    }
+    const ct = (f.type || "").toLowerCase();
+    let kind = "document";
+    if (ct.startsWith("image/")) kind = "image";
+    else if (ct.startsWith("audio/")) kind = "audio";
+    else if (ct.startsWith("video/")) kind = "video";
+    const previewUrl = kind === "image" ? URL.createObjectURL(f) : null;
+    setPendingFile({ file: f, kind, previewUrl });
+    e.target.value = ""; // allow re-picking the same file
+  };
+
+  const clearPendingFile = () => {
+    if (pendingFile?.previewUrl) {
+      try { URL.revokeObjectURL(pendingFile.previewUrl); } catch { /* noop */ }
+    }
+    setPendingFile(null);
+  };
+
+  // Clean up object URL on unmount
+  useEffect(() => () => {
+    if (pendingFile?.previewUrl) {
+      try { URL.revokeObjectURL(pendingFile.previewUrl); } catch { /* noop */ }
+    }
+  }, [pendingFile?.previewUrl]);
 
   const messages = data.messages || [];
   const canSendText = !!data.can_send_text;
@@ -1487,14 +1538,59 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   </span>
                 )}
               </div>
+
+              {/* Iter35l — Pending media preview row */}
+              {pendingFile && (
+                <div className="flex items-center gap-3 mb-2 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-2" data-testid="conversation-pending-media">
+                  {pendingFile.kind === "image" && pendingFile.previewUrl ? (
+                    <img src={pendingFile.previewUrl} alt="" className="h-12 w-12 object-cover rounded ring-1 ring-emerald-300" />
+                  ) : pendingFile.kind === "audio" ? (
+                    <Mic className="h-8 w-8 text-emerald-700" />
+                  ) : pendingFile.kind === "video" ? (
+                    <Video className="h-8 w-8 text-emerald-700" />
+                  ) : (
+                    <FileTextIcon className="h-8 w-8 text-emerald-700" />
+                  )}
+                  <div className="flex-1 min-w-0">
+                    <p className="text-xs font-medium text-emerald-900 truncate">{pendingFile.file.name}</p>
+                    <p className="text-[10px] text-emerald-700/80">{(pendingFile.file.size / 1024).toFixed(0)} Ko · {pendingFile.kind}</p>
+                  </div>
+                  <button
+                    onClick={clearPendingFile}
+                    className="text-xs text-rose-600 hover:underline"
+                    data-testid="conversation-pending-media-clear"
+                    title="Retirer le fichier"
+                  >
+                    Retirer
+                  </button>
+                </div>
+              )}
+
               <div className="flex gap-2 items-end">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept="image/*,audio/*,video/mp4,application/pdf"
+                  onChange={onPickFile}
+                  className="hidden"
+                  data-testid="conversation-file-input"
+                />
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={sending || !!pendingFile}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  data-testid="conversation-attach-btn"
+                  title="Joindre un fichier (image, audio, vidéo, PDF — 16 Mo max)"
+                >
+                  <Paperclip className="h-4 w-4" />
+                </button>
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFreeText(); }
                   }}
-                  placeholder="Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer)"
+                  placeholder={pendingFile ? "Légende (optionnelle)…" : "Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer)"}
                   rows={2}
                   maxLength={4096}
                   className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:ring-1 focus:ring-sawali-blue outline-none"
@@ -1502,7 +1598,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 />
                 <button
                   onClick={sendFreeText}
-                  disabled={sending || !text.trim()}
+                  disabled={sending || (!text.trim() && !pendingFile)}
                   className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 text-white px-3.5 py-2 text-sm hover:bg-emerald-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
                   data-testid="conversation-text-send"
                 >
@@ -1551,7 +1647,25 @@ const MessageBubble = ({ m }) => {
   const primaryTs = outbound
     ? (m.sent_at || m.created_at)
     : (m.received_at || m.created_at);
-  const body = m.body || `Template : ${m.template_name || "—"}`;
+
+  // Iter35l — Media rendering. A row may carry image/audio/video/document via
+  // m.media_url + m.media_kind (+ m.media_mime_type as fallback). For inbound
+  // voice notes, m.voice_note_transcript is appended in italic.
+  const mediaUrl = m.media_url ? absoluteFileUrl(m.media_url) : null;
+  const mediaKind = m.media_kind
+    || (m.media_mime_type ? (
+      m.media_mime_type.startsWith("image/") ? "image"
+        : m.media_mime_type.startsWith("audio/") ? "audio"
+        : m.media_mime_type.startsWith("video/") ? "video"
+        : "document"
+    ) : null);
+  const caption = m.media_caption || (m.media_url ? "" : null);
+  const hasMedia = !!mediaUrl && !!mediaKind;
+
+  // Body fallback: if a media bubble has no caption, hide the placeholder
+  // string ("[image reçu]" / "[image envoyé]") to keep the UI clean.
+  const placeholder = hasMedia && /^\[[a-z]+ (reçu|envoyé)\]$/i.test((m.body || "").trim());
+  const body = placeholder ? "" : (m.body || (m.template_name ? `Template : ${m.template_name}` : ""));
 
   return (
     <div className={`flex group ${outbound ? "justify-end" : "justify-start"} hover:bg-sky-50/40 -mx-3 px-3 py-1 rounded-md transition-colors`} data-testid={`msg-${m.id}`}>
@@ -1571,7 +1685,49 @@ const MessageBubble = ({ m }) => {
             </code>
           )}
         </div>
-        <p className="whitespace-pre-wrap">{body}</p>
+
+        {/* Media payload (Iter35l) */}
+        {hasMedia && (
+          <div className="mb-1.5" data-testid={`msg-media-${m.id}`}>
+            {mediaKind === "image" ? (
+              <a href={mediaUrl} target="_blank" rel="noreferrer">
+                <img
+                  src={mediaUrl}
+                  alt={m.media_filename || "image"}
+                  className="max-h-72 max-w-full rounded-lg ring-1 ring-black/10 bg-slate-50 object-contain"
+                  loading="lazy"
+                />
+              </a>
+            ) : mediaKind === "audio" ? (
+              <audio controls src={mediaUrl} className="w-64 max-w-full" preload="metadata" data-testid={`msg-audio-${m.id}`}>
+                Votre navigateur ne supporte pas la lecture audio.
+              </audio>
+            ) : mediaKind === "video" ? (
+              <video controls src={mediaUrl} className="max-h-72 max-w-full rounded-lg" preload="metadata">
+                Votre navigateur ne supporte pas la lecture vidéo.
+              </video>
+            ) : (
+              <a
+                href={mediaUrl}
+                target="_blank"
+                rel="noreferrer"
+                className={`inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs ring-1 ${outbound ? "bg-white/10 ring-white/30 text-white hover:bg-white/20" : "bg-slate-50 ring-slate-300 text-slate-800 hover:bg-slate-100"}`}
+                data-testid={`msg-doc-${m.id}`}
+              >
+                <FileTextIcon className="h-4 w-4" />
+                <span className="font-medium truncate max-w-[160px]">{m.media_filename || "Document"}</span>
+                <Download className="h-3 w-3 opacity-70" />
+              </a>
+            )}
+            {m.voice_note_transcript && (
+              <p className={`mt-1 text-[11px] italic ${outbound ? "text-white/80" : "text-slate-600"}`} data-testid={`msg-transcript-${m.id}`}>
+                « {m.voice_note_transcript} »
+              </p>
+            )}
+          </div>
+        )}
+
+        {body && <p className="whitespace-pre-wrap">{body}</p>}
         <div className={`flex items-center justify-between gap-3 mt-1.5 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
           <span>{fmtDate(primaryTs)}</span>
           {statusIcon && (

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -144,10 +144,150 @@ export default function ClientDashboard() {
           </ul>
         </div>
       </div>
+      {/* Iter35m — Synthèse des médias WhatsApp reçus */}
+      {smartFeatures.whatsapp && <WaMediaSummaryCard />}
       {showAi && <AiSummaryModal onClose={() => setShowAi(false)} />}
     </div>
   );
 }
+
+// ====================================================================
+// Iter35m — WhatsApp media summary card (dashboard).
+// Shows counts by kind + top contacts + last 5 thumbnails over a chosen
+// trailing window (7/30/90 days).
+// ====================================================================
+function WaMediaSummaryCard() {
+  const [days, setDays] = useState(7);
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    setLoading(true);
+    apiClient.get(`/me/dashboard/wa-media-summary?days=${days}`)
+      .then((r) => setData(r.data))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [days]);
+
+  const counts = data?.counts || { image: 0, audio: 0, video: 0, document: 0, total: 0 };
+  const top = data?.top_contacts || [];
+  const last = data?.last_items || [];
+
+  return (
+    <section className="rounded-xl border border-slate-200 bg-white p-6 space-y-4" data-testid="dashboard-wa-media-summary">
+      <header className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <div className="h-9 w-9 rounded-lg bg-emerald-50 flex items-center justify-center">
+            <MessageCircleIcon className="h-4 w-4 text-emerald-600" />
+          </div>
+          <div>
+            <h2 className="font-display font-semibold text-slate-900">Médias WhatsApp reçus</h2>
+            <p className="text-[11px] text-slate-500">Synthèse des images, audios, vidéos et PDF reçus</p>
+          </div>
+        </div>
+        <div className="inline-flex rounded-lg ring-1 ring-slate-200 bg-slate-50 p-0.5" data-testid="wa-media-days-toggle">
+          {[7, 30, 90].map((d) => (
+            <button
+              key={d}
+              onClick={() => setDays(d)}
+              className={`text-xs px-2.5 py-1 rounded-md transition ${days === d ? "bg-emerald-600 text-white shadow-sm" : "text-slate-600 hover:bg-white"}`}
+              data-testid={`wa-media-days-${d}`}
+            >
+              {d} j
+            </button>
+          ))}
+        </div>
+      </header>
+
+      {loading ? (
+        <p className="text-sm text-slate-500 italic">Chargement…</p>
+      ) : (
+        <>
+          {/* Counts row */}
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+            <CountTile label="Total" value={counts.total} color="slate" testid="wa-media-count-total" />
+            <CountTile label="Images" value={counts.image} color="sky" testid="wa-media-count-image" />
+            <CountTile label="Audios" value={counts.audio} color="fuchsia" testid="wa-media-count-audio" />
+            <CountTile label="Vidéos" value={counts.video} color="amber" testid="wa-media-count-video" />
+            <CountTile label="PDF / Doc." value={counts.document} color="emerald" testid="wa-media-count-document" />
+          </div>
+
+          <div className="grid lg:grid-cols-2 gap-4">
+            {/* Top contacts */}
+            <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid="wa-media-top-contacts">
+              <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Top expéditeurs</p>
+              {top.length === 0 ? (
+                <p className="text-xs italic text-slate-400">Aucun média reçu sur la période.</p>
+              ) : (
+                <ul className="space-y-1.5">
+                  {top.map((c, i) => (
+                    <li key={c.phone_digits || i} className="flex items-center justify-between text-sm">
+                      <span className="text-slate-700 truncate">{c.contact_name || `+${c.phone_digits}`}</span>
+                      <span className="text-emerald-700 font-semibold tabular-nums text-xs">{c.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {/* Last items thumbnails */}
+            <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid="wa-media-last-items">
+              <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Derniers reçus</p>
+              {last.length === 0 ? (
+                <p className="text-xs italic text-slate-400">Aucun média sur la période.</p>
+              ) : (
+                <ul className="grid grid-cols-5 gap-2">
+                  {last.map((it) => (
+                    <li key={it.id}>
+                      <a
+                        href={`/portal/contacts${it.contact_id ? `?open=${it.contact_id}` : ""}`}
+                        title={`${it.contact_name || it.from || "?"} — ${new Date(it.received_at || it.created_at).toLocaleString("fr-FR")}`}
+                        className="block aspect-square rounded ring-1 ring-slate-200 bg-white overflow-hidden hover:ring-emerald-400 transition"
+                        data-testid={`wa-media-last-${it.id}`}
+                      >
+                        {it.media_kind === "image" ? (
+                          <img src={absoluteFileUrl(it.media_url)} alt="" className="h-full w-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="h-full w-full flex flex-col items-center justify-center text-[10px] text-slate-500 p-1">
+                            <span className="uppercase font-semibold text-[8px]">{it.media_kind || "doc"}</span>
+                            <span className="truncate w-full text-center">{(it.media_filename || "").slice(0, 14)}</span>
+                          </div>
+                        )}
+                      </a>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
+const CountTile = ({ label, value, color, testid }) => {
+  const ring = {
+    slate: "ring-slate-300 text-slate-800",
+    sky: "ring-sky-300 text-sky-700",
+    fuchsia: "ring-fuchsia-300 text-fuchsia-700",
+    amber: "ring-amber-300 text-amber-700",
+    emerald: "ring-emerald-300 text-emerald-700",
+  }[color] || "ring-slate-300 text-slate-800";
+  return (
+    <div className={`rounded-lg ring-1 bg-white p-2.5 text-center ${ring}`} data-testid={testid}>
+      <p className="text-2xl font-display font-bold tabular-nums">{value}</p>
+      <p className="text-[10px] uppercase tracking-wider mt-0.5 opacity-80">{label}</p>
+    </div>
+  );
+};
+
+const absoluteFileUrl = (u) => {
+  if (!u) return "";
+  if (u.startsWith("http")) return u;
+  const base = process.env.REACT_APP_BACKEND_URL || "";
+  return `${base}${u.startsWith("/") ? "" : "/"}${u}`;
+};
 
 const Badge = ({ status }) => {
   const map = {

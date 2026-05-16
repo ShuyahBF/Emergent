@@ -21,7 +21,7 @@ const KIND_META = {
   tasks: { label: "Tâches", singular: "tâche", icon: ClipboardList, accent: "#F59E0B" },
 };
 
-const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false };
+const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false, target_user_ids: [] };
 
 const ELEVATED_TRACKED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL_TRACKED = new Set(["Administrateur", "Superviseur"]);
@@ -70,6 +70,8 @@ export default function UserNotesPage() {
     },
   }).then((r) => setItems(r.data)).catch(() => {});
   const [smartFeatures, setSmartFeatures] = useState({ ai: true });
+  // Iter35m — Targets dropdown for private notes/tasks
+  const [targets, setTargets] = useState([]);
   // Iter34y — Filtre client appliqué côté front (l'API ne le supporte pas pour les suivis).
   const filteredItems = useMemo(() => {
     if (!filterClient) return items;
@@ -80,6 +82,7 @@ export default function UserNotesPage() {
     load();
     apiClient.get(`/me/notes/${kind}/authors`).then((r) => setAuthors(r.data)).catch(() => {});
     apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
+    apiClient.get("/me/notes-targets").then((r) => setTargets(r.data?.items || [])).catch(() => {});
     if (kind === "suivis") {
       apiClient.get("/me/clients").then((r) => setClients(r.data)).catch(() => {});
     }
@@ -95,6 +98,7 @@ export default function UserNotesPage() {
       ...it,
       tags: it.tags || [],
       images: it.images || [],
+      target_user_ids: it.target_user_ids || [],
       event_date: it.event_date ? it.event_date.slice(0, 16) : "",
     } : empty);
     setIsOpen(true);
@@ -115,6 +119,10 @@ export default function UserNotesPage() {
         content_html: form.content_html,
         tags: form.tags,
         images: form.images,
+        is_private: !!form.is_private,
+        // Iter35m — Only honored when is_private=true; allows the author to
+        // restrict visibility to a specific subset of tracked users / admins.
+        target_user_ids: form.is_private ? (form.target_user_ids || []) : [],
         ...(kind === "suivis" ? { client_id: form.client_id, event_date: new Date(form.event_date).toISOString() } : {}),
       };
       if (editing?.id) await apiClient.put(`/me/notes/${kind}/${editing.id}`, payload);
@@ -305,7 +313,7 @@ export default function UserNotesPage() {
                 <input
                   type="checkbox"
                   checked={!!form.is_private}
-                  onChange={(e) => setForm({ ...form, is_private: e.target.checked })}
+                  onChange={(e) => setForm({ ...form, is_private: e.target.checked, target_user_ids: e.target.checked ? form.target_user_ids : [] })}
                   className="mt-0.5 h-4 w-4 rounded border-slate-300"
                   data-testid="note-privacy-toggle"
                 />
@@ -314,11 +322,55 @@ export default function UserNotesPage() {
                     <Lock className="h-3.5 w-3.5 text-slate-500" /> Note privée
                   </span>
                   <span className="block text-xs text-slate-500 mt-0.5">
-                    Si cochée, seul vous-même et les administrateurs pourrez voir cette note.
-                    Décochée : visible par les autres utilisateurs suivis du même client.
+                    Décochée (public) : visible par tous les utilisateurs du client lié.
+                    Cochée (privée) : visible par vous, les administrateurs/superviseurs, et — si vous le précisez ci-dessous — par un ou plusieurs utilisateurs ciblés.
                   </span>
                 </span>
               </label>
+
+              {/* Iter35m — Multi-select des destinataires quand la note est privée */}
+              {form.is_private && targets.length > 0 && (
+                <div className="rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50/50 p-3 space-y-2" data-testid="note-targets-wrapper">
+                  <p className="text-xs font-semibold text-fuchsia-900 inline-flex items-center gap-1.5">
+                    <Lock className="h-3.5 w-3.5" /> Adressé à (optionnel)
+                  </p>
+                  <p className="text-[11px] text-fuchsia-700/80">
+                    Sélectionnez les utilisateurs qui pourront voir cette note en plus de vous et des administrateurs. Laissez vide pour la garder strictement personnelle.
+                  </p>
+                  <div className="grid sm:grid-cols-2 gap-1.5 max-h-44 overflow-y-auto pr-1">
+                    {targets.map((t) => {
+                      const checked = (form.target_user_ids || []).includes(t.id);
+                      return (
+                        <label
+                          key={t.id}
+                          className={`flex items-center gap-2 rounded px-2 py-1.5 text-xs ring-1 transition cursor-pointer ${
+                            checked ? "bg-fuchsia-100 ring-fuchsia-300 text-fuchsia-900" : "bg-white ring-slate-200 hover:bg-fuchsia-50"
+                          }`}
+                          data-testid={`note-target-${t.id}`}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={(e) => {
+                              const cur = new Set(form.target_user_ids || []);
+                              if (e.target.checked) cur.add(t.id); else cur.delete(t.id);
+                              setForm({ ...form, target_user_ids: Array.from(cur) });
+                            }}
+                            className="h-3.5 w-3.5"
+                          />
+                          <span className="flex-1 truncate">
+                            {t.is_self ? <strong className="text-fuchsia-900">Moi-même</strong> : t.full_name}
+                            {t.role && !t.is_self && <span className="text-[10px] text-slate-500 ml-1">({t.role})</span>}
+                          </span>
+                        </label>
+                      );
+                    })}
+                  </div>
+                  <p className="text-[10px] text-fuchsia-700/70">
+                    {form.target_user_ids?.length || 0} destinataire(s) sélectionné(s)
+                  </p>
+                </div>
+              )}
 
               <button
                 type="submit"

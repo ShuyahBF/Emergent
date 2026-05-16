@@ -666,7 +666,11 @@ class UserNoteCreate(BaseModel):
     client_id: Optional[str] = None  # required for suivis (validated server-side)
     event_date: Optional[str] = None  # ISO datetime ; required for suivis
     images: Optional[List[dict]] = None  # max 10
-    is_private: Optional[bool] = None  # True → only the author + admins; False/None → shared within client
+    is_private: Optional[bool] = None  # True → only the author + targets + admins; False/None → shared within client
+    # Iter35m — Targeted visibility (only meaningful when is_private=True).
+    # When non-empty, the listed user_ids can see this note in addition to the
+    # author and admin/superviseur. Empty list = author+admins only (legacy).
+    target_user_ids: Optional[List[str]] = None
     voice_note_url: Optional[str] = None  # iter34y — note vocale facultative
     voice_note_transcript: Optional[str] = None  # iter34z — transcription Whisper
 
@@ -679,6 +683,7 @@ class UserNoteUpdate(BaseModel):
     event_date: Optional[str] = None
     images: Optional[List[dict]] = None
     is_private: Optional[bool] = None
+    target_user_ids: Optional[List[str]] = None  # Iter35m
     voice_note_url: Optional[str] = None
     voice_note_transcript: Optional[str] = None
 

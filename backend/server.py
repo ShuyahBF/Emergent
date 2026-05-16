@@ -7720,6 +7720,9 @@ async def me_list_notes(
     # Privacy scoping: an elevated user sees ALL notes of their scope, BUT
     # private notes (is_private=True) authored by *other* users remain hidden
     # unless the caller is admin/superviseur (those two see everything).
+    # Iter35m — Targeted visibility: a private note may also list explicit
+    # target_user_ids. Any of those targets can see the note in addition to
+    # the author and admin/superviseur.
     if user.get("role") in ("admin", "superviseur"):
         base: Dict[str, Any] = {}
     elif _is_elevated_creator(user):
@@ -7727,10 +7730,16 @@ async def me_list_notes(
             "$or": [
                 {"is_private": {"$ne": True}},
                 {"owner_id": user["id"]},
+                {"target_user_ids": user["id"]},
             ],
         }
     else:
-        base = {"owner_id": user["id"]}
+        base = {
+            "$or": [
+                {"owner_id": user["id"]},
+                {"target_user_ids": user["id"]},
+            ]
+        }
     query: Dict[str, Any] = dict(base)
     if author:
         query["owner_email"] = {"$regex": re.escape(author), "$options": "i"}
@@ -7817,6 +7826,8 @@ async def me_create_note(
         "event_date": (payload.event_date or None) if kind == "suivis" else None,
         "images": images,
         "is_private": bool(payload.is_private),
+        # Iter35m — Targeted visibility (only honored when is_private=True)
+        "target_user_ids": list(payload.target_user_ids or []),
         # Iter35g — Voice note + Whisper transcription fields (already in the
         # UserNoteCreate model since iter34y/34z, just need to persist them).
         "voice_note_url": payload.voice_note_url or None,
@@ -7896,6 +7907,81 @@ async def me_delete_note(
         webhook_result = await _fire_notes_webhook("deleted", kind, existing, user)
         return {"ok": True, "webhook_result": webhook_result}
     return {"ok": True}
+
+
+@api.get("/me/notes-targets", tags=["Portail Client"])
+async def me_notes_targets(user: dict = Depends(get_current_user)):
+    """Iter35m — Return the list of users that a note/task can be addressed to
+    when `is_private=True`. The list always starts with "Moi-même" (the caller),
+    followed by every other user that shares the same effective client_id —
+    i.e. the linked client + every tracked user / admin / superviseur attached
+    to that client. Used to populate the targeting dropdown in the UI.
+
+    Schema returned: { items: [{ id, full_name, email, role, is_self }] }
+    """
+    me = {
+        "id": user["id"],
+        "full_name": user.get("full_name") or user.get("email") or "Moi-même",
+        "email": user.get("email"),
+        "role": user.get("role") or user.get("tracked_role"),
+        "is_self": True,
+    }
+    out: List[Dict[str, Any]] = [me]
+    seen: set = {user["id"]}
+
+    # Effective client scope: prefer parent_client_id (typed link), then client_id, then own id
+    effective_client_id = user.get("parent_client_id") or user.get("client_id") or user["id"]
+
+    # 1) Other admin/superviseur/client users attached to the same client_id (or parent)
+    try:
+        cursor = db.users.find(
+            {
+                "$or": [
+                    {"id": effective_client_id},
+                    {"client_id": effective_client_id},
+                    {"parent_client_id": effective_client_id},
+                ],
+                "id": {"$ne": user["id"]},
+            },
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1},
+        )
+        async for u in cursor:
+            uid = u.get("id")
+            if not uid or uid in seen:
+                continue
+            seen.add(uid)
+            out.append({
+                "id": uid,
+                "full_name": u.get("full_name") or u.get("email") or "—",
+                "email": u.get("email"),
+                "role": u.get("role"),
+                "is_self": False,
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notes-targets users lookup failed: %s", exc)
+
+    # 2) Tracked users (employees) attached to the same client
+    try:
+        cursor = db.tracked_users.find(
+            {"client_id": effective_client_id},
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1},
+        )
+        async for tu in cursor:
+            tid = tu.get("id")
+            if not tid or tid in seen:
+                continue
+            seen.add(tid)
+            out.append({
+                "id": tid,
+                "full_name": tu.get("full_name") or tu.get("email") or "—",
+                "email": tu.get("email"),
+                "role": tu.get("role") or "tracked",
+                "is_self": False,
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("notes-targets tracked_users lookup failed: %s", exc)
+
+    return {"items": out, "count": len(out), "effective_client_id": effective_client_id}
 
 
 @api.get("/me/notes-summary", tags=["Portail Client"])
@@ -11508,6 +11594,180 @@ async def me_whatsapp_send_media(
         "http_status": result["status"],
         "media_url": public_path,
         "kind": kind,
+    }
+
+
+# =====================================================================
+# Iter35m — POST /me/whatsapp/messages/{msg_id}/save-to-library
+# Re-use an inbound media (typically a photo received from a contact) by
+# registering it in the shared media library. Does NOT re-upload the binary
+# — it just creates a media_library entry pointing at the existing files row.
+# =====================================================================
+class SaveToLibraryRequest(BaseModel):
+    label: Optional[str] = None
+
+
+@api.post("/me/whatsapp/messages/{msg_id}/save-to-library", tags=["Portail Client"])
+async def me_whatsapp_save_to_library(
+    msg_id: str,
+    payload: SaveToLibraryRequest = Body(default=None),
+    user: dict = Depends(get_current_user),
+):
+    """Register an inbound WhatsApp media in the shared client media library."""
+    allowed = (
+        user.get("role") in ("client", "admin", "demo")
+        or _is_elevated_creator(user)
+        or _is_tracked_user(user)
+    )
+    if not allowed:
+        raise HTTPException(status_code=403, detail="Rôle non autorisé")
+
+    visible_scope = await _resolve_visible_client_ids(user)
+    msg = await db.whatsapp_messages.find_one(
+        {"id": msg_id, "client_id": {"$in": visible_scope}}, {"_id": 0},
+    )
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message WhatsApp introuvable")
+    if msg.get("direction") != "inbound":
+        raise HTTPException(status_code=400, detail="Seuls les messages reçus peuvent être réutilisés")
+    file_id = msg.get("media_id")
+    media_url = msg.get("media_url")
+    media_mime = msg.get("media_mime_type")
+    if not file_id or not media_url:
+        raise HTTPException(status_code=400, detail="Ce message ne contient pas de média téléchargé")
+
+    # The underlying file must still exist in the files collection
+    file_row = await db.files.find_one({"id": file_id}, {"_id": 0})
+    if not file_row:
+        raise HTTPException(status_code=410, detail="Fichier source introuvable (peut-être expiré)")
+
+    # Idempotence: if a library entry for this file already exists in the same
+    # client scope, return it instead of duplicating.
+    client_scope = user.get("client_id") or user["id"]
+    existing = await db.media_library.find_one(
+        {"file_id": file_id, "client_id": client_scope}, {"_id": 0},
+    )
+    if existing:
+        return {"ok": True, "media": existing, "already_existed": True}
+
+    kind = msg.get("media_kind") or _wa_kind_for_mime(media_mime or "")
+    # Build the label: user-provided OR contact name OR sender phone
+    if payload and (payload.label or "").strip():
+        label = payload.label.strip()[:200]
+    else:
+        contact_label = msg.get("contact_name") or msg.get("from_profile_name") or msg.get("from") or "WhatsApp"
+        ts = (msg.get("received_at") or msg.get("created_at") or "")[:10]
+        label = f"WA · {contact_label} · {ts}".strip(" ·")[:200]
+
+    media = {
+        "id": _uuid(),
+        "file_id": file_id,
+        "client_id": client_scope,
+        "uploaded_by_id": user.get("id"),
+        "uploaded_by_label": user.get("full_name") or user.get("email"),
+        "label": label,
+        "filename": file_row.get("filename") or msg.get("media_filename"),
+        "kind": kind,
+        "content_type": file_row.get("content_type") or media_mime,
+        "extension": file_row.get("extension"),
+        "size": file_row.get("size") or msg.get("media_size_bytes"),
+        "public_url": file_row.get("public_url") or media_url,
+        "source": "whatsapp_inbound",
+        "source_message_id": msg_id,
+        "created_at": _now(),
+    }
+    await db.media_library.insert_one(media.copy())
+    media.pop("_id", None)
+    return {"ok": True, "media": media, "already_existed": False}
+
+
+# =====================================================================
+# Iter35m — GET /me/dashboard/wa-media-summary?days=7|30|90
+# Surface a quick overview of inbound WhatsApp media (images/audio/video/PDF)
+# received in the trailing window — used by the portal dashboard card.
+# =====================================================================
+@api.get("/me/dashboard/wa-media-summary", tags=["Portail Client"])
+async def me_wa_media_summary(
+    days: int = Query(default=7, ge=1, le=365),
+    user: dict = Depends(get_current_user),
+):
+    """Return a synthesis of WhatsApp inbound media received in the last `days`.
+
+    Shape:
+      {
+        days, counts: {image, audio, video, document, total},
+        top_contacts: [ {phone_digits, contact_name, count} … ],
+        last_items: [ {id, kind, media_url, media_filename, from, contact_name, received_at, voice_note_transcript?} … ],
+      }
+    """
+    visible_scope = await _resolve_visible_client_ids(user)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    base_q: Dict[str, Any] = {
+        "client_id": {"$in": visible_scope},
+        "direction": "inbound",
+        "media_url": {"$exists": True, "$ne": None},
+        "$or": [
+            {"received_at": {"$gte": since}},
+            {"created_at": {"$gte": since}},
+        ],
+    }
+
+    # Iter34u — anon_communications restriction (own messages only)
+    restrictions = await _resolve_content_restrictions(user)
+    if restrictions.get("anon_communications"):
+        base_q["$and"] = [{"$or": [{"sender_id": user["id"]}, {"owner_id": user["id"]}]}]
+
+    # Counts by kind
+    counts = {"image": 0, "audio": 0, "video": 0, "document": 0, "total": 0}
+    pipeline_kinds = [
+        {"$match": base_q},
+        {"$group": {"_id": "$media_kind", "n": {"$sum": 1}}},
+    ]
+    async for row in db.whatsapp_messages.aggregate(pipeline_kinds):
+        kind = row.get("_id") or "document"
+        if kind in counts:
+            counts[kind] = row["n"]
+        else:
+            counts["document"] += row["n"]
+        counts["total"] += row["n"]
+
+    # Top 5 contacts (by phone_digits)
+    pipeline_top = [
+        {"$match": base_q},
+        {"$group": {
+            "_id": "$phone_digits",
+            "count": {"$sum": 1},
+            "contact_name": {"$last": "$contact_name"},
+            "profile_name": {"$last": "$from_profile_name"},
+            "from": {"$last": "$from"},
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": 5},
+    ]
+    top_contacts: List[Dict[str, Any]] = []
+    async for row in db.whatsapp_messages.aggregate(pipeline_top):
+        top_contacts.append({
+            "phone_digits": row.get("_id"),
+            "contact_name": row.get("contact_name") or row.get("profile_name") or row.get("from"),
+            "count": row["count"],
+        })
+
+    # Last 5 items
+    last_items_cursor = db.whatsapp_messages.find(
+        base_q,
+        {
+            "_id": 0, "id": 1, "media_url": 1, "media_kind": 1, "media_mime_type": 1,
+            "media_filename": 1, "from": 1, "contact_name": 1, "from_profile_name": 1,
+            "received_at": 1, "created_at": 1, "voice_note_transcript": 1, "contact_id": 1,
+        },
+    ).sort("created_at", -1).limit(5)
+    last_items = [doc async for doc in last_items_cursor]
+
+    return {
+        "days": days,
+        "counts": counts,
+        "top_contacts": top_contacts,
+        "last_items": last_items,
     }
 
 

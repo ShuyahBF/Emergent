@@ -7,7 +7,7 @@ import {
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
-  Paperclip, Mic, Play,
+  Paperclip, Mic, Play, BookmarkPlus,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1633,6 +1633,43 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   );
 };
 
+// --- Iter35m — Save inbound WA media to shared library button ---
+const SaveToLibraryButton = ({ messageId, testid }) => {
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const onClick = async () => {
+    if (saving || saved) return;
+    setSaving(true);
+    try {
+      const r = await apiClient.post(`/me/whatsapp/messages/${messageId}/save-to-library`, {});
+      if (r.data?.ok) {
+        setSaved(true);
+        toast.success(r.data?.already_existed ? "Déjà dans la bibliothèque" : "Sauvegardé dans la bibliothèque");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <button
+      onClick={onClick}
+      disabled={saving || saved}
+      className={`inline-flex items-center gap-1 text-[10px] rounded-md px-2 py-1 ring-1 transition ${
+        saved
+          ? "bg-emerald-50 ring-emerald-300 text-emerald-700"
+          : "bg-white ring-slate-300 text-slate-700 hover:bg-sky-50 hover:ring-sky-300 hover:text-sky-700"
+      }`}
+      data-testid={testid}
+      title={saved ? "Sauvegardé" : "Sauvegarder dans la bibliothèque partagée pour réutilisation"}
+    >
+      {saved ? <Check className="h-3 w-3" /> : <BookmarkPlus className="h-3 w-3" />}
+      {saving ? "…" : saved ? "Sauvegardé" : "Sauvegarder"}
+    </button>
+  );
+};
+
 // --- Chat bubble ---
 const MessageBubble = ({ m }) => {
   const outbound = m.direction === "outbound";
@@ -1690,14 +1727,20 @@ const MessageBubble = ({ m }) => {
         {hasMedia && (
           <div className="mb-1.5" data-testid={`msg-media-${m.id}`}>
             {mediaKind === "image" ? (
-              <a href={mediaUrl} target="_blank" rel="noreferrer">
-                <img
-                  src={mediaUrl}
-                  alt={m.media_filename || "image"}
-                  className="max-h-72 max-w-full rounded-lg ring-1 ring-black/10 bg-slate-50 object-contain"
-                  loading="lazy"
-                />
-              </a>
+              <div className="space-y-1.5">
+                <a href={mediaUrl} target="_blank" rel="noreferrer">
+                  <img
+                    src={mediaUrl}
+                    alt={m.media_filename || "image"}
+                    className="max-h-72 max-w-full rounded-lg ring-1 ring-black/10 bg-slate-50 object-contain"
+                    loading="lazy"
+                  />
+                </a>
+                {/* Iter35m — Réutiliser ce média (uniquement sur images reçues) */}
+                {!outbound && (
+                  <SaveToLibraryButton messageId={m.id} testid={`msg-save-${m.id}`} outbound={outbound} />
+                )}
+              </div>
             ) : mediaKind === "audio" ? (
               <audio controls src={mediaUrl} className="w-64 max-w-full" preload="metadata" data-testid={`msg-audio-${m.id}`}>
                 Votre navigateur ne supporte pas la lecture audio.

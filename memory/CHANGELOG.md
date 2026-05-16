@@ -109,6 +109,21 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35m — Réutilisation médias WA + Synthèse Dashboard + Notes ciblées — 2026-05-16
+
+**Livré (P0)** :
+- **Bouton "Sauvegarder dans la bibliothèque"** sur les bulles d'images reçues dans le chat WhatsApp. Un clic enregistre l'image dans la bibliothèque partagée du client (`media_library`) sans dupliquer le binaire (réutilise l'asset `files`). Idempotent : double-clic = même entrée. Endpoint : `POST /api/me/whatsapp/messages/{msg_id}/save-to-library`.
+- **Synthèse "Médias WhatsApp reçus"** sur le dashboard `/portal` avec sélecteur 7/30/90 jours, comptages par type (image/audio/vidéo/PDF), top 5 expéditeurs, et 5 dernières miniatures cliquables. Endpoint : `GET /api/me/dashboard/wa-media-summary?days=7|30|90`.
+- **Notes & Tâches ciblées** : nouveau champ `target_user_ids` sur les modèles Note. Quand `is_private=True` ET `target_user_ids` non vide, les utilisateurs ciblés voient la note (en plus de l'auteur et admin/superviseur). UI dans `UserNotes.jsx` : multi-select des destinataires (avec "Moi-même" en premier) qui apparaît uniquement quand "Note privée" est cochée. Nouvel endpoint `/api/me/notes-targets` retournant la liste filtrée par client effectif.
+
+**Tests** : 7 tests pytest verts (`tests/test_iter35m_targeting_and_dashboard.py`).
+- TestNotesTargets (Moi-même en premier)
+- TestSaveToLibrary (création + idempotence + 404)
+- TestWaMediaSummary (counts/top/last + validation days)
+- TestNotesTargeting (target_user_ids persisté en DB)
+
+---
+
 ## 🆕 Iter35l — Médias WhatsApp (réception + envoi + filigrane + transcription) — 2026-05-16
 
 **Livré (P0)** :

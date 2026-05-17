@@ -1475,7 +1475,25 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   useEffect(() => { loadActiveTicket(); }, [loadActiveTicket]);
 
   const openTicket = async () => {
-    const motif = window.prompt("Motif du ticket (1-200 caractères) :");
+    let suggested = "";
+    // Iter35p — Offer reusable motif templates first if any
+    try {
+      const r = await apiClient.get("/me/ticket-motif-templates");
+      const tpls = r.data || [];
+      if (tpls.length > 0) {
+        const lines = tpls.map((t, i) => `${i + 1}. ${t.label}`).join("\n");
+        const pick = window.prompt(
+          `Choisissez un modèle (numéro) ou tapez « 0 » pour saisir un motif libre :\n\n${lines}`,
+          "0",
+        );
+        if (pick === null) return;
+        const idx = parseInt(pick, 10);
+        if (!isNaN(idx) && idx >= 1 && idx <= tpls.length) {
+          suggested = tpls[idx - 1].motif || "";
+        }
+      }
+    } catch { /* noop */ }
+    const motif = window.prompt("Motif du ticket (1-200 caractères) :", suggested);
     if (motif === null) return;
     const trimmed = motif.trim();
     if (!trimmed) { toast.error("Le motif est obligatoire"); return; }

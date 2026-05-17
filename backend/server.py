@@ -94,6 +94,9 @@ from models import (
     TicketOpenPayload,
     TicketUpdatePayload,
     TicketClosePayload,
+    TicketAssignPayload,
+    TicketReopenPayload,
+    TicketMotifTemplatePayload,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -17263,6 +17266,15 @@ async def me_open_ticket(
     }
     await db.support_tickets.insert_one(ticket.copy())
 
+    # Iter35p — Activity feed
+    try:
+        await _log_activity(
+            client_id=client_id, kind="ticket", action="created",
+            label=f"{number} — {motif[:80]}", actor=user, target_id=ticket["id"],
+        )
+    except Exception:
+        pass
+
     # Optional WhatsApp notification (template) — best-effort, never blocks
     s = await db.settings.find_one({"_id": "global"}) or {}
     notify = bool(s.get("notify_on_ticket_open", True))
@@ -17380,6 +17392,15 @@ async def me_close_ticket(
     await db.support_tickets.update_one({"id": tid}, {"$set": update})
     ticket.update(update)
 
+    # Iter35p — Activity feed for close
+    try:
+        await _log_activity(
+            client_id=ticket["client_id"], kind="ticket", action="closed",
+            label=f"{ticket['number']} → {payload.outcome}", actor=user, target_id=ticket["id"],
+        )
+    except Exception:
+        pass
+
     # WhatsApp notification on closure (best-effort)
     s = await db.settings.find_one({"_id": "global"}) or {}
     admin_default_notify = bool(s.get("notify_on_ticket_close", True))
@@ -17419,6 +17440,258 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
         sort=[("opened_at", -1)],
     )
     return {"active": t is not None, "ticket": t}
+
+
+# ====================================================================
+# Iter35p — Ticket enhancements:
+#   1) Assignment to a user-suivi (notify via activity_events).
+#   2) Reopen — creates a sibling TKT-YYYY-NNNN-R{k} linked to parent.
+#   3) Motif templates — CRUD for reusable motif snippets.
+#   4) Resolution-time stats — dashboard score per user + team leaderboard.
+# ====================================================================
+@api.post("/me/tickets/{tid}/assign", tags=["Portail Client"])
+async def me_assign_ticket(
+    tid: str,
+    payload: TicketAssignPayload,
+    user: dict = Depends(get_current_user),
+):
+    """Assign a ticket to a user (or unassign when user_id is empty)."""
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if ticket["status"] in TICKET_CLOSED_STATUSES:
+        raise HTTPException(status_code=409, detail="Ticket clôturé — affectation impossible.")
+    uid = (payload.user_id or "").strip() or None
+    update: Dict[str, Any] = {"updated_at": _now()}
+    if uid is None:
+        update["assigned_to_id"] = None
+        update["assigned_to_label"] = None
+        update["assigned_at"] = None
+        update["assigned_by_id"] = None
+    else:
+        # The target must be in the same scope (users OR tracked_users)
+        eff_client = user.get("parent_client_id") or user.get("client_id") or user["id"]
+        target = await db.users.find_one(
+            {"id": uid, "$or": [{"id": eff_client}, {"client_id": eff_client}, {"parent_client_id": eff_client}]},
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1},
+        )
+        if not target:
+            target = await db.tracked_users.find_one({"id": uid, "client_id": eff_client}, {"_id": 0, "id": 1, "full_name": 1, "email": 1})
+        if not target:
+            raise HTTPException(status_code=400, detail="Utilisateur destinataire hors périmètre.")
+        update["assigned_to_id"] = target["id"]
+        update["assigned_to_label"] = target.get("full_name") or target.get("email") or target["id"][:8]
+        update["assigned_at"] = _now()
+        update["assigned_by_id"] = user["id"]
+    await db.support_tickets.update_one({"id": tid}, {"$set": update})
+    ticket.update(update)
+    # Activity feed → assignee gets a toast in real-time
+    try:
+        await _log_activity(
+            client_id=ticket["client_id"], kind="ticket", action="assigned",
+            label=f"{ticket['number']} → {update.get('assigned_to_label') or 'aucun'}",
+            actor=user, target_id=tid,
+        )
+    except Exception:
+        pass
+    return {"ok": True, "ticket": ticket}
+
+
+@api.post("/me/tickets/{tid}/reopen", tags=["Portail Client"])
+async def me_reopen_ticket(
+    tid: str,
+    payload: TicketReopenPayload,
+    user: dict = Depends(get_current_user),
+):
+    """Re-open a closed ticket as a *new* sibling whose number ends with -R{k}.
+
+    Example chain : TKT-2026-0014 (done) → /reopen → TKT-2026-0014-R1 (open) →
+    if closed and reopened again → TKT-2026-0014-R2.
+
+    The parent must already be closed. The new ticket carries:
+      - parent_ticket_id (the very first ticket of the chain)
+      - root_number (the original number, for grouping)
+      - the same contact / client_id
+    """
+    scope_filter = await _ticket_scope_for_user(user)
+    parent = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not parent:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if parent["status"] not in TICKET_CLOSED_STATUSES:
+        raise HTTPException(status_code=409, detail="Le ticket doit être clôturé avant d'être rouvert.")
+    # Also ensure the contact does not already have another open ticket
+    existing_open = await db.support_tickets.find_one(
+        {"contact_id": parent["contact_id"], "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {"_id": 0, "number": 1},
+    )
+    if existing_open:
+        raise HTTPException(status_code=409, detail=f"{existing_open['number']} est déjà ouvert pour ce contact.")
+    root_number = parent.get("root_number") or parent["number"]
+    # Count how many siblings (including parent) share this root → suffix index
+    chain_count = await db.support_tickets.count_documents({
+        "$or": [{"number": root_number}, {"root_number": root_number}],
+    })
+    suffix_idx = chain_count  # next suffix
+    new_number = f"{root_number}-R{suffix_idx}"
+    motif = (payload.motif or "").strip() or (parent.get("motif") or "Réouverture")
+    if len(motif) > 200:
+        motif = motif[:200]
+    now_iso = _now()
+    new_ticket = {
+        "id": _uuid(),
+        "number": new_number,
+        "root_number": root_number,
+        "parent_ticket_id": parent["id"],
+        "client_id": parent["client_id"],
+        "contact_id": parent["contact_id"],
+        "contact_name": parent.get("contact_name"),
+        "contact_phone": parent.get("contact_phone"),
+        "motif": motif,
+        "status": "open",
+        "notes": None,
+        "opened_at": now_iso,
+        "opened_by_id": user["id"],
+        "opened_by_label": user.get("full_name") or user.get("email"),
+        "closed_at": None,
+        "closed_by_id": None,
+        "closed_by_label": None,
+        "outcome": None,
+        "resolution_note": None,
+        # Carry-over assignment if present on parent
+        "assigned_to_id": parent.get("assigned_to_id"),
+        "assigned_to_label": parent.get("assigned_to_label"),
+        "assigned_at": now_iso if parent.get("assigned_to_id") else None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await db.support_tickets.insert_one(new_ticket.copy())
+    try:
+        await _log_activity(
+            client_id=new_ticket["client_id"], kind="ticket", action="reopened",
+            label=f"{new_number} (depuis {parent['number']})", actor=user, target_id=new_ticket["id"],
+        )
+    except Exception:
+        pass
+    return {"ok": True, "ticket": new_ticket, "parent_number": parent["number"]}
+
+
+# ---- Motif templates (reusable snippets) ------------------------------
+@api.get("/me/ticket-motif-templates", tags=["Portail Client"])
+async def me_list_ticket_motif_templates(user: dict = Depends(get_current_user)):
+    scope = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    items = await db.ticket_motif_templates.find({"client_id": scope}, {"_id": 0}).sort("label", 1).to_list(100)
+    return items
+
+
+@api.post("/me/ticket-motif-templates", tags=["Portail Client"])
+async def me_create_ticket_motif_template(
+    payload: TicketMotifTemplatePayload,
+    user: dict = Depends(get_current_user),
+):
+    # Only admin / superviseur / elevated_creator can manage templates
+    if not (user.get("role") in ("admin", "superviseur") or _is_elevated_creator(user)):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé.")
+    label = (payload.label or "").strip()
+    motif = (payload.motif or "").strip()
+    if not label or not motif:
+        raise HTTPException(status_code=400, detail="label et motif sont obligatoires.")
+    if len(label) > 60 or len(motif) > 200:
+        raise HTTPException(status_code=400, detail="Longueur maximale dépassée (label 60, motif 200).")
+    scope = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    doc = {
+        "id": _uuid(),
+        "client_id": scope,
+        "label": label,
+        "motif": motif,
+        "created_at": _now(),
+        "created_by_id": user["id"],
+    }
+    await db.ticket_motif_templates.insert_one(doc.copy())
+    doc.pop("_id", None)
+    return {"ok": True, "template": doc}
+
+
+@api.delete("/me/ticket-motif-templates/{tpl_id}", tags=["Portail Client"])
+async def me_delete_ticket_motif_template(tpl_id: str, user: dict = Depends(get_current_user)):
+    if not (user.get("role") in ("admin", "superviseur") or _is_elevated_creator(user)):
+        raise HTTPException(status_code=403, detail="Rôle non autorisé.")
+    scope = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    res = await db.ticket_motif_templates.delete_one({"id": tpl_id, "client_id": scope})
+    if not res.deleted_count:
+        raise HTTPException(status_code=404, detail="Modèle introuvable.")
+    return {"ok": True}
+
+
+# ---- Resolution-time stats --------------------------------------------
+@api.get("/me/dashboard/ticket-stats", tags=["Portail Client"])
+async def me_dashboard_ticket_stats(
+    days: int = Query(default=30, ge=1, le=365),
+    user: dict = Depends(get_current_user),
+):
+    """Per-user ticket resolution score (only `done` tickets count) over the
+    trailing `days` window. Surfaced on the dashboard so teams can compare
+    who resolves the fastest. Elevated viewers (admin/superviseur) also get
+    a leaderboard of the top 10 fastest closers."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    base_q: Dict[str, Any] = {
+        "client_id": {"$in": visible_scope},
+        "status": "done",
+        "closed_at": {"$gte": since},
+        "opened_at": {"$exists": True, "$ne": None},
+    }
+    me_q = {**base_q, "closed_by_id": user["id"]}
+    my_durations: List[int] = []
+    async for d in db.support_tickets.find(me_q, {"_id": 0, "opened_at": 1, "closed_at": 1}):
+        try:
+            o = datetime.fromisoformat(d["opened_at"].replace("Z", "+00:00"))
+            c = datetime.fromisoformat(d["closed_at"].replace("Z", "+00:00"))
+            secs = int((c - o).total_seconds())
+            if secs > 0:
+                my_durations.append(secs)
+        except Exception:
+            pass
+    my_durations.sort()
+    me_block = {
+        "avg_seconds": int(sum(my_durations) / len(my_durations)) if my_durations else None,
+        "median_seconds": my_durations[len(my_durations) // 2] if my_durations else None,
+        "fastest_seconds": my_durations[0] if my_durations else None,
+        "closed_count": len(my_durations),
+    }
+
+    team: List[Dict[str, Any]] = []
+    if _is_elevated_creator(user) or user.get("role") in ("admin", "superviseur"):
+        pipeline = [
+            {"$match": base_q},
+            {"$addFields": {
+                "opened_dt": {"$dateFromString": {"dateString": "$opened_at"}},
+                "closed_dt": {"$dateFromString": {"dateString": "$closed_at"}},
+            }},
+            {"$addFields": {"_resolution_secs": {"$divide": [{"$subtract": ["$closed_dt", "$opened_dt"]}, 1000]}}},
+            {"$match": {"_resolution_secs": {"$gt": 0}}},
+            {"$group": {
+                "_id": "$closed_by_id",
+                "label": {"$last": "$closed_by_label"},
+                "avg_seconds": {"$avg": "$_resolution_secs"},
+                "fastest_seconds": {"$min": "$_resolution_secs"},
+                "closed_count": {"$sum": 1},
+            }},
+            {"$sort": {"avg_seconds": 1}},
+            {"$limit": 10},
+        ]
+        async for row in db.support_tickets.aggregate(pipeline):
+            if not row.get("_id"):
+                continue
+            team.append({
+                "user_id": row["_id"],
+                "label": row.get("label") or row["_id"][:8],
+                "avg_seconds": int(row["avg_seconds"]) if row.get("avg_seconds") is not None else None,
+                "fastest_seconds": int(row["fastest_seconds"]) if row.get("fastest_seconds") is not None else None,
+                "closed_count": row.get("closed_count") or 0,
+            })
+
+    return {"days": days, "me": me_block, "team": team}
 
 
 # Register the API router at the very end, after every endpoint has been

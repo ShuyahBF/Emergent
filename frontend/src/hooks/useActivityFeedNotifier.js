@@ -25,6 +25,7 @@ const KIND_LABELS = {
   intervention: "Intervention",
   appointment: "Rendez-vous",
   payment: "Paiement",
+  ticket: "Ticket",
 };
 
 const ACTION_LABELS = {
@@ -33,6 +34,9 @@ const ACTION_LABELS = {
   deleted: "supprimé",
   sent: "envoyé",
   received: "reçu",
+  assigned: "affecté",
+  closed: "clôturé",
+  reopened: "rouvert",
 };
 
 export function useActivityFeedNotifier(enabled = true) {

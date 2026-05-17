@@ -109,6 +109,24 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35p — Tickets (Affectation + Réouverture + Modèles motif + Score résolution) — 2026-05-17
+
+**Livré** (4 améliorations en une passe, 10 pytest verts) :
+
+1. **Affectation à un utilisateur suivi** — endpoint `POST /api/me/tickets/{tid}/assign` (avec liste filtrée par client_id via `/me/notes-targets`). Activity feed → notification toast live à l'affecté. Champs : `assigned_to_id`, `assigned_to_label`, `assigned_at`, `assigned_by_id`. Désaffectation via `user_id=""`.
+
+2. **Réouverture explicite** — endpoint `POST /api/me/tickets/{tid}/reopen`. Crée un *nouveau* ticket lié `TKT-2026-NNNN-R1` (puis `-R2`, `-R3`…) avec `parent_ticket_id` + `root_number`. Le parent doit être clôturé. Carry-over de l'affectation. Badge "REOPEN" fuchsia dans la liste.
+
+3. **Modèles de motif réutilisables** — collection `ticket_motif_templates` (CRUD pour admin/superviseur via `/me/ticket-motif-templates`). Modale de gestion sur la page Tickets ("Modèles de motif (n)"). À l'ouverture d'un ticket depuis le chat WA, un sélecteur propose les modèles (numéro 1..n) puis pré-remplit le prompt motif.
+
+4. **Score de résolution des tickets** sur le dashboard — endpoint `GET /api/me/dashboard/ticket-stats?days=N` retourne `{me: {avg/median/fastest_seconds, closed_count}, team: [...]}` (team uniquement pour rôles élevés). Carte étendue avec délai moyen, médiane, plus rapide, nombre de tickets clôturés (30 j) + classement équipe en accordion.
+
+**Bonus** : activity feed enrichi (kind=`ticket`, actions `created`/`closed`/`assigned`/`reopened`) → notifications toast temps réel chez l'affecté/auteur.
+
+**Tests** : 10 pytest verts (`tests/test_iter35p_ticket_enhancements.py`). Cumul iter35o+p = **23 tests verts** sur le système de tickets.
+
+---
+
 ## 🆕 Iter35o — Tickets d'intervention (création depuis chat WA + dashboard) — 2026-05-17
 
 **Livré** :

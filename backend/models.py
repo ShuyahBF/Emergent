@@ -797,3 +797,17 @@ class TicketClosePayload(BaseModel):
     outcome: str  # "done" or "cancelled"
     resolution_note: Optional[str] = None
     notify_contact: Optional[bool] = None  # override admin default
+
+
+# Iter35p — Ticket enhancements
+class TicketAssignPayload(BaseModel):
+    user_id: Optional[str] = None  # None / "" → unassign
+
+
+class TicketReopenPayload(BaseModel):
+    motif: Optional[str] = None  # if empty, reuse parent's motif
+
+
+class TicketMotifTemplatePayload(BaseModel):
+    label: str  # short button label (e.g. "Panne onduleur")
+    motif: str  # the actual motif text injected when picked

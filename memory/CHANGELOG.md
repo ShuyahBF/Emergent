@@ -109,6 +109,28 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35o — Tickets d'intervention (création depuis chat WA + dashboard) — 2026-05-17
+
+**Livré** :
+- **Backend** : nouvelle collection `support_tickets`, numérotation atomique `TKT-YYYY-NNNN` par client_id+année (compteur dans `db.counters`).
+  - `POST /api/me/contacts/{cid}/ticket` (motif obligatoire 1..200 chars) — bloque si un ticket non clôturé existe déjà pour ce contact (409).
+  - `GET /api/me/tickets?status=...&contact_id=...` (filtres : open_all, open, in_progress, suspended, done, cancelled).
+  - `GET /api/me/tickets/pending-count` → `{count, by_status}` pour les badges.
+  - `PATCH /api/me/tickets/{tid}` (statut open|in_progress|suspended ; pas done/cancelled qui passent par /close).
+  - `POST /api/me/tickets/{tid}/close` (outcome=done|cancelled + resolution_note).
+  - `GET /api/me/contacts/{cid}/active-ticket` (utilisé par la chat UI).
+- **Notifications WhatsApp** : nouveaux settings `wa_template_ticket_open`, `wa_template_ticket_close`, `wa_template_ticket_language`, `notify_on_ticket_open` (ON par défaut), `notify_on_ticket_close` (ON par défaut). Variables Meta : `{1}`=numéro, `{2}`=motif (open) ou durée (close). Best-effort, n'échoue jamais l'opération métier.
+- **Frontend** :
+  - Page `/portal/tickets` (remplace le placeholder ComingSoon) — liste + filtres + actions (changer statut, clôturer Terminé/Annulé) + note de résolution.
+  - Bouton **"Générer un ticket"** dans la fenêtre de chat WhatsApp (barre ambre au-dessus du fil). Affiche le ticket actif si présent.
+  - **Carte "Tickets en attente"** sur le dashboard `/portal` avec breakdown par statut + CTA "Ouvrir".
+  - **Badges sidebar** sur "Tickets" (portail) et "Interventions" (admin) avec compteur en cours (couleur ambre).
+- **Admin** : nouvelle section "Tickets d'intervention — notifications WhatsApp" dans `/admin/settings`.
+
+**Tests** : 13 pytest verts (`tests/test_iter35o_tickets.py`) — création, motif validation, blocage doublon, séquence, lifecycle (patch/close), réouverture après clôture, listing, pending-count, active-ticket.
+
+---
+
 ## 🆕 Iter35n — Version stamp + Réactivité WA + Filtre/Nettoyage médias WA — 2026-05-16
 
 **Livré** :

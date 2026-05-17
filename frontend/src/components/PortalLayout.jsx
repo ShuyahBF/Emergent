@@ -38,7 +38,7 @@ const clientLinks = [
   { to: "/portal/cash", label: "Caisse", icon: Banknote, soon: true },
   { to: "/portal/billing", label: "Facturation", icon: Receipt, soon: true },
   { to: "/portal/catalog", label: "Catalogue", icon: ShoppingBag, soon: true },
-  { to: "/portal/tickets", label: "Tickets", icon: Ticket, soon: true },
+  { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
 ];
@@ -48,7 +48,7 @@ const adminLinks = [
   { to: "/admin/clients", label: "Clients", icon: Users, module: "admin_clients" },
   { to: "/admin/usage", label: "Usage & Facturation", icon: BarChart3 },
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar, module: "admin_appointments" },
-  { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions" },
+  { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions", badgeKey: "tickets_pending" },
   { to: "/admin/documents", label: "Documents", icon: FileText },
   { to: "/admin/forms", label: "Formulaires", icon: FileEdit },
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
@@ -82,6 +82,9 @@ export default function PortalLayout({ admin = false }) {
   const [open, setOpen] = useState(false);
   const [branding, setBranding] = useState(null);
   const [badges, setBadges] = useState({});
+  // Iter35o — Pending tickets count is fetched from a dedicated endpoint
+  // (count is per-client scope, not "unseen" semantics like other badges).
+  const [ticketsPending, setTicketsPending] = useState(0);
   const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
   const isSuperAdmin = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
   const links = (admin ? adminLinks : clientLinks)
@@ -95,6 +98,11 @@ export default function PortalLayout({ admin = false }) {
     try {
       const r = await apiClient.get("/me/notifications/counts");
       setBadges(r.data?.counts || {});
+    } catch { /* noop */ }
+    // Iter35o — Pending tickets (non-closed) — best effort, ignore errors
+    try {
+      const r2 = await apiClient.get("/me/tickets/pending-count");
+      setTicketsPending(r2.data?.count || 0);
     } catch { /* noop */ }
   }, [user]);
 
@@ -166,8 +174,11 @@ export default function PortalLayout({ admin = false }) {
         </div>
       </Link>
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon, end, module, soon }) => {
+        {links.map(({ to, label, icon: Icon, end, module, soon, badgeKey }) => {
           const count = module ? (badges[module] || 0) : 0;
+          // Iter35o — separate "live count" badges (e.g. tickets_pending) use
+          // a dedicated endpoint and don't have a "mark as seen" semantic.
+          const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
           return (
             <NavLink
               key={to}
@@ -195,6 +206,15 @@ export default function PortalLayout({ admin = false }) {
                   title={`${count} nouveau(x) élément(s)`}
                 >
                   {count > 99 ? "99+" : count}
+                </span>
+              )}
+              {liveCount > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D]"
+                  data-testid={`badge-${badgeKey}`}
+                  title={`${liveCount} ticket(s) en cours`}
+                >
+                  {liveCount > 99 ? "99+" : liveCount}
                 </span>
               )}
             </NavLink>

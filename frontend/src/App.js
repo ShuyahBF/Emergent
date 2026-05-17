@@ -108,6 +108,7 @@ import MyPayments from "@/pages/portal/MyPayments";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import WaBulk from "@/pages/portal/WaBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
+import Tickets from "@/pages/portal/Tickets";
 import MyAccount from "@/pages/portal/MyAccount";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
@@ -191,7 +192,7 @@ export default function App() {
             <Route path="cash" element={<ComingSoon />} />
             <Route path="billing" element={<ComingSoon />} />
             <Route path="catalog" element={<ComingSoon />} />
-            <Route path="tickets" element={<ComingSoon />} />
+            <Route path="tickets" element={<Tickets />} />
           </Route>
 
           {/* Admin */}

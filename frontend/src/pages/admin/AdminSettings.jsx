@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -569,6 +569,51 @@ export default function AdminSettings() {
         <WaTestPanel />
         <WaWebhookLogsPanel />
         <WaSilenceAlertPanel s={s} upd={upd} />
+      </Section>
+
+      <Section icon={Ticket} title="Tickets d'intervention — notifications WhatsApp">
+        <p className="text-xs text-slate-500">
+          À l'ouverture/clôture d'un ticket, le contact peut recevoir une notification via un template Meta approuvé.
+          Les variables transmises sont : <code className="bg-slate-100 px-1 rounded">{`{1}`}</code> = numéro de ticket,{" "}
+          <code className="bg-slate-100 px-1 rounded">{`{2}`}</code> = motif (à l'ouverture) ou durée (à la clôture).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle
+            label="Notifier le contact à l'ouverture d'un ticket"
+            value={s.notify_on_ticket_open !== false}
+            onChange={(v) => upd("notify_on_ticket_open", v)}
+            testid="toggle-notify-ticket-open"
+          />
+          <Toggle
+            label="Notifier le contact à la clôture d'un ticket"
+            value={s.notify_on_ticket_close !== false}
+            onChange={(v) => upd("notify_on_ticket_close", v)}
+            testid="toggle-notify-ticket-close"
+          />
+        </div>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Input
+            label="Template Meta — ouverture (ex. ticket_open_fr)"
+            value={s.wa_template_ticket_open || ""}
+            onChange={(v) => upd("wa_template_ticket_open", v)}
+            placeholder="ticket_open_fr"
+            testid="wa-tpl-ticket-open"
+          />
+          <Input
+            label="Template Meta — clôture (ex. ticket_close_fr)"
+            value={s.wa_template_ticket_close || ""}
+            onChange={(v) => upd("wa_template_ticket_close", v)}
+            placeholder="ticket_close_fr"
+            testid="wa-tpl-ticket-close"
+          />
+        </div>
+        <Input
+          label="Langue du template (code Meta, ex. fr, en_US)"
+          value={s.wa_template_ticket_language || ""}
+          onChange={(v) => upd("wa_template_ticket_language", v)}
+          placeholder="fr"
+          testid="wa-tpl-ticket-language"
+        />
       </Section>
 
       <Section icon={Upload} title="Médias WhatsApp (réception, envoi, filigrane)">

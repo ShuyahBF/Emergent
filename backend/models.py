@@ -515,6 +515,13 @@ class SettingsUpdate(BaseModel):
     wa_watermark_text: Optional[str] = None               # default = company name
     wa_qr_enabled: Optional[bool] = None                  # default True
     wa_qr_payload: Optional[str] = None                   # default = public base url
+
+    # Iter35o — Support ticket notifications (WhatsApp templates)
+    wa_template_ticket_open: Optional[str] = None  # Meta template name, vars {1}=number {2}=motif
+    wa_template_ticket_close: Optional[str] = None  # Meta template name, vars {1}=number {2}=duration
+    wa_template_ticket_language: Optional[str] = None  # default "fr"
+    notify_on_ticket_open: Optional[bool] = None  # default True
+    notify_on_ticket_close: Optional[bool] = None  # default True
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None
@@ -770,3 +777,23 @@ class FormationStateUpdate(BaseModel):
 class FormationModuleQuestion(BaseModel):
     question: str
     payload: Optional[dict] = None  # extra fields forwarded to the module's api_url
+
+
+
+# =====================================================================
+# Iter35o — Support tickets (intervention tickets opened from WA chat)
+# =====================================================================
+class TicketOpenPayload(BaseModel):
+    motif: str  # 1..200 chars — required, brief description of the issue
+
+
+class TicketUpdatePayload(BaseModel):
+    status: Optional[str] = None  # open|in_progress|suspended (closing uses /close)
+    motif: Optional[str] = None
+    notes: Optional[str] = None
+
+
+class TicketClosePayload(BaseModel):
+    outcome: str  # "done" or "cancelled"
+    resolution_note: Optional[str] = None
+    notify_contact: Optional[bool] = None  # override admin default

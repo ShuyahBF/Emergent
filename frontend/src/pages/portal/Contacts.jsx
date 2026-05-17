@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -7,7 +8,7 @@ import {
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
-  Paperclip, Mic, Play, BookmarkPlus,
+  Paperclip, Mic, Play, BookmarkPlus, Ticket,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1462,6 +1463,36 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const canSendText = !!data.can_send_text;
   const windowExpires = data.window_expires_at;
 
+  // Iter35o — Active (non-closed) ticket for this contact, if any.
+  // Drives the small ticket bar shown above the chat header.
+  const [activeTicket, setActiveTicket] = useState(null);
+  const loadActiveTicket = React.useCallback(async () => {
+    try {
+      const r = await apiClient.get(`/me/contacts/${contact.id}/active-ticket`);
+      setActiveTicket(r.data?.ticket || null);
+    } catch { /* noop */ }
+  }, [contact.id]);
+  useEffect(() => { loadActiveTicket(); }, [loadActiveTicket]);
+
+  const openTicket = async () => {
+    const motif = window.prompt("Motif du ticket (1-200 caractères) :");
+    if (motif === null) return;
+    const trimmed = motif.trim();
+    if (!trimmed) { toast.error("Le motif est obligatoire"); return; }
+    if (trimmed.length > 200) { toast.error("Motif trop long (max 200 caractères)"); return; }
+    try {
+      const r = await apiClient.post(`/me/contacts/${contact.id}/ticket`, { motif: trimmed });
+      if (r.data?.ok) {
+        toast.success(`Ticket ${r.data.ticket.number} créé`);
+        if (r.data.notification?.sent) toast.info("Notification WhatsApp envoyée au contact");
+        else if (r.data.notification?.error) toast.warning(`Notification non envoyée : ${r.data.notification.error}`);
+        await loadActiveTicket();
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
   // Iter34o — Whenever the message list changes (initial load, refresh,
   // send), jump the scroll container straight to the bottom so the latest
   // exchange is always in view. We use `behavior:"auto"` for the very
@@ -1513,6 +1544,44 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             </button>
             <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
           </div>
+        </div>
+        {/* Iter35o — Ticket bar (above chat) */}
+        <div className="px-5 py-2 border-b border-slate-200 bg-amber-50/50" data-testid="conversation-ticket-bar">
+          {activeTicket ? (
+            <div className="flex items-center gap-2 text-xs flex-wrap">
+              <Ticket className="h-4 w-4 text-amber-600" />
+              <span className="font-mono bg-white ring-1 ring-amber-300 text-amber-900 px-1.5 py-0.5 rounded">
+                {activeTicket.number}
+              </span>
+              <span className="text-amber-900 truncate max-w-[260px]" title={activeTicket.motif}>
+                {activeTicket.motif}
+              </span>
+              <span className="text-[10px] uppercase tracking-wider text-amber-700 font-semibold ring-1 ring-amber-200 bg-white rounded-full px-1.5 py-0.5">
+                {activeTicket.status === "open" ? "En attente" : activeTicket.status === "in_progress" ? "En cours" : "Suspendu"}
+              </span>
+              <Link
+                to="/portal/tickets"
+                className="ml-auto text-amber-700 hover:underline inline-flex items-center gap-1"
+                data-testid="conversation-ticket-view"
+              >
+                Voir <ArrowUpRight className="h-3 w-3" />
+              </Link>
+            </div>
+          ) : (
+            <div className="flex items-center justify-between gap-2 text-xs">
+              <span className="inline-flex items-center gap-1.5 text-amber-800">
+                <Ticket className="h-3.5 w-3.5" /> Aucun ticket d'intervention ouvert pour ce contact.
+              </span>
+              <button
+                onClick={openTicket}
+                className="inline-flex items-center gap-1 rounded-md bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1 text-xs font-medium shadow-sm"
+                data-testid="conversation-ticket-create"
+                title="Générer un numéro de ticket d'intervention pour ce contact"
+              >
+                <Ticket className="h-3.5 w-3.5" /> Générer un ticket
+              </button>
+            </div>
+          )}
         </div>
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
           {loading ? (

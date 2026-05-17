@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -144,10 +144,56 @@ export default function ClientDashboard() {
           </ul>
         </div>
       </div>
+      {/* Iter35o — Tickets en attente */}
+      <TicketsPendingCard />
       {/* Iter35m — Synthèse des médias WhatsApp reçus */}
       {smartFeatures.whatsapp && <WaMediaSummaryCard />}
       {showAi && <AiSummaryModal onClose={() => setShowAi(false)} />}
     </div>
+  );
+}
+
+// ====================================================================
+// Iter35o — Tickets pending card (dashboard).
+// Shows total non-closed tickets + breakdown by status (open / in_progress
+// / suspended). Links to /portal/tickets.
+// ====================================================================
+function TicketsPendingCard() {
+  const [data, setData] = useState(null);
+  useEffect(() => {
+    apiClient.get("/me/tickets/pending-count").then((r) => setData(r.data)).catch(() => setData(null));
+  }, []);
+  if (!data) return null;
+  const { count, by_status = {} } = data;
+  return (
+    <section
+      className={`rounded-xl border p-5 flex items-center gap-4 ${count > 0 ? "border-amber-300 bg-amber-50" : "border-slate-200 bg-white"}`}
+      data-testid="dashboard-tickets-pending"
+    >
+      <div className={`h-12 w-12 rounded-lg flex items-center justify-center ${count > 0 ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>
+        <Ticket className="h-6 w-6" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-baseline gap-2 flex-wrap">
+          <span className="text-3xl font-display font-bold tabular-nums" data-testid="dashboard-tickets-count">{count}</span>
+          <span className="text-sm text-slate-600">ticket(s) d'intervention en cours</span>
+        </div>
+        {count > 0 && (
+          <div className="flex flex-wrap gap-2 mt-2 text-[11px]">
+            {by_status.open > 0 && <span className="rounded-full bg-amber-100 ring-1 ring-amber-300 text-amber-800 px-2 py-0.5">🟡 En attente : <strong>{by_status.open}</strong></span>}
+            {by_status.in_progress > 0 && <span className="rounded-full bg-sky-100 ring-1 ring-sky-300 text-sky-800 px-2 py-0.5">🔵 En cours : <strong>{by_status.in_progress}</strong></span>}
+            {by_status.suspended > 0 && <span className="rounded-full bg-slate-200 ring-1 ring-slate-300 text-slate-800 px-2 py-0.5">⏸️ Suspendus : <strong>{by_status.suspended}</strong></span>}
+          </div>
+        )}
+      </div>
+      <a
+        href="/portal/tickets"
+        className={`shrink-0 inline-flex items-center gap-1 text-sm font-medium rounded-lg px-3 py-2 ring-1 transition ${count > 0 ? "bg-amber-600 text-white ring-amber-700 hover:bg-amber-700" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50"}`}
+        data-testid="dashboard-tickets-cta"
+      >
+        Ouvrir <ArrowRight className="h-4 w-4" />
+      </a>
+    </section>
   );
 }
 

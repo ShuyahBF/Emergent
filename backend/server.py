@@ -91,6 +91,9 @@ from models import (
     FormationCreditsUpdate,
     FormationStateUpdate,
     FormationModuleQuestion,
+    TicketOpenPayload,
+    TicketUpdatePayload,
+    TicketClosePayload,
     TRACKED_USER_ROLES,
     USER_ROLES,
     _uuid,
@@ -17130,6 +17133,292 @@ async def on_shutdown():
     except Exception:  # noqa: BLE001
         pass
 
+
+
+# ====================================================================
+# Iter35o — Support tickets (intervention tickets opened from WA chat)
+#
+# • Numérotation par client: TKT-YYYY-NNNN, séquence remise à zéro par
+#   année et par client_id. Stockée dans db.counters
+#   (id="tickets_{client_id}_{year}").
+# • Un seul ticket "non clôturé" par contact à la fois — la création
+#   d'un nouveau ticket est bloquée tant que le précédent n'est pas
+#   en statut "done" ou "cancelled".
+# • Statuts: open (en attente) → in_progress → done|cancelled,
+#   et suspended à tout moment (avant clôture).
+# • Notifications WhatsApp via templates Meta paramétrables dans
+#   /admin/settings (wa_template_ticket_open, wa_template_ticket_close).
+# ====================================================================
+TICKET_OPEN_STATUSES = {"open", "in_progress", "suspended"}
+TICKET_CLOSED_STATUSES = {"done", "cancelled"}
+TICKET_ALL_STATUSES = TICKET_OPEN_STATUSES | TICKET_CLOSED_STATUSES
+
+
+async def _next_ticket_number(client_id: str) -> str:
+    """Atomic counter: TKT-YYYY-NNNN. Resets every Jan 1st per client."""
+    year = datetime.now(timezone.utc).year
+    counter_id = f"tickets_{client_id}_{year}"
+    res = await db.counters.find_one_and_update(
+        {"_id": counter_id},
+        {"$inc": {"seq": 1}},
+        upsert=True,
+        return_document=True,
+    )
+    seq = (res or {}).get("seq", 1)
+    return f"TKT-{year}-{seq:04d}"
+
+
+def _ticket_components(number: str, motif: str = "", duration: str = "") -> list:
+    """Build Meta template `components` array for a ticket-open/close template.
+    Body variables: {1}=ticket number, {2}=motif OR duration."""
+    second_var = motif if motif else duration
+    return [{
+        "type": "body",
+        "parameters": [
+            {"type": "text", "text": number[:60]},
+            {"type": "text", "text": (second_var or "—")[:200]},
+        ],
+    }]
+
+
+def _format_ticket_duration(opened_iso: str, closed_iso: str) -> str:
+    try:
+        o = datetime.fromisoformat(opened_iso.replace("Z", "+00:00"))
+        c = datetime.fromisoformat(closed_iso.replace("Z", "+00:00"))
+        secs = int((c - o).total_seconds())
+        if secs < 60:
+            return f"{secs} s"
+        if secs < 3600:
+            return f"{secs // 60} min"
+        if secs < 86400:
+            h = secs // 3600
+            m = (secs % 3600) // 60
+            return f"{h} h {m} min" if m else f"{h} h"
+        d = secs // 86400
+        h = (secs % 86400) // 3600
+        return f"{d} j {h} h" if h else f"{d} j"
+    except Exception:
+        return "—"
+
+
+async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
+    """Mongo query filter restricting tickets to the user's effective client scope."""
+    scope = await _resolve_visible_client_ids(user)
+    return {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
+
+
+@api.post("/me/contacts/{cid}/ticket", tags=["Portail Client"])
+async def me_open_ticket(
+    cid: str,
+    payload: TicketOpenPayload,
+    request: Request,
+    user: dict = Depends(get_current_user),
+):
+    """Open a new support ticket from the WhatsApp chat window. Blocks if
+    the contact already has a non-closed ticket (open|in_progress|suspended)."""
+    motif = (payload.motif or "").strip()
+    if not motif:
+        raise HTTPException(status_code=400, detail="Le motif est obligatoire.")
+    if len(motif) > 200:
+        raise HTTPException(status_code=400, detail="Le motif doit faire au maximum 200 caractères.")
+
+    scope_filter = await _ticket_scope_for_user(user)
+    contact = await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable.")
+    # Block when the contact has an already-open ticket
+    existing = await db.support_tickets.find_one(
+        {"contact_id": cid, "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {"_id": 0, "number": 1, "status": 1, "opened_at": 1},
+    )
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Le ticket {existing['number']} est encore ouvert (statut: {existing['status']}). Clôturez-le avant d'en créer un nouveau.",
+        )
+
+    client_id = contact.get("client_id") or user.get("client_id") or user["id"]
+    number = await _next_ticket_number(client_id)
+    now_iso = _now()
+    ticket = {
+        "id": _uuid(),
+        "number": number,
+        "client_id": client_id,
+        "contact_id": cid,
+        "contact_name": contact.get("name"),
+        "contact_phone": contact.get("whatsapp") or contact.get("phone"),
+        "motif": motif,
+        "status": "open",
+        "notes": None,
+        "opened_at": now_iso,
+        "opened_by_id": user["id"],
+        "opened_by_label": user.get("full_name") or user.get("email"),
+        "closed_at": None,
+        "closed_by_id": None,
+        "closed_by_label": None,
+        "outcome": None,
+        "resolution_note": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await db.support_tickets.insert_one(ticket.copy())
+
+    # Optional WhatsApp notification (template) — best-effort, never blocks
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    notify = bool(s.get("notify_on_ticket_open", True))
+    tpl_name = (s.get("wa_template_ticket_open") or "").strip()
+    notification = {"sent": False, "error": None}
+    if notify and tpl_name and ticket["contact_phone"]:
+        comps = _ticket_components(number, motif=motif)
+        try:
+            wr = await _wa_send_template(
+                ticket["contact_phone"], tpl_name,
+                (s.get("wa_template_ticket_language") or "fr").strip() or "fr",
+                comps,
+            )
+            notification = {"sent": bool(wr.get("ok")), "error": wr.get("error")}
+        except Exception as exc:  # noqa: BLE001
+            notification = {"sent": False, "error": str(exc)[:200]}
+
+    ticket.pop("_id", None)
+    return {"ok": True, "ticket": ticket, "notification": notification}
+
+
+@api.get("/me/tickets", tags=["Portail Client"])
+async def me_list_tickets(
+    status: Optional[str] = None,  # one of TICKET_ALL_STATUSES, or "open_all" for any non-closed
+    contact_id: Optional[str] = None,
+    limit: int = 200,
+    user: dict = Depends(get_current_user),
+):
+    scope_filter = await _ticket_scope_for_user(user)
+    q: Dict[str, Any] = {**scope_filter}
+    if contact_id:
+        q["contact_id"] = contact_id
+    if status:
+        if status == "open_all":
+            q["status"] = {"$in": list(TICKET_OPEN_STATUSES)}
+        elif status in TICKET_ALL_STATUSES:
+            q["status"] = status
+    items = await db.support_tickets.find(q, {"_id": 0}).sort("opened_at", -1).to_list(min(max(limit, 1), 1000))
+    return items
+
+
+@api.get("/me/tickets/pending-count", tags=["Portail Client"])
+async def me_tickets_pending_count(user: dict = Depends(get_current_user)):
+    """Return the number of non-closed tickets in the user's scope.
+    Used by the sidebar/dashboard badges."""
+    scope_filter = await _ticket_scope_for_user(user)
+    q = {**scope_filter, "status": {"$in": list(TICKET_OPEN_STATUSES)}}
+    count = await db.support_tickets.count_documents(q)
+    by_status: Dict[str, int] = {}
+    pipeline = [{"$match": q}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]
+    async for row in db.support_tickets.aggregate(pipeline):
+        by_status[row["_id"]] = row["n"]
+    return {"count": count, "by_status": by_status}
+
+
+@api.patch("/me/tickets/{tid}", tags=["Portail Client"])
+async def me_update_ticket(
+    tid: str,
+    payload: TicketUpdatePayload,
+    user: dict = Depends(get_current_user),
+):
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if ticket["status"] in TICKET_CLOSED_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Ticket déjà clôturé ({ticket['status']}). Réouverture interdite.")
+    update: Dict[str, Any] = {}
+    if payload.status is not None:
+        if payload.status in TICKET_CLOSED_STATUSES:
+            raise HTTPException(status_code=400, detail="Utilisez l'endpoint /close pour clôturer un ticket.")
+        if payload.status not in TICKET_OPEN_STATUSES:
+            raise HTTPException(status_code=400, detail=f"Statut invalide. Valeurs: {sorted(TICKET_OPEN_STATUSES)}")
+        update["status"] = payload.status
+    if payload.motif is not None:
+        m = payload.motif.strip()
+        if not m or len(m) > 200:
+            raise HTTPException(status_code=400, detail="Motif invalide (1..200 caractères).")
+        update["motif"] = m
+    if payload.notes is not None:
+        update["notes"] = (payload.notes or "").strip()[:2000] or None
+    if not update:
+        return {"ok": True, "ticket": ticket, "changed": False}
+    update["updated_at"] = _now()
+    await db.support_tickets.update_one({"id": tid}, {"$set": update})
+    ticket.update(update)
+    return {"ok": True, "ticket": ticket, "changed": True}
+
+
+@api.post("/me/tickets/{tid}/close", tags=["Portail Client"])
+async def me_close_ticket(
+    tid: str,
+    payload: TicketClosePayload,
+    user: dict = Depends(get_current_user),
+):
+    if payload.outcome not in TICKET_CLOSED_STATUSES:
+        raise HTTPException(status_code=400, detail="outcome doit être 'done' ou 'cancelled'.")
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if ticket["status"] in TICKET_CLOSED_STATUSES:
+        raise HTTPException(status_code=409, detail=f"Déjà clôturé ({ticket['status']}).")
+    now_iso = _now()
+    res_note = (payload.resolution_note or "").strip()[:2000] or None
+    update = {
+        "status": payload.outcome,
+        "outcome": payload.outcome,
+        "resolution_note": res_note,
+        "closed_at": now_iso,
+        "closed_by_id": user["id"],
+        "closed_by_label": user.get("full_name") or user.get("email"),
+        "updated_at": now_iso,
+    }
+    await db.support_tickets.update_one({"id": tid}, {"$set": update})
+    ticket.update(update)
+
+    # WhatsApp notification on closure (best-effort)
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    admin_default_notify = bool(s.get("notify_on_ticket_close", True))
+    if payload.notify_contact is None:
+        notify = admin_default_notify
+    else:
+        notify = bool(payload.notify_contact)
+    tpl_name = (s.get("wa_template_ticket_close") or "").strip()
+    notification = {"sent": False, "error": None}
+    if notify and tpl_name and ticket.get("contact_phone"):
+        duration = _format_ticket_duration(ticket["opened_at"], now_iso)
+        comps = _ticket_components(ticket["number"], duration=duration)
+        try:
+            wr = await _wa_send_template(
+                ticket["contact_phone"], tpl_name,
+                (s.get("wa_template_ticket_language") or "fr").strip() or "fr",
+                comps,
+            )
+            notification = {"sent": bool(wr.get("ok")), "error": wr.get("error")}
+        except Exception as exc:  # noqa: BLE001
+            notification = {"sent": False, "error": str(exc)[:200]}
+
+    return {"ok": True, "ticket": ticket, "notification": notification}
+
+
+@api.get("/me/contacts/{cid}/active-ticket", tags=["Portail Client"])
+async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_user)):
+    """Convenience: returns the non-closed ticket for a contact (if any).
+    Used by the chat UI to swap "Generate ticket" → "View open ticket"."""
+    scope_filter = await _ticket_scope_for_user(user)
+    contact = await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0, "id": 1})
+    if not contact:
+        raise HTTPException(status_code=404, detail="Contact introuvable.")
+    t = await db.support_tickets.find_one(
+        {"contact_id": cid, "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {"_id": 0},
+        sort=[("opened_at", -1)],
+    )
+    return {"active": t is not None, "ticket": t}
 
 
 # Register the API router at the very end, after every endpoint has been

@@ -17226,7 +17226,13 @@ async def me_open_ticket(
         raise HTTPException(status_code=400, detail="Le motif doit faire au maximum 200 caractères.")
 
     scope_filter = await _ticket_scope_for_user(user)
-    contact = await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0})
+    # Iter35o-fix — Contacts WhatsApp/manuels sont stockés dans `directory_contacts`
+    # (la collection `contacts` est utilisée par l'ancien CRM admin). Tomber en
+    # rétrocompat sur `contacts` si rien n'est trouvé.
+    contact = (
+        await db.directory_contacts.find_one({**scope_filter, "id": cid}, {"_id": 0})
+        or await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0})
+    )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
     # Block when the contact has an already-open ticket
@@ -17431,7 +17437,10 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
     """Convenience: returns the non-closed ticket for a contact (if any).
     Used by the chat UI to swap "Generate ticket" → "View open ticket"."""
     scope_filter = await _ticket_scope_for_user(user)
-    contact = await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0, "id": 1})
+    contact = (
+        await db.directory_contacts.find_one({**scope_filter, "id": cid}, {"_id": 0, "id": 1})
+        or await db.contacts.find_one({**scope_filter, "id": cid}, {"_id": 0, "id": 1})
+    )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
     t = await db.support_tickets.find_one(

@@ -339,6 +339,7 @@ export default function AdminSettings() {
       <SupportLoadSection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      <FileStorageSection />
       <SecretsVaultSection />
       <RoadmapTrackerSection />
       <OrphanDataSection />
@@ -2738,6 +2739,122 @@ const SecretsVaultSection = () => {
         )}
       </div>
     </div>
+  );
+};
+
+
+// =====================================================================
+// Iter35q — Stockage objet persistant (Emergent Object Storage)
+// =====================================================================
+const FileStorageSection = () => {
+  const [orphans, setOrphans] = useState(null);
+  const [backfillResult, setBackfillResult] = useState(null);
+  const [busy, setBusy] = useState(false);
+
+  const fetchOrphans = async () => {
+    setBusy(true);
+    try {
+      const r = await apiClient.get("/admin/files/orphans");
+      setOrphans(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  const runBackfill = async () => {
+    if (!window.confirm("Pousser tous les fichiers encore présents sur disque vers le stockage objet persistant ? (à faire une seule fois après chaque redéploiement)")) return;
+    setBusy(true);
+    try {
+      const r = await apiClient.post("/admin/files/backfill");
+      setBackfillResult(r.data);
+      toast.success(`${r.data.mirrored} fichier(s) sauvegardé(s) dans le stockage persistant`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <Section icon={FileArchive} title="Stockage persistant des fichiers (Emergent Object Storage)">
+      <p className="text-xs text-slate-500">
+        Les fichiers uploadés (Documents, médias WhatsApp, etc.) sont automatiquement sauvegardés
+        sur le stockage objet Emergent pour qu'ils survivent aux redéploiements. À utiliser après
+        chaque redéploiement pour pousser les fichiers existants vers le stockage persistant.
+      </p>
+      <div className="flex gap-2 flex-wrap">
+        <button
+          onClick={runBackfill}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white hover:opacity-90 px-3 py-2 text-sm disabled:opacity-50"
+          data-testid="storage-backfill-btn"
+          title="Sauvegarder tous les fichiers présents sur disque vers le stockage persistant (à exécuter une seule fois après redéploiement)"
+        >
+          <Cloud className="h-4 w-4" /> Sauvegarder les fichiers existants
+        </button>
+        <button
+          onClick={fetchOrphans}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm disabled:opacity-50"
+          data-testid="storage-orphans-btn"
+          title="Lister les fichiers définitivement perdus (références DB sans binaire ni sur disque ni dans le stockage)"
+        >
+          <AlertCircle className="h-4 w-4" /> Vérifier les fichiers manquants
+        </button>
+      </div>
+      {backfillResult && (
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs space-y-1" data-testid="storage-backfill-result">
+          <p className="font-semibold text-emerald-800">✓ Sauvegarde terminée</p>
+          <p className="text-emerald-700">
+            <strong>{backfillResult.mirrored}</strong> fichier(s) sauvegardé(s) • {backfillResult.skipped_no_disk} ignoré(s) (absents du disque)
+            {backfillResult.errors?.length > 0 && (
+              <span className="text-rose-700"> • {backfillResult.errors.length} erreur(s)</span>
+            )}
+          </p>
+          {backfillResult.errors?.length > 0 && (
+            <details>
+              <summary className="cursor-pointer text-rose-700 underline">Détails erreurs</summary>
+              <ul className="mt-1 list-disc list-inside text-rose-700">
+                {backfillResult.errors.map((e, i) => <li key={i}><code>{e.id}</code> : {e.error}</li>)}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+      {orphans && (
+        <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs space-y-1" data-testid="storage-orphans-result">
+          <p className="font-semibold text-amber-900">
+            {orphans.count === 0 ? "✓ Aucun fichier perdu" : `⚠ ${orphans.count} fichier(s) définitivement perdu(s)`}
+          </p>
+          {orphans.count > 0 && (
+            <>
+              <p className="text-amber-800">
+                Ces fichiers n'existent ni sur disque, ni dans le stockage persistant. Ils doivent être ré-uploadés manuellement.
+              </p>
+              <details>
+                <summary className="cursor-pointer text-amber-900 underline">Voir la liste</summary>
+                <table className="mt-2 w-full text-[11px]">
+                  <thead>
+                    <tr className="text-left text-amber-900">
+                      <th className="pr-2">Nom</th><th className="pr-2">Taille</th><th className="pr-2">Uploadé par</th><th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {orphans.items.slice(0, 100).map((f) => (
+                      <tr key={f.id} className="border-t border-amber-200">
+                        <td className="py-1 pr-2 truncate max-w-[200px]">{f.filename}</td>
+                        <td className="py-1 pr-2">{f.size ? `${(f.size / 1024).toFixed(0)} Ko` : "—"}</td>
+                        <td className="py-1 pr-2 truncate max-w-[160px]">{f.uploaded_by_email || "—"}</td>
+                        <td className="py-1">{f.uploaded_at ? new Date(f.uploaded_at).toLocaleDateString("fr-FR") : "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {orphans.items.length > 100 && <p className="mt-1 text-amber-800">… et {orphans.items.length - 100} autres</p>}
+              </details>
+            </>
+          )}
+        </div>
+      )}
+    </Section>
   );
 };
 

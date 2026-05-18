@@ -6611,6 +6611,21 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
     with target.open("wb") as f:
         shutil.copyfileobj(file.file, f)
     size = target.stat().st_size
+    # Iter35q — Mirror to Emergent Object Storage so the file survives prod redeploys.
+    # We keep the local disk copy as a hot cache; the remote copy is the source of truth.
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            data = target.read_bytes()
+            storage_path = upload_bytes(
+                f"files/{safe_name}", data,
+                file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream",
+            )
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[admin_upload] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id,
         "filename": file.filename,
@@ -6623,6 +6638,9 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),
         "uploaded_from_ip": _client_ip_from_request(request),
+        # Iter35q — remote storage pointer for persistence across redeploys
+        "storage_path": storage_path,
+        "storage_error": storage_error,
     }
     await db.files.insert_one(file_doc.copy())
     # Mirror into document_logs for centralized auditing
@@ -6641,6 +6659,61 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
     })
     file_doc.pop("_id", None)
     return file_doc
+
+
+# ====================================================================
+# Iter35q — Storage diagnostics & backfill (admin only).
+#   - GET /admin/files/orphans      → list files whose disk binary is missing
+#                                     AND not yet mirrored to Emergent storage.
+#   - POST /admin/files/backfill    → for every file row that has disk binary
+#                                     but no storage_path, push it to remote.
+#                                     Returns {mirrored, skipped, errors}.
+# ====================================================================
+@api.get("/admin/files/orphans", tags=["Admin"])
+async def admin_files_orphans(_: dict = Depends(get_current_admin)):
+    """List file rows that are unrecoverable (disk gone + no remote copy)."""
+    orphans: List[Dict[str, Any]] = []
+    cursor = db.files.find({}, {"_id": 0, "id": 1, "filename": 1, "stored_name": 1, "size": 1, "uploaded_at": 1, "uploaded_by_email": 1, "storage_path": 1})
+    async for f in cursor:
+        on_disk = (UPLOAD_DIR / (f.get("stored_name") or "")).exists() if f.get("stored_name") else False
+        in_remote = bool(f.get("storage_path"))
+        if not on_disk and not in_remote:
+            orphans.append({
+                "id": f["id"],
+                "filename": f.get("filename"),
+                "size": f.get("size"),
+                "uploaded_at": f.get("uploaded_at"),
+                "uploaded_by_email": f.get("uploaded_by_email"),
+            })
+    return {"count": len(orphans), "items": orphans}
+
+
+@api.post("/admin/files/backfill", tags=["Admin"])
+async def admin_files_backfill(_: dict = Depends(get_current_admin)):
+    """For every file row that has its binary on disk but no `storage_path`,
+    push it to Emergent storage and update the DB row. Best-effort."""
+    from storage import upload_bytes, storage_available
+    if not storage_available():
+        raise HTTPException(status_code=503, detail="Stockage objet non disponible.")
+    mirrored = 0
+    skipped = 0
+    errors: List[Dict[str, Any]] = []
+    cursor = db.files.find({"storage_path": {"$in": [None, ""]}}, {"_id": 0, "id": 1, "stored_name": 1, "content_type": 1})
+    async for f in cursor:
+        try:
+            target = UPLOAD_DIR / (f.get("stored_name") or "")
+            if not target.exists():
+                skipped += 1
+                continue
+            sp = upload_bytes(
+                f"files/{f['stored_name']}", target.read_bytes(),
+                f.get("content_type") or "application/octet-stream",
+            )
+            await db.files.update_one({"id": f["id"]}, {"$set": {"storage_path": sp}})
+            mirrored += 1
+        except Exception as exc:  # noqa: BLE001
+            errors.append({"id": f["id"], "error": str(exc)[:200]})
+    return {"mirrored": mirrored, "skipped_no_disk": skipped, "errors": errors}
 
 
 # ====================================================================
@@ -6797,8 +6870,24 @@ async def serve_file(request: Request, file_id: str):
     if not meta:
         raise HTTPException(status_code=404, detail="Fichier introuvable")
     path = UPLOAD_DIR / meta["stored_name"]
+    # Iter35q — When the local file is missing (ephemeral container after a redeploy),
+    # try to rehydrate from Emergent Object Storage. The DB stays the source of truth.
     if not path.exists():
-        raise HTTPException(status_code=404, detail="Fichier introuvable")
+        rehydrated = False
+        storage_path = meta.get("storage_path") or f"files/{meta['stored_name']}"
+        try:
+            from storage import fetch_bytes, storage_available
+            if storage_available():
+                data, _ct = fetch_bytes(storage_path)
+                if data:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    path.write_bytes(data)
+                    rehydrated = True
+                    logger.info("[serve_file] rehydrated %s from storage (%d bytes)", file_id, len(data))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[serve_file] rehydrate failed for %s: %s", file_id, exc)
+        if not rehydrated:
+            raise HTTPException(status_code=404, detail="Fichier introuvable")
     # Try to identify the downloader via Authorization header (silent, optional)
     user_id = None
     user_email = None
@@ -8303,6 +8392,19 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
             raise
     ext_suffix = (suffix.lstrip(".") or "").lower()
     public_path = f"/api/files/{file_id}{('.' + ext_suffix) if ext_suffix else ''}"
+    # Iter35q — Mirror to Emergent Object Storage (best-effort)
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            storage_path = upload_bytes(
+                f"files/{safe_name}", target.read_bytes(),
+                file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream",
+            )
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[me_upload] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id,
         "filename": file.filename,
@@ -8318,6 +8420,8 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),
         "uploaded_from_ip": _client_ip_from_request(request),
+        "storage_path": storage_path,
+        "storage_error": storage_error,
     }
     await db.files.insert_one(file_doc.copy())
     await db.document_logs.insert_one({
@@ -16383,6 +16487,12 @@ async def me_module_ask(fid: str, mid: str, payload: FormationModuleQuestion, us
 
 @app.on_event("startup")
 async def on_startup():
+    # Iter35q — Initialize Emergent Object Storage (best-effort, non-blocking).
+    try:
+        from storage import init_storage as _init_storage
+        _init_storage()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[startup] storage init skipped: %s", exc)
     # Indexes — critical for performance as collections grow.
     # New indexes are added on every startup (idempotent).
     await db.users.create_index("email", unique=True)

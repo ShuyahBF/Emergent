@@ -109,6 +109,30 @@ Ces idées ont été proposées au fur et à mesure des itérations. Vous pouvez
 
 ---
 
+## 🆕 Iter35q — Stockage objet persistant (Emergent Object Storage) — 2026-05-18
+
+**Problème résolu** : en production, les fichiers uploadés (Documents, médias WA, etc.) étaient perdus à chaque redéploiement car `/app/backend/uploads/` est éphémère sur les conteneurs Emergent (pas de volume persistant natif). L'utilisateur voyait "Fichier introuvable" sur le module Documents.
+
+**Solution choisie** : Emergent Object Storage (intégration native, gratuite via `EMERGENT_LLM_KEY`) plutôt que Cloudflare R2 — aucun compte externe, aucune clé à manipuler.
+
+**Implémenté** :
+- Nouveau module `/app/backend/storage.py` (helper sync, init paresseux + auto-retry sur expiration 403)
+- Init du stockage au startup de FastAPI
+- Mirror automatique vers Emergent storage dans `POST /admin/upload` et `POST /me/upload` (avec champ DB `storage_path` + `storage_error` en fallback)
+- **Rehydration automatique** dans `GET /api/files/{file_id}` : si le binaire manque du disque, le serveur le récupère depuis Emergent storage et le re-pose sur disque (cache chaud).
+- Endpoint admin `GET /api/admin/files/orphans` : liste les fichiers définitivement perdus (disque + remote tous deux vides).
+- Endpoint admin `POST /api/admin/files/backfill` : pour tous les fichiers encore sur disque mais sans `storage_path`, pousse vers le remote (utilisable une seule fois après le déploiement pour rattraper l'existant).
+
+**Tests** : 3 pytest verts (`tests/test_iter35q_storage_persistence.py`) couvrant : mirror au upload, rehydrate sur disque vide, endpoint orphans.
+
+**Action requise côté utilisateur en production** :
+1. Vérifier que `EMERGENT_LLM_KEY` est bien dans les env vars du déploiement Emergent (probablement déjà le cas).
+2. **Redéployer** pour activer le mirror sur tous les nouveaux uploads.
+3. Optionnel : appeler `POST /api/admin/files/backfill` après redéploiement pour pousser les fichiers encore présents sur disque vers le remote.
+4. Pour les fichiers déjà perdus (avant ce fix) : `GET /api/admin/files/orphans` liste les références orphelines à nettoyer ou à ré-uploader manuellement.
+
+---
+
 ## 🆕 Iter35p — Tickets (Affectation + Réouverture + Modèles motif + Score résolution) — 2026-05-17
 
 **Livré** (4 améliorations en une passe, 10 pytest verts) :

@@ -4463,6 +4463,7 @@ const NoteServiceHistorySection = ({ s, upd }) => {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [retrying, setRetrying] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -4476,6 +4477,24 @@ const NoteServiceHistorySection = ({ s, upd }) => {
     }
   }, []);
   useEffect(() => { load(); }, [load]);
+
+  const retryFailed = async (noteId, numero) => {
+    setRetrying(noteId);
+    try {
+      const r = await apiClient.post(`/admin/note-service/${noteId}/retry-failed`);
+      const { sent_count, skipped_count, total_targets, message } = r.data || {};
+      if (total_targets === 0 || message) {
+        toast.info(message || "Rien à retenter — aucun destinataire en échec.");
+      } else {
+        toast.success(`${numero} : rediffusion ${sent_count}/${total_targets} (${skipped_count} encore en échec)`, { duration: 7000 });
+      }
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la rediffusion");
+    } finally {
+      setRetrying(null);
+    }
+  };
 
   const tplName = s.wa_template_note_service || "";
   const tplLang = s.wa_template_note_service_language || "";
@@ -4582,12 +4601,27 @@ const NoteServiceHistorySection = ({ s, upd }) => {
                         ))}
                       </div>
                       <div className="pt-1.5">
-                        <a
-                          href="/portal/notes"
-                          className="text-[11px] text-emerald-700 hover:underline inline-flex items-center gap-1"
-                        >
-                          → Voir la note source dans le portail
-                        </a>
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <a
+                            href="/portal/notes"
+                            className="text-[11px] text-emerald-700 hover:underline inline-flex items-center gap-1"
+                          >
+                            → Voir la note source dans le portail
+                          </a>
+                          {totalKo > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => retryFailed(it.note_id, it.note_numero)}
+                              disabled={retrying === it.note_id}
+                              className="ml-auto inline-flex items-center gap-1 rounded bg-amber-500 hover:bg-amber-600 text-white px-2 py-0.5 text-[10px] font-semibold disabled:opacity-50 transition"
+                              title={`Rediffuser uniquement aux ${totalKo} destinataire(s) en échec`}
+                              data-testid={`note-service-retry-${it.note_id}`}
+                            >
+                              {retrying === it.note_id ? <RefreshCw className="h-2.5 w-2.5 animate-spin" /> : <Megaphone className="h-2.5 w-2.5" />}
+                              Rediffuser {totalKo} KO
+                            </button>
+                          )}
+                        </div>
                       </div>
                     </div>
                   )}

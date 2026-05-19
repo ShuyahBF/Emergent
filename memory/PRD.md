@@ -3,6 +3,16 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36f (2026-05-19) — Bouton "Rediffuser KO" sur Note de Service
+
+### ✨ Iter36f — Rediffusion ciblée aux destinataires en échec
+- Endpoint `POST /admin/note-service/{note_id}/retry-failed` : récupère pour la note les destinataires dont la dernière tentative est `failed`, retente uniquement ceux-là, marque les nouvelles lignes `whatsapp_messages` avec `is_retry=True`.
+- Idempotent : les destinataires déjà OK ne sont JAMAIS retentés (pas de doublon de notification).
+- UI : bouton jaune ambre "📢 Rediffuser N KO" dans le panneau expandable de chaque ligne, visible uniquement si `failed_count > 0`. Disabled pendant l'envoi avec spinner.
+- Tests pytest : 3/3 verts (retente uniquement les KO + idempotency Alice/Bob/Carlos, "rien à retenter" si tout OK, 404 sur note inexistante).
+
+---
+
 ## Latest — Iter36e (2026-05-19) — Panneau historique Note de Service
 
 ### ✨ Iter36e — Admin panel "Note de Service" (historique + template)

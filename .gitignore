@@ -457,3 +457,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/123.pack
+frontend/node_modules/.cache/default-development/127.pack

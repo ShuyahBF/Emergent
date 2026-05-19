@@ -8360,6 +8360,136 @@ async def admin_note_service_history(
     return {"items": rows, "total": len(rows), "limit": limit}
 
 
+# Iter36f — Retry only the failed recipients of a previous Note de Service
+@api.post("/admin/note-service/{note_id}/retry-failed", tags=["Admin"])
+async def admin_retry_failed_note_service(
+    note_id: str,
+    _: dict = Depends(get_current_admin),
+):
+    """Resend a Note de Service ONLY to recipients whose previous attempt
+    failed. Useful when a Meta template was paused and has been re-enabled,
+    or when a phone number is fixed. Idempotent for KO recipients only:
+    successful recipients are NOT touched (no duplicate notifications).
+    """
+    # 1) Locate the source note across all kinds
+    note = None
+    note_kind = None
+    for kind in ("notes", "tasks", "reports"):
+        doc = await _user_notes_collection(kind).find_one({"id": note_id}, {"_id": 0})
+        if doc:
+            note = doc
+            note_kind = kind
+            break
+    if not note:
+        raise HTTPException(status_code=404, detail="Note introuvable")
+    if note.get("is_private"):
+        raise HTTPException(status_code=400, detail="La note n'est plus publique.")
+    if not note.get("numero"):
+        raise HTTPException(status_code=400, detail="La note ne porte plus de numéro.")
+    import re as _re
+    content_text = _re.sub(r"<[^>]+>", " ", note.get("content_html") or "").strip()
+    content_text = _re.sub(r"\s+", " ", content_text)[:900]
+    if not content_text:
+        raise HTTPException(status_code=400, detail="Note vide — rien à diffuser.")
+
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    tpl_name = (s.get("wa_template_note_service") or "notedeservice_fr").strip()
+    tpl_lang = (s.get("wa_template_note_service_language") or "fr").strip() or "fr"
+
+    # 2) Find KO recipients from the most recent broadcast for this note.
+    #    We pick the highest created_at as "last broadcast" and grab all KO
+    #    outbound rows up to that moment that aren't superseded by a later OK.
+    last_attempt = await db.whatsapp_messages.find_one(
+        {"source": "note_de_service", "source_note_id": note_id},
+        {"_id": 0, "created_at": 1},
+        sort=[("created_at", -1)],
+    )
+    if not last_attempt:
+        raise HTTPException(status_code=400, detail="Aucune diffusion antérieure à retenter.")
+    # All recipients ever for this note
+    per_recipient: dict[str, dict] = {}
+    cur = db.whatsapp_messages.find(
+        {"source": "note_de_service", "source_note_id": note_id},
+        {"_id": 0, "tracked_user_id": 1, "tracked_user_name": 1, "to": 1,
+         "status": 1, "created_at": 1},
+    ).sort("created_at", 1)
+    async for m in cur:
+        tid = m.get("tracked_user_id") or m.get("to")
+        if not tid:
+            continue
+        per_recipient[tid] = m  # last seen wins (we sorted asc → last is most recent)
+    # KO = recipients whose LATEST attempt is not 'sent'
+    ko_targets = [m for m in per_recipient.values() if m.get("status") != "sent"]
+    if not ko_targets:
+        return {"ok": True, "sent": [], "skipped": [], "sent_count": 0, "skipped_count": 0,
+                "message": "Aucun destinataire en échec — rien à retenter."}
+
+    sent: list = []
+    skipped: list = []
+    for old in ko_targets:
+        phone = (old.get("to") or "").strip()
+        recipient_name = (old.get("tracked_user_name") or phone or "Destinataire").strip()
+        if not phone:
+            skipped.append({"name": recipient_name, "reason": "no_phone"})
+            continue
+        components = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": str(note.get("numero") or "")[:60]},
+                {"type": "text", "text": recipient_name[:60]},
+                {"type": "text", "text": content_text},
+            ],
+        }]
+        try:
+            r = await _wa_send_template(phone, tpl_name, tpl_lang, components)
+            ok = bool(r.get("ok"))
+            outbound = {
+                "id": _uuid(),
+                "client_id": note.get("client_id") or "",
+                "owner_id": note.get("owner_id"),
+                "direction": "outbound",
+                "from": phone, "to": phone,
+                "phone_digits": "".join(ch for ch in phone if ch.isdigit()),
+                "body": f"[Note de Service {note.get('numero')}] {content_text[:300]}",
+                "template_name": tpl_name,
+                "template_language": tpl_lang,
+                "wa_message_id": r.get("message_id"),
+                "status": "sent" if ok else "failed",
+                "api_message": r.get("error"),
+                "tracked_user_id": old.get("tracked_user_id"),
+                "tracked_user_name": recipient_name,
+                "source": "note_de_service",
+                "source_note_id": note_id,
+                "source_note_numero": note.get("numero"),
+                "is_retry": True,
+                "sent_at": _now(),
+                "created_at": _now(),
+            }
+            await db.whatsapp_messages.insert_one(outbound.copy())
+            (sent if ok else skipped).append({
+                "name": recipient_name, "phone": phone,
+                "wa_message_id": r.get("message_id"), "error": r.get("error"),
+            })
+        except Exception as exc:  # noqa: BLE001
+            skipped.append({"name": recipient_name, "reason": str(exc)[:200]})
+
+    try:
+        await _log_activity(
+            client_id=note.get("client_id") or "", kind="note_service", action="retry_failed",
+            label=f"Note {note.get('numero')} -> retry {len(sent)}/{len(ko_targets)}",
+            actor={"id": "_system_", "email": "admin"}, target_id=note_id,
+        )
+    except Exception:
+        pass
+    return {
+        "ok": True,
+        "note_numero": note.get("numero"),
+        "sent": sent, "skipped": skipped,
+        "sent_count": len(sent), "skipped_count": len(skipped),
+        "total_targets": len(ko_targets),
+    }
+
+
 
 
 

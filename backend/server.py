@@ -729,10 +729,16 @@ def _can_consult_all_docs(user: dict) -> bool:
     return _is_elevated_creator(user)
 
 
-async def _check_descent_window(action_label: str = "enregistrement") -> None:
+async def _check_descent_window(action_label: str = "enregistrement", user: Optional[dict] = None) -> None:
     """Raise HTTP 403 if current time is past `descent_time + 1h`.
     `descent_time` is a HH:MM stored in settings (today's reference). If unset, no check.
+
+    Iter36j — Admin / Superviseur / Moderation are NEVER blocked by this
+    window: they can record reports / suivis / notes at any time. The lock
+    only applies to standard tracked users (agents on site).
     """
+    if user is not None and _is_elevated_creator(user):
+        return  # Bypass the 1h lock for elevated creators
     s = await db.settings.find_one({"_id": "global"}) or {}
     descent = (s.get("descent_time") or "").strip()
     if not descent or ":" not in descent:
@@ -6267,7 +6273,7 @@ async def admin_create_intervention(
     payload: InterventionCreate,
     user: dict = Depends(get_current_admin),
 ):
-    await _check_descent_window(action_label="enregistrement")
+    await _check_descent_window(action_label="enregistrement", user=user)
     client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
@@ -8057,7 +8063,7 @@ async def me_create_note(
     coll = _user_notes_collection(kind)
     if not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer un enregistrement")
-    await _check_descent_window(action_label="enregistrement")
+    await _check_descent_window(action_label="enregistrement", user=user)
 
     title = (payload.title or "").strip()
     if not title:
@@ -8670,7 +8676,7 @@ async def me_create_intervention(
 ):
     if not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer une intervention")
-    await _check_descent_window(action_label="enregistrement")
+    await _check_descent_window(action_label="enregistrement", user=user)
     client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
@@ -18803,3 +18809,20 @@ _sms_dashboard_router = _make_sms_dashboard_router(db=db, get_current_admin=get_
 api.include_router(_sms_dashboard_router)
 
 app.include_router(api)
+
+
+# =====================================================================
+# Iter36i — Kubernetes liveness/readiness probe endpoint.
+# The deployment platform hits GET /health every few seconds. Without this
+# endpoint the probe receives 404 and eventually marks the pod unhealthy
+# (= deployment failure). Returns a lightweight JSON (no DB hit) so the
+# probe is fast and resilient to MongoDB hiccups.
+# =====================================================================
+@app.get("/health", include_in_schema=False)
+async def health_check():
+    return {"status": "ok", "service": "sawali-backend"}
+
+
+@app.get("/healthz", include_in_schema=False)
+async def health_check_alt():
+    return {"status": "ok", "service": "sawali-backend"}

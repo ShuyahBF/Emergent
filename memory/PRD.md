@@ -3,6 +3,17 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36j (2026-05-19) — Levée du verrouillage 1h pour rôles élevés
+
+### 🔓 Iter36j — Verrouillage 1h après descente : bypass pour admin/superviseur/modérateur
+- **Avant** : `_check_descent_window()` levait HTTP 403 sur toute création de rapport/suivi/note/intervention au-delà de `descent_time + 1h`, sans exception.
+- **Fix** : ajout du paramètre `user` au helper. Si `_is_elevated_creator(user)` retourne `True` (admin / superviseur top-level OU tracked `Moderation`/`Administrateur`/`Superviseur`), le contrôle est immédiatement bypassé.
+- Les 3 call sites mis à jour : `POST /admin/interventions`, `POST /me/notes/{kind}`, `POST /me/interventions`.
+- Les agents standards (tracked sans rôle élevé) restent verrouillés → comportement souhaité conservé.
+- Tests pytest : 6/6 verts (admin/superviseur/Moderation/Administrateur bypass, agent toujours verrouillé, descent_time vide = pas de lock).
+
+---
+
 ## Latest — Iter36h (2026-05-19) — Bouton "Importer" : unicité phone OU whatsapp
 
 ### 🐛 Iter36h — Bug fix unicité du bouton "Importer" sur "Top expéditeurs"

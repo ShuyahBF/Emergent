@@ -196,6 +196,59 @@ async def _refresh_public_base_url_cache() -> None:
         # First startup may run before the DB is reachable — ignore.
         pass
 
+
+# =====================================================================
+# Iter35x — Alexa Echo voice notifications via Voice Monkey
+# Best-effort fire-and-forget POST to the configured Voice Monkey webhook
+# whenever one of the selected events fires. Failures are logged but never
+# raise — Alexa is "nice to have", not critical path.
+# =====================================================================
+ALEXA_EVENT_TYPES = {
+    "sms_inbound": "SMS reçu",
+    "wa_inbound": "WhatsApp reçu",
+    "appointment_due": "Rendez-vous imminent",
+    "support_load_critical": "Niveau de support critique",
+}
+
+
+async def _alexa_notify(event_type: str, message: str) -> None:
+    """Fire-and-forget POST to Voice Monkey. Schedules itself via create_task
+    so callers never wait on it. Skips silently if not configured / event
+    not selected."""
+    try:
+        s = await db.settings.find_one(
+            {"_id": "global"},
+            {"_id": 0, "alexa_enabled": 1, "alexa_webhook_url": 1, "alexa_events": 1},
+        ) or {}
+        if not s.get("alexa_enabled"):
+            return
+        url = (s.get("alexa_webhook_url") or "").strip()
+        if not url.startswith(("http://", "https://")):
+            return
+        events = s.get("alexa_events") or []
+        if event_type not in events:
+            return
+        payload = {
+            "event": event_type,
+            "event_label": ALEXA_EVENT_TYPES.get(event_type, event_type),
+            "announcement": (message or "")[:200],
+            "source": "sawali-portal",
+            "timestamp": _now() if "_now" in globals() else datetime.now(timezone.utc).isoformat(),
+        }
+        async with httpx.AsyncClient(timeout=8) as http:
+            await http.post(url, json=payload, headers={"Accept": "application/json"})
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[alexa] notify failed: %s", exc)
+
+
+def _alexa_notify_async(event_type: str, message: str) -> None:
+    """Sync wrapper that schedules the async notify in the running loop."""
+    try:
+        asyncio.create_task(_alexa_notify(event_type, message))
+    except Exception:  # noqa: BLE001
+        # No running loop (e.g. import-time) — ignore.
+        pass
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sawali")
 
@@ -1037,6 +1090,13 @@ async def admin_set_support_load(payload: AdminSupportLoadUpdate, user: dict = D
     if payload.enabled is not None:
         update["support_load_enabled"] = bool(payload.enabled)
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    # Iter35x — Alexa voice notification when level reaches critical (>=6)
+    new_level = update["support_load_level"]
+    if new_level is not None and new_level >= 6:
+        _alexa_notify_async(
+            "support_load_critical",
+            f"Niveau de support critique : {new_level} sur 7. {update.get('support_load_label') or ''}".strip(),
+        )
     return {"ok": True, **update}
 
 
@@ -1073,6 +1133,12 @@ async def webhook_support_load(secret: str, request: Request):
     if label is not None:
         update["support_load_label"] = (str(label) or "")[:140]
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    # Iter35x — Alexa voice notification when level reaches critical (>=6)
+    if update["support_load_level"] >= 6:
+        _alexa_notify_async(
+            "support_load_critical",
+            f"Niveau de support critique : {update['support_load_level']} sur 7. {update.get('support_load_label') or ''}".strip(),
+        )
     return {"ok": True, "level": update["support_load_level"], "label": update.get("support_load_label")}
 
 
@@ -9539,6 +9605,8 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
             update.pop(k, None)
     if not update:
         return {"ok": True}
+    # Iter35x — Snapshot previous values BEFORE the update for audit comparison
+    _prev_settings_for_audit = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     update["updated_at"] = _now()
     # Stamp incident_banner_updated_at whenever any banner field changes
     BANNER_FIELDS = ("incident_banner_enabled", "incident_banner_severity", "incident_banner_message", "incident_banner_link_url", "incident_banner_link_label")
@@ -9602,7 +9670,108 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     # jobs (cron emails, webhooks, scheduled WA sends) use the new value.
     if "public_base_url" in update:
         await _refresh_public_base_url_cache()
+    # Iter35x — Audit log + email notification for any vault-tracked key change
+    try:
+        await _audit_secret_changes(update, user, _prev_settings_for_audit)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[secret-audit] failed: %s", exc)
     return {"ok": True}
+
+
+# =====================================================================
+# Iter35x — Secret change audit & email notification
+# Tracks every modification of a vault-tracked key in db.secret_change_audit
+# (qui/quand/quelle clé). Never stores the value — only a SHA-256 fingerprint
+# and a populated flag. Best-effort email to the admin so they know
+# something changed (never the value).
+# =====================================================================
+async def _audit_secret_changes(update: Dict[str, Any], actor: dict, prev_full: Dict[str, Any]) -> None:
+    import hashlib
+    tracked = [k for k in update.keys() if k in VAULT_KEYS]
+    if not tracked:
+        return
+    actor_email = (actor or {}).get("email") or "system"
+    settings_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+    entries = []
+    for k in tracked:
+        new_val = update.get(k)
+        prev_val = prev_full.get(k)
+        # Skip if value did not actually change (set called but same content)
+        if prev_val == new_val:
+            continue
+        new_str = "" if new_val is None else (json.dumps(new_val, sort_keys=True) if not isinstance(new_val, str) else new_val)
+        new_hash = hashlib.sha256(new_str.encode("utf-8")).hexdigest()[:16] if new_str else ""
+        action = "created" if not prev_val and new_val else ("deleted" if prev_val and not new_val else "updated")
+        entry = {
+            "id": _uuid(),
+            "key": k,
+            "action": action,
+            "actor_email": actor_email,
+            "actor_id": (actor or {}).get("id"),
+            "ts": _now(),
+            "fingerprint": new_hash,
+            "is_secret": k in SENSITIVE_SETTINGS_KEYS,
+        }
+        entries.append(entry)
+    if not entries:
+        return
+    await db.secret_change_audit.insert_many([e.copy() for e in entries])
+    # Best-effort email notification
+    if settings_doc.get("secret_audit_email_enabled"):
+        recipient = (settings_doc.get("secret_audit_email_to") or settings_doc.get("health_email_to") or "").strip()
+        if recipient:
+            asyncio.create_task(_send_secret_audit_email(recipient, entries, actor_email))
+
+
+async def _send_secret_audit_email(recipient: str, entries: list, actor_email: str) -> None:
+    try:
+        from email_service import send_email
+        rows = "".join(
+            f"<tr><td style='padding:6px 10px;border:1px solid #e2e8f0;font-family:monospace;font-size:12px'>{e['key']}</td>"
+            f"<td style='padding:6px 10px;border:1px solid #e2e8f0'>"
+            f"<span style=\"font-weight:600;color:{'#059669' if e['action']=='created' else '#dc2626' if e['action']=='deleted' else '#0284c7'}\">{e['action']}</span></td>"
+            f"<td style='padding:6px 10px;border:1px solid #e2e8f0;font-family:monospace;font-size:11px;color:#64748b'>{e['fingerprint'] or '—'}</td></tr>"
+            for e in entries
+        )
+        html = f"""
+        <div style='font-family:Arial,sans-serif;max-width:640px;margin:auto;padding:16px;border:1px solid #e2e8f0;border-radius:8px'>
+          <h2 style='color:#1e293b;margin:0 0 8px'>🔐 Modification du Coffre-fort SAWALI</h2>
+          <p style='color:#475569;margin:0 0 12px'>
+            <strong>{actor_email}</strong> vient de modifier {len(entries)} clé(s) sensible(s) à {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}.
+          </p>
+          <table style='border-collapse:collapse;width:100%;font-size:13px'>
+            <thead><tr style='background:#f1f5f9'>
+              <th style='padding:6px 10px;border:1px solid #e2e8f0;text-align:left'>Clé</th>
+              <th style='padding:6px 10px;border:1px solid #e2e8f0;text-align:left'>Action</th>
+              <th style='padding:6px 10px;border:1px solid #e2e8f0;text-align:left'>Empreinte SHA-256</th>
+            </tr></thead>
+            <tbody>{rows}</tbody>
+          </table>
+          <p style='color:#94a3b8;font-size:11px;margin-top:12px'>
+            Aucune valeur n'est révélée dans cet email. Si vous n'êtes pas l'auteur de ce changement, connectez-vous immédiatement et révoquez les jetons.
+          </p>
+        </div>"""
+        await send_email(
+            to_email=recipient,
+            subject=f"[SAWALI] {len(entries)} clé(s) modifiée(s) par {actor_email}",
+            html_body=html,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[secret-audit] email failed: %s", exc)
+
+
+@api.get("/admin/secrets/change-audit", tags=["Admin"])
+async def admin_secret_change_audit(
+    key: Optional[str] = None,
+    limit: int = 100,
+    _: dict = Depends(get_current_admin),
+):
+    """Audit trail of vault-tracked key changes (no values, only fingerprints)."""
+    q: Dict[str, Any] = {}
+    if key:
+        q["key"] = key
+    items = await db.secret_change_audit.find(q, {"_id": 0}).sort("ts", -1).to_list(min(max(limit, 1), 1000))
+    return {"items": items, "total": len(items)}
 
 
 # ----- Incident history -----
@@ -9625,6 +9794,7 @@ TESTABLE_URL_KEYS = {
     "notes_webhook_url",
     "health_webhook_url",
     "n8n_webhook_url",
+    "alexa_webhook_url",  # Iter35x — Voice Monkey
 }
 
 
@@ -13778,6 +13948,11 @@ async def whatsapp_webhook_incoming(request: Request):
                         actor={"id": "_system_", "full_name": "WhatsApp webhook"},
                         target_id=doc.get("id"),
                     )
+                    # Iter35x — Alexa voice notification (best-effort, fire-and-forget)
+                    _alexa_notify_async(
+                        "wa_inbound",
+                        f"Nouveau WhatsApp reçu de {profile_name or from_num}",
+                    )
                     # Persist the latest profile name on the contact (or create a
                     # "wa_unmapped" record so the admin can review and import it).
                     if profile_name:
@@ -14888,6 +15063,11 @@ async def _appointment_reminder_cron():
                 "appointment_subject": ap.get("subject") or "",
             },
         })
+        # Iter35x — Alexa voice notification for upcoming appointment
+        _alexa_notify_async(
+            "appointment_due",
+            f"Rendez-vous demain {sched_human} : {ap.get('subject') or ''}".strip(),
+        )
         try:
             await db.appointments.update_one(
                 {"id": ap["id"]},

@@ -17,6 +17,9 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Iter35x — recent additions
+  "Notifications vocales Alexa (Voice Monkey)": "2026-05-19",
+  "Historique des modifications de clés": "2026-05-19",
   "Restauration des contacts/messages (revert retag)": "2026-05-11",
   "Demandes de modification de profil (utilisateurs)": "2026-05-11",
   "Suivi des actions (historique du travail)": "2026-05-10",
@@ -31,7 +34,10 @@ const NEW_SECTIONS = {
   "Authentification — OTP par domaine": "2026-04-26",
 };
 const STORAGE_KEY_SEEN = "sawali_settings_first_seen_v1";
-const NEW_WINDOW_DAYS = 14;
+// Iter35x — Fix bug "Badge Nouveau ne disparaît pas après 3 jours".
+// Avant : la fenêtre était 14 jours depuis l'ajout, plus 3 jours après lecture.
+// Maintenant : 3 jours depuis l'ajout, point. Simple et prévisible.
+const NEW_WINDOW_DAYS = 3;
 const SEEN_FADE_DAYS = 3;
 function readSeen() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY_SEEN) || "{}"); } catch { return {}; }
@@ -337,6 +343,7 @@ export default function AdminSettings() {
       </Section>
 
       <SupportLoadSection s={s} upd={upd} />
+      <AlexaVoiceMonkeySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
       <FileStorageSection />
@@ -2486,10 +2493,51 @@ const SecretsVaultSection = () => {
   const [urlInitial, setUrlInitial] = useState({});
   const [savingUrlKey, setSavingUrlKey] = useState(null);
   const [urlsOpen, setUrlsOpen] = useState(true);
-  // Iter35w — Webhook test state per critical URL key
+  // Iter35x — Webhook test state per critical URL key
   const [testingUrlKey, setTestingUrlKey] = useState(null);
   const [urlTestResult, setUrlTestResult] = useState({}); // { key: { ok, http_status, elapsed_ms, response, error } }
   const TESTABLE_URL_KEYS = new Set(["public_base_url", "tracking_base_url", "webhook_base_url", "notes_webhook_url", "health_webhook_url", "n8n_webhook_url"]);
+  // Iter35x — Secret change audit (per-key history, no values, only fingerprints)
+  const [changeAudit, setChangeAudit] = useState([]);
+  const [changeAuditOpen, setChangeAuditOpen] = useState(false);
+  const [changeAuditFilter, setChangeAuditFilter] = useState("");
+  const [auditEmailEnabled, setAuditEmailEnabled] = useState(false);
+  const [auditEmailTo, setAuditEmailTo] = useState("");
+  const [auditEmailDirty, setAuditEmailDirty] = useState(false);
+  const [savingAuditEmail, setSavingAuditEmail] = useState(false);
+  const loadChangeAudit = useCallback(async () => {
+    try {
+      const r = await apiClient.get(`/admin/secrets/change-audit${changeAuditFilter ? `?key=${encodeURIComponent(changeAuditFilter)}` : ""}`);
+      setChangeAudit(r.data?.items || []);
+      setChangeAuditOpen(true);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    }
+  }, [changeAuditFilter]);
+  const loadAuditEmailSettings = useCallback(async () => {
+    try {
+      const r = await apiClient.get("/admin/settings");
+      setAuditEmailEnabled(!!r.data?.secret_audit_email_enabled);
+      setAuditEmailTo((r.data?.secret_audit_email_to || "").toString());
+      setAuditEmailDirty(false);
+    } catch (err) { /* silent */ }
+  }, []);
+  useEffect(() => { loadAuditEmailSettings(); }, [loadAuditEmailSettings]);
+  const saveAuditEmail = async () => {
+    setSavingAuditEmail(true);
+    try {
+      await apiClient.put("/admin/settings", {
+        secret_audit_email_enabled: auditEmailEnabled,
+        secret_audit_email_to: auditEmailTo.trim(),
+      });
+      toast.success("Notifications de modif coffre-fort enregistrées");
+      setAuditEmailDirty(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally {
+      setSavingAuditEmail(false);
+    }
+  };
 
   const loadCriticalUrls = useCallback(async () => {
     try {
@@ -2915,6 +2963,90 @@ const SecretsVaultSection = () => {
           </div>
         )}
       </div>
+
+      {/* Iter35x — Historique des modifications de clés (qui/quand/quelle clé — jamais la valeur) */}
+      <Filterable title="Historique des modifications de clés" anchorId="secret-change-audit">
+        <div className="rounded-lg ring-1 ring-purple-200 bg-white p-3 space-y-3" data-testid="secret-change-audit-card">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Activity className="h-4 w-4 text-purple-600" />
+              <span className="text-xs font-semibold text-slate-700">Historique des modifications de clés</span>
+            </div>
+            <div className="flex items-center gap-2 flex-wrap">
+              <input
+                type="text"
+                value={changeAuditFilter}
+                onChange={(e) => setChangeAuditFilter(e.target.value)}
+                placeholder="Filtrer par clé (ex: public_base_url)"
+                className="rounded border border-slate-300 px-2 py-1 text-xs font-mono w-56"
+                data-testid="secret-change-audit-filter"
+              />
+              <button
+                onClick={loadChangeAudit}
+                className="text-xs inline-flex items-center gap-1 rounded bg-purple-600 text-white hover:bg-purple-700 px-2 py-1"
+                data-testid="secret-change-audit-load"
+              >
+                <RefreshCw className="h-3 w-3" /> Charger
+              </button>
+            </div>
+          </div>
+          <div className="rounded ring-1 ring-slate-200 bg-slate-50/50 p-2.5" data-testid="secret-audit-email-block">
+            <div className="flex items-center gap-2 mb-1.5">
+              <Mail className="h-3.5 w-3.5 text-purple-600" />
+              <span className="text-xs font-semibold text-slate-700">Email à chaque modification</span>
+            </div>
+            <p className="text-[10px] text-slate-500 mb-1.5">
+              Reçoit un email automatique à chaque modif/création/suppression d'une clé sensible. L'email contient <strong>qui, quand, quelle clé</strong> — jamais la valeur. Une empreinte SHA-256 (16 car.) permet de vérifier l'unicité de la nouvelle valeur côté admin.
+            </p>
+            <label className="flex items-center gap-2 text-xs cursor-pointer mb-1.5">
+              <input
+                type="checkbox"
+                checked={auditEmailEnabled}
+                onChange={(e) => { setAuditEmailEnabled(e.target.checked); setAuditEmailDirty(true); }}
+                className="accent-purple-600"
+                data-testid="secret-audit-email-enabled"
+              />
+              <span>Activer les notifications par email</span>
+            </label>
+            <div className="flex gap-2 flex-wrap">
+              <input
+                type="email"
+                value={auditEmailTo}
+                onChange={(e) => { setAuditEmailTo(e.target.value); setAuditEmailDirty(true); }}
+                placeholder="admin@sawalismartsystems.com"
+                disabled={!auditEmailEnabled}
+                className="flex-1 min-w-[220px] rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:opacity-50"
+                data-testid="secret-audit-email-to"
+              />
+              <button
+                onClick={saveAuditEmail}
+                disabled={savingAuditEmail || !auditEmailDirty}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium transition"
+                data-testid="secret-audit-email-save"
+              >
+                {savingAuditEmail ? "…" : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+          {changeAuditOpen && (
+            <div className="max-h-72 overflow-y-auto text-[11px]" data-testid="secret-change-audit-list">
+              {changeAudit.length === 0 && <p className="italic text-slate-400">Aucune modification enregistrée{changeAuditFilter ? ` pour la clé "${changeAuditFilter}"` : ""}.</p>}
+              {changeAudit.map((a) => (
+                <div key={a.id} className="flex items-center gap-2 py-1 border-b last:border-0 border-slate-100" data-testid={`secret-change-audit-row-${a.id}`}>
+                  <span className="font-mono text-slate-500 min-w-[140px]">{new Date(a.ts).toLocaleString("fr-FR")}</span>
+                  <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${a.action === "created" ? "bg-emerald-100 text-emerald-700" : a.action === "deleted" ? "bg-rose-100 text-rose-700" : "bg-sky-100 text-sky-700"}`}>
+                    {a.action}
+                  </span>
+                  <span className="font-mono text-purple-900 truncate flex-1" title={a.key}>{a.key}</span>
+                  {a.is_secret && <Lock className="h-3 w-3 text-rose-500" />}
+                  <span className="text-slate-700 truncate max-w-[180px]" title={a.actor_email}>{a.actor_email}</span>
+                  {a.fingerprint && <span className="font-mono text-[9px] text-slate-400" title="Empreinte SHA-256">{a.fingerprint}</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Filterable>
     </div>
   );
 };
@@ -4211,6 +4343,115 @@ const LEVEL_LABELS = {
   6: "Très occupé", 7: "Saturé",
 };
 const BAR_COLORS = ["#16a34a", "#22c55e", "#84cc16", "#eab308", "#f59e0b", "#f97316", "#ef4444"];
+
+// =====================================================================
+// Iter35x — Alexa Echo voice notifications via Voice Monkey
+// =====================================================================
+const ALEXA_EVENT_TYPES = [
+  { value: "sms_inbound", label: "SMS reçu" },
+  { value: "wa_inbound", label: "WhatsApp reçu" },
+  { value: "appointment_due", label: "Rendez-vous imminent (24h)" },
+  { value: "support_load_critical", label: "Niveau de support critique (≥6/7)" },
+];
+
+const AlexaVoiceMonkeySection = ({ s, upd }) => {
+  const enabled = !!s.alexa_enabled;
+  const url = s.alexa_webhook_url || "";
+  const events = Array.isArray(s.alexa_events) ? s.alexa_events : [];
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
+
+  const toggleEvent = (val) => {
+    const next = events.includes(val) ? events.filter((e) => e !== val) : [...events, val];
+    upd("alexa_events", next);
+  };
+
+  const runTest = async () => {
+    if (!url.startsWith("http")) {
+      toast.error("Configurez d'abord l'URL du webhook Voice Monkey");
+      return;
+    }
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await apiClient.post("/admin/settings/test-url", { key: "alexa_webhook_url" });
+      setTestResult(r.data);
+      if (r.data?.ok) toast.success(`Voice Monkey : HTTP ${r.data.http_status} en ${r.data.elapsed_ms} ms ✓`);
+      else toast.error(r.data?.error || `HTTP ${r.data?.http_status}`);
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || "Échec";
+      setTestResult({ ok: false, error: msg });
+      toast.error(msg);
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Filterable title="Notifications vocales Alexa (Voice Monkey)" anchorId="alexa-voice-monkey">
+      <Section icon={Headphones} title="Notifications vocales Alexa (Voice Monkey)">
+        <p className="text-xs text-slate-500">
+          Annonce vocalement les événements importants sur votre Echo via Voice Monkey. Configurez votre webhook
+          dans <a href="https://voicemonkey.io" target="_blank" rel="noreferrer" className="text-purple-700 underline">voicemonkey.io</a> (formule
+          gratuite ≤ 50 calls/jour, 5 $/mois pour illimité), puis collez l'URL ci-dessous et cochez les événements à
+          annoncer.
+        </p>
+        <Toggle
+          label="Activer les notifications vocales Alexa"
+          value={enabled}
+          onChange={(v) => upd("alexa_enabled", v)}
+          testid="alexa-enabled-toggle"
+        />
+        <Input
+          label="URL du webhook Voice Monkey"
+          value={url}
+          onChange={(v) => upd("alexa_webhook_url", v)}
+          placeholder="https://api-v2.voicemonkey.io/announcement?token=...&device=..."
+          testid="alexa-webhook-url"
+        />
+        <div className="rounded-lg ring-1 ring-purple-200 bg-purple-50/40 p-3" data-testid="alexa-events-block">
+          <p className="text-xs font-semibold text-slate-700 mb-2">Événements déclencheurs</p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {ALEXA_EVENT_TYPES.map((ev) => (
+              <label key={ev.value} className={`flex items-center gap-2 text-xs cursor-pointer rounded p-2 ring-1 ${events.includes(ev.value) ? "ring-purple-300 bg-white" : "ring-slate-200 bg-slate-50"}`} data-testid={`alexa-event-${ev.value}`}>
+                <input
+                  type="checkbox"
+                  checked={events.includes(ev.value)}
+                  onChange={() => toggleEvent(ev.value)}
+                  disabled={!enabled}
+                  className="accent-purple-600"
+                />
+                <span>{ev.label}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <div className="flex gap-2 items-center flex-wrap">
+          <button
+            onClick={runTest}
+            disabled={testing || !enabled || !url.startsWith("http")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium transition"
+            data-testid="alexa-test-btn"
+          >
+            {testing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Headphones className="h-3 w-3" />}
+            {testing ? "Test…" : "Tester l'annonce"}
+          </button>
+          <span className="text-[10px] text-slate-500">Envoie un payload de test à Voice Monkey (votre Echo doit annoncer un message court).</span>
+        </div>
+        {testResult && (
+          <div className={`rounded ring-1 p-2 text-[11px] ${testResult.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-200 text-rose-900"}`} data-testid="alexa-test-result">
+            <div className="flex items-center gap-2 flex-wrap">
+              <strong>{testResult.ok ? "✓ Succès" : "✗ Échec"}</strong>
+              {testResult.http_status !== undefined && <span>HTTP {testResult.http_status}</span>}
+              {testResult.elapsed_ms !== undefined && <span className="text-slate-500">· {testResult.elapsed_ms} ms</span>}
+            </div>
+            {testResult.error && <div className="text-rose-700 mt-1">{testResult.error}</div>}
+          </div>
+        )}
+      </Section>
+    </Filterable>
+  );
+};
 
 const SupportLoadSection = ({ s, upd }) => {
   const [saving, setSaving] = useState(false);

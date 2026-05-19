@@ -377,11 +377,26 @@ class SettingsUpdate(BaseModel):
     recaptcha_secret_key: Optional[str] = None
     recaptcha_enabled: Optional[bool] = None
 
-    # --- Iter35u — Public base URL ---
+    # --- Iter35x — Public base URL ---
     # Overrides the static PUBLIC_BASE_URL env var. Used for absolute links in
     # background jobs (cron emails, WhatsApp links, OAuth redirects) when no
     # browser request is available. Editable from the Coffre-fort des secrets.
     public_base_url: Optional[str] = None
+
+    # --- Iter35x — Alexa Echo voice notifications via Voice Monkey ---
+    # When enabled, a POST is sent to `alexa_webhook_url` whenever one of the
+    # selected events fires (SMS inbound, WhatsApp inbound, appointment due,
+    # support load critical). Voice Monkey speaks the message via the linked
+    # Echo device. Free tier ≤ 50 calls/day; $5/mo for unlimited.
+    alexa_enabled: Optional[bool] = None
+    alexa_webhook_url: Optional[str] = None
+    alexa_events: Optional[List[str]] = None  # ["sms_inbound", "wa_inbound", "appointment_due", "support_load_critical"]
+
+    # --- Iter35x — Secret change audit & email notification ---
+    # When enabled, every modification of a sensitive/vault key emails
+    # `secret_audit_email_to` with WHO/WHEN/WHICH key (never the value).
+    secret_audit_email_enabled: Optional[bool] = None
+    secret_audit_email_to: Optional[str] = None
 
     # --- Auto DB Snapshot (iter34) ---
     # Weekly cron creates a snapshot every Sunday 03:00 Africa/Abidjan and

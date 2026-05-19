@@ -3,7 +3,31 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35r+s+t+u+v (2026-05-19) — Welcome Briefing + Bug critique SMS + URLs critiques
+## Latest — Iter35x (2026-05-19) — Implémentation des 3 P2
+
+### ✨ Iter35x — P2-1 : Versioning + email notif sur modif coffre-fort
+- Collection `db.secret_change_audit` : `{id, key, action, actor_email, actor_id, ts, fingerprint (SHA-256 16 car.), is_secret}`. **Aucune valeur stockée.**
+- Helper `_audit_secret_changes()` wired dans `admin_update_settings` → trace toute modif de clé incluse dans `VAULT_KEYS`.
+- Email best-effort à `secret_audit_email_to` (toggle `secret_audit_email_enabled`) avec tableau HTML détaillant qui/quand/quelle clé/empreinte.
+- Endpoint `GET /admin/secrets/change-audit?key=X&limit=N`.
+- UI : section "Historique des modifications de clés" dans le Coffre-fort (filtre par clé + toggle email + tableau audit).
+
+### ✨ Iter35x — P2-2 : Alexa Echo via Voice Monkey
+- Settings : `alexa_enabled`, `alexa_webhook_url`, `alexa_events` (liste : sms_inbound, wa_inbound, appointment_due, support_load_critical).
+- Helper `_alexa_notify(event_type, message)` + wrapper sync `_alexa_notify_async()` (fire-and-forget).
+- Wired dans : WhatsApp webhook inbound, support load level >= 6 (POST + webhook), appointment reminder cron 24h.
+- UI : section dédiée "Notifications vocales Alexa (Voice Monkey)" avec toggle, URL, 4 checkboxes événements, bouton "Tester l'annonce".
+- `alexa_webhook_url` ajouté à `TESTABLE_URL_KEYS` (réutilise l'endpoint `/admin/settings/test-url`).
+
+### ✨ Iter35x — P2-3 : Fix badge "Nouveau" disparition après 3 jours
+- `NEW_WINDOW_DAYS` : 14 → **3** jours. Le badge disparaît automatiquement 3 jours après l'ajout, point.
+- Ajout des sections récentes au registre `NEW_SECTIONS` (Alexa, Historique modifications clés).
+
+✅ **Tests** : 14/14 verts (`test_iter35x_p2` + `test_iter35w_test_url` + `test_iter35t_welcome_daily_health` + `test_iter35s_sms_generic_routing`).
+
+---
+
+## Latest — Iter35r+s+t+u+v+w (2026-05-19) — Welcome Briefing + Bug critique SMS + URLs critiques
 
 ### ✨ Iter35w — Bouton "Tester" pour chaque URL critique
 - Nouveau endpoint `POST /admin/settings/test-url` qui envoie un payload `{dry_run:true, source:"sawali-coffre-fort-test"}` à l'URL configurée (GET pour `public_base_url`, POST pour les webhooks).

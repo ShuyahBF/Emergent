@@ -8290,6 +8290,77 @@ async def me_send_note_de_service(
     }
 
 
+# Iter36e — Admin history of Note de Service broadcasts (last 20)
+@api.get("/admin/note-service/history", tags=["Admin"])
+async def admin_note_service_history(
+    limit: int = 20,
+    _: dict = Depends(get_current_admin),
+):
+    """Aggregate the last N Note de Service broadcasts, grouped by source note.
+    Each row exposes: note_id, note_numero, last_sent_at, sent_count,
+    failed_count, recipient_count, sender (owner_email), recipients list.
+    """
+    limit = max(1, min(int(limit or 20), 200))
+    pipeline = [
+        {"$match": {"source": "note_de_service"}},
+        {"$group": {
+            "_id": "$source_note_id",
+            "note_numero": {"$last": "$source_note_numero"},
+            "client_id": {"$last": "$client_id"},
+            "owner_id": {"$last": "$owner_id"},
+            "template_name": {"$last": "$template_name"},
+            "last_sent_at": {"$max": "$created_at"},
+            "first_sent_at": {"$min": "$created_at"},
+            "sent_count": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "failed_count": {"$sum": {"$cond": [{"$ne": ["$status", "sent"]}, 1, 0]}},
+            "recipients": {"$push": {
+                "tracked_user_id": "$tracked_user_id",
+                "tracked_user_name": "$tracked_user_name",
+                "phone": "$to",
+                "status": "$status",
+                "error": "$api_message",
+                "wa_message_id": "$wa_message_id",
+            }},
+        }},
+        {"$sort": {"last_sent_at": -1}},
+        {"$limit": limit},
+    ]
+    rows: list[dict] = []
+    async for r in db.whatsapp_messages.aggregate(pipeline):
+        # Enrich with note title (look up across all note kinds)
+        note_title = None
+        is_private = None
+        note_kind = None
+        for kind in ("notes", "tasks", "reports"):
+            doc = await _user_notes_collection(kind).find_one(
+                {"id": r["_id"]}, {"_id": 0, "title": 1, "is_private": 1, "kind": 1, "numero": 1},
+            )
+            if doc:
+                note_title = doc.get("title")
+                is_private = doc.get("is_private")
+                note_kind = doc.get("kind") or kind
+                break
+        owner = await db.users.find_one({"id": r.get("owner_id")}, {"_id": 0, "email": 1, "full_name": 1}) or {}
+        rows.append({
+            "note_id": r["_id"],
+            "note_numero": r.get("note_numero"),
+            "note_title": note_title,
+            "note_kind": note_kind,
+            "is_private": is_private,
+            "template_name": r.get("template_name"),
+            "last_sent_at": r.get("last_sent_at"),
+            "first_sent_at": r.get("first_sent_at"),
+            "sent_count": r.get("sent_count", 0),
+            "failed_count": r.get("failed_count", 0),
+            "recipient_count": r.get("sent_count", 0) + r.get("failed_count", 0),
+            "owner_email": owner.get("email"),
+            "owner_name": owner.get("full_name"),
+            "recipients": r.get("recipients", []),
+        })
+    return {"items": rows, "total": len(rows), "limit": limit}
+
+
+
 
 
 @api.get("/me/notes-targets", tags=["Portail Client"])

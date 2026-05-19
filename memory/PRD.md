@@ -3,6 +3,15 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36e (2026-05-19) — Panneau historique Note de Service
+
+### ✨ Iter36e — Admin panel "Note de Service" (historique + template)
+- Endpoint `GET /admin/note-service/history?limit=20` agrège `whatsapp_messages` par `source_note_id` : pour chaque note diffusée → `note_numero`, `note_title`, `template_name`, `last_sent_at`, `sent_count`, `failed_count`, liste détaillée des destinataires (avec status, error, phone).
+- UI : section dédiée dans AdminSettings avec champ template name + langue (par défaut `notedeservice_fr` / `fr`), bloc explicatif des 3 paramètres du template, liste expandable des 20 dernières diffusions colorées selon le ratio OK/KO (emerald/amber/rose), détail destinataires inline avec messages d'erreur Meta.
+- Test pytest : 1/1 vert (groupement par note + ordre tri par `last_sent_at` desc + recipients exposés correctement).
+
+---
+
 ## Latest — Iter36a/b/c/d (2026-05-19) — 4 features portail
 
 ### ✨ Iter36a — Top expéditeurs enrichi (Portal/Dashboard)

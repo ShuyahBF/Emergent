@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2 } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -17,6 +17,8 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Iter36e — recent addition
+  "Note de Service (historique + template)": "2026-05-19",
   // Iter35x — recent additions
   "Notifications vocales Alexa (Voice Monkey)": "2026-05-19",
   "Historique des modifications de clés": "2026-05-19",
@@ -344,6 +346,7 @@ export default function AdminSettings() {
 
       <SupportLoadSection s={s} upd={upd} />
       <AlexaVoiceMonkeySection s={s} upd={upd} />
+      <NoteServiceHistorySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
       <FileStorageSection />
@@ -4446,6 +4449,151 @@ const AlexaVoiceMonkeySection = ({ s, upd }) => {
               {testResult.elapsed_ms !== undefined && <span className="text-slate-500">· {testResult.elapsed_ms} ms</span>}
             </div>
             {testResult.error && <div className="text-rose-700 mt-1">{testResult.error}</div>}
+          </div>
+        )}
+      </Section>
+    </Filterable>
+  );
+};
+
+// =====================================================================
+// Iter36e — Note de Service: admin history panel (last 20 broadcasts)
+// =====================================================================
+const NoteServiceHistorySection = ({ s, upd }) => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/note-service/history?limit=20");
+      setItems(r.data?.items || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec du chargement");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const tplName = s.wa_template_note_service || "";
+  const tplLang = s.wa_template_note_service_language || "";
+
+  return (
+    <Filterable title="Note de Service (historique + template)" anchorId="note-service-history">
+      <Section icon={Megaphone} title="Note de Service (historique + template)">
+        <p className="text-xs text-slate-500">
+          Diffusion d'une note publique numérotée par WhatsApp template à tous les utilisateurs suivis du client lié.
+          Le bouton apparaît automatiquement sur chaque note publique numérotée dans le portail (
+          <code className="bg-slate-100 px-1 rounded">/portal/notes</code>).
+        </p>
+        <Input
+          label="Nom du template WhatsApp"
+          value={tplName}
+          onChange={(v) => upd("wa_template_note_service", v)}
+          placeholder="notedeservice_fr"
+          testid="note-service-template-name"
+        />
+        <Input
+          label="Code de langue"
+          value={tplLang}
+          onChange={(v) => upd("wa_template_note_service_language", v)}
+          placeholder="fr"
+          testid="note-service-template-lang"
+        />
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/40 p-3 text-[11px] text-slate-700">
+          <strong className="text-emerald-900">Paramètres du template (ordre) :</strong>
+          <ol className="list-decimal list-inside mt-1 space-y-0.5">
+            <li><code className="bg-white px-1 rounded">{"{{1}}"}</code> → Numéro de la note (ex: NTE-2026-0042)</li>
+            <li><code className="bg-white px-1 rounded">{"{{2}}"}</code> → Nom du destinataire (utilisateur suivi)</li>
+            <li><code className="bg-white px-1 rounded">{"{{3}}"}</code> → Contenu de la note (texte brut, max 900 car.)</li>
+          </ol>
+        </div>
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <h4 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+            <Activity className="h-4 w-4 text-emerald-600" />
+            20 dernières diffusions
+          </h4>
+          <button
+            onClick={load}
+            className="text-xs inline-flex items-center gap-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700 px-2.5 py-1 transition"
+            data-testid="note-service-history-refresh"
+          >
+            <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} />
+            Actualiser
+          </button>
+        </div>
+        {loading && items.length === 0 ? (
+          <p className="text-xs italic text-slate-400">Chargement…</p>
+        ) : items.length === 0 ? (
+          <p className="text-xs italic text-slate-400" data-testid="note-service-history-empty">
+            Aucune Note de Service diffusée pour l'instant.
+          </p>
+        ) : (
+          <div className="space-y-2" data-testid="note-service-history-list">
+            {items.map((it) => {
+              const isOpen = expanded === it.note_id;
+              const totalKo = it.failed_count || 0;
+              const totalOk = it.sent_count || 0;
+              const tone = totalKo === 0 ? "emerald" : totalKo < totalOk ? "amber" : "rose";
+              const toneCls = {
+                emerald: "ring-emerald-200 bg-emerald-50/30",
+                amber: "ring-amber-200 bg-amber-50/40",
+                rose: "ring-rose-200 bg-rose-50/40",
+              }[tone];
+              return (
+                <div key={it.note_id} className={`rounded-lg ring-1 ${toneCls} p-2.5 transition`} data-testid={`note-service-history-${it.note_id}`}>
+                  <button
+                    type="button"
+                    onClick={() => setExpanded(isOpen ? null : it.note_id)}
+                    className="w-full flex items-start justify-between gap-2 text-left"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="font-mono text-[10px] bg-white px-1.5 py-0.5 rounded ring-1 ring-slate-200 text-purple-900">{it.note_numero || "—"}</span>
+                        <span className="text-sm font-semibold text-slate-800 truncate" title={it.note_title}>{it.note_title || "(note supprimée)"}</span>
+                      </div>
+                      <div className="text-[10px] text-slate-500 mt-0.5 flex items-center gap-2 flex-wrap">
+                        <span>{it.last_sent_at ? new Date(it.last_sent_at).toLocaleString("fr-FR") : "—"}</span>
+                        {it.owner_email && <span>· par {it.owner_name || it.owner_email}</span>}
+                        {it.template_name && <span className="font-mono text-purple-700">· {it.template_name}</span>}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1 flex-shrink-0">
+                      <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-800" title="Envoyés OK">✓ {totalOk}</span>
+                      {totalKo > 0 && <span className="text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-rose-100 text-rose-800" title="Échecs">✗ {totalKo}</span>}
+                      <ChevronDown className={`h-3.5 w-3.5 text-slate-400 transition ${isOpen ? "rotate-180" : ""}`} />
+                    </div>
+                  </button>
+                  {isOpen && (
+                    <div className="mt-2 pt-2 border-t border-slate-200 space-y-1" data-testid={`note-service-recipients-${it.note_id}`}>
+                      <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Destinataires ({it.recipients?.length || 0})</p>
+                      <div className="max-h-48 overflow-y-auto space-y-0.5">
+                        {(it.recipients || []).map((r, i) => (
+                          <div key={i} className="flex items-center gap-2 text-[11px] py-0.5">
+                            <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${r.status === "sent" ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+                              {r.status === "sent" ? "OK" : "KO"}
+                            </span>
+                            <span className="text-slate-700 truncate flex-1">{r.tracked_user_name || r.phone || "—"}</span>
+                            <span className="font-mono text-slate-400 text-[10px]">{r.phone}</span>
+                            {r.error && <span className="text-rose-600 truncate max-w-[180px]" title={r.error}>{r.error}</span>}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="pt-1.5">
+                        <a
+                          href="/portal/notes"
+                          className="text-[11px] text-emerald-700 hover:underline inline-flex items-center gap-1"
+                        >
+                          → Voir la note source dans le portail
+                        </a>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </Section>

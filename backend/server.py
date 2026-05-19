@@ -11632,10 +11632,24 @@ async def me_wa_import_by_phone(payload: WaImportByPhoneRequest, user: dict = De
         raise HTTPException(status_code=400, detail="Numéro invalide")
     client_scope = (user.get("client_id") or user.get("id"))
     visible_scope = await _resolve_visible_client_ids(user)
-    existing = await db.directory_contacts.find_one(
-        {"phone_digits": digits, "client_id": {"$in": visible_scope}},
+    # Iter36h — Idempotent uniqueness via Python-side digit comparison so we
+    # match contacts whose phone/whatsapp uses any formatting (spaces, +, 00…).
+    tail8 = digits[-8:] if len(digits) >= 8 else digits
+    existing = None
+    async for c in db.directory_contacts.find(
+        {"client_id": {"$in": visible_scope}},
         {"_id": 0},
-    )
+    ):
+        for raw in (c.get("phone_digits"), c.get("whatsapp_digits"),
+                    c.get("phone"), c.get("whatsapp")):
+            if not raw:
+                continue
+            d = "".join(ch for ch in str(raw) if ch.isdigit())
+            if d == digits or (len(d) >= 8 and d.endswith(tail8)):
+                existing = c
+                break
+        if existing:
+            break
     if existing:
         return {"ok": True, "already_present": True, "contact": existing}
     sample = await db.whatsapp_messages.find_one(
@@ -12694,16 +12708,35 @@ async def me_wa_media_summary(
         {"$limit": 5},
     ]
     top_contacts: List[Dict[str, Any]] = []
+    # Iter36h — Pre-load the directory once and build a digits → contact map
+    # so we match accurately whatever formatting the phone/whatsapp fields use
+    # (spaces, +, leading 00, local-only). One pass on a small collection
+    # (<200 contacts typically) is cheaper than a regex per sender.
+    dir_index: Dict[str, Dict[str, Any]] = {}
+    async for c in db.directory_contacts.find(
+        {"client_id": {"$in": visible_scope}},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp": 1, "phone_digits": 1, "whatsapp_digits": 1},
+    ):
+        for raw in (c.get("phone_digits"), c.get("whatsapp_digits"),
+                    c.get("phone"), c.get("whatsapp")):
+            if not raw:
+                continue
+            digits = "".join(ch for ch in str(raw) if ch.isdigit())
+            if not digits:
+                continue
+            # Index by the last 8 digits (national core) AND the full digits.
+            # Last 8 digits handle international/local variants robustly.
+            dir_index.setdefault(digits, c)
+            if len(digits) >= 8:
+                dir_index.setdefault(digits[-8:], c)
+
     async for row in db.whatsapp_messages.aggregate(pipeline_top):
         phone_digits = row.get("_id")
-        # Iter36a — Resolve in_directory + last message (text or media caption)
         in_directory = False
         directory_contact_id = row.get("contact_id")
         if phone_digits:
-            dir_match = await db.directory_contacts.find_one(
-                {"phone_digits": phone_digits, "client_id": {"$in": visible_scope}},
-                {"_id": 0, "id": 1, "name": 1},
-            )
+            tail8 = phone_digits[-8:] if len(phone_digits) >= 8 else phone_digits
+            dir_match = dir_index.get(phone_digits) or dir_index.get(tail8)
             if dir_match:
                 in_directory = True
                 directory_contact_id = dir_match.get("id") or directory_contact_id

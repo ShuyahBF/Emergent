@@ -34,10 +34,10 @@ class TestTopSendersEnrichment:
             # Seed 1 known + 1 unknown contact
             await db.directory_contacts.insert_one({
                 "id": "test-iter36a-dir-1", "client_id": cid, "owner_id": cid,
-                "name": "Alice Connue", "phone": "+22670111111", "phone_digits": "22670111111",
+                "name": "Alice Connue", "phone": "+22678991122", "phone_digits": "22678991122",
                 "tags": [],
             })
-            for i, digits in enumerate(["22670111111", "22675999999"]):
+            for i, digits in enumerate(["22678991122", "22679881133"]):
                 for j in range(3):
                     await db.whatsapp_messages.insert_one({
                         "id": f"test-iter36a-{digits}-{j}", "client_id": cid,
@@ -58,15 +58,15 @@ class TestTopSendersEnrichment:
         top = res["top_contacts"]
         assert len(top) >= 2, top
         by_phone = {t["phone_digits"]: t for t in top}
-        assert "22670111111" in by_phone
-        assert "22675999999" in by_phone
+        assert "22678991122" in by_phone
+        assert "22679881133" in by_phone
         # Known one
-        known = by_phone["22670111111"]
+        known = by_phone["22678991122"]
         assert known["in_directory"] is True, known
         assert known["contact_id"] == "test-iter36a-dir-1", known
         assert "message" in (known.get("last_message_preview") or "").lower(), known
         # Unknown one
-        unknown = by_phone["22675999999"]
+        unknown = by_phone["22679881133"]
         assert unknown["in_directory"] is False, unknown
 
 

@@ -3,6 +3,17 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36h (2026-05-19) — Bouton "Importer" : unicité phone OU whatsapp
+
+### 🐛 Iter36h — Bug fix unicité du bouton "Importer" sur "Top expéditeurs"
+- **Avant** : le matching ne se faisait que sur le champ legacy `phone_digits` (rarement renseigné dans les vrais contacts). Résultat : un contact existant avec phone `+226 70 11 11 11` (formaté avec espaces et `+`) n'était PAS reconnu → le bouton "Importer" apparaissait à tort, créant un doublon.
+- **Fix backend** : nouvelle logique côté Python (négligeable sur ~200 contacts) qui pré-charge tous les contacts du scope et indexe leurs `phone`, `whatsapp`, `phone_digits`, `whatsapp_digits` après normalisation (digits-only + suffixe 8 chiffres). Matching robuste à toutes les variantes de formatage (`+226 70...`, `0022670...`, `70 11 11 11`, etc.).
+- **Idempotence import endpoint** : même algorithme pour `POST /me/wa-import-by-phone` → garantit qu'aucun doublon n'est créé même si l'admin clique 2 fois.
+- Tests pytest : 11/11 verts (5 variantes de format phone + whatsapp + uniqueness import).
+- Validation visuelle ✓ : "Ami(e) connu(e)" → ✓ Répertoire, "Inconnu CIV" → bouton Importer (comme attendu).
+
+---
+
 ## Latest — Iter36g (2026-05-19) — "Depuis votre dernière visite"
 
 ### ✨ Iter36g — Mini-section "Depuis votre dernière visite" dans WelcomeBriefing

@@ -2486,6 +2486,10 @@ const SecretsVaultSection = () => {
   const [urlInitial, setUrlInitial] = useState({});
   const [savingUrlKey, setSavingUrlKey] = useState(null);
   const [urlsOpen, setUrlsOpen] = useState(true);
+  // Iter35w — Webhook test state per critical URL key
+  const [testingUrlKey, setTestingUrlKey] = useState(null);
+  const [urlTestResult, setUrlTestResult] = useState({}); // { key: { ok, http_status, elapsed_ms, response, error } }
+  const TESTABLE_URL_KEYS = new Set(["public_base_url", "tracking_base_url", "webhook_base_url", "notes_webhook_url", "health_webhook_url", "n8n_webhook_url"]);
 
   const loadCriticalUrls = useCallback(async () => {
     try {
@@ -2525,6 +2529,30 @@ const SecretsVaultSection = () => {
       toast.error(err?.response?.data?.detail || "Échec");
     } finally {
       setSavingUrlKey(null);
+    }
+  };
+
+  // Iter35w — Send a dry-run ping to the configured webhook URL
+  const testCriticalUrl = async (key) => {
+    setTestingUrlKey(key);
+    setUrlTestResult((prev) => ({ ...prev, [key]: null }));
+    try {
+      const r = await apiClient.post("/admin/settings/test-url", { key });
+      const data = r.data || {};
+      setUrlTestResult((prev) => ({ ...prev, [key]: data }));
+      if (data.ok) {
+        toast.success(`${key} : HTTP ${data.http_status} en ${data.elapsed_ms} ms ✓`, { duration: 6000 });
+      } else if (data.error) {
+        toast.error(`${key} : ${data.error}`, { duration: 8000 });
+      } else {
+        toast.error(`${key} : HTTP ${data.http_status} — réponse non OK`, { duration: 8000 });
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || "Échec du test";
+      setUrlTestResult((prev) => ({ ...prev, [key]: { ok: false, error: msg } }));
+      toast.error(msg, { duration: 8000 });
+    } finally {
+      setTestingUrlKey(null);
     }
   };
 
@@ -2649,6 +2677,9 @@ const SecretsVaultSection = () => {
             {CRITICAL_URL_FIELDS.map(({ key, label, help, placeholder }) => {
               const dirty = (urlValues[key] || "") !== (urlInitial[key] || "");
               const saving = savingUrlKey === key;
+              const testable = TESTABLE_URL_KEYS.has(key) && !!urlInitial[key];
+              const testing = testingUrlKey === key;
+              const testResult = urlTestResult[key];
               return (
                 <div key={key} className="rounded ring-1 ring-slate-200 bg-slate-50/50 p-2.5" data-testid={`critical-url-${key}`}>
                   <div className="flex items-center gap-2 mb-1.5 flex-wrap">
@@ -2673,8 +2704,43 @@ const SecretsVaultSection = () => {
                     >
                       {saving ? "…" : "Enregistrer"}
                     </button>
+                    {testable && (
+                      <button
+                        onClick={() => testCriticalUrl(key)}
+                        disabled={testing || dirty}
+                        title={dirty ? "Enregistrez d'abord pour tester la valeur en base" : "Envoyer un payload de test dry_run"}
+                        className="inline-flex items-center gap-1.5 rounded-lg bg-white text-purple-700 ring-1 ring-purple-300 hover:bg-purple-50 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium transition"
+                        data-testid={`critical-url-test-${key}`}
+                      >
+                        {testing ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Webhook className="h-3 w-3" />}
+                        {testing ? "Test…" : "Tester"}
+                      </button>
+                    )}
                   </div>
                   <p className="text-[10px] text-slate-500 mt-1">{help}</p>
+                  {testResult && (
+                    <div
+                      className={`mt-2 rounded ring-1 p-2 text-[11px] ${testResult.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-200 text-rose-900"}`}
+                      data-testid={`critical-url-test-result-${key}`}
+                    >
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <strong>{testResult.ok ? "✓ Succès" : "✗ Échec"}</strong>
+                        {testResult.http_status !== undefined && <span>HTTP {testResult.http_status}</span>}
+                        {testResult.elapsed_ms !== undefined && <span className="text-slate-500">· {testResult.elapsed_ms} ms</span>}
+                        {testResult.method && <span className="font-mono text-slate-500">{testResult.method}</span>}
+                      </div>
+                      {testResult.final_url && (
+                        <div className="font-mono text-[10px] text-slate-600 truncate" title={testResult.final_url}>→ {testResult.final_url}</div>
+                      )}
+                      {testResult.error && <div className="text-rose-700 mt-1">{testResult.error}</div>}
+                      {testResult.response !== undefined && testResult.response !== null && (
+                        <details className="mt-1">
+                          <summary className="cursor-pointer text-slate-600 hover:text-slate-900">Voir la réponse</summary>
+                          <pre className="mt-1 max-h-40 overflow-auto bg-white ring-1 ring-slate-200 rounded p-1.5 text-[10px] whitespace-pre-wrap break-words">{typeof testResult.response === "string" ? testResult.response : JSON.stringify(testResult.response, null, 2)}</pre>
+                        </details>
+                      )}
+                    </div>
+                  )}
                 </div>
               );
             })}

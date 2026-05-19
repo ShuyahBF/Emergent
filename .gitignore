@@ -434,3 +434,4 @@ credentials.json
 *.key
 .credentials
 frontend/node_modules/.cache/default-development/118.pack
+frontend/node_modules/.cache/default-development/29.pack

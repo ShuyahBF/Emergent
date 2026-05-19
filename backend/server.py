@@ -9612,6 +9612,84 @@ async def admin_list_incidents(limit: int = 200, _: dict = Depends(get_current_a
     return items
 
 
+# =====================================================================
+# Iter35w — Test endpoint for critical URLs (Coffre-fort UI)
+# Sends a dry-run payload to the configured outbound URL and surfaces the
+# raw HTTP response so the admin can verify their n8n / webhook receivers
+# without waiting for a real event.
+# =====================================================================
+TESTABLE_URL_KEYS = {
+    "public_base_url",
+    "tracking_base_url",  # tested in combination with tracking_endpoint
+    "webhook_base_url",
+    "notes_webhook_url",
+    "health_webhook_url",
+    "n8n_webhook_url",
+}
+
+
+class CriticalUrlTestRequest(BaseModel):
+    key: str
+    method: Optional[str] = None  # auto: GET for public_base_url, POST for the rest
+
+
+@api.post("/admin/settings/test-url", tags=["Admin"])
+async def admin_test_critical_url(payload: CriticalUrlTestRequest, _: dict = Depends(get_current_admin)):
+    key = (payload.key or "").strip()
+    if key not in TESTABLE_URL_KEYS:
+        raise HTTPException(status_code=400, detail=f"Clé non testable : {key}")
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    raw_url = (s.get(key) or "").strip()
+    if not raw_url:
+        raise HTTPException(status_code=400, detail=f"{key} n'est pas configuré")
+    # Compose the final URL for tracking_base_url (append the endpoint if set)
+    if key == "tracking_base_url":
+        ep = (s.get("tracking_endpoint") or "").strip()
+        final_url = raw_url.rstrip("/") + (ep if ep.startswith("/") else f"/{ep}" if ep else "")
+    else:
+        final_url = raw_url
+    if not final_url.startswith(("http://", "https://")):
+        raise HTTPException(status_code=400, detail="URL invalide (doit commencer par http:// ou https://)")
+
+    method = (payload.method or ("GET" if key == "public_base_url" else "POST")).upper()
+    body = {
+        "dry_run": True,
+        "source": "sawali-coffre-fort-test",
+        "key": key,
+        "timestamp": _now(),
+        "message": "Ping de test depuis le Coffre-fort. Aucune action attendue.",
+    }
+    started = datetime.now(timezone.utc)
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            if method == "GET":
+                r = await http.get(final_url)
+            else:
+                r = await http.post(final_url, json=body, headers={"Accept": "application/json"})
+        elapsed_ms = int((datetime.now(timezone.utc) - started).total_seconds() * 1000)
+        try:
+            resp_body = r.json()
+            resp_kind = "json"
+        except Exception:  # noqa: BLE001
+            resp_body = (r.text or "")[:1000]
+            resp_kind = "text"
+        ok = 200 <= r.status_code < 400
+        return {
+            "ok": ok,
+            "key": key,
+            "method": method,
+            "final_url": final_url,
+            "http_status": r.status_code,
+            "elapsed_ms": elapsed_ms,
+            "response_kind": resp_kind,
+            "response": resp_body,
+        }
+    except httpx.TimeoutException:
+        return {"ok": False, "key": key, "method": method, "final_url": final_url, "error": "Timeout (>15s)"}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "key": key, "method": method, "final_url": final_url, "error": str(exc)[:300]}
+
+
 @api.delete("/admin/incidents/{incident_id}", tags=["Admin"])
 async def admin_delete_incident(incident_id: str, _: dict = Depends(get_current_admin)):
     res = await db.incidents.delete_one({"id": incident_id})

@@ -5,6 +5,12 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 ## Latest — Iter35r+s+t+u+v (2026-05-19) — Welcome Briefing + Bug critique SMS + URLs critiques
 
+### ✨ Iter35w — Bouton "Tester" pour chaque URL critique
+- Nouveau endpoint `POST /admin/settings/test-url` qui envoie un payload `{dry_run:true, source:"sawali-coffre-fort-test"}` à l'URL configurée (GET pour `public_base_url`, POST pour les webhooks).
+- UI : bouton "Tester" à côté de chaque URL testable (6/7, `tracking_endpoint` omis), désactivé si la valeur n'a pas encore été enregistrée.
+- Affiche : status HTTP, temps de réponse en ms, méthode, URL finale, réponse brute (expandable). Toast success/error.
+- Tests pytest verts (3/3) — rejet clé inconnue, rejet clé vide, ping réel vers httpbin.org.
+
 ### ✨ Iter35v — Section "URLs critiques" dans le Coffre-fort
 - Toutes les URLs sortantes critiques (public_base_url, tracking_base_url, tracking_endpoint, webhook_base_url, notes_webhook_url, health_webhook_url, n8n_webhook_url) regroupées dans une mini-section éditable du panneau Coffre-fort.
 - 7 champs avec validation (http(s):// pour les URLs, / pour les paths), bouton "Enregistrer" individuel par champ, badge "✓ Renseigné" pour les valeurs présentes, chevron pour replier/déplier.

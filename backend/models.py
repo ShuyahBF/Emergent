@@ -522,6 +522,9 @@ class SettingsUpdate(BaseModel):
     wa_template_ticket_language: Optional[str] = None  # default "fr"
     notify_on_ticket_open: Optional[bool] = None  # default True
     notify_on_ticket_close: Optional[bool] = None  # default True
+
+    # Iter35r — Welcome modal at login (briefing)
+    welcome_modal_notes_days: Optional[int] = None  # default 3 — fetch notes created within N days
     health_webhook_url: Optional[str] = None
     health_webhook_auth_type: Optional[str] = None  # none | bearer | basic
     health_webhook_token: Optional[str] = None

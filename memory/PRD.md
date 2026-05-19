@@ -3,6 +3,22 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter35r+s (2026-05-19) — Welcome Briefing + Bug critique SMS
+
+### ✨ Iter35r — Welcome Briefing modal intégrée
+- `WelcomeBriefing.jsx` désormais affichée 1× par session après login (`PortalLayout` enveloppe la modale en lecture conditionnelle via `sessionStorage`).
+- Affiche : tickets ouverts/suspendus, WA+SMS non lus, notes personnelles récentes (fenêtre paramétrable, défaut 3 jours).
+- Auto-dismiss silencieux si tout est vide → zéro friction.
+- Test screenshot validé avec injection ticket de test → modale rendue correctement.
+
+### 🐛 Iter35s — Bug critique `_sms_send_generic` manquante (P0)
+- **Root cause** : le `async def _sms_send_generic(...)` avait été accidentellement supprimé (probablement par un `search_replace` raté), transformant tout le corps de la fonction en code mort à l'intérieur de `_sms_send_via_webhook`. Résultat : `NameError` à l'exécution sur **tout** envoi SMS via Orange/Moov/Telecel (y compris via webhook n8n).
+- **Fix** : restauration de la signature `async def _sms_send_generic(cfg, msisdn, message, sender)` + maintenance de la routing logic (orange_oauth, webhook, générique HTTP).
+- L'URL du webhook custom n8n est désormais utilisée **brute** (aucun suffixe ajouté).
+- Tests : `test_iter35s_sms_generic_routing.py` (3/3 verts) + `test_iter35k_sms_webhook.py` (4/4 verts) = **7/7**.
+
+---
+
 ## Latest — Iter35f+g+h (2026-05-15) — Batches 1+2+3 (60/60 tests verts)
 
 ### 🐛 Iter35f — Batch 1 : 4 bugs production fixés

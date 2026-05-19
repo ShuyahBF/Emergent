@@ -8554,7 +8554,7 @@ async def me_save_contact_as_tracked(
 # ====================================================================
 # RATINGS — 5-star rating on report / suivi / intervention (Admin/Sup only)
 # ====================================================================
-RATEABLE_KINDS = ("reports", "suivis", "interventions", "formations")
+RATEABLE_KINDS = ("reports", "suivis", "interventions", "formations", "notes", "tasks")
 
 
 @api.post("/me/ratings/{kind}/{target_id}", tags=["Portail Client"])
@@ -8575,6 +8575,9 @@ async def me_rate(
         "suivis": db.user_suivis,
         "interventions": db.interventions,
         "formations": db.formations,
+        # Iter35r — Notes & Tasks personnelles
+        "notes": db.user_notes_personal,
+        "tasks": db.user_tasks_personal,
     }
     coll = coll_map[kind]
     target = await coll.find_one({"id": target_id}, {"_id": 0})
@@ -12614,6 +12617,7 @@ async def _sms_send_via_webhook(cfg: Dict[str, Any], msisdn: str, message: str, 
 
 
 
+async def _sms_send_generic(cfg: Dict[str, Any], msisdn: str, message: str, sender: Optional[str]) -> Dict[str, Any]:
     """Send via a generic configurable HTTP webhook (Orange/Moov/Telecel BFA)."""
     # Iter35i — branch off to the dedicated Orange Developer OAuth2 flow.
     if (cfg.get("auth_type") or "").lower() == "orange_oauth":
@@ -17429,6 +17433,35 @@ async def me_list_tickets(
         elif status in TICKET_ALL_STATUSES:
             q["status"] = status
     items = await db.support_tickets.find(q, {"_id": 0}).sort("opened_at", -1).to_list(min(max(limit, 1), 1000))
+    # Iter35r — Enrich each ticket with client_label / company_label + age &
+    # active-pause durations so the UI can spotlight "dormant" tickets.
+    client_ids = list({(t.get("client_id") or "") for t in items if t.get("client_id")})
+    clients_map: Dict[str, Dict[str, Any]] = {}
+    if client_ids:
+        async for c in db.users.find({"id": {"$in": client_ids}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "email": 1}):
+            clients_map[c["id"]] = c
+    now_dt = datetime.now(timezone.utc)
+    for t in items:
+        c = clients_map.get(t.get("client_id"))
+        t["client_label"] = (c or {}).get("full_name") or (c or {}).get("email")
+        t["company_label"] = (c or {}).get("company")
+        # Age = depuis l'ouverture jusqu'à aujourd'hui (si non clôturé) ou clôture sinon
+        try:
+            o = datetime.fromisoformat((t.get("opened_at") or "").replace("Z", "+00:00"))
+            ref = (t.get("closed_at") or "").replace("Z", "+00:00")
+            ref_dt = datetime.fromisoformat(ref) if ref else now_dt
+            t["age_seconds"] = max(0, int((ref_dt - o).total_seconds()))
+        except Exception:
+            t["age_seconds"] = None
+        # Pause cumulative — inclut le timer courant si statut=suspended
+        total_pause = int(t.get("suspended_total_seconds") or 0)
+        if t.get("status") == "suspended" and t.get("suspended_started_at"):
+            try:
+                s_dt = datetime.fromisoformat(t["suspended_started_at"].replace("Z", "+00:00"))
+                total_pause += max(0, int((now_dt - s_dt).total_seconds()))
+            except Exception:
+                pass
+        t["pause_seconds"] = total_pause
     return items
 
 
@@ -17464,6 +17497,23 @@ async def me_update_ticket(
             raise HTTPException(status_code=400, detail="Utilisez l'endpoint /close pour clôturer un ticket.")
         if payload.status not in TICKET_OPEN_STATUSES:
             raise HTTPException(status_code=400, detail=f"Statut invalide. Valeurs: {sorted(TICKET_OPEN_STATUSES)}")
+        # Iter35r — Track cumulative pause time (status=suspended).
+        # When transitioning INTO suspended → stamp suspended_started_at.
+        # When transitioning OUT of suspended → add elapsed to suspended_total_seconds.
+        old_status = ticket.get("status")
+        if old_status != "suspended" and payload.status == "suspended":
+            update["suspended_started_at"] = _now()
+        elif old_status == "suspended" and payload.status != "suspended":
+            started = ticket.get("suspended_started_at")
+            if started:
+                try:
+                    s_dt = datetime.fromisoformat(started.replace("Z", "+00:00"))
+                    elapsed = int((datetime.now(timezone.utc) - s_dt).total_seconds())
+                    if elapsed > 0:
+                        update["suspended_total_seconds"] = (ticket.get("suspended_total_seconds") or 0) + elapsed
+                    update["suspended_started_at"] = None
+                except Exception:
+                    update["suspended_started_at"] = None
         update["status"] = payload.status
     if payload.motif is not None:
         m = payload.motif.strip()
@@ -17505,6 +17555,16 @@ async def me_close_ticket(
         "closed_by_label": user.get("full_name") or user.get("email"),
         "updated_at": now_iso,
     }
+    # Iter35r — Flush running suspend timer if closed while suspended
+    if ticket.get("status") == "suspended" and ticket.get("suspended_started_at"):
+        try:
+            s_dt = datetime.fromisoformat(ticket["suspended_started_at"].replace("Z", "+00:00"))
+            elapsed = int((datetime.now(timezone.utc) - s_dt).total_seconds())
+            if elapsed > 0:
+                update["suspended_total_seconds"] = (ticket.get("suspended_total_seconds") or 0) + elapsed
+            update["suspended_started_at"] = None
+        except Exception:
+            update["suspended_started_at"] = None
     await db.support_tickets.update_one({"id": tid}, {"$set": update})
     ticket.update(update)
 
@@ -17816,4 +17876,55 @@ async def me_dashboard_ticket_stats(
 # Register the API router at the very end, after every endpoint has been
 # declared. This is critical: include_router() snapshots routes at call time,
 # so any @api.* decorator added below this line would NOT be exposed.
+
+
+# =====================================================================
+# Iter35r — GET /me/welcome-briefing
+# Aggregated briefing shown right after login: pending tickets (open +
+# suspended), unread WA/SMS messages, and recent personal notes created
+# within the configurable window (default 3 days).
+# =====================================================================
+@api.get("/me/welcome-briefing", tags=["Portail Client"])
+async def me_welcome_briefing(user: dict = Depends(get_current_user)):
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    notes_days = int(s.get("welcome_modal_notes_days") or 3)
+    since_notes = (datetime.now(timezone.utc) - timedelta(days=notes_days)).isoformat()
+    scope_filter = await _ticket_scope_for_user(user)
+
+    # 1) Tickets en attente + suspendus
+    tickets = await db.support_tickets.find(
+        {**scope_filter, "status": {"$in": ["open", "suspended"]}},
+        {"_id": 0, "id": 1, "number": 1, "motif": 1, "status": 1, "opened_at": 1, "contact_name": 1},
+    ).sort("opened_at", -1).limit(50).to_list(50)
+
+    # 2) Messages non lus (WhatsApp + SMS) — best-effort via /me/notifications/counts shape
+    visible_scope = await _resolve_visible_client_ids(user)
+    unread_wa = await db.whatsapp_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "inbound",
+        "read_by_us_at": None,
+    })
+    unread_sms = await db.sms_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "inbound",
+        "read_by_us_at": None,
+    })
+
+    # 3) Notes personnelles récentes (auteur = moi)
+    recent_notes_cur = db.user_notes_personal.find(
+        {"owner_id": user["id"], "created_at": {"$gte": since_notes}},
+        {"_id": 0, "id": 1, "title": 1, "is_private": 1, "created_at": 1, "target_user_ids": 1},
+    ).sort("created_at", -1).limit(50)
+    recent_notes = [n async for n in recent_notes_cur]
+
+    return {
+        "tickets": tickets,
+        "tickets_count": len(tickets),
+        "unread_messages": {"whatsapp": unread_wa, "sms": unread_sms, "total": unread_wa + unread_sms},
+        "recent_notes": recent_notes,
+        "recent_notes_count": len(recent_notes),
+        "recent_notes_window_days": notes_days,
+    }
+
+
 app.include_router(api)

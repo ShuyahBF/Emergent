@@ -13,6 +13,7 @@ import VersionStamp from "@/components/VersionStamp";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
+import WelcomeBriefing, { shouldShowWelcomeBriefing } from "@/components/WelcomeBriefing";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 function absoluteUrl(u) {
@@ -153,6 +154,14 @@ export default function PortalLayout({ admin = false }) {
       apiClient.get("/me/branding").then((r) => setBranding(r.data)).catch(() => {});
     }
   }, [admin, user]);
+
+  // Iter35r — Welcome briefing modal: shown once per session after login
+  const [showBriefing, setShowBriefing] = useState(false);
+  useEffect(() => {
+    if (user && shouldShowWelcomeBriefing()) {
+      setShowBriefing(true);
+    }
+  }, [user]);
 
   if (!user) return null;
 
@@ -327,6 +336,7 @@ export default function PortalLayout({ admin = false }) {
         </main>
       </div>
       <VersionStamp tone="dark" />
+      {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} />}
     </div>
   );
 }

@@ -29,6 +29,21 @@ const fmtDateTime = (iso) => {
   catch { return iso; }
 };
 
+// Iter35r — formate une durée en secondes en chaîne courte FR (1h 30min / 3j / 45s)
+const fmtSeconds = (s) => {
+  if (s == null || s < 0) return "—";
+  if (s < 60) return `${Math.round(s)} s`;
+  if (s < 3600) return `${Math.round(s / 60)} min`;
+  if (s < 86400) {
+    const h = Math.floor(s / 3600);
+    const m = Math.round((s % 3600) / 60);
+    return m ? `${h}h ${m}min` : `${h}h`;
+  }
+  const d = Math.floor(s / 86400);
+  const h = Math.round((s % 86400) / 3600);
+  return h ? `${d}j ${h}h` : `${d}j`;
+};
+
 const StatusChip = ({ status }) => {
   const meta = STATUS_META[status] || STATUS_META.open;
   return (
@@ -229,7 +244,7 @@ function TicketRow({ t, reload, targets }) {
     <li className="rounded-xl border border-slate-200 bg-white hover:shadow-sm transition" data-testid={`ticket-row-${t.id}`}>
       <button
         onClick={() => setExpanded((v) => !v)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left flex-wrap"
         data-testid={`ticket-toggle-${t.id}`}
       >
         {expanded ? <ChevronDown className="h-4 w-4 text-slate-400" /> : <ChevronRight className="h-4 w-4 text-slate-400" />}
@@ -240,10 +255,39 @@ function TicketRow({ t, reload, targets }) {
           </span>
         )}
         <StatusChip status={t.status} />
-        <span className="flex-1 truncate text-sm text-slate-800">{t.motif}</span>
+        <span className="flex-1 truncate text-sm text-slate-800 min-w-[120px]">{t.motif}</span>
+        {/* Iter35r — Client lié + Entreprise */}
+        {(t.client_label || t.company_label) && (
+          <span className="text-[10px] text-indigo-700 bg-indigo-50 ring-1 ring-indigo-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" title="Client lié / Entreprise">
+            🏢 {[t.company_label, t.client_label].filter(Boolean).join(" · ")}
+          </span>
+        )}
         {t.assigned_to_label && (
           <span className="text-[10px] text-sky-700 bg-sky-50 ring-1 ring-sky-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1" title={`Affecté à ${t.assigned_to_label}`}>
             <UserPlus className="h-3 w-3" /> {t.assigned_to_label}
+          </span>
+        )}
+        {/* Iter35r — Durées : ouverture & pause */}
+        {!isClosed && t.age_seconds != null && (
+          <span
+            className={`text-[10px] rounded-full px-2 py-0.5 ring-1 inline-flex items-center gap-1 tabular-nums ${
+              t.age_seconds > 7 * 86400 ? "bg-rose-50 text-rose-700 ring-rose-300" :
+              t.age_seconds > 3 * 86400 ? "bg-amber-50 text-amber-700 ring-amber-300" :
+              "bg-slate-50 text-slate-600 ring-slate-200"
+            }`}
+            title="Durée depuis l'ouverture"
+            data-testid={`ticket-age-${t.id}`}
+          >
+            <Clock className="h-3 w-3" /> {fmtSeconds(t.age_seconds)}
+          </span>
+        )}
+        {t.pause_seconds > 0 && (
+          <span
+            className="text-[10px] bg-purple-50 text-purple-700 ring-1 ring-purple-200 rounded-full px-2 py-0.5 inline-flex items-center gap-1 tabular-nums"
+            title="Temps cumulé en pause (suspendu)"
+            data-testid={`ticket-pause-${t.id}`}
+          >
+            <PauseCircle className="h-3 w-3" /> {fmtSeconds(t.pause_seconds)}
           </span>
         )}
         <span className="text-[11px] text-slate-500 shrink-0">{t.contact_name || "—"}</span>

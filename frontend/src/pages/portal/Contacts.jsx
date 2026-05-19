@@ -227,6 +227,16 @@ export default function Contacts() {
 
   // Iter34r — Quick share-filter pill: tous / partagés / privés / non-lus
   const [shareFilter, setShareFilter] = useState("all");
+  // Iter35r — Auto-open on "Non-lus" tab when there are unread inbound messages.
+  // Only triggered once (when the unread count crosses 0) to avoid overriding
+  // the user's manual tab choice afterwards.
+  const autoOpenedRef = React.useRef(false);
+  useEffect(() => {
+    if (!autoOpenedRef.current && unread.total > 0) {
+      setShareFilter("unread");
+      autoOpenedRef.current = true;
+    }
+  }, [unread.total]);
 
   const filtered = items.filter((c) => {
     if (companyFilter && (c.company || "") !== companyFilter) return false;

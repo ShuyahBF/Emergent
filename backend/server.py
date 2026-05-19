@@ -18622,7 +18622,10 @@ async def me_dashboard_ticket_stats(
 # within the configurable window (default 3 days).
 # =====================================================================
 @api.get("/me/welcome-briefing", tags=["Portail Client"])
-async def me_welcome_briefing(user: dict = Depends(get_current_user)):
+async def me_welcome_briefing(
+    last_seen_at: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
     s = await db.settings.find_one({"_id": "global"}) or {}
     notes_days = int(s.get("welcome_modal_notes_days") or 3)
     since_notes = (datetime.now(timezone.utc) - timedelta(days=notes_days)).isoformat()
@@ -18710,6 +18713,41 @@ async def me_welcome_briefing(user: dict = Depends(get_current_user)):
         "messages_sent_today": wa_sent_today + sms_sent_today,
     }
 
+    # Iter36g — "Nouveaux depuis votre dernière visite": tickets + WA + notes
+    # created strictly after last_seen_at (sent by the frontend from localStorage).
+    since_last_visit = None
+    if last_seen_at:
+        try:
+            # Parse to make sure it's a valid ISO timestamp
+            _ = datetime.fromisoformat(last_seen_at.replace("Z", "+00:00"))
+            new_tickets_cur = db.support_tickets.find(
+                {**scope_filter, "opened_at": {"$gt": last_seen_at}},
+                {"_id": 0, "id": 1, "number": 1, "motif": 1, "status": 1, "opened_at": 1, "contact_name": 1},
+            ).sort("opened_at", -1).limit(50)
+            new_tickets = [t async for t in new_tickets_cur]
+            new_wa = await db.whatsapp_messages.count_documents({
+                "client_id": {"$in": visible_scope},
+                "direction": "inbound",
+                "received_at": {"$gt": last_seen_at},
+            })
+            new_notes_cur = db.user_notes_personal.find(
+                {"owner_id": user["id"], "created_at": {"$gt": last_seen_at}},
+                {"_id": 0, "id": 1, "title": 1, "is_private": 1, "created_at": 1, "kind": 1, "numero": 1},
+            ).sort("created_at", -1).limit(20)
+            new_notes = [n async for n in new_notes_cur]
+            since_last_visit = {
+                "last_seen_at": last_seen_at,
+                "new_tickets": new_tickets,
+                "new_tickets_count": len(new_tickets),
+                "new_whatsapp_count": new_wa,
+                "new_notes": new_notes,
+                "new_notes_count": len(new_notes),
+                "total_count": len(new_tickets) + new_wa + len(new_notes),
+            }
+        except (ValueError, TypeError):
+            # Invalid ISO timestamp → silently skip
+            since_last_visit = None
+
     return {
         "tickets": tickets,
         "tickets_count": len(tickets),
@@ -18718,6 +18756,8 @@ async def me_welcome_briefing(user: dict = Depends(get_current_user)):
         "recent_notes_count": len(recent_notes),
         "recent_notes_window_days": notes_days,
         "daily_health": daily_health,
+        "since_last_visit": since_last_visit,
+        "server_now": _now(),
     }
 
 

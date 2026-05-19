@@ -1,37 +1,55 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { X, Ticket, MessageCircle, MessageSquare, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles } from "lucide-react";
+import { X, Ticket, MessageCircle, MessageSquare, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock } from "lucide-react";
 
 /*
-  Iter35r — Welcome briefing modal.
+  Iter35r → Iter36g — Welcome briefing modal.
 
   Shown right after the first successful login of a session for any user
   (admin/superviseur/tracked). Lists:
     • Pending tickets (open + suspended) in the user's scope
     • Unread WhatsApp + SMS counts
     • The user's own personal notes created within the last N days (admin-tunable)
+    • Iter36g: NEW since last visit (tickets + WA inbound + notes) using a
+      localStorage "last_seen_at" stamp so a user coming back after the weekend
+      sees instantly what piled up while they were away.
 
   The user must click "J'ai lu" to dismiss. We persist a sessionStorage key so
   the modal only appears once per session.
 */
 
 const SS_KEY = "sawali_welcome_briefing_seen";
+const LS_LAST_SEEN = "sawali_portal_last_seen_at";
 
 export default function WelcomeBriefing({ onClose }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    // Iter36g — pull the saved last_seen stamp BEFORE the request so the
+    // backend can compute the "new since last visit" diff. We refresh the
+    // stamp ONLY after the user explicitly clicks "J'ai lu" (in dismiss())
+    // to guarantee they actually saw the briefing.
+    let qs = "";
+    try {
+      const lastSeen = localStorage.getItem(LS_LAST_SEEN);
+      if (lastSeen) qs = `?last_seen_at=${encodeURIComponent(lastSeen)}`;
+    } catch { /* noop */ }
     apiClient
-      .get("/me/welcome-briefing")
+      .get(`/me/welcome-briefing${qs}`)
       .then((r) => setData(r.data))
       .catch(() => setData(null))
       .finally(() => setLoading(false));
   }, []);
 
   const dismiss = () => {
-    try { sessionStorage.setItem(SS_KEY, "1"); } catch { /* noop */ }
+    try {
+      sessionStorage.setItem(SS_KEY, "1");
+      // Iter36g — refresh the last-seen stamp ONLY on explicit dismissal
+      const stamp = data?.server_now || new Date().toISOString();
+      localStorage.setItem(LS_LAST_SEEN, stamp);
+    } catch { /* noop */ }
     onClose?.();
   };
 
@@ -40,13 +58,15 @@ export default function WelcomeBriefing({ onClose }) {
   const unread = data?.unread_messages || { whatsapp: 0, sms: 0, total: 0 };
   const notes = data?.recent_notes || [];
   const health = data?.daily_health || null;
+  const sinceLast = data?.since_last_visit || null;
   const hasHealth = !!health && (
     (health.tickets_resolved_yesterday || 0) > 0
     || (health.messages_sent_today || 0) > 0
     || (health.tickets_opened_today || 0) > 0
-    || health.wa_response_rate_24h !== null && health.wa_response_rate_24h !== undefined
+    || (health.wa_response_rate_24h !== null && health.wa_response_rate_24h !== undefined)
   );
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth;
+  const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -118,6 +138,57 @@ export default function WelcomeBriefing({ onClose }) {
                     tone="sky"
                   />
                 </div>
+              </section>
+            )}
+
+            {/* Iter36g — "Depuis votre dernière visite" (only if there's something new) */}
+            {hasSinceLast && (
+              <section className="rounded-lg ring-1 ring-amber-300 bg-gradient-to-br from-amber-50 via-white to-amber-50/40 p-3" data-testid="welcome-since-last">
+                <div className="flex items-center gap-2 mb-2">
+                  <Clock className="h-4 w-4 text-amber-700" />
+                  <h3 className="text-sm font-semibold text-amber-900">
+                    Depuis votre dernière visite
+                  </h3>
+                  <span className="text-[10px] text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded-full" title={sinceLast.last_seen_at}>
+                    {new Date(sinceLast.last_seen_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                  </span>
+                </div>
+                {/* Summary badges */}
+                <div className="flex flex-wrap gap-2 text-[11px] mb-2">
+                  {sinceLast.new_tickets_count > 0 && (
+                    <Link to="/portal/tickets" className="inline-flex items-center gap-1 rounded-full bg-rose-100 text-rose-800 ring-1 ring-rose-200 px-2 py-0.5 hover:bg-rose-200 transition" data-testid="welcome-since-last-tickets-badge">
+                      <Ticket className="h-3 w-3" />
+                      {sinceLast.new_tickets_count} ticket{sinceLast.new_tickets_count > 1 ? "s" : ""}
+                    </Link>
+                  )}
+                  {sinceLast.new_whatsapp_count > 0 && (
+                    <Link to="/portal/contacts" className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 px-2 py-0.5 hover:bg-emerald-200 transition" data-testid="welcome-since-last-wa-badge">
+                      <MessageCircle className="h-3 w-3" />
+                      {sinceLast.new_whatsapp_count} WhatsApp
+                    </Link>
+                  )}
+                  {sinceLast.new_notes_count > 0 && (
+                    <Link to="/portal/notes" className="inline-flex items-center gap-1 rounded-full bg-sky-100 text-sky-800 ring-1 ring-sky-200 px-2 py-0.5 hover:bg-sky-200 transition" data-testid="welcome-since-last-notes-badge">
+                      <FileText className="h-3 w-3" />
+                      {sinceLast.new_notes_count} note{sinceLast.new_notes_count > 1 ? "s" : ""}
+                    </Link>
+                  )}
+                </div>
+                {/* New tickets detail (max 5) */}
+                {sinceLast.new_tickets?.length > 0 && (
+                  <div className="space-y-1" data-testid="welcome-since-last-tickets-list">
+                    {sinceLast.new_tickets.slice(0, 5).map((t) => (
+                      <Link key={t.id} to="/portal/tickets" className="flex items-center gap-2 text-[11px] py-0.5 hover:bg-amber-50 rounded px-1 transition">
+                        <span className="font-mono text-[10px] bg-white px-1 py-0.5 rounded ring-1 ring-amber-200 text-rose-700">{t.number || t.id.slice(0, 8)}</span>
+                        <span className="text-slate-700 truncate flex-1">{t.motif || "(sans motif)"}</span>
+                        {t.contact_name && <span className="text-slate-500 truncate max-w-[120px]">{t.contact_name}</span>}
+                      </Link>
+                    ))}
+                    {sinceLast.new_tickets.length > 5 && (
+                      <div className="text-[10px] text-amber-700 italic pt-0.5">+ {sinceLast.new_tickets.length - 5} autre(s)</div>
+                    )}
+                  </div>
+                )}
               </section>
             )}
 

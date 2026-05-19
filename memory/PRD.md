@@ -3,6 +3,16 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36g (2026-05-19) — "Depuis votre dernière visite"
+
+### ✨ Iter36g — Mini-section "Depuis votre dernière visite" dans WelcomeBriefing
+- Endpoint `/me/welcome-briefing` enrichi : accepte `?last_seen_at=ISO8601`, retourne un nouveau bloc `since_last_visit` avec `new_tickets` (liste détaillée), `new_whatsapp_count`, `new_notes`, `total_count`. Expose aussi `server_now` pour que le frontend rafraîchisse son stamp.
+- Frontend : stockage `localStorage["sawali_portal_last_seen_at"]`, envoyé en query param, rafraîchi **uniquement** quand l'utilisateur clique "J'ai lu" (garantit qu'il a vu le briefing).
+- UI : nouvelle section ambre dans la modale avec 3 badges cliquables (rose tickets, emerald WhatsApp, sky notes) + détail des 5 premiers nouveaux tickets inline.
+- Tests pytest : 2/2 verts (diff correct entre old/new, retour `None` si pas de last_seen_at).
+
+---
+
 ## Latest — Iter36f (2026-05-19) — Bouton "Rediffuser KO" sur Note de Service
 
 ### ✨ Iter36f — Rediffusion ciblée aux destinataires en échec

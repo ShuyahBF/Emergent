@@ -3,7 +3,12 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35r+s (2026-05-19) — Welcome Briefing + Bug critique SMS
+## Latest — Iter35r+s+t (2026-05-19) — Welcome Briefing enrichie + Bug critique SMS
+
+### ✨ Iter35t — Mini-dashboard "Santé quotidienne" dans WelcomeBriefing
+- Endpoint `/me/welcome-briefing` enrichi du bloc `daily_health` : `tickets_resolved_yesterday`, `tickets_opened_today`, `wa_response_rate_24h` (avec wa_inbound/outbound 24h), `messages_sent_today`.
+- UI : 4 tuiles colorées (Tickets clos hier, Ouverts aujourd'hui, % Réponse WA 24h, Messages envoyés) avec code couleur dynamique selon performance (>=80% emerald, >=50% amber, <50% rose).
+- 2 tests pytest (`test_iter35t_welcome_daily_health.py`) verts → bloc présent + schéma + `wa_response_rate_24h=None` quand aucun inbound.
 
 ### ✨ Iter35r — Welcome Briefing modal intégrée
 - `WelcomeBriefing.jsx` désormais affichée 1× par session après login (`PortalLayout` enveloppe la modale en lecture conditionnelle via `sessionStorage`).

@@ -17917,6 +17917,62 @@ async def me_welcome_briefing(user: dict = Depends(get_current_user)):
     ).sort("created_at", -1).limit(50)
     recent_notes = [n async for n in recent_notes_cur]
 
+    # 4) Iter35t — Santé quotidienne (motivation mini-dashboard)
+    now = datetime.now(timezone.utc)
+    yesterday_start = (now - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    yesterday_end = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    since_24h = (now - timedelta(hours=24)).isoformat()
+
+    # Tickets résolus hier (status closed dans la fenêtre d'hier)
+    tickets_resolved_yesterday = await db.support_tickets.count_documents({
+        **scope_filter,
+        "status": "closed",
+        "closed_at": {"$gte": yesterday_start, "$lt": yesterday_end},
+    })
+    # Tickets ouverts aujourd'hui
+    tickets_opened_today = await db.support_tickets.count_documents({
+        **scope_filter,
+        "opened_at": {"$gte": today_start},
+    })
+
+    # Taux de réponse WhatsApp 24h : sortants / entrants (capé à 100%)
+    wa_inbound_24h = await db.whatsapp_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "inbound",
+        "received_at": {"$gte": since_24h},
+    })
+    wa_outbound_24h = await db.whatsapp_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "outbound",
+        "sent_at": {"$gte": since_24h},
+    })
+    if wa_inbound_24h > 0:
+        wa_response_rate = min(100, round(100 * wa_outbound_24h / wa_inbound_24h))
+    else:
+        wa_response_rate = None  # aucun inbound = pas de métrique pertinente
+
+    # Messages envoyés aujourd'hui (WA + SMS)
+    wa_sent_today = await db.whatsapp_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "outbound",
+        "sent_at": {"$gte": today_start},
+    })
+    sms_sent_today = await db.sms_messages.count_documents({
+        "client_id": {"$in": visible_scope},
+        "direction": "outbound",
+        "sent_at": {"$gte": today_start},
+    })
+
+    daily_health = {
+        "tickets_resolved_yesterday": tickets_resolved_yesterday,
+        "tickets_opened_today": tickets_opened_today,
+        "wa_response_rate_24h": wa_response_rate,  # None si pas d'inbound
+        "wa_inbound_24h": wa_inbound_24h,
+        "wa_outbound_24h": wa_outbound_24h,
+        "messages_sent_today": wa_sent_today + sms_sent_today,
+    }
+
     return {
         "tickets": tickets,
         "tickets_count": len(tickets),
@@ -17924,6 +17980,7 @@ async def me_welcome_briefing(user: dict = Depends(get_current_user)):
         "recent_notes": recent_notes,
         "recent_notes_count": len(recent_notes),
         "recent_notes_window_days": notes_days,
+        "daily_health": daily_health,
     }
 
 

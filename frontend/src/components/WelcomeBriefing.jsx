@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { X, Ticket, MessageCircle, MessageSquare, FileText, Lock, CheckCircle2 } from "lucide-react";
+import { X, Ticket, MessageCircle, MessageSquare, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles } from "lucide-react";
 
 /*
   Iter35r — Welcome briefing modal.
@@ -39,7 +39,14 @@ export default function WelcomeBriefing({ onClose }) {
   const tickets = data?.tickets || [];
   const unread = data?.unread_messages || { whatsapp: 0, sms: 0, total: 0 };
   const notes = data?.recent_notes || [];
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0;
+  const health = data?.daily_health || null;
+  const hasHealth = !!health && (
+    (health.tickets_resolved_yesterday || 0) > 0
+    || (health.messages_sent_today || 0) > 0
+    || (health.tickets_opened_today || 0) > 0
+    || health.wa_response_rate_24h !== null && health.wa_response_rate_24h !== undefined
+  );
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -66,6 +73,54 @@ export default function WelcomeBriefing({ onClose }) {
           <div className="p-8 text-center text-slate-500">Chargement…</div>
         ) : (
           <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* Iter35t — Santé quotidienne (mini-dashboard motivant) */}
+            {hasHealth && (
+              <section className="rounded-lg ring-1 ring-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50/40 p-3" data-testid="welcome-daily-health">
+                <div className="flex items-center gap-2 mb-2">
+                  <Sparkles className="h-4 w-4 text-sky-700" />
+                  <h3 className="text-sm font-semibold text-sky-900">Santé quotidienne</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  <HealthStat
+                    testid="health-tickets-resolved"
+                    icon={CheckCircle2}
+                    value={health.tickets_resolved_yesterday ?? 0}
+                    label="Tickets clos hier"
+                    tone="emerald"
+                  />
+                  <HealthStat
+                    testid="health-tickets-opened"
+                    icon={Ticket}
+                    value={health.tickets_opened_today ?? 0}
+                    label="Ouverts aujourd'hui"
+                    tone="amber"
+                  />
+                  <HealthStat
+                    testid="health-wa-response-rate"
+                    icon={TrendingUp}
+                    value={health.wa_response_rate_24h === null || health.wa_response_rate_24h === undefined ? "—" : `${health.wa_response_rate_24h}%`}
+                    label={`Réponse WA 24h${health.wa_inbound_24h ? ` (${health.wa_outbound_24h}/${health.wa_inbound_24h})` : ""}`}
+                    tone={
+                      health.wa_response_rate_24h === null || health.wa_response_rate_24h === undefined
+                        ? "slate"
+                        : health.wa_response_rate_24h >= 80
+                          ? "emerald"
+                          : health.wa_response_rate_24h >= 50
+                            ? "amber"
+                            : "rose"
+                    }
+                  />
+                  <HealthStat
+                    testid="health-messages-sent"
+                    icon={Send}
+                    value={health.messages_sent_today ?? 0}
+                    label="Messages envoyés"
+                    tone="sky"
+                  />
+                </div>
+              </section>
+            )}
+
             {/* Tickets en attente / suspendus */}
             {tickets.length > 0 && (
               <section className="rounded-lg ring-1 ring-amber-200 bg-amber-50/50 p-3" data-testid="welcome-tickets">
@@ -170,4 +225,26 @@ export default function WelcomeBriefing({ onClose }) {
 
 export function shouldShowWelcomeBriefing() {
   try { return sessionStorage.getItem(SS_KEY) !== "1"; } catch { return true; }
+}
+
+// Iter35t — mini-stat card used inside the daily-health section
+const TONE_CLASSES = {
+  emerald: "bg-emerald-50 ring-emerald-200 text-emerald-900 [&_svg]:text-emerald-600",
+  amber: "bg-amber-50 ring-amber-200 text-amber-900 [&_svg]:text-amber-600",
+  sky: "bg-sky-50 ring-sky-200 text-sky-900 [&_svg]:text-sky-600",
+  rose: "bg-rose-50 ring-rose-200 text-rose-900 [&_svg]:text-rose-600",
+  slate: "bg-slate-50 ring-slate-200 text-slate-700 [&_svg]:text-slate-500",
+};
+
+function HealthStat({ icon: Icon, value, label, tone = "sky", testid }) {
+  const cls = TONE_CLASSES[tone] || TONE_CLASSES.sky;
+  return (
+    <div className={`rounded-lg ring-1 p-2 ${cls}`} data-testid={testid}>
+      <div className="flex items-center justify-between">
+        <Icon className="h-4 w-4" />
+        <span className="text-lg font-display font-bold leading-none">{value}</span>
+      </div>
+      <p className="text-[10px] uppercase tracking-wider mt-1 opacity-80 truncate" title={label}>{label}</p>
+    </div>
+  );
 }

@@ -398,6 +398,15 @@ class SettingsUpdate(BaseModel):
     secret_audit_email_enabled: Optional[bool] = None
     secret_audit_email_to: Optional[str] = None
 
+    # --- Iter35z — SMS dashboard: per-provider unit cost (XOF) + monthly budget ---
+    # All costs are quoted in F CFA (XOF). Used by /api/admin/sms/dashboard to
+    # estimate spend and warn when the monthly budget is at risk.
+    sms_orange_unit_cost_xof: Optional[float] = None
+    sms_moov_unit_cost_xof: Optional[float] = None
+    sms_telecel_unit_cost_xof: Optional[float] = None
+    sms_ovh_unit_cost_xof: Optional[float] = None
+    sms_monthly_budget_xof: Optional[float] = None
+
     # --- Auto DB Snapshot (iter34) ---
     # Weekly cron creates a snapshot every Sunday 03:00 Africa/Abidjan and
     # rotates older auto snapshots beyond `auto_snapshot_keep` (default 4,

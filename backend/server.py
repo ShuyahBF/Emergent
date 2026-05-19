@@ -198,56 +198,25 @@ async def _refresh_public_base_url_cache() -> None:
 
 
 # =====================================================================
-# Iter35x — Alexa Echo voice notifications via Voice Monkey
-# Best-effort fire-and-forget POST to the configured Voice Monkey webhook
-# whenever one of the selected events fires. Failures are logged but never
-# raise — Alexa is "nice to have", not critical path.
+# Iter35x → Iter35y — Alexa Echo voice notifications via Voice Monkey
+# Helpers extracted to /app/backend/services/alexa.py for modularity.
+# Aliases kept here as thin wrappers so existing call sites still work.
 # =====================================================================
-ALEXA_EVENT_TYPES = {
-    "sms_inbound": "SMS reçu",
-    "wa_inbound": "WhatsApp reçu",
-    "appointment_due": "Rendez-vous imminent",
-    "support_load_critical": "Niveau de support critique",
-}
+from services.alexa import (  # noqa: E402  (re-export)
+    ALEXA_EVENT_TYPES,
+    alexa_notify as _alexa_notify_impl,
+    alexa_notify_async as _alexa_notify_async_impl,
+)
 
 
 async def _alexa_notify(event_type: str, message: str) -> None:
-    """Fire-and-forget POST to Voice Monkey. Schedules itself via create_task
-    so callers never wait on it. Skips silently if not configured / event
-    not selected."""
-    try:
-        s = await db.settings.find_one(
-            {"_id": "global"},
-            {"_id": 0, "alexa_enabled": 1, "alexa_webhook_url": 1, "alexa_events": 1},
-        ) or {}
-        if not s.get("alexa_enabled"):
-            return
-        url = (s.get("alexa_webhook_url") or "").strip()
-        if not url.startswith(("http://", "https://")):
-            return
-        events = s.get("alexa_events") or []
-        if event_type not in events:
-            return
-        payload = {
-            "event": event_type,
-            "event_label": ALEXA_EVENT_TYPES.get(event_type, event_type),
-            "announcement": (message or "")[:200],
-            "source": "sawali-portal",
-            "timestamp": _now() if "_now" in globals() else datetime.now(timezone.utc).isoformat(),
-        }
-        async with httpx.AsyncClient(timeout=8) as http:
-            await http.post(url, json=payload, headers={"Accept": "application/json"})
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("[alexa] notify failed: %s", exc)
+    """Thin wrapper that injects `db` into the service-level helper."""
+    await _alexa_notify_impl(db, event_type, message)
 
 
 def _alexa_notify_async(event_type: str, message: str) -> None:
-    """Sync wrapper that schedules the async notify in the running loop."""
-    try:
-        asyncio.create_task(_alexa_notify(event_type, message))
-    except Exception:  # noqa: BLE001
-        # No running loop (e.g. import-time) — ignore.
-        pass
+    """Sync wrapper that injects `db` into the service-level helper."""
+    _alexa_notify_async_impl(db, event_type, message)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sawali")
@@ -18271,5 +18240,13 @@ async def me_welcome_briefing(user: dict = Depends(get_current_user)):
         "daily_health": daily_health,
     }
 
+
+# =====================================================================
+# Iter35z — SMS Dashboard router (extracted to routes/sms_dashboard.py)
+# Mounted under /api/admin/sms/dashboard alongside the rest of admin API.
+# =====================================================================
+from routes.sms_dashboard import make_router as _make_sms_dashboard_router  # noqa: E402
+_sms_dashboard_router = _make_sms_dashboard_router(db=db, get_current_admin=get_current_admin)
+api.include_router(_sms_dashboard_router)
 
 app.include_router(api)

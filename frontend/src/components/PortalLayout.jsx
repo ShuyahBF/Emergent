@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -67,6 +67,7 @@ const adminLinks = [
   { to: "/admin/blacklist", label: "Blacklist IP", icon: ShieldAlert },
   { to: "/admin/access-logs", label: "Logs d'accès", icon: History, module: "admin_access_logs" },
   { to: "/admin/api-traces", label: "Traces API (debug)", icon: Bug, superAdminOnly: true, module: "admin_api_traces" },
+  { to: "/admin/sms-dashboard", label: "Tableau de bord SMS", icon: MessageSquare },
   { to: "/admin/health", label: "Santé applicative", icon: HeartPulse, superAdminOnly: true },
   { to: "/admin/db-explorer", label: "Explorateur DB", icon: Database, superAdminOnly: true },
   { to: "/admin/integration-links", label: "Liens cryptés", icon: Link2, superAdminOnly: true },

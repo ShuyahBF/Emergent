@@ -83,6 +83,7 @@ import AdminDeployments from "@/pages/admin/AdminDeployments";
 import AdminBlacklist from "@/pages/admin/AdminBlacklist";
 import AdminAccessLogs from "@/pages/admin/AdminAccessLogs";
 import AdminApiTraces from "@/pages/admin/AdminApiTraces";
+import AdminSmsDashboard from "@/pages/admin/AdminSmsDashboard";
 import AdminHealthDashboard from "@/pages/admin/AdminHealthDashboard";
 import AdminDbExplorer from "@/pages/admin/AdminDbExplorer";
 import AdminFormations from "@/pages/admin/AdminFormations";
@@ -219,6 +220,7 @@ export default function App() {
             <Route path="blacklist" element={<AdminBlacklist />} />
             <Route path="access-logs" element={<AdminAccessLogs />} />
             <Route path="api-traces" element={<AdminApiTraces />} />
+            <Route path="sms-dashboard" element={<AdminSmsDashboard />} />
             <Route path="health" element={<AdminHealthDashboard />} />
             <Route path="db-explorer" element={<AdminDbExplorer />} />
             <Route path="formations" element={<AdminFormations />} />

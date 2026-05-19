@@ -3,6 +3,25 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter35y+z (2026-05-19) — Refactor amorce + Tableau de bord SMS
+
+### ✨ Iter35y — Amorce refactor `server.py` (extraction modulaire)
+- Création de `/app/backend/routes/` (FastAPI APIRouters) et `/app/backend/services/` (pure helpers).
+- Premier module extrait : **`services/alexa.py`** (~80 lignes — Alexa Voice Monkey notifier).
+- `server.py` ne garde que des wrappers minces qui réinjectent `db` → aucun appel existant cassé.
+- Document `/app/backend/REFACTORING.md` : pattern + checklist + backlog des modules à extraire.
+
+### ✨ Iter35z — Tableau de bord SMS temps réel (P1)
+- Nouveau router **`routes/sms_dashboard.py`** (greenfield, suit le nouveau pattern).
+- Endpoint `GET /api/admin/sms/dashboard?days=30` retourne : totaux (OK/KO/succès%/coût), détail par opérateur (Orange/Moov/Telecel/OVH avec coût unitaire configurable), jauge budget mensuel (ok/warning/over), top 10 erreurs, série quotidienne zéro-fillée.
+- Settings ajoutés : `sms_orange_unit_cost_xof`, `sms_moov_unit_cost_xof`, `sms_telecel_unit_cost_xof`, `sms_ovh_unit_cost_xof`, `sms_monthly_budget_xof`.
+- UI : `/admin/sms-dashboard` avec 4 stat cards, jauge budget colorée (vert/ambre/rose), 4 tuiles opérateurs (OK/KO/% réussite/coût), graphique en barres quotidien, top erreurs avec compteur.
+- Tests pytest : 2/2 verts (schéma complet + warning budget dépassé).
+
+✅ **Tests cumulés** : 16/16 verts (Iter35s/t/w/x/z).
+
+---
+
 ## Latest — Iter35x (2026-05-19) — Implémentation des 3 P2
 
 ### ✨ Iter35x — P2-1 : Versioning + email notif sur modif coffre-fort

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2 } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 
@@ -2472,42 +2472,59 @@ const SecretsVaultSection = () => {
   // Audit state
   const [audit, setAudit] = useState([]);
   const [auditOpen, setAuditOpen] = useState(false);
-  // Iter35u — Editable public_base_url (used by background jobs for absolute links)
-  const [publicBaseUrl, setPublicBaseUrl] = useState("");
-  const [publicBaseUrlInitial, setPublicBaseUrlInitial] = useState("");
-  const [savingPublicBaseUrl, setSavingPublicBaseUrl] = useState(false);
+  // Iter35u/v — Editable critical URLs (used by background jobs for absolute links + outbound integrations)
+  const CRITICAL_URL_FIELDS = [
+    { key: "public_base_url", label: "URL publique de production", help: "Liens absolus, OAuth redirects, webhooks sortants. Prend le pas sur la variable d'environnement PUBLIC_BASE_URL.", placeholder: "https://sawalismartsystems.com" },
+    { key: "tracking_base_url", label: "URL du tracker de visites", help: "Serveur qui reçoit les hits de visiteurs (n8n / Plausible / matomo…)", placeholder: "https://tracker.sawalismartsystems.com" },
+    { key: "tracking_endpoint", label: "Chemin du tracker", help: "Path relatif appendé à l'URL ci-dessus (ex: /events/visit)", placeholder: "/events/visit" },
+    { key: "webhook_base_url", label: "Webhook générique (sortant)", help: "URL appelée pour les notifications génériques.", placeholder: "https://sawalismartsystems.app.n8n.cloud/webhook/..." },
+    { key: "notes_webhook_url", label: "Webhook Notes/Tâches/Rapports", help: "Notifie un workflow externe à chaque création/édition de note/tâche/rapport.", placeholder: "https://sawalismartsystems.app.n8n.cloud/webhook/notes" },
+    { key: "health_webhook_url", label: "Webhook Santé applicative", help: "Reçoit les alertes santé (auth lockouts, snapshot failures, etc.).", placeholder: "https://sawalismartsystems.app.n8n.cloud/webhook/health" },
+    { key: "n8n_webhook_url", label: "Webhook n8n (général)", help: "URL générale pour l'orchestration n8n.", placeholder: "https://sawalismartsystems.app.n8n.cloud/webhook/general" },
+  ];
+  const [urlValues, setUrlValues] = useState({});
+  const [urlInitial, setUrlInitial] = useState({});
+  const [savingUrlKey, setSavingUrlKey] = useState(null);
+  const [urlsOpen, setUrlsOpen] = useState(true);
 
-  const loadPublicBaseUrl = useCallback(async () => {
+  const loadCriticalUrls = useCallback(async () => {
     try {
       const r = await apiClient.get("/admin/settings");
-      const v = (r.data?.public_base_url || "").toString();
-      setPublicBaseUrl(v);
-      setPublicBaseUrlInitial(v);
+      const next = {};
+      CRITICAL_URL_FIELDS.forEach(({ key }) => {
+        next[key] = (r.data?.[key] || "").toString();
+      });
+      setUrlValues(next);
+      setUrlInitial(next);
     } catch (err) {
-      // Silently ignore — admin will see the empty field
+      // Silent — admin will see empty fields
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  useEffect(() => { loadPublicBaseUrl(); }, [loadPublicBaseUrl]);
+  useEffect(() => { loadCriticalUrls(); }, [loadCriticalUrls]);
 
-  const savePublicBaseUrl = async () => {
-    const v = (publicBaseUrl || "").trim();
-    if (v && !/^https?:\/\//i.test(v)) {
+  const saveCriticalUrl = async (key) => {
+    const v = (urlValues[key] || "").trim();
+    // Path fields (tracking_endpoint) may start with /; others must be http(s) URLs
+    const isPath = key === "tracking_endpoint";
+    if (v && !isPath && !/^https?:\/\//i.test(v)) {
       toast.error("L'URL doit commencer par http:// ou https://");
       return;
     }
-    setSavingPublicBaseUrl(true);
+    if (v && isPath && !v.startsWith("/")) {
+      toast.error("Le chemin doit commencer par /");
+      return;
+    }
+    setSavingUrlKey(key);
     try {
-      await apiClient.put("/admin/settings", { public_base_url: v });
-      setPublicBaseUrlInitial(v);
-      toast.success(v
-        ? `URL publique enregistrée : ${v}`
-        : "URL publique vidée — la variable d'environnement sera utilisée."
-      );
+      await apiClient.put("/admin/settings", { [key]: v });
+      setUrlInitial({ ...urlInitial, [key]: v });
+      toast.success(v ? `${key} : enregistré` : `${key} : vidé`);
       loadKeys();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Échec");
     } finally {
-      setSavingPublicBaseUrl(false);
+      setSavingUrlKey(null);
     }
   };
 
@@ -2609,34 +2626,60 @@ const SecretsVaultSection = () => {
         En cas d'incident (snapshot raté, env reset, nouvelle installation), restaurez vos credentials en un clic.
       </p>
 
-      {/* Iter35u — Quick-edit: PUBLIC_BASE_URL (DB override of env var) */}
-      <div className="rounded-lg ring-1 ring-purple-200 bg-white p-3" data-testid="public-base-url-editor">
-        <div className="flex items-center gap-2 mb-1.5">
-          <span className="font-mono text-[11px] bg-purple-100 text-purple-900 px-1.5 py-0.5 rounded">public_base_url</span>
-          <span className="text-xs text-slate-700">URL publique de production (liens absolus, OAuth redirects, webhooks sortants)</span>
-        </div>
-        <div className="flex gap-2 flex-wrap">
-          <input
-            type="url"
-            value={publicBaseUrl}
-            onChange={(e) => setPublicBaseUrl(e.target.value)}
-            placeholder="https://sawalismartsystems.com"
-            className="flex-1 min-w-[280px] rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
-            data-testid="public-base-url-input"
-          />
-          <button
-            onClick={savePublicBaseUrl}
-            disabled={savingPublicBaseUrl || publicBaseUrl === publicBaseUrlInitial}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 text-sm font-medium transition"
-            data-testid="public-base-url-save"
-          >
-            {savingPublicBaseUrl ? "Enregistrement…" : "Enregistrer"}
-          </button>
-        </div>
-        <p className="text-[10px] text-slate-500 mt-1.5">
-          Prend le pas sur la variable d'environnement <code>PUBLIC_BASE_URL</code>. Laissez vide pour revenir au fallback env.
-          Les en-têtes <code>Origin</code>/<code>X-Forwarded-Host</code> restent prioritaires pour les appels initiés par un navigateur.
+      {/* Iter35u/v — Quick-edit: URLs critiques (DB override of env var + outbound webhooks) */}
+      <div className="rounded-lg ring-1 ring-purple-200 bg-white p-3" data-testid="critical-urls-editor">
+        <button
+          type="button"
+          onClick={() => setUrlsOpen((v) => !v)}
+          className="w-full flex items-center justify-between gap-2 text-left"
+          data-testid="critical-urls-toggle"
+        >
+          <span className="flex items-center gap-2">
+            <Link2 className="h-4 w-4 text-purple-600" />
+            <span className="font-display font-semibold text-sm text-slate-800">URLs critiques</span>
+            <span className="text-[10px] text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded-full">{Object.values(urlInitial).filter(Boolean).length}/{CRITICAL_URL_FIELDS.length}</span>
+          </span>
+          <span className="text-xs text-slate-400">{urlsOpen ? "Masquer" : "Afficher"}</span>
+        </button>
+        <p className="text-[11px] text-slate-500 mt-1">
+          Centralisation des URLs sortantes (base publique, tracker, webhooks n8n). Toutes éditables en un seul endroit, sauvegardées dans le coffre.
         </p>
+        {urlsOpen && (
+          <div className="mt-3 space-y-3">
+            {CRITICAL_URL_FIELDS.map(({ key, label, help, placeholder }) => {
+              const dirty = (urlValues[key] || "") !== (urlInitial[key] || "");
+              const saving = savingUrlKey === key;
+              return (
+                <div key={key} className="rounded ring-1 ring-slate-200 bg-slate-50/50 p-2.5" data-testid={`critical-url-${key}`}>
+                  <div className="flex items-center gap-2 mb-1.5 flex-wrap">
+                    <span className="font-mono text-[10px] bg-purple-100 text-purple-900 px-1.5 py-0.5 rounded">{key}</span>
+                    <span className="text-xs font-semibold text-slate-700">{label}</span>
+                    {urlInitial[key] && <span className="text-[9px] text-emerald-600 font-semibold uppercase tracking-wider">✓ Renseigné</span>}
+                  </div>
+                  <div className="flex gap-2 flex-wrap">
+                    <input
+                      type="text"
+                      value={urlValues[key] || ""}
+                      onChange={(e) => setUrlValues({ ...urlValues, [key]: e.target.value })}
+                      placeholder={placeholder}
+                      className="flex-1 min-w-[240px] rounded-lg border border-slate-300 px-3 py-1.5 text-sm font-mono"
+                      data-testid={`critical-url-input-${key}`}
+                    />
+                    <button
+                      onClick={() => saveCriticalUrl(key)}
+                      disabled={saving || !dirty}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 text-xs font-medium transition"
+                      data-testid={`critical-url-save-${key}`}
+                    >
+                      {saving ? "…" : "Enregistrer"}
+                    </button>
+                  </div>
+                  <p className="text-[10px] text-slate-500 mt-1">{help}</p>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Status overview */}

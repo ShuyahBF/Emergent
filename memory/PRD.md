@@ -3,7 +3,17 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter35r+s+t (2026-05-19) — Welcome Briefing enrichie + Bug critique SMS
+## Latest — Iter35r+s+t+u+v (2026-05-19) — Welcome Briefing + Bug critique SMS + URLs critiques
+
+### ✨ Iter35v — Section "URLs critiques" dans le Coffre-fort
+- Toutes les URLs sortantes critiques (public_base_url, tracking_base_url, tracking_endpoint, webhook_base_url, notes_webhook_url, health_webhook_url, n8n_webhook_url) regroupées dans une mini-section éditable du panneau Coffre-fort.
+- 7 champs avec validation (http(s):// pour les URLs, / pour les paths), bouton "Enregistrer" individuel par champ, badge "✓ Renseigné" pour les valeurs présentes, chevron pour replier/déplier.
+- Compteur visuel `N/7` dans l'entête (5/7 actuellement).
+
+### ✨ Iter35u — `public_base_url` éditable depuis le Coffre-fort
+- DB-backed override de `PUBLIC_BASE_URL` env var. Hot-reload de la cache après chaque PUT `/admin/settings`.
+- Valeur production `https://sawalismartsystems.com` enregistrée.
+- Ajouté à `VAULT_KEYS` → inclus dans les exports/imports chiffrés.
 
 ### ✨ Iter35t — Mini-dashboard "Santé quotidienne" dans WelcomeBriefing
 - Endpoint `/me/welcome-briefing` enrichi du bloc `daily_health` : `tickets_resolved_yesterday`, `tickets_opened_today`, `wa_response_rate_24h` (avec wa_inbound/outbound 24h), `messages_sent_today`.

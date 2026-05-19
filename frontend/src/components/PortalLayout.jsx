@@ -12,6 +12,7 @@ import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
+import { useTicketNotifier } from "@/hooks/useTicketNotifier";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import WelcomeBriefing, { shouldShowWelcomeBriefing } from "@/components/WelcomeBriefing";
 
@@ -136,6 +137,8 @@ export default function PortalLayout({ admin = false }) {
   const waNotifier = useWhatsAppNotifier();
   // Iter34x — toasts live des actions des autres utilisateurs liés
   useActivityFeedNotifier(!!user);
+  // Iter36b — toasts + son sur nouveaux tickets / changements de statut
+  useTicketNotifier(!!user);
 
   // Access log every page change for any logged-in portal user
   useEffect(() => {

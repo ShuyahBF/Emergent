@@ -407,6 +407,10 @@ class SettingsUpdate(BaseModel):
     sms_ovh_unit_cost_xof: Optional[float] = None
     sms_monthly_budget_xof: Optional[float] = None
 
+    # --- Iter36d — Note de Service (broadcast WA template to all suivis) ---
+    wa_template_note_service: Optional[str] = None  # default: "notedeservice_fr"
+    wa_template_note_service_language: Optional[str] = None  # default: "fr"
+
     # --- Auto DB Snapshot (iter34) ---
     # Weekly cron creates a snapshot every Sunday 03:00 Africa/Abidjan and
     # rotates older auto snapshots beyond `auto_snapshot_keep` (default 4,

@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare } from "lucide-react";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -246,6 +246,110 @@ const ResolutionTile = ({ label, value, primary, testid }) => (
 // Shows counts by kind + top contacts + last 5 thumbnails over a chosen
 // trailing window (7/30/90 days).
 // ====================================================================
+// Iter36a — Top senders list with Import / Eye preview / Open conversation actions
+function TopSendersList({ items, onChanged }) {
+  const [openPreview, setOpenPreview] = useState(null); // {phone_digits}
+  const [importing, setImporting] = useState(null);
+  const [imported, setImported] = useState({});
+
+  const doImport = async (c) => {
+    setImporting(c.phone_digits);
+    try {
+      const r = await apiClient.post("/me/wa-import-by-phone", {
+        phone_digits: c.phone_digits,
+        name: c.contact_name,
+      });
+      setImported((p) => ({ ...p, [c.phone_digits]: r.data?.contact?.id || true }));
+      toast.success(r.data?.already_present
+        ? `${c.contact_name || c.phone_digits} : déjà présent`
+        : `${c.contact_name || c.phone_digits} ajouté au répertoire ✓`);
+      if (onChanged) onChanged();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'import");
+    } finally {
+      setImporting(null);
+    }
+  };
+
+  return (
+    <ul className="space-y-1.5" data-testid="top-senders-list">
+      {items.map((c, i) => {
+        const isExpanded = openPreview === c.phone_digits;
+        const isImporting = importing === c.phone_digits;
+        const wasImported = imported[c.phone_digits];
+        const directoryId = wasImported && wasImported !== true ? wasImported : c.contact_id;
+        const inDirectory = !!c.in_directory || !!wasImported;
+        return (
+          <li key={c.phone_digits || i} className="rounded ring-1 ring-slate-200 bg-white p-2" data-testid={`top-sender-${c.phone_digits || i}`}>
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-2 min-w-0 flex-1">
+                <span className="text-emerald-700 font-semibold tabular-nums text-xs bg-emerald-50 px-1.5 py-0.5 rounded ring-1 ring-emerald-200" data-testid={`top-sender-count-${c.phone_digits}`}>×{c.count}</span>
+                <span className="text-slate-700 truncate text-sm" title={`+${c.phone_digits}`}>
+                  {c.contact_name || `+${c.phone_digits}`}
+                </span>
+              </div>
+              <div className="flex items-center gap-1 flex-shrink-0">
+                {!inDirectory && (
+                  <button
+                    onClick={() => doImport(c)}
+                    disabled={isImporting}
+                    className="inline-flex items-center gap-1 rounded text-[10px] font-medium px-2 py-1 bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed transition"
+                    title="Importer dans le répertoire"
+                    data-testid={`top-sender-import-${c.phone_digits}`}
+                  >
+                    {isImporting ? <Loader2 className="h-3 w-3 animate-spin" /> : <UserPlus className="h-3 w-3" />}
+                    Importer
+                  </button>
+                )}
+                {inDirectory && (
+                  <span className="text-[9px] font-semibold uppercase tracking-wider text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 px-1.5 py-0.5 rounded" data-testid={`top-sender-in-directory-${c.phone_digits}`}>
+                    ✓ Répertoire
+                  </span>
+                )}
+                <button
+                  onClick={() => setOpenPreview(isExpanded ? null : c.phone_digits)}
+                  className="inline-flex items-center justify-center rounded p-1 text-slate-500 hover:text-slate-900 hover:bg-slate-100 transition"
+                  title="Voir le dernier message"
+                  data-testid={`top-sender-eye-${c.phone_digits}`}
+                >
+                  <Eye className="h-3.5 w-3.5" />
+                </button>
+                <Link
+                  to={`/portal/contacts?open=${directoryId || ""}&phone=${c.phone_digits || ""}`}
+                  className="inline-flex items-center justify-center rounded p-1 text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50 transition"
+                  title="Ouvrir la conversation"
+                  data-testid={`top-sender-open-${c.phone_digits}`}
+                >
+                  <MessageSquare className="h-3.5 w-3.5" />
+                </Link>
+              </div>
+            </div>
+            {isExpanded && (
+              <div className="mt-1.5 pt-1.5 border-t border-slate-100 text-[11px] text-slate-600" data-testid={`top-sender-preview-${c.phone_digits}`}>
+                {c.last_message_preview ? (
+                  <div className="space-y-0.5">
+                    <div className="flex items-center gap-1.5">
+                      <span className={`text-[9px] font-bold uppercase px-1 py-0.5 rounded ${c.last_message_direction === "inbound" ? "bg-emerald-100 text-emerald-700" : "bg-sky-100 text-sky-700"}`}>
+                        {c.last_message_direction === "inbound" ? "← Reçu" : "→ Envoyé"}
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        {c.last_message_at ? new Date(c.last_message_at).toLocaleString("fr-FR") : ""}
+                      </span>
+                    </div>
+                    <p className="italic text-slate-700">{c.last_message_preview}</p>
+                  </div>
+                ) : (
+                  <p className="italic text-slate-400">Aucun message récent.</p>
+                )}
+              </div>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function WaMediaSummaryCard() {
   const [days, setDays] = useState(7);
   const [data, setData] = useState(null);
@@ -253,7 +357,7 @@ function WaMediaSummaryCard() {
   // Iter35n — Reply-time stats (avg/median/replies) for the same window
   const [reply, setReply] = useState(null);
 
-  useEffect(() => {
+  const reload = React.useCallback(() => {
     setLoading(true);
     Promise.all([
       apiClient.get(`/me/dashboard/wa-media-summary?days=${days}`).then((r) => r.data).catch(() => null),
@@ -264,6 +368,8 @@ function WaMediaSummaryCard() {
       setLoading(false);
     });
   }, [days]);
+
+  useEffect(() => { reload(); }, [reload]);
 
   const counts = data?.counts || { image: 0, audio: 0, video: 0, document: 0, total: 0 };
   const top = data?.top_contacts || [];
@@ -312,20 +418,13 @@ function WaMediaSummaryCard() {
           </div>
 
           <div className="grid lg:grid-cols-2 gap-4">
-            {/* Top contacts */}
+            {/* Top contacts — Iter36a: import button + last-message preview + open chat */}
             <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid="wa-media-top-contacts">
               <p className="text-[11px] uppercase tracking-widest text-slate-500 font-semibold mb-2">Top expéditeurs</p>
               {top.length === 0 ? (
                 <p className="text-xs italic text-slate-400">Aucun média reçu sur la période.</p>
               ) : (
-                <ul className="space-y-1.5">
-                  {top.map((c, i) => (
-                    <li key={c.phone_digits || i} className="flex items-center justify-between text-sm">
-                      <span className="text-slate-700 truncate">{c.contact_name || `+${c.phone_digits}`}</span>
-                      <span className="text-emerald-700 font-semibold tabular-nums text-xs">{c.count}</span>
-                    </li>
-                  ))}
-                </ul>
+                <TopSendersList items={top} onChanged={() => reload && reload()} />
               )}
             </div>
 

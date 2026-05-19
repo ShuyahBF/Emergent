@@ -8174,6 +8174,124 @@ async def me_delete_note(
     return {"ok": True}
 
 
+# =====================================================================
+# Iter36d — Note de Service: send a WhatsApp template broadcast to every
+# tracked user of the linked client, using a 3-parameter template
+# (default name: notedeservice_fr).
+#   {{1}} → numéro de la note
+#   {{2}} → nom du destinataire
+#   {{3}} → contenu de la note (texte brut)
+# =====================================================================
+@api.post("/me/notes/{kind}/{note_id}/note-de-service", tags=["Portail Client"])
+async def me_send_note_de_service(
+    kind: str,
+    note_id: str,
+    user: dict = Depends(get_current_user),
+):
+    coll = _user_notes_collection(kind)
+    note = await coll.find_one({"id": note_id}, {"_id": 0})
+    if not note:
+        raise HTTPException(status_code=404, detail="Note introuvable")
+    if note.get("owner_id") != user["id"] and user.get("role") != "admin":
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    if note.get("is_private"):
+        raise HTTPException(status_code=400, detail="La note doit être publique pour générer une note de service.")
+    if not note.get("numero"):
+        raise HTTPException(status_code=400, detail="La note doit porter un numéro pour générer une note de service.")
+    import re as _re
+    content_text = _re.sub(r"<[^>]+>", " ", note.get("content_html") or "").strip()
+    content_text = _re.sub(r"\s+", " ", content_text)[:900]
+    if not content_text:
+        raise HTTPException(status_code=400, detail="Note vide — rien à diffuser.")
+
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    tpl_name = (s.get("wa_template_note_service") or "notedeservice_fr").strip()
+    tpl_lang = (s.get("wa_template_note_service_language") or "fr").strip() or "fr"
+
+    target_client = note.get("client_id") or user.get("client_id") or user["id"]
+    suivis_cursor = db.tracked_users.find(
+        {"client_id": target_client, "status": {"$ne": "archived"}},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp_number": 1, "email": 1},
+    )
+    suivis = [u async for u in suivis_cursor]
+    if not suivis:
+        raise HTTPException(status_code=400, detail="Aucun utilisateur suivi actif sur le client lié.")
+
+    sent: list = []
+    skipped: list = []
+    for s_user in suivis:
+        phone = (s_user.get("whatsapp_number") or s_user.get("phone") or "").strip()
+        recipient_name = (s_user.get("name") or s_user.get("email") or "Destinataire").strip()
+        if not phone:
+            skipped.append({"id": s_user["id"], "name": recipient_name, "reason": "no_phone"})
+            continue
+        components = [{
+            "type": "body",
+            "parameters": [
+                {"type": "text", "text": str(note.get("numero") or "")[:60]},
+                {"type": "text", "text": recipient_name[:60]},
+                {"type": "text", "text": content_text},
+            ],
+        }]
+        try:
+            r = await _wa_send_template(phone, tpl_name, tpl_lang, components)
+            ok = bool(r.get("ok"))
+            outbound = {
+                "id": _uuid(),
+                "client_id": target_client,
+                "owner_id": user["id"],
+                "direction": "outbound",
+                "from": phone,
+                "to": phone,
+                "phone_digits": "".join(ch for ch in phone if ch.isdigit()),
+                "body": f"[Note de Service {note.get('numero')}] {content_text[:300]}",
+                "template_name": tpl_name,
+                "template_language": tpl_lang,
+                "wa_message_id": r.get("message_id"),
+                "status": "sent" if ok else "failed",
+                "api_message": r.get("error"),
+                "tracked_user_id": s_user["id"],
+                "tracked_user_name": recipient_name,
+                "source": "note_de_service",
+                "source_note_id": note_id,
+                "source_note_numero": note.get("numero"),
+                "sent_at": _now(),
+                "created_at": _now(),
+            }
+            await db.whatsapp_messages.insert_one(outbound.copy())
+            (sent if ok else skipped).append({
+                "id": s_user["id"], "name": recipient_name, "phone": phone,
+                "wa_message_id": r.get("message_id"), "error": r.get("error"),
+            })
+        except Exception as exc:  # noqa: BLE001
+            skipped.append({"id": s_user["id"], "name": recipient_name, "reason": str(exc)[:200]})
+
+    try:
+        await _log_activity(
+            client_id=target_client, kind="note_service", action="broadcast",
+            label=f"Note {note.get('numero')} -> {len(sent)} destinataire(s)",
+            actor=user, target_id=note_id,
+        )
+    except Exception:
+        pass
+    await coll.update_one(
+        {"id": note_id},
+        {"$set": {"last_note_service_at": _now(), "last_note_service_count": len(sent)}},
+    )
+    return {
+        "ok": True,
+        "note_numero": note.get("numero"),
+        "template": tpl_name,
+        "sent": sent,
+        "skipped": skipped,
+        "sent_count": len(sent),
+        "skipped_count": len(skipped),
+        "total_targets": len(suivis),
+    }
+
+
+
+
 @api.get("/me/notes-targets", tags=["Portail Client"])
 async def me_notes_targets(user: dict = Depends(get_current_user)):
     """Iter35m — Return the list of users that a note/task can be addressed to
@@ -11297,6 +11415,64 @@ class WaPendingImportRequest(BaseModel):
     email: Optional[str] = None
 
 
+# Iter36a — Direct phone-based import (used by "Top expéditeurs" card on the dashboard)
+class WaImportByPhoneRequest(BaseModel):
+    phone_digits: str
+    name: Optional[str] = None
+
+
+@api.post("/me/wa-import-by-phone", tags=["Portail Client"])
+async def me_wa_import_by_phone(payload: WaImportByPhoneRequest, user: dict = Depends(get_current_user)):
+    """Create a directory contact directly from a phone number (used by the
+    Dashboard's "Top expéditeurs" card when the user clicks Import on a sender
+    that's not yet in the directory)."""
+    digits = "".join(ch for ch in (payload.phone_digits or "") if ch.isdigit())
+    if not digits:
+        raise HTTPException(status_code=400, detail="Numéro invalide")
+    client_scope = (user.get("client_id") or user.get("id"))
+    visible_scope = await _resolve_visible_client_ids(user)
+    existing = await db.directory_contacts.find_one(
+        {"phone_digits": digits, "client_id": {"$in": visible_scope}},
+        {"_id": 0},
+    )
+    if existing:
+        return {"ok": True, "already_present": True, "contact": existing}
+    sample = await db.whatsapp_messages.find_one(
+        {"client_id": {"$in": visible_scope}, "phone_digits": digits, "direction": "inbound"},
+        {"_id": 0, "from": 1, "from_profile_name": 1, "contact_name": 1},
+        sort=[("created_at", -1)],
+    ) or {}
+    name = (payload.name or sample.get("from_profile_name") or sample.get("contact_name")
+            or sample.get("from") or f"+{digits}").strip()
+    new_id = _uuid()
+    contact = {
+        "id": new_id,
+        "client_id": client_scope,
+        "owner_id": user["id"],
+        "name": name,
+        "phone": f"+{digits}",
+        "phone_digits": digits,
+        "whatsapp": f"+{digits}",
+        "email": "",
+        "company": "",
+        "notes": "Importé depuis le Top expéditeurs WhatsApp",
+        "tags": ["wa-import"],
+        "shared": False,
+        "photo_url": None,
+        "wa_profile_name": sample.get("from_profile_name"),
+        "wa_profile_synced_at": _now(),
+        "created_at": _now(),
+    }
+    await db.directory_contacts.insert_one(contact.copy())
+    await db.whatsapp_messages.update_many(
+        {"client_id": client_scope, "direction": "inbound", "phone_digits": digits, "contact_id": None},
+        {"$set": {"contact_id": new_id, "contact_name": name}},
+    )
+    contact.pop("_id", None)
+    return {"ok": True, "already_present": False, "contact": contact}
+
+
+
 @api.post("/me/wa-pending-imports/{pending_id}/import", tags=["Portail Client"])
 async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest, user: dict = Depends(get_current_user)):
     """Promote a pending WA inbound to a full directory contact. Optionally
@@ -12311,16 +12487,46 @@ async def me_wa_media_summary(
             "contact_name": {"$last": "$contact_name"},
             "profile_name": {"$last": "$from_profile_name"},
             "from": {"$last": "$from"},
+            "contact_id": {"$last": "$contact_id"},
         }},
         {"$sort": {"count": -1}},
         {"$limit": 5},
     ]
     top_contacts: List[Dict[str, Any]] = []
     async for row in db.whatsapp_messages.aggregate(pipeline_top):
+        phone_digits = row.get("_id")
+        # Iter36a — Resolve in_directory + last message (text or media caption)
+        in_directory = False
+        directory_contact_id = row.get("contact_id")
+        if phone_digits:
+            dir_match = await db.directory_contacts.find_one(
+                {"phone_digits": phone_digits, "client_id": {"$in": visible_scope}},
+                {"_id": 0, "id": 1, "name": 1},
+            )
+            if dir_match:
+                in_directory = True
+                directory_contact_id = dir_match.get("id") or directory_contact_id
+        # Fetch the very last message (any direction) from this number
+        last_msg = await db.whatsapp_messages.find_one(
+            {"client_id": {"$in": visible_scope}, "phone_digits": phone_digits},
+            {"_id": 0, "id": 1, "body": 1, "media_kind": 1, "media_filename": 1, "direction": 1,
+             "received_at": 1, "sent_at": 1, "created_at": 1},
+            sort=[("created_at", -1)],
+        ) or {}
+        last_text = last_msg.get("body") or (
+            f"[{last_msg.get('media_kind') or 'média'}] {last_msg.get('media_filename') or ''}".strip()
+            if last_msg.get("media_kind") else ""
+        )
         top_contacts.append({
-            "phone_digits": row.get("_id"),
+            "phone_digits": phone_digits,
             "contact_name": row.get("contact_name") or row.get("profile_name") or row.get("from"),
             "count": row["count"],
+            "in_directory": in_directory,
+            "contact_id": directory_contact_id,
+            "last_message_id": last_msg.get("id"),
+            "last_message_preview": (last_text or "")[:160],
+            "last_message_at": last_msg.get("received_at") or last_msg.get("sent_at") or last_msg.get("created_at"),
+            "last_message_direction": last_msg.get("direction"),
         })
 
     # Last 5 items
@@ -17825,6 +18031,79 @@ async def me_close_ticket(
     await db.support_tickets.update_one({"id": tid}, {"$set": update})
     ticket.update(update)
 
+    # Iter36c — Auto-create an intervention summarising the resolved ticket
+    intervention_summary = None
+    try:
+        client_doc = await db.users.find_one({"id": ticket["client_id"]}, {"_id": 0}) or {}
+        intervention_number = await _next_intervention_number(client_doc)
+        # Compute total resolution duration (excludes suspended periods)
+        try:
+            opened_dt = datetime.fromisoformat(ticket["opened_at"].replace("Z", "+00:00"))
+            closed_dt = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+            total_secs = max(0, int((closed_dt - opened_dt).total_seconds()))
+            active_secs = max(0, total_secs - int(ticket.get("suspended_total_seconds") or 0))
+            hours = round(active_secs / 3600.0, 2)
+        except Exception:
+            hours = None
+        title = (
+            f"Ticket {ticket.get('number') or tid[:8]} — {ticket.get('motif') or 'Sans motif'}"
+        )[:200]
+        description_parts = [
+            f"Origine : Ticket {ticket.get('number') or ''} (id={tid})".strip(),
+            f"Contact : {ticket.get('contact_name') or ticket.get('contact_phone') or '—'}",
+            f"Ouvert le : {ticket.get('opened_at')}",
+            f"Clôturé le : {now_iso}",
+            f"Issue : {payload.outcome}",
+        ]
+        if ticket.get("suspended_total_seconds"):
+            description_parts.append(
+                f"Temps suspendu : {int(ticket['suspended_total_seconds'] // 60)} min"
+            )
+        if res_note:
+            description_parts.append(f"Résolution :\n{res_note}")
+        if ticket.get("notes"):
+            description_parts.append(f"Notes du ticket :\n{ticket['notes']}")
+        technician = ticket.get("closed_by_label") or user.get("full_name") or user.get("email")
+        intervention_doc = {
+            "id": _uuid(),
+            "client_id": ticket["client_id"],
+            "title": title,
+            "description": "\n\n".join(description_parts),
+            "status": "completed" if payload.outcome == "done" else "cancelled",
+            "intervention_date": now_iso[:10],  # YYYY-MM-DD
+            "technician": technician,
+            "duration_hours": hours,
+            "attachments": [],
+            "images": [],
+            "intervention_number": intervention_number,
+            "owner_id": user["id"],
+            "owner_email": user.get("email"),
+            "owner_role": user.get("role"),
+            # Iter36c — traceability back to the originating ticket
+            "source_ticket_id": tid,
+            "source_ticket_number": ticket.get("number"),
+            "created_at": _now(),
+            "updated_at": _now(),
+        }
+        await db.interventions.insert_one(intervention_doc.copy())
+        intervention_doc.pop("_id", None)
+        intervention_summary = {
+            "id": intervention_doc["id"],
+            "intervention_number": intervention_number,
+            "duration_hours": hours,
+        }
+        # Activity feed entry
+        try:
+            await _log_activity(
+                client_id=ticket["client_id"], kind="intervention", action="auto_created",
+                label=f"{intervention_number} (depuis ticket {ticket.get('number') or ''})",
+                actor=user, target_id=intervention_doc["id"],
+            )
+        except Exception:
+            pass
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[ticket-close] auto-intervention failed for ticket %s: %s", tid, exc)
+
     # Iter35p — Activity feed for close
     try:
         await _log_activity(
@@ -17856,7 +18135,7 @@ async def me_close_ticket(
         except Exception as exc:  # noqa: BLE001
             notification = {"sent": False, "error": str(exc)[:200]}
 
-    return {"ok": True, "ticket": ticket, "notification": notification}
+    return {"ok": True, "ticket": ticket, "notification": notification, "intervention": intervention_summary}
 
 
 @api.get("/me/contacts/{cid}/active-ticket", tags=["Portail Client"])

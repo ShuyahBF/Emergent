@@ -7,7 +7,7 @@ import {
   Heading2, Heading3, List, ListOrdered, Quote,
   AlignLeft, AlignCenter, AlignRight,
   Link as LinkIcon, Undo2, Redo2, Eraser, Code,
-  Mic, Square, MessageCircle, Loader2,
+  Mic, Square, MessageCircle, Loader2, Megaphone,
 } from "lucide-react";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
@@ -461,6 +461,10 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onDelete, o
           {canDelete && <button onClick={onDelete} className="text-slate-500 hover:text-rose-600" title="Supprimer" data-testid={`delete-note-${n.id}`}><Trash2 className="h-3.5 w-3.5" /></button>}
         </div>
       </div>
+      {/* Iter36d — Note de Service: only for public + numbered notes */}
+      {!n.is_private && n.numero && (
+        <NoteDeServiceButton noteId={n.id} kind={kind} numero={n.numero} lastSent={n.last_note_service_at} lastCount={n.last_note_service_count} onSent={onRefresh} />
+      )}
       {canDeleteOrRate(user) && (
         <div className="mt-3 pt-2 border-t border-slate-100">
           <RatingStars value={n.my_rating?.stars || 0} onChange={setRating} onClear={clearRating} />
@@ -523,6 +527,76 @@ function AuthorAvatar({ email, name, size = 28 }) {
 // ====================================================================
 // 5-star rater
 // ====================================================================
+// Iter36d — Note de Service: broadcast a public/numbered note to all suivis via WA template
+function NoteDeServiceButton({ noteId, kind, numero, lastSent, lastCount, onSent }) {
+  const [busy, setBusy] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await apiClient.post(`/me/notes/${kind}/${noteId}/note-de-service`);
+      const { sent_count, skipped_count, total_targets, template } = r.data || {};
+      toast.success(
+        `Note de Service ${numero} envoyée à ${sent_count}/${total_targets} suivi(s)${skipped_count ? ` (${skipped_count} ignoré)` : ""} — template « ${template} »`,
+        { duration: 7000 },
+      );
+      setConfirmOpen(false);
+      if (onSent) onSent();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'envoi");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-100" data-testid={`note-de-service-${noteId}`}>
+      {!confirmOpen ? (
+        <button
+          onClick={() => setConfirmOpen(true)}
+          className="w-full inline-flex items-center justify-center gap-1.5 rounded-lg bg-emerald-50 hover:bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 px-3 py-1.5 text-xs font-medium transition"
+          data-testid={`note-de-service-btn-${noteId}`}
+          title="Diffuser cette note par WhatsApp à tous les utilisateurs suivis"
+        >
+          <Megaphone className="h-3.5 w-3.5" />
+          Note Service
+          {lastSent && (
+            <span className="text-[9px] text-emerald-600 ml-1" title={`Dernier envoi : ${new Date(lastSent).toLocaleString("fr-FR")}`}>
+              · {lastCount || 0} déjà envoyé(s)
+            </span>
+          )}
+        </button>
+      ) : (
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-2 space-y-2" data-testid={`note-de-service-confirm-${noteId}`}>
+          <p className="text-[11px] text-emerald-900">
+            Diffuser la note <strong>{numero}</strong> en WhatsApp à tous les utilisateurs suivis du client lié ?
+          </p>
+          <div className="flex gap-2">
+            <button
+              onClick={send}
+              disabled={busy}
+              className="flex-1 inline-flex items-center justify-center gap-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white px-2 py-1 text-xs disabled:opacity-50"
+              data-testid={`note-de-service-confirm-yes-${noteId}`}
+            >
+              {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Megaphone className="h-3 w-3" />}
+              Envoyer
+            </button>
+            <button
+              onClick={() => setConfirmOpen(false)}
+              disabled={busy}
+              className="rounded ring-1 ring-slate-300 bg-white text-slate-700 hover:bg-slate-50 px-2 py-1 text-xs"
+              data-testid={`note-de-service-confirm-no-${noteId}`}
+            >
+              Annuler
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RatingStars({ value = 0, onChange, onClear }) {
   return (
     <div className="inline-flex items-center gap-0.5" data-testid="rating-stars">

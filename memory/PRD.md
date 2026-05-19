@@ -3,6 +3,33 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36a/b/c/d (2026-05-19) — 4 features portail
+
+### ✨ Iter36a — Top expéditeurs enrichi (Portal/Dashboard)
+- Endpoint `/me/dashboard/wa-media-summary` enrichi : pour chaque top contact, ajoute `in_directory`, `contact_id`, `last_message_preview` (160 car.), `last_message_at`, `last_message_direction`.
+- Nouvel endpoint `POST /me/wa-import-by-phone` : import idempotent au répertoire directement depuis un numéro (re-link automatique des anciens messages).
+- UI : composant `TopSendersList` avec bouton "Importer" (purple) si pas au répertoire, badge "✓ Répertoire" sinon, icône 👁️ Eye pour aperçu du dernier message inline (avec direction + horodatage), icône 💬 vers la conversation.
+
+### ✨ Iter36b — Notifications sonores pour tickets
+- Nouveau hook `useTicketNotifier` (poll 30s sur `/me/tickets/pending-count` + `/me/tickets?limit=50`).
+- Détecte 2 cas : (1) nouveau ticket → toast warning + son "bing-bong" + notif desktop ; (2) changement de statut sur un ticket connu → toast colorisé (info/warning/success) + son court.
+- Réutilise les toggles localStorage du `useWhatsAppNotifier` (1 seul réglage utilisateur).
+
+### ✨ Iter36c — Clôture ticket → Intervention auto-générée
+- `me_close_ticket` insère automatiquement une intervention dans `db.interventions` avec : numéro auto (`_next_intervention_number`), titre `Ticket <numéro> — <motif>`, description structurée (origine, contact, dates ouverture/clôture, résolution, suspensions), durée active en heures (durée totale moins temps suspendu), technicien = `closed_by_label`, `source_ticket_id` + `source_ticket_number` pour traçabilité.
+- Si l'outcome est `cancelled` → statut intervention = `cancelled`, sinon `completed`.
+- Activity log `intervention.auto_created`.
+
+### ✨ Iter36d — Note de Service (broadcast WhatsApp)
+- Nouveau endpoint `POST /me/notes/{kind}/{note_id}/note-de-service` : ne fonctionne que pour des notes **publiques + numérotées**. Strip HTML, dispatch un template WA à 3 paramètres (`numero`, `nom destinataire`, `contenu`) à tous les `tracked_users` actifs du client lié.
+- Settings admin : `wa_template_note_service` (défaut `notedeservice_fr`) + `wa_template_note_service_language` (défaut `fr`).
+- Chaque envoi crée une ligne `whatsapp_messages` outbound (la conversation par destinataire est ainsi peuplée) avec `source=note_de_service`, `source_note_id`, `source_note_numero`.
+- UI : bouton "Note Service" emerald sur chaque NoteCard publique numérotée, avec confirmation inline, badge "x déjà envoyés" si historique.
+
+✅ **Tests pytest** : 5/5 Iter36 verts (top senders enrichment, ticket close → intervention, note-de-service rejette privée/sans numéro, broadcast envoie à chaque suivi).
+
+---
+
 ## Latest — Iter35y+z (2026-05-19) — Refactor amorce + Tableau de bord SMS
 
 ### ✨ Iter35y — Amorce refactor `server.py` (extraction modulaire)

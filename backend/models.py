@@ -377,6 +377,12 @@ class SettingsUpdate(BaseModel):
     recaptcha_secret_key: Optional[str] = None
     recaptcha_enabled: Optional[bool] = None
 
+    # --- Iter35u — Public base URL ---
+    # Overrides the static PUBLIC_BASE_URL env var. Used for absolute links in
+    # background jobs (cron emails, WhatsApp links, OAuth redirects) when no
+    # browser request is available. Editable from the Coffre-fort des secrets.
+    public_base_url: Optional[str] = None
+
     # --- Auto DB Snapshot (iter34) ---
     # Weekly cron creates a snapshot every Sunday 03:00 Africa/Abidjan and
     # rotates older auto snapshots beyond `auto_snapshot_keep` (default 4,

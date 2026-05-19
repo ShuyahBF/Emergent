@@ -2472,6 +2472,44 @@ const SecretsVaultSection = () => {
   // Audit state
   const [audit, setAudit] = useState([]);
   const [auditOpen, setAuditOpen] = useState(false);
+  // Iter35u — Editable public_base_url (used by background jobs for absolute links)
+  const [publicBaseUrl, setPublicBaseUrl] = useState("");
+  const [publicBaseUrlInitial, setPublicBaseUrlInitial] = useState("");
+  const [savingPublicBaseUrl, setSavingPublicBaseUrl] = useState(false);
+
+  const loadPublicBaseUrl = useCallback(async () => {
+    try {
+      const r = await apiClient.get("/admin/settings");
+      const v = (r.data?.public_base_url || "").toString();
+      setPublicBaseUrl(v);
+      setPublicBaseUrlInitial(v);
+    } catch (err) {
+      // Silently ignore — admin will see the empty field
+    }
+  }, []);
+  useEffect(() => { loadPublicBaseUrl(); }, [loadPublicBaseUrl]);
+
+  const savePublicBaseUrl = async () => {
+    const v = (publicBaseUrl || "").trim();
+    if (v && !/^https?:\/\//i.test(v)) {
+      toast.error("L'URL doit commencer par http:// ou https://");
+      return;
+    }
+    setSavingPublicBaseUrl(true);
+    try {
+      await apiClient.put("/admin/settings", { public_base_url: v });
+      setPublicBaseUrlInitial(v);
+      toast.success(v
+        ? `URL publique enregistrée : ${v}`
+        : "URL publique vidée — la variable d'environnement sera utilisée."
+      );
+      loadKeys();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally {
+      setSavingPublicBaseUrl(false);
+    }
+  };
 
   const loadKeys = useCallback(async () => {
     setLoadingKeys(true);
@@ -2570,6 +2608,36 @@ const SecretsVaultSection = () => {
         chiffré <strong>avant</strong> de quitter le serveur — sans votre mot de passe, le contenu est inutilisable.
         En cas d'incident (snapshot raté, env reset, nouvelle installation), restaurez vos credentials en un clic.
       </p>
+
+      {/* Iter35u — Quick-edit: PUBLIC_BASE_URL (DB override of env var) */}
+      <div className="rounded-lg ring-1 ring-purple-200 bg-white p-3" data-testid="public-base-url-editor">
+        <div className="flex items-center gap-2 mb-1.5">
+          <span className="font-mono text-[11px] bg-purple-100 text-purple-900 px-1.5 py-0.5 rounded">public_base_url</span>
+          <span className="text-xs text-slate-700">URL publique de production (liens absolus, OAuth redirects, webhooks sortants)</span>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <input
+            type="url"
+            value={publicBaseUrl}
+            onChange={(e) => setPublicBaseUrl(e.target.value)}
+            placeholder="https://sawalismartsystems.com"
+            className="flex-1 min-w-[280px] rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
+            data-testid="public-base-url-input"
+          />
+          <button
+            onClick={savePublicBaseUrl}
+            disabled={savingPublicBaseUrl || publicBaseUrl === publicBaseUrlInitial}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 text-white hover:bg-purple-700 disabled:opacity-40 disabled:cursor-not-allowed px-3 py-2 text-sm font-medium transition"
+            data-testid="public-base-url-save"
+          >
+            {savingPublicBaseUrl ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+        <p className="text-[10px] text-slate-500 mt-1.5">
+          Prend le pas sur la variable d'environnement <code>PUBLIC_BASE_URL</code>. Laissez vide pour revenir au fallback env.
+          Les en-têtes <code>Origin</code>/<code>X-Forwarded-Host</code> restent prioritaires pour les appels initiés par un navigateur.
+        </p>
+      </div>
 
       {/* Status overview */}
       {keys && (

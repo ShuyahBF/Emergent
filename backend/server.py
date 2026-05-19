@@ -124,6 +124,11 @@ UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
 POLICIES_DIR = UPLOAD_DIR / "policies"
 POLICIES_DIR.mkdir(parents=True, exist_ok=True)
 PUBLIC_BASE_URL = os.environ.get("PUBLIC_BASE_URL", "")
+# Iter35u — DB-backed override for the public base URL. Refreshed on startup
+# and after every PUT /admin/settings. Takes precedence over the env var,
+# but request-supplied Origin/X-Forwarded-Host still wins (so per-host calls
+# stay accurate even when an admin browses from the preview vs. production).
+_PUBLIC_BASE_URL_DB: str = ""
 
 
 # ---------- Iter35n — Version stamp ----------
@@ -172,7 +177,24 @@ def _public_base_url(request: Optional["Request"] = None) -> str:
                 return f"{xfp}://{xfh.split(',')[0].strip()}".rstrip("/")
         except Exception:
             pass
+    # Iter35u — DB override beats the static env var (admin-editable from
+    # the Coffre-fort des secrets).
+    if _PUBLIC_BASE_URL_DB:
+        return _PUBLIC_BASE_URL_DB.rstrip("/")
     return (PUBLIC_BASE_URL or "").rstrip("/")
+
+
+async def _refresh_public_base_url_cache() -> None:
+    """Pull the DB-stored public_base_url into the in-memory cache so the
+    sync `_public_base_url()` helper can use it without an await."""
+    global _PUBLIC_BASE_URL_DB
+    try:
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "public_base_url": 1}) or {}
+        val = (s.get("public_base_url") or "").strip()
+        _PUBLIC_BASE_URL_DB = val
+    except Exception:  # noqa: BLE001
+        # First startup may run before the DB is reachable — ignore.
+        pass
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
 logger = logging.getLogger("sawali")
@@ -4667,6 +4689,8 @@ async def admin_list_snapshot_imports(_: dict = Depends(get_current_admin)):
 # every other field that is awkward/painful to re-enter — Google client_id,
 # Whatsapp WABA id, SMTP host, etc).
 VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
+    # Iter35u — Public base URL (DB-backed override of the env var)
+    "public_base_url",
     # WhatsApp Business (non-secret but needed)
     "wa_business_account_id", "wa_phone_number_id", "wa_app_id", "wa_default_language",
     # SMTP (smtp_password is already in sensitive, add the rest)
@@ -9574,6 +9598,10 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
                         }}},
                     )
     await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    # Iter35u — Hot-reload the public_base_url cache so subsequent background
+    # jobs (cron emails, webhooks, scheduled WA sends) use the new value.
+    if "public_base_url" in update:
+        await _refresh_public_base_url_cache()
     return {"ok": True}
 
 
@@ -16497,6 +16525,8 @@ async def on_startup():
         _init_storage()
     except Exception as exc:  # noqa: BLE001
         logger.warning("[startup] storage init skipped: %s", exc)
+    # Iter35u — Pull the DB-stored public_base_url into the in-memory cache.
+    await _refresh_public_base_url_cache()
     # Indexes — critical for performance as collections grow.
     # New indexes are added on every startup (idempotent).
     await db.users.create_index("email", unique=True)

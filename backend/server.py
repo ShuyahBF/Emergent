@@ -18806,6 +18806,19 @@ async def me_welcome_briefing(
                 {"_id": 0, "id": 1, "title": 1, "is_private": 1, "created_at": 1, "kind": 1, "numero": 1},
             ).sort("created_at", -1).limit(20)
             new_notes = [n async for n in new_notes_cur]
+            # Iter36m — Chat interne : messages reçus depuis last_seen_at ET non
+            # encore lus par l'utilisateur (preuve qu'il ne les a pas vus dans
+            # le panneau de chat). On compte les DM adressés à lui + les messages
+            # du fil collectif qu'il n'a pas lu, à condition que le chat soit
+            # activé pour au moins un client dont il est membre.
+            new_chat_messages = await db.internal_chat_messages.count_documents({
+                "created_at": {"$gt": last_seen_at},
+                "read_by": {"$nin": [user["id"]]},
+                "$or": [
+                    {"recipient_id": user["id"]},
+                    {"recipient_id": None, "sender_id": {"$ne": user["id"]}},
+                ],
+            })
             since_last_visit = {
                 "last_seen_at": last_seen_at,
                 "new_tickets": new_tickets,
@@ -18813,7 +18826,8 @@ async def me_welcome_briefing(
                 "new_whatsapp_count": new_wa,
                 "new_notes": new_notes,
                 "new_notes_count": len(new_notes),
-                "total_count": len(new_tickets) + new_wa + len(new_notes),
+                "new_chat_messages_count": int(new_chat_messages),
+                "total_count": len(new_tickets) + new_wa + len(new_notes) + int(new_chat_messages),
             }
         except (ValueError, TypeError):
             # Invalid ISO timestamp → silently skip

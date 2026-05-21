@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { X, Ticket, MessageCircle, MessageSquare, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock } from "lucide-react";
+import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock } from "lucide-react";
 
 /*
   Iter35r → Iter36g — Welcome briefing modal.
@@ -172,6 +172,22 @@ export default function WelcomeBriefing({ onClose }) {
                       <FileText className="h-3 w-3" />
                       {sinceLast.new_notes_count} note{sinceLast.new_notes_count > 1 ? "s" : ""}
                     </Link>
+                  )}
+                  {sinceLast.new_chat_messages_count > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // Trigger the InternalChatPanel FAB so the user can read them
+                        const fab = document.querySelector('[data-testid="internal-chat-fab"]');
+                        if (fab) fab.click();
+                      }}
+                      className="inline-flex items-center gap-1 rounded-full bg-violet-100 text-violet-800 ring-1 ring-violet-200 px-2 py-0.5 hover:bg-violet-200 transition"
+                      data-testid="welcome-since-last-chat-badge"
+                      title="Ouvrir le chat interne pour répondre"
+                    >
+                      <MessageSquareText className="h-3 w-3" />
+                      {sinceLast.new_chat_messages_count} message{sinceLast.new_chat_messages_count > 1 ? "s" : ""} de chat non lu{sinceLast.new_chat_messages_count > 1 ? "s" : ""}
+                    </button>
                   )}
                 </div>
                 {/* New tickets detail (max 5) */}

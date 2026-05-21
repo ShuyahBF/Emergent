@@ -3,6 +3,16 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36m (2026-05-21) — Compteur chat non-lu dans Welcome Briefing
+
+### 🔔 Iter36m — Messages chat non lus depuis la dernière visite
+- **Backend** : `GET /me/welcome-briefing` enrichi avec `since_last_visit.new_chat_messages_count` — compte les messages `internal_chat_messages` créés après `last_seen_at`, adressés au user (DM) ou au fil collectif (recipient_id=None, sender != user), et NON encore lus (user_id ∉ read_by).
+- Le `total_count` agrège désormais tickets + WA + notes + **chat**.
+- **Frontend** : nouveau badge violet "X message(s) de chat non lu(s)" dans la section "Depuis votre dernière visite" de la modale `WelcomeBriefing`. Cliquer le badge déclenche l'ouverture du panneau de chat (`internal-chat-fab`).
+- Tests pytest : **5 nouveaux verts** (DM, fil général, déjà lus exclus, antérieurs à last_seen exclus, propres messages exclus).
+
+---
+
 ## Latest — Iter36l (2026-05-21) — Badge présence publique + Transcription Whisper
 
 ### 🌐 Iter36l.1 — Badge "Équipe en ligne X/Y" (preuve sociale publique)

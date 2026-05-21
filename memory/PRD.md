@@ -3,6 +3,35 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36k (2026-05-21) — Bug Fix Ticket Dropdown + Chat Interne Temps Réel
+
+### 🐛 Iter36k.1 — Bug fix : Ticket WhatsApp héritait du mauvais client lié
+- **Avant** : `POST /me/contacts/{cid}/ticket` calculait `client_id = contact.client_id or user.client_id or user.id` → tous les tickets étaient attribués au même client (généralement l'ID du contact, souvent erroné).
+- **Fix backend** : `TicketOpenPayload` gagne un champ `client_id` (str, **obligatoire**). Si absent → 400. Si non autorisé pour l'utilisateur → 403. Le ticket utilise désormais EXCLUSIVEMENT le `client_id` choisi via le dropdown.
+- **Fix frontend** : la fenêtre WhatsApp ouvre une vraie modale (au lieu de `window.prompt`) avec :
+  - dropdown obligatoire des clients liés (via `GET /me/clients`)
+  - sélecteur de modèle de motif (existant)
+  - textarea motif libre (200 chars max)
+- Tests pytest : **18 verts** (13 existants régressifs adaptés + 5 nouveaux Iter36k validant la nouvelle logique).
+
+### 💬 Iter36k.2 — Chat interne temps réel (WebSocket)
+- **Activable par client** via toggle `features.internal_chat` (admin → `/admin/clients/{id}/features`).
+- Hérité par tous les utilisateurs suivis du client + admins.
+- **Modes** : fil collectif `#général` par client + conversations 1-à-1 entre membres.
+- **Transport** : WebSocket `/api/ws/chat?token=<jwt>` (auth par JWT en query param) + REST fallback complet.
+- **Backend** : module `/app/backend/routes/internal_chat.py` (~440 lignes) avec `ConnectionManager` in-memory, broadcast aux participants concernés (DM = 2 users, général = tous les membres), endpoints `/me/chat/clients`, `/me/chat/{cid}/threads`, `/me/chat/{cid}/messages`, `/me/chat/{cid}/members`, `/me/chat/messages/{id}/read`, `/me/chat/unread-count`.
+- **Frontend** : composant `InternalChatPanel.jsx` (drawer flottant bas-droite avec FAB + badge non-lus), hook `useInternalChat.js` (WS auto-reconnect exp backoff, ping 30s), monté globalement dans `PortalLayout`. Notifications **son + toast** quand message reçu dans un autre fil.
+- **Sécurité** : `_ensure_member()` valide que l'utilisateur fait partie du client cible, refus 403 sinon.
+- Tests pytest : **13 verts** (10 REST + 3 WebSocket end-to-end via wss:// preview).
+
+### ✅ Iter36i — Endpoint `/health` Kubernetes (déjà en place)
+- `@app.get("/health")` + `/healthz` répondent `200 {status: ok, service: sawali-backend}`. Débloque les déploiements K8s.
+
+### ✅ Iter36k.3 — Webhook WhatsApp Production résolu
+- L'utilisateur a corrigé la **Callback URL** dans Meta Developer Dashboard (mauvaise URL Production). Messages de nouveau reçus.
+
+---
+
 ## Latest — Iter36j (2026-05-19) — Levée du verrouillage 1h pour rôles élevés
 
 ### 🔓 Iter36j — Verrouillage 1h après descente : bypass pour admin/superviseur/modérateur

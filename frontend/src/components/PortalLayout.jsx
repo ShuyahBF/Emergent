@@ -10,6 +10,7 @@ import { apiClient } from "@/lib/api";
 import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
+import InternalChatPanel from "@/components/InternalChatPanel";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
@@ -341,6 +342,7 @@ export default function PortalLayout({ admin = false }) {
       </div>
       <VersionStamp tone="dark" />
       {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} />}
+      <InternalChatPanel />
     </div>
   );
 }

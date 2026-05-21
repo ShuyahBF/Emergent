@@ -2879,6 +2879,11 @@ DEFAULT_CLIENT_FEATURES = {
     # Allow tracked users to enable the WhatsApp inbound sound alert. When OFF,
     # the sound toggle is hidden in their portal sidebar.
     "wa_sound_alerts": True,
+    # Iter36k — Chat interne temps réel entre les utilisateurs suivis d'un même
+    # client. Quand activé, tous les "suiveurs" (admin + tracked_users + role
+    # client) peuvent ouvrir un panneau de discussion 1-à-1 et un fil collectif
+    # (#general) propre à ce client. Hérité par tous les utilisateurs suivis.
+    "internal_chat": False,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -3107,6 +3112,7 @@ class ClientFeaturesUpdate(BaseModel):
     anon_phone: Optional[bool] = None
     anon_whatsapp: Optional[bool] = None
     wa_sound_alerts: Optional[bool] = None
+    internal_chat: Optional[bool] = None  # Iter36k — chat interne temps réel
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 
@@ -18063,7 +18069,33 @@ async def me_open_ticket(
             detail=f"Le ticket {existing['number']} est encore ouvert (statut: {existing['status']}). Clôturez-le avant d'en créer un nouveau.",
         )
 
-    client_id = contact.get("client_id") or user.get("client_id") or user["id"]
+    # Iter36k — Le client lié est désormais EXPLICITEMENT choisi via le
+    # dropdown frontend (TicketOpenPayload.client_id). Si absent, on
+    # n'auto-hérite plus de contact.client_id (qui était souvent erroné).
+    requested_client_id = (payload.client_id or "").strip()
+    if not requested_client_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Veuillez sélectionner le client lié à ce ticket.",
+        )
+    # Validate that the requested client_id is reachable by this user
+    # (admins / superviseur / moderateur : any user ; otherwise: own scope only).
+    if _is_elevated_creator(user):
+        owner = await db.users.find_one(
+            {"id": requested_client_id, "role": {"$in": ["client", "superviseur", "admin"]}},
+            {"_id": 0, "id": 1},
+        )
+    else:
+        effective_id = user.get("parent_client_id") or user["id"]
+        owner = (
+            {"id": effective_id} if requested_client_id == effective_id else None
+        )
+    if not owner:
+        raise HTTPException(
+            status_code=403,
+            detail="Client lié non autorisé pour cet utilisateur.",
+        )
+    client_id = requested_client_id
     number = await _next_ticket_number(client_id)
     now_iso = _now()
     ticket = {
@@ -18807,6 +18839,15 @@ async def me_welcome_briefing(
 from routes.sms_dashboard import make_router as _make_sms_dashboard_router  # noqa: E402
 _sms_dashboard_router = _make_sms_dashboard_router(db=db, get_current_admin=get_current_admin)
 api.include_router(_sms_dashboard_router)
+
+# =====================================================================
+# Iter36k — Internal real-time chat router (REST + WebSocket).
+# REST routes live under /api/me/chat/... ; WS at /api/ws/chat?token=<jwt>.
+# =====================================================================
+from routes.internal_chat import make_router as _make_chat_router  # noqa: E402
+from auth import decode_token as _decode_token  # noqa: E402
+_chat_router = _make_chat_router(db=db, get_current_user=get_current_user, decode_token=_decode_token)
+api.include_router(_chat_router)
 
 app.include_router(api)
 

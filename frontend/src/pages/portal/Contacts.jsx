@@ -1484,40 +1484,54 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   }, [contact.id]);
   useEffect(() => { loadActiveTicket(); }, [loadActiveTicket]);
 
+  // Iter36k — Ticket creation modal state (replaces window.prompt chain).
+  // Forces the user to EXPLICITLY pick a "client lié" from a dropdown.
+  const [ticketModalOpen, setTicketModalOpen] = useState(false);
+  const [ticketClientId, setTicketClientId] = useState("");
+  const [ticketMotif, setTicketMotif] = useState("");
+  const [ticketClients, setTicketClients] = useState([]);
+  const [ticketTemplates, setTicketTemplates] = useState([]);
+  const [ticketSubmitting, setTicketSubmitting] = useState(false);
+
   const openTicket = async () => {
-    let suggested = "";
-    // Iter35p — Offer reusable motif templates first if any
+    // Reset + open modal, then load clients + templates in parallel
+    setTicketClientId("");
+    setTicketMotif("");
+    setTicketModalOpen(true);
     try {
-      const r = await apiClient.get("/me/ticket-motif-templates");
-      const tpls = r.data || [];
-      if (tpls.length > 0) {
-        const lines = tpls.map((t, i) => `${i + 1}. ${t.label}`).join("\n");
-        const pick = window.prompt(
-          `Choisissez un modèle (numéro) ou tapez « 0 » pour saisir un motif libre :\n\n${lines}`,
-          "0",
-        );
-        if (pick === null) return;
-        const idx = parseInt(pick, 10);
-        if (!isNaN(idx) && idx >= 1 && idx <= tpls.length) {
-          suggested = tpls[idx - 1].motif || "";
-        }
-      }
-    } catch { /* noop */ }
-    const motif = window.prompt("Motif du ticket (1-200 caractères) :", suggested);
-    if (motif === null) return;
-    const trimmed = motif.trim();
+      const [rc, rt] = await Promise.all([
+        apiClient.get("/me/clients"),
+        apiClient.get("/me/ticket-motif-templates").catch(() => ({ data: [] })),
+      ]);
+      setTicketClients(rc.data || []);
+      setTicketTemplates(rt.data || []);
+    } catch (err) {
+      toast.error("Impossible de charger la liste des clients");
+    }
+  };
+
+  const submitTicket = async () => {
+    const trimmed = (ticketMotif || "").trim();
+    if (!ticketClientId) { toast.error("Sélectionnez le client lié"); return; }
     if (!trimmed) { toast.error("Le motif est obligatoire"); return; }
     if (trimmed.length > 200) { toast.error("Motif trop long (max 200 caractères)"); return; }
+    setTicketSubmitting(true);
     try {
-      const r = await apiClient.post(`/me/contacts/${contact.id}/ticket`, { motif: trimmed });
+      const r = await apiClient.post(`/me/contacts/${contact.id}/ticket`, {
+        motif: trimmed,
+        client_id: ticketClientId,
+      });
       if (r.data?.ok) {
         toast.success(`Ticket ${r.data.ticket.number} créé`);
         if (r.data.notification?.sent) toast.info("Notification WhatsApp envoyée au contact");
         else if (r.data.notification?.error) toast.warning(`Notification non envoyée : ${r.data.notification.error}`);
         await loadActiveTicket();
+        setTicketModalOpen(false);
       }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setTicketSubmitting(false);
     }
   };
 
@@ -1611,6 +1625,121 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             </div>
           )}
         </div>
+        {/* Iter36k — Modal: create a ticket with explicit "client lié" dropdown */}
+        {ticketModalOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"
+            onClick={(e) => e.target === e.currentTarget && !ticketSubmitting && setTicketModalOpen(false)}
+            data-testid="ticket-create-modal"
+          >
+            <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-5">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-base font-display font-bold inline-flex items-center gap-2">
+                  <Ticket className="h-4 w-4 text-amber-600" /> Nouveau ticket d'intervention
+                </h3>
+                <button
+                  onClick={() => !ticketSubmitting && setTicketModalOpen(false)}
+                  className="text-slate-500 hover:text-slate-900"
+                  data-testid="ticket-create-cancel-icon"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Contact : <strong className="text-slate-700">{contact.name}</strong>
+                {contact.whatsapp && <code className="ml-2 bg-slate-100 px-1.5 py-0.5 rounded text-[11px]">{contact.whatsapp}</code>}
+              </p>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Client lié <span className="text-rose-500">*</span>
+                  </label>
+                  <select
+                    value={ticketClientId}
+                    onChange={(e) => setTicketClientId(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                    data-testid="ticket-create-client-select"
+                    disabled={ticketSubmitting}
+                  >
+                    <option value="">— Sélectionnez un client —</option>
+                    {ticketClients.map((c) => (
+                      <option key={c.id} value={c.id}>
+                        {c.full_name || c.company || c.client_code || c.id}
+                        {c.company && c.full_name ? ` · ${c.company}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    Choisissez l'entreprise/client à qui ce ticket sera rattaché.
+                  </p>
+                </div>
+
+                {ticketTemplates.length > 0 && (
+                  <div>
+                    <label className="block text-xs font-medium text-slate-700 mb-1">
+                      Modèle de motif (optionnel)
+                    </label>
+                    <select
+                      onChange={(e) => {
+                        const i = parseInt(e.target.value, 10);
+                        if (!isNaN(i) && ticketTemplates[i]) {
+                          setTicketMotif(ticketTemplates[i].motif || "");
+                        }
+                      }}
+                      className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
+                      data-testid="ticket-create-template-select"
+                      defaultValue=""
+                      disabled={ticketSubmitting}
+                    >
+                      <option value="">— Saisir un motif libre —</option>
+                      {ticketTemplates.map((t, i) => (
+                        <option key={t.id || i} value={i}>{t.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-700 mb-1">
+                    Motif <span className="text-rose-500">*</span>
+                  </label>
+                  <textarea
+                    value={ticketMotif}
+                    onChange={(e) => setTicketMotif(e.target.value)}
+                    rows={3}
+                    maxLength={200}
+                    placeholder="Brève description de l'intervention demandée (max 200 caractères)"
+                    className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none"
+                    data-testid="ticket-create-motif-input"
+                    disabled={ticketSubmitting}
+                  />
+                  <p className="text-[10px] text-slate-400 mt-1 text-right">{ticketMotif.length}/200</p>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 mt-4">
+                <button
+                  onClick={() => setTicketModalOpen(false)}
+                  disabled={ticketSubmitting}
+                  className="rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-1.5 text-sm disabled:opacity-50"
+                  data-testid="ticket-create-cancel"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={submitTicket}
+                  disabled={ticketSubmitting || !ticketClientId || !ticketMotif.trim()}
+                  className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 text-sm font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                  data-testid="ticket-create-submit"
+                >
+                  {ticketSubmitting ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <Ticket className="h-3.5 w-3.5" />}
+                  Créer le ticket
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
           {loading ? (
             <p className="text-center text-slate-500 text-sm">Chargement…</p>

@@ -63,6 +63,17 @@ def admin_user(db):
     return db.users.find_one({"email": ADMIN_EMAIL}, {"_id": 0})
 
 
+
+
+@pytest.fixture(scope="module")
+def target_client_id(admin_user):
+    """Iter36k — client_id obligatoire dans le payload (dropdown frontend)."""
+    return admin_user.get("client_id") or admin_user["id"]
+
+
+def _ticket_payload(motif: str, client_id: str) -> dict:
+    return {"motif": motif, "client_id": client_id}
+
 @pytest.fixture
 def test_contact(db, admin_user):
     """Create a fresh contact + clean up at teardown."""
@@ -83,11 +94,11 @@ def test_contact(db, admin_user):
 
 
 class TestTicketCreation:
-    def test_open_ticket_returns_TKT_format(self, admin_h, test_contact):
+    def test_open_ticket_returns_TKT_format(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         r = requests.post(
             f"{API}/me/contacts/{cid}/ticket",
-            headers=admin_h, json={"motif": "Panne onduleur"},
+            headers=admin_h, json={"client_id": target_client_id, "motif": "Panne onduleur"},
             timeout=15,
         )
         assert r.status_code == 200, r.text
@@ -105,40 +116,40 @@ class TestTicketCreation:
         assert "notification" in body
         assert "sent" in body["notification"]
 
-    def test_motif_required(self, admin_h, test_contact):
+    def test_motif_required(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         r = requests.post(
             f"{API}/me/contacts/{cid}/ticket",
-            headers=admin_h, json={"motif": ""},
+            headers=admin_h, json={"client_id": target_client_id, "motif": ""},
             timeout=15,
         )
         assert r.status_code == 400
         assert "motif" in r.text.lower()
 
-    def test_motif_max_length(self, admin_h, test_contact):
+    def test_motif_max_length(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         r = requests.post(
             f"{API}/me/contacts/{cid}/ticket",
-            headers=admin_h, json={"motif": "x" * 201},
+            headers=admin_h, json={"client_id": target_client_id, "motif": "x" * 201},
             timeout=15,
         )
         assert r.status_code == 400
 
-    def test_blocks_when_open_ticket_exists(self, admin_h, test_contact):
+    def test_blocks_when_open_ticket_exists(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         # 1st open
-        r1 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "Premier"}, timeout=15)
+        r1 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "Premier"}, timeout=15)
         assert r1.status_code == 200
         # 2nd should be blocked
-        r2 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "Second"}, timeout=15)
+        r2 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "Second"}, timeout=15)
         assert r2.status_code == 409
         assert "encore ouvert" in r2.text
 
-    def test_404_unknown_contact(self, admin_h):
-        r = requests.post(f"{API}/me/contacts/__nope__/ticket", headers=admin_h, json={"motif": "x"}, timeout=15)
+    def test_404_unknown_contact(self, admin_h, target_client_id):
+        r = requests.post(f"{API}/me/contacts/__nope__/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "x"}, timeout=15)
         assert r.status_code == 404
 
-    def test_sequence_increments(self, admin_h, db, admin_user):
+    def test_sequence_increments(self, admin_h, db, admin_user, target_client_id):
         """Two contacts → two tickets, sequence increments monotonically."""
         scope = admin_user.get("client_id") or admin_user["id"]
         c_ids = []
@@ -147,8 +158,8 @@ class TestTicketCreation:
                 cid = f"TEST_seq_{uuid.uuid4().hex[:8]}"
                 db.contacts.insert_one({"id": cid, "client_id": scope, "name": f"Seq{i}", "whatsapp": "+22899880000", "created_at": datetime.now(timezone.utc).isoformat()})
                 c_ids.append(cid)
-            r1 = requests.post(f"{API}/me/contacts/{c_ids[0]}/ticket", headers=admin_h, json={"motif": "A"}, timeout=15)
-            r2 = requests.post(f"{API}/me/contacts/{c_ids[1]}/ticket", headers=admin_h, json={"motif": "B"}, timeout=15)
+            r1 = requests.post(f"{API}/me/contacts/{c_ids[0]}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "A"}, timeout=15)
+            r2 = requests.post(f"{API}/me/contacts/{c_ids[1]}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "B"}, timeout=15)
             assert r1.status_code == 200 and r2.status_code == 200
             n1 = int(r1.json()["ticket"]["number"].rsplit("-", 1)[1])
             n2 = int(r2.json()["ticket"]["number"].rsplit("-", 1)[1])
@@ -160,24 +171,24 @@ class TestTicketCreation:
 
 
 class TestTicketLifecycle:
-    def test_patch_status_to_in_progress(self, admin_h, test_contact):
+    def test_patch_status_to_in_progress(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
-        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "Lifecycle"}, timeout=15)
+        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "Lifecycle"}, timeout=15)
         tid = r.json()["ticket"]["id"]
         r2 = requests.patch(f"{API}/me/tickets/{tid}", headers=admin_h, json={"status": "in_progress"}, timeout=15)
         assert r2.status_code == 200, r2.text
         assert r2.json()["ticket"]["status"] == "in_progress"
 
-    def test_patch_rejects_done_via_patch(self, admin_h, test_contact):
+    def test_patch_rejects_done_via_patch(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
-        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "x"}, timeout=15)
+        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "x"}, timeout=15)
         tid = r.json()["ticket"]["id"]
         r2 = requests.patch(f"{API}/me/tickets/{tid}", headers=admin_h, json={"status": "done"}, timeout=15)
         assert r2.status_code == 400
 
-    def test_close_done_sets_closed_at_and_outcome(self, admin_h, test_contact):
+    def test_close_done_sets_closed_at_and_outcome(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
-        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "Close me"}, timeout=15)
+        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "Close me"}, timeout=15)
         tid = r.json()["ticket"]["id"]
         r2 = requests.post(f"{API}/me/tickets/{tid}/close", headers=admin_h, json={"outcome": "done", "resolution_note": "OK"}, timeout=15)
         assert r2.status_code == 200, r2.text
@@ -188,35 +199,35 @@ class TestTicketLifecycle:
         assert t["closed_by_id"]
         assert t["resolution_note"] == "OK"
 
-    def test_can_reopen_via_new_ticket_after_closed(self, admin_h, test_contact):
+    def test_can_reopen_via_new_ticket_after_closed(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         # Open + close
-        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "1st"}, timeout=15)
+        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "1st"}, timeout=15)
         tid = r.json()["ticket"]["id"]
         requests.post(f"{API}/me/tickets/{tid}/close", headers=admin_h, json={"outcome": "cancelled"}, timeout=15)
         # New ticket allowed
-        r3 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "2nd"}, timeout=15)
+        r3 = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "2nd"}, timeout=15)
         assert r3.status_code == 200
         # New number is sequential
         n1 = int(r.json()["ticket"]["number"].rsplit("-", 1)[1])
         n2 = int(r3.json()["ticket"]["number"].rsplit("-", 1)[1])
         assert n2 > n1
 
-    def test_close_rejects_invalid_outcome(self, admin_h, test_contact):
+    def test_close_rejects_invalid_outcome(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
-        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "x"}, timeout=15)
+        r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "x"}, timeout=15)
         tid = r.json()["ticket"]["id"]
         r2 = requests.post(f"{API}/me/tickets/{tid}/close", headers=admin_h, json={"outcome": "lol"}, timeout=15)
         assert r2.status_code == 400
 
 
 class TestTicketListing:
-    def test_list_and_pending_count(self, admin_h, db, admin_user):
+    def test_list_and_pending_count(self, admin_h, db, admin_user, target_client_id):
         scope = admin_user.get("client_id") or admin_user["id"]
         cid = f"TEST_list_{uuid.uuid4().hex[:8]}"
         db.contacts.insert_one({"id": cid, "client_id": scope, "name": "List", "whatsapp": "+22899887701", "created_at": datetime.now(timezone.utc).isoformat()})
         try:
-            r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "ListMe"}, timeout=15)
+            r = requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "ListMe"}, timeout=15)
             assert r.status_code == 200
             # List filtered by status=open
             r2 = requests.get(f"{API}/me/tickets?status=open", headers=admin_h, timeout=15)
@@ -232,14 +243,14 @@ class TestTicketListing:
             db.contacts.delete_one({"id": cid})
             db.support_tickets.delete_many({"contact_id": cid})
 
-    def test_active_ticket_endpoint(self, admin_h, test_contact):
+    def test_active_ticket_endpoint(self, admin_h, test_contact, target_client_id):
         cid = test_contact["id"]
         # No ticket yet → active=False
         r0 = requests.get(f"{API}/me/contacts/{cid}/active-ticket", headers=admin_h, timeout=15)
         assert r0.status_code == 200
         assert r0.json()["active"] is False
         # Open one
-        requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"motif": "x"}, timeout=15)
+        requests.post(f"{API}/me/contacts/{cid}/ticket", headers=admin_h, json={"client_id": target_client_id, "motif": "x"}, timeout=15)
         r1 = requests.get(f"{API}/me/contacts/{cid}/active-ticket", headers=admin_h, timeout=15)
         assert r1.status_code == 200
         body = r1.json()

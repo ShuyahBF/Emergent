@@ -1,0 +1,524 @@
+"""Iter36k — Internal real-time chat between users who follow ("are tracked
+under") the same client.
+
+Concepts
+--------
+A "client" here = a portal tenant (user with role=client/superviseur). Each
+client has zero or more "tracked_users" whose account is bridged to a
+real users row (tracked_users.user_account_id → users.id). Together they
+form the **members** of that client's chat space.
+
+When the toggle `features.internal_chat` is ON for a client, every member
+gains access to:
+  - a collective channel  ("#general" of that client)
+  - 1-to-1 threads with any other member of the same client
+
+A given user can be member of multiple clients (e.g. admin, superviseur).
+
+Storage
+-------
+`internal_chat_messages` collection:
+    {
+      id, client_id, sender_id, sender_name,
+      recipient_id  (None for the collective channel),
+      text,
+      created_at,
+      read_by: [user_id, ...]     # who has marked it read
+    }
+
+Transport
+---------
+WebSocket: ``GET /api/ws/chat?token=<jwt>``
+    On connect, the user subscribes to every client_id where chat is
+    enabled and they are a member. Server broadcasts every new message
+    of those clients to all online sockets concerned (sender included,
+    so other tabs receive it too).
+
+REST fallback (always available):
+    GET  /api/me/chat/clients
+    GET  /api/me/chat/{client_id}/members
+    GET  /api/me/chat/{client_id}/threads
+    GET  /api/me/chat/{client_id}/messages?with_user=<uid|general>&before=<iso>&limit=50
+    POST /api/me/chat/{client_id}/messages   {text, recipient_id?}
+    POST /api/me/chat/messages/{msg_id}/read
+    GET  /api/me/chat/unread-count
+"""
+from __future__ import annotations
+
+import asyncio
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional, Set
+
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel, Field
+
+log = logging.getLogger("sawali.internal_chat")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+# =====================================================================
+# In-memory connection manager (per-pod). For a single-pod deployment
+# this is enough; for multi-pod we'd swap to Redis Pub/Sub. The chat
+# is internal/small, so this is acceptable.
+# =====================================================================
+class ConnectionManager:
+    def __init__(self):
+        # user_id → list of websockets (multiple tabs/devices)
+        self._conns: Dict[str, List[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+
+    async def connect(self, user_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            self._conns.setdefault(user_id, []).append(ws)
+
+    async def disconnect(self, user_id: str, ws: WebSocket) -> None:
+        async with self._lock:
+            arr = self._conns.get(user_id)
+            if not arr:
+                return
+            try:
+                arr.remove(ws)
+            except ValueError:
+                pass
+            if not arr:
+                self._conns.pop(user_id, None)
+
+    def is_online(self, user_id: str) -> bool:
+        return bool(self._conns.get(user_id))
+
+    async def send_to_user(self, user_id: str, payload: dict) -> None:
+        """Push payload to every websocket of user_id. Errors are swallowed
+        and dead sockets pruned."""
+        arr = list(self._conns.get(user_id) or [])
+        dead: List[WebSocket] = []
+        for ws in arr:
+            try:
+                await ws.send_json(payload)
+            except Exception:
+                dead.append(ws)
+        for ws in dead:
+            await self.disconnect(user_id, ws)
+
+
+# =====================================================================
+# Pydantic payloads
+# =====================================================================
+class SendMessagePayload(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+    recipient_id: Optional[str] = None  # None => collective channel
+
+
+# =====================================================================
+# Router factory — receives DB + auth helpers from server.py
+# =====================================================================
+def make_router(*, db, get_current_user, decode_token):
+    router = APIRouter(tags=["Chat interne"])
+    manager = ConnectionManager()
+
+    # --------------------------------------------------------------
+    # Helpers
+    # --------------------------------------------------------------
+    async def _client_chat_enabled(client_id: str) -> bool:
+        u = await db.users.find_one({"id": client_id}, {"_id": 0, "features": 1})
+        if not u:
+            return False
+        return bool((u.get("features") or {}).get("internal_chat"))
+
+    async def _list_member_user_ids(client_id: str) -> Set[str]:
+        """Members of a client's chat space:
+        - the client himself
+        - every tracked_user (status != archived) with a bridged user_account_id
+        - every admin (so SAWALI staff can talk to any client's team)
+        """
+        members: Set[str] = {client_id}
+        cursor = db.tracked_users.find(
+            {"client_id": client_id, "status": {"$ne": "archived"}, "user_account_id": {"$ne": None}},
+            {"_id": 0, "user_account_id": 1},
+        )
+        async for tu in cursor:
+            uid = tu.get("user_account_id")
+            if uid:
+                members.add(uid)
+        # Admins can join every client's chat
+        admins = db.users.find({"role": "admin"}, {"_id": 0, "id": 1})
+        async for a in admins:
+            members.add(a["id"])
+        return members
+
+    async def _user_visible_clients(user: dict) -> List[dict]:
+        """Return clients where (1) chat is enabled and (2) the user is a member."""
+        out: List[dict] = []
+        # Admin → every client with internal_chat ON
+        # Regular user → only the clients they belong to (as member or tracked_user)
+        if user.get("role") == "admin":
+            cursor = db.users.find(
+                {"role": {"$in": ["client", "superviseur"]}, "features.internal_chat": True},
+                {"_id": 0, "id": 1, "full_name": 1, "company": 1},
+            )
+            async for c in cursor:
+                out.append(c)
+            return out
+
+        # Find clients of which user is the client himself
+        own = await db.users.find_one(
+            {"id": user["id"], "features.internal_chat": True},
+            {"_id": 0, "id": 1, "full_name": 1, "company": 1},
+        )
+        if own:
+            out.append(own)
+
+        # Find clients which track this user
+        tracked_cursor = db.tracked_users.find(
+            {"user_account_id": user["id"], "status": {"$ne": "archived"}},
+            {"_id": 0, "client_id": 1},
+        )
+        client_ids: Set[str] = set()
+        async for tu in tracked_cursor:
+            cid = tu.get("client_id")
+            if cid:
+                client_ids.add(cid)
+        if client_ids:
+            cursor = db.users.find(
+                {"id": {"$in": list(client_ids)}, "features.internal_chat": True},
+                {"_id": 0, "id": 1, "full_name": 1, "company": 1},
+            )
+            async for c in cursor:
+                if c["id"] not in {x["id"] for x in out}:
+                    out.append(c)
+        return out
+
+    async def _ensure_member(user: dict, client_id: str) -> None:
+        if not await _client_chat_enabled(client_id):
+            raise HTTPException(status_code=403, detail="Chat interne désactivé pour ce client.")
+        if user.get("role") == "admin":
+            return
+        members = await _list_member_user_ids(client_id)
+        if user["id"] not in members:
+            raise HTTPException(status_code=403, detail="Vous n'êtes pas membre de ce client.")
+
+    async def _resolve_display_name(uid: str) -> str:
+        u = await db.users.find_one({"id": uid}, {"_id": 0, "full_name": 1, "email": 1})
+        if u:
+            return u.get("full_name") or u.get("email") or uid
+        # Maybe a tracked_user not yet bridged
+        tu = await db.tracked_users.find_one({"id": uid}, {"_id": 0, "name": 1, "email": 1})
+        if tu:
+            return tu.get("name") or tu.get("email") or uid
+        return uid
+
+    # --------------------------------------------------------------
+    # REST: list of clients where current user can chat
+    # --------------------------------------------------------------
+    @router.get("/me/chat/clients")
+    async def me_chat_clients(user: dict = Depends(get_current_user)):
+        return await _user_visible_clients(user)
+
+    # --------------------------------------------------------------
+    # REST: members of a given client
+    # --------------------------------------------------------------
+    @router.get("/me/chat/{client_id}/members")
+    async def me_chat_members(client_id: str, user: dict = Depends(get_current_user)):
+        await _ensure_member(user, client_id)
+        member_ids = await _list_member_user_ids(client_id)
+        # Hydrate name + online state
+        cursor = db.users.find(
+            {"id": {"$in": list(member_ids)}},
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1},
+        )
+        out = []
+        async for u in cursor:
+            out.append({
+                "id": u["id"],
+                "name": u.get("full_name") or u.get("email") or u["id"],
+                "email": u.get("email"),
+                "role": u.get("role"),
+                "online": manager.is_online(u["id"]),
+                "is_self": u["id"] == user["id"],
+            })
+        out.sort(key=lambda x: (not x["online"], x["name"].lower()))
+        return out
+
+    # --------------------------------------------------------------
+    # REST: thread list (1-to-1s + general) with unread counters
+    # --------------------------------------------------------------
+    @router.get("/me/chat/{client_id}/threads")
+    async def me_chat_threads(client_id: str, user: dict = Depends(get_current_user)):
+        await _ensure_member(user, client_id)
+        # 1) Collective channel — unread count = messages in #general not read by me
+        general_unread = await db.internal_chat_messages.count_documents({
+            "client_id": client_id,
+            "recipient_id": None,
+            "sender_id": {"$ne": user["id"]},
+            "read_by": {"$nin": [user["id"]]},
+        })
+        general_last = await db.internal_chat_messages.find_one(
+            {"client_id": client_id, "recipient_id": None},
+            {"_id": 0},
+            sort=[("created_at", -1)],
+        )
+        threads = [{
+            "kind": "general",
+            "key": "general",
+            "label": "#général",
+            "unread": int(general_unread),
+            "last_message": general_last,
+        }]
+        # 2) 1-to-1 threads — distinct counterparts I've ever chatted with
+        # in this client scope.
+        pipeline = [
+            {"$match": {
+                "client_id": client_id,
+                "recipient_id": {"$ne": None},
+                "$or": [
+                    {"sender_id": user["id"]},
+                    {"recipient_id": user["id"]},
+                ],
+            }},
+            {"$project": {
+                "_id": 0,
+                "other": {"$cond": [{"$eq": ["$sender_id", user["id"]]}, "$recipient_id", "$sender_id"]},
+                "created_at": 1,
+                "sender_id": 1,
+                "recipient_id": 1,
+                "text": 1,
+                "read_by": 1,
+            }},
+            {"$sort": {"created_at": -1}},
+            {"$group": {
+                "_id": "$other",
+                "last_message": {"$first": "$$ROOT"},
+            }},
+        ]
+        async for row in db.internal_chat_messages.aggregate(pipeline):
+            other_id = row["_id"]
+            unread = await db.internal_chat_messages.count_documents({
+                "client_id": client_id,
+                "sender_id": other_id,
+                "recipient_id": user["id"],
+                "read_by": {"$nin": [user["id"]]},
+            })
+            threads.append({
+                "kind": "dm",
+                "key": other_id,
+                "label": await _resolve_display_name(other_id),
+                "unread": int(unread),
+                "last_message": row.get("last_message"),
+            })
+        return threads
+
+    # --------------------------------------------------------------
+    # REST: messages of a given thread
+    # --------------------------------------------------------------
+    @router.get("/me/chat/{client_id}/messages")
+    async def me_chat_messages(
+        client_id: str,
+        with_user: str = Query(..., description="'general' or a user_id"),
+        before: Optional[str] = Query(None),
+        limit: int = Query(50, ge=1, le=200),
+        user: dict = Depends(get_current_user),
+    ):
+        await _ensure_member(user, client_id)
+        q: Dict[str, Any] = {"client_id": client_id}
+        if with_user == "general":
+            q["recipient_id"] = None
+        else:
+            q["recipient_id"] = {"$ne": None}
+            q["$or"] = [
+                {"sender_id": user["id"], "recipient_id": with_user},
+                {"sender_id": with_user, "recipient_id": user["id"]},
+            ]
+        if before:
+            q["created_at"] = {"$lt": before}
+        cursor = db.internal_chat_messages.find(q, {"_id": 0}).sort("created_at", -1).limit(limit)
+        rows = [r async for r in cursor]
+        rows.reverse()  # chronological
+        return rows
+
+    # --------------------------------------------------------------
+    # REST: send a message
+    # --------------------------------------------------------------
+    @router.post("/me/chat/{client_id}/messages")
+    async def me_chat_send(
+        client_id: str,
+        payload: SendMessagePayload,
+        user: dict = Depends(get_current_user),
+    ):
+        await _ensure_member(user, client_id)
+        text = (payload.text or "").strip()
+        if not text:
+            raise HTTPException(status_code=400, detail="Message vide")
+        recipient_id = (payload.recipient_id or "").strip() or None
+        if recipient_id:
+            # Validate that recipient is a member of this client
+            members = await _list_member_user_ids(client_id)
+            if recipient_id not in members:
+                raise HTTPException(status_code=400, detail="Destinataire non membre de ce client")
+            if recipient_id == user["id"]:
+                raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous écrire à vous-même")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "client_id": client_id,
+            "sender_id": user["id"],
+            "sender_name": user.get("full_name") or user.get("email") or user["id"],
+            "recipient_id": recipient_id,
+            "text": text[:2000],
+            "created_at": _now_iso(),
+            "read_by": [user["id"]],  # sender is implicitly "read"
+        }
+        await db.internal_chat_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        # Push via WS to every concerned member who is online
+        # - DM: sender + recipient
+        # - General: every member of the client
+        if recipient_id:
+            targets = {user["id"], recipient_id}
+        else:
+            targets = await _list_member_user_ids(client_id)
+        broadcast_payload = {"type": "message", "client_id": client_id, "message": doc}
+        for uid in targets:
+            try:
+                await manager.send_to_user(uid, broadcast_payload)
+            except Exception:
+                pass
+        return doc
+
+    # --------------------------------------------------------------
+    # REST: mark a message read
+    # --------------------------------------------------------------
+    @router.post("/me/chat/messages/{msg_id}/read")
+    async def me_chat_mark_read(msg_id: str, user: dict = Depends(get_current_user)):
+        m = await db.internal_chat_messages.find_one({"id": msg_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(status_code=404, detail="Message introuvable")
+        await _ensure_member(user, m["client_id"])
+        if user["id"] not in (m.get("read_by") or []):
+            await db.internal_chat_messages.update_one(
+                {"id": msg_id},
+                {"$addToSet": {"read_by": user["id"]}},
+            )
+            # Push read-receipt event to the original sender
+            if m.get("sender_id") and m["sender_id"] != user["id"]:
+                try:
+                    await manager.send_to_user(m["sender_id"], {
+                        "type": "read",
+                        "client_id": m["client_id"],
+                        "msg_id": msg_id,
+                        "by": user["id"],
+                    })
+                except Exception:
+                    pass
+        return {"ok": True}
+
+    @router.post("/me/chat/{client_id}/threads/{thread_key}/mark-all-read")
+    async def me_chat_mark_thread_read(
+        client_id: str, thread_key: str, user: dict = Depends(get_current_user)
+    ):
+        """Bulk mark every message of a thread as read for current user."""
+        await _ensure_member(user, client_id)
+        q: Dict[str, Any] = {"client_id": client_id, "read_by": {"$nin": [user["id"]]}}
+        if thread_key == "general":
+            q["recipient_id"] = None
+        else:
+            q["recipient_id"] = {"$ne": None}
+            q["$or"] = [
+                {"sender_id": user["id"], "recipient_id": thread_key},
+                {"sender_id": thread_key, "recipient_id": user["id"]},
+            ]
+        res = await db.internal_chat_messages.update_many(q, {"$addToSet": {"read_by": user["id"]}})
+        return {"ok": True, "modified": res.modified_count}
+
+    # --------------------------------------------------------------
+    # REST: global unread count
+    # --------------------------------------------------------------
+    @router.get("/me/chat/unread-count")
+    async def me_chat_unread_count(user: dict = Depends(get_current_user)):
+        clients = await _user_visible_clients(user)
+        total = 0
+        per_client: Dict[str, int] = {}
+        for c in clients:
+            # General messages not from me + DM messages addressed to me, not yet read
+            q = {
+                "client_id": c["id"],
+                "read_by": {"$nin": [user["id"]]},
+                "$or": [
+                    {"recipient_id": None, "sender_id": {"$ne": user["id"]}},
+                    {"recipient_id": user["id"]},
+                ],
+            }
+            n = await db.internal_chat_messages.count_documents(q)
+            per_client[c["id"]] = int(n)
+            total += int(n)
+        return {"total": total, "per_client": per_client}
+
+    # --------------------------------------------------------------
+    # WebSocket endpoint
+    # --------------------------------------------------------------
+    @router.websocket("/ws/chat")
+    async def ws_chat(websocket: WebSocket, token: Optional[str] = Query(None)):
+        await websocket.accept()
+        if not token:
+            await websocket.send_json({"type": "error", "detail": "token manquant"})
+            await websocket.close(code=4401)
+            return
+        try:
+            payload = decode_token(token)
+            uid = payload.get("sub")
+            if not uid:
+                raise Exception("invalid token")
+            user = await db.users.find_one({"id": uid}, {"_id": 0, "password_hash": 0})
+            if not user or user.get("account_status") != "active":
+                raise Exception("inactive user")
+        except Exception:
+            await websocket.send_json({"type": "error", "detail": "auth failed"})
+            await websocket.close(code=4401)
+            return
+
+        await manager.connect(uid, websocket)
+        try:
+            await websocket.send_json({"type": "hello", "user_id": uid, "ts": _now_iso()})
+            # Listen for client-side events (ping, typing, etc.)
+            while True:
+                try:
+                    data = await websocket.receive_json()
+                except WebSocketDisconnect:
+                    break
+                except Exception:
+                    # Bad frame, ignore
+                    continue
+                msg_type = (data or {}).get("type")
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "ts": _now_iso()})
+                elif msg_type == "typing":
+                    # Relay typing indicator to the target user (DM) or client members (general)
+                    client_id = (data.get("client_id") or "").strip()
+                    target = (data.get("recipient_id") or "").strip() or None
+                    if not client_id:
+                        continue
+                    if not await _client_chat_enabled(client_id):
+                        continue
+                    if target:
+                        await manager.send_to_user(target, {
+                            "type": "typing",
+                            "client_id": client_id,
+                            "from": uid,
+                        })
+                    else:
+                        members = await _list_member_user_ids(client_id)
+                        for mid in members:
+                            if mid != uid:
+                                await manager.send_to_user(mid, {
+                                    "type": "typing",
+                                    "client_id": client_id,
+                                    "from": uid,
+                                    "channel": "general",
+                                })
+                # else: unknown, ignore
+        finally:
+            await manager.disconnect(uid, websocket)
+
+    return router

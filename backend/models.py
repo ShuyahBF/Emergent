@@ -822,6 +822,10 @@ class FormationModuleQuestion(BaseModel):
 # =====================================================================
 class TicketOpenPayload(BaseModel):
     motif: str  # 1..200 chars — required, brief description of the issue
+    # Iter36k — Client lié explicitement choisi par l'utilisateur (dropdown).
+    # Si absent ou vide, le backend refuse la création (plus de fallback auto
+    # sur le client_id du contact, qui était souvent erroné).
+    client_id: Optional[str] = None
 
 
 class TicketUpdatePayload(BaseModel):

@@ -34,12 +34,23 @@ export function AuthProvider({ children }) {
   const login = (token, userObj) => {
     localStorage.setItem("sawali_token", token);
     localStorage.setItem("sawali_user", JSON.stringify(userObj));
+    // Iter36o — Clear once-per-session flags so the new user gets a fresh
+    // Welcome Briefing on the same tab (covers the case where the user
+    // switches account without closing the tab).
+    try {
+      sessionStorage.removeItem("sawali_welcome_briefing_seen");
+    } catch { /* noop */ }
     setUser(userObj);
   };
 
   const logout = () => {
     localStorage.removeItem("sawali_token");
     localStorage.removeItem("sawali_user");
+    // Iter36o — Clear per-session flags so the next login on the same tab
+    // re-triggers the Welcome Briefing modal (and any future once-per-session UI).
+    try {
+      sessionStorage.removeItem("sawali_welcome_briefing_seen");
+    } catch { /* noop */ }
     setUser(null);
   };
 

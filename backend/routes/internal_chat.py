@@ -57,7 +57,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("sawali.internal_chat")
@@ -397,6 +397,128 @@ def make_router(*, db, get_current_user, decode_token):
             except Exception:
                 pass
         return doc
+
+    # --------------------------------------------------------------
+    # Iter36n — Photo upload (mobile camera/gallery friendly).
+    # MVP: images only (JPEG/PNG/WebP), max 10 MB. Stored on Emergent
+    # Object Storage; the message doc keeps media_url pointing to the
+    # signed retrieval endpoint below. Optional caption goes in `text`.
+    # --------------------------------------------------------------
+    @router.post("/me/chat/{client_id}/messages/photo")
+    async def me_chat_send_photo(
+        client_id: str,
+        photo: UploadFile = File(...),
+        recipient_id: Optional[str] = Form(None),
+        caption: Optional[str] = Form(None),
+        user: dict = Depends(get_current_user),
+    ):
+        await _ensure_member(user, client_id)
+        # Validate MIME (mobile cameras typically ship image/jpeg)
+        allowed_mimes = {"image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"}
+        mime = (photo.content_type or "").lower()
+        if mime not in allowed_mimes:
+            # Be lenient on filename-based detection (some browsers omit MIME)
+            ext = os.path.splitext(photo.filename or "")[1].lower()
+            ext_map = {".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".png": "image/png",
+                       ".webp": "image/webp", ".heic": "image/heic", ".heif": "image/heif"}
+            mime = ext_map.get(ext, "")
+            if mime not in allowed_mimes:
+                raise HTTPException(status_code=400, detail="Format non supporté. JPEG, PNG ou WebP uniquement.")
+        # Read fully, cap at 10 MB
+        data = await photo.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if len(data) > 10 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Image trop volumineuse (>10 Mo).")
+        # Validate recipient if DM
+        recipient = (recipient_id or "").strip() or None
+        if recipient:
+            members = await _list_member_user_ids(client_id)
+            if recipient not in members:
+                raise HTTPException(status_code=400, detail="Destinataire non membre de ce client")
+            if recipient == user["id"]:
+                raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous écrire à vous-même")
+        # Upload to Emergent Object Storage
+        msg_id = str(uuid.uuid4())
+        ext_for_path = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+                        "image/heic": ".heic", "image/heif": ".heif"}.get(mime, ".bin")
+        storage_path = None
+        try:
+            from storage import upload_bytes, storage_available
+            if not storage_available():
+                raise HTTPException(status_code=503, detail="Stockage indisponible — réessayez plus tard.")
+            storage_path = upload_bytes(
+                f"chat/{client_id}/{msg_id}{ext_for_path}",
+                data,
+                mime,
+            )
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.exception("chat photo upload failed")
+            raise HTTPException(status_code=502, detail=f"Upload échoué : {str(exc)[:160]}")
+        # Build the message doc
+        caption_clean = ((caption or "").strip())[:500] or None
+        doc = {
+            "id": msg_id,
+            "client_id": client_id,
+            "sender_id": user["id"],
+            "sender_name": user.get("full_name") or user.get("email") or user["id"],
+            "recipient_id": recipient,
+            "text": caption_clean or "",
+            "media_url": f"/api/me/chat/media/{msg_id}",
+            "media_mime": mime,
+            "media_size": len(data),
+            "media_kind": "image",
+            "storage_path": storage_path,
+            "created_at": _now_iso(),
+            "read_by": [user["id"]],
+        }
+        await db.internal_chat_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        # Broadcast (same logic as text send)
+        if recipient:
+            targets = {user["id"], recipient}
+        else:
+            targets = await _list_member_user_ids(client_id)
+        broadcast_payload = {"type": "message", "client_id": client_id, "message": doc}
+        for uid in targets:
+            try:
+                await manager.send_to_user(uid, broadcast_payload)
+            except Exception:
+                pass
+        return doc
+
+    # --------------------------------------------------------------
+    # Iter36n — Authenticated media fetch endpoint.
+    # The frontend renders <img src="/api/me/chat/media/{msg_id}"> with the
+    # axios `Authorization` header; we re-validate membership on every call
+    # so a leaked URL can't be used by an outsider.
+    # --------------------------------------------------------------
+    @router.get("/me/chat/media/{msg_id}")
+    async def me_chat_get_media(msg_id: str, user: dict = Depends(get_current_user)):
+        m = await db.internal_chat_messages.find_one({"id": msg_id}, {"_id": 0})
+        if not m:
+            raise HTTPException(status_code=404, detail="Message introuvable")
+        await _ensure_member(user, m["client_id"])
+        # For DMs, ensure the requester is one of the two parties
+        if m.get("recipient_id") and user["id"] not in (m["sender_id"], m["recipient_id"]):
+            # Admins still allowed (they see everything in a client's space)
+            if user.get("role") != "admin":
+                raise HTTPException(status_code=403, detail="Accès refusé")
+        if not m.get("storage_path"):
+            raise HTTPException(status_code=404, detail="Média introuvable")
+        try:
+            from storage import fetch_bytes
+            data, ct = fetch_bytes(m["storage_path"])
+        except Exception:
+            log.exception("chat media fetch failed")
+            raise HTTPException(status_code=502, detail="Échec récupération média")
+        return Response(
+            content=data,
+            media_type=ct or m.get("media_mime") or "application/octet-stream",
+            headers={"Cache-Control": "private, max-age=86400"},
+        )
 
     # --------------------------------------------------------------
     # REST: mark a message read

@@ -3,6 +3,18 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36n (2026-05-21) — Partage de photos dans le chat interne
+
+### 📷 Iter36n — Photos depuis caméra mobile ou galerie/disque (MVP)
+- **Backend** `POST /api/me/chat/{client_id}/messages/photo` (multipart) : JPEG/PNG/WebP/HEIC, max 10 Mo, stockage Emergent Object Storage sous `chat/{client_id}/{msg_id}.<ext>`. Le message créé porte `media_url`, `media_mime`, `media_size`, `media_kind=image`, `storage_path`, et un `text` optionnel (caption).
+- **Backend** `GET /api/me/chat/media/{msg_id}` : retourne les bytes après revalidation stricte de l'appartenance (membre du client + admin override) ; refus 403 pour outsiders et tiers d'un DM.
+- **Frontend** : 2 boutons dans le composer du chat — 📷 caméra (mobile only, `capture="environment"`) et 🖼️ galerie/disque (toutes plateformes). Compression côté client (canvas → JPEG 82%, max 1920px) avant upload, divisant le poids ×5-10. Progress bar pendant l'upload via `onUploadProgress`.
+- **Frontend lightbox** : clic sur une vignette → overlay plein-écran cliquable pour fermer. `ChatMediaThumb` charge les bytes via axios authentifié et les expose en `URL.createObjectURL` (puis révoqué à l'unmount).
+- **Conformité spec mobile-first** : la caméra s'ouvre nativement en un clic ; la galerie marche partout.
+- Tests pytest : **11 verts** (upload general + DM, validation MIME/taille, sécurité fetch / outsider / tiers DM, 404).
+
+---
+
 ## Latest — Iter36m (2026-05-21) — Compteur chat non-lu dans Welcome Briefing
 
 ### 🔔 Iter36m — Messages chat non lus depuis la dernière visite

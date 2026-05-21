@@ -16,7 +16,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2 } from "lucide-react";
 
 function playMessageBlip() {
   try {
@@ -73,6 +73,13 @@ export default function InternalChatPanel() {
   const mediaRecorderRef = useRef(null);
   const audioChunksRef = useRef([]);
   const recTimerRef = useRef(null);
+
+  // Iter36n — Photo upload state
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0); // 0..100
+  const [lightbox, setLightbox] = useState(null); // {url, filename} when zoomed
+  const cameraInputRef = useRef(null);
+  const galleryInputRef = useRef(null);
 
   // ---- WebSocket connection ----
   const { connected, lastEvent } = useInternalChat({ token, enabled: !!user && clients.length > 0 });
@@ -311,6 +318,93 @@ export default function InternalChatPanel() {
     }
   }, []);
 
+  // ---- Iter36n: Client-side photo compression + upload ----
+  // Resize to max 1920px on the long edge, JPEG quality 82.
+  // Bypass if the source is already small (<400 KB).
+  const compressImage = (file) => new Promise((resolve, reject) => {
+    if (file.size < 400 * 1024) {
+      // Already small enough, send as-is
+      resolve(file);
+      return;
+    }
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("Lecture du fichier impossible"));
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onerror = () => reject(new Error("Image illisible"));
+      img.onload = () => {
+        const MAX_EDGE = 1920;
+        let { width, height } = img;
+        if (width > MAX_EDGE || height > MAX_EDGE) {
+          const ratio = Math.min(MAX_EDGE / width, MAX_EDGE / height);
+          width = Math.round(width * ratio);
+          height = Math.round(height * ratio);
+        }
+        const canvas = document.createElement("canvas");
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0, width, height);
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) return reject(new Error("Compression échouée"));
+            // Re-wrap as a File so the backend sees a sensible filename
+            const ts = Date.now();
+            const out = new File([blob], `photo-${ts}.jpg`, { type: "image/jpeg" });
+            resolve(out);
+          },
+          "image/jpeg",
+          0.82,
+        );
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  });
+
+  const handlePhotoFile = async (file) => {
+    if (!file || !activeClientId || !activeThreadKey) return;
+    if (!file.type.startsWith("image/")) {
+      toast.error("Seules les photos sont supportées pour le moment");
+      return;
+    }
+    setUploadingPhoto(true);
+    setUploadProgress(0);
+    try {
+      // Compress before upload (saves mobile data drastically)
+      let toUpload = file;
+      try { toUpload = await compressImage(file); } catch { /* fallback to original */ }
+      const form = new FormData();
+      form.append("photo", toUpload, toUpload.name || "photo.jpg");
+      if (activeThreadKey !== "general") {
+        form.append("recipient_id", activeThreadKey);
+      }
+      // Optional caption from the textarea (cleared after send)
+      if (text.trim()) form.append("caption", text.trim());
+      await apiClient.post(
+        `/me/chat/${activeClientId}/messages/photo`,
+        form,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+          timeout: 90000,
+          onUploadProgress: (e) => {
+            if (e.total) setUploadProgress(Math.round((e.loaded * 100) / e.total));
+          },
+        },
+      );
+      setText("");
+      loadMessages(activeClientId, activeThreadKey);
+      toast.success("Photo envoyée");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec d'envoi de la photo");
+    } finally {
+      setUploadingPhoto(false);
+      setUploadProgress(0);
+      if (cameraInputRef.current) cameraInputRef.current.value = "";
+      if (galleryInputRef.current) galleryInputRef.current.value = "";
+    }
+  };
+
   // useMemo MUST be called before any conditional return (React Hooks rule)
   const dmThreadIds = useMemo(
     () => new Set(threads.filter((t) => t.kind === "dm").map((t) => t.key)),
@@ -483,13 +577,27 @@ export default function InternalChatPanel() {
               ) : (
                 messages.map((m) => {
                   const mine = m.sender_id === user?.id;
+                  const hasMedia = m.media_kind === "image" && m.media_url;
                   return (
                     <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
                       <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "bg-sawali-blue text-white" : "bg-white ring-1 ring-slate-200 text-slate-800"}`}>
                         {!mine && (
                           <p className="text-[10px] font-semibold text-slate-500 mb-0.5">{m.sender_name}</p>
                         )}
-                        <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        {hasMedia && (
+                          <button
+                            type="button"
+                            onClick={() => setLightbox({ url: `${process.env.REACT_APP_BACKEND_URL}${m.media_url}`, msgId: m.id })}
+                            className="block mb-1 rounded-lg overflow-hidden ring-1 ring-black/10 max-w-[260px]"
+                            data-testid={`chat-media-${m.id}`}
+                            title="Cliquer pour agrandir"
+                          >
+                            <ChatMediaThumb src={`${process.env.REACT_APP_BACKEND_URL}${m.media_url}`} />
+                          </button>
+                        )}
+                        {m.text && (
+                          <p className="whitespace-pre-wrap break-words">{m.text}</p>
+                        )}
                         <p className={`text-[9px] mt-1 text-right ${mine ? "text-white/70" : "text-slate-400"}`}>
                           {fmtTime(m.created_at)}
                         </p>
@@ -519,10 +627,60 @@ export default function InternalChatPanel() {
                     Transcription par Whisper en cours…
                   </div>
                 )}
+                {uploadingPhoto && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 px-3 py-2 text-xs text-emerald-800" data-testid="internal-chat-uploading-indicator">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                    Envoi de la photo… {uploadProgress > 0 && `${uploadProgress}%`}
+                    <span className="ml-auto inline-block h-1 w-24 rounded-full bg-emerald-200 overflow-hidden">
+                      <span
+                        className="block h-full bg-emerald-500 transition-all"
+                        style={{ width: `${Math.max(5, uploadProgress)}%` }}
+                      />
+                    </span>
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
+                  {/* Iter36n — Camera capture (mobile-native via capture="environment") */}
+                  <input
+                    ref={cameraInputRef}
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); }}
+                    className="hidden"
+                    data-testid="internal-chat-camera-input"
+                  />
+                  <input
+                    ref={galleryInputRef}
+                    type="file"
+                    accept="image/*"
+                    onChange={(e) => { const f = e.target.files?.[0]; if (f) handlePhotoFile(f); }}
+                    className="hidden"
+                    data-testid="internal-chat-gallery-input"
+                  />
+                  <div className="flex gap-1 shrink-0">
+                    <button
+                      onClick={() => cameraInputRef.current?.click()}
+                      disabled={sending || uploadingPhoto || recState !== "idle"}
+                      className="lg:hidden inline-flex items-center justify-center h-10 w-10 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-testid="internal-chat-camera"
+                      title="Prendre une photo"
+                    >
+                      <Camera className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={() => galleryInputRef.current?.click()}
+                      disabled={sending || uploadingPhoto || recState !== "idle"}
+                      className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+                      data-testid="internal-chat-gallery"
+                      title="Choisir une photo (galerie / disque)"
+                    >
+                      {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
+                    </button>
+                  </div>
                   <button
                     onClick={recState === "recording" ? stopRecording : startRecording}
-                    disabled={sending || recState === "transcribing"}
+                    disabled={sending || uploadingPhoto || recState === "transcribing"}
                     className={`inline-flex items-center justify-center h-10 w-10 rounded-lg shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                       recState === "recording"
                         ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
@@ -581,6 +739,85 @@ export default function InternalChatPanel() {
           </div>
         </div>
       )}
+
+      {/* Iter36n — Lightbox */}
+      {lightbox && (
+        <div
+          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/85 cursor-zoom-out"
+          onClick={() => setLightbox(null)}
+          data-testid="chat-media-lightbox"
+        >
+          <button
+            onClick={() => setLightbox(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white"
+            aria-label="Fermer"
+          >
+            <X className="h-6 w-6" />
+          </button>
+          <ChatMediaThumb
+            src={lightbox.url}
+            className="max-h-[90vh] max-w-[95vw] rounded-lg shadow-2xl object-contain"
+            full
+          />
+        </div>
+      )}
     </>
+  );
+}
+
+// =====================================================================
+// Iter36n — Authenticated <img> renderer.
+// Chat media URLs require a Bearer token. We fetch the bytes via axios
+// (apiClient injects auth), then surface them as an object URL.
+// =====================================================================
+function ChatMediaThumb({ src, className, full }) {
+  const [blobUrl, setBlobUrl] = useState(null);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    let createdUrl = null;
+    setError(false);
+    setBlobUrl(null);
+    (async () => {
+      try {
+        // src is "<BACKEND>/api/me/chat/media/..." — extract path for apiClient
+        const url = new URL(src);
+        const path = url.pathname.replace(/^\/api/, "");
+        const r = await apiClient.get(path, { responseType: "blob" });
+        if (!active) return;
+        createdUrl = URL.createObjectURL(r.data);
+        setBlobUrl(createdUrl);
+      } catch {
+        if (active) setError(true);
+      }
+    })();
+    return () => {
+      active = false;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [src]);
+
+  if (error) {
+    return (
+      <div className={`flex items-center justify-center bg-slate-100 text-slate-400 text-xs ${full ? "h-40 w-40" : "h-32 w-32"}`}>
+        <ImageIcon className="h-5 w-5 mr-1" /> Indisponible
+      </div>
+    );
+  }
+  if (!blobUrl) {
+    return (
+      <div className={`flex items-center justify-center bg-slate-100 ${full ? "h-40 w-full" : "h-32 w-full"}`}>
+        <Loader2 className="h-4 w-4 animate-spin text-slate-400" />
+      </div>
+    );
+  }
+  return (
+    <img
+      src={blobUrl}
+      alt=""
+      className={className || "block w-full h-auto max-h-[280px] object-cover"}
+      loading="lazy"
+    />
   );
 }

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Mail, Phone, MapPin, Send, CheckCircle2, MessageCircle } from "lucide-react";
 import { toast } from "sonner";
+import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 
 export default function Contact() {
   const [info, setInfo] = useState(null);
@@ -31,6 +32,9 @@ export default function Contact() {
           <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Contact</p>
           <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">Parlons de votre projet.</h1>
           <p className="mt-4 text-slate-300">Notre équipe revient vers vous sous 24h ouvrées.</p>
+          <div className="mt-4">
+            <TeamPresenceBadge tone="dark" />
+          </div>
           <div className="mt-10 space-y-4 text-slate-300">
             <div className="flex items-center gap-3"><Mail className="h-5 w-5 text-sawali-blue-light" /> {info?.email}</div>
             <div className="flex items-center gap-3"><Phone className="h-5 w-5 text-sawali-blue-light" /> {info?.phone}</div>

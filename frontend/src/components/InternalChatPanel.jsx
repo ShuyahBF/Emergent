@@ -16,7 +16,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square } from "lucide-react";
 
 function playMessageBlip() {
   try {
@@ -66,6 +66,13 @@ export default function InternalChatPanel() {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [unreadPerClient, setUnreadPerClient] = useState({});
   const scrollRef = useRef(null);
+
+  // Iter36l — Voice note recording & Whisper transcription state
+  const [recState, setRecState] = useState("idle"); // idle | recording | transcribing
+  const [recElapsed, setRecElapsed] = useState(0);  // seconds since recording started
+  const mediaRecorderRef = useRef(null);
+  const audioChunksRef = useRef([]);
+  const recTimerRef = useRef(null);
 
   // ---- WebSocket connection ----
   const { connected, lastEvent } = useInternalChat({ token, enabled: !!user && clients.length > 0 });
@@ -213,6 +220,96 @@ export default function InternalChatPanel() {
       setSending(false);
     }
   };
+
+  // ---- Iter36l: Voice note recording → Whisper transcription ----
+  const startRecording = async () => {
+    if (recState !== "idle") return;
+    if (!navigator.mediaDevices || typeof MediaRecorder === "undefined") {
+      toast.error("Votre navigateur ne supporte pas l'enregistrement audio");
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
+        ? "audio/webm;codecs=opus"
+        : (MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "");
+      const recorder = mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (e) => {
+        if (e.data && e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      recorder.onstop = async () => {
+        // Stop the mic
+        stream.getTracks().forEach((t) => t.stop());
+        if (recTimerRef.current) { clearInterval(recTimerRef.current); recTimerRef.current = null; }
+        const blob = new Blob(audioChunksRef.current, { type: recorder.mimeType || "audio/webm" });
+        audioChunksRef.current = [];
+        if (blob.size < 800) {
+          // Too short / silent
+          setRecState("idle");
+          setRecElapsed(0);
+          toast.warning("Enregistrement trop court");
+          return;
+        }
+        setRecState("transcribing");
+        try {
+          const form = new FormData();
+          form.append("audio", blob, "voice-note.webm");
+          form.append("language", "fr");
+          const r = await apiClient.post("/me/chat/transcribe", form, {
+            headers: { "Content-Type": "multipart/form-data" },
+            timeout: 60000,
+          });
+          const transcribed = (r.data?.text || "").trim();
+          if (!transcribed) {
+            toast.warning("Aucun texte transcrit — réessayez plus distinctement");
+          } else {
+            // Insert at end of current text (preserve any existing draft)
+            setText((prev) => (prev ? `${prev.trim()} ${transcribed}` : transcribed));
+            toast.success("Transcription prête — éditez puis envoyez");
+          }
+        } catch (err) {
+          toast.error(err?.response?.data?.detail || "Erreur de transcription");
+        } finally {
+          setRecState("idle");
+          setRecElapsed(0);
+        }
+      };
+      mediaRecorderRef.current = recorder;
+      recorder.start();
+      setRecState("recording");
+      setRecElapsed(0);
+      recTimerRef.current = setInterval(() => {
+        setRecElapsed((s) => {
+          // Auto-stop at 60s
+          if (s >= 59) {
+            try { recorder.stop(); } catch { /* noop */ }
+            return s;
+          }
+          return s + 1;
+        });
+      }, 1000);
+    } catch (err) {
+      toast.error("Microphone refusé ou indisponible");
+      setRecState("idle");
+    }
+  };
+
+  const stopRecording = () => {
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === "recording") {
+      try { rec.stop(); } catch { /* noop */ }
+    }
+  };
+
+  // Cleanup on unmount
+  useEffect(() => () => {
+    if (recTimerRef.current) clearInterval(recTimerRef.current);
+    const rec = mediaRecorderRef.current;
+    if (rec && rec.state === "recording") {
+      try { rec.stop(); } catch { /* noop */ }
+    }
+  }, []);
 
   // useMemo MUST be called before any conditional return (React Hooks rule)
   const dmThreadIds = useMemo(
@@ -406,7 +503,48 @@ export default function InternalChatPanel() {
             {/* Composer */}
             {activeThreadKey && (
               <div className="border-t border-slate-200 bg-white p-3">
+                {recState === "recording" && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-xs text-rose-800" data-testid="internal-chat-recording-indicator">
+                    <span className="relative inline-flex">
+                      <span className="h-2 w-2 rounded-full bg-rose-500" />
+                      <span className="absolute inline-flex h-2 w-2 rounded-full bg-rose-500 opacity-60 animate-ping" />
+                    </span>
+                    Enregistrement en cours — {String(Math.floor(recElapsed / 60)).padStart(2, "0")}:{String(recElapsed % 60).padStart(2, "0")} / 01:00
+                    <span className="ml-auto text-[10px] text-rose-600">Cliquez le carré pour arrêter</span>
+                  </div>
+                )}
+                {recState === "transcribing" && (
+                  <div className="mb-2 flex items-center gap-2 rounded-lg bg-sky-50 ring-1 ring-sky-200 px-3 py-2 text-xs text-sky-800" data-testid="internal-chat-transcribing-indicator">
+                    <RefreshCw className="h-3.5 w-3.5 animate-spin" />
+                    Transcription par Whisper en cours…
+                  </div>
+                )}
                 <div className="flex items-end gap-2">
+                  <button
+                    onClick={recState === "recording" ? stopRecording : startRecording}
+                    disabled={sending || recState === "transcribing"}
+                    className={`inline-flex items-center justify-center h-10 w-10 rounded-lg shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                      recState === "recording"
+                        ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
+                        : recState === "transcribing"
+                          ? "bg-sky-100 text-sky-600"
+                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                    }`}
+                    data-testid="internal-chat-mic"
+                    title={
+                      recState === "recording"
+                        ? "Arrêter et transcrire"
+                        : recState === "transcribing"
+                          ? "Transcription en cours…"
+                          : "Note vocale (transcription automatique)"
+                    }
+                  >
+                    {recState === "recording"
+                      ? <Square className="h-4 w-4 fill-white" />
+                      : recState === "transcribing"
+                        ? <RefreshCw className="h-4 w-4 animate-spin" />
+                        : <Mic className="h-4 w-4" />}
+                  </button>
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}
@@ -416,16 +554,22 @@ export default function InternalChatPanel() {
                         sendMessage();
                       }
                     }}
-                    placeholder="Écrire un message… (Entrée pour envoyer, Maj+Entrée pour saut de ligne)"
+                    placeholder={
+                      recState === "recording"
+                        ? "Parlez maintenant…"
+                        : recState === "transcribing"
+                          ? "Transcription en cours…"
+                          : "Écrire un message… (Entrée pour envoyer, Maj+Entrée pour saut de ligne)"
+                    }
                     rows={1}
                     maxLength={2000}
                     className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30 max-h-[120px]"
                     data-testid="internal-chat-input"
-                    disabled={sending}
+                    disabled={sending || recState !== "idle"}
                   />
                   <button
                     onClick={sendMessage}
-                    disabled={sending || !text.trim()}
+                    disabled={sending || !text.trim() || recState !== "idle"}
                     className="inline-flex items-center justify-center h-10 w-10 rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue-light disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                     data-testid="internal-chat-send"
                   >

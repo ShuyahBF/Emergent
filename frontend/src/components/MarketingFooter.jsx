@@ -4,6 +4,7 @@ import { Mail, Phone, MapPin, MessageCircle } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import NewsletterForm from "@/components/NewsletterForm";
+import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 
 export default function MarketingFooter() {
   const [info, setInfo] = useState(null);
@@ -34,6 +35,9 @@ export default function MarketingFooter() {
             Société d'ingénierie logicielle. Conception, déploiement et maintenance
             de solutions métiers sur-mesure.
           </p>
+          <div className="mt-3">
+            <TeamPresenceBadge tone="dark" />
+          </div>
         </div>
         <div>
           <p className="font-display font-semibold text-white mb-3">Navigation</p>

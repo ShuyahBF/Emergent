@@ -6,6 +6,7 @@ import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 import DeploymentsMap from "@/components/DeploymentsMap";
 import HeroVideoSection from "@/components/HeroVideoSection";
 import HomeStatsTicker from "@/components/HomeStatsTicker";
+import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -50,6 +51,9 @@ export default function Home() {
             <div className="inline-flex items-center gap-2 rounded-full border border-sawali-blue/40 bg-sawali-blue/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-sawali-blue-light">
               <Sparkles className="h-3 w-3" />
               {home?.metadata?.kicker || "SAWALI · Software Engineering"}
+            </div>
+            <div className="mt-3">
+              <TeamPresenceBadge tone="dark" />
             </div>
             <h1 className="mt-6 text-4xl sm:text-5xl lg:text-6xl font-display font-bold leading-[1.05] text-white">
               {home?.title || "L'ingénierie logicielle au service de votre transformation."}

@@ -42,16 +42,22 @@ REST fallback (always available):
     POST /api/me/chat/{client_id}/messages   {text, recipient_id?}
     POST /api/me/chat/messages/{msg_id}/read
     GET  /api/me/chat/unread-count
+    POST /api/me/chat/transcribe (multipart audio) — Iter36l Whisper STT
+
+Public:
+    GET /api/public/team-presence — Iter36l "online X/Y" social proof badge
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import os
+import tempfile
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Body, Depends, File, HTTPException, Query, UploadFile, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("sawali.internal_chat")
@@ -90,6 +96,11 @@ class ConnectionManager:
 
     def is_online(self, user_id: str) -> bool:
         return bool(self._conns.get(user_id))
+
+    def online_user_ids(self) -> Set[str]:
+        """Iter36l — Snapshot of currently connected user ids (for the public
+        social-proof badge and admin debug)."""
+        return set(uid for uid, arr in self._conns.items() if arr)
 
     async def send_to_user(self, user_id: str, payload: dict) -> None:
         """Push payload to every websocket of user_id. Errors are swallowed
@@ -520,5 +531,89 @@ def make_router(*, db, get_current_user, decode_token):
                 # else: unknown, ignore
         finally:
             await manager.disconnect(uid, websocket)
+
+    # --------------------------------------------------------------
+    # Iter36l — Whisper STT transcription endpoint for the chat composer.
+    # Multipart upload (audio/webm,wav,m4a,mp3 — 25 MB max) → French text.
+    # Used by the chat panel's microphone button: user records, the audio
+    # is transcribed, the text is shown for review, then sent as a regular
+    # text message via /me/chat/{cid}/messages. Audio is NOT persisted
+    # (conforms to "chat texte seul" spec).
+    # --------------------------------------------------------------
+    @router.post("/me/chat/transcribe")
+    async def me_chat_transcribe(
+        audio: UploadFile = File(...),
+        language: str = "fr",
+        user: dict = Depends(get_current_user),
+    ):
+        # Validate filename extension (whisper-1 accepts: mp3,mp4,mpeg,mpga,m4a,wav,webm)
+        allowed = {".mp3", ".mp4", ".mpeg", ".mpga", ".m4a", ".wav", ".webm", ".ogg"}
+        ext = os.path.splitext(audio.filename or "")[1].lower() or ".webm"
+        if ext not in allowed:
+            # Browser MediaRecorder ships .webm by default — be lenient
+            ext = ".webm"
+        # Read fully (we cap at 25 MB)
+        data = await audio.read()
+        if not data:
+            raise HTTPException(status_code=400, detail="Fichier audio vide.")
+        if len(data) > 25 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Fichier audio trop volumineux (>25 Mo).")
+        # Persist temporarily — Whisper wants a real file handle
+        tmp_path = None
+        try:
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as f:
+                f.write(data)
+                tmp_path = f.name
+            from emergentintegrations.llm.openai import OpenAISpeechToText
+            stt = OpenAISpeechToText(api_key=os.environ.get("EMERGENT_LLM_KEY"))
+            with open(tmp_path, "rb") as fh:
+                resp = await stt.transcribe(
+                    file=fh,
+                    model="whisper-1",
+                    response_format="json",
+                    language=(language or "fr")[:5],
+                )
+            text = (getattr(resp, "text", None) or "").strip()
+            return {"ok": True, "text": text}
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            log.exception("Whisper transcription failed")
+            raise HTTPException(status_code=502, detail=f"Transcription échouée : {str(exc)[:160]}")
+        finally:
+            if tmp_path and os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except Exception:
+                    pass
+
+    # --------------------------------------------------------------
+    # Iter36l — Public "team online X/Y" social-proof badge.
+    # Counts SAWALI staff (admins) currently connected to the WS chat.
+    # No identifying information returned (privacy-safe).
+    # --------------------------------------------------------------
+    @router.get("/public/team-presence")
+    async def public_team_presence():
+        # Total = active SAWALI staff (admins + superviseur + moderateur).
+        # Online = subset currently WS-connected.
+        team_ids: List[str] = []
+        cursor = db.users.find(
+            {
+                "role": {"$in": ["admin", "superviseur", "moderateur"]},
+                "account_status": "active",
+            },
+            {"_id": 0, "id": 1},
+        )
+        async for u in cursor:
+            if u.get("id"):
+                team_ids.append(u["id"])
+        online_ids = manager.online_user_ids()
+        online = sum(1 for tid in team_ids if tid in online_ids)
+        total = len(team_ids)
+        return {
+            "online": online,
+            "total": total,
+            "ts": _now_iso(),
+        }
 
     return router

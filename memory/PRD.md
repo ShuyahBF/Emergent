@@ -3,6 +3,26 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36l (2026-05-21) — Badge présence publique + Transcription Whisper
+
+### 🌐 Iter36l.1 — Badge "Équipe en ligne X/Y" (preuve sociale publique)
+- **Endpoint public** `GET /api/public/team-presence` → `{online: N, total: M, ts}`. Aucune PII exposée (pas d'emails, noms ou IDs).
+- **Définition** : `total` = comptes SAWALI staff actifs (admin/superviseur/moderateur), `online` = sous-ensemble actuellement connecté au WebSocket `/api/ws/chat`.
+- **Composant** `TeamPresenceBadge.jsx` (tons light/dark, mode compact) avec dot pulsant vert + libellé "Équipe en ligne 2/3". Fallback "Équipe joignable 24/7" quand personne en ligne.
+- **Intégration** : MarketingNav (nav supérieure, mode dark compact), Hero homepage, page Contact, Footer.
+- Polling 30 s — overhead négligeable, pas d'auth nécessaire.
+
+### 🎙️ Iter36l.2 — Transcription notes vocales chat (OpenAI Whisper)
+- **Endpoint** `POST /api/me/chat/transcribe` (multipart/form-data, `audio` + `language=fr`). Limite 25 Mo, formats webm/wav/mp3/m4a/ogg/mp4.
+- **Intégration Whisper-1** via `emergentintegrations.llm.openai.OpenAISpeechToText` (Emergent LLM Key).
+- **Workflow UI** : bouton micro à gauche du composer du chat interne → enregistrement MediaRecorder (max 60 s, auto-stop) → upload → transcription FR → texte injecté dans le textarea → utilisateur édite/valide → envoi par le bouton Send normal.
+- **États visuels** : indicateur rouge pulsant pendant l'enregistrement (avec chronomètre `00:42 / 01:00`), indicateur sky avec spinner pendant la transcription, restauration `idle` à la fin.
+- **Conformité spec "chat texte seul"** : l'audio n'est jamais persisté, seul le texte transcrit devient un message.
+
+### Tests pytest : **20 nouveaux verts** (3 presence WebSocket E2E + 4 transcribe validation + 13 chat existants).
+
+---
+
 ## Latest — Iter36k (2026-05-21) — Bug Fix Ticket Dropdown + Chat Interne Temps Réel
 
 ### 🐛 Iter36k.1 — Bug fix : Ticket WhatsApp héritait du mauvais client lié

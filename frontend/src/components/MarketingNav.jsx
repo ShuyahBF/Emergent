@@ -4,6 +4,7 @@ import { Menu, X, ArrowRight, LogIn } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { useAuth } from "@/contexts/AuthContext";
 import SupportLoadGauge from "@/components/SupportLoadGauge";
+import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 
 const links = [
   { to: "/", label: "Accueil" },
@@ -65,6 +66,7 @@ export default function MarketingNav() {
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
+            <TeamPresenceBadge tone="dark" compact className="hidden md:inline-flex" />
             <button
               onClick={() => navigate(portalHref)}
               className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-sawali-blue/40 px-4 py-2 text-sm text-white hover:bg-sawali-blue/10 transition"

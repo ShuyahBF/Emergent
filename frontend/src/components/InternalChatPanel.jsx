@@ -18,23 +18,40 @@ import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
 import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles } from "lucide-react";
 
-function playMessageBlip() {
+/*
+ * Iter36r — Distinct sound for incoming internal chat messages.
+ *
+ * To stand out from the WhatsApp notifier (880Hz → 1320Hz, single tone),
+ * we play a warmer two-note motif (E5 → G5, triangle wave) reminiscent
+ * of a friendly conversation chime. ~280 ms total, soft attack.
+ */
+function playChatBlip() {
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
     const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.1);
-    gain.gain.setValueAtTime(0.25, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.25);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.27);
-    osc.onended = () => ctx.close();
+    const masterGain = ctx.createGain();
+    masterGain.connect(ctx.destination);
+    masterGain.gain.value = 0.25;
+
+    const tones = [
+      { freq: 659.25, start: 0,    dur: 0.16 }, // E5
+      { freq: 783.99, start: 0.10, dur: 0.20 }, // G5 (slight overlap for legato)
+    ];
+    tones.forEach(({ freq, start, dur }) => {
+      const osc = ctx.createOscillator();
+      const env = ctx.createGain();
+      osc.connect(env);
+      env.connect(masterGain);
+      osc.type = "triangle";
+      osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
+      env.gain.setValueAtTime(0.0001, ctx.currentTime + start);
+      env.gain.exponentialRampToValueAtTime(0.7, ctx.currentTime + start + 0.02);
+      env.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + start + dur);
+      osc.start(ctx.currentTime + start);
+      osc.stop(ctx.currentTime + start + dur + 0.02);
+    });
+    setTimeout(() => { try { ctx.close(); } catch { /* noop */ } }, 600);
   } catch { /* best effort */ }
 }
 
@@ -184,14 +201,19 @@ export default function InternalChatPanel() {
     }
   }, [activeClientId, activeThreadKey, open, loadMessages, markThreadRead]);
 
-  // Scroll-to-bottom on messages change
+  // Iter36r — Robust auto-scroll: tracks BOTH length AND the id of the
+  // last message, so that a full reload that ends with a new message at
+  // the bottom (same length, different last id) still scrolls. Also runs
+  // an extra delayed scroll to cope with images loading in.
+  const lastMsgId = messages.length > 0 ? messages[messages.length - 1].id : null;
   useEffect(() => {
-    if (scrollRef.current) {
-      requestAnimationFrame(() => {
-        scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-      });
-    }
-  }, [messages.length]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const stick = () => { el.scrollTop = el.scrollHeight; };
+    requestAnimationFrame(stick);
+    const t = setTimeout(stick, 250);
+    return () => clearTimeout(t);
+  }, [messages.length, lastMsgId, activeThreadKey]);
 
   // ---- WebSocket event handler ----
   useEffect(() => {
@@ -202,6 +224,14 @@ export default function InternalChatPanel() {
       // Refresh threads (counters) + global unread
       loadUnreadCount();
       loadThreads(client_id);
+      // Iter36r — Always play the chat sound on RECEPTION (i.e. message
+      // from somebody else), regardless of whether the user is on the
+      // active thread or not. The visual toast only fires when the user
+      // is on a DIFFERENT thread, since they'd otherwise see the message
+      // directly in the conversation.
+      if (!isMine) {
+        playChatBlip();
+      }
       // If currently viewing this thread, append + auto-mark-read
       if (open && activeClientId === client_id && (
         (activeThreadKey === "general" && !message.recipient_id) ||
@@ -216,8 +246,7 @@ export default function InternalChatPanel() {
           apiClient.post(`/me/chat/messages/${message.id}/read`).catch(() => {});
         }
       } else if (!isMine) {
-        // Toast + sound for messages received in a thread the user isn't viewing
-        playMessageBlip();
+        // Toast for messages received in a thread the user isn't viewing
         toast.info(`💬 ${message.sender_name}: ${(message.text || "").slice(0, 80)}`, {
           duration: 4000,
         });
@@ -238,7 +267,12 @@ export default function InternalChatPanel() {
       });
       setText("");
       // WS will push the message back via the broadcast; locally also reload as safety
-      loadMessages(activeClientId, activeThreadKey);
+      await loadMessages(activeClientId, activeThreadKey);
+      // Iter36r — Force scroll to the latest message after the history refresh
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur d'envoi");
     } finally {
@@ -413,7 +447,11 @@ export default function InternalChatPanel() {
         },
       );
       setText("");
-      loadMessages(activeClientId, activeThreadKey);
+      await loadMessages(activeClientId, activeThreadKey);
+      requestAnimationFrame(() => {
+        const el = scrollRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+      });
       toast.success("Photo envoyée");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Échec d'envoi de la photo");

@@ -16,7 +16,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2 } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles } from "lucide-react";
 
 function playMessageBlip() {
   try {
@@ -80,6 +80,24 @@ export default function InternalChatPanel() {
   const [lightbox, setLightbox] = useState(null); // {url, filename} when zoomed
   const cameraInputRef = useRef(null);
   const galleryInputRef = useRef(null);
+
+  // Iter36q — One-time tutorial popover next to the microphone button.
+  // Persists in localStorage so it never reappears once dismissed.
+  const MIC_INTRO_KEY = "sawali_chat_mic_intro_seen";
+  const [showMicIntro, setShowMicIntro] = useState(false);
+  useEffect(() => {
+    if (!open || !activeThreadKey) return;
+    let seen = false;
+    try { seen = localStorage.getItem(MIC_INTRO_KEY) === "1"; } catch { /* noop */ }
+    if (!seen) {
+      const t = setTimeout(() => setShowMicIntro(true), 600);
+      return () => clearTimeout(t);
+    }
+  }, [open, activeThreadKey]);
+  const dismissMicIntro = () => {
+    setShowMicIntro(false);
+    try { localStorage.setItem(MIC_INTRO_KEY, "1"); } catch { /* noop */ }
+  };
 
   // ---- WebSocket connection ----
   const { connected, lastEvent } = useInternalChat({ token, enabled: !!user && clients.length > 0 });
@@ -231,6 +249,8 @@ export default function InternalChatPanel() {
   // ---- Iter36l: Voice note recording → Whisper transcription ----
   const startRecording = async () => {
     if (recState !== "idle") return;
+    // Iter36q — auto-dismiss the first-use tutorial once the feature is used
+    if (showMicIntro) dismissMicIntro();
     if (!navigator.mediaDevices || typeof MediaRecorder === "undefined") {
       toast.error("Votre navigateur ne supporte pas l'enregistrement audio");
       return;
@@ -681,31 +701,69 @@ export default function InternalChatPanel() {
                       {uploadingPhoto ? <Loader2 className="h-4 w-4 animate-spin" /> : <ImageIcon className="h-4 w-4" />}
                     </button>
                   </div>
-                  <button
-                    onClick={recState === "recording" ? stopRecording : startRecording}
-                    disabled={sending || uploadingPhoto || recState === "transcribing"}
-                    className={`inline-flex items-center justify-center h-10 w-10 rounded-lg shrink-0 transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-                      recState === "recording"
-                        ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
+                  <div className="relative shrink-0">
+                    <button
+                      onClick={recState === "recording" ? stopRecording : startRecording}
+                      disabled={sending || uploadingPhoto || recState === "transcribing"}
+                      className={`inline-flex items-center justify-center h-10 w-10 rounded-lg transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                        recState === "recording"
+                          ? "bg-rose-500 text-white hover:bg-rose-600 animate-pulse"
+                          : recState === "transcribing"
+                            ? "bg-sky-100 text-sky-600"
+                            : showMicIntro
+                              ? "bg-sawali-blue text-white ring-2 ring-sawali-blue/40 ring-offset-2 animate-pulse"
+                              : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                      }`}
+                      data-testid="internal-chat-mic"
+                      title={
+                        recState === "recording"
+                          ? "Arrêter et transcrire"
+                          : recState === "transcribing"
+                            ? "Transcription en cours…"
+                            : "Note vocale (transcription automatique)"
+                      }
+                    >
+                      {recState === "recording"
+                        ? <Square className="h-4 w-4 fill-white" />
                         : recState === "transcribing"
-                          ? "bg-sky-100 text-sky-600"
-                          : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                    }`}
-                    data-testid="internal-chat-mic"
-                    title={
-                      recState === "recording"
-                        ? "Arrêter et transcrire"
-                        : recState === "transcribing"
-                          ? "Transcription en cours…"
-                          : "Note vocale (transcription automatique)"
-                    }
-                  >
-                    {recState === "recording"
-                      ? <Square className="h-4 w-4 fill-white" />
-                      : recState === "transcribing"
-                        ? <RefreshCw className="h-4 w-4 animate-spin" />
-                        : <Mic className="h-4 w-4" />}
-                  </button>
+                          ? <RefreshCw className="h-4 w-4 animate-spin" />
+                          : <Mic className="h-4 w-4" />}
+                    </button>
+                    {/* Iter36q — One-time onboarding popover */}
+                    {showMicIntro && recState === "idle" && (
+                      <div
+                        className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 w-[230px] rounded-xl bg-slate-900 text-white p-3 shadow-2xl ring-1 ring-slate-700 animate-in fade-in slide-in-from-bottom-2"
+                        data-testid="internal-chat-mic-intro"
+                        role="dialog"
+                      >
+                        <button
+                          onClick={dismissMicIntro}
+                          className="absolute top-1 right-1 text-slate-400 hover:text-white"
+                          aria-label="Fermer"
+                          data-testid="internal-chat-mic-intro-close"
+                        >
+                          <X className="h-3 w-3" />
+                        </button>
+                        <div className="flex items-center gap-1.5 text-sky-300 text-[10px] font-bold uppercase tracking-wider mb-1">
+                          <Sparkles className="h-3 w-3" /> Astuce
+                        </div>
+                        <p className="text-[11px] leading-snug pr-3">
+                          Cliquez sur 🎙️ pour enregistrer une note vocale.
+                          La transcription se fait automatiquement par IA :
+                          vous pourrez relire et corriger avant l'envoi.
+                        </p>
+                        <button
+                          onClick={dismissMicIntro}
+                          className="mt-2 w-full rounded-md bg-sawali-blue hover:bg-sawali-blue-light text-white px-2 py-1 text-[11px] font-semibold"
+                          data-testid="internal-chat-mic-intro-ack"
+                        >
+                          OK, compris
+                        </button>
+                        {/* Speech-bubble tail */}
+                        <span className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 w-3 h-3 bg-slate-900 ring-1 ring-slate-700 rotate-45" />
+                      </div>
+                    )}
+                  </div>
                   <textarea
                     value={text}
                     onChange={(e) => setText(e.target.value)}

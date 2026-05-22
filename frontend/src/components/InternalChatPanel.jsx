@@ -425,11 +425,14 @@ export default function InternalChatPanel() {
 
   return (
     <>
-      {/* Floating FAB */}
+      {/* Floating FAB — Iter36p: stacked ABOVE the Liluvine virtual
+          assistant FAB (which sits at bottom-4 right-4 and expands wide
+          on desktop with a "Liluvine — Support Technique" label).
+          Stacking vertically guarantees no overlap on any breakpoint. */}
       {!open && (
         <button
           onClick={() => setOpen(true)}
-          className="fixed bottom-4 right-4 z-40 inline-flex items-center justify-center h-12 w-12 rounded-full bg-sawali-blue text-white shadow-2xl hover:bg-sawali-blue-light hover:scale-105 transition-all ring-2 ring-white"
+          className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-40 inline-flex items-center justify-center h-12 w-12 rounded-full bg-sawali-blue text-white shadow-2xl hover:bg-sawali-blue-light hover:scale-105 transition-all ring-2 ring-white"
           data-testid="internal-chat-fab"
           title="Chat interne"
         >
@@ -721,7 +724,10 @@ export default function InternalChatPanel() {
                     }
                     rows={1}
                     maxLength={2000}
-                    className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30 max-h-[120px]"
+                    /* Iter36p — Resizable vertically by user (min = 1 line, max = 3 lines).
+                       Crucial on mobile where a long message would otherwise be cramped
+                       to a single visible line. resize-y enables the native drag handle. */
+                    className="flex-1 resize-y rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30 min-h-[40px] max-h-[120px]"
                     data-testid="internal-chat-input"
                     disabled={sending || recState !== "idle"}
                   />

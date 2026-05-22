@@ -141,6 +141,31 @@ export default function InternalChatPanel() {
   const [highlightMsgId, setHighlightMsgId] = useState(null);
   const searchInputRef = useRef(null);
 
+  // Iter36t — Cmd/Ctrl+K global shortcut to open search from anywhere
+  // in the portal. Also Esc closes the search bar.
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && (e.key === "k" || e.key === "K")) {
+        // Only act if chat feature is available (clients > 0)
+        if (clients.length === 0) return;
+        e.preventDefault();
+        setOpen(true);
+        setSearchOpen(true);
+        setTimeout(() => {
+          searchInputRef.current?.focus();
+          searchInputRef.current?.select();
+        }, 150);
+      } else if (e.key === "Escape" && searchOpen) {
+        // Close search but keep drawer open
+        setSearchOpen(false);
+        setSearchTerm("");
+        setSearchResults([]);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [clients.length, searchOpen]);
+
   const runSearch = useCallback(async (term) => {
     const t = (term || "").trim();
     if (!t) { setSearchResults([]); return; }
@@ -613,7 +638,7 @@ export default function InternalChatPanel() {
           onClick={() => setOpen(true)}
           className="fixed bottom-20 right-4 sm:bottom-24 sm:right-6 z-40 inline-flex items-center justify-center h-12 w-12 rounded-full bg-sawali-blue text-white shadow-2xl hover:bg-sawali-blue-light hover:scale-105 transition-all ring-2 ring-white"
           data-testid="internal-chat-fab"
-          title="Chat interne"
+          title="Chat interne (Ctrl+K / ⌘K pour rechercher)"
         >
           <MessageSquareText className="h-5 w-5" />
           {unreadTotal > 0 && (
@@ -742,7 +767,7 @@ export default function InternalChatPanel() {
                   }}
                   className={`inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors ${searchOpen ? "bg-sawali-blue text-white" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}
                   data-testid="internal-chat-search-toggle"
-                  title="Rechercher dans l'historique"
+                  title="Rechercher dans l'historique (Ctrl+K / ⌘K)"
                 >
                   <Search className="h-4 w-4" />
                 </button>
@@ -766,17 +791,22 @@ export default function InternalChatPanel() {
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                     placeholder="Rechercher dans l'historique…"
-                    className="w-full rounded-md border border-slate-300 bg-white pl-8 pr-8 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30"
+                    className="w-full rounded-md border border-slate-300 bg-white pl-8 pr-16 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30"
                     data-testid="internal-chat-search-input"
                   />
-                  {searchTerm && (
+                  {searchTerm ? (
                     <button
                       onClick={() => { setSearchTerm(""); setSearchResults([]); }}
                       className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
                       data-testid="internal-chat-search-clear"
+                      title="Effacer (Échap)"
                     >
                       <X className="h-3.5 w-3.5" />
                     </button>
+                  ) : (
+                    <kbd className="absolute right-2 top-1/2 -translate-y-1/2 hidden sm:inline-flex items-center gap-0.5 rounded border border-slate-200 bg-slate-50 px-1.5 py-0.5 text-[9px] font-mono text-slate-500" data-testid="internal-chat-search-kbd-hint">
+                      ⌘K
+                    </kbd>
                   )}
                 </div>
                 {searchTerm && (

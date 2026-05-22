@@ -122,6 +122,8 @@ class ConnectionManager:
 class SendMessagePayload(BaseModel):
     text: str = Field(..., min_length=1, max_length=2000)
     recipient_id: Optional[str] = None  # None => collective channel
+    # Iter36s — Optional reply-to anchor (WhatsApp-style quoted reply)
+    reply_to_id: Optional[str] = None
 
 
 # =====================================================================
@@ -221,6 +223,30 @@ def make_router(*, db, get_current_user, decode_token):
         if tu:
             return tu.get("name") or tu.get("email") or uid
         return uid
+
+    async def _resolve_reply_to(reply_to_id: Optional[str], client_id: str) -> Optional[dict]:
+        """Iter36s — Snapshot the message being replied to. We store a
+        condensed copy (id, text excerpt, sender_name, media_kind) so that
+        editing or deleting the original later doesn't break the quote."""
+        rid = (reply_to_id or "").strip()
+        if not rid:
+            return None
+        m = await db.internal_chat_messages.find_one(
+            {"id": rid, "client_id": client_id},
+            {"_id": 0, "id": 1, "text": 1, "sender_name": 1, "sender_id": 1, "media_kind": 1},
+        )
+        if not m:
+            return None
+        excerpt = (m.get("text") or "").strip()
+        if len(excerpt) > 140:
+            excerpt = excerpt[:137] + "…"
+        return {
+            "id": m["id"],
+            "sender_id": m.get("sender_id"),
+            "sender_name": m.get("sender_name") or "",
+            "text": excerpt,
+            "media_kind": m.get("media_kind") or None,
+        }
 
     # --------------------------------------------------------------
     # REST: list of clients where current user can chat
@@ -371,6 +397,8 @@ def make_router(*, db, get_current_user, decode_token):
                 raise HTTPException(status_code=400, detail="Destinataire non membre de ce client")
             if recipient_id == user["id"]:
                 raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous écrire à vous-même")
+        # Iter36s — Resolve the reply-to anchor (snapshot, not foreign key)
+        reply_to = await _resolve_reply_to(payload.reply_to_id, client_id)
         doc = {
             "id": str(uuid.uuid4()),
             "client_id": client_id,
@@ -381,6 +409,8 @@ def make_router(*, db, get_current_user, decode_token):
             "created_at": _now_iso(),
             "read_by": [user["id"]],  # sender is implicitly "read"
         }
+        if reply_to:
+            doc["reply_to"] = reply_to
         await db.internal_chat_messages.insert_one(doc.copy())
         doc.pop("_id", None)
         # Push via WS to every concerned member who is online
@@ -410,6 +440,7 @@ def make_router(*, db, get_current_user, decode_token):
         photo: UploadFile = File(...),
         recipient_id: Optional[str] = Form(None),
         caption: Optional[str] = Form(None),
+        reply_to_id: Optional[str] = Form(None),
         user: dict = Depends(get_current_user),
     ):
         await _ensure_member(user, client_id)
@@ -459,6 +490,7 @@ def make_router(*, db, get_current_user, decode_token):
             raise HTTPException(status_code=502, detail=f"Upload échoué : {str(exc)[:160]}")
         # Build the message doc
         caption_clean = ((caption or "").strip())[:500] or None
+        reply_to = await _resolve_reply_to(reply_to_id, client_id)
         doc = {
             "id": msg_id,
             "client_id": client_id,
@@ -474,6 +506,8 @@ def make_router(*, db, get_current_user, decode_token):
             "created_at": _now_iso(),
             "read_by": [user["id"]],
         }
+        if reply_to:
+            doc["reply_to"] = reply_to
         await db.internal_chat_messages.insert_one(doc.copy())
         doc.pop("_id", None)
         # Broadcast (same logic as text send)
@@ -653,6 +687,76 @@ def make_router(*, db, get_current_user, decode_token):
                 # else: unknown, ignore
         finally:
             await manager.disconnect(uid, websocket)
+
+    # --------------------------------------------------------------
+    # Iter36s — Full-text search across the user's accessible chats.
+    # Returns the latest 30 matches with thread routing info so the
+    # client can jump straight to the conversation + scroll-to message.
+    # --------------------------------------------------------------
+    @router.get("/me/chat/search")
+    async def me_chat_search(
+        q: str = Query(..., min_length=1, max_length=120),
+        client_id: Optional[str] = Query(None),
+        limit: int = Query(30, ge=1, le=100),
+        user: dict = Depends(get_current_user),
+    ):
+        term = q.strip()
+        if not term:
+            return {"results": []}
+        # Resolve which clients this user can see chats in.
+        visible = await _user_visible_clients(user)
+        visible_ids = {c["id"] for c in visible}
+        if client_id:
+            if client_id not in visible_ids:
+                raise HTTPException(status_code=403, detail="Client non autorisé")
+            scope_ids = [client_id]
+        else:
+            scope_ids = list(visible_ids)
+        if not scope_ids:
+            return {"results": []}
+        # Build the query: case-insensitive substring match on text +
+        # sender_name. Scope to messages the user is part of:
+        # - general (recipient_id=null) of any visible client
+        # - DM where user is sender OR recipient
+        import re
+        rx = {"$regex": re.escape(term), "$options": "i"}
+        query = {
+            "client_id": {"$in": scope_ids},
+            "$and": [
+                {"$or": [{"text": rx}, {"sender_name": rx}]},
+                {"$or": [
+                    {"recipient_id": None},
+                    {"sender_id": user["id"]},
+                    {"recipient_id": user["id"]},
+                ]},
+            ],
+        }
+        cursor = (
+            db.internal_chat_messages.find(query, {"_id": 0})
+            .sort("created_at", -1)
+            .limit(limit)
+        )
+        # Build thread routing per message so the UI knows where to jump
+        results = []
+        async for m in cursor:
+            if m.get("recipient_id") is None:
+                thread_key = "general"
+            else:
+                # The "other party" relative to the requesting user
+                thread_key = (
+                    m["sender_id"] if m["recipient_id"] == user["id"] else m["recipient_id"]
+                )
+            results.append({
+                "id": m["id"],
+                "client_id": m["client_id"],
+                "thread_key": thread_key,
+                "sender_id": m.get("sender_id"),
+                "sender_name": m.get("sender_name"),
+                "text": m.get("text") or "",
+                "media_kind": m.get("media_kind"),
+                "created_at": m.get("created_at"),
+            })
+        return {"results": results, "term": term}
 
     # --------------------------------------------------------------
     # Iter36l — Whisper STT transcription endpoint for the chat composer.

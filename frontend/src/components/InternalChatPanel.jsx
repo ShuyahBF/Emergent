@@ -16,7 +16,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply } from "lucide-react";
 
 /*
  * Iter36r — Distinct sound for incoming internal chat messages.
@@ -67,6 +67,23 @@ function fmtTime(iso) {
   } catch { return ""; }
 }
 
+// Iter36s — Render a snippet with the search term highlighted in <mark>
+function highlightTerm(text, term) {
+  if (!text || !term) return text;
+  try {
+    const safe = term.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const rx = new RegExp(`(${safe})`, "ig");
+    const parts = text.split(rx);
+    return parts.map((p, i) =>
+      rx.test(p)
+        ? <mark key={i} className="bg-amber-200 text-amber-900 rounded px-0.5">{p}</mark>
+        : <span key={i}>{p}</span>
+    );
+  } catch {
+    return text;
+  }
+}
+
 export default function InternalChatPanel() {
   const { user } = useAuth();
   const token = typeof window !== "undefined" ? localStorage.getItem("sawali_token") : null;
@@ -114,6 +131,106 @@ export default function InternalChatPanel() {
   const dismissMicIntro = () => {
     setShowMicIntro(false);
     try { localStorage.setItem(MIC_INTRO_KEY, "1"); } catch { /* noop */ }
+  };
+
+  // Iter36s — Full-text search across history
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchResults, setSearchResults] = useState([]);
+  const [searching, setSearching] = useState(false);
+  const [highlightMsgId, setHighlightMsgId] = useState(null);
+  const searchInputRef = useRef(null);
+
+  const runSearch = useCallback(async (term) => {
+    const t = (term || "").trim();
+    if (!t) { setSearchResults([]); return; }
+    setSearching(true);
+    try {
+      const r = await apiClient.get("/me/chat/search", {
+        params: { q: t, client_id: activeClientId, limit: 30 },
+      });
+      setSearchResults(r.data?.results || []);
+    } catch {
+      setSearchResults([]);
+    } finally {
+      setSearching(false);
+    }
+  }, [activeClientId]);
+
+  // Debounce: trigger after 250 ms of inactivity
+  useEffect(() => {
+    if (!searchOpen) return;
+    const t = setTimeout(() => runSearch(searchTerm), 250);
+    return () => clearTimeout(t);
+  }, [searchTerm, searchOpen, runSearch]);
+
+  // Jump to a specific message (from search results)
+  const jumpToMessage = useCallback(async (result) => {
+    setSearchOpen(false);
+    setSearchTerm("");
+    setSearchResults([]);
+    // Switch client + thread, then load and highlight
+    if (result.client_id !== activeClientId) {
+      setActiveClientId(result.client_id);
+    }
+    setActiveThreadKey(result.thread_key);
+    // Wait a tick for loadMessages effect, then locate and scroll
+    setTimeout(() => {
+      const el = document.querySelector(`[data-msg-id="${result.id}"]`);
+      if (el && scrollRef.current) {
+        el.scrollIntoView({ behavior: "smooth", block: "center" });
+        setHighlightMsgId(result.id);
+        setTimeout(() => setHighlightMsgId(null), 2500);
+      }
+    }, 600);
+  }, [activeClientId]);
+
+  // Iter36s — Reply-to state (WhatsApp-style quoted reply)
+  const [replyTo, setReplyTo] = useState(null); // {id, text, sender_name, media_kind, is_mine}
+  const cancelReply = () => setReplyTo(null);
+
+  // Iter36s — Swipe-right detection on message bubbles → quick reply (mobile)
+  const touchStateRef = useRef({});
+  const startSwipe = (e, msg) => {
+    const t = e.touches?.[0];
+    if (!t) return;
+    touchStateRef.current = {
+      msg, startX: t.clientX, startY: t.clientY, lastDx: 0,
+    };
+  };
+  const moveSwipe = (e) => {
+    const s = touchStateRef.current;
+    if (!s.msg) return;
+    const t = e.touches?.[0];
+    if (!t) return;
+    const dx = t.clientX - s.startX;
+    const dy = Math.abs(t.clientY - s.startY);
+    // Lock to horizontal swipe (avoid hijacking page scroll)
+    if (dx > 0 && dx > dy * 1.5) {
+      s.lastDx = Math.min(dx, 100);
+    }
+  };
+  const endSwipe = () => {
+    const s = touchStateRef.current;
+    touchStateRef.current = {};
+    if (s.msg && s.lastDx >= 40) {
+      replyToMessage(s.msg);
+    }
+  };
+
+  const replyToMessage = (m) => {
+    setReplyTo({
+      id: m.id,
+      text: (m.text || "").slice(0, 140) + ((m.text || "").length > 140 ? "…" : ""),
+      sender_name: m.sender_name,
+      media_kind: m.media_kind || null,
+      is_mine: m.sender_id === user?.id,
+    });
+    // Focus the composer
+    setTimeout(() => {
+      const ta = document.querySelector('[data-testid="internal-chat-input"]');
+      if (ta) ta.focus();
+    }, 50);
   };
 
   // ---- WebSocket connection ----
@@ -264,8 +381,10 @@ export default function InternalChatPanel() {
       await apiClient.post(`/me/chat/${activeClientId}/messages`, {
         text: t,
         recipient_id: recipient,
+        reply_to_id: replyTo?.id || null,
       });
       setText("");
+      setReplyTo(null);
       // WS will push the message back via the broadcast; locally also reload as safety
       await loadMessages(activeClientId, activeThreadKey);
       // Iter36r — Force scroll to the latest message after the history refresh
@@ -435,6 +554,7 @@ export default function InternalChatPanel() {
       }
       // Optional caption from the textarea (cleared after send)
       if (text.trim()) form.append("caption", text.trim());
+      if (replyTo?.id) form.append("reply_to_id", replyTo.id);
       await apiClient.post(
         `/me/chat/${activeClientId}/messages/photo`,
         form,
@@ -447,6 +567,7 @@ export default function InternalChatPanel() {
         },
       );
       setText("");
+      setReplyTo(null);
       await loadMessages(activeClientId, activeThreadKey);
       requestAnimationFrame(() => {
         const el = scrollRef.current;
@@ -509,7 +630,7 @@ export default function InternalChatPanel() {
       {/* Drawer */}
       {open && (
         <div
-          className="fixed bottom-4 right-4 z-40 w-[95vw] max-w-2xl h-[600px] max-h-[85vh] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 flex overflow-hidden"
+          className="fixed bottom-4 right-4 z-[70] w-[95vw] max-w-2xl h-[600px] max-h-[85vh] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 flex overflow-hidden"
           data-testid="internal-chat-drawer"
         >
           {/* Left pane — clients + threads */}
@@ -613,14 +734,90 @@ export default function InternalChatPanel() {
                   </p>
                 )}
               </div>
-              <button
-                onClick={() => setOpen(false)}
-                className="text-slate-400 hover:text-slate-700"
-                data-testid="internal-chat-close"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <div className="flex items-center gap-1">
+                <button
+                  onClick={() => {
+                    setSearchOpen((v) => !v);
+                    setTimeout(() => searchInputRef.current?.focus(), 100);
+                  }}
+                  className={`inline-flex items-center justify-center h-8 w-8 rounded-md transition-colors ${searchOpen ? "bg-sawali-blue text-white" : "text-slate-500 hover:text-slate-900 hover:bg-slate-100"}`}
+                  data-testid="internal-chat-search-toggle"
+                  title="Rechercher dans l'historique"
+                >
+                  <Search className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setOpen(false)}
+                  className="text-slate-400 hover:text-slate-700"
+                  data-testid="internal-chat-close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
             </div>
+
+            {/* Iter36s — Search bar + results */}
+            {searchOpen && (
+              <div className="border-b border-slate-200 bg-white px-3 py-2" data-testid="internal-chat-search-panel">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+                  <input
+                    ref={searchInputRef}
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder="Rechercher dans l'historique…"
+                    className="w-full rounded-md border border-slate-300 bg-white pl-8 pr-8 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue/30"
+                    data-testid="internal-chat-search-input"
+                  />
+                  {searchTerm && (
+                    <button
+                      onClick={() => { setSearchTerm(""); setSearchResults([]); }}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-700"
+                      data-testid="internal-chat-search-clear"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                {searchTerm && (
+                  <div className="mt-2 max-h-48 overflow-y-auto -mx-1" data-testid="internal-chat-search-results">
+                    {searching ? (
+                      <p className="text-center text-xs text-slate-400 py-3">
+                        <RefreshCw className="h-3 w-3 inline animate-spin mr-1" /> Recherche…
+                      </p>
+                    ) : searchResults.length === 0 ? (
+                      <p className="text-center text-xs text-slate-400 py-3 italic">
+                        Aucun résultat
+                      </p>
+                    ) : (
+                      <ul className="space-y-1 px-1">
+                        {searchResults.map((m) => (
+                          <li key={m.id}>
+                            <button
+                              onClick={() => jumpToMessage(m)}
+                              className="w-full text-left rounded-md px-2 py-1.5 hover:bg-slate-100 transition-colors"
+                              data-testid={`internal-chat-search-result-${m.id}`}
+                            >
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] font-semibold text-slate-700 truncate">{m.sender_name}</span>
+                                <span className="text-[9px] text-slate-400">
+                                  {m.thread_key === "general" ? "#général" : "DM"}
+                                </span>
+                                <span className="ml-auto text-[9px] text-slate-400">{fmtTime(m.created_at)}</span>
+                              </div>
+                              <p className="text-[11px] text-slate-600 truncate mt-0.5">
+                                {m.media_kind === "image" && "📷 "}
+                                {highlightTerm(m.text || (m.media_kind === "image" ? "Photo" : ""), searchTerm)}
+                              </p>
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
 
             <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
               {!activeThreadKey ? (
@@ -639,9 +836,50 @@ export default function InternalChatPanel() {
                 messages.map((m) => {
                   const mine = m.sender_id === user?.id;
                   const hasMedia = m.media_kind === "image" && m.media_url;
+                  const isHighlighted = highlightMsgId === m.id;
                   return (
-                    <div key={m.id} className={`flex ${mine ? "justify-end" : "justify-start"}`}>
-                      <div className={`max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm ${mine ? "bg-sawali-blue text-white" : "bg-white ring-1 ring-slate-200 text-slate-800"}`}>
+                    <div
+                      key={m.id}
+                      data-msg-id={m.id}
+                      className={`group flex ${mine ? "justify-end" : "justify-start"}`}
+                      onTouchStart={(e) => startSwipe(e, m)}
+                      onTouchMove={moveSwipe}
+                      onTouchEnd={endSwipe}
+                    >
+                      <div
+                        className={`relative max-w-[75%] rounded-2xl px-3 py-2 text-sm shadow-sm transition-all ${
+                          mine ? "bg-sawali-blue text-white" : "bg-white ring-1 ring-slate-200 text-slate-800"
+                        } ${isHighlighted ? "ring-2 ring-amber-400 ring-offset-2" : ""}`}
+                      >
+                        {/* Iter36s — Quoted reply preview */}
+                        {m.reply_to && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const el = document.querySelector(`[data-msg-id="${m.reply_to.id}"]`);
+                              if (el) {
+                                el.scrollIntoView({ behavior: "smooth", block: "center" });
+                                setHighlightMsgId(m.reply_to.id);
+                                setTimeout(() => setHighlightMsgId(null), 2000);
+                              }
+                            }}
+                            className={`block w-full text-left rounded-md border-l-2 pl-2 pr-1 py-1 mb-1 text-[11px] ${
+                              mine
+                                ? "border-white/80 bg-white/10 hover:bg-white/15"
+                                : "border-sawali-blue bg-sky-50 hover:bg-sky-100 text-slate-700"
+                            }`}
+                            data-testid={`chat-reply-quote-${m.id}`}
+                            title="Aller au message original"
+                          >
+                            <p className={`text-[10px] font-semibold truncate ${mine ? "text-white/90" : "text-sawali-blue"}`}>
+                              {m.reply_to.sender_name || "—"}
+                            </p>
+                            <p className="truncate opacity-90">
+                              {m.reply_to.media_kind === "image" && "📷 "}
+                              {m.reply_to.text || (m.reply_to.media_kind === "image" ? "Photo" : "Message")}
+                            </p>
+                          </button>
+                        )}
                         {!mine && (
                           <p className="text-[10px] font-semibold text-slate-500 mb-0.5">{m.sender_name}</p>
                         )}
@@ -662,6 +900,16 @@ export default function InternalChatPanel() {
                         <p className={`text-[9px] mt-1 text-right ${mine ? "text-white/70" : "text-slate-400"}`}>
                           {fmtTime(m.created_at)}
                         </p>
+                        {/* Iter36s — Reply button (visible on hover desktop, always-on mobile via swipe) */}
+                        <button
+                          type="button"
+                          onClick={() => replyToMessage(m)}
+                          className={`absolute top-1 ${mine ? "-left-7" : "-right-7"} inline-flex items-center justify-center h-6 w-6 rounded-full bg-white shadow ring-1 ring-slate-200 text-slate-500 hover:text-sawali-blue hover:ring-sawali-blue/30 opacity-0 group-hover:opacity-100 transition-opacity`}
+                          data-testid={`chat-reply-btn-${m.id}`}
+                          title="Répondre à ce message"
+                        >
+                          <Reply className="h-3 w-3" />
+                        </button>
                       </div>
                     </div>
                   );
@@ -672,6 +920,29 @@ export default function InternalChatPanel() {
             {/* Composer */}
             {activeThreadKey && (
               <div className="border-t border-slate-200 bg-white p-3">
+                {/* Iter36s — Reply quote preview */}
+                {replyTo && (
+                  <div className="mb-2 flex items-start gap-2 rounded-lg bg-sky-50 ring-1 ring-sawali-blue/30 border-l-4 border-sawali-blue px-3 py-2 text-xs" data-testid="internal-chat-reply-preview">
+                    <Reply className="h-3.5 w-3.5 text-sawali-blue mt-0.5 shrink-0" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[10px] font-semibold text-sawali-blue truncate">
+                        Réponse à {replyTo.is_mine ? "vous-même" : replyTo.sender_name}
+                      </p>
+                      <p className="text-slate-700 truncate">
+                        {replyTo.media_kind === "image" && "📷 "}
+                        {replyTo.text || (replyTo.media_kind === "image" ? "Photo" : "Message")}
+                      </p>
+                    </div>
+                    <button
+                      onClick={cancelReply}
+                      className="shrink-0 text-slate-400 hover:text-slate-700"
+                      data-testid="internal-chat-reply-cancel"
+                      title="Annuler la réponse"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                )}
                 {recState === "recording" && (
                   <div className="mb-2 flex items-center gap-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2 text-xs text-rose-800" data-testid="internal-chat-recording-indicator">
                     <span className="relative inline-flex">
@@ -845,7 +1116,7 @@ export default function InternalChatPanel() {
       {/* Iter36n — Lightbox */}
       {lightbox && (
         <div
-          className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/85 cursor-zoom-out"
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/85 cursor-zoom-out"
           onClick={() => setLightbox(null)}
           data-testid="chat-media-lightbox"
         >

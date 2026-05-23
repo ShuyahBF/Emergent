@@ -314,6 +314,7 @@ def _to_user_public(u: dict) -> dict:
         "tracked_role": u.get("tracked_role"),
         "tracked_user_id": u.get("tracked_user_id"),
         "parent_client_id": u.get("parent_client_id"),
+        "can_cash": bool(u.get("can_cash", False)),
     }
 
 

@@ -38,9 +38,9 @@ const clientLinks = [
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
-  { to: "/portal/cash", label: "Caisse", icon: Banknote },
-  { to: "/portal/billing", label: "Facturation", icon: Receipt },
-  { to: "/portal/catalog", label: "Catalogue", icon: ShoppingBag },
+  { to: "/portal/cash", label: "Caisse", icon: Banknote, cashOnly: true },
+  { to: "/portal/billing", label: "Facturation", icon: Receipt, cashOnly: true },
+  { to: "/portal/catalog", label: "Catalogue", icon: ShoppingBag, cashAdminOnly: true },
   { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
@@ -91,9 +91,13 @@ export default function PortalLayout({ admin = false }) {
   const [ticketsPending, setTicketsPending] = useState(0);
   const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
   const isSuperAdmin = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
+  const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
+  const canCash = !!user?.can_cash || isAdminOrSup;
   const links = (admin ? adminLinks : clientLinks)
     .filter((l) => !l.trackedOnly || isTracked)
-    .filter((l) => !l.superAdminOnly || isSuperAdmin);
+    .filter((l) => !l.superAdminOnly || isSuperAdmin)
+    .filter((l) => !l.cashOnly || canCash)
+    .filter((l) => !l.cashAdminOnly || isAdminOrSup);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page
   // that was counted refreshes the list). Also refresh every 90s.

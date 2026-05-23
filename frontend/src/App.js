@@ -110,6 +110,9 @@ import SmsBulk from "@/pages/portal/SmsBulk";
 import WaBulk from "@/pages/portal/WaBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
+import CashBilling from "@/pages/portal/CashBilling";
+import ReceiptPrint from "@/pages/portal/ReceiptPrint";
+import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
@@ -189,10 +192,12 @@ export default function App() {
             <Route path="sms" element={<SmsBulk />} />
             <Route path="whatsapp-bulk" element={<WaBulk />} />
             <Route path="my-account" element={<MyAccount />} />
-            {/* Stubs for upcoming modules — render a "Coming soon" placeholder */}
-            <Route path="cash" element={<ComingSoon />} />
-            <Route path="billing" element={<ComingSoon />} />
-            <Route path="catalog" element={<ComingSoon />} />
+            {/* Iter36u — Caisse & Facturation module */}
+            <Route path="cash" element={<CashBilling defaultTab="receipts" />} />
+            <Route path="cash/receipt/:id" element={<ReceiptPrint />} />
+            <Route path="billing" element={<CashBilling defaultTab="invoices" />} />
+            <Route path="billing/invoice/:id" element={<InvoicePrint />} />
+            <Route path="catalog" element={<CashBilling defaultTab="catalog" />} />
             <Route path="tickets" element={<Tickets />} />
           </Route>
 

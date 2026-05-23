@@ -31,6 +31,7 @@ class UserPublic(BaseModel):
     tracked_role: Optional[str] = None
     tracked_user_id: Optional[str] = None
     parent_client_id: Optional[str] = None
+    can_cash: Optional[bool] = False
 
 
 class UserCreateAdmin(BaseModel):

@@ -3,6 +3,30 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36u (2026-05-23) — Caisse & Facturation MVP complet (E2E vert)
+
+### 💵 Iter36u — Module Caisse & Facturation
+- **Backend** `routes/cashier.py` (~674 lignes) déjà wired à `server.py`. Endpoints `/api/cashier/*` :
+  - `GET/POST /receipts` (numérotation `R-YYYY-NNNN`, `amount_in_words` FR via num2words, snapshot client, payment_method snapshot).
+  - `GET /receipts/{id}/qr.png` (QR code PNG via lib `qrcode`).
+  - `GET/POST/PATCH /invoices` (proforma + facture, lignes + sous-totaux HT/TVA/TTC, conversion proforma→facture, paid→auto-receipt, cancel admin only, numérotation `FAC-YYYY-NNNN` / `PRO-YYYY-NNNN`).
+  - `GET /invoices/{id}/qr.png`.
+  - CRUD `/admin/business-clients`, `/admin/products` (SKU unique), `/admin/payment-methods`, `/payment-methods` (lecture tout auth).
+  - `PATCH /admin/users/{uid}/can-cash` (admin/superviseur) flag bascule.
+- **Modèle utilisateur** : champ `can_cash:bool` ajouté à `UserPublic` et `_to_user_public()`. `/api/auth/me` retourne désormais cette info pour le gating côté frontend.
+- **Frontend** : routes branchées dans `App.js` :
+  - `/portal/cash` → `<CashBilling defaultTab="receipts" />`
+  - `/portal/cash/receipt/:id` → `<ReceiptPrint />`
+  - `/portal/billing` → `<CashBilling defaultTab="invoices" />`
+  - `/portal/billing/invoice/:id` → `<InvoicePrint />`
+  - `/portal/catalog` → `<CashBilling defaultTab="catalog" />`
+- **Sidebar PortalLayout** : flags `cashOnly` (Caisse, Facturation — visibles si `can_cash || admin || superviseur`) et `cashAdminOnly` (Catalogue — admin/superviseur uniquement). Plus de stubs "Bientôt".
+- **CashBilling.jsx** (749 lignes) : 5 onglets (Caisse, Facturation, Catalogue, Clients en compte, Modes de paiement) avec garde-fou amber si pas autorisé. ReceiptPrint + InvoicePrint avec QR code, watermark SAWALI, actions WhatsApp + Print.
+- **Tests pytest** : **11/11 verts** (`test_iter36u_cashier.py`), incluant RBAC (regular user 403, can_cash=true → 200), cycle de vie facture, SKU unicité, payment-methods CRUD.
+- **E2E testing_agent_v3_fork** : success_rate backend 100%, frontend 100%, **aucun bug détecté**.
+
+---
+
 ## Latest — Iter36n (2026-05-21) — Partage de photos dans le chat interne
 
 ### 📷 Iter36n — Photos depuis caméra mobile ou galerie/disque (MVP)

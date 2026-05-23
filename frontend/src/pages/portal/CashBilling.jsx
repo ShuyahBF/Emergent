@@ -728,7 +728,102 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
 // =====================================================================
 // Generic CRUD tab (clients en compte, products, payment methods)
 // =====================================================================
-function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, fields, formInitial, transformBeforeSubmit, dataTestId }) {
+// =====================================================================
+// Iter37b — CSV import button (modal with file picker + tooltip on hover)
+// =====================================================================
+function CsvImportButton({ resourceKind, onSuccess }) {
+  // resourceKind: 'business-clients' | 'products'
+  const [open, setOpen] = useState(false);
+  const [fields, setFields] = useState(null);
+  const [uploading, setUploading] = useState(false);
+  const [file, setFile] = useState(null);
+
+  const fetchFields = async () => {
+    try {
+      const r = await apiClient.get(`/cashier/import/${resourceKind}/fields`);
+      setFields(r.data);
+    } catch { setFields(null); }
+  };
+
+  const upload = async () => {
+    if (!file) { toast.error("Sélectionnez un fichier CSV"); return; }
+    const text = await file.text();
+    setUploading(true);
+    try {
+      const r = await apiClient.post(`/cashier/import/${resourceKind}`, { csv: text });
+      const { created = 0, skipped_duplicates = 0, errors = [], total_lines = 0 } = r.data || {};
+      const detail = [];
+      detail.push(`${created} créé(s)`);
+      if (skipped_duplicates) detail.push(`${skipped_duplicates} doublons ignorés`);
+      if (errors.length) detail.push(`${errors.length} erreurs`);
+      if (errors.length === 0 && created > 0) {
+        toast.success(`Import OK — ${detail.join(" · ")} (${total_lines} lignes)`);
+      } else if (created > 0) {
+        toast.warning(`Import partiel — ${detail.join(" · ")}`);
+      } else {
+        toast.error(`Aucun import — ${detail.join(" · ") || "fichier vide"}`);
+      }
+      setOpen(false);
+      setFile(null);
+      onSuccess && onSuccess();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'import");
+    } finally { setUploading(false); }
+  };
+
+  const tooltip = fields?.sample ? `Ordre des champs (séparateur ';'):\n${fields.sample}\n\n${fields.note || ""}` : "Charger le format attendu";
+
+  return (
+    <>
+      <button
+        type="button"
+        onMouseEnter={fetchFields}
+        onClick={() => { fetchFields(); setOpen(true); }}
+        title={tooltip}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
+        data-testid={`csv-import-btn-${resourceKind}`}
+      >
+        <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Importer CSV
+      </button>
+      {open && (
+        <div className="fixed inset-0 bg-slate-900/50 z-50 flex items-center justify-center p-4" onClick={() => setOpen(false)}>
+          <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h3 className="text-base font-display font-bold inline-flex items-center gap-2"><FileSpreadsheet className="h-4 w-4 text-emerald-600" /> Import CSV</h3>
+              <button onClick={() => setOpen(false)}><X className="h-5 w-5" /></button>
+            </div>
+            {fields && (
+              <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 text-xs text-slate-700 space-y-1">
+                <p className="font-medium text-slate-900">Ordre des colonnes (séparateur <code>;</code>) :</p>
+                <p className="font-mono text-[11px] break-all">{fields.sample}</p>
+                <p className="text-slate-500 italic">{fields.note}</p>
+              </div>
+            )}
+            <div>
+              <label className="block text-xs font-medium text-slate-700 mb-1">Fichier CSV (UTF-8)</label>
+              <input type="file" accept=".csv,text/csv"
+                onChange={(e) => setFile(e.target.files?.[0] || null)}
+                className="w-full text-sm" data-testid="csv-import-file-input" />
+              {file && <p className="text-xs text-slate-500 mt-1">📄 {file.name} ({Math.round(file.size / 1024)} Ko)</p>}
+            </div>
+            <div className="flex items-center justify-end gap-2 pt-2">
+              <button onClick={() => setOpen(false)} className="rounded-lg border border-slate-300 px-3 py-1.5 text-sm hover:bg-slate-50">Annuler</button>
+              <button onClick={upload} disabled={uploading || !file}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium disabled:opacity-50"
+                data-testid="csv-import-submit">
+                {uploading && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+                Importer
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, fields, formInitial, transformBeforeSubmit, dataTestId, extraHeaderButton }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -801,14 +896,17 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
 
   return (
     <div className="space-y-4" data-testid={dataTestId}>
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-2 flex-wrap">
         <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
           <Icon className={`h-5 w-5 ${color}`} /> {title}
         </h2>
-        <button onClick={() => { setEditing(null); setForm(formInitial); setShowForm((v) => !v); }}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm">
-          <Plus className="h-4 w-4" /> Nouveau
-        </button>
+        <div className="flex items-center gap-2">
+          {typeof extraHeaderButton === "function" ? extraHeaderButton({ onRefresh: load }) : extraHeaderButton}
+          <button onClick={() => { setEditing(null); setForm(formInitial); setShowForm((v) => !v); }}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-1.5 text-sm">
+            <Plus className="h-4 w-4" /> Nouveau
+          </button>
+        </div>
       </div>
       {showForm && (
         <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4 space-y-3">
@@ -1143,6 +1241,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
         <CrudTab title="Catalogue produits/services" icon={ShoppingBag} color="text-violet-600"
           listPath="/admin/products" createPath="/admin/products" deletePath="/admin/products"
           dataTestId="cashier-products-tab"
+          extraHeaderButton={({ onRefresh }) => <CsvImportButton resourceKind="products" onSuccess={onRefresh} />}
           formInitial={{ sku: "", name: "", description: "", category: "", unit: "pièce", unit_price_ht: 0, tva_pct: 18, stock: null, image_url: "", active: true }}
           fields={[
             { key: "sku", label: "Référence (SKU) — auto-générée", type: "readonly" },
@@ -1163,6 +1262,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
         <CrudTab title="Clients en compte" icon={Building2} color="text-amber-600"
           listPath="/admin/business-clients" createPath="/admin/business-clients" deletePath="/admin/business-clients"
           dataTestId="cashier-bc-tab"
+          extraHeaderButton={({ onRefresh }) => <CsvImportButton resourceKind="business-clients" onSuccess={onRefresh} />}
           formInitial={{ name: "", legal_form: "", nif: "", ifu: "", rccm: "", phone: "", whatsapp: "", email: "", billing_address: "", shipping_address: "", notes: "", auto_relance_enabled: false, relance_channel: "whatsapp" }}
           fields={[
             { key: "name", label: "Raison sociale / Nom", required: true, full: true },

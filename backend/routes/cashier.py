@@ -276,24 +276,36 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     # ----------------------------------------------------------------
     # Iter37a — Helpers for Client Lié (tenant) resolution
+    # Resolves to the user's own row OR parent_client_id row (db.users)
     # ----------------------------------------------------------------
     async def _resolve_client_lie(user: dict) -> dict:
         """Return the tenant (Client Lié) for a given user as a dict.
-        Falls back to a synthetic doc using the user's id+email if no
-        explicit `client_id` is set on the user.
+        Resolution order:
+          1) user.parent_client_id → db.users row (canonical tenant)
+          2) user.client_id → db.users row
+          3) user itself (synthetic doc)
         """
-        cid = user.get("client_id") or user.get("id")
-        doc = None
-        if cid:
-            doc = await db.clients.find_one({"id": cid}, {"_id": 0})
-        if not doc:
-            doc = {
-                "id": cid,
-                "name": user.get("company_name") or user.get("full_name") or "SAWALI",
-                "logo_url": None,
-                "billing_address": None,
-            }
-        return doc
+        for key in ("parent_client_id", "client_id"):
+            ref_id = user.get(key)
+            if ref_id and ref_id != user.get("id"):
+                doc = await db.users.find_one({"id": ref_id}, {"_id": 0})
+                if doc:
+                    return {
+                        "id": doc.get("id"),
+                        "name": doc.get("company") or doc.get("full_name") or "SAWALI",
+                        "logo_url": doc.get("logo_url"),
+                        "billing_address": doc.get("billing_address") or doc.get("city"),
+                        "phone": doc.get("phone"),
+                        "email": doc.get("email"),
+                    }
+        return {
+            "id": user.get("id"),
+            "name": user.get("company") or user.get("full_name") or "SAWALI",
+            "logo_url": user.get("logo_url"),
+            "billing_address": user.get("billing_address") or user.get("city"),
+            "phone": user.get("phone"),
+            "email": user.get("email"),
+        }
 
     async def _generate_product_sku(client_lie: dict) -> str:
         slug = _slugify(client_lie.get("name") or "SAWALI", max_len=20).upper().replace("-", " ")
@@ -391,6 +403,145 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Mode de paiement introuvable")
         return {"ok": True}
+
+    # ----------------------------------------------------------------
+    # Iter37b — CSV import for business_clients and products
+    # Field order (semicolon separator, UTF-8, no header row required):
+    #   - business_clients: name;legal_form;nif;ifu;rccm;phone;whatsapp;email;billing_address;shipping_address;notes
+    #   - products:         name;category;unit;unit_price_ht;tva_pct;stock;description;active
+    # Empty cells become None. Products' SKU is auto-generated (immutable).
+    # Product names are uppercased automatically.
+    # ----------------------------------------------------------------
+    BUSINESS_CSV_ORDER = [
+        "name", "legal_form", "nif", "ifu", "rccm", "phone", "whatsapp", "email",
+        "billing_address", "shipping_address", "notes",
+    ]
+    PRODUCT_CSV_ORDER = [
+        "name", "category", "unit", "unit_price_ht", "tva_pct", "stock", "description", "active",
+    ]
+
+    def _parse_csv_payload(raw: bytes) -> List[List[str]]:
+        import csv as _csv
+        text = raw.decode("utf-8-sig", errors="replace")  # strip BOM
+        # Auto-detect delimiter (; or , or \t)
+        first_line = text.splitlines()[0] if text else ""
+        delim = ";" if ";" in first_line else ("," if "," in first_line else "\t")
+        reader = _csv.reader(io.StringIO(text), delimiter=delim, quotechar='"')
+        rows = []
+        for raw_row in reader:
+            if not raw_row or all(not c.strip() for c in raw_row):
+                continue
+            rows.append([c.strip() for c in raw_row])
+        return rows
+
+    def _is_header_row(row: List[str], expected_cols: List[str]) -> bool:
+        # Header row if first cell matches one of the expected col names case-insensitive
+        return row and row[0].strip().lower() in {c.lower() for c in expected_cols}
+
+    @router.get("/cashier/import/business-clients/fields")
+    async def get_business_csv_fields(_: dict = Depends(get_current_supervisor)):
+        return {
+            "order": BUSINESS_CSV_ORDER,
+            "delimiter": ";",
+            "encoding": "UTF-8 (BOM accepté)",
+            "sample": ";".join(BUSINESS_CSV_ORDER),
+            "note": "Une ligne par client. La 1re ligne peut être l'en-tête (ignorée si elle commence par 'name'). Les cellules vides deviennent NULL.",
+        }
+
+    @router.get("/cashier/import/products/fields")
+    async def get_product_csv_fields(_: dict = Depends(get_current_supervisor)):
+        return {
+            "order": PRODUCT_CSV_ORDER,
+            "delimiter": ";",
+            "encoding": "UTF-8 (BOM accepté)",
+            "sample": ";".join(PRODUCT_CSV_ORDER),
+            "note": "Le SKU est auto-généré. Le nom est mis en MAJUSCULES automatiquement. Une ligne par produit.",
+        }
+
+    @router.post("/cashier/import/business-clients")
+    async def import_business_clients(payload: dict = Body(...), user: dict = Depends(get_current_supervisor)):
+        raw = (payload or {}).get("csv", "")
+        if not raw:
+            raise HTTPException(status_code=400, detail="Champ 'csv' manquant")
+        rows = _parse_csv_payload(raw.encode("utf-8") if isinstance(raw, str) else raw)
+        if not rows:
+            raise HTTPException(status_code=400, detail="CSV vide")
+        if _is_header_row(rows[0], BUSINESS_CSV_ORDER):
+            rows = rows[1:]
+        created = 0
+        skipped = 0
+        errors: List[Dict[str, Any]] = []
+        for idx, row in enumerate(rows, start=1):
+            # Pad/truncate row to expected length
+            row = (row + [""] * len(BUSINESS_CSV_ORDER))[: len(BUSINESS_CSV_ORDER)]
+            data = {k: (v.strip() if v else None) for k, v in zip(BUSINESS_CSV_ORDER, row)}
+            if not data.get("name"):
+                errors.append({"line": idx, "error": "Nom manquant"})
+                continue
+            # Skip duplicate name
+            existing = await db.business_clients.find_one({"name": data["name"], "deleted_at": None}, {"_id": 0, "id": 1})
+            if existing:
+                skipped += 1
+                continue
+            doc = {
+                "id": str(uuid.uuid4()),
+                **data,
+                "auto_relance_enabled": False,
+                "relance_channel": "whatsapp",
+                "created_at": _now_iso(),
+                "created_by": user["id"],
+                "deleted_at": None,
+            }
+            try:
+                await db.business_clients.insert_one(doc.copy())
+                created += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"line": idx, "error": str(exc)[:200]})
+        return {"created": created, "skipped_duplicates": skipped, "errors": errors, "total_lines": len(rows)}
+
+    @router.post("/cashier/import/products")
+    async def import_products(payload: dict = Body(...), user: dict = Depends(get_current_supervisor)):
+        raw = (payload or {}).get("csv", "")
+        if not raw:
+            raise HTTPException(status_code=400, detail="Champ 'csv' manquant")
+        rows = _parse_csv_payload(raw.encode("utf-8") if isinstance(raw, str) else raw)
+        if not rows:
+            raise HTTPException(status_code=400, detail="CSV vide")
+        if _is_header_row(rows[0], PRODUCT_CSV_ORDER):
+            rows = rows[1:]
+        client_lie = await _resolve_client_lie(user)
+        created = 0
+        errors: List[Dict[str, Any]] = []
+        for idx, row in enumerate(rows, start=1):
+            row = (row + [""] * len(PRODUCT_CSV_ORDER))[: len(PRODUCT_CSV_ORDER)]
+            data = {k: (v.strip() if v else None) for k, v in zip(PRODUCT_CSV_ORDER, row)}
+            if not data.get("name"):
+                errors.append({"line": idx, "error": "Nom manquant"})
+                continue
+            try:
+                sku = await _generate_product_sku(client_lie)
+                doc = {
+                    "id": str(uuid.uuid4()),
+                    "sku": sku,
+                    "name": data["name"].upper(),
+                    "description": data.get("description"),
+                    "category": data.get("category"),
+                    "unit": (data.get("unit") or "pièce").lower(),
+                    "unit_price_ht": float(data["unit_price_ht"] or 0),
+                    "tva_pct": float(data["tva_pct"] or 0),
+                    "stock": int(data["stock"]) if data.get("stock") else None,
+                    "image_url": None,
+                    "active": (data.get("active") or "true").strip().lower() not in ("false", "0", "no", "non"),
+                    "client_id": client_lie["id"],
+                    "created_at": _now_iso(),
+                    "created_by": user["id"],
+                    "deleted_at": None,
+                }
+                await db.products.insert_one(doc.copy())
+                created += 1
+            except Exception as exc:  # noqa: BLE001
+                errors.append({"line": idx, "error": str(exc)[:200]})
+        return {"created": created, "errors": errors, "total_lines": len(rows)}
 
     # ----------------------------------------------------------------
     # users.can_cash flag — admin/supervisor only
@@ -567,6 +718,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "qr_token": token,
             "qr_url": await _build_verify_url(token),
             "cancelled_at": None,
+            # Iter37b — Snapshot of the tenant (Client Lié) header for print
+            "tenant_snapshot": await _resolve_client_lie(user),
         }
         await db.receipts.insert_one(doc.copy())
         doc.pop("_id", None)
@@ -736,6 +889,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "cancelled_at": None,
             "qr_token": token,
             "qr_url": await _build_verify_url(token),
+            # Iter37b — Tenant header snapshot
+            "tenant_snapshot": await _resolve_client_lie(user),
         }
         await db.invoices.insert_one(doc.copy())
         doc.pop("_id", None)

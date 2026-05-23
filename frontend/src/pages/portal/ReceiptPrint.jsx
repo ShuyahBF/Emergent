@@ -87,13 +87,14 @@ export default function ReceiptPrint() {
         </div>
 
         <div className="relative">
-          {/* Header */}
+          {/* Header — Iter37b: use tenant_snapshot (Client Lié) when available */}
           <div className="flex items-start justify-between gap-4 pb-4 border-b-2 border-slate-900">
             <div className="flex items-center gap-3">
-              <img src={LOGO_URL} alt="SAWALI" className="h-14 w-auto" />
+              <img src={(r.tenant_snapshot && r.tenant_snapshot.logo_url) || LOGO_URL} alt={(r.tenant_snapshot && r.tenant_snapshot.name) || "SAWALI"} className="h-14 w-auto" />
               <div>
-                <p className="font-display font-bold text-lg text-slate-900">SAWALI SMART SYSTEMS</p>
-                <p className="text-xs text-slate-600">Société d'ingénierie logicielle</p>
+                <p className="font-display font-bold text-lg text-slate-900">{(r.tenant_snapshot && r.tenant_snapshot.name) || "SAWALI SMART SYSTEMS"}</p>
+                <p className="text-xs text-slate-600">{(r.tenant_snapshot && r.tenant_snapshot.billing_address) || "Société d'ingénierie logicielle"}</p>
+                {(r.tenant_snapshot && r.tenant_snapshot.phone) && <p className="text-[11px] text-slate-500">📞 {r.tenant_snapshot.phone}</p>}
               </div>
             </div>
             <div className="text-right">

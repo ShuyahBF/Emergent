@@ -3,6 +3,27 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37b (2026-05-23) — CHUNK 2 (Import CSV + Entête Client Lié sur pièces)
+
+### 📤 Iter37b — Import CSV + Tenant snapshot sur pièces
+- **Backend** (`/app/backend/routes/cashier.py`) :
+  - 2 endpoints documentation : `GET /api/cashier/import/business-clients/fields` + `GET /api/cashier/import/products/fields` (renvoient `order`, `delimiter`, `sample`, `note`).
+  - 2 endpoints d'import : `POST /api/cashier/import/business-clients` + `POST /api/cashier/import/products` (admin/superviseur).
+  - Format CSV : UTF-8 (BOM accepté), séparateur `;` (auto-détection `,` ou `\t` aussi), première ligne optionnelle = header (ignorée si commence par `name`).
+  - Ordres : `name;legal_form;nif;ifu;rccm;phone;whatsapp;email;billing_address;shipping_address;notes` (business) et `name;category;unit;unit_price_ht;tva_pct;stock;description;active` (products — SKU **non inclus**, auto-généré).
+  - Produits : nom mis en MAJUSCULES auto, SKU généré `{TENANT_SLUG}-{N:08d}` via le compteur atomique existant.
+  - Doublons business_clients (par `name`) → skipped (compteur dédié).
+  - Réponse type : `{created, skipped_duplicates, errors:[{line, error}], total_lines}`.
+  - **Entête tenant** : `tenant_snapshot` (id, name, logo_url, billing_address, phone, email) résolu via `_resolve_client_lie(user)` (lit `parent_client_id || client_id || self`) et **snapshoté** dans chaque reçu ET facture/proforma à la création.
+- **Frontend** (`CashBilling.jsx`, `ReceiptPrint.jsx`, `InvoicePrint.jsx`) :
+  - Nouveau composant `<CsvImportButton resourceKind={…}/>` : bouton « 📂 Importer CSV » avec **tooltip au survol** affichant l'ordre des colonnes (sample copy-paste-ready) + modal de sélection de fichier + toast détaillé (créés/doublons/erreurs).
+  - `CrudTab` étendu : nouveau prop `extraHeaderButton` (function ou ReactNode) reçoit `{onRefresh}` pour rafraîchir la liste après import.
+  - Boutons import branchés sur les onglets « Clients en compte » et « Catalogue produits/services ».
+  - `ReceiptPrint.jsx` + `InvoicePrint.jsx` : entête utilise désormais `tenant_snapshot.logo_url`, `tenant_snapshot.name`, `tenant_snapshot.billing_address`, `tenant_snapshot.phone` (fallback aux constantes SAWALI si snapshot vide).
+- **Tests pytest** : **62/62 verts** (53 régression Iter36u→Iter37a + **9 nouveaux Iter37b** : fields endpoints, import BOM/headers, duplicate skip, missing name, empty rejected, products auto-SKU+UPPERCASE, tenant_snapshot présent sur receipts+invoices).
+
+---
+
 ## Latest — Iter37a (2026-05-23) — Quick wins Caisse (bug RBAC + dropdowns + SKU multi-tenant + WA fallback)
 
 ### 🔴 Iter37a — CHUNK 1 du plan correctif (Points 1, 2, 3, 4, 6, 9, 12)

@@ -694,6 +694,12 @@ class SettingsUpdate(BaseModel):
     version_stamp_opacity: Optional[int] = None  # 0..100
     version_stamp_style: Optional[str] = None  # normal | bold | italic | bold_italic
 
+    # Iter36y — Auto-relance cron settings (cashier module)
+    auto_relance_enabled: Optional[bool] = None  # master toggle
+    auto_relance_day_of_week: Optional[int] = None  # 0=Mon .. 6=Sun
+    auto_relance_grace_days: Optional[int] = None  # default 30
+    auto_relance_email_report_to: Optional[str] = None  # admin email for HTML report
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

@@ -17649,6 +17649,22 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+
+            # Iter36y — Daily auto-relance cron (09:00 Africa/Abidjan). The
+            # runner itself checks the master toggle + configured day_of_week
+            # before acting, so a single cron entry covers all flavours.
+            async def _scheduled_auto_relance():
+                try:
+                    await _run_auto_relance_cashier(triggered_by="cron:daily-09")
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Auto-relance cron failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_auto_relance,
+                CronTrigger(hour=9, minute=0, timezone="Africa/Abidjan"),
+                id="cashier_auto_relance_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001
@@ -18869,12 +18885,13 @@ api.include_router(_chat_router)
 # business_clients, payment_methods, public QR verification).
 # =====================================================================
 from routes.cashier import make_router as _make_cashier_router  # noqa: E402
-_cashier_router = _make_cashier_router(
+_cashier_router, _run_auto_relance_cashier = _make_cashier_router(
     db=db,
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
     get_current_supervisor=get_admin_or_supervisor,
     wa_send_text=_wa_send_text,
+    send_email=send_email,
 )
 api.include_router(_cashier_router)
 

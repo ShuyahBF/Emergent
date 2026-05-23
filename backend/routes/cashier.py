@@ -50,6 +50,8 @@ class BusinessClientPayload(BaseModel):
     billing_address: Optional[str] = Field(None, max_length=500)
     shipping_address: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = Field(None, max_length=500)
+    # Iter36y — Auto-relance toggle (per business client). Default OFF.
+    auto_relance_enabled: Optional[bool] = False
 
 
 class ProductPayload(BaseModel):
@@ -183,7 +185,7 @@ def _public_base_url(db_settings: Optional[dict]) -> str:
 # =====================================================================
 # Router factory
 # =====================================================================
-def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None):
+def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None, send_email=None):
     router = APIRouter(tags=["Caisse & Facturation"])
 
     async def _next_year_seq(collection_name: str, year: int) -> int:
@@ -1114,4 +1116,162 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         fname = f"factures-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
         return _pdf_response("Liste des factures & proformas", header, rows, fname, totals_line=totals)
 
-    return router
+    # =================================================================
+    # Iter36y — Auto-relance quotidienne (cron + email rapport)
+    # =================================================================
+    async def _send_one_reminder(inv: dict, actor_id: Optional[str]) -> dict:
+        phone = (inv.get("business_client_snapshot") or {}).get("phone")
+        if not phone:
+            bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
+            phone = bc.get("phone")
+        if not phone:
+            return {"id": inv["id"], "number": inv.get("number"), "ok": False, "skipped": "no_phone"}
+        to_e164 = _normalize_phone_e164(phone)
+        if wa_send_text is None:
+            return {"id": inv["id"], "number": inv.get("number"), "ok": False, "error": "WA non configuré"}
+        client_name = (inv.get("business_client_snapshot") or {}).get("name") or "Cher client"
+        net = float(inv.get("net_to_pay") or 0)
+        due = inv.get("due_date") or "—"
+        text = (
+            f"🔔 Rappel — Facture *{inv.get('number')}*\n"
+            f"Bonjour {client_name},\n"
+            f"Cette facture de *{net:,.0f} FCFA* est arrivée à échéance le *{due}* "
+            f"et n'a pas encore été réglée à ce jour.\n"
+            f"Vérification : {inv.get('qr_url')}\n"
+            f"Merci de procéder au règlement dès que possible. "
+            f"L'équipe SAWALI."
+        ).replace(",", " ")
+        res = await wa_send_text(to_e164, text)
+        if not res.get("ok"):
+            return {"id": inv["id"], "number": inv.get("number"), "ok": False,
+                    "error": res.get("error"), "status": res.get("status")}
+        await db.invoices.update_one(
+            {"id": inv["id"]},
+            {"$set": {
+                "last_reminder_at": _now_iso(),
+                "last_reminder_message_id": res.get("message_id"),
+                "last_reminder_to": to_e164,
+                "last_reminder_by": actor_id or "cron:auto-relance",
+            }, "$inc": {"reminders_count": 1}},
+        )
+        return {"id": inv["id"], "number": inv.get("number"), "ok": True, "to": to_e164}
+
+    async def run_auto_relance(triggered_by: str = "cron") -> Dict[str, Any]:
+        """Iter36y — Execute the auto-relance round.
+        Reads global settings:
+          - auto_relance_enabled (master, default False)
+          - auto_relance_day_of_week (0=Mon..6=Sun, default 0)
+          - auto_relance_grace_days (default 30)
+          - auto_relance_email_report_to (admin recipient)
+        Only acts on business_clients with `auto_relance_enabled=True`.
+        Today must match `auto_relance_day_of_week` when triggered by cron;
+        manual triggers bypass the weekday check.
+        """
+        settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+        is_manual = triggered_by.startswith("manual")
+        if not settings_doc.get("auto_relance_enabled") and not is_manual:
+            return {"skipped": True, "reason": "master_disabled", "triggered_by": triggered_by}
+        cfg_dow = int(settings_doc.get("auto_relance_day_of_week", 0) or 0)
+        grace_days = int(settings_doc.get("auto_relance_grace_days", 30) or 30)
+        recipient = settings_doc.get("auto_relance_email_report_to") or settings_doc.get("health_email_to")
+        # Weekday check (only for cron trigger). 0=Mon..6=Sun.
+        if not is_manual and datetime.now(timezone.utc).weekday() != cfg_dow:
+            return {"skipped": True, "reason": "not_today_dow",
+                    "configured_dow": cfg_dow,
+                    "today_dow": datetime.now(timezone.utc).weekday()}
+        # Resolve eligible business_clients
+        eligible_bcs = await db.business_clients.find(
+            {"auto_relance_enabled": True, "deleted_at": None},
+            {"_id": 0, "id": 1, "name": 1},
+        ).to_list(2000)
+        if not eligible_bcs:
+            run_doc = {
+                "id": str(uuid.uuid4()),
+                "triggered_by": triggered_by,
+                "started_at": _now_iso(),
+                "ended_at": _now_iso(),
+                "skipped": True,
+                "reason": "no_eligible_business_clients",
+                "grace_days": grace_days,
+            }
+            await db.auto_relance_runs.insert_one(run_doc.copy())
+            run_doc.pop("_id", None)
+            return run_doc
+        bc_ids = [bc["id"] for bc in eligible_bcs]
+        q = _build_overdue_query(grace_days)
+        q["business_client_id"] = {"$in": bc_ids}
+        invoices = await db.invoices.find(q, {"_id": 0}).sort("due_date", 1).limit(2000).to_list(2000)
+        results: List[Dict[str, Any]] = []
+        sent_ok = 0
+        sent_ko = 0
+        skipped_no_phone = 0
+        for inv in invoices:
+            r = await _send_one_reminder(inv, actor_id=f"{triggered_by}")
+            results.append(r)
+            if r.get("ok"):
+                sent_ok += 1
+            elif r.get("skipped") == "no_phone":
+                skipped_no_phone += 1
+            else:
+                sent_ko += 1
+        run_doc = {
+            "id": str(uuid.uuid4()),
+            "triggered_by": triggered_by,
+            "started_at": _now_iso(),
+            "ended_at": _now_iso(),
+            "total": len(invoices),
+            "sent_ok": sent_ok,
+            "sent_ko": sent_ko,
+            "skipped_no_phone": skipped_no_phone,
+            "grace_days": grace_days,
+            "business_clients_count": len(eligible_bcs),
+            "email_report": {"sent": False, "to": recipient, "error": None},
+        }
+        # Email report (best-effort)
+        if recipient and send_email is not None:
+            try:
+                rows_html = "".join(
+                    f"<tr><td>{r.get('number','')}</td><td>{r.get('to','')}</td>"
+                    f"<td style='color:{'#16a34a' if r.get('ok') else '#dc2626'}'>"
+                    f"{'OK' if r.get('ok') else (r.get('skipped') or r.get('error') or 'KO')}</td></tr>"
+                    for r in results[:50]
+                )
+                html = (
+                    f"<h2>SAWALI — Rapport de relance automatique</h2>"
+                    f"<p><b>Déclencheur</b> : {triggered_by}<br>"
+                    f"<b>Date</b> : {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}<br>"
+                    f"<b>Clients en compte ciblés</b> : {len(eligible_bcs)}<br>"
+                    f"<b>Factures relancées</b> : {len(invoices)} "
+                    f"(✓ {sent_ok} envoyée(s), ✗ {sent_ko} échec(s), ⊝ {skipped_no_phone} sans n°)</p>"
+                    f"<table border='1' cellpadding='6' cellspacing='0' style='border-collapse:collapse;font-family:sans-serif;font-size:13px'>"
+                    f"<thead><tr style='background:#1E90FF;color:white'><th>N° facture</th><th>Destinataire</th><th>Statut</th></tr></thead>"
+                    f"<tbody>{rows_html}</tbody></table>"
+                    f"<p style='color:#64748b;font-size:11px'>SAWALI Smart Systems — auto_relance_runs id: {run_doc['id']}</p>"
+                )
+                text = (
+                    f"SAWALI — Relance auto ({triggered_by})\n"
+                    f"Clients ciblés : {len(eligible_bcs)} — Factures relancées : {len(invoices)}\n"
+                    f"OK : {sent_ok} | KO : {sent_ko} | Sans n° : {skipped_no_phone}\n"
+                )
+                ok = await send_email(recipient, f"[SAWALI] Relance auto — {sent_ok} OK / {sent_ko} KO", html, text)
+                run_doc["email_report"]["sent"] = bool(ok)
+                if not ok:
+                    run_doc["email_report"]["error"] = "send_email returned False"
+            except Exception as exc:  # noqa: BLE001
+                run_doc["email_report"]["error"] = str(exc)[:200]
+        await db.auto_relance_runs.insert_one(run_doc.copy())
+        run_doc.pop("_id", None)
+        run_doc["results"] = results  # included in response (not in db doc to keep it small)
+        return run_doc
+
+    @router.post("/cashier/overdue/relance-auto-run")
+    async def relance_auto_run(user: dict = Depends(get_current_supervisor)):
+        """Iter36y — Trigger the auto-relance flow manually (admin/superviseur)."""
+        return await run_auto_relance(triggered_by=f"manual:{user.get('email') or user['id']}")
+
+    @router.get("/cashier/overdue/relance-history")
+    async def relance_history(limit: int = Query(20, ge=1, le=200), _: dict = Depends(get_current_supervisor)):
+        cursor = db.auto_relance_runs.find({}, {"_id": 0}).sort("started_at", -1).limit(limit)
+        return [r async for r in cursor]
+
+    return router, run_auto_relance

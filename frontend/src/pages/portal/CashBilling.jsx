@@ -757,6 +757,183 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
 
 
 // =====================================================================
+// Iter36y — Auto-relance admin settings panel (master toggle, schedule, history)
+// =====================================================================
+function AutoRelanceTab() {
+  const [settings, setSettings] = useState({
+    auto_relance_enabled: false,
+    auto_relance_day_of_week: 0,
+    auto_relance_grace_days: 30,
+    auto_relance_email_report_to: "",
+  });
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [history, setHistory] = useState([]);
+  const DAYS = [
+    { v: 0, label: "Lundi" }, { v: 1, label: "Mardi" }, { v: 2, label: "Mercredi" },
+    { v: 3, label: "Jeudi" }, { v: 4, label: "Vendredi" }, { v: 5, label: "Samedi" }, { v: 6, label: "Dimanche" },
+  ];
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [s, h] = await Promise.all([
+        apiClient.get("/admin/settings"),
+        apiClient.get("/cashier/overdue/relance-history", { params: { limit: 20 } }),
+      ]);
+      setSettings({
+        auto_relance_enabled: !!s.data?.auto_relance_enabled,
+        auto_relance_day_of_week: Number(s.data?.auto_relance_day_of_week ?? 0),
+        auto_relance_grace_days: Number(s.data?.auto_relance_grace_days ?? 30),
+        auto_relance_email_report_to: s.data?.auto_relance_email_report_to || "",
+      });
+      setHistory(h.data || []);
+    } catch { /* noop */ } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put("/admin/settings", settings);
+      toast.success("Paramètres enregistrés");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  const triggerNow = async () => {
+    if (running) return;
+    if (!window.confirm("Lancer la relance automatique maintenant (sur tous les clients en compte ayant la relance activée) ?")) return;
+    setRunning(true);
+    try {
+      const r = await apiClient.post("/cashier/overdue/relance-auto-run");
+      const { sent_ok = 0, sent_ko = 0, skipped_no_phone = 0, total = 0, business_clients_count = 0, skipped, reason } = r.data || {};
+      if (skipped) {
+        toast.warning(`Relance non exécutée — ${reason || "skipped"}`);
+      } else {
+        toast.success(`Relance terminée — ${business_clients_count} client(s) ciblé(s) · ${total} facture(s) · ✓${sent_ok} ✗${sent_ko} ⊝${skipped_no_phone}`);
+      }
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setRunning(false); }
+  };
+
+  return (
+    <div className="space-y-4" data-testid="cashier-auto-relance-tab">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+          <Bell className="h-5 w-5 text-amber-500" /> Relance automatique des impayés
+        </h2>
+        <button
+          onClick={triggerNow}
+          disabled={running}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-3 py-1.5 text-sm font-medium"
+          data-testid="auto-relance-trigger-now"
+        >
+          {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+          Tester maintenant
+        </button>
+      </div>
+
+      <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4 space-y-4">
+        <p className="text-xs text-slate-600">
+          Quand activée, la relance s'exécute automatiquement <b>chaque {DAYS[settings.auto_relance_day_of_week]?.label || "Lundi"} à 09:00 (Africa/Abidjan)</b>.
+          Seuls les <b>Clients en compte</b> dont la case « 🔔 Relance automatique » est cochée sont ciblés.
+          Une facture est considérée impayée si elle est <code>status=issued</code> et que sa date d'échéance est dépassée
+          (ou créée il y a plus de N jours si aucune échéance).
+        </p>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="flex items-center gap-2 rounded-lg ring-1 ring-slate-200 px-3 py-2">
+            <input type="checkbox" checked={settings.auto_relance_enabled}
+              onChange={(e) => setSettings({ ...settings, auto_relance_enabled: e.target.checked })}
+              data-testid="auto-relance-master-toggle" />
+            <span className="text-sm font-medium">Activer la relance automatique (master)</span>
+          </label>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Jour de la semaine</label>
+            <select value={settings.auto_relance_day_of_week}
+              onChange={(e) => setSettings({ ...settings, auto_relance_day_of_week: Number(e.target.value) })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="auto-relance-day-of-week">
+              {DAYS.map((d) => <option key={d.v} value={d.v}>{d.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Délai de grâce (jours sans paiement)</label>
+            <input type="number" min="0" max="365" value={settings.auto_relance_grace_days}
+              onChange={(e) => setSettings({ ...settings, auto_relance_grace_days: Number(e.target.value) })}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-slate-700 mb-1">Email destinataire du rapport</label>
+            <input type="email" value={settings.auto_relance_email_report_to}
+              onChange={(e) => setSettings({ ...settings, auto_relance_email_report_to: e.target.value })}
+              placeholder="admin@sawalismartsystems.com"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+          </div>
+        </div>
+
+        <div>
+          <button onClick={save} disabled={saving}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light disabled:opacity-60 text-white px-4 py-2 text-sm font-medium"
+            data-testid="auto-relance-save-btn">
+            {saving && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+            Enregistrer
+          </button>
+        </div>
+      </div>
+
+      <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 overflow-hidden">
+        <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
+          <h3 className="text-sm font-display font-semibold">Historique des exécutions</h3>
+          <span className="text-xs text-slate-500">{history.length} entrée(s)</span>
+        </div>
+        {loading ? <Empty label="Chargement…" /> : history.length === 0 ? <Empty label="Aucune exécution pour le moment" /> : (
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-xs text-slate-600">
+              <tr>
+                <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">Déclenchement</th>
+                <th className="text-right px-3 py-2">Clients</th>
+                <th className="text-right px-3 py-2">Factures</th>
+                <th className="text-right px-3 py-2">✓ OK</th>
+                <th className="text-right px-3 py-2">✗ KO</th>
+                <th className="text-right px-3 py-2">⊝ Sans n°</th>
+                <th className="text-left px-3 py-2">Email</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {history.map((h) => (
+                <tr key={h.id} className="hover:bg-slate-50">
+                  <td className="px-3 py-2 text-xs">{fmtDt(h.started_at)}</td>
+                  <td className="px-3 py-2 text-xs text-slate-600">{h.triggered_by}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{h.business_clients_count || 0}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs">{h.total || 0}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-emerald-700">{h.sent_ok || 0}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-rose-600">{h.sent_ko || 0}</td>
+                  <td className="px-3 py-2 text-right font-mono text-xs text-slate-500">{h.skipped_no_phone || 0}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {h.email_report?.sent
+                      ? <span className="text-emerald-600">✓ {h.email_report.to}</span>
+                      : (h.skipped ? <span className="text-slate-400 italic">{h.reason}</span> : <span className="text-slate-400">—</span>)}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
+// =====================================================================
 // Main page
 // =====================================================================
 export default function CashBilling({ defaultTab = "receipts" }) {
@@ -802,6 +979,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
       { key: "catalog", label: "Catalogue", icon: ShoppingBag, color: "text-violet-600" },
       { key: "business", label: "Clients en compte", icon: Building2, color: "text-amber-600" },
       { key: "payment", label: "Modes de paiement", icon: CreditCard, color: "text-rose-600" },
+      { key: "auto_relance", label: "Relance auto", icon: Bell, color: "text-amber-500" },
     ] : []),
   ];
 
@@ -850,7 +1028,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
         <CrudTab title="Clients en compte" icon={Building2} color="text-amber-600"
           listPath="/admin/business-clients" createPath="/admin/business-clients" deletePath="/admin/business-clients"
           dataTestId="cashier-bc-tab"
-          formInitial={{ name: "", legal_form: "", nif: "", ifu: "", rccm: "", phone: "", email: "", billing_address: "", shipping_address: "", notes: "" }}
+          formInitial={{ name: "", legal_form: "", nif: "", ifu: "", rccm: "", phone: "", email: "", billing_address: "", shipping_address: "", notes: "", auto_relance_enabled: false }}
           fields={[
             { key: "name", label: "Raison sociale / Nom", required: true, full: true },
             { key: "legal_form", label: "Forme juridique (SARL, SA…)" },
@@ -862,6 +1040,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             { key: "billing_address", label: "Adresse de facturation", type: "textarea", full: true },
             { key: "shipping_address", label: "Adresse de livraison", type: "textarea", full: true },
             { key: "notes", label: "Notes", type: "textarea", full: true },
+            { key: "auto_relance_enabled", label: "🔔 Relance automatique des impayés", type: "checkbox", full: true },
           ]} />
       )}
       {tab === "payment" && (
@@ -878,6 +1057,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             { key: "active", label: "Actif", type: "checkbox" },
           ]} />
       )}
+      {tab === "auto_relance" && <AutoRelanceTab />}
     </div>
   );
 }

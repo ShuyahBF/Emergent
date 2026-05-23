@@ -1,0 +1,28 @@
+{
+  "summary": "Iter36y — Auto-relance cron + per-client toggle + manual trigger + history: full E2E verified. Backend 37/37 pytest pass (6 new tests in test_iter36y_auto_relance.py + 31 regression Iter36u/v/w/x). Master toggle/day-of-week/grace_days/email persist via PUT /api/admin/settings. POST /api/cashier/overdue/relance-auto-run is admin-only (regular user => 403), bypasses master toggle for manual triggers, persists each run in db.auto_relance_runs, and targets ONLY business_clients with auto_relance_enabled=True (opt-out clients correctly excluded). GET /api/cashier/overdue/relance-history returns history. BusinessClient POST defaults auto_relance_enabled=False; setting True is persisted. Frontend smoke: /portal/cash renders 6 tabs for admin (Caisse, Facturation, Catalogue, Clients en compte, Modes de paiement, Relance auto). Relance auto tab shows master toggle + Lundi select + grace_days (30) + email field + Enregistrer + 'Tester maintenant' + history table (9 entries after trigger). Clients en compte form shows the '🔔 Relance automatique des impayés' full-width checkbox. No backend or frontend issues found.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter36y_auto_relance.py",
+    "/app/backend/tests/test_iter36u_cashier.py",
+    "/app/backend/tests/test_iter36v_send_wa.py",
+    "/app/backend/tests/test_iter36w_exports.py",
+    "/app/backend/tests/test_iter36x_relance.py",
+    "/app/test_reports/pytest/pytest_iter36y_31.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "CashBilling.jsx is now 1064 lines — consider splitting per tab (ReceiptsTab/InvoicesTab/CatalogTab/BusinessTab/PaymentTab/AutoRelanceTab) into individual files under /pages/portal/cash/ to keep each module <500 lines. Not blocking but recommended for maintainability.",
+    "AutoRelanceTab fetches GET /api/admin/settings on mount — fine, but if PUT response returns the updated settings, prefer using that response directly rather than re-fetching to reduce a round-trip.",
+    "test_cron_skips_when_master_disabled writes directly to db.settings via pymongo; assertion is loose ('skipped in (None, False) or reason != master_disabled'). It's defensible since manual bypass is the contract, but a follow-up test calling _run_auto_relance_cashier in-process with a fixed weekday would harden the cron path coverage.",
+    "Backend run history is stored unbounded in db.auto_relance_runs — consider TTL index or a retention policy (e.g., 180 days) to prevent collection growth."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (37/37)", "frontend": "100%"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp field — SMTP not configured)",
+  "seed_data_creation": "Pytest fixtures auto-seed business_clients (opted-in + opted-out) + overdue invoices and clean up afterwards. Frontend smoke triggered the manual relance which left 9 history rows in db.auto_relance_runs (no impact — runs are append-only history).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter36y complete. Cashier vertical (Iter36u→y) fully validated. To smoke /portal/cash via Playwright: login via API (two-step OTP, dev_otp in /api/auth/login response), set localStorage['sawali_token']=jwt AND localStorage['sawali_user']=stringified /api/auth/me payload, then goto /portal/cash. Dismiss the 'Briefing/Bienvenue' modal first (button text 'J\\'ai lu'). Tab keys are: receipts, invoices, catalog, business, payment, auto_relance (NOT business_clients/payment_methods/products). The full reference regression command is: pytest tests/test_iter36{u,v,w,x,y}_*.py -v (37 tests, ~25s).",
+  "rca of the issue": "N/A — no bugs found."
+}

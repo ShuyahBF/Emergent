@@ -3,6 +3,24 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36z (2026-05-23) — Mini KPI panel Facturation (cashflow cockpit)
+
+### 📊 Iter36z — Dashboard de trésorerie en haut de l'onglet Facturation
+- **Backend** : nouvel endpoint `GET /api/cashier/kpis` (RBAC : `_can_invoice`).
+  - **Encaissé ce mois** : somme `net_to_pay` des factures `status=paid` avec `paid_at >= 1er du mois` + count.
+  - **Restant à encaisser** : somme `net_to_pay` des factures `status=issued` + count.
+  - **Délai moyen de paiement (jours)** : moyenne `(paid_at - created_at) / 86400` sur les factures payées des 90 derniers jours (+ `delai_moyen_sample_size`).
+  - **Top 3 mauvais payeurs** : agrégat `db.invoices.aggregate` par `business_client_id` (group sum `unpaid_amount`, count, name snapshot, earliest_due) trié desc, limit 3. Champ `oldest_overdue_days` calculé depuis `due_date`.
+- **Frontend `CashBilling.jsx`** : nouveau composant `<InvoiceKpiPanel />` monté en haut de `InvoicesTab` (grid 4 cards responsive 1/2/4 cols) :
+  - Card emerald « Encaissé · MM YYYY » avec `TrendingUp` + montant + count
+  - Card amber « Restant à encaisser » avec `AlertOctagon`
+  - Card sky « Délai moyen » avec `Clock` + jours + sample size
+  - Card rose « Top 3 mauvais payeurs » avec ordered list (nom, jours de retard, montant)
+  - États : loading skeleton, empty state (« Aucun impayé 🎉 ») géré.
+- **Tests pytest** : **43/43 verts** (37 régression + **6 Iter36z** : RBAC, schema shape, paid this month, outstanding, top bad payers, avg delay nullable).
+
+---
+
 ## Latest — Iter36y (2026-05-23) — Relance auto quotidienne + toggle par client + rapport email
 
 ### 🤖 Iter36y — Cron de recouvrement automatique

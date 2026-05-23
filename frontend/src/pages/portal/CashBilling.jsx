@@ -18,6 +18,7 @@ import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
+  TrendingUp, TrendingDown, Clock, AlertOctagon,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -241,6 +242,100 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
 // =====================================================================
 // Invoices tab
 // =====================================================================
+// =====================================================================
+// Iter36z — Mini KPI panel for Facturation header (cashflow cockpit)
+// =====================================================================
+function InvoiceKpiPanel() {
+  const [kpis, setKpis] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const load = async () => {
+    try {
+      const r = await apiClient.get("/cashier/kpis");
+      setKpis(r.data);
+    } catch { /* noop */ } finally { setLoading(false); }
+  };
+  useEffect(() => { load(); }, []);
+
+  if (loading) {
+    return (
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-4">
+        {[0, 1, 2, 3].map((i) => (
+          <div key={i} className="rounded-2xl bg-white ring-1 ring-slate-200 p-4 animate-pulse h-24" />
+        ))}
+      </div>
+    );
+  }
+  if (!kpis) return null;
+
+  const paid = kpis.encaisse_this_month || {};
+  const due = kpis.restant_a_encaisser || {};
+  const delay = kpis.delai_moyen_jours;
+  const tops = kpis.top_bad_payers || [];
+  const monthLabel = new Date().toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-4" data-testid="invoice-kpi-panel">
+      {/* Card 1 — Encaissé ce mois */}
+      <div className="rounded-2xl bg-gradient-to-br from-emerald-500 to-emerald-600 text-white p-4 shadow-md ring-1 ring-emerald-700/20" data-testid="kpi-card-paid">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wider opacity-90 font-medium">Encaissé · {monthLabel}</span>
+          <TrendingUp className="h-4 w-4 opacity-80" />
+        </div>
+        <div className="mt-2 text-2xl font-display font-bold tabular-nums">{FCFA(paid.amount)} <span className="text-sm font-normal opacity-90">FCFA</span></div>
+        <div className="text-xs opacity-90 mt-1">{paid.count || 0} facture(s) réglée(s)</div>
+      </div>
+
+      {/* Card 2 — Restant à encaisser */}
+      <div className="rounded-2xl bg-gradient-to-br from-amber-500 to-orange-500 text-white p-4 shadow-md ring-1 ring-orange-700/20" data-testid="kpi-card-due">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wider opacity-90 font-medium">Restant à encaisser</span>
+          <AlertOctagon className="h-4 w-4 opacity-80" />
+        </div>
+        <div className="mt-2 text-2xl font-display font-bold tabular-nums">{FCFA(due.amount)} <span className="text-sm font-normal opacity-90">FCFA</span></div>
+        <div className="text-xs opacity-90 mt-1">{due.count || 0} facture(s) en attente</div>
+      </div>
+
+      {/* Card 3 — Délai moyen */}
+      <div className="rounded-2xl bg-gradient-to-br from-sky-500 to-blue-600 text-white p-4 shadow-md ring-1 ring-blue-700/20" data-testid="kpi-card-delay">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wider opacity-90 font-medium">Délai moyen de paiement</span>
+          <Clock className="h-4 w-4 opacity-80" />
+        </div>
+        <div className="mt-2 text-2xl font-display font-bold tabular-nums">
+          {delay !== null && delay !== undefined ? <>{delay} <span className="text-sm font-normal opacity-90">jour{delay > 1 ? "s" : ""}</span></> : <span className="text-base opacity-80">—</span>}
+        </div>
+        <div className="text-xs opacity-90 mt-1">{kpis.delai_moyen_sample_size || 0} facture(s) · 90 derniers jours</div>
+      </div>
+
+      {/* Card 4 — Top mauvais payeurs */}
+      <div className="rounded-2xl bg-gradient-to-br from-rose-500 to-pink-600 text-white p-4 shadow-md ring-1 ring-rose-700/20" data-testid="kpi-card-bad-payers">
+        <div className="flex items-center justify-between">
+          <span className="text-xs uppercase tracking-wider opacity-90 font-medium">Top 3 mauvais payeurs</span>
+          <TrendingDown className="h-4 w-4 opacity-80" />
+        </div>
+        {tops.length === 0 ? (
+          <div className="mt-2 text-sm opacity-90 italic">Aucun impayé 🎉</div>
+        ) : (
+          <ol className="mt-2 space-y-1">
+            {tops.map((t, idx) => (
+              <li key={t.business_client_id || idx} className="flex items-center justify-between gap-2 text-sm" data-testid={`kpi-bad-payer-${idx}`}>
+                <span className="truncate font-medium">
+                  <span className="opacity-70 mr-1">{idx + 1}.</span>{t.name}
+                  {t.oldest_overdue_days != null && t.oldest_overdue_days > 0 && (
+                    <span className="ml-1 text-xs opacity-80">({t.oldest_overdue_days}j)</span>
+                  )}
+                </span>
+                <span className="font-mono text-xs whitespace-nowrap">{FCFA(t.unpaid_amount)}</span>
+              </li>
+            ))}
+          </ol>
+        )}
+      </div>
+    </div>
+  );
+}
+
+
 function InvoicesTab({ businessClients, products, paymentMethods }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -378,6 +473,7 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
 
   return (
     <div className="space-y-4" data-testid="cashier-invoices-tab">
+      <InvoiceKpiPanel />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
           <Receipt className="h-5 w-5 text-sawali-blue" /> Factures & Proformas

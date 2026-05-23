@@ -1274,4 +1274,92 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         cursor = db.auto_relance_runs.find({}, {"_id": 0}).sort("started_at", -1).limit(limit)
         return [r async for r in cursor]
 
+    # =================================================================
+    # Iter36z — KPIs dashboard (Facturation header)
+    # =================================================================
+    @router.get("/cashier/kpis")
+    async def invoices_kpis(user: dict = Depends(get_current_user)):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        now = datetime.now(timezone.utc)
+        month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+        ninety_days_ago = (now - timedelta(days=90)).isoformat()
+        # 1) Encaissé ce mois (status=paid AND paid_at >= month_start)
+        paid_cursor = db.invoices.find(
+            {"kind": "invoice", "status": "paid", "paid_at": {"$gte": month_start}},
+            {"_id": 0, "net_to_pay": 1},
+        )
+        paid_amount = 0.0
+        paid_count = 0
+        async for inv in paid_cursor:
+            paid_amount += float(inv.get("net_to_pay") or 0)
+            paid_count += 1
+        # 2) Restant à encaisser (status=issued)
+        due_cursor = db.invoices.find(
+            {"kind": "invoice", "status": "issued"},
+            {"_id": 0, "net_to_pay": 1},
+        )
+        due_amount = 0.0
+        due_count = 0
+        async for inv in due_cursor:
+            due_amount += float(inv.get("net_to_pay") or 0)
+            due_count += 1
+        # 3) Délai moyen de paiement (en jours) — sur les factures payées des 90 derniers jours
+        recent_paid_cursor = db.invoices.find(
+            {"kind": "invoice", "status": "paid", "paid_at": {"$gte": ninety_days_ago}},
+            {"_id": 0, "created_at": 1, "paid_at": 1},
+        )
+        deltas: List[float] = []
+        async for inv in recent_paid_cursor:
+            try:
+                c = datetime.fromisoformat(str(inv["created_at"]).replace("Z", "+00:00"))
+                p = datetime.fromisoformat(str(inv["paid_at"]).replace("Z", "+00:00"))
+                deltas.append((p - c).total_seconds() / 86400.0)
+            except Exception:
+                continue
+        avg_days = round(sum(deltas) / len(deltas), 1) if deltas else None
+        # 4) Top 3 "mauvais payeurs" — agrégat par business_client sur les factures issued
+        today_iso = now.strftime("%Y-%m-%d")
+        bad_payers_pipeline = [
+            {"$match": {"kind": "invoice", "status": "issued"}},
+            {"$group": {
+                "_id": "$business_client_id",
+                "unpaid_amount": {"$sum": "$net_to_pay"},
+                "unpaid_count": {"$sum": 1},
+                "name": {"$first": "$business_client_snapshot.name"},
+                "earliest_due": {"$min": "$due_date"},
+            }},
+            {"$sort": {"unpaid_amount": -1}},
+            {"$limit": 3},
+        ]
+        top_bad_payers: List[Dict[str, Any]] = []
+        async for row in db.invoices.aggregate(bad_payers_pipeline):
+            bc_id = row.get("_id")
+            avg_overdue_days = None
+            ed = row.get("earliest_due")
+            if ed and isinstance(ed, str):
+                try:
+                    due_dt = datetime.strptime(ed[:10], "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    diff = (now - due_dt).days
+                    if diff > 0:
+                        avg_overdue_days = diff
+                except Exception:
+                    pass
+            top_bad_payers.append({
+                "business_client_id": bc_id,
+                "name": row.get("name") or "—",
+                "unpaid_amount": float(row.get("unpaid_amount") or 0),
+                "unpaid_count": int(row.get("unpaid_count") or 0),
+                "oldest_overdue_days": avg_overdue_days,
+            })
+        return {
+            "encaisse_this_month": {"amount": paid_amount, "count": paid_count,
+                                    "period_start": month_start, "currency": "XOF"},
+            "restant_a_encaisser": {"amount": due_amount, "count": due_count, "currency": "XOF"},
+            "delai_moyen_jours": avg_days,
+            "delai_moyen_sample_size": len(deltas),
+            "top_bad_payers": top_bad_payers,
+            "as_of": _now_iso(),
+        }
+
     return router, run_auto_relance

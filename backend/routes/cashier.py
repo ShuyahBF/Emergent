@@ -787,4 +787,221 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             }
         raise HTTPException(status_code=404, detail="Document introuvable")
 
+    # =================================================================
+    # Iter36w — CSV / PDF exports for receipts & invoices
+    # =================================================================
+    def _csv_response(rows: List[List[Any]], filename: str) -> Response:
+        import csv as _csv
+        buf = io.StringIO()
+        buf.write("\ufeff")  # Excel UTF-8 BOM
+        writer = _csv.writer(buf, delimiter=";")
+        for row in rows:
+            writer.writerow(row)
+        return Response(
+            content=buf.getvalue().encode("utf-8"),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    def _fmt_dt(iso: Optional[str]) -> str:
+        if not iso:
+            return ""
+        try:
+            return datetime.fromisoformat(str(iso).replace("Z", "+00:00")).strftime("%d/%m/%Y %H:%M")
+        except Exception:
+            return str(iso)[:16]
+
+    def _pdf_response(title: str, header: List[str], rows: List[List[str]], filename: str, totals_line: Optional[str] = None) -> Response:
+        from reportlab.lib.pagesizes import A4, landscape
+        from reportlab.lib import colors
+        from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+        from reportlab.lib.styles import getSampleStyleSheet
+        buf = io.BytesIO()
+        doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                                topMargin=24, bottomMargin=24, leftMargin=24, rightMargin=24, title=title)
+        styles = getSampleStyleSheet()
+        now_str = datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M")
+        story: List[Any] = [
+            Paragraph(f"<b>SAWALI Smart Systems — {title}</b>", styles["Title"]),
+            Paragraph(f"Généré le {now_str} — {len(rows)} ligne(s)", styles["Normal"]),
+            Spacer(1, 10),
+        ]
+        if totals_line:
+            story.append(Paragraph(totals_line, styles["Normal"]))
+            story.append(Spacer(1, 8))
+        data: List[List[str]] = [header] + rows
+        tbl = Table(data, repeatRows=1)
+        tbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E90FF")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+            ("LEFTPADDING", (0, 0), (-1, -1), 4),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(tbl)
+        doc.build(story)
+        return Response(
+            content=buf.getvalue(),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+        )
+
+    async def _query_receipts(business_client_id: Optional[str], limit: int) -> List[dict]:
+        q: Dict[str, Any] = {}
+        if business_client_id:
+            q["business_client_id"] = business_client_id
+        return await db.receipts.find(q, {"_id": 0}).sort("issued_at", -1).limit(limit).to_list(limit)
+
+    async def _query_invoices(kind: Optional[str], status: Optional[str], business_client_id: Optional[str], limit: int) -> List[dict]:
+        q: Dict[str, Any] = {}
+        if kind:
+            q["kind"] = kind
+        if status:
+            q["status"] = status
+        if business_client_id:
+            q["business_client_id"] = business_client_id
+        return await db.invoices.find(q, {"_id": 0}).sort("created_at", -1).limit(limit).to_list(limit)
+
+    @router.get("/cashier/exports/receipts.csv")
+    async def export_receipts_csv(
+        limit: int = Query(500, ge=1, le=2000),
+        business_client_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        items = await _query_receipts(business_client_id, limit)
+        rows: List[List[Any]] = [["N°", "Date", "Client en compte", "Bénéficiaire", "Motif",
+                                  "Montant (FCFA)", "Mode de paiement", "Référence",
+                                  "Caissier", "Envoyé WA", "Annulé"]]
+        for r in items:
+            rows.append([
+                r.get("number") or "",
+                _fmt_dt(r.get("issued_at")),
+                (r.get("business_client_snapshot") or {}).get("name") or "",
+                r.get("beneficiary_name") or "",
+                (r.get("motif") or "").replace("\n", " "),
+                f"{float(r.get('amount') or 0):.0f}",
+                r.get("payment_method_label") or "",
+                r.get("payment_reference") or "",
+                r.get("cashier_name") or "",
+                _fmt_dt(r.get("whatsapp_sent_at")) or "—",
+                _fmt_dt(r.get("cancelled_at")) or "",
+            ])
+        fname = f"recus-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.csv"
+        return _csv_response(rows, fname)
+
+    @router.get("/cashier/exports/receipts.pdf")
+    async def export_receipts_pdf(
+        limit: int = Query(500, ge=1, le=2000),
+        business_client_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        items = await _query_receipts(business_client_id, limit)
+        rows: List[List[str]] = []
+        total = 0.0
+        active = 0
+        for r in items:
+            amount = float(r.get("amount") or 0)
+            if not r.get("cancelled_at"):
+                total += amount
+                active += 1
+            rows.append([
+                str(r.get("number") or ""),
+                _fmt_dt(r.get("issued_at")),
+                ((r.get("business_client_snapshot") or {}).get("name") or "")[:38],
+                (r.get("motif") or "")[:42],
+                f"{amount:,.0f}".replace(",", " "),
+                (r.get("payment_method_label") or "")[:22],
+                (r.get("cashier_name") or "")[:22],
+                "✓ " + _fmt_dt(r.get("whatsapp_sent_at")) if r.get("whatsapp_sent_at") else "—",
+                "ANNULÉ" if r.get("cancelled_at") else "",
+            ])
+        header = ["N°", "Date", "Client", "Motif", "Montant", "Paiement", "Caissier", "WA", "Statut"]
+        totals = f"<b>Total encaissé (non annulé)</b> : {total:,.0f} FCFA — {active} reçu(s) actifs sur {len(items)} listés.".replace(",", " ")
+        fname = f"recus-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
+        return _pdf_response("Liste des reçus d'encaissement", header, rows, fname, totals_line=totals)
+
+    @router.get("/cashier/exports/invoices.csv")
+    async def export_invoices_csv(
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = Query(500, ge=1, le=2000),
+        business_client_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        items = await _query_invoices(kind, status, business_client_id, limit)
+        rows: List[List[Any]] = [["N°", "Type", "Statut", "Date", "Client", "NIF/RCCM",
+                                  "Sous-total HT", "TVA", "Total TTC", "Remise", "Net à payer",
+                                  "Réglé via", "Envoyé WA", "Annulé"]]
+        for i in items:
+            snap = i.get("business_client_snapshot") or {}
+            rows.append([
+                i.get("number") or "",
+                "Proforma" if i.get("kind") == "proforma" else "Facture",
+                {"issued": "Émis", "paid": "Réglée", "cancelled": "Annulée"}.get(i.get("status") or "issued", i.get("status") or ""),
+                _fmt_dt(i.get("created_at")),
+                snap.get("name") or "",
+                " / ".join([x for x in [snap.get("nif"), snap.get("rccm")] if x]),
+                f"{float(i.get('subtotal_ht') or 0):.0f}",
+                f"{float(i.get('total_tva') or 0):.0f}",
+                f"{float(i.get('total_ttc') or 0):.0f}",
+                f"{float(i.get('discount_value') or 0):.0f} ({i.get('discount_kind') or 'none'})",
+                f"{float(i.get('net_to_pay') or 0):.0f}",
+                i.get("paid_method_label") or "",
+                _fmt_dt(i.get("whatsapp_sent_at")) or "—",
+                _fmt_dt(i.get("cancelled_at")) or "",
+            ])
+        fname = f"factures-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.csv"
+        return _csv_response(rows, fname)
+
+    @router.get("/cashier/exports/invoices.pdf")
+    async def export_invoices_pdf(
+        kind: Optional[str] = None,
+        status: Optional[str] = None,
+        limit: int = Query(500, ge=1, le=2000),
+        business_client_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        items = await _query_invoices(kind, status, business_client_id, limit)
+        rows: List[List[str]] = []
+        total_due = 0.0
+        total_paid = 0.0
+        for i in items:
+            net = float(i.get("net_to_pay") or 0)
+            if i.get("status") == "paid":
+                total_paid += net
+            elif i.get("status") == "issued":
+                total_due += net
+            rows.append([
+                str(i.get("number") or ""),
+                "Proforma" if i.get("kind") == "proforma" else "Facture",
+                {"issued": "Émis", "paid": "Réglée", "cancelled": "Annulée"}.get(i.get("status") or "issued", "")[:10],
+                _fmt_dt(i.get("created_at")),
+                ((i.get("business_client_snapshot") or {}).get("name") or "")[:30],
+                f"{float(i.get('total_ttc') or 0):,.0f}".replace(",", " "),
+                f"{net:,.0f}".replace(",", " "),
+                "✓ " + _fmt_dt(i.get("whatsapp_sent_at")) if i.get("whatsapp_sent_at") else "—",
+            ])
+        header = ["N°", "Type", "Statut", "Date", "Client", "TTC", "Net à payer", "WA"]
+        totals = (
+            f"<b>Encaissé</b> : {total_paid:,.0f} FCFA &nbsp;&nbsp; "
+            f"<b>En attente</b> : {total_due:,.0f} FCFA &nbsp;&nbsp; "
+            f"<b>Lignes</b> : {len(items)}"
+        ).replace(",", " ")
+        fname = f"factures-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
+        return _pdf_response("Liste des factures & proformas", header, rows, fname, totals_line=totals)
+
     return router

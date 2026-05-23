@@ -3,6 +3,21 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36w (2026-05-23) — Indicateur WA + Export CSV/PDF de la Caisse
+
+### 📊 Iter36w — Cockpit de suivi des reçus & factures
+- **Frontend `CashBilling.jsx`** : nouvelle colonne « WhatsApp » dans les tables Caisse et Facturation. Si `whatsapp_sent_at` est posé, badge emerald `✓ DD/MM HH:MM` (avec tooltip sur le numéro). Sinon `—` slate.
+- **Frontend** : nouveaux boutons « CSV » et « PDF » dans l'en-tête de chaque onglet. Téléchargement via axios authentifié (blob), filename récupéré depuis `Content-Disposition`, fallback nom local en cas d'erreur. Toast d'erreur si l'API refuse.
+- **Backend** : 4 nouveaux endpoints (chemin distinct pour éviter la collision avec `{rid}`/`{iid}`) :
+  - `GET /api/cashier/exports/receipts.csv` (UTF-8 BOM, séparateur `;`, prêt pour Excel FR)
+  - `GET /api/cashier/exports/receipts.pdf` (ReportLab A4 paysage, total encaissé + nb actifs)
+  - `GET /api/cashier/exports/invoices.csv` (paramètres `kind`/`status` filtrables, montants HT/TVA/TTC/Net)
+  - `GET /api/cashier/exports/invoices.pdf` (totaux encaissé vs en attente)
+- Permissions : même gating que la liste (`_can_invoice`), refus 401/403 sinon. Filtre `business_client_id` côté URL.
+- **Tests pytest** : **25/25 verts** (11 Iter36u + 7 Iter36v + **7 Iter36w** : RBAC, BOM, headers CSV, magic bytes PDF, filtre kind).
+
+---
+
 ## Latest — Iter36v (2026-05-23) — Reçu/Facture WhatsApp en 1 clic
 
 ### 📲 Iter36v — Envoi direct du document via Meta Cloud API

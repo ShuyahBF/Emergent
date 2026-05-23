@@ -17,11 +17,40 @@ import { toast } from "sonner";
 import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
-  Loader2, ArrowRight, AlertTriangle,
+  Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+const fmtDt = (iso) => {
+  if (!iso) return null;
+  try { return new Date(iso).toLocaleString("fr-FR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" }); }
+  catch { return String(iso).slice(0, 16); }
+};
+
+// Iter36w — Trigger a file download from a protected API endpoint (axios w/ auth).
+async function downloadExport(apiPath, fallbackName) {
+  try {
+    const resp = await apiClient.get(apiPath, { responseType: "blob" });
+    const blob = new Blob([resp.data], { type: resp.headers["content-type"] || "application/octet-stream" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    // Extract filename from Content-Disposition if present
+    const cd = resp.headers["content-disposition"] || "";
+    const m = cd.match(/filename="?([^";]+)"?/i);
+    a.download = (m && m[1]) || fallbackName;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    return true;
+  } catch (err) {
+    toast.error(err?.response?.data?.detail || "Erreur de téléchargement");
+    return false;
+  }
+}
 
 function Empty({ label }) {
   return (
@@ -73,17 +102,35 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
 
   return (
     <div className="space-y-4" data-testid="cashier-receipts-tab">
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
           <Banknote className="h-5 w-5 text-emerald-600" /> Reçus d'encaissement
         </h2>
-        <button
-          onClick={() => setShowForm((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium"
-          data-testid="cashier-new-receipt-btn"
-        >
-          <Plus className="h-4 w-4" /> Nouveau reçu
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => downloadExport("/cashier/exports/receipts.csv", "recus.csv")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
+            data-testid="cashier-receipts-export-csv"
+            title="Exporter en CSV (Excel)"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> CSV
+          </button>
+          <button
+            onClick={() => downloadExport("/cashier/exports/receipts.pdf", "recus.pdf")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
+            data-testid="cashier-receipts-export-pdf"
+            title="Exporter en PDF"
+          >
+            <Download className="h-4 w-4 text-rose-600" /> PDF
+          </button>
+          <button
+            onClick={() => setShowForm((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium"
+            data-testid="cashier-new-receipt-btn"
+          >
+            <Plus className="h-4 w-4" /> Nouveau reçu
+          </button>
+        </div>
       </div>
 
       {showForm && (
@@ -153,6 +200,7 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
                 <th className="text-right px-3 py-2">Montant</th>
                 <th className="text-left px-3 py-2">Paiement</th>
                 <th className="text-left px-3 py-2">Caissier</th>
+                <th className="text-left px-3 py-2">WhatsApp</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -165,6 +213,15 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
                   <td className="px-3 py-2 text-right font-mono font-bold text-emerald-700">{FCFA(r.amount)} FCFA</td>
                   <td className="px-3 py-2 text-slate-600 text-xs">{r.payment_method_label}</td>
                   <td className="px-3 py-2 text-slate-500 text-xs">{r.cashier_name}</td>
+                  <td className="px-3 py-2 text-xs" data-testid={`receipt-wa-status-${r.id}`}>
+                    {r.whatsapp_sent_at ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5" title={`Envoyé à ${r.whatsapp_to || ""}`}>
+                        <CheckCircle2 className="h-3 w-3" /> {fmtDt(r.whatsapp_sent_at)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right">
                     <Link to={`/portal/cash/receipt/${r.id}`} target="_blank" className="inline-flex items-center gap-1 text-sawali-blue hover:underline text-xs"
                       data-testid={`receipt-print-${r.id}`}>
@@ -306,6 +363,22 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
             <option value="paid">Réglé</option>
             <option value="cancelled">Annulé</option>
           </select>
+          <button
+            onClick={() => downloadExport(`/cashier/exports/invoices.csv${(filter.kind || filter.status) ? `?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([_, v]) => v)))}` : ""}`, "factures.csv")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
+            data-testid="cashier-invoices-export-csv"
+            title="Exporter en CSV (Excel)"
+          >
+            <FileSpreadsheet className="h-4 w-4 text-emerald-600" /> CSV
+          </button>
+          <button
+            onClick={() => downloadExport(`/cashier/exports/invoices.pdf${(filter.kind || filter.status) ? `?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([_, v]) => v)))}` : ""}`, "factures.pdf")}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
+            data-testid="cashier-invoices-export-pdf"
+            title="Exporter en PDF"
+          >
+            <Download className="h-4 w-4 text-rose-600" /> PDF
+          </button>
           <button onClick={() => setShowForm((v) => !v)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-1.5 text-sm font-medium"
             data-testid="invoice-new-btn">
@@ -435,6 +508,7 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
                 <th className="text-right px-3 py-2">Net</th>
                 <th className="text-left px-3 py-2">Statut</th>
                 <th className="text-left px-3 py-2">Date</th>
+                <th className="text-left px-3 py-2">WhatsApp</th>
                 <th className="px-3 py-2"></th>
               </tr>
             </thead>
@@ -455,6 +529,15 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
                     {i.status === "cancelled" && <span className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-1.5 py-0.5"><XCircle className="h-3 w-3" /> Annulée</span>}
                   </td>
                   <td className="px-3 py-2 text-slate-500 text-xs">{new Date(i.created_at).toLocaleDateString("fr-FR")}</td>
+                  <td className="px-3 py-2 text-xs" data-testid={`invoice-wa-status-${i.id}`}>
+                    {i.whatsapp_sent_at ? (
+                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5" title={`Envoyé à ${i.whatsapp_to || ""}`}>
+                        <CheckCircle2 className="h-3 w-3" /> {fmtDt(i.whatsapp_sent_at)}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-3 py-2 text-right space-x-1">
                     <Link to={`/portal/billing/invoice/${i.id}`} target="_blank" className="inline-flex items-center gap-0.5 text-sawali-blue hover:underline text-xs">
                       <Printer className="h-3.5 w-3.5" />

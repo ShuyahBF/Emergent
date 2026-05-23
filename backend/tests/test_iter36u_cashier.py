@@ -271,15 +271,34 @@ class TestInvoiceLifecycle:
 
 
 class TestProducts:
-    def test_unique_sku(self, admin_h, seed):
-        sku = f"DUP-{uuid.uuid4().hex[:6]}"
+    def test_sku_auto_generated_per_tenant(self, admin_h, seed):
+        """Iter37a — SKU is now auto-generated, RO, and includes the Client Lié (tenant) prefix."""
         r1 = requests.post(f"{API}/admin/products", headers=admin_h, json={
-            "sku": sku, "name": "P1", "unit_price_ht": 1000,
+            "name": f"Product 1 {uuid.uuid4().hex[:5]}", "unit_price_ht": 1000,
         }, timeout=15)
-        assert r1.status_code == 200
-        r2 = requests.post(f"{API}/admin/products", headers=admin_h, json={
-            "sku": sku, "name": "P2", "unit_price_ht": 2000,
-        }, timeout=15)
-        assert r2.status_code == 400
+        assert r1.status_code == 200, r1.text
+        body1 = r1.json()
+        assert body1["sku"]  # auto-generated, non-empty
+        # Pattern: {TENANT_SLUG}-{8 digit seq}
+        import re as _re
+        assert _re.match(r"^[A-Z0-9 ]+-\d{8}$", body1["sku"]), f"Unexpected SKU: {body1['sku']}"
+        # Product name MUST be uppercased (Iter37a)
+        assert body1["name"].isupper() or " " in body1["name"]
         # Cleanup
-        requests.delete(f"{API}/admin/products/{r1.json()['id']}", headers=admin_h, timeout=10)
+        requests.delete(f"{API}/admin/products/{body1['id']}", headers=admin_h, timeout=10)
+
+    def test_sku_immutable_on_update(self, admin_h, seed):
+        """Even when client sends a new SKU on PATCH, the original must be preserved."""
+        r1 = requests.post(f"{API}/admin/products", headers=admin_h, json={
+            "name": f"Imm {uuid.uuid4().hex[:5]}", "unit_price_ht": 500,
+        }, timeout=15)
+        pid = r1.json()["id"]
+        original_sku = r1.json()["sku"]
+        r2 = requests.patch(f"{API}/admin/products/{pid}", headers=admin_h, json={
+            "sku": "HACKED-00000001", "name": "imm renamed", "unit_price_ht": 600,
+        }, timeout=15)
+        assert r2.status_code == 200
+        assert r2.json()["sku"] == original_sku
+        # And name still UPPERCASED
+        assert r2.json()["name"] == "IMM RENAMED"
+        requests.delete(f"{API}/admin/products/{pid}", headers=admin_h, timeout=10)

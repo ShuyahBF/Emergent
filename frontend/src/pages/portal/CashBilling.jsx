@@ -18,7 +18,7 @@ import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
-  TrendingUp, TrendingDown, Clock, AlertOctagon,
+  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -138,7 +138,12 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
         <div className="rounded-2xl bg-white shadow ring-1 ring-slate-200 p-4 space-y-3" data-testid="cashier-receipt-form">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs font-medium text-slate-700 mb-1">Client en compte *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-700">Client en compte *</label>
+                <button type="button" onClick={refreshClients} className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100" data-testid="receipt-refresh-clients" title="Actualiser la liste">
+                  <RefreshCw className="h-3 w-3" /> Actualiser
+                </button>
+              </div>
               <select value={form.business_client_id} onChange={(e) => setForm({ ...form, business_client_id: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="receipt-form-business-client">
                 <option value="">— Choisir —</option>
@@ -336,7 +341,7 @@ function InvoiceKpiPanel() {
 }
 
 
-function InvoicesTab({ businessClients, products, paymentMethods }) {
+function InvoicesTab({ businessClients, products, paymentMethods, refreshClients }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -540,7 +545,12 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
               </select>
             </div>
             <div className="sm:col-span-2">
-              <label className="block text-xs font-medium text-slate-700 mb-1">Client en compte *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-slate-700">Client en compte *</label>
+                <button type="button" onClick={refreshClients} className="inline-flex items-center gap-1 rounded-md px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100" data-testid="invoice-refresh-clients" title="Actualiser la liste des clients en compte">
+                  <RefreshCw className="h-3 w-3" /> Actualiser
+                </button>
+              </div>
               <select value={form.business_client_id} onChange={(e) => setForm({ ...form, business_client_id: e.target.value })}
                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
                 <option value="">— Choisir —</option>
@@ -725,6 +735,23 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(formInitial);
   const [submitting, setSubmitting] = useState(false);
+  const [remoteOptions, setRemoteOptions] = useState({});  // { fieldKey: [{value, label}] }
+
+  // Iter37a — Prefetch remoteSelect options once
+  useEffect(() => {
+    const remotes = (fields || []).filter((f) => f.type === "remoteSelect" && f.sourcePath);
+    if (!remotes.length) return;
+    Promise.all(remotes.map((f) =>
+      apiClient.get(f.sourcePath).then((r) => ({
+        key: f.key,
+        options: (r.data || []).map((row) => ({ value: row[f.optionValue || "label"], label: row[f.optionLabel || "label"] })),
+      })).catch(() => ({ key: f.key, options: [] }))
+    )).then((arr) => {
+      const next = {};
+      arr.forEach((x) => { next[x.key] = x.options; });
+      setRemoteOptions(next);
+    });
+  }, [fields]);
 
   const load = async () => {
     setLoading(true);
@@ -797,6 +824,15 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
                     <option value="">— Choisir —</option>
                     {(fld.options || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
                   </select>
+                ) : fld.type === "remoteSelect" ? (
+                  <select value={form[fld.key] || ""} onChange={(e) => setForm({ ...form, [fld.key]: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">
+                    <option value="">— Choisir —</option>
+                    {(remoteOptions[fld.key] || []).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                ) : fld.type === "readonly" ? (
+                  <input type="text" value={form[fld.key] ?? "(auto-généré à la création)"} readOnly disabled
+                    className="w-full rounded-lg border border-slate-200 bg-slate-100 text-slate-500 px-3 py-2 text-sm font-mono cursor-not-allowed" />
                 ) : fld.type === "textarea" ? (
                   <textarea value={form[fld.key] || ""} onChange={(e) => setForm({ ...form, [fld.key]: e.target.value })}
                     rows={2} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
@@ -807,7 +843,8 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
                   </label>
                 ) : (
                   <input type={fld.type || "text"} value={form[fld.key] ?? ""} onChange={(e) => {
-                    const v = fld.type === "number" ? Number(e.target.value) : e.target.value;
+                    let v = fld.type === "number" ? Number(e.target.value) : e.target.value;
+                    if (fld.uppercase && typeof v === "string") v = v.toUpperCase();
                     setForm({ ...form, [fld.key]: v });
                   }} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
                 )}
@@ -875,7 +912,7 @@ function AutoRelanceTab() {
     setLoading(true);
     try {
       const [s, h] = await Promise.all([
-        apiClient.get("/admin/settings"),
+        apiClient.get("/cashier/auto-relance/settings"),
         apiClient.get("/cashier/overdue/relance-history", { params: { limit: 20 } }),
       ]);
       setSettings({
@@ -892,7 +929,7 @@ function AutoRelanceTab() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put("/admin/settings", settings);
+      await apiClient.put("/cashier/auto-relance/settings", settings);
       toast.success("Paramètres enregistrés");
       load();
     } catch (err) {
@@ -1075,6 +1112,8 @@ export default function CashBilling({ defaultTab = "receipts" }) {
       { key: "catalog", label: "Catalogue", icon: ShoppingBag, color: "text-violet-600" },
       { key: "business", label: "Clients en compte", icon: Building2, color: "text-amber-600" },
       { key: "payment", label: "Modes de paiement", icon: CreditCard, color: "text-rose-600" },
+      { key: "legal_forms", label: "Formes juridiques", icon: FileText, color: "text-slate-600" },
+      { key: "categories", label: "Catégories produits", icon: Tag, color: "text-violet-500" },
       { key: "auto_relance", label: "Relance auto", icon: Bell, color: "text-amber-500" },
     ] : []),
   ];
@@ -1099,16 +1138,16 @@ export default function CashBilling({ defaultTab = "receipts" }) {
       </div>
 
       {tab === "receipts" && <ReceiptsTab businessClients={businessClients} paymentMethods={paymentMethods} refreshClients={refresh} />}
-      {tab === "invoices" && <InvoicesTab businessClients={businessClients} products={products} paymentMethods={paymentMethods} />}
+      {tab === "invoices" && <InvoicesTab businessClients={businessClients} products={products} paymentMethods={paymentMethods} refreshClients={refresh} />}
       {tab === "catalog" && (
         <CrudTab title="Catalogue produits/services" icon={ShoppingBag} color="text-violet-600"
           listPath="/admin/products" createPath="/admin/products" deletePath="/admin/products"
           dataTestId="cashier-products-tab"
           formInitial={{ sku: "", name: "", description: "", category: "", unit: "pièce", unit_price_ht: 0, tva_pct: 18, stock: null, image_url: "", active: true }}
           fields={[
-            { key: "sku", label: "Référence (SKU)", required: true },
-            { key: "name", label: "Nom", required: true },
-            { key: "category", label: "Catégorie" },
+            { key: "sku", label: "Référence (SKU) — auto-générée", type: "readonly" },
+            { key: "name", label: "Nom (MAJUSCULES auto)", required: true, uppercase: true, full: true },
+            { key: "category", label: "Catégorie", type: "remoteSelect", sourcePath: "/cashier/product-categories" },
             { key: "unit", label: "Unité", type: "select", options: [
               { value: "pièce", label: "Pièce" }, { value: "heure", label: "Heure" }, { value: "jour", label: "Jour" }, { value: "forfait", label: "Forfait" },
             ]},
@@ -1124,14 +1163,15 @@ export default function CashBilling({ defaultTab = "receipts" }) {
         <CrudTab title="Clients en compte" icon={Building2} color="text-amber-600"
           listPath="/admin/business-clients" createPath="/admin/business-clients" deletePath="/admin/business-clients"
           dataTestId="cashier-bc-tab"
-          formInitial={{ name: "", legal_form: "", nif: "", ifu: "", rccm: "", phone: "", email: "", billing_address: "", shipping_address: "", notes: "", auto_relance_enabled: false }}
+          formInitial={{ name: "", legal_form: "", nif: "", ifu: "", rccm: "", phone: "", whatsapp: "", email: "", billing_address: "", shipping_address: "", notes: "", auto_relance_enabled: false, relance_channel: "whatsapp" }}
           fields={[
             { key: "name", label: "Raison sociale / Nom", required: true, full: true },
-            { key: "legal_form", label: "Forme juridique (SARL, SA…)" },
+            { key: "legal_form", label: "Forme juridique", type: "remoteSelect", sourcePath: "/cashier/legal-forms" },
             { key: "nif", label: "NIF" },
             { key: "ifu", label: "IFU" },
             { key: "rccm", label: "RCCM" },
-            { key: "phone", label: "Téléphone" },
+            { key: "phone", label: "Téléphone (voix/SMS)" },
+            { key: "whatsapp", label: "WhatsApp (si différent du téléphone)" },
             { key: "email", label: "Email" },
             { key: "billing_address", label: "Adresse de facturation", type: "textarea", full: true },
             { key: "shipping_address", label: "Adresse de livraison", type: "textarea", full: true },
@@ -1151,6 +1191,24 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             ]},
             { key: "sort_order", label: "Ordre d'affichage", type: "number" },
             { key: "active", label: "Actif", type: "checkbox" },
+          ]} />
+      )}
+      {tab === "legal_forms" && (
+        <CrudTab title="Formes juridiques" icon={FileText} color="text-slate-600"
+          listPath="/cashier/legal-forms" createPath="/admin/legal-forms" deletePath="/admin/legal-forms"
+          dataTestId="cashier-legal-forms-tab"
+          formInitial={{ label: "" }}
+          fields={[
+            { key: "label", label: "Libellé (ex: SARL, SA, SAS, EI, ASSO…)", required: true, full: true },
+          ]} />
+      )}
+      {tab === "categories" && (
+        <CrudTab title="Catégories de produits" icon={Tag} color="text-violet-500"
+          listPath="/cashier/product-categories" createPath="/admin/product-categories" deletePath="/admin/product-categories"
+          dataTestId="cashier-categories-tab"
+          formInitial={{ label: "" }}
+          fields={[
+            { key: "label", label: "Libellé (ex: Logiciel, Service, Matériel, Formation…)", required: true, full: true },
           ]} />
       )}
       {tab === "auto_relance" && <AutoRelanceTab />}

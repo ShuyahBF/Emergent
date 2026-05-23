@@ -46,16 +46,21 @@ class BusinessClientPayload(BaseModel):
     ifu: Optional[str] = Field(None, max_length=40)  # autre code fiscal régional
     rccm: Optional[str] = Field(None, max_length=40)
     phone: Optional[str] = Field(None, max_length=40)
+    whatsapp: Optional[str] = Field(None, max_length=40)  # Iter37a — dedicated WhatsApp number (fallback to phone if empty)
     email: Optional[str] = Field(None, max_length=200)
     billing_address: Optional[str] = Field(None, max_length=500)
     shipping_address: Optional[str] = Field(None, max_length=500)
     notes: Optional[str] = Field(None, max_length=500)
     # Iter36y — Auto-relance toggle (per business client). Default OFF.
     auto_relance_enabled: Optional[bool] = False
+    # Iter37a — Preferred reminder channel: 'whatsapp' (default) | 'email' | 'both'
+    relance_channel: Optional[str] = Field("whatsapp", max_length=20)
 
 
 class ProductPayload(BaseModel):
-    sku: str = Field(..., min_length=1, max_length=80)
+    # Iter37a — SKU is now auto-generated server-side per Client Lié (tenant).
+    # It is read-only post-creation. Clients may pass an empty string or omit it.
+    sku: Optional[str] = Field(None, max_length=80)
     name: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = Field(None, max_length=1000)
     category: Optional[str] = Field(None, max_length=80)
@@ -65,6 +70,14 @@ class ProductPayload(BaseModel):
     stock: Optional[int] = Field(None, ge=0)  # None = non géré
     image_url: Optional[str] = Field(None, max_length=500)
     active: bool = True
+
+
+class LegalFormPayload(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+
+
+class ProductCategoryPayload(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
 
 
 class PaymentMethodPayload(BaseModel):
@@ -176,6 +189,15 @@ def _normalize_phone_e164(raw: str) -> str:
     return f"+{digits}" if plus else digits
 
 
+def _pick_wa_phone(snapshot: Optional[dict], live_bc: Optional[dict]) -> Optional[str]:
+    """Iter37a — Prefer dedicated `whatsapp` over `phone` (snapshot first, then live)."""
+    for src in (snapshot or {}, live_bc or {}):
+        v = src.get("whatsapp") or src.get("phone")
+        if v:
+            return v
+    return None
+
+
 def _public_base_url(db_settings: Optional[dict]) -> str:
     if db_settings and db_settings.get("public_base_url"):
         return str(db_settings["public_base_url"]).rstrip("/")
@@ -252,20 +274,62 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     # Products (catalogue)
     # ----------------------------------------------------------------
+    # ----------------------------------------------------------------
+    # Iter37a — Helpers for Client Lié (tenant) resolution
+    # ----------------------------------------------------------------
+    async def _resolve_client_lie(user: dict) -> dict:
+        """Return the tenant (Client Lié) for a given user as a dict.
+        Falls back to a synthetic doc using the user's id+email if no
+        explicit `client_id` is set on the user.
+        """
+        cid = user.get("client_id") or user.get("id")
+        doc = None
+        if cid:
+            doc = await db.clients.find_one({"id": cid}, {"_id": 0})
+        if not doc:
+            doc = {
+                "id": cid,
+                "name": user.get("company_name") or user.get("full_name") or "SAWALI",
+                "logo_url": None,
+                "billing_address": None,
+            }
+        return doc
+
+    async def _generate_product_sku(client_lie: dict) -> str:
+        slug = _slugify(client_lie.get("name") or "SAWALI", max_len=20).upper().replace("-", " ")
+        # Atomic counter per Client Lié
+        counter = await db.product_sku_counters.find_one_and_update(
+            {"client_id": client_lie["id"]},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=True,
+        )
+        seq = int(counter.get("seq", 1))
+        return f"{slug}-{seq:08d}"
+
     @router.get("/admin/products")
-    async def list_products(_: dict = Depends(get_current_supervisor)):
-        cursor = db.products.find({"deleted_at": None}, {"_id": 0}).sort("name", 1)
+    async def list_products(user: dict = Depends(get_current_supervisor)):
+        # Iter37a — Filter by current user's Client Lié (multi-tenant catalog).
+        client_lie = await _resolve_client_lie(user)
+        q: Dict[str, Any] = {"deleted_at": None}
+        # Super-admin (email-flagged) sees all tenants
+        if (user.get("email") or "").lower() != "admin@sawalismartsystems.com":
+            q["client_id"] = client_lie["id"]
+        cursor = db.products.find(q, {"_id": 0}).sort("name", 1)
         return [p async for p in cursor]
 
     @router.post("/admin/products")
     async def create_product(payload: ProductPayload, user: dict = Depends(get_current_supervisor)):
-        # SKU unique among non-deleted
-        existing = await db.products.find_one({"sku": payload.sku, "deleted_at": None}, {"_id": 0, "id": 1})
-        if existing:
-            raise HTTPException(status_code=400, detail=f"SKU déjà utilisé ({payload.sku})")
+        client_lie = await _resolve_client_lie(user)
+        # Iter37a — Auto-generate SKU (server-side, per tenant). Ignore client-supplied SKU.
+        sku = await _generate_product_sku(client_lie)
         doc = payload.model_dump()
+        # Iter37a — Force product name UPPERCASE
+        doc["name"] = (doc.get("name") or "").upper().strip()
+        doc["sku"] = sku
         doc.update({
             "id": str(uuid.uuid4()),
+            "client_id": client_lie["id"],
             "created_at": _now_iso(),
             "created_by": user["id"],
             "deleted_at": None,
@@ -275,8 +339,14 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return doc
 
     @router.patch("/admin/products/{pid}")
-    async def update_product(pid: str, payload: ProductPayload, _: dict = Depends(get_current_supervisor)):
+    async def update_product(pid: str, payload: ProductPayload, user: dict = Depends(get_current_supervisor)):
+        # Iter37a — Never let the client modify the SKU; preserve existing one.
+        existing = await db.products.find_one({"id": pid, "deleted_at": None}, {"_id": 0, "sku": 1, "client_id": 1})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Produit introuvable")
         updates = payload.model_dump()
+        updates["sku"] = existing["sku"]  # immutable
+        updates["name"] = (updates.get("name") or "").upper().strip()
         updates["updated_at"] = _now_iso()
         res = await db.products.update_one({"id": pid, "deleted_at": None}, {"$set": updates})
         if res.matched_count == 0:
@@ -333,6 +403,115 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=404, detail="Utilisateur introuvable")
         return {"ok": True, "can_cash": flag}
 
+    # ----------------------------------------------------------------
+    # Iter37a — Legal forms (admin-managed dropdown for business_clients)
+    # ----------------------------------------------------------------
+    @router.get("/cashier/legal-forms")
+    async def list_legal_forms(_: dict = Depends(get_current_user)):
+        cursor = db.legal_forms.find({"deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
+        return [r async for r in cursor]
+
+    @router.post("/admin/legal-forms")
+    async def create_legal_form(payload: LegalFormPayload, user: dict = Depends(get_current_supervisor)):
+        label = payload.label.strip()
+        existing = await db.legal_forms.find_one({"label": label, "deleted_at": None}, {"_id": 0, "id": 1})
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Forme juridique déjà présente ({label})")
+        last = await db.legal_forms.find({"deleted_at": None}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
+        next_order = (last[0]["sort_order"] + 1) if last else 0
+        doc = {
+            "id": str(uuid.uuid4()),
+            "label": label,
+            "sort_order": next_order,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "deleted_at": None,
+        }
+        await db.legal_forms.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.delete("/admin/legal-forms/{lid}")
+    async def delete_legal_form(lid: str, _: dict = Depends(get_current_supervisor)):
+        res = await db.legal_forms.update_one({"id": lid}, {"$set": {"deleted_at": _now_iso()}})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Forme juridique introuvable")
+        return {"ok": True}
+
+    # ----------------------------------------------------------------
+    # Iter37a — Product categories (admin-managed dropdown for products)
+    # ----------------------------------------------------------------
+    @router.get("/cashier/product-categories")
+    async def list_product_categories(_: dict = Depends(get_current_user)):
+        cursor = db.product_categories.find({"deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
+        return [r async for r in cursor]
+
+    @router.post("/admin/product-categories")
+    async def create_product_category(payload: ProductCategoryPayload, user: dict = Depends(get_current_supervisor)):
+        label = payload.label.strip()
+        existing = await db.product_categories.find_one({"label": label, "deleted_at": None}, {"_id": 0, "id": 1})
+        if existing:
+            raise HTTPException(status_code=400, detail=f"Catégorie déjà présente ({label})")
+        last = await db.product_categories.find({"deleted_at": None}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
+        next_order = (last[0]["sort_order"] + 1) if last else 0
+        doc = {
+            "id": str(uuid.uuid4()),
+            "label": label,
+            "sort_order": next_order,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "deleted_at": None,
+        }
+        await db.product_categories.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.delete("/admin/product-categories/{cid}")
+    async def delete_product_category(cid: str, _: dict = Depends(get_current_supervisor)):
+        res = await db.product_categories.update_one({"id": cid}, {"$set": {"deleted_at": _now_iso()}})
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Catégorie introuvable")
+        return {"ok": True}
+
+    # ----------------------------------------------------------------
+    # Iter37a — Dedicated Auto-Relance settings endpoint (admin+sup).
+    # The global /admin/settings PUT requires strict admin (touches SMTP/etc.)
+    # whereas relance config should be accessible to superviseur as well.
+    # ----------------------------------------------------------------
+    _AUTO_RELANCE_KEYS = (
+        "auto_relance_enabled", "auto_relance_day_of_week",
+        "auto_relance_grace_days", "auto_relance_email_report_to",
+    )
+
+    @router.get("/cashier/auto-relance/settings")
+    async def get_auto_relance_settings(_: dict = Depends(get_current_supervisor)):
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {k: s.get(k) for k in _AUTO_RELANCE_KEYS}
+
+    @router.put("/cashier/auto-relance/settings")
+    async def update_auto_relance_settings(payload: dict = Body(...), _: dict = Depends(get_current_supervisor)):
+        # Whitelist + light validation
+        update: Dict[str, Any] = {}
+        if "auto_relance_enabled" in payload:
+            update["auto_relance_enabled"] = bool(payload["auto_relance_enabled"])
+        if "auto_relance_day_of_week" in payload:
+            v = int(payload["auto_relance_day_of_week"])
+            if v < 0 or v > 6:
+                raise HTTPException(status_code=400, detail="Jour invalide (0=Lundi..6=Dimanche)")
+            update["auto_relance_day_of_week"] = v
+        if "auto_relance_grace_days" in payload:
+            v = int(payload["auto_relance_grace_days"])
+            if v < 0 or v > 365:
+                raise HTTPException(status_code=400, detail="Délai invalide (0-365 jours)")
+            update["auto_relance_grace_days"] = v
+        if "auto_relance_email_report_to" in payload:
+            update["auto_relance_email_report_to"] = (payload["auto_relance_email_report_to"] or "").strip() or None
+        if not update:
+            raise HTTPException(status_code=400, detail="Aucun paramètre fourni")
+        await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        return {k: s.get(k) for k in _AUTO_RELANCE_KEYS}
+
     @router.get("/admin/users/can-cash")
     async def list_cashier_users(_: dict = Depends(get_current_supervisor)):
         cursor = db.users.find(
@@ -370,6 +549,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "nif": bc.get("nif"),
                 "rccm": bc.get("rccm"),
                 "phone": bc.get("phone"),
+                "whatsapp": bc.get("whatsapp"),
                 "email": bc.get("email"),
             },
             "beneficiary_name": payload.beneficiary_name or bc.get("name"),
@@ -439,13 +619,11 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=404, detail="Reçu introuvable")
         if wa_send_text is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
-        # Resolve recipient phone (override > snapshot > business_client doc)
+        # Resolve recipient phone (override > snapshot.whatsapp/phone > live bc.whatsapp/phone)
         phone = (payload or {}).get("phone")
         if not phone:
-            phone = (r.get("business_client_snapshot") or {}).get("phone")
-        if not phone:
-            bc = await db.business_clients.find_one({"id": r.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
-            phone = bc.get("phone")
+            bc_live = await db.business_clients.find_one({"id": r.get("business_client_id")}, {"_id": 0, "whatsapp": 1, "phone": 1}) or {}
+            phone = _pick_wa_phone(r.get("business_client_snapshot"), bc_live)
         if not phone:
             raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
         to_e164 = _normalize_phone_e164(phone)
@@ -540,6 +718,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "nif": bc.get("nif"),
                 "rccm": bc.get("rccm"),
                 "phone": bc.get("phone"),
+                "whatsapp": bc.get("whatsapp"),
                 "email": bc.get("email"),
             },
             "items": items,
@@ -614,10 +793,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=404, detail="Document introuvable")
         if wa_send_text is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
-        phone = (payload or {}).get("phone") or (inv.get("business_client_snapshot") or {}).get("phone")
+        phone = (payload or {}).get("phone")
         if not phone:
-            bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
-            phone = bc.get("phone")
+            bc_live = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "whatsapp": 1, "phone": 1}) or {}
+            phone = _pick_wa_phone(inv.get("business_client_snapshot"), bc_live)
         if not phone:
             raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
         to_e164 = _normalize_phone_e164(phone)
@@ -704,10 +883,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         for inv in invoices:
             iid = inv["id"]
             number = inv.get("number")
-            phone = (inv.get("business_client_snapshot") or {}).get("phone")
-            if not phone:
-                bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
-                phone = bc.get("phone")
+            bc_live = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "whatsapp": 1, "phone": 1}) or {}
+            phone = _pick_wa_phone(inv.get("business_client_snapshot"), bc_live)
             if not phone:
                 skipped_no_phone += 1
                 results.append({"id": iid, "number": number, "ok": False, "skipped": "no_phone"})
@@ -1120,10 +1297,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Iter36y — Auto-relance quotidienne (cron + email rapport)
     # =================================================================
     async def _send_one_reminder(inv: dict, actor_id: Optional[str]) -> dict:
-        phone = (inv.get("business_client_snapshot") or {}).get("phone")
-        if not phone:
-            bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
-            phone = bc.get("phone")
+        bc_live = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "whatsapp": 1, "phone": 1}) or {}
+        phone = _pick_wa_phone(inv.get("business_client_snapshot"), bc_live)
         if not phone:
             return {"id": inv["id"], "number": inv.get("number"), "ok": False, "skipped": "no_phone"}
         to_e164 = _normalize_phone_e164(phone)

@@ -3,6 +3,24 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37a (2026-05-23) — Quick wins Caisse (bug RBAC + dropdowns + SKU multi-tenant + WA fallback)
+
+### 🔴 Iter37a — CHUNK 1 du plan correctif (Points 1, 2, 3, 4, 6, 9, 12)
+- **#9 BUG RBAC** : nouveaux endpoints dédiés `GET/PUT /api/cashier/auto-relance/settings` accessibles à **admin ET superviseur** (le PUT /admin/settings strict reste pour SMTP/secrets). Le frontend AutoRelanceTab utilise désormais ces endpoints.
+- **#2 Sidebar** : un seul lien « Caisse/Facturation » → `/portal/cash` (Facturation + Catalogue retirés du sidebar, routes conservées en interne).
+- **#3 Refresh button** : bouton « 🔄 Actualiser » dans le formulaire Reçu ET Facture pour rafraîchir la liste des Clients en compte sans recharger la page.
+- **#4 WhatsApp dédié** : nouveau champ `whatsapp` sur fiche Client en compte (en plus de `phone`). L'envoi WA (reçu, facture, relance) utilise désormais `whatsapp || phone` en priorité (snapshot puis live).
+- **#6 Dropdowns admin-managed** :
+  - 2 nouveaux endpoints CRUD : `GET /api/cashier/legal-forms` + `POST/DELETE /api/admin/legal-forms` (et idem `product-categories`).
+  - 2 nouveaux onglets dans `/portal/cash` (admin) : « Formes juridiques » + « Catégories produits ».
+  - Formulaire Client en compte → `legal_form` via dropdown remote. Formulaire Produit → `category` via dropdown remote.
+- **#1 SKU multi-tenant auto** : SKU produit désormais auto-généré server-side sous forme `{TENANT_SLUG}-{N:08d}` (séquence atomique `db.product_sku_counters` par Client Lié = `user.client_id || user.id`). SKU **immutable** (le PATCH conserve toujours la valeur d'origine). Le nom du produit est automatiquement **mis en MAJUSCULES** (création + édition).
+- **#12 Caissier** : flag `can_cash` reste accessible via `/admin/users/{uid}/can-cash` (déjà piloté depuis Admin → Utilisateurs). Pas de rôle dédié pour ne pas casser l'existant.
+- Extension `CrudTab` : nouveau type de champ `remoteSelect` (auto-fetch des options depuis une URL) + `readonly` (champ griséparé non éditable) + `uppercase: true` (force MAJUSCULES en saisie).
+- **Tests pytest** : **53/53 verts** (Iter36u→z + **9 nouveaux Iter37a** : RBAC auto-relance sup OK, dropdowns CRUD, WhatsApp fallback prefer whatsapp/fallback phone, SKU auto+immutable, nom UPPERCASE).
+
+---
+
 ## Latest — Iter36z (2026-05-23) — Mini KPI panel Facturation (cashflow cockpit)
 
 ### 📊 Iter36z — Dashboard de trésorerie en haut de l'onglet Facturation

@@ -18863,6 +18863,19 @@ from auth import decode_token as _decode_token  # noqa: E402
 _chat_router = _make_chat_router(db=db, get_current_user=get_current_user, decode_token=_decode_token)
 api.include_router(_chat_router)
 
+# =====================================================================
+# Iter36u — Caisse & Facturation router (receipts, invoices, products,
+# business_clients, payment_methods, public QR verification).
+# =====================================================================
+from routes.cashier import make_router as _make_cashier_router  # noqa: E402
+_cashier_router = _make_cashier_router(
+    db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    get_current_supervisor=get_admin_or_supervisor,
+)
+api.include_router(_cashier_router)
+
 app.include_router(api)
 
 

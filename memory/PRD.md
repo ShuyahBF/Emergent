@@ -3,6 +3,30 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36y (2026-05-23) — Relance auto quotidienne + toggle par client + rapport email
+
+### 🤖 Iter36y — Cron de recouvrement automatique
+- **Backend**
+  - `BusinessClientPayload` enrichi du champ `auto_relance_enabled` (par défaut `False`). Toggle par client en compte.
+  - 4 nouveaux settings dans `SettingsUpdate` : `auto_relance_enabled` (master), `auto_relance_day_of_week` (0=Lundi..6=Dimanche), `auto_relance_grace_days` (défaut 30), `auto_relance_email_report_to`.
+  - Fonction `run_auto_relance(triggered_by)` exposée par `make_router()` (signature retournant `(router, run_auto_relance)`). Logique :
+    - Trigger manuel → bypass master + bypass weekday check.
+    - Trigger cron → master ON requis ET aujourd'hui doit correspondre au day_of_week configuré.
+    - Cible uniquement `business_clients` avec `auto_relance_enabled=True`.
+    - Persistance par exécution dans `db.auto_relance_runs` (sans le `results[]` complet pour la taille).
+    - Rapport HTML (table OK/KO) envoyé via `send_email` au destinataire configuré (best-effort).
+  - `POST /api/cashier/overdue/relance-auto-run` (admin/superviseur) — trigger manuel + rapport.
+  - `GET /api/cashier/overdue/relance-history?limit=20` (admin/superviseur).
+  - **APScheduler** : nouveau job `cashier_auto_relance_daily` (CronTrigger hour=9 minute=0 Africa/Abidjan). Le job appelle `run_auto_relance(triggered_by="cron:daily-09")` qui vérifie le day_of_week en interne.
+- **Frontend `CashBilling.jsx`** — nouvel onglet « Relance auto » (admin/superviseur uniquement) :
+  - Master toggle + sélecteur jour de la semaine + grace_days + email destinataire + bouton « Enregistrer » + bouton « 🔔 Tester maintenant ».
+  - Tableau historique des exécutions (date, déclencheur, # clients, # factures, ✓ OK / ✗ KO / ⊝ sans n°, statut email).
+  - Onglet « Clients en compte » : nouvelle case à cocher full-width « 🔔 Relance automatique des impayés » dans le formulaire.
+- **Tests pytest** : **37/37 verts** (11 Iter36u + 7 Iter36v + 7 Iter36w + 6 Iter36x + **6 Iter36y** : toggle persisté, default OFF, RBAC manuel, opt-in ciblé/opt-out exclu, history, cron skip logic).
+- **Testing agent v3** : success_rate backend 100%, frontend 100%, aucun bug.
+
+---
+
 ## Latest — Iter36x (2026-05-23) — Relance bulk des factures impayées
 
 ### 🔔 Iter36x — Recouvrement automatique des impayés

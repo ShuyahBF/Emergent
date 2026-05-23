@@ -3,6 +3,23 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36x (2026-05-23) — Relance bulk des factures impayées
+
+### 🔔 Iter36x — Recouvrement automatique des impayés
+- **Backend** : 2 nouveaux endpoints
+  - `GET /api/cashier/overdue/count?grace_days=30` → `{count, grace_days}`
+  - `POST /api/cashier/overdue/relance` body `{grace_days?, dry_run?, ids?}` → `{total, sent_ok, sent_ko, skipped_no_phone, results: [...]}` ; persiste `last_reminder_at`, `last_reminder_message_id`, `last_reminder_to`, `reminders_count` sur chaque facture relancée avec succès.
+- Critère « impayée » (cumulatif OR) : `kind=invoice` ET `status=issued` ET (`due_date` < aujourd'hui  OR  `due_date` manquant ET `created_at` > `grace_days` jours).
+- Message rappel : ton poli, échéance rappelée, lien QR de vérification, signature SAWALI. Utilise `_wa_send_text` (fenêtre 24h Meta).
+- **Frontend `CashBilling.jsx`** :
+  - Bouton ambre pulsant « 🔔 Relancer N impayée(s) » dans l'en-tête Facturation (visible uniquement si count > 0), placé à côté des filtres avant les exports CSV/PDF.
+  - Confirm modal → toast détaillé (envoyée(s)/échec(s)/sans n°) → refresh de la table + du compteur.
+  - Badge ambre `🔔 N` à côté du badge WhatsApp dans la ligne facture (avec date du dernier rappel en tooltip).
+- Paths choisis (`/cashier/overdue/...`) pour éviter collision avec `/cashier/invoices/{iid}`.
+- **Tests pytest** : **31/31 verts** (11 Iter36u + 7 Iter36v + 7 Iter36w + **6 Iter36x** : RBAC, count overdue/fresh, dry-run sans persistance, persistance après envoi réussi, exclusion facture fraîche, skipped_no_phone).
+
+---
+
 ## Latest — Iter36w (2026-05-23) — Indicateur WA + Export CSV/PDF de la Caisse
 
 ### 📊 Iter36w — Cockpit de suivi des reçus & factures

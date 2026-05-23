@@ -17,7 +17,7 @@ import { toast } from "sonner";
 import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
-  Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet,
+  Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -246,6 +246,8 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [filter, setFilter] = useState({ kind: "", status: "" });
+  const [overdueCount, setOverdueCount] = useState(0);
+  const [relancing, setRelancing] = useState(false);
   const [form, setForm] = useState({
     kind: "proforma",
     business_client_id: "",
@@ -263,7 +265,38 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
       setItems(r.data || []);
     } catch { setItems([]); } finally { setLoading(false); }
   };
+  const refreshOverdue = async () => {
+    try {
+      const r = await apiClient.get("/cashier/overdue/count", { params: { grace_days: 30 } });
+      setOverdueCount(r.data?.count || 0);
+    } catch { /* noop */ }
+  };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter.kind, filter.status]);
+  useEffect(() => { refreshOverdue(); }, []);
+
+  const relanceOverdue = async () => {
+    if (overdueCount === 0 || relancing) return;
+    if (!window.confirm(`Envoyer un rappel WhatsApp à ${overdueCount} facture(s) impayée(s) (échéance > 30 j) ?`)) return;
+    setRelancing(true);
+    try {
+      const r = await apiClient.post("/cashier/overdue/relance", { grace_days: 30 });
+      const { sent_ok = 0, sent_ko = 0, skipped_no_phone = 0, total = 0 } = r.data || {};
+      const detail = [];
+      if (sent_ok) detail.push(`${sent_ok} envoyée(s) ✓`);
+      if (sent_ko) detail.push(`${sent_ko} échec(s)`);
+      if (skipped_no_phone) detail.push(`${skipped_no_phone} sans n°`);
+      if (sent_ok > 0 && sent_ko === 0) {
+        toast.success(`Relance terminée — ${total} facture(s) — ${detail.join(" · ")}`);
+      } else if (sent_ok > 0) {
+        toast.warning(`Relance partielle — ${detail.join(" · ")}`);
+      } else {
+        toast.error(`Relance échouée — ${detail.join(" · ") || "aucun envoi"}`);
+      }
+      await Promise.all([load(), refreshOverdue()]);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors de la relance");
+    } finally { setRelancing(false); }
+  };
 
   const totals = useMemo(() => {
     let ht = 0, tva = 0;
@@ -363,6 +396,18 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
             <option value="paid">Réglé</option>
             <option value="cancelled">Annulé</option>
           </select>
+          {overdueCount > 0 && (
+            <button
+              onClick={relanceOverdue}
+              disabled={relancing}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-3 py-1.5 text-sm font-medium shadow-sm ring-1 ring-amber-600/30 animate-pulse"
+              data-testid="cashier-relance-overdue-btn"
+              title="Envoyer un rappel WhatsApp aux clients dont la facture est échue depuis plus de 30 jours"
+            >
+              {relancing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Bell className="h-4 w-4" />}
+              Relancer {overdueCount} impayée{overdueCount > 1 ? "s" : ""}
+            </button>
+          )}
           <button
             onClick={() => downloadExport(`/cashier/exports/invoices.csv${(filter.kind || filter.status) ? `?${new URLSearchParams(Object.fromEntries(Object.entries(filter).filter(([_, v]) => v)))}` : ""}`, "factures.csv")}
             className="inline-flex items-center gap-1.5 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 text-sm font-medium"
@@ -536,6 +581,12 @@ function InvoicesTab({ businessClients, products, paymentMethods }) {
                       </span>
                     ) : (
                       <span className="text-slate-400">—</span>
+                    )}
+                    {i.last_reminder_at && (
+                      <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-1.5 py-0.5"
+                        title={`${i.reminders_count || 1} rappel(s) — dernier le ${fmtDt(i.last_reminder_at)}`}>
+                        <Bell className="h-3 w-3" /> {i.reminders_count || 1}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right space-x-1">

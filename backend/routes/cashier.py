@@ -24,7 +24,7 @@ import os
 import re
 import secrets
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
 import qrcode
@@ -648,6 +648,116 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             }},
         )
         return {"ok": True, "to": to_e164, "message_id": result.get("message_id")}
+
+    # =================================================================
+    # Iter36x — Relance des factures impayées (bulk WhatsApp)
+    # An invoice is considered "overdue" when:
+    #   - kind == "invoice" AND status == "issued"  (not paid, not cancelled)
+    #   - AND ( due_date set AND in the past )
+    #     OR  ( due_date missing AND created more than `grace_days` ago )
+    # =================================================================
+    def _build_overdue_query(grace_days: int) -> Dict[str, Any]:
+        today_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(0, grace_days))).isoformat()
+        return {
+            "kind": "invoice",
+            "status": "issued",
+            "$or": [
+                {"due_date": {"$nin": [None, ""], "$lt": today_iso}},
+                {"due_date": {"$in": [None, ""]}, "created_at": {"$lt": cutoff}},
+                {"due_date": {"$exists": False}, "created_at": {"$lt": cutoff}},
+            ],
+        }
+
+    @router.get("/cashier/overdue/count")
+    async def invoices_overdue_count(
+        grace_days: int = Query(30, ge=0, le=365),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        q = _build_overdue_query(grace_days)
+        count = await db.invoices.count_documents(q)
+        return {"count": count, "grace_days": grace_days}
+
+    @router.post("/cashier/overdue/relance")
+    async def invoices_relance_overdue(
+        payload: dict = Body(default_factory=dict),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        grace_days = int((payload or {}).get("grace_days") or 30)
+        dry_run = bool((payload or {}).get("dry_run") or False)
+        ids: Optional[List[str]] = (payload or {}).get("ids")
+        q = _build_overdue_query(grace_days)
+        if ids:
+            q["id"] = {"$in": list(ids)}
+        cursor = db.invoices.find(q, {"_id": 0}).sort("due_date", 1).limit(500)
+        invoices = [i async for i in cursor]
+        results: List[Dict[str, Any]] = []
+        sent_ok = 0
+        sent_ko = 0
+        skipped_no_phone = 0
+        for inv in invoices:
+            iid = inv["id"]
+            number = inv.get("number")
+            phone = (inv.get("business_client_snapshot") or {}).get("phone")
+            if not phone:
+                bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
+                phone = bc.get("phone")
+            if not phone:
+                skipped_no_phone += 1
+                results.append({"id": iid, "number": number, "ok": False, "skipped": "no_phone"})
+                continue
+            to_e164 = _normalize_phone_e164(phone)
+            if dry_run:
+                results.append({"id": iid, "number": number, "ok": True, "dry_run": True, "to": to_e164})
+                continue
+            if wa_send_text is None:
+                sent_ko += 1
+                results.append({"id": iid, "number": number, "ok": False, "error": "WA non configuré"})
+                continue
+            client_name = (inv.get("business_client_snapshot") or {}).get("name") or "Cher client"
+            net = float(inv.get("net_to_pay") or 0)
+            due = inv.get("due_date") or "—"
+            text = (
+                f"🔔 Rappel — Facture *{number}*\n"
+                f"Bonjour {client_name},\n"
+                f"Cette facture de *{net:,.0f} FCFA* est arrivée à échéance le *{due}* "
+                f"et n'a pas encore été réglée à ce jour.\n"
+                f"Vérification : {inv.get('qr_url')}\n"
+                f"Merci de procéder au règlement dès que possible. "
+                f"L'équipe SAWALI."
+            ).replace(",", " ")
+            res = await wa_send_text(to_e164, text)
+            if res.get("ok"):
+                sent_ok += 1
+                await db.invoices.update_one(
+                    {"id": iid},
+                    {"$set": {
+                        "last_reminder_at": _now_iso(),
+                        "last_reminder_message_id": res.get("message_id"),
+                        "last_reminder_to": to_e164,
+                        "last_reminder_by": user["id"],
+                    }, "$inc": {"reminders_count": 1}},
+                )
+                results.append({"id": iid, "number": number, "ok": True, "to": to_e164})
+            else:
+                sent_ko += 1
+                results.append({
+                    "id": iid, "number": number, "ok": False,
+                    "error": res.get("error"), "status": res.get("status"),
+                })
+        return {
+            "total": len(invoices),
+            "sent_ok": sent_ok,
+            "sent_ko": sent_ko,
+            "skipped_no_phone": skipped_no_phone,
+            "dry_run": dry_run,
+            "grace_days": grace_days,
+            "results": results,
+        }
 
     @router.patch("/cashier/invoices/{iid}")
     async def patch_invoice(iid: str, payload: InvoicePatchPayload, user: dict = Depends(get_current_user)):

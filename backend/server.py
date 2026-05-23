@@ -18874,6 +18874,7 @@ _cashier_router = _make_cashier_router(
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
     get_current_supervisor=get_admin_or_supervisor,
+    wa_send_text=_wa_send_text,
 )
 api.include_router(_cashier_router)
 

@@ -3,6 +3,22 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter36v (2026-05-23) — Reçu/Facture WhatsApp en 1 clic
+
+### 📲 Iter36v — Envoi direct du document via Meta Cloud API
+- **Backend** : 2 nouveaux endpoints dans `routes/cashier.py` :
+  - `POST /api/cashier/receipts/{rid}/send-whatsapp`
+  - `POST /api/cashier/invoices/{iid}/send-whatsapp`
+- Le destinataire est résolu dans cet ordre : `payload.phone` (override) → `business_client_snapshot.phone` → `business_clients.phone` (live). 400 si aucun numéro.
+- Le message WhatsApp est pré-formaté (numéro doc + montant + montant en lettres + mode/statut + URL QR de vérification).
+- Utilise le helper `_wa_send_text` (free-form, soumis à la fenêtre 24h Meta). Si WA non configuré OU hors fenêtre 24h, l'endpoint répond **HTTP 200** avec `{ok:false, fallback_wa_link:"https://wa.me/<num>?text=..."}` que le frontend ouvre automatiquement en secours.
+- Persistance : `whatsapp_sent_at`, `whatsapp_message_id`, `whatsapp_to`, `whatsapp_sent_by` posés sur le doc Mongo après envoi réussi.
+- Snapshot reçu enrichi de `phone` + `email` (consistance avec invoice).
+- **Frontend** : `ReceiptPrint.jsx` et `InvoicePrint.jsx` appellent les nouveaux endpoints au clic sur "Envoyer par WhatsApp", avec spinner, toast success/warning/error, et fallback `wa.me` automatique en cas d'échec backend.
+- **Tests pytest** : **18/18 verts** (11 existants Iter36u + **7 nouveaux Iter36v** : RBAC, succès/échec gracieux, no_phone→400, 404, phone override).
+
+---
+
 ## Latest — Iter36u (2026-05-23) — Caisse & Facturation MVP complet (E2E vert)
 
 ### 💵 Iter36u — Module Caisse & Facturation

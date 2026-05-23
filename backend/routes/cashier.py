@@ -164,6 +164,16 @@ def _can_cancel_invoice(user: dict) -> bool:
     return _is_admin_or_supervisor(user)
 
 
+def _normalize_phone_e164(raw: str) -> str:
+    """Strip everything but digits; preserve leading + if present."""
+    if not raw:
+        return ""
+    s = str(raw).strip()
+    plus = s.startswith("+")
+    digits = re.sub(r"\D+", "", s)
+    return f"+{digits}" if plus else digits
+
+
 def _public_base_url(db_settings: Optional[dict]) -> str:
     if db_settings and db_settings.get("public_base_url"):
         return str(db_settings["public_base_url"]).rstrip("/")
@@ -173,7 +183,7 @@ def _public_base_url(db_settings: Optional[dict]) -> str:
 # =====================================================================
 # Router factory
 # =====================================================================
-def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor):
+def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None):
     router = APIRouter(tags=["Caisse & Facturation"])
 
     async def _next_year_seq(collection_name: str, year: int) -> int:
@@ -357,6 +367,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "billing_address": bc.get("billing_address"),
                 "nif": bc.get("nif"),
                 "rccm": bc.get("rccm"),
+                "phone": bc.get("phone"),
+                "email": bc.get("email"),
             },
             "beneficiary_name": payload.beneficiary_name or bc.get("name"),
             "amount": float(payload.amount),
@@ -410,6 +422,59 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=404, detail="Reçu introuvable")
         png = build_qr_png(r["qr_url"])
         return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
+
+    # Iter36v — Send receipt to client via WhatsApp (1-click)
+    @router.post("/cashier/receipts/{rid}/send-whatsapp")
+    async def receipt_send_whatsapp(
+        rid: str,
+        payload: dict = Body(default_factory=dict),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        r = await db.receipts.find_one({"id": rid}, {"_id": 0})
+        if not r:
+            raise HTTPException(status_code=404, detail="Reçu introuvable")
+        if wa_send_text is None:
+            raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
+        # Resolve recipient phone (override > snapshot > business_client doc)
+        phone = (payload or {}).get("phone")
+        if not phone:
+            phone = (r.get("business_client_snapshot") or {}).get("phone")
+        if not phone:
+            bc = await db.business_clients.find_one({"id": r.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
+            phone = bc.get("phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
+        to_e164 = _normalize_phone_e164(phone)
+        text = (
+            f"📄 Reçu d'encaissement *{r['number']}*\n"
+            f"Bénéficiaire : {r.get('beneficiary_name') or (r.get('business_client_snapshot') or {}).get('name')}\n"
+            f"Montant : {float(r.get('amount') or 0):,.0f} FCFA\n"
+            f"({r.get('amount_in_words') or ''})\n"
+            f"Mode : {r.get('payment_method_label')}\n"
+            f"Motif : {r.get('motif')}\n"
+            f"Vérification : {r.get('qr_url')}"
+        ).replace(",", " ")
+        result = await wa_send_text(to_e164, text)
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "to": to_e164,
+                "error": result.get("error") or "Échec WhatsApp",
+                "status": result.get("status"),
+                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={text}",
+            }
+        await db.receipts.update_one(
+            {"id": rid},
+            {"$set": {
+                "whatsapp_sent_at": _now_iso(),
+                "whatsapp_message_id": result.get("message_id"),
+                "whatsapp_to": to_e164,
+                "whatsapp_sent_by": user["id"],
+            }},
+        )
+        return {"ok": True, "to": to_e164, "message_id": result.get("message_id")}
 
     # ----------------------------------------------------------------
     # Invoices (proforma / facture)
@@ -532,6 +597,57 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not i:
             raise HTTPException(status_code=404, detail="Document introuvable")
         return Response(content=build_qr_png(i["qr_url"]), media_type="image/png")
+
+    # Iter36v — Send invoice/proforma to client via WhatsApp (1-click)
+    @router.post("/cashier/invoices/{iid}/send-whatsapp")
+    async def invoice_send_whatsapp(
+        iid: str,
+        payload: dict = Body(default_factory=dict),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
+        if not inv:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        if wa_send_text is None:
+            raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
+        phone = (payload or {}).get("phone") or (inv.get("business_client_snapshot") or {}).get("phone")
+        if not phone:
+            bc = await db.business_clients.find_one({"id": inv.get("business_client_id")}, {"_id": 0, "phone": 1}) or {}
+            phone = bc.get("phone")
+        if not phone:
+            raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
+        to_e164 = _normalize_phone_e164(phone)
+        label = "Proforma" if inv.get("kind") == "proforma" else "Facture"
+        status_label = {"issued": "Émise", "paid": "Réglée", "cancelled": "Annulée"}.get(inv.get("status") or "issued", inv.get("status") or "")
+        text = (
+            f"📑 {label} *{inv.get('number')}*\n"
+            f"Client : {(inv.get('business_client_snapshot') or {}).get('name')}\n"
+            f"Net à payer : {float(inv.get('net_to_pay') or 0):,.0f} FCFA\n"
+            f"({inv.get('amount_in_words') or ''})\n"
+            f"Statut : {status_label}\n"
+            f"Vérification : {inv.get('qr_url')}"
+        ).replace(",", " ")
+        result = await wa_send_text(to_e164, text)
+        if not result.get("ok"):
+            return {
+                "ok": False,
+                "to": to_e164,
+                "error": result.get("error") or "Échec WhatsApp",
+                "status": result.get("status"),
+                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={text}",
+            }
+        await db.invoices.update_one(
+            {"id": iid},
+            {"$set": {
+                "whatsapp_sent_at": _now_iso(),
+                "whatsapp_message_id": result.get("message_id"),
+                "whatsapp_to": to_e164,
+                "whatsapp_sent_by": user["id"],
+            }},
+        )
+        return {"ok": True, "to": to_e164, "message_id": result.get("message_id")}
 
     @router.patch("/cashier/invoices/{iid}")
     async def patch_invoice(iid: str, payload: InvoicePatchPayload, user: dict = Depends(get_current_user)):

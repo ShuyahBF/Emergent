@@ -14,6 +14,7 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { Printer, MessageCircle, Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { LOGO_URL } from "@/lib/brand";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -24,6 +25,7 @@ export default function ReceiptPrint() {
   const [r, setR] = useState(null);
   const [qrBlob, setQrBlob] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -38,15 +40,27 @@ export default function ReceiptPrint() {
   }, [id]);
 
   const print = () => window.print();
+
+  // Iter36v — Envoi direct WhatsApp (Cloud API) avec fallback wa.me
   const sendWhatsApp = async () => {
-    if (!r) return;
-    const msg = `Reçu d'encaissement ${r.number}\n` +
-      `Client : ${r.business_client_snapshot?.name}\n` +
-      `Montant : ${FCFA(r.amount)} FCFA (${r.amount_in_words})\n` +
-      `Mode : ${r.payment_method_label}\n` +
-      `Vérification : ${r.qr_url}`;
-    const url = `https://wa.me/?text=${encodeURIComponent(msg)}`;
-    window.open(url, "_blank");
+    if (!r || sending) return;
+    setSending(true);
+    try {
+      const resp = await apiClient.post(`/cashier/receipts/${r.id}/send-whatsapp`, {});
+      if (resp.data?.ok) {
+        toast.success(`Reçu envoyé sur WhatsApp à ${resp.data.to}`);
+      } else {
+        // Backend returned 200 with ok=false + fallback link (Meta refused)
+        toast.warning(resp.data?.error || "Envoi WhatsApp impossible — ouverture du lien de secours");
+        if (resp.data?.fallback_wa_link) window.open(resp.data.fallback_wa_link, "_blank");
+      }
+    } catch (err) {
+      const detail = err?.response?.data?.detail || "Erreur d'envoi WhatsApp";
+      toast.error(typeof detail === "string" ? detail : "Erreur d'envoi");
+      // Last-chance fallback: open generic wa.me link
+      const msg = `Reçu ${r.number} — ${FCFA(r.amount)} FCFA — ${r.qr_url}`;
+      window.open(`https://wa.me/?text=${encodeURIComponent(msg)}`, "_blank");
+    } finally { setSending(false); }
   };
 
   if (loading) return <div className="p-8 text-center"><Loader2 className="h-6 w-6 animate-spin mx-auto" /></div>;
@@ -56,8 +70,9 @@ export default function ReceiptPrint() {
     <div className="min-h-screen bg-slate-100 print:bg-white p-4 print:p-0">
       {/* Action bar (hidden when printing) */}
       <div className="max-w-3xl mx-auto mb-4 flex items-center justify-end gap-2 print:hidden">
-        <button onClick={sendWhatsApp} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium">
-          <MessageCircle className="h-4 w-4" /> Envoyer par WhatsApp
+        <button onClick={sendWhatsApp} disabled={sending} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 py-1.5 text-sm font-medium" data-testid="receipt-send-wa-btn">
+          {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
+          {sending ? "Envoi…" : "Envoyer par WhatsApp"}
         </button>
         <button onClick={print} className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-1.5 text-sm font-medium" data-testid="receipt-print-btn">
           <Printer className="h-4 w-4" /> Imprimer / PDF

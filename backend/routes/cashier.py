@@ -353,7 +353,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Business clients (clients en compte)
     # ----------------------------------------------------------------
     @router.get("/admin/business-clients")
-    async def list_business_clients(user: dict = Depends(get_current_supervisor)):
+    async def list_business_clients(user: dict = Depends(get_current_user)):
+        # Iter37f — Read access for any cashier user (can_cash=true). Writes stay supervisor-only.
+        if not _can_invoice(user) and user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37e — Tenant scope
         scope = await _scoped_filter(user)
         cursor = db.business_clients.find({**scope, "deleted_at": None}, {"_id": 0}).sort("name", 1)
@@ -507,7 +510,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         raise HTTPException(status_code=404, detail="Document introuvable")
 
     @router.get("/admin/products")
-    async def list_products(user: dict = Depends(get_current_supervisor)):
+    async def list_products(user: dict = Depends(get_current_user)):
+        # Iter37f — Read access for any cashier user (can_cash=true). Writes stay supervisor-only.
+        if not _can_invoice(user) and user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37a/e — Filter by current user's Client Lié (multi-tenant catalog).
         q: Dict[str, Any] = {"deleted_at": None}
         if not _is_super_admin(user):

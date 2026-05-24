@@ -19037,16 +19037,24 @@ async def me_welcome_briefing(
     ).sort("opened_at", -1).limit(50).to_list(50)
 
     # 2) Messages non lus (WhatsApp + SMS) — best-effort via /me/notifications/counts shape
+    # Iter37f — Bound by last_seen_at (or fallback 7 days) so legacy/never-read
+    # messages don't accumulate forever. Matches the user's "only count what's
+    # actually new" expectation. /me/whatsapp/unread (sidebar) keeps the lifetime
+    # logic so the per-contact pastille stays sticky until the user opens the thread.
     visible_scope = await _resolve_visible_client_ids(user)
+    now_for_bound = datetime.now(timezone.utc)
+    unread_lower_bound = last_seen_at or (now_for_bound - timedelta(days=7)).isoformat()
     unread_wa = await db.whatsapp_messages.count_documents({
         "client_id": {"$in": visible_scope},
         "direction": "inbound",
         "read_by_us_at": None,
+        "received_at": {"$gte": unread_lower_bound},
     })
     unread_sms = await db.sms_messages.count_documents({
         "client_id": {"$in": visible_scope},
         "direction": "inbound",
         "read_by_us_at": None,
+        "received_at": {"$gte": unread_lower_bound},
     })
 
     # 3) Notes personnelles récentes (auteur = moi)

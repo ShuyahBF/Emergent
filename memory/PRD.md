@@ -3,7 +3,33 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
-## Latest — Iter37f (2026-05-24) — Tenant résolu par `company` + Recalibrage admin + Fix ACL photo contact
+## Latest — Iter37f (suite) — 2 fixes prod (Caisse RBAC GET + Compteur WA non lus borné)
+
+### 🐛 Fix #1 — Listes vides pour utilisateurs `role=client, can_cash=true` (cas rabo.f@)
+- **Symptôme prod** : Le badge tenant affiche bien "7 utilisateurs · 5 clients en compte · 1 produit" pour l'admin, mais `rabo.f@` (rôle `client`) voit toujours des listes vides en Caisse.
+- **Root cause** : `GET /api/admin/business-clients` et `GET /api/admin/products` exigeaient `get_current_supervisor`. Un utilisateur avec `role=client` + `can_cash=true` tombait en 403 **silencieux** que le frontend transforme en liste vide.
+- **Fix `/app/backend/routes/cashier.py`** : Les **GET** sont désormais ouverts à tout utilisateur avec `can_cash=true` (ou admin/superviseur). Les POST/PATCH/DELETE restent strictement supervisor-only.
+- **Tests `test_iter37f_cashier_read_access.py`** : **4/4 verts** — cashier lit business_clients/products, mais ne peut pas en créer ; non-cashier client toujours 403.
+
+### 🐛 Fix #2 — Compteur "messages WhatsApp non lus" cumulé à vie sur l'écran de bienvenue
+- **Symptôme prod** : "J'ai 1 seul message aujourd'hui mais il m'affiche toujours [un compteur plus grand]". Les anciens messages legacy avec `read_by_us_at=null` s'accumulent éternellement.
+- **Root cause** `/app/backend/server.py` `me_welcome_briefing` : la requête `unread_wa` n'avait pas de borne temporelle (`{"direction": "inbound", "read_by_us_at": None}` lifetime).
+- **Fix Iter37f** : Borne désormais la requête par `received_at >= last_seen_at` (envoyé par le frontend depuis `localStorage`) ou par fallback "**7 derniers jours**" si jamais visité. Identique pour SMS. Le badge `/me/whatsapp/unread` (sidebar) garde la sémantique lifetime pour les pastilles par contact (UX collante OK jusqu'à ouverture du fil).
+- **Tests `test_iter37f_welcome_unread_bound.py`** : **3/3 verts** — fenêtre 7j sans last_seen, borne dynamique avec last_seen, last_seen futur → 0.
+
+### 📊 Tests cumulés : **105/105 pytest verts**
+- Iter36u→Iter37d : 75
+- Iter37e tenant_isolation + cost_export : 13
+- Iter37f contact_photo_acl + company_tenant + tenant_badge + cashier_read_access + welcome_unread_bound : 17
+
+### 🚨 Action utilisateur en production
+1. **Save to GitHub** → **Redéployer** `sawalismartsystems.com`.
+2. Pour `rabo.f@` : la connexion suivante affichera immédiatement les clients en compte + catalogue partagés (le fix RBAC s'applique sans backfill supplémentaire).
+3. Pour le compteur WA : la prochaine ouverture du briefing ne comptera plus que les messages des 7 derniers jours (ou depuis la dernière visite).
+
+---
+
+## Latest — Iter37f (2026-05-24) — Tenant résolu par `company` + Recalibrage admin + Badge tenant + Fix ACL photo contact
 
 ### 🏢 Iter37f.1 — Résolution du tenant Caisse par champ `company` (fix prod)
 - **Problème prod** : `support@sawalismartsystems.com` et `rabo.f@sawalismartsystems.com` ne partageaient pas les mêmes clients en compte / catalogue, alors qu'ils appartiennent tous deux à "SAWALI SMART SYSTEMS". Root cause : aucun n'avait de `parent_client_id` → chacun devenait son propre tenant.

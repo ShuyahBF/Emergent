@@ -11500,11 +11500,14 @@ async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
 async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload a profile picture for a contact (à la WhatsApp avatar). Stored in
     /api/files/ and the contact's `photo_url` field is set to the public URL.
-    Owner or admin only. Max 5 MiB. PNG/JPEG/WEBP only."""
+    Owner, admin, superviseur, or any user in the same client_scope. Max 5 MiB.
+    PNG/JPEG/WEBP only.
+    Iter37f — Same collaborative ACL as PUT /me/contacts/{cid}."""
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+    client_ids = await _resolve_visible_client_ids(user)
+    if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     ctype = (file.content_type or "").lower()
     if ctype not in ("image/png", "image/jpeg", "image/jpg", "image/webp"):
@@ -11541,11 +11544,13 @@ async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile =
 
 @api.delete("/me/contacts/{cid}/photo", tags=["Portail Client"])
 async def me_delete_contact_photo(cid: str, user: dict = Depends(get_current_user)):
-    """Remove a contact's profile picture (sets photo_url to null)."""
+    """Remove a contact's profile picture (sets photo_url to null).
+    Iter37f — Same collaborative ACL as PUT /me/contacts/{cid}."""
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    if existing.get("owner_id") != user["id"] and user.get("role") != "admin":
+    client_ids = await _resolve_visible_client_ids(user)
+    if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
     await db.directory_contacts.update_one(
         {"id": cid},
@@ -11569,7 +11574,9 @@ async def me_contact_wa_sync(cid: str, user: dict = Depends(get_current_user)):
     contact = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    if contact.get("owner_id") != user["id"] and user.get("role") != "admin":
+    # Iter37f — Same collaborative ACL as PUT /me/contacts/{cid}.
+    client_ids = await _resolve_visible_client_ids(user)
+    if contact.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
         raise HTTPException(status_code=403, detail="Modification non autorisée")
 
     digits = []

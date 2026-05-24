@@ -210,60 +210,108 @@ def _public_base_url(db_settings: Optional[dict]) -> str:
 
 
 # =====================================================================
-# Iter37e — One-shot tenant backfill (idempotent, runs at startup).
-# Assigns `tenant_id` to legacy docs that pre-date the multi-tenant work.
-# Strategy:
-#   - For each doc missing tenant_id, look up its `created_by` user and
-#     resolve the tenant (parent_client_id || client_id || id).
-#   - Products already store the tenant key in `client_id`; we copy it.
+# Iter37e/f — Tenant backfill (idempotent, runs at startup AND on demand).
+# Assigns `tenant_id` to legacy docs. Resolution order:
+#   1) doc.client_id (legacy field already storing the tenant)
+#   2) creator.parent_client_id || creator.client_id || creator.id
+#   3) Iter37f — Canonical user matching creator.company (admin > sup > oldest)
+# Set `rewrite=True` to RE-evaluate all docs (e.g. after upgrading the
+# resolution logic). This is what fixes prod users who weren't sharing data
+# because they had separate `tenant_id` values written by an earlier run.
 # =====================================================================
-async def backfill_tenant_ids(db) -> Dict[str, int]:
+async def backfill_tenant_ids(db, *, rewrite: bool = False) -> Dict[str, int]:
     """Idempotent: assign tenant_id to legacy Caisse docs.
+
+    Args:
+      rewrite: when True, recompute tenant_id for EVERY doc (overwriting
+        any previously assigned value). Used after upgrading the tenant
+        resolution to consolidate split tenants caused by mis-linked users.
+
     Returns a dict {collection_name: rows_updated}.
     """
     stats: Dict[str, int] = {}
-    cache: Dict[str, Optional[str]] = {}
+    user_cache: Dict[str, Optional[str]] = {}
+    company_cache: Dict[str, Optional[str]] = {}
+
+    async def _canonical_by_company(company: str) -> Optional[str]:
+        if not company:
+            return None
+        key = company.strip().lower()
+        if key in company_cache:
+            return company_cache[key]
+        for role_filter in (
+            {"role": "admin"},
+            {"role": "superviseur"},
+            {"account_status": {"$ne": "deleted"}},
+        ):
+            canonical = await db.users.find_one(
+                {**role_filter, "company": company.strip()},
+                {"_id": 0, "id": 1},
+                sort=[("created_at", 1)],
+            )
+            if canonical:
+                company_cache[key] = canonical.get("id")
+                return canonical.get("id")
+        company_cache[key] = None
+        return None
 
     async def _tenant_for(uid: Optional[str]) -> Optional[str]:
         if not uid:
             return None
-        if uid in cache:
-            return cache[uid]
+        if uid in user_cache:
+            return user_cache[uid]
         u = await db.users.find_one(
             {"id": uid},
-            {"_id": 0, "id": 1, "parent_client_id": 1, "client_id": 1},
+            {"_id": 0, "id": 1, "parent_client_id": 1, "client_id": 1, "company": 1},
         )
         if not u:
-            cache[uid] = uid  # fallback to creator id
+            user_cache[uid] = uid  # fallback to creator id
             return uid
-        tid = u.get("parent_client_id") or u.get("client_id") or u.get("id") or uid
-        cache[uid] = tid
-        return tid
+        # Try parent_client_id / client_id pointing to another user
+        for key in ("parent_client_id", "client_id"):
+            ref = u.get(key)
+            if ref and ref != uid:
+                user_cache[uid] = ref
+                return ref
+        # Iter37f — Resolve canonical by company
+        canon = await _canonical_by_company(u.get("company") or "")
+        if canon:
+            user_cache[uid] = canon
+            return canon
+        user_cache[uid] = uid
+        return uid
 
     collections = ("business_clients", "receipts", "invoices",
                    "legal_forms", "product_categories", "payment_methods")
     for cname in collections:
         coll = db[cname]
         n = 0
+        query = {} if rewrite else {"tenant_id": {"$exists": False}}
         cursor = coll.find(
-            {"tenant_id": {"$exists": False}},
-            {"_id": 0, "id": 1, "created_by": 1, "client_id": 1},
+            query,
+            {"_id": 0, "id": 1, "created_by": 1, "client_id": 1, "tenant_id": 1},
         )
         async for doc in cursor:
+            # Compute the canonical tenant
             tid = doc.get("client_id") or await _tenant_for(doc.get("created_by"))
-            if tid:
+            # Promote via creator → canonical (in case client_id was the creator's own id)
+            if tid and rewrite:
+                resolved = await _tenant_for(tid)
+                if resolved:
+                    tid = resolved
+            if tid and (rewrite or tid != doc.get("tenant_id")):
                 await coll.update_one({"id": doc["id"]}, {"$set": {"tenant_id": tid}})
                 n += 1
         stats[cname] = n
     # Products: ensure tenant_id == client_id (already populated)
     n_products = 0
-    cursor = db.products.find(
-        {"tenant_id": {"$exists": False}, "client_id": {"$ne": None}},
-        {"_id": 0, "id": 1, "client_id": 1},
-    )
+    pq = {} if rewrite else {"tenant_id": {"$exists": False}, "client_id": {"$ne": None}}
+    cursor = db.products.find(pq, {"_id": 0, "id": 1, "client_id": 1, "tenant_id": 1})
     async for doc in cursor:
-        await db.products.update_one({"id": doc["id"]}, {"$set": {"tenant_id": doc["client_id"]}})
-        n_products += 1
+        tid = await _tenant_for(doc.get("client_id")) if rewrite else doc.get("client_id")
+        if tid and (rewrite or tid != doc.get("tenant_id")):
+            await db.products.update_one({"id": doc["id"]}, {"$set": {"tenant_id": tid}})
+            n_products += 1
     stats["products"] = n_products
     return stats
 
@@ -361,7 +409,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         Resolution order:
           1) user.parent_client_id → db.users row (canonical tenant)
           2) user.client_id → db.users row
-          3) user itself (synthetic doc)
+          3) Iter37f — Same `company` name → canonical admin/superviseur of that company
+          4) user itself (synthetic doc)
         """
         for key in ("parent_client_id", "client_id"):
             ref_id = user.get(key)
@@ -375,6 +424,31 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                         "billing_address": doc.get("billing_address") or doc.get("city"),
                         "phone": doc.get("phone"),
                         "email": doc.get("email"),
+                    }
+        # Iter37f — Fallback: resolve by `company` name. Two users sharing the
+        # same company become the SAME tenant, anchored on the canonical user
+        # (preferred: admin > superviseur > oldest active user with that company).
+        company = (user.get("company") or "").strip()
+        if company:
+            # Lookup canonical: admin first, then superviseur, then oldest active
+            for role_filter in (
+                {"role": "admin"},
+                {"role": "superviseur"},
+                {"account_status": {"$ne": "deleted"}},
+            ):
+                canonical = await db.users.find_one(
+                    {**role_filter, "company": company},
+                    {"_id": 0},
+                    sort=[("created_at", 1)],
+                )
+                if canonical:
+                    return {
+                        "id": canonical.get("id"),
+                        "name": canonical.get("company") or canonical.get("full_name") or "SAWALI",
+                        "logo_url": canonical.get("logo_url"),
+                        "billing_address": canonical.get("billing_address") or canonical.get("city"),
+                        "phone": canonical.get("phone"),
+                        "email": canonical.get("email"),
                     }
         return {
             "id": user.get("id"),
@@ -1864,6 +1938,39 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "delai_moyen_sample_size": len(deltas),
             "top_bad_payers": top_bad_payers,
             "as_of": _now_iso(),
+        }
+
+    # =================================================================
+    # Iter37f — Admin endpoint: recompute tenant_id on existing docs.
+    # Use this after redeploying the multi-tenant fix to consolidate
+    # users who shared a `company` name but had no parent_client_id link.
+    # Safe to run multiple times (idempotent — only writes when value changes).
+    # =================================================================
+    @router.post("/admin/cashier/backfill-tenants")
+    async def admin_backfill_tenants(
+        payload: dict = Body(default_factory=dict),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Recompute tenant_id on all Caisse docs using the latest resolution logic.
+        Body: `{"rewrite": true}` to overwrite existing tenant_id (default true here,
+        because the typical use case is to consolidate split tenants).
+        """
+        rewrite = bool((payload or {}).get("rewrite", True))
+        stats = await backfill_tenant_ids(db, rewrite=rewrite)
+        # Report which users (top 5) the system considers canonical per company
+        sample = []
+        async for u in db.users.find(
+            {"role": {"$in": ["admin", "superviseur"]}, "company": {"$ne": None}},
+            {"_id": 0, "id": 1, "email": 1, "company": 1, "role": 1},
+        ).limit(20):
+            sample.append(u)
+        return {
+            "ok": True,
+            "rewrite": rewrite,
+            "rows_updated": stats,
+            "triggered_by": user.get("email"),
+            "at": _now_iso(),
+            "canonical_users_sample": sample,
         }
 
     return router, run_auto_relance

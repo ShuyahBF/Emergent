@@ -356,6 +356,7 @@ export default function AdminSettings() {
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />
       <RevertRetagSection />
+      <CashierTenantBackfillSection />
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.
@@ -1754,6 +1755,98 @@ const RevertRetagSection = () => {
     </Filterable>
   );
 };
+
+
+// ============================================================
+// Iter37f — Recalibrage des tenants Caisse/Facturation
+// ============================================================
+const CashierTenantBackfillSection = () => {
+  const TITLE = "Recalibrage des tenants Caisse/Facturation";
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [rewrite, setRewrite] = useState(true);
+
+  const run = async () => {
+    if (!window.confirm(
+      `Recalculer le tenant de tous les reçus / factures / clients en compte / produits / modes de paiement / dropdowns ?\n\n` +
+      `${rewrite ? "Mode REWRITE : remplace tous les tenant_id existants (consolide les utilisateurs partageant la même société)." : "Mode INCRÉMENTAL : ne touche que les docs sans tenant_id."}\n\n` +
+      `Opération idempotente — relançable sans risque.`
+    )) return;
+    setBusy(true);
+    try {
+      const r = await apiClient.post("/admin/cashier/backfill-tenants", { rewrite });
+      setResult(r.data);
+      const total = Object.values(r.data?.rows_updated || {}).reduce((a, b) => a + b, 0);
+      toast.success(`Recalibrage terminé : ${total} document(s) mis à jour.`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors du recalibrage");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-fuchsia-300 bg-fuchsia-50/40 p-6 space-y-3" data-testid="admin-cashier-backfill-section">
+      <div className="flex items-center gap-2">
+        <Database className="h-4 w-4 text-fuchsia-700" />
+        <h2 className="font-display font-semibold">{TITLE}</h2>
+      </div>
+      <p className="text-xs text-slate-700">
+        À utiliser <strong>après chaque redéploiement</strong> ou quand vous remarquez que deux utilisateurs de la même société (ex : <code className="font-mono bg-white px-1 rounded text-[10px]">support@…</code> et <code className="font-mono bg-white px-1 rounded text-[10px]">rabo.f@…</code>) ne voient pas la même liste de clients en compte / catalogue.
+        Cette opération recalcule le <code className="font-mono bg-white px-1 rounded text-[10px]">tenant_id</code> de chaque document Caisse en consolidant les utilisateurs partageant le même champ <strong>Société</strong>.
+      </p>
+      <label className="inline-flex items-center gap-2 text-xs text-slate-700 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={rewrite}
+          onChange={(e) => setRewrite(e.target.checked)}
+          data-testid="backfill-rewrite-toggle"
+        />
+        <strong>Mode REWRITE</strong> — Recalculer tous les <code className="font-mono text-[10px]">tenant_id</code> existants (recommandé pour consolider).
+      </label>
+      <button
+        onClick={run}
+        disabled={busy}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 hover:bg-fuchsia-700 text-white px-3 py-1.5 text-xs font-semibold disabled:opacity-50"
+        data-testid="cashier-backfill-run-btn"
+      >
+        {busy ? <RefreshCw className="h-3 w-3 animate-spin" /> : <Database className="h-3 w-3" />}
+        {busy ? "Recalibrage en cours…" : "Lancer le recalibrage"}
+      </button>
+      {result && (
+        <div className="rounded-lg ring-1 ring-fuchsia-200 bg-white p-3 text-xs space-y-2" data-testid="cashier-backfill-result">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+            Résultat — Total : <strong>{Object.values(result.rows_updated || {}).reduce((a, b) => a + b, 0)}</strong> document(s) mis à jour
+          </p>
+          <ul className="divide-y divide-slate-100">
+            {Object.entries(result.rows_updated || {}).map(([k, v]) => (
+              <li key={k} className="flex items-center justify-between py-1">
+                <span className="font-mono text-slate-700">{k}</span>
+                <span className={`font-bold tabular-nums ${v > 0 ? "text-fuchsia-700" : "text-slate-400"}`}>{v}</span>
+              </li>
+            ))}
+          </ul>
+          {Array.isArray(result.canonical_users_sample) && result.canonical_users_sample.length > 0 && (
+            <details className="text-[11px] text-slate-600">
+              <summary className="cursor-pointer text-fuchsia-700 font-semibold">Voir les utilisateurs canoniques détectés ({result.canonical_users_sample.length})</summary>
+              <ul className="mt-2 space-y-0.5 font-mono">
+                {result.canonical_users_sample.map((u) => (
+                  <li key={u.id}>
+                    <span className="text-slate-500">{u.role}</span> · <strong>{u.company || "—"}</strong> · {u.email}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+      )}
+    </div>
+    </Filterable>
+  );
+};
+
+
 
 
 

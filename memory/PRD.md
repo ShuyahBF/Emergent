@@ -3,6 +3,43 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37f (2026-05-24) — Tenant résolu par `company` + Recalibrage admin + Fix ACL photo contact
+
+### 🏢 Iter37f.1 — Résolution du tenant Caisse par champ `company` (fix prod)
+- **Problème prod** : `support@sawalismartsystems.com` et `rabo.f@sawalismartsystems.com` ne partageaient pas les mêmes clients en compte / catalogue, alors qu'ils appartiennent tous deux à "SAWALI SMART SYSTEMS". Root cause : aucun n'avait de `parent_client_id` → chacun devenait son propre tenant.
+- **Backend `/app/backend/routes/cashier.py`** : `_resolve_client_lie(user)` enrichi avec un fallback Iter37f — quand `parent_client_id` et `client_id` sont vides, lookup d'un utilisateur **canonique** partageant la même `company` (priorité : `admin` > `superviseur` > plus ancien utilisateur actif). 2 utilisateurs partageant la même société deviennent automatiquement le **même tenant**.
+- Helper `backfill_tenant_ids(db, rewrite=False)` étendu : nouvelle logique cache `company → canonical_user_id`. Le mode `rewrite=True` recompute tous les `tenant_id` existants (consolide les tenants éclatés par les anciennes versions du code).
+
+### 🔧 Iter37f.2 — Endpoint admin de recalibrage + UI
+- `POST /api/admin/cashier/backfill-tenants` (body `{"rewrite": true}`, admin-only) : déclenche le backfill avec la dernière logique de résolution. Retourne `{rows_updated, canonical_users_sample}`.
+- **Frontend `/app/frontend/src/pages/admin/AdminSettings.jsx`** : nouveau composant `<CashierTenantBackfillSection />` (encadré fuchsia) — toggle "Mode REWRITE", bouton "Lancer le recalibrage", résultat détaillé par collection + détection des utilisateurs canoniques. À utiliser **après chaque redéploiement** ou quand 2 utilisateurs de la même société voient des listes différentes.
+- **Validation prod** (préparée) : backfill exécuté en preview a consolidé **1794 documents** (829 business_clients, 266 invoices, 505 payment_methods, 171 products, 14 legal_forms, 9 product_categories) sous l'admin SAWALI canonique.
+
+### 🐛 Iter37f.3 — Fix ACL : photo contact + WA-sync (bouton "Modification non autorisée")
+- **Bug rapporté par l'utilisateur** : "Bien que Admin ou Superviseur je n'arrive pas à modifier la photo d'un contact. Le bouton est actif mais quand je clique → 'Modification non autorisée'."
+- **Root cause** : 3 endpoints (`POST /me/contacts/{cid}/photo`, `DELETE` idem, `POST /me/contacts/{cid}/wa-sync`) checkaient `owner_id OR user.role == "admin"` — donc **superviseurs rejetés** et utilisateurs admins par tracked role ignorés. Contradiction avec `PUT /me/contacts/{cid}` qui utilise correctement `_resolve_visible_client_ids` + `admin|superviseur`.
+- **Fix** : alignement des 3 endpoints sur la même ACL collaborative que `PUT /me/contacts/{cid}` :
+  ```python
+  client_ids = await _resolve_visible_client_ids(user)
+  if existing.get("client_id") not in client_ids and user.get("role") not in ("admin", "superviseur"):
+      raise HTTPException(status_code=403, detail="Modification non autorisée")
+  ```
+
+### ✅ Tests pytest : **96/96 verts**
+- 75 régression Iter36u → Iter37d
+- 7 Iter37e tenant_isolation
+- 6 Iter37e cost_export
+- **+4 Iter37f contact_photo_acl** (superviseur peut upload/delete photo + wa-sync, outsider toujours 403)
+- **+4 Iter37f company_tenant** (utilisateurs partageant `company` partagent business_clients/receipts/products via Caisse, autre société isolée, endpoint admin recalibre les tenants existants, non-admin refusé)
+
+### 🚨 Action requise en production après redéploiement
+1. Cliquer sur **Save to GitHub** puis redéployer `sawalismartsystems.com`.
+2. Se connecter en admin → **Paramètres** → section fuchsia "Recalibrage des tenants Caisse/Facturation".
+3. Cocher **Mode REWRITE** → bouton "Lancer le recalibrage".
+4. Vérifier que `support@…` et `rabo.f@…` voient désormais les mêmes données Caisse.
+
+---
+
 ## Latest — Iter37e (2026-05-24) — Caisse multi-tenant + Export PDF/CSV coût interventions
 
 ### 🔐 Iter37e.1 — Multi-tenant Caisse/Facturation

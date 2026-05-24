@@ -3,6 +3,39 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37e (2026-05-24) — Caisse multi-tenant + Export PDF/CSV coût interventions
+
+### 🔐 Iter37e.1 — Multi-tenant Caisse/Facturation
+- **Backend `/app/backend/routes/cashier.py`** :
+  - Nouveaux helpers `_is_super_admin(user)`, `_tenant_id_of(user)`, `_scoped_filter(user)`, `_ensure_tenant_access(user, doc)`.
+  - Définition tenant : `user.parent_client_id || user.client_id || user.id` (alignée sur `_resolve_client_lie`).
+  - Super-admin (`admin@sawalismartsystems.com`) bypasse le filtre → voit toutes les données tenants.
+  - Champ `tenant_id` ajouté aux NEW docs : `business_clients`, `products`, `receipts`, `invoices`, `legal_forms`, `product_categories`, `payment_methods`.
+  - Filtrage tenant appliqué sur : list/get/patch/delete business_clients, receipts (list+get+qr+send-wa), invoices (list+get+qr+send-wa+patch+receipt), KPIs, overdue/count, overdue/relance, exports CSV/PDF, legal-forms, product-categories, payment-methods, users/can-cash, CSV imports.
+  - Dedup `business_clients`/`legal_forms`/`product_categories` désormais **per-tenant** (deux tenants peuvent porter la même "SARL").
+  - **Backfill au démarrage** (`backfill_tenant_ids` au module-level, appelé depuis `on_startup` server.py) : a tagué 1376 docs legacy (646 clients, 217 factures, 403 modes paiement, 98 produits, 6 formes juridiques, 6 catégories).
+  - `_resolve_payment_method(pm_id, user=)` strictement scoped au tenant lors d'un règlement de facture.
+
+### 💼 Iter37e.2 — Export PDF + CSV du coût mensuel des interventions
+- **Backend `/app/backend/server.py`** :
+  - Helper `_tickets_cost_summary_data(user, months_back)` factorisé depuis l'endpoint JSON existant.
+  - `GET /api/me/tickets/cost-summary.csv` : UTF-8 BOM, `;` séparateur, en-tête + totaux + breakdown par Client Lié + ligne TOTAL. Filename `cout-interventions-YYYY-MM.csv`.
+  - `GET /api/me/tickets/cost-summary.pdf` : ReportLab A4 paysage, header SAWALI bleu, footer total ambre, colonnes alignées. Filename `cout-interventions-YYYY-MM.pdf`.
+  - RBAC : 403 pour les regular clients (réutilise `_is_elevated_creator`).
+- **Frontend `/app/frontend/src/pages/portal/Tickets.jsx`** :
+  - Nouvelle fonction `downloadCostExport(fmt)` (axios `responseType=blob`, parse `Content-Disposition`, déclenche le téléchargement, toast success).
+  - 2 boutons (`tickets-cost-export-csv`, `tickets-cost-export-pdf`) dans le panel indigo "Coût des interventions" à côté du selector de mois.
+  - Boutons visibles uniquement quand `costSummary` est chargé (admin/sup), donc cachés pour regular clients.
+
+### ✅ Tests pytest : **88/88 verts**
+- 75 régression Iter36u→Iter37d (avec patch fixture `cashier_user`/`regular_user` désormais liés au tenant admin).
+- **+7 Iter37e tenant_isolation** : business_clients shared parent↔employee, isolation cross-tenant (list+patch), receipts shared+isolated, KPIs scoped par tenant, dropdowns isolés par tenant (formes juridiques).
+- **+6 Iter37e cost_export** : CSV UTF-8 BOM + structure, PDF magic bytes + size, months_back différencie filename, RBAC 403 sur les 2 formats, contenu agrégé visible.
+
+### 🧪 Testing agent v3 : success_rate 100% backend (13/13), 100% frontend, **0 bug détecté**.
+
+---
+
 ## Latest — Iter37d (2026-05-23) — Toggle Caissier UI + Agrégat mensuel coût interventions
 
 ### 💰 Iter37d — Visibilité du rôle Caissier + Cockpit coût mensuel

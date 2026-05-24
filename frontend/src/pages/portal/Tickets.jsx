@@ -101,7 +101,7 @@ export default function Tickets() {
             <Ticket className="h-5 w-5 text-sawali-blue" /> Tickets d'intervention
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Numérotation automatique <code className="bg-slate-100 px-1 rounded">TKT-{new Date().getFullYear()}-NNNN</code> par client.
+            Numérotation automatique <code className="bg-slate-100 px-1 rounded">{"{CLIENT}-"}{new Date().getFullYear()}{"-NNNN"}</code> par Client Lié.
             Créez un ticket depuis la fenêtre de chat WhatsApp d'un contact.
           </p>
         </div>
@@ -304,6 +304,10 @@ function TicketRow({ t, reload, targets }) {
             {t.parent_ticket_id && <Field label="Réouverture de" value={t.root_number} />}
             {t.closed_at && <Field label="Clôturé le" value={fmtDateTime(t.closed_at)} />}
             {t.closed_by_label && <Field label="Clôturé par" value={t.closed_by_label} />}
+            {/* Iter37c — Cost (visible only when backend exposes it, i.e. elevated viewer) */}
+            {t.cost_amount != null && (
+              <Field label="💰 Coût" value={`${Number(t.cost_amount).toLocaleString("fr-FR")} XOF ${t.cost_mode === "flat" ? "(forfait)" : t.active_hours != null ? `(${t.active_hours}h × ${Number(t.cost_hourly_rate || 0).toLocaleString("fr-FR")})` : ""}`} />
+            )}
           </div>
           {!isClosed && targets && targets.length > 0 && (
             <div className="flex items-center gap-2 text-xs">

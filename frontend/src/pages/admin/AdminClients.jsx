@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0 };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -407,6 +407,21 @@ export default function AdminClients() {
               <div className="grid grid-cols-2 gap-3">
                 <Input label="Coût par message" type="number" value={form.wa_unit_cost ?? 0} onChange={(v) => setForm({ ...form, wa_unit_cost: v === "" ? 0 : Number(v) })} testid="client-wa-unit-cost" />
                 <Input label="Devise (XOF, EUR, USD…)" value={form.wa_currency || "XOF"} onChange={(v) => setForm({ ...form, wa_currency: (v || "").toUpperCase() })} testid="client-wa-currency" />
+              </div>
+            </div>
+
+            {/* Iter37c — Tarification interventions (Tickets) */}
+            <div className="rounded-lg border-2 border-sky-200 bg-sky-50/40 p-3 space-y-2" data-testid="ticket-pricing-section">
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-display font-bold text-sky-900">🎟️ Tarification des interventions (tickets)</span>
+              </div>
+              <p className="text-[11px] text-sky-800">
+                Utilisé pour calculer le coût d'un ticket à sa clôture (visible uniquement par admin/superviseur/modérateur).
+                <br /><b>Forfait</b> prioritaire si &gt; 0, sinon <b>Taux horaire × durée active</b>.
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Taux horaire (XOF)" type="number" value={form.hourly_rate ?? 0} onChange={(v) => setForm({ ...form, hourly_rate: v === "" ? 0 : Number(v) })} testid="client-hourly-rate" />
+                <Input label="Forfait par intervention (XOF)" type="number" value={form.flat_rate ?? 0} onChange={(v) => setForm({ ...form, flat_rate: v === "" ? 0 : Number(v) })} testid="client-flat-rate" />
               </div>
             </div>
 

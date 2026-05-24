@@ -17995,10 +17995,28 @@ async def on_shutdown():
 TICKET_OPEN_STATUSES = {"open", "in_progress", "suspended"}
 TICKET_CLOSED_STATUSES = {"done", "cancelled"}
 TICKET_ALL_STATUSES = TICKET_OPEN_STATUSES | TICKET_CLOSED_STATUSES
+# Iter37c — Cost fields are restricted to elevated viewers (admin/superviseur/moderateur)
+TICKET_COST_FIELDS = (
+    "cost_amount", "cost_mode", "cost_hourly_rate", "cost_flat_rate",
+    "cost_currency", "active_hours",
+)
+
+
+def _strip_ticket_cost_fields(ticket: dict) -> dict:
+    """Remove cost fields in-place (idempotent) and return the same dict."""
+    if not isinstance(ticket, dict):
+        return ticket
+    for f in TICKET_COST_FIELDS:
+        ticket.pop(f, None)
+    return ticket
 
 
 async def _next_ticket_number(client_id: str) -> str:
-    """Atomic counter: TKT-YYYY-NNNN. Resets every Jan 1st per client."""
+    """Iter37c — Atomic counter: {CLIENT_SLUG}-YYYY-NNNN (chronological per client).
+    The client slug is read from db.users (company || full_name) at most once
+    per call, slugified. Falls back to the legacy 'TKT' prefix if the slug
+    cannot be resolved.
+    """
     year = datetime.now(timezone.utc).year
     counter_id = f"tickets_{client_id}_{year}"
     res = await db.counters.find_one_and_update(
@@ -18008,7 +18026,18 @@ async def _next_ticket_number(client_id: str) -> str:
         return_document=True,
     )
     seq = (res or {}).get("seq", 1)
-    return f"TKT-{year}-{seq:04d}"
+    # Resolve a human-friendly prefix from the client (tenant) user doc
+    prefix = "TKT"
+    try:
+        client_doc = await db.users.find_one({"id": client_id}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+        raw = client_doc.get("company") or client_doc.get("full_name") or ""
+        slug = re.sub(r"[^A-Za-z0-9]+", " ", str(raw)).strip().upper().replace(" ", " ")
+        slug = re.sub(r"\s+", " ", slug)[:20].strip()
+        if slug:
+            prefix = slug
+    except Exception:  # noqa: BLE001
+        pass
+    return f"{prefix}-{year}-{seq:04d}"
 
 
 def _ticket_components(number: str, motif: str = "", duration: str = "") -> list:
@@ -18185,6 +18214,10 @@ async def me_list_tickets(
         elif status in TICKET_ALL_STATUSES:
             q["status"] = status
     items = await db.support_tickets.find(q, {"_id": 0}).sort("opened_at", -1).to_list(min(max(limit, 1), 1000))
+    # Iter37c — Hide cost fields from non-elevated viewers
+    if not _is_elevated_creator(user):
+        for _t in items:
+            _strip_ticket_cost_fields(_t)
     # Iter35r — Enrich each ticket with client_label / company_label + age &
     # active-pause durations so the UI can spotlight "dormant" tickets.
     client_ids = list({(t.get("client_id") or "") for t in items if t.get("client_id")})
@@ -18317,6 +18350,34 @@ async def me_close_ticket(
             update["suspended_started_at"] = None
         except Exception:
             update["suspended_started_at"] = None
+    # Iter37c — Compute intervention cost on close (hidden from regular client).
+    # Cost = flat_rate (if > 0)  OR  hours * hourly_rate.
+    try:
+        opened_dt = datetime.fromisoformat(ticket["opened_at"].replace("Z", "+00:00"))
+        closed_dt = datetime.fromisoformat(now_iso.replace("Z", "+00:00"))
+        total_secs = max(0, int((closed_dt - opened_dt).total_seconds()))
+        suspended_total = int(ticket.get("suspended_total_seconds") or 0)
+        if "suspended_total_seconds" in update:
+            suspended_total = update["suspended_total_seconds"]
+        active_secs = max(0, total_secs - suspended_total)
+        hours = round(active_secs / 3600.0, 2)
+        client_doc = await db.users.find_one({"id": ticket["client_id"]}, {"_id": 0, "hourly_rate": 1, "flat_rate": 1}) or {}
+        hourly_rate = float(client_doc.get("hourly_rate") or 0)
+        flat_rate = float(client_doc.get("flat_rate") or 0)
+        if flat_rate > 0:
+            cost = round(flat_rate, 2)
+            cost_mode = "flat"
+        else:
+            cost = round(hours * hourly_rate, 2)
+            cost_mode = "hourly"
+        update["active_hours"] = hours
+        update["cost_amount"] = cost
+        update["cost_mode"] = cost_mode
+        update["cost_hourly_rate"] = hourly_rate
+        update["cost_flat_rate"] = flat_rate
+        update["cost_currency"] = "XOF"
+    except Exception:  # noqa: BLE001
+        pass
     await db.support_tickets.update_one({"id": tid}, {"$set": update})
     ticket.update(update)
 

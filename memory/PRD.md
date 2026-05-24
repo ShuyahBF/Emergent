@@ -3,6 +3,22 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37c (2026-05-23) — Tickets : Numérotation {CLIENT_SLUG}-YYYY-NNNN + Coût intervention
+
+### 🎟️ Iter37c — Numérotation chronologique par Client Lié + cost-on-close
+- **Backend `server.py`** :
+  - `_next_ticket_number(client_id)` étendu : préfixe lu depuis `db.users.company || full_name` (slug majuscules, espaces réduits, max 20 cars). Fallback `TKT` si vide. Compteur atomique inchangé `db.counters[_id=tickets_{client_id}_{YYYY}]`.
+  - Sur clôture du ticket : calcul automatique du **coût d'intervention** (`active_hours`, `cost_amount`, `cost_mode`, `cost_hourly_rate`, `cost_flat_rate`, `cost_currency=XOF`). Le `flat_rate` (si > 0) est prioritaire sur le calcul horaire. `active_hours = (closed_at - opened_at - suspended_total) / 3600`.
+  - Filtrage RBAC sur `GET /api/me/tickets` : nouveau helper `_strip_ticket_cost_fields()` applique l'opacification des champs `cost_*` + `active_hours` pour tout utilisateur non-élevé (regular client). Admin/Superviseur/Modérateur voient tout.
+- **Modèle `UserUpdateAdmin`** : 2 nouveaux champs `hourly_rate: Optional[float]` + `flat_rate: Optional[float]`.
+- **Frontend** :
+  - `AdminClients.jsx` : nouveau bloc « 🎟️ Tarification des interventions (tickets) » avec 2 inputs (Taux horaire / Forfait) — `data-testid="ticket-pricing-section"`.
+  - `Tickets.jsx` : nouvelle ligne « 💰 Coût » dans le détail du ticket, affichée uniquement si `t.cost_amount != null` (donc seulement pour les viewers élevés grâce au filtrage backend). Affiche `XX XXX XOF (forfait)` ou `XX XXX XOF (Nh × tarif)`.
+  - Hint « Numérotation automatique `{CLIENT}-YYYY-NNNN` par Client Lié ».
+- **Tests pytest** : **69/69 verts** (62 régression + **7 Iter37c** : format avec slug client, séquentialité, cost horaire = h*rate, cost forfait prioritaire, admin voit cost, client régulier ne voit pas cost, rates persistés via PUT /admin/clients).
+
+---
+
 ## Latest — Iter37b (2026-05-23) — CHUNK 2 (Import CSV + Entête Client Lié sur pièces)
 
 ### 📤 Iter37b — Import CSV + Tenant snapshot sur pièces

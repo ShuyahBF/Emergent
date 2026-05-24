@@ -79,6 +79,9 @@ class UserUpdateAdmin(BaseModel):
     # Iter35h — demo role configuration
     demo_expires_at: Optional[str] = None
     demo_quotas: Optional[Dict[str, Optional[int]]] = None
+    # Iter37c — Intervention cost configuration (per Client Lié)
+    hourly_rate: Optional[float] = None  # Taux horaire en XOF (utilisé si flat_rate vide/0)
+    flat_rate: Optional[float] = None  # Forfait fixe par intervention (prioritaire si > 0)
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

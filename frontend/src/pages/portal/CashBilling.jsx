@@ -18,7 +18,7 @@ import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
-  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw,
+  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -1173,6 +1173,8 @@ export default function CashBilling({ defaultTab = "receipts" }) {
   const [businessClients, setBusinessClients] = useState([]);
   const [products, setProducts] = useState([]);
   const [paymentMethods, setPaymentMethods] = useState([]);
+  // Iter37f — Tenant info badge
+  const [tenantInfo, setTenantInfo] = useState(null);
 
   const refresh = async () => {
     try {
@@ -1187,6 +1189,12 @@ export default function CashBilling({ defaultTab = "receipts" }) {
     } catch { /* noop */ }
   };
   useEffect(() => { refresh(); }, []);
+  // Iter37f — Load tenant info once
+  useEffect(() => {
+    apiClient.get("/cashier/tenant-info")
+      .then((r) => setTenantInfo(r.data))
+      .catch(() => setTenantInfo(null));
+  }, []);
 
   const canAccess = ["admin", "superviseur"].includes(user?.role) || user?.can_cash;
   if (!canAccess) {
@@ -1218,6 +1226,46 @@ export default function CashBilling({ defaultTab = "receipts" }) {
 
   return (
     <div className="space-y-4">
+      {/* Iter37f — Tenant info badge: shows which company/users share this Caisse space */}
+      {tenantInfo && (
+        <div
+          className="flex flex-wrap items-center gap-3 rounded-2xl bg-gradient-to-r from-sky-50 via-emerald-50 to-fuchsia-50 ring-1 ring-sky-200 px-4 py-2.5 text-xs"
+          data-testid="cashier-tenant-badge"
+          title={`Tenant ID : ${tenantInfo.tenant_id}`}
+        >
+          <span className="inline-flex items-center gap-1.5 font-semibold text-sawali-blue">
+            <Building className="h-4 w-4" />
+            {tenantInfo.tenant_name || "—"}
+          </span>
+          <span className="text-slate-300">·</span>
+          <span className="inline-flex items-center gap-1.5 text-emerald-700">
+            <Users className="h-3.5 w-3.5" />
+            <strong className="font-bold tabular-nums">{tenantInfo.member_count}</strong>
+            utilisateur{tenantInfo.member_count > 1 ? "s" : ""} partage{tenantInfo.member_count > 1 ? "nt" : ""} cette caisse
+          </span>
+          <span className="text-slate-300">·</span>
+          <span className="inline-flex items-center gap-1.5 text-amber-700">
+            <Building2 className="h-3.5 w-3.5" />
+            <strong className="font-bold tabular-nums">{tenantInfo.business_client_count}</strong>
+            client{tenantInfo.business_client_count > 1 ? "s" : ""} en compte
+          </span>
+          <span className="text-slate-300">·</span>
+          <span className="inline-flex items-center gap-1.5 text-violet-700">
+            <ShoppingBag className="h-3.5 w-3.5" />
+            <strong className="font-bold tabular-nums">{tenantInfo.product_count}</strong>
+            produit{tenantInfo.product_count > 1 ? "s" : ""} au catalogue
+          </span>
+          {tenantInfo.is_super_admin && (
+            <>
+              <span className="text-slate-300">·</span>
+              <span className="inline-flex items-center gap-1 rounded-full bg-fuchsia-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-fuchsia-700 ring-1 ring-fuchsia-300">
+                Super-admin · vue globale
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-1 border-b border-slate-200">
         {tabs.map((t) => {
           const Icon = t.icon;

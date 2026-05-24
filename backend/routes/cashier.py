@@ -898,6 +898,47 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return [u async for u in cursor]
 
     # ----------------------------------------------------------------
+    # Iter37f — Tenant info badge (header of Caisse page).
+    # Tells the user how many colleagues share the same Caisse space.
+    # ----------------------------------------------------------------
+    @router.get("/cashier/tenant-info")
+    async def cashier_tenant_info(user: dict = Depends(get_current_user)):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        cl = await _resolve_client_lie(user)
+        tid = cl["id"]
+        # Count users sharing this tenant (parent_client_id, client_id, id match,
+        # OR same `company` field as the tenant's canonical user)
+        canonical = await db.users.find_one({"id": tid}, {"_id": 0, "company": 1, "email": 1, "full_name": 1, "role": 1})
+        company = (canonical or {}).get("company")
+        or_conditions: List[Dict[str, Any]] = [
+            {"id": tid},
+            {"parent_client_id": tid},
+            {"client_id": tid},
+        ]
+        if company:
+            or_conditions.append({"company": company})
+        member_count = await db.users.count_documents({
+            "$or": or_conditions,
+            "account_status": {"$ne": "deleted"},
+        })
+        # Caisse stats for this tenant
+        scope = {"tenant_id": tid} if not _is_super_admin(user) else {}
+        bc_count = await db.business_clients.count_documents({**scope, "deleted_at": None})
+        product_count = await db.products.count_documents({**scope, "deleted_at": None})
+        return {
+            "tenant_id": tid,
+            "tenant_name": cl.get("name"),
+            "canonical_email": (canonical or {}).get("email"),
+            "canonical_role": (canonical or {}).get("role"),
+            "company": company,
+            "member_count": member_count,
+            "business_client_count": bc_count,
+            "product_count": product_count,
+            "is_super_admin": _is_super_admin(user),
+        }
+
+    # ----------------------------------------------------------------
     # Receipts
     # ----------------------------------------------------------------
     @router.post("/cashier/receipts")

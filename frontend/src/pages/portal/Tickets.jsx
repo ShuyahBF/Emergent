@@ -62,6 +62,9 @@ export default function Tickets() {
   const [targets, setTargets] = useState([]);
   const [motifTemplates, setMotifTemplates] = useState([]);
   const [showTemplatesMgr, setShowTemplatesMgr] = useState(false);
+  // Iter37d — Monthly cost aggregate (elevated viewers only)
+  const [costSummary, setCostSummary] = useState(null);
+  const [monthsBack, setMonthsBack] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -80,6 +83,12 @@ export default function Tickets() {
     apiClient.get("/me/notes-targets").then((r) => setTargets(r.data?.items || [])).catch(() => {});
     apiClient.get("/me/ticket-motif-templates").then((r) => setMotifTemplates(r.data || [])).catch(() => {});
   }, []);
+  // Iter37d — Load cost summary (admin/sup only — endpoint returns 403 otherwise)
+  useEffect(() => {
+    apiClient.get("/me/tickets/cost-summary", { params: { months_back: monthsBack } })
+      .then((r) => setCostSummary(r.data))
+      .catch(() => setCostSummary(null));
+  }, [monthsBack]);
   const reloadTemplates = () => apiClient.get("/me/ticket-motif-templates").then((r) => setMotifTemplates(r.data || [])).catch(() => {});
 
   const filtered = useMemo(() => {
@@ -122,6 +131,40 @@ export default function Tickets() {
           <ClipboardList className="h-4 w-4" /> Modèles de motif ({motifTemplates.length})
         </button>
       </header>
+
+      {/* Iter37d — Monthly cost aggregate (admin/sup only). Endpoint returns 403 for regulars so costSummary stays null. */}
+      {costSummary && (
+        <div className="rounded-2xl bg-gradient-to-br from-indigo-500 to-violet-600 text-white p-4 shadow-md ring-1 ring-indigo-700/20" data-testid="tickets-cost-panel">
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div>
+              <p className="text-xs uppercase tracking-wider opacity-90 font-medium">Coût des interventions · {costSummary.month}</p>
+              <p className="mt-1 text-2xl font-display font-bold tabular-nums">
+                {Number(costSummary.grand_total || 0).toLocaleString("fr-FR")} <span className="text-sm font-normal opacity-90">XOF</span>
+              </p>
+              <p className="text-xs opacity-90 mt-0.5">
+                {costSummary.grand_count} ticket(s) clôturé(s) · {costSummary.grand_hours}h
+              </p>
+            </div>
+            <select value={monthsBack} onChange={(e) => setMonthsBack(Number(e.target.value))}
+              className="rounded-lg bg-white/15 text-white px-2 py-1 text-xs ring-1 ring-white/30"
+              data-testid="tickets-cost-month-select">
+              {[0, 1, 2, 3, 6, 12].map((m) => (
+                <option key={m} value={m} className="text-slate-900">{m === 0 ? "Mois en cours" : `Il y a ${m} mois`}</option>
+              ))}
+            </select>
+          </div>
+          {Array.isArray(costSummary.by_client) && costSummary.by_client.length > 0 && (
+            <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">
+              {costSummary.by_client.slice(0, 6).map((row) => (
+                <div key={row.client_id} className="flex items-center justify-between bg-white/10 rounded-md px-2 py-1" data-testid={`tickets-cost-row-${row.client_id}`}>
+                  <span className="truncate">{row.client_name}</span>
+                  <span className="font-mono whitespace-nowrap">{Number(row.total_cost || 0).toLocaleString("fr-FR")} XOF <span className="opacity-70">·{row.count}</span></span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="flex gap-2 items-center flex-wrap">
         <div className="relative flex-1 min-w-[220px]">

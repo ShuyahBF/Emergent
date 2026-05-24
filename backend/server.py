@@ -18315,6 +18315,74 @@ async def me_update_ticket(
     return {"ok": True, "ticket": ticket, "changed": True}
 
 
+@api.get("/me/tickets/cost-summary", tags=["Portail Client"])
+async def me_tickets_cost_summary(
+    months_back: int = Query(0, ge=0, le=24),
+    user: dict = Depends(get_current_user),
+):
+    """Iter37d — Monthly cost aggregate for closed tickets.
+    Returns total + per-client breakdown for the requested month (0 = current).
+    Restricted to elevated viewers (admin/superviseur/moderateur).
+    """
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    now = datetime.now(timezone.utc)
+    # Compute target month window
+    y, m = now.year, now.month - months_back
+    while m <= 0:
+        m += 12
+        y -= 1
+    month_start = datetime(y, m, 1, tzinfo=timezone.utc)
+    if m == 12:
+        month_end = datetime(y + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        month_end = datetime(y, m + 1, 1, tzinfo=timezone.utc)
+    scope_filter = await _ticket_scope_for_user(user)
+    q = {
+        **scope_filter,
+        "status": {"$in": list(TICKET_CLOSED_STATUSES)},
+        "closed_at": {"$gte": month_start.isoformat(), "$lt": month_end.isoformat()},
+    }
+    pipeline = [
+        {"$match": q},
+        {"$group": {
+            "_id": "$client_id",
+            "total_cost": {"$sum": {"$ifNull": ["$cost_amount", 0]}},
+            "total_hours": {"$sum": {"$ifNull": ["$active_hours", 0]}},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"total_cost": -1}},
+    ]
+    rows: List[Dict[str, Any]] = []
+    grand_total = 0.0
+    grand_hours = 0.0
+    grand_count = 0
+    async for row in db.support_tickets.aggregate(pipeline):
+        client_id = row.get("_id")
+        client_doc = await db.users.find_one({"id": client_id}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+        name = client_doc.get("company") or client_doc.get("full_name") or "—"
+        amount = float(row.get("total_cost") or 0)
+        hours = round(float(row.get("total_hours") or 0), 2)
+        count = int(row.get("count") or 0)
+        rows.append({
+            "client_id": client_id, "client_name": name,
+            "total_cost": amount, "total_hours": hours, "count": count,
+        })
+        grand_total += amount
+        grand_hours += hours
+        grand_count += count
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "period_start": month_start.isoformat(),
+        "period_end": month_end.isoformat(),
+        "currency": "XOF",
+        "grand_total": grand_total,
+        "grand_hours": round(grand_hours, 2),
+        "grand_count": grand_count,
+        "by_client": rows,
+    }
+
+
 @api.post("/me/tickets/{tid}/close", tags=["Portail Client"])
 async def me_close_ticket(
     tid: str,

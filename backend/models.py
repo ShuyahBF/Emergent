@@ -82,6 +82,8 @@ class UserUpdateAdmin(BaseModel):
     # Iter37c — Intervention cost configuration (per Client Lié)
     hourly_rate: Optional[float] = None  # Taux horaire en XOF (utilisé si flat_rate vide/0)
     flat_rate: Optional[float] = None  # Forfait fixe par intervention (prioritaire si > 0)
+    # Iter37d — Cashier role flag (Caisse/Facturation module access)
+    can_cash: Optional[bool] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

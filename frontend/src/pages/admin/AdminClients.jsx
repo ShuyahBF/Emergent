@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0 };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -273,6 +273,9 @@ export default function AdminClients() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-0.5 rounded border ${c.role === "superviseur" ? "bg-sawali-blue/10 text-sawali-blue border-sawali-blue/30" : c.role === "admin" ? "bg-amber-50 text-amber-700 border-amber-200" : c.role === "moderateur" ? "bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" : "bg-slate-100 text-slate-700 border-slate-200"}`}>{c.role}</span>
+                      {c.can_cash && (
+                        <span className="ml-1 text-[10px] px-1.5 py-0.5 rounded border bg-fuchsia-50 text-fuchsia-700 border-fuchsia-200" title="Rôle Caissier — accès au module Caisse/Facturation" data-testid={`can-cash-badge-${c.id}`}>💰 Caissier</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
@@ -423,6 +426,26 @@ export default function AdminClients() {
                 <Input label="Taux horaire (XOF)" type="number" value={form.hourly_rate ?? 0} onChange={(v) => setForm({ ...form, hourly_rate: v === "" ? 0 : Number(v) })} testid="client-hourly-rate" />
                 <Input label="Forfait par intervention (XOF)" type="number" value={form.flat_rate ?? 0} onChange={(v) => setForm({ ...form, flat_rate: v === "" ? 0 : Number(v) })} testid="client-flat-rate" />
               </div>
+            </div>
+
+            {/* Iter37d — Rôle Caissier (Caisse & Facturation access) */}
+            <div className="rounded-lg border-2 border-fuchsia-200 bg-fuchsia-50/40 p-3 space-y-2" data-testid="cashier-role-section">
+              <label className="flex items-start gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  className="mt-0.5 h-4 w-4"
+                  checked={!!form.can_cash}
+                  onChange={(e) => setForm({ ...form, can_cash: e.target.checked })}
+                  data-testid="client-can-cash-toggle"
+                />
+                <span className="text-sm">
+                  <span className="font-display font-bold text-fuchsia-900">💰 Rôle Caissier</span>
+                  <span className="block text-[11px] text-fuchsia-800 mt-0.5">
+                    Si activé, cet utilisateur peut accéder au module « Caisse / Facturation » (créer reçus, factures, proformas).
+                    Inutile pour les rôles <code>admin</code> ou <code>superviseur</code> (déjà autorisés).
+                  </span>
+                </span>
+              </label>
             </div>
 
             {/* Iter35h — Demo account configuration */}

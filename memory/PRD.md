@@ -3,6 +3,22 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37d (2026-05-23) — Toggle Caissier UI + Agrégat mensuel coût interventions
+
+### 💰 Iter37d — Visibilité du rôle Caissier + Cockpit coût mensuel
+- **Backend** :
+  - `UserUpdateAdmin` enrichi du flag `can_cash: Optional[bool]` → modifiable via `PUT /api/admin/clients/{uid}`.
+  - Nouvel endpoint `GET /api/me/tickets/cost-summary?months_back=N` (admin/sup/mod uniquement). Retourne `{month, period_start, period_end, currency, grand_total, grand_hours, grand_count, by_client:[{client_id, client_name, total_cost, total_hours, count}]}` agrégé via `db.support_tickets.aggregate`.
+- **Frontend `AdminClients.jsx`** :
+  - Nouveau bloc fuchsia « 💰 Rôle Caissier » dans le formulaire utilisateur : case à cocher `can_cash` (avec helper text).
+  - Badge « 💰 Caissier » affiché dans la cellule rôle de la liste utilisateurs.
+- **Frontend `Tickets.jsx`** :
+  - Panel gradient indigo « Coût des interventions · MM-YYYY » au-dessus de la liste : montant total + nb tickets + heures + breakdown top-6 clients. Selector mois (0/1/2/3/6/12 mois en arrière).
+  - Panel auto-masqué pour les regular clients (endpoint renvoie 403 → `costSummary` reste null).
+- **Tests pytest** : **75/75 verts** (69 régression + **6 Iter37d** : `can_cash` via PUT, auth/me reflète le flag, RBAC cost-summary, schema, agrégation closed tickets, months_back).
+
+---
+
 ## Latest — Iter37c (2026-05-23) — Tickets : Numérotation {CLIENT_SLUG}-YYYY-NNNN + Coût intervention
 
 ### 🎟️ Iter37c — Numérotation chronologique par Client Lié + cost-on-close

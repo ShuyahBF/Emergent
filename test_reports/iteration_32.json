@@ -1,0 +1,26 @@
+{
+  "summary": "Iter37e — Multi-tenant Caisse isolation + Tickets cost CSV/PDF exports: fully validated end-to-end. Backend pytest: 13/13 PASS (7 tenant_isolation + 6 cost_export) in 3.85s. Tenant A parent/employee see shared business_clients/receipts/invoices/legal_forms; Tenant B cannot list/PATCH/GET other tenant's resources (404). KPIs scoped per tenant (Tenant A restant_a_encaisser includes its 100000 invoice, Tenant B amount=0). Cost-summary CSV starts with UTF-8 BOM, has 'SAWALI', 'Coût des interventions', 'Client Lié', 'Coût total', 'TOTAL' rows, filename cout-interventions-YYYY-MM.csv. PDF starts with %PDF magic, content-type=application/pdf, filename cout-interventions-YYYY-MM.pdf. Both return 403 for regular user. months_back changes filename. Frontend Playwright: admin@sawalismartsystems.com logged via OTP (dev_otp), /portal/tickets shows the indigo cost panel (data-testid=tickets-cost-panel) with CSV + PDF buttons; clicking CSV downloaded cout-interventions-2026-05.csv, clicking PDF downloaded cout-interventions-2026-05.pdf, success toast 'Export PDF téléchargé' visible. Regular client user receives 403 from backend on all 3 cost endpoints (json/.csv/.pdf), so the cost panel correctly stays hidden (panel JSX rendered only when costSummary is non-null; useEffect catches and sets null on 403).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter37e_tenant_isolation.py",
+    "/app/backend/tests/test_iter37e_cost_export.py",
+    "/app/test_reports/pytest/iter37e_32.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "cashier.py uses module-level backfill_tenant_ids on startup (lines 218-279) — runs an UpdateMany per collection on every boot. Once data is migrated this becomes a no-op (matched=0), but consider adding a feature flag or a one-shot completion marker (e.g., a doc in db.system_migrations) to skip the query entirely on subsequent boots after the migration converges. Not blocking — current behavior is idempotent and cheap on indexed _id.",
+    "_tenant_id_of (lines ~316-360) re-queries db.users for each call to resolve parent_client_id. For hot-path endpoints (e.g., /api/cashier/receipts list called from UI polling), consider per-request memoization on the request scope or storing the resolved tenant_id on the user object cached during auth dependency. Minor performance optimisation.",
+    "_is_super_admin currently hardcodes admin@sawalismartsystems.com (lines 178-184). Recommend reading from settings/env (e.g., SUPER_ADMIN_EMAILS) so QA/staging can swap without code change.",
+    "PDF export uses landscape A4 with SAWALI title — solid; consider adding generation timestamp footer + page X/Y for multi-page documents.",
+    "Tickets.jsx downloadCostExport (line ~95) does not show a loading state on the buttons while the PDF (potentially several seconds) is generated. Add a small spinner / disabled state to prevent double-clicks."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (13/13)", "frontend": "100%"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp field — SMTP not configured)",
+  "seed_data_creation": "Pytest fixtures auto-seed Tenant A (parent superviseur + child employee) and Tenant B (boss superviseur) users plus business_clients/payment_methods/legal_forms/receipts/invoices, then clean up by tenant_id. Frontend Playwright created a temporary regular user (reg_7b5a25) to verify 403 on cost endpoints; cleaned up after the test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter37e fully validated. Multi-tenant isolation contract: tenant_id = parent_client_id || client_id || id; super-admin (admin@sawalismartsystems.com) bypasses. To re-run the full Caisse + cost-export regression: `pytest /app/backend/tests/test_iter37e_*.py -v` (13 tests, ~4s). Frontend smoke: login with admin via OTP, persist JWT + /api/auth/me payload to localStorage (keys: sawali_token, sawali_user), visit /portal/tickets, dismiss 'J'ai lu' modal, then check [data-testid=tickets-cost-panel] + click [data-testid=tickets-cost-export-csv|pdf]. Toast container: '[role=status]' may be empty mid-poll; the on-screen toast 'Export <FMT> téléchargé' confirms success.",
+  "rca of the issue": "N/A — no bugs found. All 13 backend tests pass; frontend admin panel + CSV/PDF download verified visually; regular user 403 contract holds across json/.csv/.pdf endpoints which keeps the panel hidden via the existing costSummary state guard."
+}

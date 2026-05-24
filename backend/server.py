@@ -17207,6 +17207,14 @@ async def on_startup():
         logger.warning("[startup] storage init skipped: %s", exc)
     # Iter35u — Pull the DB-stored public_base_url into the in-memory cache.
     await _refresh_public_base_url_cache()
+    # Iter37e — Backfill tenant_id on legacy Caisse docs (idempotent, fast).
+    try:
+        from routes.cashier import backfill_tenant_ids as _cashier_backfill
+        stats = await _cashier_backfill(db)
+        if any(stats.values()):
+            logger.info("[startup] cashier tenant backfill: %s", stats)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[startup] cashier tenant backfill skipped: %s", exc)
     # Indexes — critical for performance as collections grow.
     # New indexes are added on every startup (idempotent).
     await db.users.create_index("email", unique=True)
@@ -18381,6 +18389,173 @@ async def me_tickets_cost_summary(
         "grand_count": grand_count,
         "by_client": rows,
     }
+
+
+# ---------------------------------------------------------------------
+# Iter37e — Internal helper reused by CSV/PDF exporters below
+# ---------------------------------------------------------------------
+async def _tickets_cost_summary_data(user: dict, months_back: int) -> Dict[str, Any]:
+    """Same data the JSON endpoint returns, callable internally."""
+    if not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Accès refusé")
+    now = datetime.now(timezone.utc)
+    y, m = now.year, now.month - months_back
+    while m <= 0:
+        m += 12
+        y -= 1
+    month_start = datetime(y, m, 1, tzinfo=timezone.utc)
+    if m == 12:
+        month_end = datetime(y + 1, 1, 1, tzinfo=timezone.utc)
+    else:
+        month_end = datetime(y, m + 1, 1, tzinfo=timezone.utc)
+    scope_filter = await _ticket_scope_for_user(user)
+    q = {
+        **scope_filter,
+        "status": {"$in": list(TICKET_CLOSED_STATUSES)},
+        "closed_at": {"$gte": month_start.isoformat(), "$lt": month_end.isoformat()},
+    }
+    pipeline = [
+        {"$match": q},
+        {"$group": {
+            "_id": "$client_id",
+            "total_cost": {"$sum": {"$ifNull": ["$cost_amount", 0]}},
+            "total_hours": {"$sum": {"$ifNull": ["$active_hours", 0]}},
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"total_cost": -1}},
+    ]
+    rows: List[Dict[str, Any]] = []
+    grand_total = 0.0
+    grand_hours = 0.0
+    grand_count = 0
+    async for row in db.support_tickets.aggregate(pipeline):
+        client_id = row.get("_id")
+        client_doc = await db.users.find_one({"id": client_id}, {"_id": 0, "company": 1, "full_name": 1}) or {}
+        name = client_doc.get("company") or client_doc.get("full_name") or "—"
+        amount = float(row.get("total_cost") or 0)
+        hours = round(float(row.get("total_hours") or 0), 2)
+        count = int(row.get("count") or 0)
+        rows.append({
+            "client_id": client_id, "client_name": name,
+            "total_cost": amount, "total_hours": hours, "count": count,
+        })
+        grand_total += amount
+        grand_hours += hours
+        grand_count += count
+    return {
+        "month": month_start.strftime("%Y-%m"),
+        "period_start": month_start.isoformat(),
+        "period_end": month_end.isoformat(),
+        "currency": "XOF",
+        "grand_total": grand_total,
+        "grand_hours": round(grand_hours, 2),
+        "grand_count": grand_count,
+        "by_client": rows,
+    }
+
+
+@api.get("/me/tickets/cost-summary.csv", tags=["Portail Client"])
+async def me_tickets_cost_summary_csv(
+    months_back: int = Query(0, ge=0, le=24),
+    user: dict = Depends(get_current_user),
+):
+    """Iter37e — CSV export du coût mensuel des interventions clôturées.
+    Format Excel-friendly : UTF-8 BOM, séparateur `;`.
+    """
+    import csv as _csv
+    import io
+    data = await _tickets_cost_summary_data(user, months_back)
+    buf = io.StringIO()
+    buf.write("\ufeff")
+    writer = _csv.writer(buf, delimiter=";")
+    writer.writerow(["SAWALI Smart Systems — Coût des interventions clôturées"])
+    writer.writerow([f"Période : {data['month']}", f"Total : {data['grand_total']:.0f} {data['currency']}",
+                     f"Heures actives : {data['grand_hours']}", f"Tickets clôturés : {data['grand_count']}"])
+    writer.writerow([])
+    writer.writerow(["Client Lié", "Tickets clôturés", "Heures actives", f"Coût total ({data['currency']})"])
+    for row in data["by_client"]:
+        writer.writerow([row["client_name"], row["count"], f"{row['total_hours']}", f"{row['total_cost']:.0f}"])
+    writer.writerow([])
+    writer.writerow(["TOTAL", data["grand_count"], data["grand_hours"], f"{data['grand_total']:.0f}"])
+    fname = f"cout-interventions-{data['month']}.csv"
+    return Response(
+        content=buf.getvalue().encode("utf-8"),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
+
+
+@api.get("/me/tickets/cost-summary.pdf", tags=["Portail Client"])
+async def me_tickets_cost_summary_pdf(
+    months_back: int = Query(0, ge=0, le=24),
+    user: dict = Depends(get_current_user),
+):
+    """Iter37e — PDF export du coût mensuel des interventions clôturées (A4 paysage)."""
+    import io
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    data = await _tickets_cost_summary_data(user, months_back)
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4),
+                            topMargin=28, bottomMargin=28, leftMargin=28, rightMargin=28,
+                            title=f"Coût interventions {data['month']}")
+    styles = getSampleStyleSheet()
+    now_str = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+    story: List[Any] = [
+        Paragraph("<b>SAWALI Smart Systems — Coût des interventions clôturées</b>", styles["Title"]),
+        Paragraph(
+            f"<b>Période :</b> {data['month']} &nbsp;&nbsp; "
+            f"<b>Total :</b> {data['grand_total']:,.0f} {data['currency']} &nbsp;&nbsp; "
+            f"<b>Heures :</b> {data['grand_hours']}h &nbsp;&nbsp; "
+            f"<b>Tickets :</b> {data['grand_count']}".replace(",", " "),
+            styles["Normal"],
+        ),
+        Paragraph(f"Généré le {now_str}", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+    table_data: List[List[Any]] = [["Client Lié", "Tickets clôturés", "Heures actives", f"Coût ({data['currency']})"]]
+    for row in data["by_client"]:
+        table_data.append([
+            row["client_name"][:50],
+            str(row["count"]),
+            f"{row['total_hours']}",
+            f"{row['total_cost']:,.0f}".replace(",", " "),
+        ])
+    # Totals footer row
+    table_data.append([
+        "TOTAL",
+        str(data["grand_count"]),
+        f"{data['grand_hours']}",
+        f"{data['grand_total']:,.0f}".replace(",", " "),
+    ])
+    tbl = Table(table_data, repeatRows=1, colWidths=[280, 100, 100, 140])
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E90FF")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+        ("ALIGN", (0, 0), (0, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.whitesmoke, colors.white]),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fef3c7")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+    ]))
+    story.append(tbl)
+    doc.build(story)
+    fname = f"cout-interventions-{data['month']}.pdf"
+    return Response(
+        content=buf.getvalue(),
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+    )
 
 
 @api.post("/me/tickets/{tid}/close", tags=["Portail Client"])

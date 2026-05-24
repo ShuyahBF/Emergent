@@ -58,12 +58,16 @@ def db():
 
 @pytest.fixture
 def cashier_user(db):
-    """Non-elevated user with can_cash=True."""
+    """Non-elevated user with can_cash=True (sharing tenant with admin)."""
+    # Iter37e — Multi-tenant: link to admin tenant so seed data is visible.
+    admin_doc = db.users.find_one({"email": ADMIN_EMAIL}, {"_id": 0, "id": 1})
+    admin_id = admin_doc["id"] if admin_doc else None
     uid = f"cashier_{uuid.uuid4().hex[:6]}"
     db.users.insert_one({
         "id": uid, "email": f"{uid}@test.local", "password_hash": "x",
         "full_name": "Test Cashier", "role": "client",
         "account_status": "active", "can_cash": True,
+        "parent_client_id": admin_id,
     })
     yield uid
     db.users.delete_one({"id": uid})
@@ -72,10 +76,13 @@ def cashier_user(db):
 @pytest.fixture
 def regular_user(db):
     """Non-elevated user WITHOUT can_cash → must be blocked."""
+    admin_doc = db.users.find_one({"email": ADMIN_EMAIL}, {"_id": 0, "id": 1})
+    admin_id = admin_doc["id"] if admin_doc else None
     uid = f"reg_{uuid.uuid4().hex[:6]}"
     db.users.insert_one({
         "id": uid, "email": f"{uid}@test.local", "password_hash": "x",
         "full_name": "Regular", "role": "client", "account_status": "active",
+        "parent_client_id": admin_id,  # Iter37e
     })
     yield uid
     db.users.delete_one({"id": uid})

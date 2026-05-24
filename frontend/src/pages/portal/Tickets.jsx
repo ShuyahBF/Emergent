@@ -5,7 +5,7 @@ import { toast } from "sonner";
 import {
   Ticket, RefreshCw, X, Check, Clock, AlertCircle, PauseCircle, Ban,
   ArrowRight, Search, MessageCircle, ChevronDown, ChevronRight,
-  UserPlus, RotateCw, Plus, Trash2, ClipboardList,
+  UserPlus, RotateCw, Plus, Trash2, ClipboardList, FileSpreadsheet, FileText,
 } from "lucide-react";
 
 /*
@@ -91,6 +91,30 @@ export default function Tickets() {
   }, [monthsBack]);
   const reloadTemplates = () => apiClient.get("/me/ticket-motif-templates").then((r) => setMotifTemplates(r.data || [])).catch(() => {});
 
+  // Iter37e — Download cost-summary as CSV or PDF (admin/sup only).
+  const downloadCostExport = async (fmt) => {
+    try {
+      const r = await apiClient.get(`/me/tickets/cost-summary.${fmt}`, {
+        params: { months_back: monthsBack },
+        responseType: "blob",
+      });
+      const cd = r.headers["content-disposition"] || "";
+      const m = cd.match(/filename="([^"]+)"/);
+      const filename = m ? m[1] : `cout-interventions.${fmt}`;
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success(`Export ${fmt.toUpperCase()} téléchargé`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || `Échec export ${fmt.toUpperCase()}`);
+    }
+  };
+
   const filtered = useMemo(() => {
     if (!search.trim()) return items;
     const q = search.toLowerCase();
@@ -145,13 +169,32 @@ export default function Tickets() {
                 {costSummary.grand_count} ticket(s) clôturé(s) · {costSummary.grand_hours}h
               </p>
             </div>
-            <select value={monthsBack} onChange={(e) => setMonthsBack(Number(e.target.value))}
-              className="rounded-lg bg-white/15 text-white px-2 py-1 text-xs ring-1 ring-white/30"
-              data-testid="tickets-cost-month-select">
-              {[0, 1, 2, 3, 6, 12].map((m) => (
-                <option key={m} value={m} className="text-slate-900">{m === 0 ? "Mois en cours" : `Il y a ${m} mois`}</option>
-              ))}
-            </select>
+            <div className="flex items-center gap-2 flex-wrap">
+              <select value={monthsBack} onChange={(e) => setMonthsBack(Number(e.target.value))}
+                className="rounded-lg bg-white/15 text-white px-2 py-1 text-xs ring-1 ring-white/30"
+                data-testid="tickets-cost-month-select">
+                {[0, 1, 2, 3, 6, 12].map((m) => (
+                  <option key={m} value={m} className="text-slate-900">{m === 0 ? "Mois en cours" : `Il y a ${m} mois`}</option>
+                ))}
+              </select>
+              {/* Iter37e — Exports CSV / PDF */}
+              <button
+                onClick={() => downloadCostExport("csv")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition px-2.5 py-1 text-xs ring-1 ring-white/30 font-medium"
+                title="Télécharger CSV (Excel)"
+                data-testid="tickets-cost-export-csv"
+              >
+                <FileSpreadsheet className="h-3.5 w-3.5" /> CSV
+              </button>
+              <button
+                onClick={() => downloadCostExport("pdf")}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-white/15 hover:bg-white/25 transition px-2.5 py-1 text-xs ring-1 ring-white/30 font-medium"
+                title="Télécharger PDF (A4 paysage)"
+                data-testid="tickets-cost-export-pdf"
+              >
+                <FileText className="h-3.5 w-3.5" /> PDF
+              </button>
+            </div>
           </div>
           {Array.isArray(costSummary.by_client) && costSummary.by_client.length > 0 && (
             <div className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-1 text-xs">

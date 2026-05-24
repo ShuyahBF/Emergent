@@ -164,6 +164,11 @@ def build_qr_png(payload: str) -> bytes:
     return buf.getvalue()
 
 
+def _is_super_admin(user: dict) -> bool:
+    """Iter37e — SAWALI super-admin (sees data across all tenants)."""
+    return (user.get("email") or "").lower() == "admin@sawalismartsystems.com"
+
+
 def _is_admin_or_supervisor(user: dict) -> bool:
     role = (user or {}).get("role")
     return role in ("admin", "superviseur")
@@ -205,6 +210,65 @@ def _public_base_url(db_settings: Optional[dict]) -> str:
 
 
 # =====================================================================
+# Iter37e — One-shot tenant backfill (idempotent, runs at startup).
+# Assigns `tenant_id` to legacy docs that pre-date the multi-tenant work.
+# Strategy:
+#   - For each doc missing tenant_id, look up its `created_by` user and
+#     resolve the tenant (parent_client_id || client_id || id).
+#   - Products already store the tenant key in `client_id`; we copy it.
+# =====================================================================
+async def backfill_tenant_ids(db) -> Dict[str, int]:
+    """Idempotent: assign tenant_id to legacy Caisse docs.
+    Returns a dict {collection_name: rows_updated}.
+    """
+    stats: Dict[str, int] = {}
+    cache: Dict[str, Optional[str]] = {}
+
+    async def _tenant_for(uid: Optional[str]) -> Optional[str]:
+        if not uid:
+            return None
+        if uid in cache:
+            return cache[uid]
+        u = await db.users.find_one(
+            {"id": uid},
+            {"_id": 0, "id": 1, "parent_client_id": 1, "client_id": 1},
+        )
+        if not u:
+            cache[uid] = uid  # fallback to creator id
+            return uid
+        tid = u.get("parent_client_id") or u.get("client_id") or u.get("id") or uid
+        cache[uid] = tid
+        return tid
+
+    collections = ("business_clients", "receipts", "invoices",
+                   "legal_forms", "product_categories", "payment_methods")
+    for cname in collections:
+        coll = db[cname]
+        n = 0
+        cursor = coll.find(
+            {"tenant_id": {"$exists": False}},
+            {"_id": 0, "id": 1, "created_by": 1, "client_id": 1},
+        )
+        async for doc in cursor:
+            tid = doc.get("client_id") or await _tenant_for(doc.get("created_by"))
+            if tid:
+                await coll.update_one({"id": doc["id"]}, {"$set": {"tenant_id": tid}})
+                n += 1
+        stats[cname] = n
+    # Products: ensure tenant_id == client_id (already populated)
+    n_products = 0
+    cursor = db.products.find(
+        {"tenant_id": {"$exists": False}, "client_id": {"$ne": None}},
+        {"_id": 0, "id": 1, "client_id": 1},
+    )
+    async for doc in cursor:
+        await db.products.update_one({"id": doc["id"]}, {"$set": {"tenant_id": doc["client_id"]}})
+        n_products += 1
+    stats["products"] = n_products
+    return stats
+
+
+# =====================================================================
 # Router factory
 # =====================================================================
 def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None, send_email=None):
@@ -223,8 +287,13 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     async def _settings() -> Optional[dict]:
         return await db.app_settings.find_one({"_id": "default"}, {"_id": 0})
 
-    async def _resolve_payment_method(pm_id: str) -> Optional[dict]:
-        pm = await db.payment_methods.find_one({"id": pm_id, "active": True}, {"_id": 0})
+    async def _resolve_payment_method(pm_id: str, user: Optional[dict] = None) -> Optional[dict]:
+        # Iter37e — Tenant scoping (best-effort: caller may pass user for strict check)
+        q: Dict[str, Any] = {"id": pm_id, "active": True}
+        if user is not None and not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            q["$or"] = [{"tenant_id": tid}, {"tenant_id": {"$exists": False}}]
+        pm = await db.payment_methods.find_one(q, {"_id": 0})
         return pm
 
     async def _build_verify_url(token: str) -> str:
@@ -236,8 +305,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Business clients (clients en compte)
     # ----------------------------------------------------------------
     @router.get("/admin/business-clients")
-    async def list_business_clients(_: dict = Depends(get_current_supervisor)):
-        cursor = db.business_clients.find({"deleted_at": None}, {"_id": 0}).sort("name", 1)
+    async def list_business_clients(user: dict = Depends(get_current_supervisor)):
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        cursor = db.business_clients.find({**scope, "deleted_at": None}, {"_id": 0}).sort("name", 1)
         return [c async for c in cursor]
 
     @router.post("/admin/business-clients")
@@ -248,6 +319,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "balance": 0.0,
             "created_at": _now_iso(),
             "created_by": user["id"],
+            "tenant_id": await _tenant_id_of(user),  # Iter37e
             "deleted_at": None,
         })
         await db.business_clients.insert_one(doc.copy())
@@ -255,7 +327,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return doc
 
     @router.patch("/admin/business-clients/{cid}")
-    async def update_business_client(cid: str, payload: BusinessClientPayload, _: dict = Depends(get_current_supervisor)):
+    async def update_business_client(cid: str, payload: BusinessClientPayload, user: dict = Depends(get_current_supervisor)):
+        # Iter37e — Verify tenant access
+        existing = await db.business_clients.find_one({"id": cid, "deleted_at": None}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         updates = {k: v for k, v in payload.model_dump().items() if v is not None}
         updates["updated_at"] = _now_iso()
         res = await db.business_clients.update_one({"id": cid, "deleted_at": None}, {"$set": updates})
@@ -265,7 +340,10 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return c
 
     @router.delete("/admin/business-clients/{cid}")
-    async def delete_business_client(cid: str, _: dict = Depends(get_current_supervisor)):
+    async def delete_business_client(cid: str, user: dict = Depends(get_current_supervisor)):
+        # Iter37e — Verify tenant access
+        existing = await db.business_clients.find_one({"id": cid}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         res = await db.business_clients.update_one({"id": cid}, {"$set": {"deleted_at": _now_iso()}})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Client introuvable")
@@ -319,14 +397,49 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         seq = int(counter.get("seq", 1))
         return f"{slug}-{seq:08d}"
 
+    # ----------------------------------------------------------------
+    # Iter37e — Tenant scoping helpers (multi-tenant Caisse).
+    # All users sharing the same Client Lié (parent_client_id || client_id || id)
+    # see the same data: business_clients, products, receipts, invoices,
+    # legal_forms, product_categories, payment_methods.
+    # Super-admin (admin@sawalismartsystems.com) bypasses the filter.
+    # ----------------------------------------------------------------
+    async def _tenant_id_of(user: dict) -> str:
+        cl = await _resolve_client_lie(user)
+        return cl["id"]
+
+    async def _scoped_filter(user: dict, *, field: str = "tenant_id") -> Dict[str, Any]:
+        """Return the Mongo filter to scope a collection to the user's tenant.
+        - Super-admin: empty (no filter).
+        - Others: tenant_id == user's Client Lié id.
+        Legacy docs without tenant_id are auto-backfilled at startup, so
+        a strict equality filter is safe in steady state.
+        """
+        if _is_super_admin(user):
+            return {}
+        tid = await _tenant_id_of(user)
+        return {field: tid}
+
+    async def _ensure_tenant_access(user: dict, doc: Optional[dict]) -> None:
+        """Raise 404 if the doc is not visible from the user's tenant."""
+        if doc is None:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        if _is_super_admin(user):
+            return
+        tid = await _tenant_id_of(user)
+        doc_tid = doc.get("tenant_id")
+        if doc_tid is None or doc_tid == tid:
+            return
+        raise HTTPException(status_code=404, detail="Document introuvable")
+
     @router.get("/admin/products")
     async def list_products(user: dict = Depends(get_current_supervisor)):
-        # Iter37a — Filter by current user's Client Lié (multi-tenant catalog).
-        client_lie = await _resolve_client_lie(user)
+        # Iter37a/e — Filter by current user's Client Lié (multi-tenant catalog).
         q: Dict[str, Any] = {"deleted_at": None}
-        # Super-admin (email-flagged) sees all tenants
-        if (user.get("email") or "").lower() != "admin@sawalismartsystems.com":
-            q["client_id"] = client_lie["id"]
+        if not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            # `client_id` was the original tenant key; tenant_id is the new canonical.
+            q["$or"] = [{"client_id": tid}, {"tenant_id": tid}]
         cursor = db.products.find(q, {"_id": 0}).sort("name", 1)
         return [p async for p in cursor]
 
@@ -342,6 +455,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         doc.update({
             "id": str(uuid.uuid4()),
             "client_id": client_lie["id"],
+            "tenant_id": client_lie["id"],  # Iter37e — canonical tenant key
             "created_at": _now_iso(),
             "created_by": user["id"],
             "deleted_at": None,
@@ -377,19 +491,28 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     @router.get("/payment-methods")
     async def list_payment_methods(user: dict = Depends(get_current_user)):
-        cursor = db.payment_methods.find({"active": True}, {"_id": 0}).sort("sort_order", 1)
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        cursor = db.payment_methods.find({**scope, "active": True}, {"_id": 0}).sort("sort_order", 1)
         return [p async for p in cursor]
 
     @router.post("/admin/payment-methods")
     async def create_payment_method(payload: PaymentMethodPayload, user: dict = Depends(get_current_supervisor)):
         doc = payload.model_dump()
-        doc.update({"id": str(uuid.uuid4()), "created_at": _now_iso(), "created_by": user["id"]})
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "tenant_id": await _tenant_id_of(user),  # Iter37e
+        })
         await db.payment_methods.insert_one(doc.copy())
         doc.pop("_id", None)
         return doc
 
     @router.patch("/admin/payment-methods/{pid}")
-    async def update_payment_method(pid: str, payload: PaymentMethodPayload, _: dict = Depends(get_current_supervisor)):
+    async def update_payment_method(pid: str, payload: PaymentMethodPayload, user: dict = Depends(get_current_supervisor)):
+        existing = await db.payment_methods.find_one({"id": pid}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         updates = payload.model_dump()
         updates["updated_at"] = _now_iso()
         res = await db.payment_methods.update_one({"id": pid}, {"$set": updates})
@@ -398,7 +521,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return await db.payment_methods.find_one({"id": pid}, {"_id": 0})
 
     @router.delete("/admin/payment-methods/{pid}")
-    async def delete_payment_method(pid: str, _: dict = Depends(get_current_supervisor)):
+    async def delete_payment_method(pid: str, user: dict = Depends(get_current_supervisor)):
+        existing = await db.payment_methods.find_one({"id": pid}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         res = await db.payment_methods.update_one({"id": pid}, {"$set": {"active": False, "deleted_at": _now_iso()}})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Mode de paiement introuvable")
@@ -468,6 +593,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=400, detail="CSV vide")
         if _is_header_row(rows[0], BUSINESS_CSV_ORDER):
             rows = rows[1:]
+        tid = await _tenant_id_of(user)  # Iter37e
         created = 0
         skipped = 0
         errors: List[Dict[str, Any]] = []
@@ -478,8 +604,11 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             if not data.get("name"):
                 errors.append({"line": idx, "error": "Nom manquant"})
                 continue
-            # Skip duplicate name
-            existing = await db.business_clients.find_one({"name": data["name"], "deleted_at": None}, {"_id": 0, "id": 1})
+            # Iter37e — Dedup per tenant
+            existing = await db.business_clients.find_one(
+                {"name": data["name"], "deleted_at": None, "tenant_id": tid},
+                {"_id": 0, "id": 1},
+            )
             if existing:
                 skipped += 1
                 continue
@@ -488,6 +617,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 **data,
                 "auto_relance_enabled": False,
                 "relance_channel": "whatsapp",
+                "tenant_id": tid,  # Iter37e
                 "created_at": _now_iso(),
                 "created_by": user["id"],
                 "deleted_at": None,
@@ -533,6 +663,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                     "image_url": None,
                     "active": (data.get("active") or "true").strip().lower() not in ("false", "0", "no", "non"),
                     "client_id": client_lie["id"],
+                    "tenant_id": client_lie["id"],  # Iter37e
                     "created_at": _now_iso(),
                     "created_by": user["id"],
                     "deleted_at": None,
@@ -558,22 +689,26 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Iter37a — Legal forms (admin-managed dropdown for business_clients)
     # ----------------------------------------------------------------
     @router.get("/cashier/legal-forms")
-    async def list_legal_forms(_: dict = Depends(get_current_user)):
-        cursor = db.legal_forms.find({"deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
+    async def list_legal_forms(user: dict = Depends(get_current_user)):
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        cursor = db.legal_forms.find({**scope, "deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
         return [r async for r in cursor]
 
     @router.post("/admin/legal-forms")
     async def create_legal_form(payload: LegalFormPayload, user: dict = Depends(get_current_supervisor)):
         label = payload.label.strip()
-        existing = await db.legal_forms.find_one({"label": label, "deleted_at": None}, {"_id": 0, "id": 1})
+        tid = await _tenant_id_of(user)  # Iter37e
+        existing = await db.legal_forms.find_one({"label": label, "deleted_at": None, "tenant_id": tid}, {"_id": 0, "id": 1})
         if existing:
             raise HTTPException(status_code=400, detail=f"Forme juridique déjà présente ({label})")
-        last = await db.legal_forms.find({"deleted_at": None}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
+        last = await db.legal_forms.find({"deleted_at": None, "tenant_id": tid}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
         next_order = (last[0]["sort_order"] + 1) if last else 0
         doc = {
             "id": str(uuid.uuid4()),
             "label": label,
             "sort_order": next_order,
+            "tenant_id": tid,  # Iter37e
             "created_at": _now_iso(),
             "created_by": user["id"],
             "deleted_at": None,
@@ -583,7 +718,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return doc
 
     @router.delete("/admin/legal-forms/{lid}")
-    async def delete_legal_form(lid: str, _: dict = Depends(get_current_supervisor)):
+    async def delete_legal_form(lid: str, user: dict = Depends(get_current_supervisor)):
+        existing = await db.legal_forms.find_one({"id": lid}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         res = await db.legal_forms.update_one({"id": lid}, {"$set": {"deleted_at": _now_iso()}})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Forme juridique introuvable")
@@ -593,22 +730,26 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Iter37a — Product categories (admin-managed dropdown for products)
     # ----------------------------------------------------------------
     @router.get("/cashier/product-categories")
-    async def list_product_categories(_: dict = Depends(get_current_user)):
-        cursor = db.product_categories.find({"deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
+    async def list_product_categories(user: dict = Depends(get_current_user)):
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        cursor = db.product_categories.find({**scope, "deleted_at": None}, {"_id": 0}).sort("sort_order", 1)
         return [r async for r in cursor]
 
     @router.post("/admin/product-categories")
     async def create_product_category(payload: ProductCategoryPayload, user: dict = Depends(get_current_supervisor)):
         label = payload.label.strip()
-        existing = await db.product_categories.find_one({"label": label, "deleted_at": None}, {"_id": 0, "id": 1})
+        tid = await _tenant_id_of(user)  # Iter37e
+        existing = await db.product_categories.find_one({"label": label, "deleted_at": None, "tenant_id": tid}, {"_id": 0, "id": 1})
         if existing:
             raise HTTPException(status_code=400, detail=f"Catégorie déjà présente ({label})")
-        last = await db.product_categories.find({"deleted_at": None}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
+        last = await db.product_categories.find({"deleted_at": None, "tenant_id": tid}, {"_id": 0, "sort_order": 1}).sort("sort_order", -1).limit(1).to_list(1)
         next_order = (last[0]["sort_order"] + 1) if last else 0
         doc = {
             "id": str(uuid.uuid4()),
             "label": label,
             "sort_order": next_order,
+            "tenant_id": tid,  # Iter37e
             "created_at": _now_iso(),
             "created_by": user["id"],
             "deleted_at": None,
@@ -618,7 +759,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return doc
 
     @router.delete("/admin/product-categories/{cid}")
-    async def delete_product_category(cid: str, _: dict = Depends(get_current_supervisor)):
+    async def delete_product_category(cid: str, user: dict = Depends(get_current_supervisor)):
+        existing = await db.product_categories.find_one({"id": cid}, {"_id": 0, "tenant_id": 1})
+        await _ensure_tenant_access(user, existing)
         res = await db.product_categories.update_one({"id": cid}, {"$set": {"deleted_at": _now_iso()}})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Catégorie introuvable")
@@ -664,9 +807,18 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return {k: s.get(k) for k in _AUTO_RELANCE_KEYS}
 
     @router.get("/admin/users/can-cash")
-    async def list_cashier_users(_: dict = Depends(get_current_supervisor)):
+    async def list_cashier_users(user: dict = Depends(get_current_supervisor)):
+        # Iter37e — Restrict to users of the same tenant
+        q: Dict[str, Any] = {"can_cash": True, "account_status": {"$ne": "deleted"}}
+        if not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            q["$or"] = [
+                {"id": tid},
+                {"parent_client_id": tid},
+                {"client_id": tid},
+            ]
         cursor = db.users.find(
-            {"can_cash": True, "account_status": {"$ne": "deleted"}},
+            q,
             {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1},
         )
         return [u async for u in cursor]
@@ -678,16 +830,22 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     async def create_receipt(payload: ReceiptPayload, user: dict = Depends(get_current_user)):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Vous n'avez pas l'autorisation d'encaisser.")
-        bc = await db.business_clients.find_one({"id": payload.business_client_id, "deleted_at": None}, {"_id": 0})
+        # Iter37e — Verify bc belongs to user's tenant
+        scope = await _scoped_filter(user)
+        bc = await db.business_clients.find_one(
+            {**scope, "id": payload.business_client_id, "deleted_at": None},
+            {"_id": 0},
+        )
         if not bc:
             raise HTTPException(status_code=404, detail="Client en compte introuvable")
-        pm = await _resolve_payment_method(payload.payment_method_id)
+        pm = await _resolve_payment_method(payload.payment_method_id, user=user)
         if not pm:
             raise HTTPException(status_code=400, detail="Mode de paiement invalide ou inactif")
         year = datetime.now(timezone.utc).year
         seq = await _next_year_seq("receipts", year)
         number = f"R-{year}-{seq:04d}"
         token = secrets.token_urlsafe(24)
+        tid = await _tenant_id_of(user)  # Iter37e
         doc = {
             "id": str(uuid.uuid4()),
             "number": number,
@@ -718,6 +876,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "qr_token": token,
             "qr_url": await _build_verify_url(token),
             "cancelled_at": None,
+            "tenant_id": tid,  # Iter37e
             # Iter37b — Snapshot of the tenant (Client Lié) header for print
             "tenant_snapshot": await _resolve_client_lie(user),
         }
@@ -733,7 +892,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        q: Dict[str, Any] = {}
+        # Iter37e — Tenant scope
+        q: Dict[str, Any] = await _scoped_filter(user)
         if business_client_id:
             q["business_client_id"] = business_client_id
         cursor = db.receipts.find(q, {"_id": 0}).sort("issued_at", -1).limit(limit)
@@ -744,17 +904,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0})
-        if not r:
-            raise HTTPException(status_code=404, detail="Reçu introuvable")
+        await _ensure_tenant_access(user, r)  # Iter37e
         return r
 
     @router.get("/cashier/receipts/{rid}/qr.png")
     async def receipt_qr_png(rid: str, user: dict = Depends(get_current_user)):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        r = await db.receipts.find_one({"id": rid}, {"_id": 0, "qr_url": 1})
-        if not r:
-            raise HTTPException(status_code=404, detail="Reçu introuvable")
+        r = await db.receipts.find_one({"id": rid}, {"_id": 0, "qr_url": 1, "tenant_id": 1})
+        await _ensure_tenant_access(user, r)  # Iter37e
         png = build_qr_png(r["qr_url"])
         return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
 
@@ -768,8 +926,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0})
-        if not r:
-            raise HTTPException(status_code=404, detail="Reçu introuvable")
+        await _ensure_tenant_access(user, r)  # Iter37e
         if wa_send_text is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
         # Resolve recipient phone (override > snapshot.whatsapp/phone > live bc.whatsapp/phone)
@@ -846,7 +1003,12 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=400, detail="kind doit être 'proforma' ou 'invoice'")
         if payload.discount_kind not in ("none", "value", "percent"):
             raise HTTPException(status_code=400, detail="discount_kind invalide")
-        bc = await db.business_clients.find_one({"id": payload.business_client_id, "deleted_at": None}, {"_id": 0})
+        # Iter37e — Tenant scope check on business_client
+        scope = await _scoped_filter(user)
+        bc = await db.business_clients.find_one(
+            {**scope, "id": payload.business_client_id, "deleted_at": None},
+            {"_id": 0},
+        )
         if not bc:
             raise HTTPException(status_code=404, detail="Client en compte introuvable")
         items = [it.model_dump() for it in payload.items]
@@ -856,6 +1018,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         seq = await _next_year_seq(f"invoices:{payload.kind}", year)
         number = f"{prefix}-{year}-{seq:04d}"
         token = secrets.token_urlsafe(24)
+        tid = await _tenant_id_of(user)  # Iter37e
         doc = {
             "id": str(uuid.uuid4()),
             "number": number,
@@ -889,6 +1052,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "cancelled_at": None,
             "qr_token": token,
             "qr_url": await _build_verify_url(token),
+            "tenant_id": tid,  # Iter37e
             # Iter37b — Tenant header snapshot
             "tenant_snapshot": await _resolve_client_lie(user),
         }
@@ -906,7 +1070,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        q: Dict[str, Any] = {}
+        # Iter37e — Tenant scope
+        q: Dict[str, Any] = await _scoped_filter(user)
         if kind:
             q["kind"] = kind
         if status:
@@ -921,17 +1086,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         i = await db.invoices.find_one({"id": iid}, {"_id": 0})
-        if not i:
-            raise HTTPException(status_code=404, detail="Document introuvable")
+        await _ensure_tenant_access(user, i)  # Iter37e
         return i
 
     @router.get("/cashier/invoices/{iid}/qr.png")
     async def invoice_qr_png(iid: str, user: dict = Depends(get_current_user)):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        i = await db.invoices.find_one({"id": iid}, {"_id": 0, "qr_url": 1})
-        if not i:
-            raise HTTPException(status_code=404, detail="Document introuvable")
+        i = await db.invoices.find_one({"id": iid}, {"_id": 0, "qr_url": 1, "tenant_id": 1})
+        await _ensure_tenant_access(user, i)  # Iter37e
         return Response(content=build_qr_png(i["qr_url"]), media_type="image/png")
 
     # Iter36v — Send invoice/proforma to client via WhatsApp (1-click)
@@ -944,8 +1107,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
-        if not inv:
-            raise HTTPException(status_code=404, detail="Document introuvable")
+        await _ensure_tenant_access(user, inv)  # Iter37e
         if wa_send_text is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
         phone = (payload or {}).get("phone")
@@ -1013,6 +1175,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         q = _build_overdue_query(grace_days)
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        q.update(scope)
         count = await db.invoices.count_documents(q)
         return {"count": count, "grace_days": grace_days}
 
@@ -1027,6 +1192,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         dry_run = bool((payload or {}).get("dry_run") or False)
         ids: Optional[List[str]] = (payload or {}).get("ids")
         q = _build_overdue_query(grace_days)
+        # Iter37e — Tenant scope
+        scope = await _scoped_filter(user)
+        q.update(scope)
         if ids:
             q["id"] = {"$in": list(ids)}
         cursor = db.invoices.find(q, {"_id": 0}).sort("due_date", 1).limit(500)
@@ -1098,8 +1266,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
-        if not inv:
-            raise HTTPException(status_code=404, detail="Document introuvable")
+        await _ensure_tenant_access(user, inv)  # Iter37e
         updates: Dict[str, Any] = {}
         generated_receipt: Optional[dict] = None
         # 1) Convert proforma -> invoice (re-number)
@@ -1136,7 +1303,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                     raise HTTPException(status_code=400, detail="Convertissez en facture avant règlement")
                 if not payload.payment_method_id:
                     raise HTTPException(status_code=400, detail="payment_method_id requis pour règlement")
-                pm = await _resolve_payment_method(payload.payment_method_id)
+                pm = await _resolve_payment_method(payload.payment_method_id, user=user)
                 if not pm:
                     raise HTTPException(status_code=400, detail="Mode de paiement invalide")
                 updates["status"] = "paid"
@@ -1172,6 +1339,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                     "qr_token": rtoken,
                     "qr_url": await _build_verify_url(rtoken),
                     "cancelled_at": None,
+                    "tenant_id": inv.get("tenant_id") or await _tenant_id_of(user),  # Iter37e
                 }
                 await db.receipts.insert_one(rdoc.copy())
                 rdoc.pop("_id", None)
@@ -1188,8 +1356,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
-        if not inv:
-            raise HTTPException(status_code=404, detail="Document introuvable")
+        await _ensure_tenant_access(user, inv)  # Iter37e
         if inv["status"] != "paid":
             raise HTTPException(status_code=400, detail="Facture non réglée")
         # Re-use create_receipt logic (with related_invoice_id forced)
@@ -1296,14 +1463,20 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
-    async def _query_receipts(business_client_id: Optional[str], limit: int) -> List[dict]:
+    async def _query_receipts(business_client_id: Optional[str], limit: int, user: Optional[dict] = None) -> List[dict]:
+        # Iter37e — Tenant scope
         q: Dict[str, Any] = {}
+        if user is not None:
+            q.update(await _scoped_filter(user))
         if business_client_id:
             q["business_client_id"] = business_client_id
         return await db.receipts.find(q, {"_id": 0}).sort("issued_at", -1).limit(limit).to_list(limit)
 
-    async def _query_invoices(kind: Optional[str], status: Optional[str], business_client_id: Optional[str], limit: int) -> List[dict]:
+    async def _query_invoices(kind: Optional[str], status: Optional[str], business_client_id: Optional[str], limit: int, user: Optional[dict] = None) -> List[dict]:
+        # Iter37e — Tenant scope
         q: Dict[str, Any] = {}
+        if user is not None:
+            q.update(await _scoped_filter(user))
         if kind:
             q["kind"] = kind
         if status:
@@ -1320,7 +1493,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        items = await _query_receipts(business_client_id, limit)
+        items = await _query_receipts(business_client_id, limit, user=user)
         rows: List[List[Any]] = [["N°", "Date", "Client en compte", "Bénéficiaire", "Motif",
                                   "Montant (FCFA)", "Mode de paiement", "Référence",
                                   "Caissier", "Envoyé WA", "Annulé"]]
@@ -1349,7 +1522,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        items = await _query_receipts(business_client_id, limit)
+        items = await _query_receipts(business_client_id, limit, user=user)
         rows: List[List[str]] = []
         total = 0.0
         active = 0
@@ -1384,7 +1557,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        items = await _query_invoices(kind, status, business_client_id, limit)
+        items = await _query_invoices(kind, status, business_client_id, limit, user=user)
         rows: List[List[Any]] = [["N°", "Type", "Statut", "Date", "Client", "NIF/RCCM",
                                   "Sous-total HT", "TVA", "Total TTC", "Remise", "Net à payer",
                                   "Réglé via", "Envoyé WA", "Annulé"]]
@@ -1419,7 +1592,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        items = await _query_invoices(kind, status, business_client_id, limit)
+        items = await _query_invoices(kind, status, business_client_id, limit, user=user)
         rows: List[List[str]] = []
         total_due = 0.0
         total_paid = 0.0
@@ -1611,12 +1784,14 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     async def invoices_kpis(user: dict = Depends(get_current_user)):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
+        # Iter37e — Tenant scope applied on every aggregation
+        tenant_scope = await _scoped_filter(user)
         now = datetime.now(timezone.utc)
         month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
         ninety_days_ago = (now - timedelta(days=90)).isoformat()
         # 1) Encaissé ce mois (status=paid AND paid_at >= month_start)
         paid_cursor = db.invoices.find(
-            {"kind": "invoice", "status": "paid", "paid_at": {"$gte": month_start}},
+            {**tenant_scope, "kind": "invoice", "status": "paid", "paid_at": {"$gte": month_start}},
             {"_id": 0, "net_to_pay": 1},
         )
         paid_amount = 0.0
@@ -1626,7 +1801,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             paid_count += 1
         # 2) Restant à encaisser (status=issued)
         due_cursor = db.invoices.find(
-            {"kind": "invoice", "status": "issued"},
+            {**tenant_scope, "kind": "invoice", "status": "issued"},
             {"_id": 0, "net_to_pay": 1},
         )
         due_amount = 0.0
@@ -1636,7 +1811,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             due_count += 1
         # 3) Délai moyen de paiement (en jours) — sur les factures payées des 90 derniers jours
         recent_paid_cursor = db.invoices.find(
-            {"kind": "invoice", "status": "paid", "paid_at": {"$gte": ninety_days_ago}},
+            {**tenant_scope, "kind": "invoice", "status": "paid", "paid_at": {"$gte": ninety_days_ago}},
             {"_id": 0, "created_at": 1, "paid_at": 1},
         )
         deltas: List[float] = []
@@ -1649,9 +1824,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 continue
         avg_days = round(sum(deltas) / len(deltas), 1) if deltas else None
         # 4) Top 3 "mauvais payeurs" — agrégat par business_client sur les factures issued
-        today_iso = now.strftime("%Y-%m-%d")
         bad_payers_pipeline = [
-            {"$match": {"kind": "invoice", "status": "issued"}},
+            {"$match": {**tenant_scope, "kind": "invoice", "status": "issued"}},
             {"$group": {
                 "_id": "$business_client_id",
                 "unpaid_amount": {"$sum": "$net_to_pay"},

@@ -11873,10 +11873,15 @@ async def me_whatsapp_history(limit: int = 100, user: dict = Depends(get_current
 WA_24H_WINDOW_SECONDS = 24 * 3600
 
 
-async def _wa_send_text(to_e164: str, text: str) -> dict:
+async def _wa_send_text(to_e164: str, text: str, reply_to_message_id: Optional[str] = None) -> dict:
     """Send a free-form WhatsApp text message (Cloud API type=text).
     ONLY allowed inside the 24h customer service window (after the user wrote first).
     Caller is responsible for verifying the window before invocation.
+
+    Iter37h — `reply_to_message_id` (the Meta message id of an inbound) attaches
+    a `context.message_id` to the outbound so the WhatsApp client renders it as
+    a quoted reply.
+
     Returns the same shape as `_wa_send_template`."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
@@ -11887,12 +11892,14 @@ async def _wa_send_text(to_e164: str, text: str) -> dict:
     if len(to_clean) < 6:
         return {"ok": False, "status": None, "message_id": None,
                 "error": f"Numéro invalide « {to_e164} » — il doit contenir un indicatif pays", "raw": None}
-    body = {
+    body: Dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to_clean,
         "type": "text",
         "text": {"body": text or "", "preview_url": True},
     }
+    if reply_to_message_id:
+        body["context"] = {"message_id": reply_to_message_id}
     url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
     try:
         async with httpx.AsyncClient(timeout=12) as http:
@@ -12116,10 +12123,14 @@ async def _wa_send_media(
     public_url: str,
     caption: Optional[str] = None,
     filename: Optional[str] = None,
+    reply_to_message_id: Optional[str] = None,
 ) -> dict:
     """Send a free-form WhatsApp media message (image/document/audio/video).
     ONLY allowed inside the 24h customer service window. Caller is responsible
-    for verifying the window before invocation."""
+    for verifying the window before invocation.
+
+    Iter37h — `reply_to_message_id` attaches a `context.message_id` so the
+    WhatsApp client displays this media as a quoted reply."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
     phone_number_id = s.get("wa_phone_number_id")
@@ -12136,12 +12147,14 @@ async def _wa_send_media(
         media_obj["caption"] = caption[:1024]
     if kind == "document" and filename:
         media_obj["filename"] = filename
-    body = {
+    body: Dict[str, Any] = {
         "messaging_product": "whatsapp",
         "to": to_clean,
         "type": kind,
         kind: media_obj,
     }
+    if reply_to_message_id:
+        body["context"] = {"message_id": reply_to_message_id}
     url = f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}/messages"
     try:
         async with httpx.AsyncClient(timeout=30) as http:
@@ -12325,6 +12338,8 @@ class WhatsAppSendTextRequest(BaseModel):
     text: str
     contact_id: Optional[str] = None
     tracked_user_id: Optional[str] = None
+    # Iter37h — Optional reply-to context (WhatsApp Cloud API context.message_id)
+    reply_to_message_id: Optional[str] = None
 
 
 @api.post("/me/whatsapp/send-text", tags=["Portail Client"])
@@ -12364,7 +12379,7 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
             detail="Fenêtre 24h fermée — aucun message reçu de ce contact dans les dernières 24 heures. Utilisez un template Meta approuvé.",
         )
 
-    result = await _wa_send_text(to, text)
+    result = await _wa_send_text(to, text, reply_to_message_id=payload.reply_to_message_id)
     # Iter35n — Compute reply-time for the most recent unanswered inbound
     reply_window = None
     if result.get("ok"):
@@ -12401,6 +12416,9 @@ async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = D
         log["reply_to_inbound_id"] = reply_window["inbound_id"]
         log["reply_to_inbound_received_at"] = reply_window["inbound_received_at"]
         log["reply_seconds"] = reply_window["reply_seconds"]
+    # Iter37h — Persist quote context for the chat thread UI
+    if payload.reply_to_message_id:
+        log["reply_to_message_id"] = payload.reply_to_message_id
     try:
         await db.whatsapp_messages.insert_one(log.copy())
     except Exception:
@@ -12430,6 +12448,7 @@ async def me_whatsapp_send_media(
     caption: Optional[str] = Form(None),
     add_watermark: Optional[str] = Form(None),  # "1"/"0"/empty (defaults to admin setting)
     add_qr: Optional[str] = Form(None),         # "1"/"0"/empty (defaults to admin setting)
+    reply_to_message_id: Optional[str] = Form(None),  # Iter37h — quote inbound msg
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
@@ -12545,6 +12564,7 @@ async def me_whatsapp_send_media(
         public_url=public_url,
         caption=caption,
         filename=file.filename,
+        reply_to_message_id=reply_to_message_id,  # Iter37h
     )
 
     # Iter35n — Compute reply-time for the most recent unanswered inbound
@@ -12593,6 +12613,9 @@ async def me_whatsapp_send_media(
         log["reply_to_inbound_id"] = reply_window["inbound_id"]
         log["reply_to_inbound_received_at"] = reply_window["inbound_received_at"]
         log["reply_seconds"] = reply_window["reply_seconds"]
+    # Iter37h — Persist quote context for the chat thread UI
+    if reply_to_message_id:
+        log["reply_to_message_id"] = reply_to_message_id
     try:
         await db.whatsapp_messages.insert_one(log.copy())
     except Exception:
@@ -14382,19 +14405,24 @@ async def whatsapp_webhook_incoming(request: Request):
                         doc["media_kind"] = media_info.get("kind")
                         if media_caption:
                             doc["media_caption"] = media_caption
+                    # Iter37h — Capture quote context (when user replies to one of our messages)
+                    ctx = (msg.get("context") or {})
+                    quoted_mid = ctx.get("id") or ctx.get("message_id")
+                    if quoted_mid:
+                        doc["reply_to_message_id"] = quoted_mid
+                    if media_info and media_info.get("kind") == "audio":
                         # Iter35l — auto-transcribe voice notes when toggle ON
-                        if media_info.get("kind") == "audio":
-                            try:
-                                s_root = await db.settings.find_one({"_id": "global"}) or {}
-                                if bool(s_root.get("wa_voice_transcribe_enabled", True)):
-                                    stored = UPLOAD_DIR / media_info["stored_name"]
-                                    transcript = await _wa_transcribe_audio_file(stored, language="fr")
-                                    if transcript:
-                                        doc["voice_note_transcript"] = transcript
-                                        # Prepend a hint so the bubble's primary text shows the transcript
-                                        doc["body"] = transcript if not media_caption else f"{media_caption}\n— {transcript}"
-                            except Exception as exc:  # noqa: BLE001
-                                logger.warning("WA voice transcribe failed: %s", exc)
+                        try:
+                            s_root = await db.settings.find_one({"_id": "global"}) or {}
+                            if bool(s_root.get("wa_voice_transcribe_enabled", True)):
+                                stored = UPLOAD_DIR / media_info["stored_name"]
+                                transcript = await _wa_transcribe_audio_file(stored, language="fr")
+                                if transcript:
+                                    doc["voice_note_transcript"] = transcript
+                                    # Prepend a hint so the bubble's primary text shows the transcript
+                                    doc["body"] = transcript if not media_caption else f"{media_caption}\n— {transcript}"
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("WA voice transcribe failed: %s", exc)
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
                     # Iter34x — activity log for inbound WA

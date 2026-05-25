@@ -18,7 +18,7 @@ import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
-  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building,
+  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -63,6 +63,8 @@ function Empty({ label }) {
 // Receipts tab
 // =====================================================================
 function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
+  const { user } = useAuth();
+  const canDelete = user && (user.role === "admin" || user.role === "superviseur");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -80,6 +82,18 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
     } catch { setItems([]); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+
+  // Iter37h — Delete a receipt (admin/superviseur only)
+  const deleteReceipt = async (rid, number) => {
+    if (!window.confirm(`Supprimer définitivement le reçu ${number || rid} ?\nCette action est irréversible.`)) return;
+    try {
+      await apiClient.delete(`/cashier/receipts/${rid}`);
+      toast.success(`Reçu ${number || rid} supprimé`);
+      setItems((prev) => prev.filter((r) => r.id !== rid));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la suppression");
+    }
+  };
 
   const submit = async () => {
     if (!form.business_client_id) { toast.error("Sélectionnez un client en compte"); return; }
@@ -233,6 +247,16 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
                       data-testid={`receipt-print-${r.id}`}>
                       <Printer className="h-3.5 w-3.5" /> Imprimer
                     </Link>
+                    {canDelete && (
+                      <button
+                        onClick={() => deleteReceipt(r.id, r.number)}
+                        className="ml-3 inline-flex items-center gap-1 text-rose-600 hover:underline text-xs"
+                        title="Supprimer (admin/superviseur)"
+                        data-testid={`receipt-delete-${r.id}`}
+                      >
+                        <Trash2 className="h-3.5 w-3.5" /> Suppr.
+                      </button>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -342,6 +366,8 @@ function InvoiceKpiPanel() {
 
 
 function InvoicesTab({ businessClients, products, paymentMethods, refreshClients }) {
+  const { user } = useAuth();
+  const canDelete = user && (user.role === "admin" || user.role === "superviseur");
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -474,6 +500,51 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
       toast.success("Annulé");
       load();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  // Iter37h — Hard delete (admin/superviseur only)
+  const deleteInvoice = async (iid, number, kind) => {
+    const label = kind === "proforma" ? "proforma" : "facture";
+    if (!window.confirm(`Supprimer définitivement ${label} ${number || iid} ?\nCette action est irréversible.`)) return;
+    try {
+      await apiClient.delete(`/cashier/invoices/${iid}`);
+      toast.success(`${label} ${number || iid} supprimé(e)`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la suppression");
+    }
+  };
+
+  // Iter37h — Duplicate an invoice/proforma (items only, no client) → open the
+  // creation modal with pre-filled lines via a draft fetched from backend.
+  const duplicateInvoice = async (iid, number) => {
+    try {
+      const r = await apiClient.post(`/cashier/invoices/${iid}/duplicate`);
+      const draft = r.data?.draft;
+      if (!draft) { toast.error("Échec de la duplication"); return; }
+      setForm((prev) => ({
+        ...prev,
+        kind: draft.kind || "invoice",
+        business_client_id: "",       // Forced empty per user spec
+        items: (draft.items || []).map((it) => ({
+          label: it.label || "",
+          description: it.description || "",
+          quantity: Number(it.quantity || 1),
+          unit_price_ht: Number(it.unit_price_ht || 0),
+          tva_pct: Number(it.tva_pct || 0),
+        })),
+        discount_kind: draft.discount_kind || "none",
+        discount_value: Number(draft.discount_value || 0),
+        notes: draft.notes || "",
+        due_date: "",
+        billing_address: "",
+        shipping_address: "",
+      }));
+      setShowForm(true);
+      toast.success(`Dupliqué depuis ${number || iid} — choisissez un client puis enregistrez`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la duplication");
+    }
   };
 
   return (
@@ -699,6 +770,15 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
                     <Link to={`/portal/billing/invoice/${i.id}`} target="_blank" className="inline-flex items-center gap-0.5 text-sawali-blue hover:underline text-xs">
                       <Printer className="h-3.5 w-3.5" />
                     </Link>
+                    {/* Iter37h — Duplicate invoice/proforma (no client, only lines) */}
+                    <button
+                      onClick={() => duplicateInvoice(i.id, i.number)}
+                      className="text-xs text-violet-600 hover:underline"
+                      title="Dupliquer (sans client, juste les lignes)"
+                      data-testid={`invoice-duplicate-${i.id}`}
+                    >
+                      <Copy className="h-3.5 w-3.5 inline" />
+                    </button>
                     {i.kind === "proforma" && i.status === "issued" && (
                       <button onClick={() => convertToInvoice(i.id)} className="text-xs text-emerald-600 hover:underline" title="Convertir en facture">
                         <ArrowRight className="h-3.5 w-3.5 inline" />
@@ -710,7 +790,18 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
                       </button>
                     )}
                     {i.status === "issued" && (
-                      <button onClick={() => cancel(i.id)} className="text-xs text-rose-500 hover:underline" title="Annuler">
+                      <button onClick={() => cancel(i.id)} className="text-xs text-amber-600 hover:underline" title="Annuler (statut)">
+                        <XCircle className="h-3.5 w-3.5 inline" />
+                      </button>
+                    )}
+                    {/* Iter37h — Hard delete (admin/superviseur only) */}
+                    {canDelete && (
+                      <button
+                        onClick={() => deleteInvoice(i.id, i.number, i.kind)}
+                        className="text-xs text-rose-600 hover:underline"
+                        title="Supprimer définitivement (admin/superviseur)"
+                        data-testid={`invoice-delete-${i.id}`}
+                      >
                         <Trash2 className="h-3.5 w-3.5 inline" />
                       </button>
                     )}

@@ -2,6 +2,47 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## Latest — Iter37h (2026-05-25) — Voix WA + Reply + Delete RBAC + Duplicate facture
+
+### 🎙️ 1) Notes vocales + transcription dans la fenêtre de discussion WhatsApp
+- Bouton micro (rose) ajouté dans le composer de la `ConversationModal` (à côté du Paperclip).
+- Pendant l'enregistrement : barre rouge avec chronomètre + 3 boutons :
+  - **Transcrire & insérer** → upload audio vers `/me/chat/transcribe` (Whisper), insère le texte dans le textarea (l'utilisateur peut éditer avant d'envoyer).
+  - **Envoyer comme note vocale** → stage l'audio en `pendingFile` puis envoie via `/me/whatsapp/send-media`.
+  - **Annuler** → arrête le micro et libère la stream.
+- Utilise `MediaRecorder` avec négociation des formats (webm/opus → webm → mp4 → ogg).
+
+### 💬 2) Répondre à un message (quote reply)
+- Bouton "Répondre" (icône `CornerUpLeft`) sur chaque bulle (apparaît au hover).
+- **Backend** : `WhatsAppSendTextRequest.reply_to_message_id` + `send-media` form field `reply_to_message_id`. Forwardé à `_wa_send_text` / `_wa_send_media` qui ajoutent `context.message_id` dans le payload Meta — WhatsApp affiche alors le message en quote.
+- **Webhook inbound** capture désormais `msg.context.id` → `doc.reply_to_message_id` pour rendre les réponses du contact dans le thread.
+- **UI** : bandeau sky au-dessus du composer pour visualiser le message cité + bouton Annuler. Chaque bulle affiche une "quote bar" si elle est une réponse, avec le texte du message d'origine résolu côté frontend par `message_id`/`wa_message_id`.
+
+### 🗑️ 3) DELETE proforma / facture / reçu (admin ou superviseur uniquement)
+- 2 nouveaux endpoints :
+  - `DELETE /api/cashier/receipts/{rid}` → soft-delete avec `deleted_at + deleted_by`.
+  - `DELETE /api/cashier/invoices/{iid}` → idem.
+- Dependency : `get_current_supervisor` (admin ou superviseur). Plain cashier = 401/403.
+- Documents soft-deleted exclus des listings, des KPIs, du compteur overdue, du flux auto-relance, des exports CSV/PDF et des endpoints publics PDF/verify.
+- Frontend : bouton 🗑 conditionné par `user.role in ("admin", "superviseur")` dans ReceiptsTab et InvoicesTab.
+
+### 📋 4) Dupliquer une facture/proforma (sans nom de client, juste les lignes)
+- `POST /api/cashier/invoices/{iid}/duplicate` → retourne `{draft: {kind, business_client_id: null, items: [...], discount_*, notes, due_date: null}, source_id, source_number}`. Ne persiste rien.
+- Frontend : bouton **Dupliquer** (icône `Copy`, violet) dans InvoicesTab → pré-remplit le formulaire de création + ouvre le modal, l'utilisateur choisit un client et enregistre.
+
+### ✅ Tests : **129/129 pytest verts** (+8 nouveaux `test_iter37h_delete_duplicate.py`).
+- DELETE reçu/facture/proforma : 5 tests (sup OK, plain cashier 401/403, PDF public 404 après delete).
+- Duplicate : 3 tests (draft sans client, proforma, accessible aux can_cash).
+
+### 🚨 Action utilisateur en production
+1. **Save to GitHub** → **Redéployer** `sawalismartsystems.com`.
+2. Vérifier le micro en ouvrant une conversation WA : bouton micro rose dans le composer.
+3. Hover sur une bulle pour voir l'option "Répondre".
+4. La suppression définitive d'un reçu/facture/proforma n'est visible **que** pour admin/superviseur.
+5. Le bouton "Dupliquer" (icône violet) ouvre le formulaire pré-rempli sans client — choisir un nouveau client puis enregistrer.
+
+---
+
 ## Latest — Iter37g (2026-05-24) — Templates WhatsApp internes + URLs bibliothèque + PRD split
 
 ### 📑 a/ PRD scindé

@@ -8,7 +8,7 @@ import {
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
-  Paperclip, Mic, Play, BookmarkPlus, Ticket,
+  Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1367,6 +1367,12 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // the user but not yet uploaded. We show a small preview row above the text
   // composer and let them add a caption before pressing Envoyer.
   const [pendingFile, setPendingFile] = useState(null); // { file, kind, previewUrl }
+  // Iter37h — Voice recording state (MediaRecorder)
+  const [recState, setRecState] = useState("idle"); // idle | recording | transcribing
+  const [recElapsed, setRecElapsed] = useState(0);
+  const recRef = React.useRef(null); // { mediaRecorder, chunks, stream, timerId }
+  // Iter37h — Reply context (quoting a message)
+  const [replyTo, setReplyTo] = useState(null); // { id, body, direction, from, message_id }
   const fileInputRef = React.useRef(null);
   // Iter34o — Auto-scroll to the latest message so the composer is always
   // anchored on the last exchange (matches WhatsApp/Messenger UX).
@@ -1402,6 +1408,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     const body = (text || "").trim();
     if (!body && !pendingFile) { toast.error("Le message est vide"); return; }
     if (!contact.whatsapp) { toast.error("Numéro WhatsApp manquant"); return; }
+    // Iter37h — Resolve the reply target's WhatsApp message id (only inbound msgs have a wa_message_id we can quote)
+    const replyMid = replyTo?.message_id || replyTo?.wa_message_id || null;
     setSending(true);
     try {
       let r;
@@ -1411,6 +1419,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         fd.append("contact_id", contact.id);
         if (body) fd.append("caption", body);
         fd.append("file", pendingFile.file);
+        if (replyMid) fd.append("reply_to_message_id", replyMid);
         r = await apiClient.post("/me/whatsapp/send-media", fd, {
           headers: { "Content-Type": "multipart/form-data" },
         });
@@ -1419,12 +1428,14 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           to: contact.whatsapp,
           text: body,
           contact_id: contact.id,
+          reply_to_message_id: replyMid || undefined,
         });
       }
       if (r.data?.ok) {
         toast.success(pendingFile ? "Média envoyé" : "Message envoyé");
         setText("");
         clearPendingFile();
+        setReplyTo(null);  // Iter37h — clear quote after send
         await load();
       } else {
         toast.error(r.data?.error || "Échec d'envoi");
@@ -1436,6 +1447,91 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       setSending(false);
     }
   };
+
+  // Iter37h — Voice recording: capture mic, upload+transcribe, then EITHER
+  // send the transcript as text OR send the audio file as a voice note.
+  const startRecording = async () => {
+    if (recState !== "idle") return;
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeCandidates = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg"];
+      const mime = mimeCandidates.find((m) => window.MediaRecorder && MediaRecorder.isTypeSupported(m)) || "";
+      const mr = mime ? new MediaRecorder(stream, { mimeType: mime }) : new MediaRecorder(stream);
+      const chunks = [];
+      mr.ondataavailable = (e) => { if (e.data && e.data.size > 0) chunks.push(e.data); };
+      mr.start();
+      setRecState("recording");
+      setRecElapsed(0);
+      const t0 = Date.now();
+      const timerId = setInterval(() => setRecElapsed(Math.floor((Date.now() - t0) / 1000)), 250);
+      recRef.current = { mediaRecorder: mr, chunks, stream, timerId };
+    } catch (err) {
+      toast.error("Microphone refusé ou indisponible");
+      setRecState("idle");
+    }
+  };
+
+  const stopRecording = async ({ asText }) => {
+    const ref = recRef.current;
+    if (!ref || recState !== "recording") return;
+    const { mediaRecorder, chunks, stream, timerId } = ref;
+    setRecState("transcribing");
+    clearInterval(timerId);
+    await new Promise((resolve) => {
+      mediaRecorder.onstop = () => resolve();
+      try { mediaRecorder.stop(); } catch { resolve(); }
+    });
+    try { stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+    const blob = new Blob(chunks, { type: mediaRecorder.mimeType || "audio/webm" });
+    recRef.current = null;
+    if (blob.size < 600) {
+      toast.error("Note vocale trop courte");
+      setRecState("idle");
+      return;
+    }
+    try {
+      if (asText) {
+        // Transcribe via the shared chat endpoint, then push as a text message
+        const fd = new FormData();
+        const ext = (blob.type.includes("mp4") ? "mp4" : (blob.type.includes("ogg") ? "ogg" : "webm"));
+        fd.append("file", new File([blob], `note.${ext}`, { type: blob.type }));
+        const tr = await apiClient.post("/me/chat/transcribe", fd, {
+          headers: { "Content-Type": "multipart/form-data" },
+        });
+        const transcript = (tr.data?.text || "").trim();
+        if (!transcript) {
+          toast.error("Transcription vide");
+          setRecState("idle");
+          return;
+        }
+        // Drop into the textarea so the user can review/edit before pressing Envoyer
+        setText((prev) => (prev ? `${prev}\n${transcript}` : transcript));
+        toast.success("Note vocale transcrite — vérifiez avant d'envoyer");
+      } else {
+        // Stage as a pending audio file → user can add a caption + send
+        const ext = (blob.type.includes("mp4") ? "mp4" : (blob.type.includes("ogg") ? "ogg" : "webm"));
+        const f = new File([blob], `note-vocale.${ext}`, { type: blob.type });
+        setPendingFile({ file: f, kind: "audio", previewUrl: null });
+        toast.success("Note vocale prête — cliquez Envoyer");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la transcription");
+    } finally {
+      setRecState("idle");
+    }
+  };
+
+  const cancelRecording = () => {
+    const ref = recRef.current;
+    if (!ref) { setRecState("idle"); return; }
+    try { ref.mediaRecorder.stop(); } catch { /* noop */ }
+    try { ref.stream.getTracks().forEach((t) => t.stop()); } catch { /* noop */ }
+    if (ref.timerId) clearInterval(ref.timerId);
+    recRef.current = null;
+    setRecState("idle");
+    setRecElapsed(0);
+  };
+
 
   const onPickFile = (e) => {
     const f = e.target.files?.[0];
@@ -1746,7 +1842,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           ) : messages.length === 0 ? (
             <p className="text-center text-slate-400 italic text-sm py-8">Aucun message échangé pour l'instant.</p>
           ) : (
-            messages.map((m) => <MessageBubble key={m.id} m={m} />)
+            messages.map((m) => <MessageBubble key={m.id} m={m} allMessages={messages} onReply={setReplyTo} />)
           )}
           <div ref={scrollEndRef} data-testid="conversation-scroll-end" />
         </div>
@@ -1764,6 +1860,70 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   </span>
                 )}
               </div>
+
+              {/* Iter37h — Reply preview banner */}
+              {replyTo && (
+                <div
+                  className="flex items-start gap-2 mb-2 rounded-lg bg-sky-50 ring-1 ring-sky-200 border-l-4 border-sky-500 px-3 py-2"
+                  data-testid="conversation-reply-banner"
+                >
+                  <CornerUpLeft className="h-4 w-4 text-sky-600 mt-0.5 shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[10px] font-semibold text-sky-700 uppercase tracking-wider">
+                      Réponse à {replyTo.direction === "outbound" ? "vous-même" : "ce contact"}
+                    </p>
+                    <p className="text-xs text-slate-700 italic truncate">
+                      {(replyTo.body || (replyTo.media_kind ? `[${replyTo.media_kind}]` : "—")).slice(0, 120)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => setReplyTo(null)}
+                    className="text-xs text-rose-600 hover:underline"
+                    data-testid="conversation-reply-cancel"
+                    title="Annuler la réponse"
+                  >
+                    Annuler
+                  </button>
+                </div>
+              )}
+
+              {/* Iter37h — Voice recording overlay */}
+              {recState === "recording" && (
+                <div className="flex items-center gap-3 mb-2 rounded-lg bg-rose-50 ring-1 ring-rose-200 px-3 py-2" data-testid="conversation-recording">
+                  <span className="inline-flex h-2.5 w-2.5 rounded-full bg-rose-500 animate-pulse" />
+                  <span className="text-sm text-rose-700 font-medium tabular-nums">
+                    Enregistrement… {Math.floor(recElapsed / 60).toString().padStart(2, "0")}:{(recElapsed % 60).toString().padStart(2, "0")}
+                  </span>
+                  <div className="ml-auto flex items-center gap-1.5">
+                    <button
+                      onClick={() => stopRecording({ asText: true })}
+                      className="rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-2.5 py-1 text-xs font-medium"
+                      data-testid="conversation-rec-transcribe"
+                    >
+                      Transcrire & insérer
+                    </button>
+                    <button
+                      onClick={() => stopRecording({ asText: false })}
+                      className="rounded-lg bg-sky-600 hover:bg-sky-700 text-white px-2.5 py-1 text-xs font-medium"
+                      data-testid="conversation-rec-attach"
+                    >
+                      Envoyer comme note vocale
+                    </button>
+                    <button
+                      onClick={cancelRecording}
+                      className="rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 px-2.5 py-1 text-xs"
+                      data-testid="conversation-rec-cancel"
+                    >
+                      Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+              {recState === "transcribing" && (
+                <div className="flex items-center gap-2 mb-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 px-3 py-2 text-xs text-amber-800" data-testid="conversation-rec-transcribing">
+                  <RefreshCw className="h-3.5 w-3.5 animate-spin" /> Transcription en cours…
+                </div>
+              )}
 
               {/* Iter35l — Pending media preview row */}
               {pendingFile && (
@@ -1803,12 +1963,22 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 />
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={sending || !!pendingFile}
+                  disabled={sending || !!pendingFile || recState !== "idle"}
                   className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
                   data-testid="conversation-attach-btn"
                   title="Joindre un fichier (image, audio, vidéo, PDF — 16 Mo max)"
                 >
                   <Paperclip className="h-4 w-4" />
+                </button>
+                {/* Iter37h — Voice note button: start recording */}
+                <button
+                  onClick={startRecording}
+                  disabled={sending || !!pendingFile || recState !== "idle"}
+                  className="inline-flex items-center gap-1 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 px-2.5 py-2 text-sm text-rose-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  data-testid="conversation-mic-btn"
+                  title="Enregistrer une note vocale (puis transcrire ou envoyer)"
+                >
+                  <Mic className="h-4 w-4" />
                 </button>
                 <textarea
                   value={text}
@@ -1897,8 +2067,14 @@ const SaveToLibraryButton = ({ messageId, testid }) => {
 };
 
 // --- Chat bubble ---
-const MessageBubble = ({ m }) => {
+const MessageBubble = ({ m, allMessages = [], onReply }) => {
   const outbound = m.direction === "outbound";
+  // Iter37h — Find the quoted message (if this is a reply)
+  const quotedTarget = (() => {
+    const mid = m.reply_to_message_id;
+    if (!mid || !Array.isArray(allMessages)) return null;
+    return allMessages.find((x) => x.message_id === mid || x.wa_message_id === mid || x.id === mid) || null;
+  })();
   const statusIcon = outbound
     ? (m.read_at ? { Icon: CheckCheck, color: "text-sky-500", label: "Lu" }
       : m.delivered_at ? { Icon: CheckCheck, color: "text-slate-400", label: "Distribué" }
@@ -1948,6 +2124,25 @@ const MessageBubble = ({ m }) => {
             </code>
           )}
         </div>
+
+        {/* Iter37h — Quote bar: render the message this one is replying to */}
+        {(quotedTarget || m.reply_to_message_id) && (
+          <div
+            className={`mb-1.5 rounded-md border-l-4 px-2 py-1 text-[11px] ${
+              outbound ? "bg-white/15 border-white/60 text-white/90" : "bg-sky-50 border-sky-400 text-slate-700"
+            }`}
+            data-testid={`msg-quote-${m.id}`}
+          >
+            <p className={`font-semibold text-[10px] ${outbound ? "text-white/80" : "text-sky-700"}`}>
+              {quotedTarget?.direction === "outbound" ? "Vous" : "Contact"}
+            </p>
+            <p className="truncate italic">
+              {quotedTarget
+                ? (quotedTarget.body || quotedTarget.media_caption || (quotedTarget.media_kind ? `[${quotedTarget.media_kind}]` : "—")).slice(0, 120)
+                : "Message d'origine indisponible"}
+            </p>
+          </div>
+        )}
 
         {/* Media payload (Iter35l) */}
         {hasMedia && (
@@ -1999,11 +2194,25 @@ const MessageBubble = ({ m }) => {
         {body && <p className="whitespace-pre-wrap">{body}</p>}
         <div className={`flex items-center justify-between gap-3 mt-1.5 text-[10px] ${outbound ? "text-white/80" : "text-slate-400"}`}>
           <span>{fmtDate(primaryTs)}</span>
-          {statusIcon && (
-            <span className={`inline-flex items-center gap-1 ${outbound ? "" : statusIcon.color}`} title={statusIcon.label}>
-              <statusIcon.Icon className="h-3 w-3" /> {statusIcon.label}
-            </span>
-          )}
+          <div className="flex items-center gap-2">
+            {/* Iter37h — Reply action: only meaningful when we have a wa message id to quote */}
+            {onReply && (m.message_id || m.wa_message_id) && (
+              <button
+                type="button"
+                onClick={() => onReply({ id: m.id, body: m.body, direction: m.direction, message_id: m.message_id, wa_message_id: m.wa_message_id, media_kind: m.media_kind })}
+                className={`inline-flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity hover:underline ${outbound ? "text-white/80" : "text-sky-600"}`}
+                title="Répondre à ce message"
+                data-testid={`msg-reply-${m.id}`}
+              >
+                <CornerUpLeft className="h-3 w-3" /> Répondre
+              </button>
+            )}
+            {statusIcon && (
+              <span className={`inline-flex items-center gap-1 ${outbound ? "" : statusIcon.color}`} title={statusIcon.label}>
+                <statusIcon.Icon className="h-3 w-3" /> {statusIcon.label}
+              </span>
+            )}
+          </div>
         </div>
         {outbound && (m.delivered_at || m.read_at || m.failed_at) && (
           <div className={`text-[10px] mt-1 ${outbound ? "text-white/70" : "text-slate-400"}`}>

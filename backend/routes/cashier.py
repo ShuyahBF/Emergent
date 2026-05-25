@@ -1227,8 +1227,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        # Iter37e — Tenant scope
+        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted
         q: Dict[str, Any] = await _scoped_filter(user)
+        q["deleted_at"] = None
         if business_client_id:
             q["business_client_id"] = business_client_id
         cursor = db.receipts.find(q, {"_id": 0}).sort("issued_at", -1).limit(limit)
@@ -1463,8 +1464,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        # Iter37e — Tenant scope
+        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted
         q: Dict[str, Any] = await _scoped_filter(user)
+        q["deleted_at"] = None
         if kind:
             q["kind"] = kind
         if status:
@@ -1599,6 +1601,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return {
             "kind": "invoice",
             "status": "issued",
+            "deleted_at": None,  # Iter37h — exclude soft-deleted
             "$or": [
                 {"due_date": {"$nin": [None, ""], "$lt": today_iso}},
                 {"due_date": {"$in": [None, ""]}, "created_at": {"$lt": cutoff}},
@@ -1803,12 +1806,76 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         payload.business_client_id = inv["business_client_id"]
         return await create_receipt(payload, user)
 
+    # =================================================================
+    # Iter37h — DELETE receipt / invoice / proforma (admin or superviseur only)
+    # Hard delete (sets `deleted_at` and excludes from all listings/KPIs).
+    # =================================================================
+    @router.delete("/cashier/receipts/{rid}")
+    async def delete_receipt(rid: str, user: dict = Depends(get_current_supervisor)):
+        r = await db.receipts.find_one({"id": rid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1})
+        await _ensure_tenant_access(user, r)
+        if r.get("deleted_at"):
+            return {"ok": True, "already_deleted": True}
+        await db.receipts.update_one({"id": rid}, {"$set": {
+            "deleted_at": _now_iso(),
+            "deleted_by": user["id"],
+            "deleted_by_name": user.get("full_name") or user.get("email"),
+        }})
+        return {"ok": True}
+
+    @router.delete("/cashier/invoices/{iid}")
+    async def delete_invoice(iid: str, user: dict = Depends(get_current_supervisor)):
+        inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1, "kind": 1})
+        await _ensure_tenant_access(user, inv)
+        if inv.get("deleted_at"):
+            return {"ok": True, "already_deleted": True}
+        await db.invoices.update_one({"id": iid}, {"$set": {
+            "deleted_at": _now_iso(),
+            "deleted_by": user["id"],
+            "deleted_by_name": user.get("full_name") or user.get("email"),
+        }})
+        return {"ok": True, "kind": inv.get("kind")}
+
+    # =================================================================
+    # Iter37h — Duplicate an invoice/proforma (items only, no client)
+    # Returns a DRAFT payload (not persisted) the frontend uses to
+    # pre-fill the New Invoice form.
+    # =================================================================
+    @router.post("/cashier/invoices/{iid}/duplicate")
+    async def duplicate_invoice(iid: str, user: dict = Depends(get_current_user)):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        src = await db.invoices.find_one({"id": iid}, {"_id": 0})
+        await _ensure_tenant_access(user, src)
+        # Strip identifying fields; keep items + discount + notes
+        items = [
+            {k: v for k, v in (it or {}).items() if k in (
+                "label", "description", "quantity", "unit_price_ht", "tva_pct",
+            )}
+            for it in (src.get("items") or [])
+        ]
+        return {
+            "ok": True,
+            "draft": {
+                "kind": src.get("kind") or "invoice",
+                "business_client_id": None,  # User must pick a client
+                "items": items,
+                "discount_kind": src.get("discount_kind") or "none",
+                "discount_value": float(src.get("discount_value") or 0),
+                "notes": src.get("notes") or "",
+                "due_date": None,  # Always reset due date
+            },
+            "source_id": src.get("id"),
+            "source_number": src.get("number"),
+        }
+
+
     # ----------------------------------------------------------------
     # Public QR verification — minimal info, no auth
     # ----------------------------------------------------------------
     @router.get("/public/verify/{token}")
     async def public_verify(token: str):        # Receipt?
-        r = await db.receipts.find_one({"qr_token": token}, {"_id": 0})
+        r = await db.receipts.find_one({"qr_token": token, "deleted_at": None}, {"_id": 0})
         if r:
             return {
                 "type": "receipt",
@@ -1822,7 +1889,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "cancelled": bool(r.get("cancelled_at")),
                 "motif": r.get("motif"),
             }
-        i = await db.invoices.find_one({"qr_token": token}, {"_id": 0})
+        i = await db.invoices.find_one({"qr_token": token, "deleted_at": None}, {"_id": 0})
         if i:
             return {
                 "type": i["kind"],  # 'proforma' or 'invoice'
@@ -1843,7 +1910,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     @router.get("/public/receipt-pdf/{token}")
     async def public_receipt_pdf(token: str):
-        r = await db.receipts.find_one({"qr_token": token}, {"_id": 0})
+        r = await db.receipts.find_one({"qr_token": token, "deleted_at": None}, {"_id": 0})
         if not r:
             raise HTTPException(status_code=404, detail="Reçu introuvable")
         pdf = build_receipt_pdf(r)
@@ -1859,7 +1926,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/public/invoice-pdf/{token}")
     async def public_invoice_pdf(token: str):
-        i = await db.invoices.find_one({"qr_token": token}, {"_id": 0})
+        i = await db.invoices.find_one({"qr_token": token, "deleted_at": None}, {"_id": 0})
         if not i:
             raise HTTPException(status_code=404, detail="Document introuvable")
         pdf = build_invoice_pdf(i)
@@ -2314,7 +2381,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         ninety_days_ago = (now - timedelta(days=90)).isoformat()
         # 1) Encaissé ce mois (status=paid AND paid_at >= month_start)
         paid_cursor = db.invoices.find(
-            {**tenant_scope, "kind": "invoice", "status": "paid", "paid_at": {"$gte": month_start}},
+            {**tenant_scope, "kind": "invoice", "status": "paid", "deleted_at": None, "paid_at": {"$gte": month_start}},
             {"_id": 0, "net_to_pay": 1},
         )
         paid_amount = 0.0
@@ -2324,7 +2391,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             paid_count += 1
         # 2) Restant à encaisser (status=issued)
         due_cursor = db.invoices.find(
-            {**tenant_scope, "kind": "invoice", "status": "issued"},
+            {**tenant_scope, "kind": "invoice", "status": "issued", "deleted_at": None},
             {"_id": 0, "net_to_pay": 1},
         )
         due_amount = 0.0
@@ -2334,7 +2401,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             due_count += 1
         # 3) Délai moyen de paiement (en jours) — sur les factures payées des 90 derniers jours
         recent_paid_cursor = db.invoices.find(
-            {**tenant_scope, "kind": "invoice", "status": "paid", "paid_at": {"$gte": ninety_days_ago}},
+            {**tenant_scope, "kind": "invoice", "status": "paid", "deleted_at": None, "paid_at": {"$gte": ninety_days_ago}},
             {"_id": 0, "created_at": 1, "paid_at": 1},
         )
         deltas: List[float] = []
@@ -2348,7 +2415,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         avg_days = round(sum(deltas) / len(deltas), 1) if deltas else None
         # 4) Top 3 "mauvais payeurs" — agrégat par business_client sur les factures issued
         bad_payers_pipeline = [
-            {"$match": {**tenant_scope, "kind": "invoice", "status": "issued"}},
+            {"$match": {**tenant_scope, "kind": "invoice", "status": "issued", "deleted_at": None}},
             {"$group": {
                 "_id": "$business_client_id",
                 "unpaid_amount": {"$sum": "$net_to_pay"},

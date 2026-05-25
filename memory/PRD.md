@@ -3,6 +3,32 @@
 ## Original Problem Statement
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
+## Latest — Iter37f (durcissement tenant + admin toggle unread) — 2026-05-24
+
+### 🔒 Durcissement tenant (audit complet Caisse demandé par utilisateur "sinon catastrophe")
+- **`PATCH /admin/products/{pid}`** : ajouté contrôle tenant — un superviseur ne peut plus modifier un produit d'une autre société.
+- **`DELETE /admin/products/{pid}`** : idem (était totalement non protégé).
+- **`PATCH /admin/users/{uid}/can-cash`** : ajouté contrôle tenant — un superviseur ne peut plus activer/désactiver `can_cash` sur un utilisateur d'une autre société.
+- **`GET /cashier/overdue/relance-history`** : filtré par tenant (super-admin voit tout, legacy runs sans tag inclus).
+- **`POST /cashier/overdue/relance-auto-run`** : tague le run avec le tenant_id du déclencheur ; `run_auto_relance(tenant_id=…)` restreint les business_clients ciblés à ce tenant lors d'un trigger manuel.
+
+### ⚙️ Setting admin paramétrable — Mode du compteur "non lus" du briefing
+- `models.py SettingsUpdate.welcome_unread_mode: Optional[str]` (valeurs `"bounded"` | `"lifetime"`, défaut bounded).
+- Validation 400 si valeur invalide dans `PUT /admin/settings`.
+- `me_welcome_briefing` lit le setting global et applique la borne temporelle uniquement si `bounded`. Mode `lifetime` revient au comportement avant Iter37f (cumul depuis le début).
+- **UI Admin Settings** : nouvelle Section "Briefing de bienvenue — Mode du compteur 'Non lus'" avec radios "Bornée / Cumulative" + explication des 2 sémantiques.
+
+### 📊 Tests cumulés : **112/112 pytest verts** (+7 nouveaux Iter37f)
+- `test_iter37f_product_user_tenant_acl.py` : 4 tests (patch/delete product cross-tenant, can_cash cross-tenant)
+- `test_iter37f_welcome_unread_bound.py` : +3 tests (mode lifetime cumul, bounded explicite, mode invalide rejeté)
+
+### 🚨 Action utilisateur en production
+1. **Save to GitHub** → **Redéployer** `sawalismartsystems.com`.
+2. La sécurité tenant est désormais durcie sur ALL endpoints Caisse de modification.
+3. Le mode "non lus" du briefing peut être basculé entre "Bornée" et "Cumulative" depuis Admin → Paramètres.
+
+---
+
 ## Latest — Iter37f (suite) — 2 fixes prod (Caisse RBAC GET + Compteur WA non lus borné)
 
 ### 🐛 Fix #1 — Listes vides pour utilisateurs `role=client, can_cash=true` (cas rabo.f@)

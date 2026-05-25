@@ -547,9 +547,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     @router.patch("/admin/products/{pid}")
     async def update_product(pid: str, payload: ProductPayload, user: dict = Depends(get_current_supervisor)):
         # Iter37a — Never let the client modify the SKU; preserve existing one.
-        existing = await db.products.find_one({"id": pid, "deleted_at": None}, {"_id": 0, "sku": 1, "client_id": 1})
+        existing = await db.products.find_one({"id": pid, "deleted_at": None}, {"_id": 0, "sku": 1, "client_id": 1, "tenant_id": 1})
         if not existing:
             raise HTTPException(status_code=404, detail="Produit introuvable")
+        # Iter37f — Tenant ACL: refuse if the product belongs to another tenant.
+        if not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            owner_tid = existing.get("tenant_id") or existing.get("client_id")
+            if owner_tid and owner_tid != tid:
+                raise HTTPException(status_code=404, detail="Produit introuvable")
         updates = payload.model_dump()
         updates["sku"] = existing["sku"]  # immutable
         updates["name"] = (updates.get("name") or "").upper().strip()
@@ -560,7 +566,16 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return await db.products.find_one({"id": pid}, {"_id": 0})
 
     @router.delete("/admin/products/{pid}")
-    async def delete_product(pid: str, _: dict = Depends(get_current_supervisor)):
+    async def delete_product(pid: str, user: dict = Depends(get_current_supervisor)):
+        # Iter37f — Tenant ACL
+        existing = await db.products.find_one({"id": pid}, {"_id": 0, "client_id": 1, "tenant_id": 1})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Produit introuvable")
+        if not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            owner_tid = existing.get("tenant_id") or existing.get("client_id")
+            if owner_tid and owner_tid != tid:
+                raise HTTPException(status_code=404, detail="Produit introuvable")
         res = await db.products.update_one({"id": pid}, {"$set": {"deleted_at": _now_iso()}})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Produit introuvable")
@@ -758,7 +773,18 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # users.can_cash flag — admin/supervisor only
     # ----------------------------------------------------------------
     @router.patch("/admin/users/{uid}/can-cash")
-    async def set_user_can_cash(uid: str, payload: dict = Body(...), _: dict = Depends(get_current_supervisor)):
+    async def set_user_can_cash(uid: str, payload: dict = Body(...), user: dict = Depends(get_current_supervisor)):
+        # Iter37f — Tenant ACL: a supervisor can only flip can_cash on users
+        # belonging to their tenant. Super-admin bypasses.
+        target = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "parent_client_id": 1, "client_id": 1, "company": 1})
+        if not target:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        if not _is_super_admin(user):
+            actor_tid = await _tenant_id_of(user)
+            # Resolve the target's tenant the same way
+            target_tid = await _tenant_id_of(target)
+            if target_tid != actor_tid:
+                raise HTTPException(status_code=404, detail="Utilisateur introuvable")
         flag = bool(payload.get("can_cash"))
         res = await db.users.update_one({"id": uid}, {"$set": {"can_cash": flag, "can_cash_updated_at": _now_iso()}})
         if res.matched_count == 0:
@@ -1780,7 +1806,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         )
         return {"id": inv["id"], "number": inv.get("number"), "ok": True, "to": to_e164}
 
-    async def run_auto_relance(triggered_by: str = "cron") -> Dict[str, Any]:
+    async def run_auto_relance(triggered_by: str = "cron", tenant_id: Optional[str] = None) -> Dict[str, Any]:
         """Iter36y — Execute the auto-relance round.
         Reads global settings:
           - auto_relance_enabled (master, default False)
@@ -1790,6 +1816,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         Only acts on business_clients with `auto_relance_enabled=True`.
         Today must match `auto_relance_day_of_week` when triggered by cron;
         manual triggers bypass the weekday check.
+
+        Iter37f — `tenant_id` (optional) restricts the run to one tenant when
+        triggered manually. Cron passes None and acts globally.
         """
         settings_doc = await db.settings.find_one({"_id": "global"}) or {}
         is_manual = triggered_by.startswith("manual")
@@ -1803,15 +1832,19 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             return {"skipped": True, "reason": "not_today_dow",
                     "configured_dow": cfg_dow,
                     "today_dow": datetime.now(timezone.utc).weekday()}
-        # Resolve eligible business_clients
+        # Resolve eligible business_clients (filtered by tenant when manual)
+        bc_query: Dict[str, Any] = {"auto_relance_enabled": True, "deleted_at": None}
+        if tenant_id:
+            bc_query["tenant_id"] = tenant_id
         eligible_bcs = await db.business_clients.find(
-            {"auto_relance_enabled": True, "deleted_at": None},
+            bc_query,
             {"_id": 0, "id": 1, "name": 1},
         ).to_list(2000)
         if not eligible_bcs:
             run_doc = {
                 "id": str(uuid.uuid4()),
                 "triggered_by": triggered_by,
+                "tenant_id": tenant_id,  # Iter37f
                 "started_at": _now_iso(),
                 "ended_at": _now_iso(),
                 "skipped": True,
@@ -1841,6 +1874,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         run_doc = {
             "id": str(uuid.uuid4()),
             "triggered_by": triggered_by,
+            "tenant_id": tenant_id,  # Iter37f
             "started_at": _now_iso(),
             "ended_at": _now_iso(),
             "total": len(invoices),
@@ -1890,12 +1924,23 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.post("/cashier/overdue/relance-auto-run")
     async def relance_auto_run(user: dict = Depends(get_current_supervisor)):
-        """Iter36y — Trigger the auto-relance flow manually (admin/superviseur)."""
-        return await run_auto_relance(triggered_by=f"manual:{user.get('email') or user['id']}")
+        """Iter36y — Trigger the auto-relance flow manually (admin/superviseur).
+        Iter37f — Tagged with triggering user's tenant for per-tenant history filter."""
+        triggered_tid = await _tenant_id_of(user)
+        return await run_auto_relance(
+            triggered_by=f"manual:{user.get('email') or user['id']}",
+            tenant_id=triggered_tid,
+        )
 
     @router.get("/cashier/overdue/relance-history")
-    async def relance_history(limit: int = Query(20, ge=1, le=200), _: dict = Depends(get_current_supervisor)):
-        cursor = db.auto_relance_runs.find({}, {"_id": 0}).sort("started_at", -1).limit(limit)
+    async def relance_history(limit: int = Query(20, ge=1, le=200), user: dict = Depends(get_current_supervisor)):
+        # Iter37f — Filter history per tenant (super-admin sees all)
+        q: Dict[str, Any] = {}
+        if not _is_super_admin(user):
+            tid = await _tenant_id_of(user)
+            # Match runs tagged with this tenant OR legacy runs without tag
+            q["$or"] = [{"tenant_id": tid}, {"tenant_id": {"$exists": False}}]
+        cursor = db.auto_relance_runs.find(q, {"_id": 0}).sort("started_at", -1).limit(limit)
         return [r async for r in cursor]
 
     # =================================================================

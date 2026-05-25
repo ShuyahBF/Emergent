@@ -357,6 +357,33 @@ export default function AdminSettings() {
       <ClientDataDiagnosticSection />
       <RevertRetagSection />
       <CashierTenantBackfillSection />
+      <Section icon={MessageCircle} title="Briefing de bienvenue — Mode du compteur 'Non lus'">
+        <p className="text-xs text-slate-500">
+          <strong>Bornée</strong> (recommandé) : ne compte que les messages WhatsApp/SMS reçus <em>depuis votre dernière visite</em> (ou les 7 derniers jours si jamais vu).
+          C'est le réglage qui évite l'effet "compteur qui ne descend jamais".<br />
+          <strong>Cumulative</strong> : compte <em>tous</em> les messages jamais lus depuis le début. Ne baisse que quand l'utilisateur ouvre la conversation du contact concerné (qui appelle <code>/messages/mark-read</code>).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio" name="welcome_unread_mode" value="bounded"
+              checked={(s.welcome_unread_mode || "bounded") === "bounded"}
+              onChange={() => upd("welcome_unread_mode", "bounded")}
+              data-testid="welcome-unread-mode-bounded"
+            />
+            <span><strong>Bornée</strong> — fenêtre last_seen / 7j</span>
+          </label>
+          <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="radio" name="welcome_unread_mode" value="lifetime"
+              checked={s.welcome_unread_mode === "lifetime"}
+              onChange={() => upd("welcome_unread_mode", "lifetime")}
+              data-testid="welcome-unread-mode-lifetime"
+            />
+            <span><strong>Cumulative</strong> — tous les non lus</span>
+          </label>
+        </div>
+      </Section>
       <Section icon={Globe} title="Suivi des visiteurs (REST API externe)">
         <p className="text-xs text-slate-500">
           Chaque accès au site et consultation de page génère une requête contenant : <strong>date/heure, IP, pays, ville, page</strong>.

@@ -524,6 +524,8 @@ class SettingsUpdate(BaseModel):
     health_weekly_enabled: Optional[bool] = None  # weekly digest on Friday 05:00
     health_auth_check_enabled: Optional[bool] = None  # alert if hourly auth probe fails
     health_uptime_alerts_enabled: Optional[bool] = None  # alert if any hourly uptime probe fails
+    # Iter37f — Welcome briefing: unread counter mode ("bounded" | "lifetime").
+    welcome_unread_mode: Optional[str] = None  # bounded (default) bounds by last_seen_at or last 7 days; lifetime counts all unread inbound
     # Incident banner — public sticky bar at top of marketing pages
     incident_banner_enabled: Optional[bool] = None
     incident_banner_severity: Optional[str] = None  # info | warning | critical

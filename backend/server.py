@@ -9904,6 +9904,12 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
             update.pop(k, None)
+    # Iter37f — Validate welcome_unread_mode
+    if "welcome_unread_mode" in update:
+        mode = (update["welcome_unread_mode"] or "").strip().lower()
+        if mode not in ("bounded", "lifetime"):
+            raise HTTPException(status_code=400, detail="welcome_unread_mode doit être 'bounded' ou 'lifetime'")
+        update["welcome_unread_mode"] = mode
     if not update:
         return {"ok": True}
     # Iter35x — Snapshot previous values BEFORE the update for audit comparison
@@ -19041,21 +19047,30 @@ async def me_welcome_briefing(
     # messages don't accumulate forever. Matches the user's "only count what's
     # actually new" expectation. /me/whatsapp/unread (sidebar) keeps the lifetime
     # logic so the per-contact pastille stays sticky until the user opens the thread.
+    #
+    # Iter37f — Admin-configurable mode:
+    #   - settings.welcome_unread_mode = "bounded" (default, behavior above)
+    #   - settings.welcome_unread_mode = "lifetime" (count all unread inbound)
     visible_scope = await _resolve_visible_client_ids(user)
-    now_for_bound = datetime.now(timezone.utc)
-    unread_lower_bound = last_seen_at or (now_for_bound - timedelta(days=7)).isoformat()
-    unread_wa = await db.whatsapp_messages.count_documents({
+    _settings = await db.settings.find_one({"_id": "global"}) or {}
+    unread_mode = (_settings.get("welcome_unread_mode") or "bounded").strip().lower()
+    base_unread_wa: Dict[str, Any] = {
         "client_id": {"$in": visible_scope},
         "direction": "inbound",
         "read_by_us_at": None,
-        "received_at": {"$gte": unread_lower_bound},
-    })
-    unread_sms = await db.sms_messages.count_documents({
+    }
+    base_unread_sms: Dict[str, Any] = {
         "client_id": {"$in": visible_scope},
         "direction": "inbound",
         "read_by_us_at": None,
-        "received_at": {"$gte": unread_lower_bound},
-    })
+    }
+    if unread_mode != "lifetime":
+        now_for_bound = datetime.now(timezone.utc)
+        unread_lower_bound = last_seen_at or (now_for_bound - timedelta(days=7)).isoformat()
+        base_unread_wa["received_at"] = {"$gte": unread_lower_bound}
+        base_unread_sms["received_at"] = {"$gte": unread_lower_bound}
+    unread_wa = await db.whatsapp_messages.count_documents(base_unread_wa)
+    unread_sms = await db.sms_messages.count_documents(base_unread_sms)
 
     # 3) Notes personnelles récentes (auteur = moi)
     recent_notes_cur = db.user_notes_personal.find(

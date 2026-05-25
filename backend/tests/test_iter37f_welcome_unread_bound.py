@@ -40,6 +40,14 @@ def db():
     return MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
 
 
+@pytest.fixture(autouse=True)
+def reset_welcome_mode(db):
+    """Ensure each test starts with welcome_unread_mode=bounded (default)."""
+    db.settings.update_one({"_id": "global"}, {"$unset": {"welcome_unread_mode": ""}}, upsert=True)
+    yield
+    db.settings.update_one({"_id": "global"}, {"$unset": {"welcome_unread_mode": ""}})
+
+
 @pytest.fixture
 def user_with_wa_messages(db):
     """Seed a supervisor + WA messages: 1 from today (unread), 1 from 30 days ago (unread)."""
@@ -114,3 +122,49 @@ class TestUnreadBoundedByLastSeen:
         unread = r.json()["unread_messages"]
         assert unread["whatsapp"] == 0
         assert unread["total"] == 0
+
+
+class TestUnreadAdminConfigurableMode:
+    def test_lifetime_mode_counts_all_unread(self, user_with_wa_messages, db):
+        """When welcome_unread_mode=lifetime, both old and new unread msgs count."""
+        ctx = user_with_wa_messages
+        db.settings.update_one({"_id": "global"}, {"$set": {"welcome_unread_mode": "lifetime"}}, upsert=True)
+        try:
+            h = {"Authorization": f"Bearer {_forge(ctx['uid'])}"}
+            r = requests.get(f"{API}/me/welcome-briefing", headers=h, timeout=20)
+            assert r.status_code == 200, r.text
+            unread = r.json()["unread_messages"]
+            # Both old (30d) AND new (today) count
+            assert unread["whatsapp"] == 2, f"lifetime should count both, got {unread['whatsapp']}"
+        finally:
+            db.settings.update_one({"_id": "global"}, {"$unset": {"welcome_unread_mode": ""}})
+
+    def test_bounded_mode_explicit_matches_default(self, user_with_wa_messages, db):
+        """Explicit welcome_unread_mode=bounded behaves like the default."""
+        ctx = user_with_wa_messages
+        db.settings.update_one({"_id": "global"}, {"$set": {"welcome_unread_mode": "bounded"}}, upsert=True)
+        try:
+            h = {"Authorization": f"Bearer {_forge(ctx['uid'])}"}
+            r = requests.get(f"{API}/me/welcome-briefing", headers=h, timeout=20)
+            assert r.status_code == 200, r.text
+            unread = r.json()["unread_messages"]
+            assert unread["whatsapp"] == 1
+        finally:
+            db.settings.update_one({"_id": "global"}, {"$unset": {"welcome_unread_mode": ""}})
+
+    def test_invalid_mode_rejected_at_settings_put(self):
+        """PUT /admin/settings with invalid welcome_unread_mode → 400."""
+        # Need admin token
+        r = requests.post(f"{API}/auth/login",
+                          json={"email": "admin@sawalismartsystems.com",
+                                "password": "Admin@Sawali2026"}, timeout=20)
+        d = r.json()
+        tok = d.get("access_token")
+        if not tok:
+            v = requests.post(f"{API}/auth/verify-otp",
+                              json={"session_token": d["session_token"], "code": d["dev_otp"]}, timeout=20)
+            tok = v.json()["access_token"]
+        h = {"Authorization": f"Bearer {tok}"}
+        r = requests.put(f"{API}/admin/settings",
+                         json={"welcome_unread_mode": "bogus"}, headers=h, timeout=15)
+        assert r.status_code == 400

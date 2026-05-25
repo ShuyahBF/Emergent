@@ -357,8 +357,7 @@ export default function AdminSettings() {
       <ClientDataDiagnosticSection />
       <RevertRetagSection />
       <CashierTenantBackfillSection />
-      <Section icon={MessageCircle} title="Briefing de bienvenue — Mode du compteur 'Non lus'">
-        <p className="text-xs text-slate-500">
+      <Section icon={MessageCircle} title="Briefing de bienvenue — Mode du compteur 'Non lus'">  <p className="text-xs text-slate-500">
           <strong>Bornée</strong> (recommandé) : ne compte que les messages WhatsApp/SMS reçus <em>depuis votre dernière visite</em> (ou les 7 derniers jours si jamais vu).
           C'est le réglage qui évite l'effet "compteur qui ne descend jamais".<br />
           <strong>Cumulative</strong> : compte <em>tous</em> les messages jamais lus depuis le début. Ne baisse que quand l'utilisateur ouvre la conversation du contact concerné (qui appelle <code>/messages/mark-read</code>).
@@ -608,6 +607,47 @@ export default function AdminSettings() {
         <WaTestPanel />
         <WaWebhookLogsPanel />
         <WaSilenceAlertPanel s={s} upd={upd} />
+
+        {/* Iter37g — Caisse templates */}
+        <div className="rounded-xl ring-1 ring-sky-200 bg-sky-50/40 p-4 space-y-3">
+          <p className="text-sm font-semibold text-sawali-blue">Templates Caisse — Reçus & Factures/Proformas</p>
+          <p className="text-xs text-slate-600">
+            Lors de l'envoi WhatsApp d'un reçu ou d'une facture, ces templates Meta sont utilisés (avec PDF en pièce jointe).
+            Les paramètres du <em>body</em> sont, dans l'ordre :
+            <br /><strong>Reçu</strong> : <code>{`{1}`}</code> nom client, <code>{`{2}`}</code> n° reçu, <code>{`{3}`}</code> montant, <code>{`{4}`}</code> motif.
+            <br /><strong>Facture/Proforma</strong> : <code>{`{1}`}</code> nom client, <code>{`{2}`}</code> type (Facture/Proforma), <code>{`{3}`}</code> n° doc, <code>{`{4}`}</code> montant.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Template Reçu (nom Meta)"
+              value={s.wa_template_receipt_name || ""}
+              onChange={(v) => upd("wa_template_receipt_name", v)}
+              placeholder="confirmation_paiement_avecrecu"
+              testid="wa-template-receipt-name"
+            />
+            <Input
+              label="Langue Reçu (ex: fr)"
+              value={s.wa_template_receipt_language || ""}
+              onChange={(v) => upd("wa_template_receipt_language", v)}
+              placeholder="fr"
+              testid="wa-template-receipt-language"
+            />
+            <Input
+              label="Template Facture/Proforma (nom Meta)"
+              value={s.wa_template_invoice_name || ""}
+              onChange={(v) => upd("wa_template_invoice_name", v)}
+              placeholder="document_piecejointe_facturation"
+              testid="wa-template-invoice-name"
+            />
+            <Input
+              label="Langue Facture (ex: fr)"
+              value={s.wa_template_invoice_language || ""}
+              onChange={(v) => upd("wa_template_invoice_language", v)}
+              placeholder="fr"
+              testid="wa-template-invoice-language"
+            />
+          </div>
+        </div>
       </Section>
 
       <Section icon={Ticket} title="Tickets d'intervention — notifications WhatsApp">

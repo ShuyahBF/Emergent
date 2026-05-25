@@ -7030,6 +7030,7 @@ async def admin_document_logs(file_id: Optional[str] = None, _: dict = Depends(g
 # ============================================================
 @api.get("/me/media-library", tags=["Portail Client"])
 async def me_media_library(
+    request: Request,
     source: Optional[str] = None,  # Iter35n — filter by `source` (e.g. "whatsapp_inbound")
     user: dict = Depends(get_current_user),
 ):
@@ -7037,12 +7038,34 @@ async def me_media_library(
 
     Iter35n — `source` query filter narrows the listing (typically
     `?source=whatsapp_inbound` to isolate WhatsApp re-saved media).
+
+    Iter37g — Rebuild `public_url` from the CURRENT request host so that links
+    stored at upload time on preview keep working from production (and vice
+    versa). Falls back to the stored absolute URL if no relative `url` is
+    available.
     """
     client_scope = user.get("client_id") or user.get("id")
     q: Dict[str, Any] = {"client_id": client_scope}
     if source:
         q["source"] = source
     items = await db.media_library.find(q, {"_id": 0}).sort("created_at", -1).to_list(500)
+    # Iter37g — Rewrite public_url with the current host
+    base = _public_base_url(request).rstrip("/")
+    for it in items:
+        # Pull the file row to recover the relative path
+        rel = None
+        if it.get("file_id"):
+            file_doc = await db.files.find_one({"id": it["file_id"]}, {"_id": 0, "url": 1})
+            if file_doc and file_doc.get("url"):
+                rel = file_doc["url"]
+        if not rel:
+            # Last-ditch: try to extract /api/files/... from the stored absolute URL
+            stored = it.get("public_url") or ""
+            idx = stored.find("/api/files/")
+            if idx >= 0:
+                rel = stored[idx:]
+        if rel:
+            it["public_url"] = f"{base}{rel}"
     return items
 
 
@@ -19225,6 +19248,7 @@ _cashier_router, _run_auto_relance_cashier = _make_cashier_router(
     get_current_admin=get_current_admin,
     get_current_supervisor=get_admin_or_supervisor,
     wa_send_text=_wa_send_text,
+    wa_send_template=_wa_send_template,  # Iter37g — for receipts/invoices templates
     send_email=send_email,
 )
 api.include_router(_cashier_router)

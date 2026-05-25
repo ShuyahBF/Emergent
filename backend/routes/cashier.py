@@ -164,6 +164,194 @@ def build_qr_png(payload: str) -> bytes:
     return buf.getvalue()
 
 
+# =====================================================================
+# Iter37g — PDF generation for receipts + invoices (for WhatsApp templates)
+# =====================================================================
+def _fmt_money(n: float) -> str:
+    """Format an amount with thousand separators (FR style: spaces) — no decimals."""
+    return f"{round(float(n or 0)):,}".replace(",", " ")
+
+
+def build_receipt_pdf(receipt: dict) -> bytes:
+    """ReportLab PDF for a receipt — clean, professional, A5 portrait."""
+    from reportlab.lib.pagesizes import A5
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A5,
+        topMargin=24, bottomMargin=24, leftMargin=24, rightMargin=24,
+        title=f"Recu {receipt.get('number', '')}",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=16, textColor=colors.HexColor("#0EA5E9"), alignment=1)
+    h2 = ParagraphStyle("H2", parent=styles["Heading3"], fontSize=11, spaceAfter=4)
+    body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=9, leading=12)
+    muted = ParagraphStyle("Muted", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#64748b"), leading=11)
+
+    tenant = receipt.get("tenant_snapshot") or {}
+    bc = receipt.get("business_client_snapshot") or {}
+    story: List[Any] = [
+        Paragraph(f"<b>{tenant.get('name') or 'SAWALI SMART SYSTEMS'}</b>", title_style),
+        Paragraph(tenant.get("billing_address") or "", muted),
+        Spacer(1, 6),
+        Paragraph("REÇU D'ENCAISSEMENT", h2),
+        Paragraph(f"<b>N°</b> {receipt.get('number', '—')} &nbsp;&nbsp; <b>Date</b> : {(receipt.get('issued_at') or '')[:10]}", body),
+        Spacer(1, 6),
+    ]
+    data = [
+        ["Bénéficiaire", receipt.get("beneficiary_name") or bc.get("name") or "—"],
+        ["Client en compte", bc.get("name") or "—"],
+        ["Montant", f"{_fmt_money(receipt.get('amount'))} FCFA"],
+        ["En lettres", receipt.get("amount_in_words") or "—"],
+        ["Mode de paiement", receipt.get("payment_method_label") or "—"],
+        ["Réf. paiement", receipt.get("payment_reference") or "—"],
+        ["Motif", receipt.get("motif") or "—"],
+    ]
+    tbl = Table(data, colWidths=[110, 270])
+    tbl.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ROWBACKGROUNDS", (0, 0), (-1, -1), [colors.HexColor("#f8fafc"), colors.white]),
+        ("FONTNAME", (0, 0), (0, -1), "Helvetica-Bold"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 5),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e2e8f0")),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 10))
+    # QR code embedded
+    try:
+        qr_url = receipt.get("qr_url") or ""
+        if qr_url:
+            png = build_qr_png(qr_url)
+            qr_buf = io.BytesIO(png)
+            story.append(RLImage(qr_buf, width=80, height=80, hAlign="LEFT"))
+            story.append(Paragraph(f"<font color='#64748b' size='7'>Vérification : {qr_url}</font>", muted))
+    except Exception:
+        pass
+    story.append(Spacer(1, 4))
+    cancel_line = '<b><font color="#dc2626">ANNULÉ</font></b>' if receipt.get('cancelled_at') else ''
+    story.append(Paragraph(
+        f"Encaissé par : {receipt.get('cashier_name') or '—'}<br/>{cancel_line}",
+        body,
+    ))
+    doc.build(story)
+    return buf.getvalue()
+
+
+def build_invoice_pdf(invoice: dict) -> bytes:
+    """ReportLab PDF for a proforma/invoice — A4 portrait, items table, totals."""
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image as RLImage
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    buf = io.BytesIO()
+    kind = invoice.get("kind") or "invoice"
+    label = "FACTURE" if kind == "invoice" else "PROFORMA"
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=28, bottomMargin=28, leftMargin=28, rightMargin=28,
+        title=f"{label} {invoice.get('number', '')}",
+    )
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("Title", parent=styles["Title"], fontSize=18, textColor=colors.HexColor("#0EA5E9"), alignment=0)
+    h2 = ParagraphStyle("H2", parent=styles["Heading3"], fontSize=12, spaceAfter=4)
+    body = ParagraphStyle("Body", parent=styles["Normal"], fontSize=9, leading=12)
+    muted = ParagraphStyle("Muted", parent=styles["Normal"], fontSize=8, textColor=colors.HexColor("#64748b"), leading=11)
+
+    tenant = invoice.get("tenant_snapshot") or {}
+    bc = invoice.get("business_client_snapshot") or {}
+    story: List[Any] = [
+        Paragraph(f"<b>{tenant.get('name') or 'SAWALI SMART SYSTEMS'}</b>", title_style),
+        Paragraph(tenant.get("billing_address") or "", muted),
+        Spacer(1, 8),
+        Paragraph(f"{label} N° {invoice.get('number', '—')}", h2),
+        Paragraph(
+            f"<b>Date</b> : {(invoice.get('created_at') or '')[:10]} &nbsp;&nbsp; "
+            f"<b>Statut</b> : {(invoice.get('status') or 'issued').upper()} &nbsp;&nbsp; "
+            f"<b>Échéance</b> : {invoice.get('due_date') or '—'}", body,
+        ),
+        Spacer(1, 8),
+        Paragraph(f"<b>Client</b> : {bc.get('name') or '—'}", body),
+        Paragraph(f"<font color='#64748b'>{bc.get('billing_address') or ''}</font>", muted),
+        Spacer(1, 10),
+    ]
+
+    items = invoice.get("items") or []
+    if items:
+        item_rows = [["Désignation", "Qté", "PU HT", "TVA %", "Total TTC"]]
+        for it in items:
+            item_rows.append([
+                (it.get("label") or it.get("description") or "")[:60],
+                str(it.get("quantity") or ""),
+                _fmt_money(it.get("unit_price_ht")),
+                f"{it.get('tva_pct') or 0}%",
+                _fmt_money(it.get("line_total_ttc")),
+            ])
+        itbl = Table(item_rows, colWidths=[210, 50, 80, 50, 90], repeatRows=1)
+        itbl.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0EA5E9")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("ALIGN", (0, 0), (0, -1), "LEFT"),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.whitesmoke, colors.white]),
+            ("GRID", (0, 0), (-1, -1), 0.25, colors.HexColor("#e2e8f0")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 6),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+            ("TOPPADDING", (0, 0), (-1, -1), 5),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ]))
+        story.append(itbl)
+        story.append(Spacer(1, 8))
+
+    totals_rows = [
+        ["Sous-total HT", f"{_fmt_money(invoice.get('subtotal_ht'))} FCFA"],
+        ["TVA", f"{_fmt_money(invoice.get('total_tva'))} FCFA"],
+        ["Remise", f"{_fmt_money(invoice.get('discount_amount'))} FCFA"],
+        ["Net à payer", f"{_fmt_money(invoice.get('net_to_pay'))} FCFA"],
+    ]
+    ttbl = Table(totals_rows, colWidths=[120, 100], hAlign="RIGHT")
+    ttbl.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#fef3c7")),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("LINEABOVE", (0, -1), (-1, -1), 1, colors.HexColor("#94a3b8")),
+        ("LEFTPADDING", (0, 0), (-1, -1), 6),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 6),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+    ]))
+    story.append(ttbl)
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(f"<i>{invoice.get('amount_in_words') or ''}</i>", muted))
+    if invoice.get("notes"):
+        story.append(Spacer(1, 8))
+        story.append(Paragraph(f"<b>Note</b> : {invoice.get('notes')}", body))
+    # QR
+    try:
+        qr_url = invoice.get("qr_url") or ""
+        if qr_url:
+            story.append(Spacer(1, 10))
+            png = build_qr_png(qr_url)
+            qr_buf = io.BytesIO(png)
+            story.append(RLImage(qr_buf, width=70, height=70, hAlign="LEFT"))
+            story.append(Paragraph(f"<font color='#64748b' size='7'>Vérification : {qr_url}</font>", muted))
+    except Exception:
+        pass
+    doc.build(story)
+    return buf.getvalue()
+
+
+
 def _is_super_admin(user: dict) -> bool:
     """Iter37e — SAWALI super-admin (sees data across all tenants)."""
     return (user.get("email") or "").lower() == "admin@sawalismartsystems.com"
@@ -319,7 +507,7 @@ async def backfill_tenant_ids(db, *, rewrite: bool = False) -> Dict[str, int]:
 # =====================================================================
 # Router factory
 # =====================================================================
-def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None, send_email=None):
+def make_router(*, db, get_current_user, get_current_admin, get_current_supervisor, wa_send_text=None, wa_send_template=None, send_email=None):
     router = APIRouter(tags=["Caisse & Facturation"])
 
     async def _next_year_seq(collection_name: str, year: int) -> int:
@@ -1064,6 +1252,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, max-age=86400"})
 
     # Iter36v — Send receipt to client via WhatsApp (1-click)
+    # Iter37g — Now uses a Meta template (`confirmation_paiement_avecrecu` by
+    # default) with the receipt PDF attached as DOCUMENT header. Falls back
+    # to free-form text when no template is configured.
     @router.post("/cashier/receipts/{rid}/send-whatsapp")
     async def receipt_send_whatsapp(
         rid: str,
@@ -1074,7 +1265,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0})
         await _ensure_tenant_access(user, r)  # Iter37e
-        if wa_send_text is None:
+        if wa_send_text is None and wa_send_template is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
         # Resolve recipient phone (override > snapshot.whatsapp/phone > live bc.whatsapp/phone)
         phone = (payload or {}).get("phone")
@@ -1084,23 +1275,72 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         if not phone:
             raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
         to_e164 = _normalize_phone_e164(phone)
-        text = (
-            f"📄 Reçu d'encaissement *{r['number']}*\n"
-            f"Bénéficiaire : {r.get('beneficiary_name') or (r.get('business_client_snapshot') or {}).get('name')}\n"
-            f"Montant : {float(r.get('amount') or 0):,.0f} FCFA\n"
-            f"({r.get('amount_in_words') or ''})\n"
-            f"Mode : {r.get('payment_method_label')}\n"
-            f"Motif : {r.get('motif')}\n"
-            f"Vérification : {r.get('qr_url')}"
-        ).replace(",", " ")
-        result = await wa_send_text(to_e164, text)
+
+        # Iter37g — Build the template path
+        settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+        tpl_name = (settings_doc.get("wa_template_receipt_name") or "confirmation_paiement_avecrecu").strip()
+        tpl_lang = (settings_doc.get("wa_template_receipt_language") or settings_doc.get("wa_default_language") or "fr").strip()
+        # Build the public PDF URL using the QR token (no auth required)
+        base = _public_base_url(settings_doc).rstrip("/")
+        pdf_url = f"{base}/api/public/receipt-pdf/{r['qr_token']}"
+        client_name = (r.get("business_client_snapshot") or {}).get("name") or r.get("beneficiary_name") or "Client"
+        amount_str = f"{_fmt_money(r.get('amount'))} FCFA"
+        receipt_no = r.get("number") or "—"
+        # Template components: HEADER (document) + BODY (text params).
+        # The 4 body params follow a defensive ordering [1: name, 2: number,
+        # 3: amount, 4: motif] — the user can adjust the template definition
+        # in Meta to match this.
+        components = [
+            {"type": "header", "parameters": [
+                {"type": "document", "document": {"link": pdf_url, "filename": f"Recu-{receipt_no}.pdf"}},
+            ]},
+            {"type": "body", "parameters": [
+                {"type": "text", "text": client_name},
+                {"type": "text", "text": receipt_no},
+                {"type": "text", "text": amount_str},
+                {"type": "text", "text": (r.get("motif") or "—")[:60]},
+            ]},
+        ]
+        force_text = bool((payload or {}).get("force_text"))
+        use_template = (wa_send_template is not None) and not force_text
+        if use_template:
+            result = await wa_send_template(to_e164, tpl_name, tpl_lang, components)
+            # If Meta rejects the template (param mismatch, not approved, etc.),
+            # automatically retry with body-only params (no header attachment),
+            # then fall back to free-form text within the 24h session window.
+            if not result.get("ok") and wa_send_template is not None:
+                # Retry without header (in case template has no document header)
+                result_body = await wa_send_template(to_e164, tpl_name, tpl_lang, [components[1]])
+                if result_body.get("ok"):
+                    result = result_body
+                elif wa_send_text is not None:
+                    text = (
+                        f"📄 Reçu *{receipt_no}*\n"
+                        f"Bénéficiaire : {client_name}\n"
+                        f"Montant : {amount_str}\n"
+                        f"Motif : {r.get('motif') or '—'}\n"
+                        f"PDF : {pdf_url}"
+                    )
+                    fb = await wa_send_text(to_e164, text)
+                    if fb.get("ok"):
+                        result = fb
+        else:
+            text = (
+                f"📄 Reçu *{receipt_no}*\n"
+                f"Bénéficiaire : {client_name}\n"
+                f"Montant : {amount_str}\n"
+                f"Motif : {r.get('motif') or '—'}\n"
+                f"PDF : {pdf_url}"
+            )
+            result = await wa_send_text(to_e164, text)
         if not result.get("ok"):
             return {
                 "ok": False,
                 "to": to_e164,
                 "error": result.get("error") or "Échec WhatsApp",
                 "status": result.get("status"),
-                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={text}",
+                "template_name": tpl_name if use_template else None,
+                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={pdf_url}",
             }
         await db.receipts.update_one(
             {"id": rid},
@@ -1109,9 +1349,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "whatsapp_message_id": result.get("message_id"),
                 "whatsapp_to": to_e164,
                 "whatsapp_sent_by": user["id"],
+                "whatsapp_template_name": tpl_name if use_template else None,
+                "whatsapp_pdf_url": pdf_url,
             }},
         )
-        return {"ok": True, "to": to_e164, "message_id": result.get("message_id")}
+        return {
+            "ok": True, "to": to_e164, "message_id": result.get("message_id"),
+            "template_name": tpl_name if use_template else None,
+            "pdf_url": pdf_url,
+        }
 
     # ----------------------------------------------------------------
     # Invoices (proforma / facture)
@@ -1245,6 +1491,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return Response(content=build_qr_png(i["qr_url"]), media_type="image/png")
 
     # Iter36v — Send invoice/proforma to client via WhatsApp (1-click)
+    # Iter37g — Now uses a Meta template (`document_piecejointe_facturation`
+    # by default) with the invoice PDF attached as DOCUMENT header.
     @router.post("/cashier/invoices/{iid}/send-whatsapp")
     async def invoice_send_whatsapp(
         iid: str,
@@ -1255,7 +1503,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=403, detail="Accès refusé")
         inv = await db.invoices.find_one({"id": iid}, {"_id": 0})
         await _ensure_tenant_access(user, inv)  # Iter37e
-        if wa_send_text is None:
+        if wa_send_text is None and wa_send_template is None:
             raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
         phone = (payload or {}).get("phone")
         if not phone:
@@ -1265,23 +1513,61 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=400, detail="Aucun numéro WhatsApp pour ce client en compte")
         to_e164 = _normalize_phone_e164(phone)
         label = "Proforma" if inv.get("kind") == "proforma" else "Facture"
-        status_label = {"issued": "Émise", "paid": "Réglée", "cancelled": "Annulée"}.get(inv.get("status") or "issued", inv.get("status") or "")
-        text = (
-            f"📑 {label} *{inv.get('number')}*\n"
-            f"Client : {(inv.get('business_client_snapshot') or {}).get('name')}\n"
-            f"Net à payer : {float(inv.get('net_to_pay') or 0):,.0f} FCFA\n"
-            f"({inv.get('amount_in_words') or ''})\n"
-            f"Statut : {status_label}\n"
-            f"Vérification : {inv.get('qr_url')}"
-        ).replace(",", " ")
-        result = await wa_send_text(to_e164, text)
+
+        # Iter37g — Build the template path
+        settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+        tpl_name = (settings_doc.get("wa_template_invoice_name") or "document_piecejointe_facturation").strip()
+        tpl_lang = (settings_doc.get("wa_template_invoice_language") or settings_doc.get("wa_default_language") or "fr").strip()
+        base = _public_base_url(settings_doc).rstrip("/")
+        pdf_url = f"{base}/api/public/invoice-pdf/{inv['qr_token']}"
+        client_name = (inv.get("business_client_snapshot") or {}).get("name") or "Client"
+        amount_str = f"{_fmt_money(inv.get('net_to_pay'))} FCFA"
+        doc_no = inv.get("number") or "—"
+        components = [
+            {"type": "header", "parameters": [
+                {"type": "document", "document": {"link": pdf_url, "filename": f"{label}-{doc_no}.pdf"}},
+            ]},
+            {"type": "body", "parameters": [
+                {"type": "text", "text": client_name},
+                {"type": "text", "text": label},
+                {"type": "text", "text": doc_no},
+                {"type": "text", "text": amount_str},
+            ]},
+        ]
+        force_text = bool((payload or {}).get("force_text"))
+        use_template = (wa_send_template is not None) and not force_text
+        if use_template:
+            result = await wa_send_template(to_e164, tpl_name, tpl_lang, components)
+            if not result.get("ok") and wa_send_template is not None:
+                result_body = await wa_send_template(to_e164, tpl_name, tpl_lang, [components[1]])
+                if result_body.get("ok"):
+                    result = result_body
+                elif wa_send_text is not None:
+                    text = (
+                        f"📑 {label} *{doc_no}*\n"
+                        f"Client : {client_name}\n"
+                        f"Net à payer : {amount_str}\n"
+                        f"PDF : {pdf_url}"
+                    )
+                    fb = await wa_send_text(to_e164, text)
+                    if fb.get("ok"):
+                        result = fb
+        else:
+            text = (
+                f"📑 {label} *{doc_no}*\n"
+                f"Client : {client_name}\n"
+                f"Net à payer : {amount_str}\n"
+                f"PDF : {pdf_url}"
+            )
+            result = await wa_send_text(to_e164, text)
         if not result.get("ok"):
             return {
                 "ok": False,
                 "to": to_e164,
                 "error": result.get("error") or "Échec WhatsApp",
                 "status": result.get("status"),
-                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={text}",
+                "template_name": tpl_name if use_template else None,
+                "fallback_wa_link": f"https://wa.me/{re.sub(r'[^0-9]', '', to_e164)}?text={pdf_url}",
             }
         await db.invoices.update_one(
             {"id": iid},
@@ -1290,9 +1576,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "whatsapp_message_id": result.get("message_id"),
                 "whatsapp_to": to_e164,
                 "whatsapp_sent_by": user["id"],
+                "whatsapp_template_name": tpl_name if use_template else None,
+                "whatsapp_pdf_url": pdf_url,
             }},
         )
-        return {"ok": True, "to": to_e164, "message_id": result.get("message_id")}
+        return {
+            "ok": True, "to": to_e164, "message_id": result.get("message_id"),
+            "template_name": tpl_name if use_template else None,
+            "pdf_url": pdf_url,
+        }
 
     # =================================================================
     # Iter36x — Relance des factures impayées (bulk WhatsApp)
@@ -1515,8 +1807,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Public QR verification — minimal info, no auth
     # ----------------------------------------------------------------
     @router.get("/public/verify/{token}")
-    async def public_verify(token: str):
-        # Receipt?
+    async def public_verify(token: str):        # Receipt?
         r = await db.receipts.find_one({"qr_token": token}, {"_id": 0})
         if r:
             return {
@@ -1544,6 +1835,72 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
                 "items_count": len(i.get("items") or []),
             }
         raise HTTPException(status_code=404, detail="Document introuvable")
+
+    # ----------------------------------------------------------------
+    # Iter37g — Public PDF download via QR token (used by WhatsApp templates
+    # as the DOCUMENT header URL). The token grants read-only access; no
+    # other auth is required so Meta's CDN can fetch the file.
+    # ----------------------------------------------------------------
+    @router.get("/public/receipt-pdf/{token}")
+    async def public_receipt_pdf(token: str):
+        r = await db.receipts.find_one({"qr_token": token}, {"_id": 0})
+        if not r:
+            raise HTTPException(status_code=404, detail="Reçu introuvable")
+        pdf = build_receipt_pdf(r)
+        filename = f"recu-{r.get('number') or token[:6]}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Cache-Control": "public, max-age=300",
+            },
+        )
+
+    @router.get("/public/invoice-pdf/{token}")
+    async def public_invoice_pdf(token: str):
+        i = await db.invoices.find_one({"qr_token": token}, {"_id": 0})
+        if not i:
+            raise HTTPException(status_code=404, detail="Document introuvable")
+        pdf = build_invoice_pdf(i)
+        kind_lbl = "facture" if (i.get("kind") == "invoice") else "proforma"
+        filename = f"{kind_lbl}-{i.get('number') or token[:6]}.pdf"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="{filename}"',
+                "Cache-Control": "public, max-age=300",
+            },
+        )
+
+    # Authenticated PDF endpoints (same content, but require auth + tenant scope)
+    @router.get("/cashier/receipts/{rid}/pdf")
+    async def receipt_pdf(rid: str, user: dict = Depends(get_current_user)):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        r = await db.receipts.find_one({"id": rid}, {"_id": 0})
+        await _ensure_tenant_access(user, r)
+        pdf = build_receipt_pdf(r)
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="recu-{r.get("number") or rid[:6]}.pdf"'},
+        )
+
+    @router.get("/cashier/invoices/{iid}/pdf")
+    async def invoice_pdf(iid: str, user: dict = Depends(get_current_user)):
+        if not _can_invoice(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        i = await db.invoices.find_one({"id": iid}, {"_id": 0})
+        await _ensure_tenant_access(user, i)
+        pdf = build_invoice_pdf(i)
+        kind_lbl = "facture" if (i.get("kind") == "invoice") else "proforma"
+        return Response(
+            content=pdf,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'inline; filename="{kind_lbl}-{i.get("number") or iid[:6]}.pdf"'},
+        )
 
     # =================================================================
     # Iter36w — CSV / PDF exports for receipts & invoices

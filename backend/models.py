@@ -526,6 +526,11 @@ class SettingsUpdate(BaseModel):
     health_uptime_alerts_enabled: Optional[bool] = None  # alert if any hourly uptime probe fails
     # Iter37f — Welcome briefing: unread counter mode ("bounded" | "lifetime").
     welcome_unread_mode: Optional[str] = None  # bounded (default) bounds by last_seen_at or last 7 days; lifetime counts all unread inbound
+    # Iter37g — WhatsApp templates for Caisse (receipt/invoice/proforma)
+    wa_template_receipt_name: Optional[str] = None        # default: confirmation_paiement_avecrecu
+    wa_template_receipt_language: Optional[str] = None    # default: fr
+    wa_template_invoice_name: Optional[str] = None        # default: document_piecejointe_facturation
+    wa_template_invoice_language: Optional[str] = None    # default: fr
     # Incident banner — public sticky bar at top of marketing pages
     incident_banner_enabled: Optional[bool] = None
     incident_banner_severity: Optional[str] = None  # info | warning | critical

@@ -2,6 +2,57 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## Iter38 (2026-05-26) — Module GRH (Ressources Humaines) Phases 1+2+3 + rôle Comptable
+
+### 🧑‍💼 1) Nouveau rôle tracked `Comptable`
+- Ajouté à `TRACKED_USER_ROLES` dans `models.py` (donc apparaît automatiquement dans le dropdown admin → Utilisateurs suivis → Rôle).
+- **Permissions** :
+  - GRH : lecture + écriture complète (CRUD employés + timesheet).
+  - Caisse : lecture seule (GET business_clients, products, receipts, invoices, KPIs, exports, PDFs, tenant-info, etc.).
+  - Tentative d'écriture sur Caisse → 401/403 (POST/PATCH/DELETE inchangés, restent restreints à admin/sup/can_cash).
+- Helper `_can_view_cashier(user) = _can_invoice(user) OR _is_comptable(user)` ajouté dans `cashier.py`. 17 endpoints GET migrés vers ce helper.
+
+### 📁 2) Module GRH — Nouveau router `/app/backend/routes/hr.py` (monté sur `/api/hr`)
+**Phase 1 — Personnel** :
+- Collection `db.hr_employees` (champs: `id`, `tenant_id`, `user_id`, `email_snapshot`, `name_snapshot`, `job_title`, `department`, `notes`, `created_at`, `updated_at`, `deleted_at`).
+- Isolation tenant : même logique que Caisse (`parent_client_id` → `client_id` → canonical-by-company → self). Super-admin (`admin@sawalismartsystems.com`) voit tous les tenants.
+- Endpoints :
+  - `GET /api/hr/eligible-users` → utilisateurs du tenant non encore enrôlés.
+  - `GET /api/hr/employees?include_deleted=bool` → liste enrichie avec user info.
+  - `POST /api/hr/employees` → idempotent (409 si user_id déjà enrôlé en actif).
+  - `PATCH /api/hr/employees/{eid}` → update partielle.
+  - `DELETE /api/hr/employees/{eid}` → soft delete.
+  - `POST /api/hr/employees/{eid}/restore` → restauration.
+
+**Phase 2 — Salaires** :
+- Champs sur la fiche employé : `base_salary`, `pay_type` (`monthly` | `hourly`), `currency` (défaut `XOF`), `hourly_rate`, `monthly_hours_baseline` (défaut 160h).
+
+**Phase 3 — Présence (calculée à la volée)** :
+- `GET /api/hr/employees/{eid}/timesheet?month=YYYY-MM` → calcule depuis `db.access_logs`.
+- Pour chaque (employee.user_id OR email_snapshot, date), agrège `min(created_at)` et `max(created_at)` → "plage min(login)→max(dernière action) du jour" (choix utilisateur 3.c).
+- Retourne `days[]` (date, first_seen, last_seen, presence_hours, hits) + `totals` (days_worked, hours_worked, expected_hours, pay_type, base_salary, hourly_rate, **computed_gross** estimé, currency).
+- Calcul `computed_gross` :
+  - `pay_type=hourly` : `hours_worked × hourly_rate`.
+  - `pay_type=monthly` : `base_salary × min(1.0, hours_worked / monthly_hours_baseline)` (proratisation).
+
+### 🖥️ 3) Frontend — Page `/portal/hr` (`HumanResources.jsx`)
+- Visible dans la sidebar pour admin/superviseur/Comptable (lien `hrOnly: true` dans `PortalLayout.jsx`).
+- 3 onglets : **Personnel** (CRUD + recherche + filtre "fiches supprimées") | **Salaires** (synthèse mensuelle, recalcul brut estimé pour tous les employés) | **Présence** (sélecteur employé + mois, 4 cards de totaux, tableau jour par jour).
+- Modal de création/édition employé : choix utilisateur depuis liste tenant, type de paie, salaire base ou taux horaire, heures mensuelles, département, intitulé poste, notes.
+- Tous les éléments interactifs ont des `data-testid` (`hr-page`, `hr-tabs`, `hr-tab-personnel/salaries/timesheet`, `hr-personnel-add-btn`, `hr-employee-*`, `hr-timesheet-*`, `hr-totals-*`, etc.).
+
+### ✅ Tests
+- **20/20 tests pytest verts** :
+  - `tests/test_iter38_grh.py` : 11 tests (eligible-users, CRUD, soft-delete + restore, timesheet 9h+6h proratisé, hourly pay 4h×5000=20000, isolation cross-tenant, permission Comptable read Caisse, blocage write).
+  - `tests/test_iter38_comptable_caisse_write_block.py` : 9 tests (créé par le testing agent — vérifie que Comptable est bloqué sur write Caisse).
+- **Régression Caisse : 35/35 verts** (iter36u + iter37d + iter37e + iter37f).
+
+### Prochaines phases GRH (P0, plus tard)
+- **Phase 4** : Absences/Déductions (suivi des jours/heures d'absence, seuils admin avant déduction du net).
+- **Phase 5** : Taxes fiscales (5 taxes globales tenant avec override par employé — choix 4.c) + Avances sur salaire (avec motifs).
+- **Phase 6** : Synthèse mensuelle PDF (paie par employé ou par entreprise).
+
+
 ## Latest — Iter37h (2026-05-25) — Voix WA + Reply + Delete RBAC + Duplicate facture
 
 ### 🎙️ 1) Notes vocales + transcription dans la fenêtre de discussion WhatsApp

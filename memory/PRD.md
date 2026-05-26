@@ -4,7 +4,7 @@
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
 
-_⚠️ Historique récent (Iter35a → Iter37f) déplacé dans `/app/memory/CHANGELOG.md`._
+_⚠️ Historique récent (Iter35a → Iter38) déplacé dans `/app/memory/CHANGELOG.md`._
 
 ## User Choices
 - **OTP** : par email via SMTP (paramétrable depuis l'admin)
@@ -54,7 +54,23 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 ### 🟧 P0 — Refactor `server.py`
 - Découpage en `/app/backend/routes/` : `auth.py`, `admin.py`, `me.py`, `public.py`, `webhooks.py`, `payments.py`, `sms.py`, `whatsapp.py`, `dashboard.py`, `formations.py`…
-- Actuellement >10 300 lignes — devient critique pour maintenabilité.
+- Actuellement >19 300 lignes — devient critique pour maintenabilité.
+- Modules déjà extraits : `cashier.py` (2542 lignes), `hr.py` (375 lignes), `internal_chat.py`, `sms_dashboard.py`.
+
+### 🟧 P0 — GRH Phases 4-6 (à reprendre après déploiement actuel + A/B)
+- **Phase 4** : Absences/Déductions (jours/heures d'absence, seuils admin avant déduction).
+- **Phase 5** : Taxes fiscales (5 configurables, global tenant avec override par employé) + Avances sur salaire (motifs).
+- **Phase 6** : Synthèse mensuelle PDF (paie par employé ou par entreprise).
+
+### 🟧 P0 — Cashier Trash UI (A.3) — UI en attente
+- Backend complet (soft-delete + restore + permanent delete).
+- Frontend `CashBilling.jsx` : ajouter toggle "Afficher la corbeille" + boutons restore/delete permanent.
+
+### 🟧 P1 — B-list (à faire après déploiement actuel)
+- **B.1** Indicateur résultat envoi WhatsApp (OK/KO toast après dispatch template).
+- **B.2** Date "dernière utilisation" produit (basée sur **toute facture payée**, hors proformas).
+- **B.3** Upload/génération AI icône PNG produit + toggle export catalogue public.
+- **B.4** Auto-scroll bas pour WA Chat + Internal Chat.
 
 ### 🟦 Future
 - **🔔 Versioning + Notification email à chaque modification de secret (P2)** — Plutôt qu'un rappel mensuel, déclencher à chaque création/modification d'un secret API : (a) email à l'admin avec qui/quand/quelle clé (jamais la valeur), (b) versioning des secrets (rollback possible vers une version précédente). À combiner avec le coffre-fort iter35e.

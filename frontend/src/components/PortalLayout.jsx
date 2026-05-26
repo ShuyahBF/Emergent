@@ -39,6 +39,7 @@ const clientLinks = [
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
+  { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
   { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
@@ -91,10 +92,13 @@ export default function PortalLayout({ admin = false }) {
   const isSuperAdmin = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
   const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
   const canCash = !!user?.can_cash || isAdminOrSup;
+  const isComptable = (user?.tracked_role || "") === "Comptable";
+  const canHR = isAdminOrSup || isComptable;
   const links = (admin ? adminLinks : clientLinks)
     .filter((l) => !l.trackedOnly || isTracked)
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
-    .filter((l) => !l.cashOnly || canCash)
+    .filter((l) => !l.cashOnly || canCash || isComptable)
+    .filter((l) => !l.hrOnly || canHR)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page

@@ -19281,6 +19281,14 @@ _cashier_router, _run_auto_relance_cashier = _make_cashier_router(
 )
 api.include_router(_cashier_router)
 
+# =====================================================================
+# Iter38 — GRH (Gestion des Ressources Humaines) router.
+# Phases 1+2+3: Personnel, Salaires, Présence (computed from access_logs).
+# =====================================================================
+from routes.hr import make_router as _make_hr_router  # noqa: E402
+_hr_router = _make_hr_router(db=db, get_current_user=get_current_user)
+api.include_router(_hr_router)
+
 app.include_router(api)
 
 

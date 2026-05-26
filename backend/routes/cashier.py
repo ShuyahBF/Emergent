@@ -367,6 +367,16 @@ def _can_invoice(user: dict) -> bool:
     return _is_admin_or_supervisor(user) or bool((user or {}).get("can_cash"))
 
 
+def _is_comptable(user: dict) -> bool:
+    """Iter38 — Comptable tracked role (Caisse read-only + GRH write)."""
+    return (user.get("tracked_role") or "") == "Comptable"
+
+
+def _can_view_cashier(user: dict) -> bool:
+    """Iter38 — Read-only access for Comptable, plus all _can_invoice roles."""
+    return _can_invoice(user) or _is_comptable(user)
+
+
 def _can_cancel_invoice(user: dict) -> bool:
     """Iter36u — Choice 2c: only admin/superviseur can cancel."""
     return _is_admin_or_supervisor(user)
@@ -543,7 +553,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     @router.get("/admin/business-clients")
     async def list_business_clients(user: dict = Depends(get_current_user)):
         # Iter37f — Read access for any cashier user (can_cash=true). Writes stay supervisor-only.
-        if not _can_invoice(user) and user.get("role") not in ("admin", "superviseur"):
+        if not _can_view_cashier(user) and user.get("role") not in ("admin", "superviseur"):
             raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37e — Tenant scope
         scope = await _scoped_filter(user)
@@ -700,7 +710,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     @router.get("/admin/products")
     async def list_products(user: dict = Depends(get_current_user)):
         # Iter37f — Read access for any cashier user (can_cash=true). Writes stay supervisor-only.
-        if not _can_invoice(user) and user.get("role") not in ("admin", "superviseur"):
+        if not _can_view_cashier(user) and user.get("role") not in ("admin", "superviseur"):
             raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37a/e — Filter by current user's Client Lié (multi-tenant catalog).
         q: Dict[str, Any] = {"deleted_at": None}
@@ -1123,7 +1133,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # ----------------------------------------------------------------
     @router.get("/cashier/tenant-info")
     async def cashier_tenant_info(user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         cl = await _resolve_client_lie(user)
         tid = cl["id"]
@@ -1226,7 +1236,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         include_deleted: bool = Query(False),  # Iter37h.A — show trashed docs
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37e — Tenant scope; Iter37h — exclude soft-deleted by default
         q: Dict[str, Any] = await _scoped_filter(user)
@@ -1239,7 +1249,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/cashier/receipts/{rid}")
     async def get_receipt(rid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0})
         await _ensure_tenant_access(user, r)  # Iter37e
@@ -1247,7 +1257,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/cashier/receipts/{rid}/qr.png")
     async def receipt_qr_png(rid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0, "qr_url": 1, "tenant_id": 1})
         await _ensure_tenant_access(user, r)  # Iter37e
@@ -1465,7 +1475,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         limit: int = Query(50, ge=1, le=200),
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37e — Tenant scope; Iter37h — exclude soft-deleted by default
         q: Dict[str, Any] = await _scoped_filter(user)
@@ -1482,7 +1492,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/cashier/invoices/{iid}")
     async def get_invoice(iid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         i = await db.invoices.find_one({"id": iid}, {"_id": 0})
         await _ensure_tenant_access(user, i)  # Iter37e
@@ -1490,7 +1500,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/cashier/invoices/{iid}/qr.png")
     async def invoice_qr_png(iid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         i = await db.invoices.find_one({"id": iid}, {"_id": 0, "qr_url": 1, "tenant_id": 1})
         await _ensure_tenant_access(user, i)  # Iter37e
@@ -1618,7 +1628,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         grace_days: int = Query(30, ge=0, le=365),
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         q = _build_overdue_query(grace_days)
         # Iter37e — Tenant scope
@@ -1993,7 +2003,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # Authenticated PDF endpoints (same content, but require auth + tenant scope)
     @router.get("/cashier/receipts/{rid}/pdf")
     async def receipt_pdf(rid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         r = await db.receipts.find_one({"id": rid}, {"_id": 0})
         await _ensure_tenant_access(user, r)
@@ -2006,7 +2016,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.get("/cashier/invoices/{iid}/pdf")
     async def invoice_pdf(iid: str, user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         i = await db.invoices.find_one({"id": iid}, {"_id": 0})
         await _ensure_tenant_access(user, i)
@@ -2111,7 +2121,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         business_client_id: Optional[str] = None,
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         items = await _query_receipts(business_client_id, limit, user=user)
         rows: List[List[Any]] = [["N°", "Date", "Client en compte", "Bénéficiaire", "Motif",
@@ -2140,7 +2150,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         business_client_id: Optional[str] = None,
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         items = await _query_receipts(business_client_id, limit, user=user)
         rows: List[List[str]] = []
@@ -2175,7 +2185,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         business_client_id: Optional[str] = None,
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         items = await _query_invoices(kind, status, business_client_id, limit, user=user)
         rows: List[List[Any]] = [["N°", "Type", "Statut", "Date", "Client", "NIF/RCCM",
@@ -2210,7 +2220,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         business_client_id: Optional[str] = None,
         user: dict = Depends(get_current_user),
     ):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         items = await _query_invoices(kind, status, business_client_id, limit, user=user)
         rows: List[List[str]] = []
@@ -2421,7 +2431,7 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     # =================================================================
     @router.get("/cashier/kpis")
     async def invoices_kpis(user: dict = Depends(get_current_user)):
-        if not _can_invoice(user):
+        if not _can_view_cashier(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         # Iter37e — Tenant scope applied on every aggregation
         tenant_scope = await _scoped_filter(user)

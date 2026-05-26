@@ -2,6 +2,61 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## Iter38c (2026-05-26) — Caisse Dépenses + Matricule auto + Dashboard card
+
+### 💸 1) Caisse — Module "Dépenses" (cash | chèque)
+- **Backend** (`/app/backend/routes/cashier_expenses.py`, 380 lignes) :
+  - Collection `db.cashier_expenses` : `amount`, `currency`, `method` (cash|check), `payee`, `motif`, `expense_date`, `note`, `is_justified`, `justified_at`, `justified_by`, `justification_text`, `justification_proof_url`, `forced_justification`, `deleted_at`.
+  - **Permissions** :
+    - Création : admin, sup, can_cash, ou Comptable.
+    - Édition / suppression / `unjustify` : **admin uniquement** (sup/can_cash → 403).
+    - `force=true` lors d'une justification : admin uniquement (pour outrepasser le délai).
+- **Endpoints** :
+  - `GET /api/cashier/expenses?month=&status=&user_id=` (filtres : `justified`, `unjustified`, `late_unjustified`, `all`).
+  - `POST /api/cashier/expenses` (création — pas justifiée à la création).
+  - `PATCH /api/cashier/expenses/{eid}` (admin).
+  - `DELETE /api/cashier/expenses/{eid}` (admin, soft delete).
+  - `POST /api/cashier/expenses/{eid}/justify` — **REFUSE 400 si délai dépassé** (sauf admin avec `force=true`). Enregistre `justified_at` (UTC ISO), `justified_by` (user_id), `justified_by_name`, `justified_by_email`, `justification_text`, `justification_proof_url`, `forced_justification` bool.
+  - `POST /api/cashier/expenses/{eid}/unjustify` (admin) — annule la justification (en cas d'erreur).
+  - `GET /api/cashier/expenses/monthly-summary?month=YYYY-MM` — totaux + ventilation par utilisateur (justified, unjustified, late_unjustified, count).
+  - `GET /api/cashier/expenses/me/dashboard-card` — synthèse pour l'utilisateur courant.
+- **Délai admin-configurable** (`settings.expense_justification_deadline_hours`) :
+  - **72h par défaut**.
+  - **0 = pas de limite** (toujours acceptable).
+  - Modifiable via Admin Settings → section "Caisse — Délai de justification des dépenses".
+- **Intégration paie** :
+  - Helper `late_unjustified_for_employee(db, tenant_id, user_id, month)` calcule la somme des dépenses non justifiées au-delà du délai pour le mois.
+  - `_compute_payslip` ajoute le champ `late_expenses_deduction` (déduit du net).
+  - PDF de paie : nouvelle rubrique rouge "DÉPENSES CAISSE NON JUSTIFIÉES (EN RETARD)" affichée si > 0, déduite avant le NET À PAYER.
+
+### 📊 2) Dashboard portail — Carte "Mes dépenses à justifier" (utilisateurs suivis)
+- Composant `<UnjustifiedExpensesCard />` dans `Dashboard.jsx`.
+- Affichée uniquement pour utilisateurs **tracked** (`tracked_user_id` ou `tracked_role` défini) **ET** avec accès Caisse (admin/sup/can_cash/Comptable).
+- Affiche : `count`, `total_unjustified`, `late_unjustified` (en rouge), `deadline_hours`.
+- Lien direct vers `/portal/cash` pour aller régulariser.
+- `data-testid` : `dashboard-unjustified-expenses-card`, `dashboard-unjust-total`, `dashboard-unjust-late`.
+
+### 🆔 3) Personnel GRH — Matricule auto-généré
+- Compteur per-tenant : `db.employee_matricule_counters` `{tenant_id, seq}`.
+- Format : `MAT-{prefix}-{seq:05d}` où `prefix` = 4 premiers caractères alphanumériques de la company tenant (uppercase).
+- Exemple : `MAT-SAWA-00001`, `MAT-SAWA-00002`, …
+- Généré automatiquement à la **création** d'un employé.
+- **Endpoint backfill** : `POST /api/hr/employees/backfill-matricules` — attribue un matricule à tous les employés legacy (admin/sup/Comptable). Super-admin → opère sur tous les tenants.
+- **Affichage** : colonne "Matricule" en première position de l'onglet Personnel + sur la fiche de paie PDF.
+
+### 🧪 Tests
+- `tests/test_iter38c_expenses_matricule.py` : **11/11 tests pytest verts** (création, perms admin-only, justification dans délai, refus hors délai, force admin, deadline=0 illimité, monthly-summary, isolation cross-tenant, dashboard-card, matricule auto + increment, backfill, payslip late deduction).
+- **Régression iter38 : 56/56 verts** (11 iter38a + 14 iter38b + 11 iter38c + 9 iter38_comptable + 11 iter38_grh_redux).
+- Testing agent : aucun bug.
+
+### 🎨 Frontend
+- **CashBilling.jsx** : nouvel onglet "Dépenses" entre Facturation et Catalogue. Visible pour admin/sup/can_cash/Comptable.
+- **ExpensesTab.jsx** (nouveau, 380 lignes) : tableau, formulaire création, modal de justification avec preuve URL + alerte "délai dépassé" + checkbox force admin, 4 filtres de statut, 4 cards de synthèse.
+- **Dashboard.jsx** : carte unjustified ajoutée (visible pour utilisateurs suivis Caisse).
+- **HumanResources.jsx** : colonne Matricule (`hr-personnel-matricule-{id}`).
+- **AdminSettings.jsx** : nouvelle Section pour `expense_justification_deadline_hours` (input number, défaut 72, 0 = illimité).
+
+
 ## Iter38b (2026-05-26) — GRH Phases 4+5+6 + Mini-graph + Pays/Indicatifs configurables
 
 ### 🌍 1) Pays & indicatifs téléphoniques configurables (par défaut Burkina Faso +226)

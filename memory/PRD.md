@@ -4,7 +4,7 @@
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
 
-_⚠️ Historique récent (Iter35a → Iter38b) déplacé dans `/app/memory/CHANGELOG.md`._
+_⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
 ## User Choices
 - **OTP** : par email via SMTP (paramétrable depuis l'admin)

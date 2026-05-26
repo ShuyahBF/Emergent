@@ -287,11 +287,29 @@ def make_router(*, db, get_current_user):
             raise HTTPException(
                 status_code=409, detail="Cet utilisateur est déjà enrôlé"
             )
+        # Iter38c — Generate matricule automatically per tenant.
+        # Format: MAT-{tenant_prefix}-{sequence:05d}
+        # tenant_prefix = first 4 alphanumeric chars of tenant company (uppercase).
+        tenant_company = ""
+        tenant_doc = await db.users.find_one({"id": tid}, {"_id": 0, "company": 1, "full_name": 1})
+        if tenant_doc:
+            tenant_company = (tenant_doc.get("company") or tenant_doc.get("full_name") or "").upper()
+        import re as _re
+        prefix = _re.sub(r"[^A-Z0-9]", "", tenant_company)[:4] or "TEAM"
+        counter = await db.employee_matricule_counters.find_one_and_update(
+            {"tenant_id": tid},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=True,
+        )
+        seq = int((counter or {}).get("seq", 1))
+        matricule = f"MAT-{prefix}-{seq:05d}"
         doc = payload.model_dump()
         doc.update(
             {
                 "id": str(uuid.uuid4()),
                 "tenant_id": tid,
+                "matricule": matricule,
                 "email_snapshot": target.get("email"),
                 "name_snapshot": target.get("full_name"),
                 "created_at": _now_iso(),
@@ -472,6 +490,47 @@ def make_router(*, db, get_current_user):
                 "currency": emp.get("currency") or "XOF",
             },
         }
+
+    @router.post("/employees/backfill-matricules")
+    async def backfill_matricules(user: dict = Depends(get_current_user)):
+        """Iter38c — Assign auto-generated matricule to employees missing one (tenant-scoped)."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        # Need per-tenant matricule sequence. Walk by tenant if super-admin.
+        affected: List[Dict[str, Any]] = []
+        if not scope:
+            # super-admin: process across all tenants
+            tenant_ids = await db.hr_employees.distinct("tenant_id", {"matricule": {"$in": [None, ""]}})
+        else:
+            tenant_ids = [scope.get("tenant_id")]
+        import re as _re
+        for tid in tenant_ids:
+            if not tid:
+                continue
+            tenant_doc = await db.users.find_one({"id": tid}, {"_id": 0, "company": 1, "full_name": 1})
+            tenant_company = ((tenant_doc or {}).get("company") or (tenant_doc or {}).get("full_name") or "").upper()
+            prefix = _re.sub(r"[^A-Z0-9]", "", tenant_company)[:4] or "TEAM"
+            # Find candidates missing a matricule
+            cursor = db.hr_employees.find(
+                {"tenant_id": tid, "matricule": {"$in": [None, ""]}},
+                {"_id": 0, "id": 1, "name_snapshot": 1},
+            ).sort("created_at", 1)
+            async for emp in cursor:
+                counter = await db.employee_matricule_counters.find_one_and_update(
+                    {"tenant_id": tid},
+                    {"$inc": {"seq": 1}},
+                    upsert=True,
+                    return_document=True,
+                )
+                seq = int((counter or {}).get("seq", 1))
+                matricule = f"MAT-{prefix}-{seq:05d}"
+                await db.hr_employees.update_one(
+                    {"id": emp["id"]},
+                    {"$set": {"matricule": matricule, "updated_at": _now_iso()}},
+                )
+                affected.append({"id": emp["id"], "name": emp.get("name_snapshot"), "matricule": matricule})
+        return {"ok": True, "count": len(affected), "items": affected}
 
     # ================================================================
     # Iter38b — HR Settings (tenant scope, stored in db.hr_settings)
@@ -848,10 +907,17 @@ def make_router(*, db, get_current_user):
                 "remaining": round(remaining, 2),
             })
         adv_total = round(adv_total, 2)
-        net = round(gross_after_abs - total_taxes - adv_total, 2)
+        # Iter38c — Late-unjustified cashier expenses (rolled into payslip)
+        from routes.cashier_expenses import late_unjustified_for_employee  # local import
+        tid = await _resolve_tenant_id(user)
+        late_expenses_amount = await late_unjustified_for_employee(
+            db, tenant_id=tid, user_id=emp.get("user_id"), month=month
+        )
+        net = round(gross_after_abs - total_taxes - adv_total - late_expenses_amount, 2)
         return {
             "employee": {
                 "id": emp["id"], "user_id": emp.get("user_id"),
+                "matricule": emp.get("matricule"),
                 "full_name": emp.get("name_snapshot"),
                 "email": emp.get("email_snapshot"),
                 "job_title": emp.get("job_title"),
@@ -872,6 +938,7 @@ def make_router(*, db, get_current_user):
             "total_taxes": total_taxes,
             "advances": adv_lines,
             "advances_deduction": adv_total,
+            "late_expenses_deduction": late_expenses_amount,
             "net": net,
             "hr_settings": hr_set,
         }
@@ -1018,9 +1085,10 @@ def _render_payslip_pdf(data: Dict[str, Any]) -> bytes:
 
     # Identity
     id_data = [
-        ["Employé", emp.get("full_name") or "—", "Période", data["month"]],
-        ["Email", emp.get("email") or "—", "Poste", emp.get("job_title") or "—"],
-        ["Département", emp.get("department") or "—", "Type", "Horaire" if emp.get("pay_type") == "hourly" else "Mensuel"],
+        ["Matricule", emp.get("matricule") or "—", "Période", data["month"]],
+        ["Employé", emp.get("full_name") or "—", "Poste", emp.get("job_title") or "—"],
+        ["Email", emp.get("email") or "—", "Département", emp.get("department") or "—"],
+        ["Type paie", "Horaire" if emp.get("pay_type") == "hourly" else "Mensuel", "", ""],
     ]
     t = Table(id_data, colWidths=[70, 180, 70, 180])
     t.setStyle(TableStyle([
@@ -1112,6 +1180,26 @@ def _render_payslip_pdf(data: Dict[str, Any]) -> bytes:
             ("TOPPADDING", (0, 0), (-1, -1), 3),
         ]))
         story.append(tadv)
+        story.append(Spacer(1, 8))
+
+    # Iter38c — Late-unjustified expenses deduction
+    late_exp = float(data.get("late_expenses_deduction") or 0)
+    if late_exp > 0:
+        story.append(Paragraph("<b>DÉPENSES CAISSE NON JUSTIFIÉES (EN RETARD)</b>", h))
+        le_rows = [
+            ["Somme des dépenses non justifiées au-delà du délai",
+             _fmt_amount(late_exp, currency)],
+        ]
+        tle = Table(le_rows, colWidths=[350, 150])
+        tle.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#fef2f2")),
+            ("TEXTCOLOR", (0, 0), (-1, -1), colors.HexColor("#991b1b")),
+            ("TOPPADDING", (0, 0), (-1, -1), 6),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+        ]))
+        story.append(tle)
         story.append(Spacer(1, 8))
 
     # Net

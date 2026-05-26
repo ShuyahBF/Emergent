@@ -348,6 +348,27 @@ export default function AdminSettings() {
 
       <CountryPrefixSection />
 
+      {/* Iter38c — Cashier expense justification deadline */}
+      <Section icon={CreditCard} title="Caisse — Délai de justification des dépenses">
+        <p className="text-xs text-slate-500 mb-3">
+          Délai maximum en heures pour qu'un employé puisse justifier une dépense
+          de caisse ou par chèque qu'il a saisie. Passé ce délai, la justification
+          est refusée (sauf forçage par l'administrateur) et le montant est déduit
+          automatiquement de la prochaine fiche de paie. <strong>0 = pas de limite.</strong>
+        </p>
+        <div className="flex items-center gap-2">
+          <input
+            type="number"
+            min={0}
+            value={s.expense_justification_deadline_hours ?? 72}
+            onChange={(e) => upd("expense_justification_deadline_hours", parseInt(e.target.value || 0, 10))}
+            data-testid="expense-deadline-input"
+            className="w-32 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
+          <span className="text-sm text-slate-600">heures (défaut: 72h)</span>
+        </div>
+      </Section>
+
       <SupportLoadSection s={s} upd={upd} />
       <AlexaVoiceMonkeySection s={s} upd={upd} />
       <NoteServiceHistorySection s={s} upd={upd} />

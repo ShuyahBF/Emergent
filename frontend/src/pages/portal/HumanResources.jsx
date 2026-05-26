@@ -558,6 +558,7 @@ function PersonnelTable({ employees, includeDeleted, setIncludeDeleted, eligible
           <table className="w-full text-sm min-w-[800px]">
             <thead className="bg-slate-50 text-slate-600 text-xs">
               <tr>
+                <th className="px-3 py-2 text-left">Matricule</th>
                 <th className="px-3 py-2 text-left">Nom</th>
                 <th className="px-3 py-2 text-left">Email</th>
                 <th className="px-3 py-2 text-left">Poste</th>
@@ -576,6 +577,9 @@ function PersonnelTable({ employees, includeDeleted, setIncludeDeleted, eligible
                     className={`border-t border-slate-100 ${isDeleted ? "opacity-50" : ""}`}
                     data-testid={`hr-personnel-row-${e.id}`}
                   >
+                    <td className="px-3 py-2 text-xs font-mono text-slate-600" data-testid={`hr-personnel-matricule-${e.id}`}>
+                      {e.matricule || <span className="text-amber-600 italic">—</span>}
+                    </td>
                     <td className="px-3 py-2 font-medium">
                       {e.user?.full_name || e.name_snapshot}
                       {isDeleted && <span className="ml-2 text-xs text-rose-600">(supprimée)</span>}

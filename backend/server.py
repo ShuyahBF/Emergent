@@ -19300,6 +19300,14 @@ _tm_router = _make_tenant_meta_router(
 )
 api.include_router(_tm_router)
 
+# =====================================================================
+# Iter38c — Cashier Expenses module (Dépenses caisse/chèque, justification
+# avec délai admin-configurable, intégration paie).
+# =====================================================================
+from routes.cashier_expenses import make_router as _make_expenses_router  # noqa: E402
+_exp_router = _make_expenses_router(db=db, get_current_user=get_current_user)
+api.include_router(_exp_router)
+
 app.include_router(api)
 
 

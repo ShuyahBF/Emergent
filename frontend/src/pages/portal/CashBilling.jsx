@@ -21,6 +21,7 @@ import {
   TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy,
 } from "lucide-react";
 import { Link } from "react-router-dom";
+import ExpensesTab from "./ExpensesTab";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -1340,10 +1341,15 @@ export default function CashBilling({ defaultTab = "receipts" }) {
   }
 
   const isAdmin = ["admin", "superviseur"].includes(user?.role);
+  const isComptable = (user?.tracked_role || "") === "Comptable";
+  const canExpense = isAdmin || !!user?.can_cash || isComptable;
 
   const tabs = [
     { key: "receipts", label: "Caisse", icon: Banknote, color: "text-emerald-600" },
     { key: "invoices", label: "Facturation", icon: Receipt, color: "text-sawali-blue" },
+    ...(canExpense ? [
+      { key: "expenses", label: "Dépenses", icon: CreditCard, color: "text-rose-700" },
+    ] : []),
     ...(isAdmin ? [
       { key: "catalog", label: "Catalogue", icon: ShoppingBag, color: "text-violet-600" },
       { key: "business", label: "Clients en compte", icon: Building2, color: "text-amber-600" },
@@ -1415,6 +1421,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
 
       {tab === "receipts" && <ReceiptsTab businessClients={businessClients} paymentMethods={paymentMethods} refreshClients={refresh} />}
       {tab === "invoices" && <InvoicesTab businessClients={businessClients} products={products} paymentMethods={paymentMethods} refreshClients={refresh} />}
+      {tab === "expenses" && <ExpensesTab isAdmin={isAdmin} />}
       {tab === "catalog" && (
         <CrudTab title="Catalogue produits/services" icon={ShoppingBag} color="text-violet-600"
           listPath="/admin/products" createPath="/admin/products" deletePath="/admin/products"

@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare } from "lucide-react";
+import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare, CreditCard, AlertTriangle } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -146,10 +147,68 @@ export default function ClientDashboard() {
       </div>
       {/* Iter35o — Tickets en attente */}
       <TicketsPendingCard />
+      {/* Iter38c — Carte dépenses non justifiées (utilisateurs suivis avec accès Caisse) */}
+      <UnjustifiedExpensesCard />
       {/* Iter35m — Synthèse des médias WhatsApp reçus */}
       {smartFeatures.whatsapp && <WaMediaSummaryCard />}
       {showAi && <AiSummaryModal onClose={() => setShowAi(false)} />}
     </div>
+  );
+}
+
+// ====================================================================
+// Iter38c — Unjustified expenses card (tracked users with cashier access)
+// Shows the sum of THIS user's expenses still unjustified (incl. those past
+// the deadline → which will be deducted from next payslip).
+// ====================================================================
+function UnjustifiedExpensesCard() {
+  const { user } = useAuth() || {};
+  const [data, setData] = useState(null);
+  const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
+  const canExpense = ["admin", "superviseur"].includes(user?.role) || !!user?.can_cash || (user?.tracked_role === "Comptable");
+  const shouldShow = isTracked && canExpense;
+  useEffect(() => {
+    if (!shouldShow) return;
+    apiClient.get("/cashier/expenses/me/dashboard-card")
+      .then((r) => setData(r.data))
+      .catch(() => setData(null));
+  }, [shouldShow]);
+  if (!shouldShow || !data) return null;
+  const hasLate = (data.late_unjustified || 0) > 0;
+  return (
+    <Link to="/portal/cash" className="block rounded-xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-amber-50 p-5 hover:shadow-md transition-shadow"
+      data-testid="dashboard-unjustified-expenses-card">
+      <div className="flex items-start justify-between">
+        <div className="flex items-center gap-2 mb-2">
+          <div className={`w-10 h-10 rounded-full flex items-center justify-center ${hasLate ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-700"}`}>
+            {hasLate ? <AlertTriangle size={20} /> : <Clock size={20} />}
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900">Mes dépenses caisse à justifier</h3>
+            <p className="text-xs text-slate-500">
+              {data.deadline_hours === 0 ? "Pas de délai limite" : `Délai : ${data.deadline_hours}h`}
+            </p>
+          </div>
+        </div>
+        <ArrowRight size={18} className="text-slate-400" />
+      </div>
+      <div className="mt-3 grid grid-cols-2 gap-3">
+        <div data-testid="dashboard-unjust-total">
+          <p className="text-xs text-slate-500">Total non justifiées</p>
+          <p className="text-xl font-bold text-amber-900">
+            {Number(data.total_unjustified || 0).toLocaleString("fr-FR")} {data.currency}
+          </p>
+          <p className="text-xs text-slate-400 mt-0.5">{data.count} opération(s)</p>
+        </div>
+        <div data-testid="dashboard-unjust-late">
+          <p className="text-xs text-rose-600">Dont hors délai</p>
+          <p className={`text-xl font-bold ${hasLate ? "text-rose-700" : "text-slate-400"}`}>
+            {Number(data.late_unjustified || 0).toLocaleString("fr-FR")} {data.currency}
+          </p>
+          {hasLate && <p className="text-xs text-rose-500 mt-0.5">Sera déduit du salaire</p>}
+        </div>
+      </div>
+    </Link>
   );
 }
 

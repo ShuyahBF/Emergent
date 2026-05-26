@@ -531,6 +531,8 @@ class SettingsUpdate(BaseModel):
     wa_template_receipt_language: Optional[str] = None    # default: fr
     wa_template_invoice_name: Optional[str] = None        # default: document_piecejointe_facturation
     wa_template_invoice_language: Optional[str] = None    # default: fr
+    # Iter38c — Cashier expense justification deadline (hours). 0 = no limit.
+    expense_justification_deadline_hours: Optional[int] = None
     # Incident banner — public sticky bar at top of marketing pages
     incident_banner_enabled: Optional[bool] = None
     incident_banner_severity: Optional[str] = None  # info | warning | critical

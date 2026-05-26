@@ -1223,13 +1223,15 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
     async def list_receipts(
         limit: int = Query(50, ge=1, le=200),
         business_client_id: Optional[str] = None,
+        include_deleted: bool = Query(False),  # Iter37h.A — show trashed docs
         user: dict = Depends(get_current_user),
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted
+        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted by default
         q: Dict[str, Any] = await _scoped_filter(user)
-        q["deleted_at"] = None
+        if not include_deleted:
+            q["deleted_at"] = None
         if business_client_id:
             q["business_client_id"] = business_client_id
         cursor = db.receipts.find(q, {"_id": 0}).sort("issued_at", -1).limit(limit)
@@ -1459,14 +1461,16 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         kind: Optional[str] = None,
         status: Optional[str] = None,
         business_client_id: Optional[str] = None,
+        include_deleted: bool = Query(False),  # Iter37h.A — show trashed docs
         limit: int = Query(50, ge=1, le=200),
         user: dict = Depends(get_current_user),
     ):
         if not _can_invoice(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
-        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted
+        # Iter37e — Tenant scope; Iter37h — exclude soft-deleted by default
         q: Dict[str, Any] = await _scoped_filter(user)
-        q["deleted_at"] = None
+        if not include_deleted:
+            q["deleted_at"] = None
         if kind:
             q["kind"] = kind
         if status:
@@ -1808,33 +1812,77 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     # =================================================================
     # Iter37h — DELETE receipt / invoice / proforma (admin or superviseur only)
-    # Hard delete (sets `deleted_at` and excludes from all listings/KPIs).
+    # Iter37h.A — Two stages: trash (soft) + purge (hard, irreversible).
+    # By default DELETE is "trash" (visible in the recycle bin with restore).
+    # `?purge=true` permanently removes the document.
     # =================================================================
     @router.delete("/cashier/receipts/{rid}")
-    async def delete_receipt(rid: str, user: dict = Depends(get_current_supervisor)):
+    async def delete_receipt(
+        rid: str,
+        purge: bool = Query(False),
+        user: dict = Depends(get_current_supervisor),
+    ):
         r = await db.receipts.find_one({"id": rid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1})
         await _ensure_tenant_access(user, r)
+        if purge:
+            await db.receipts.delete_one({"id": rid})
+            return {"ok": True, "purged": True}
         if r.get("deleted_at"):
-            return {"ok": True, "already_deleted": True}
+            return {"ok": True, "already_in_trash": True}
         await db.receipts.update_one({"id": rid}, {"$set": {
             "deleted_at": _now_iso(),
             "deleted_by": user["id"],
             "deleted_by_name": user.get("full_name") or user.get("email"),
         }})
+        return {"ok": True, "trashed": True}
+
+    @router.post("/cashier/receipts/{rid}/restore")
+    async def restore_receipt(rid: str, user: dict = Depends(get_current_supervisor)):
+        r = await db.receipts.find_one({"id": rid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1})
+        await _ensure_tenant_access(user, r)
+        if not r.get("deleted_at"):
+            return {"ok": True, "already_active": True}
+        await db.receipts.update_one({"id": rid}, {"$set": {
+            "deleted_at": None, "deleted_by": None, "deleted_by_name": None,
+            "restored_at": _now_iso(),
+            "restored_by": user["id"],
+            "restored_by_name": user.get("full_name") or user.get("email"),
+        }})
         return {"ok": True}
 
     @router.delete("/cashier/invoices/{iid}")
-    async def delete_invoice(iid: str, user: dict = Depends(get_current_supervisor)):
+    async def delete_invoice(
+        iid: str,
+        purge: bool = Query(False),
+        user: dict = Depends(get_current_supervisor),
+    ):
         inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1, "kind": 1})
         await _ensure_tenant_access(user, inv)
+        if purge:
+            await db.invoices.delete_one({"id": iid})
+            return {"ok": True, "purged": True, "kind": inv.get("kind")}
         if inv.get("deleted_at"):
-            return {"ok": True, "already_deleted": True}
+            return {"ok": True, "already_in_trash": True}
         await db.invoices.update_one({"id": iid}, {"$set": {
             "deleted_at": _now_iso(),
             "deleted_by": user["id"],
             "deleted_by_name": user.get("full_name") or user.get("email"),
         }})
-        return {"ok": True, "kind": inv.get("kind")}
+        return {"ok": True, "trashed": True, "kind": inv.get("kind")}
+
+    @router.post("/cashier/invoices/{iid}/restore")
+    async def restore_invoice(iid: str, user: dict = Depends(get_current_supervisor)):
+        inv = await db.invoices.find_one({"id": iid}, {"_id": 0, "tenant_id": 1, "deleted_at": 1})
+        await _ensure_tenant_access(user, inv)
+        if not inv.get("deleted_at"):
+            return {"ok": True, "already_active": True}
+        await db.invoices.update_one({"id": iid}, {"$set": {
+            "deleted_at": None, "deleted_by": None, "deleted_by_name": None,
+            "restored_at": _now_iso(),
+            "restored_by": user["id"],
+            "restored_by_name": user.get("full_name") or user.get("email"),
+        }})
+        return {"ok": True}
 
     # =================================================================
     # Iter37h — Duplicate an invoice/proforma (items only, no client)
@@ -1847,11 +1895,12 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             raise HTTPException(status_code=403, detail="Accès refusé")
         src = await db.invoices.find_one({"id": iid}, {"_id": 0})
         await _ensure_tenant_access(user, src)
-        # Strip identifying fields; keep items + discount + notes
+        # Iter37h.A — Strip SKU/product_id/code so the duplicated lines don't
+        # carry over the original product reference (minimize duplication errors).
         items = [
             {k: v for k, v in (it or {}).items() if k in (
                 "label", "description", "quantity", "unit_price_ht", "tva_pct",
-            )}
+            ) and k not in ("sku", "product_id", "code")}
             for it in (src.get("items") or [])
         ]
         return {

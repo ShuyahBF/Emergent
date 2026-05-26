@@ -73,26 +73,32 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
     motif: "", payment_method_id: "", payment_reference: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  // Iter37h.A — Recycle bin toggle
+  const [showTrash, setShowTrash] = useState(false);
 
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/cashier/receipts", { params: { limit: 100 } });
+      const r = await apiClient.get("/cashier/receipts", { params: { limit: 100, include_deleted: showTrash } });
       setItems(r.data || []);
     } catch { setItems([]); } finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [showTrash]);
 
-  // Iter37h — Delete a receipt (admin/superviseur only)
-  const deleteReceipt = async (rid, number) => {
-    if (!window.confirm(`Supprimer définitivement le reçu ${number || rid} ?\nCette action est irréversible.`)) return;
-    try {
-      await apiClient.delete(`/cashier/receipts/${rid}`);
-      toast.success(`Reçu ${number || rid} supprimé`);
-      setItems((prev) => prev.filter((r) => r.id !== rid));
-    } catch (err) {
-      toast.error(err?.response?.data?.detail || "Échec de la suppression");
-    }
+  // Iter37h.A — Soft delete (trash), Restore, Purge — admin/superviseur only.
+  const trashReceipt = async (rid, number) => {
+    if (!window.confirm(`Mettre le reçu ${number || rid} à la corbeille ?`)) return;
+    try { await apiClient.delete(`/cashier/receipts/${rid}`); toast.success(`Reçu ${number || rid} mis à la corbeille`); load(); }
+    catch (err) { toast.error(err?.response?.data?.detail || "Échec"); }
+  };
+  const restoreReceipt = async (rid, number) => {
+    try { await apiClient.post(`/cashier/receipts/${rid}/restore`); toast.success(`Reçu ${number || rid} restauré`); load(); }
+    catch (err) { toast.error(err?.response?.data?.detail || "Échec"); }
+  };
+  const purgeReceipt = async (rid, number) => {
+    if (!window.confirm(`⚠️ SUPPRESSION DÉFINITIVE du reçu ${number || rid} ?\nIrréversible.`)) return;
+    try { await apiClient.delete(`/cashier/receipts/${rid}`, { params: { purge: true } }); toast.success("Supprimé définitivement"); load(); }
+    catch (err) { toast.error(err?.response?.data?.detail || "Échec"); }
   };
 
   const submit = async () => {
@@ -138,6 +144,17 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
           >
             <Download className="h-4 w-4 text-rose-600" /> PDF
           </button>
+          {/* Iter37h.A — Recycle bin toggle */}
+          {canDelete && (
+            <button
+              onClick={() => setShowTrash((v) => !v)}
+              className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ${showTrash ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+              data-testid="receipts-trash-toggle"
+              title="Afficher/masquer la corbeille"
+            >
+              <Trash2 className="h-4 w-4" /> {showTrash ? "Sortir de la corbeille" : "Corbeille"}
+            </button>
+          )}
           <button
             onClick={() => setShowForm((v) => !v)}
             className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-sm font-medium"
@@ -243,19 +260,41 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
-                    <Link to={`/portal/cash/receipt/${r.id}`} target="_blank" className="inline-flex items-center gap-1 text-sawali-blue hover:underline text-xs"
-                      data-testid={`receipt-print-${r.id}`}>
-                      <Printer className="h-3.5 w-3.5" /> Imprimer
-                    </Link>
-                    {canDelete && (
-                      <button
-                        onClick={() => deleteReceipt(r.id, r.number)}
-                        className="ml-3 inline-flex items-center gap-1 text-rose-600 hover:underline text-xs"
-                        title="Supprimer (admin/superviseur)"
-                        data-testid={`receipt-delete-${r.id}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" /> Suppr.
-                      </button>
+                    {/* Iter37h.A — Trashed receipts: only Imprimer (no WA/edit) */}
+                    {r.deleted_at ? (
+                      <div className="inline-flex items-center gap-2">
+                        <span className="text-[10px] uppercase font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded ring-1 ring-rose-200">Corbeille</span>
+                        <Link to={`/portal/cash/receipt/${r.id}`} target="_blank" className="inline-flex items-center gap-1 text-sawali-blue hover:underline text-xs">
+                          <Printer className="h-3.5 w-3.5" />
+                        </Link>
+                        {canDelete && (
+                          <>
+                            <button onClick={() => restoreReceipt(r.id, r.number)} className="text-xs text-emerald-600 hover:underline" title="Restaurer" data-testid={`receipt-restore-${r.id}`}>
+                              <RotateCcw className="h-3.5 w-3.5 inline" />
+                            </button>
+                            <button onClick={() => purgeReceipt(r.id, r.number)} className="text-xs text-rose-700 hover:underline" title="Supprimer définitivement" data-testid={`receipt-purge-${r.id}`}>
+                              <Trash2 className="h-3.5 w-3.5 inline" />
+                            </button>
+                          </>
+                        )}
+                      </div>
+                    ) : (
+                      <>
+                        <Link to={`/portal/cash/receipt/${r.id}`} target="_blank" className="inline-flex items-center gap-1 text-sawali-blue hover:underline text-xs"
+                          data-testid={`receipt-print-${r.id}`}>
+                          <Printer className="h-3.5 w-3.5" /> Imprimer
+                        </Link>
+                        {canDelete && (
+                          <button
+                            onClick={() => trashReceipt(r.id, r.number)}
+                            className="ml-3 inline-flex items-center gap-1 text-rose-600 hover:underline text-xs"
+                            title="Mettre à la corbeille (admin/superviseur)"
+                            data-testid={`receipt-delete-${r.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" /> Corbeille
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>

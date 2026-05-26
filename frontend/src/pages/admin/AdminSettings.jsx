@@ -17,6 +17,9 @@ import { toast } from "sonner";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Iter37h.A — Recently added (2026-05-24 → 2026-05-25)
+  "Recalibrage des tenants Caisse/Facturation": "2026-05-24",
+  "Briefing de bienvenue — Mode du compteur 'Non lus'": "2026-05-24",
   // Iter36e — recent addition
   "Note de Service (historique + template)": "2026-05-19",
   // Iter35x — recent additions
@@ -35,11 +38,9 @@ const NEW_SECTIONS = {
   "Santé applicative — Alertes & rapports": "2026-04-30",
   "Authentification — OTP par domaine": "2026-04-26",
 };
+// Iter37h.A — Bump the visibility window so newly-added sections actually show.
+const NEW_WINDOW_DAYS = 21;  // was 3 (caused badges to vanish before users even saw them)
 const STORAGE_KEY_SEEN = "sawali_settings_first_seen_v1";
-// Iter35x — Fix bug "Badge Nouveau ne disparaît pas après 3 jours".
-// Avant : la fenêtre était 14 jours depuis l'ajout, plus 3 jours après lecture.
-// Maintenant : 3 jours depuis l'ajout, point. Simple et prévisible.
-const NEW_WINDOW_DAYS = 3;
 const SEEN_FADE_DAYS = 3;
 function readSeen() {
   try { return JSON.parse(localStorage.getItem(STORAGE_KEY_SEEN) || "{}"); } catch { return {}; }

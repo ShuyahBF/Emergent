@@ -19289,6 +19289,17 @@ from routes.hr import make_router as _make_hr_router  # noqa: E402
 _hr_router = _make_hr_router(db=db, get_current_user=get_current_user)
 api.include_router(_hr_router)
 
+# =====================================================================
+# Iter38b — Tenant country / dial-prefix metadata.
+# =====================================================================
+from routes.tenant_meta import make_router as _make_tenant_meta_router  # noqa: E402
+_tm_router = _make_tenant_meta_router(
+    db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_admin_or_supervisor,
+)
+api.include_router(_tm_router)
+
 app.include_router(api)
 
 

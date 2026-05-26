@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Check, ChevronRight, Sparkles, Zap, Star, Loader2 } from "lucide-react";
+import { phonePlaceholder } from "@/lib/tenantMeta";
 
 /*
   Public /subscriptions page.
@@ -228,7 +229,7 @@ const SubscriptionOrderModal = ({ plan, period, onClose }) => {
               </label>
               <label className="text-xs font-semibold block">
                 Téléphone (WhatsApp idéalement) *
-                <input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" placeholder="+225 07 …" data-testid="subs-form-phone" required />
+                <input value={form.customer_phone} onChange={(e) => setForm({ ...form, customer_phone: e.target.value })} className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" placeholder={phonePlaceholder()} data-testid="subs-form-phone" required />
               </label>
               <label className="text-xs font-semibold block">
                 Email (optionnel)

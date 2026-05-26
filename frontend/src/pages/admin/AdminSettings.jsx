@@ -4,6 +4,7 @@ import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
+import { phonePlaceholder } from "@/lib/tenantMeta";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -338,12 +339,14 @@ export default function AdminSettings() {
         <div className="grid sm:grid-cols-2 gap-3">
           <Input label="Email" value={s.company_email || ""} onChange={(v) => upd("company_email", v)} testid="company-email" />
           <Input label="Téléphone" value={s.company_phone || ""} onChange={(v) => upd("company_phone", v)} testid="company-phone" />
-          <Input label="WhatsApp" value={s.company_whatsapp || ""} onChange={(v) => upd("company_whatsapp", v)} placeholder="+228 99 99 99 99" testid="company-whatsapp" />
+          <Input label="WhatsApp" value={s.company_whatsapp || ""} onChange={(v) => upd("company_whatsapp", v)} placeholder={phonePlaceholder()} testid="company-whatsapp" />
           <Input label="Adresse" value={s.company_address || ""} onChange={(v) => upd("company_address", v)} testid="company-address" />
           <Input label="Ville" value={s.company_city || ""} onChange={(v) => upd("company_city", v)} testid="company-city" />
           <Input label="Pays" value={s.company_country || ""} onChange={(v) => upd("company_country", v)} testid="company-country" />
         </div>
       </Section>
+
+      <CountryPrefixSection />
 
       <SupportLoadSection s={s} upd={upd} />
       <AlexaVoiceMonkeySection s={s} upd={upd} />
@@ -1828,6 +1831,166 @@ const RevertRetagSection = () => {
 // ============================================================
 // Iter37f — Recalibrage des tenants Caisse/Facturation
 // ============================================================
+// =====================================================================
+// Iter38b — Country & dial-prefix section (tenant default + catalog CRUD)
+// =====================================================================
+const CountryPrefixSection = () => {
+  const TITLE = "Pays & indicatifs téléphoniques";
+  const [meta, setMeta] = useState(null);
+  const [countries, setCountries] = useState([]);
+  const [busy, setBusy] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [form, setForm] = useState({ code: "", name: "", dial: "+", example: "" });
+
+  const load = useCallback(async () => {
+    try {
+      const [m, c] = await Promise.all([
+        apiClient.get("/admin/tenant-country"),
+        apiClient.get("/admin/countries"),
+      ]);
+      setMeta(m.data);
+      setCountries(c.data || []);
+    } catch (err) {
+      toast.error("Impossible de charger les pays");
+    }
+  }, []);
+  useEffect(() => { load(); }, [load]);
+
+  const selectCountry = async (code) => {
+    setBusy(true);
+    try {
+      const r = await apiClient.patch("/admin/tenant-country", { country_code: code });
+      setMeta(r.data);
+      try {
+        localStorage.setItem("sawali_tenant_meta", JSON.stringify(r.data));
+      } catch { /* noop */ }
+      toast.success(`Pays par défaut: ${r.data.country_name} (${r.data.dial_prefix})`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  const addCountry = async () => {
+    if (!form.code || !form.name || !form.dial) { toast.error("Code, nom et indicatif requis"); return; }
+    try {
+      await apiClient.post("/admin/countries", form);
+      toast.success("Pays ajouté");
+      setForm({ code: "", name: "", dial: "+", example: "" });
+      setEditing(false);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const removeCountry = async (code) => {
+    if (!window.confirm(`Supprimer le pays ${code} de la liste ?`)) return;
+    try {
+      await apiClient.delete(`/admin/countries/${code}`);
+      toast.success("Pays supprimé");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  return (
+    <Filterable title={TITLE} anchorId={`s-${slugify(TITLE)}`}>
+    <div className="rounded-xl border-2 border-emerald-300 bg-emerald-50/40 p-6 space-y-4" data-testid="admin-country-section">
+      <div className="flex items-center gap-2">
+        <Globe className="h-4 w-4 text-emerald-700" />
+        <h2 className="font-display font-semibold">{TITLE}</h2>
+      </div>
+      <p className="text-sm text-slate-600">
+        Sélectionnez le <strong>pays par défaut</strong> de votre tenant. L'indicatif (ex: <code>+226</code>)
+        sera utilisé automatiquement dans les exemples de champs téléphone partout dans l'application.
+      </p>
+
+      {meta && (
+        <div className="bg-white border border-emerald-200 rounded-lg p-3" data-testid="admin-country-current">
+          <span className="text-xs text-slate-500">Sélection actuelle :</span>
+          <div className="flex items-center gap-3 mt-1">
+            <span className="font-medium text-slate-900">{meta.country_name}</span>
+            <span className="px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded text-sm font-mono">{meta.dial_prefix}</span>
+            <span className="text-xs text-slate-400">Exemple: <span className="font-mono">{meta.phone_example}</span></span>
+          </div>
+        </div>
+      )}
+
+      <div>
+        <label className="text-xs text-slate-500 mb-1 block">Changer le pays par défaut</label>
+        <select
+          value={meta?.country_code || "BF"}
+          onChange={(e) => selectCountry(e.target.value)}
+          disabled={busy}
+          data-testid="admin-country-select"
+          className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm bg-white"
+        >
+          {countries.map((c) => (
+            <option key={c.code} value={c.code}>
+              {c.name} ({c.dial}) — {c.code}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="border-t border-emerald-200 pt-3">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-slate-700">Liste des pays disponibles ({countries.length})</h3>
+          <button onClick={() => setEditing(!editing)} data-testid="admin-country-add-toggle"
+            className="text-xs px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded">
+            {editing ? "Annuler" : "+ Ajouter un pays"}
+          </button>
+        </div>
+        {editing && (
+          <div className="bg-slate-50 border border-slate-200 rounded-lg p-3 mb-3" data-testid="admin-country-add-form">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2">
+              <input value={form.code} onChange={(e) => setForm({ ...form, code: e.target.value.toUpperCase() })}
+                placeholder="Code ISO (ex: GH)" maxLength={4}
+                data-testid="admin-country-add-code"
+                className="px-2 py-1.5 border border-slate-200 rounded text-sm" />
+              <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
+                placeholder="Nom (ex: Ghana)"
+                data-testid="admin-country-add-name"
+                className="px-2 py-1.5 border border-slate-200 rounded text-sm" />
+              <input value={form.dial} onChange={(e) => setForm({ ...form, dial: e.target.value })}
+                placeholder="+233"
+                data-testid="admin-country-add-dial"
+                className="px-2 py-1.5 border border-slate-200 rounded text-sm font-mono" />
+              <input value={form.example} onChange={(e) => setForm({ ...form, example: e.target.value })}
+                placeholder="+233500000000 (optionnel)"
+                data-testid="admin-country-add-example"
+                className="px-2 py-1.5 border border-slate-200 rounded text-sm font-mono" />
+            </div>
+            <button onClick={addCountry} data-testid="admin-country-add-submit"
+              className="mt-2 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded">
+              Ajouter
+            </button>
+          </div>
+        )}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-1 max-h-64 overflow-y-auto" data-testid="admin-country-list">
+          {countries.map((c) => (
+            <div key={c.code} className="flex items-center justify-between px-2 py-1.5 bg-white border border-slate-100 rounded text-sm">
+              <div className="flex items-center gap-2">
+                <span className="font-medium">{c.name}</span>
+                <span className="text-slate-500 text-xs font-mono">{c.dial}</span>
+              </div>
+              {c.code !== "BF" && (
+                <button onClick={() => removeCountry(c.code)} data-testid={`admin-country-delete-${c.code}`}
+                  className="text-rose-500 hover:text-rose-700">
+                  <Trash2 size={12} />
+                </button>
+              )}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+    </Filterable>
+  );
+};
+
+
 const CashierTenantBackfillSection = () => {
   const TITLE = "Recalibrage des tenants Caisse/Facturation";
   const [busy, setBusy] = useState(false);

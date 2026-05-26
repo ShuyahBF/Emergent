@@ -3,6 +3,13 @@ import { apiClient } from "@/lib/api";
 
 const AuthCtx = createContext(null);
 
+const DEFAULT_TENANT_META = {
+  country_code: "BF",
+  country_name: "Burkina Faso",
+  dial_prefix: "+226",
+  phone_example: "+22670000000",
+};
+
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(() => {
     try {
@@ -13,6 +20,25 @@ export function AuthProvider({ children }) {
     }
   });
   const [loading, setLoading] = useState(true);
+  const [tenantMeta, setTenantMeta] = useState(() => {
+    try {
+      const m = localStorage.getItem("sawali_tenant_meta");
+      return m ? JSON.parse(m) : DEFAULT_TENANT_META;
+    } catch {
+      return DEFAULT_TENANT_META;
+    }
+  });
+
+  const refreshTenantMeta = React.useCallback(async () => {
+    try {
+      const r = await apiClient.get("/me/tenant-meta");
+      const m = r.data || DEFAULT_TENANT_META;
+      setTenantMeta(m);
+      localStorage.setItem("sawali_tenant_meta", JSON.stringify(m));
+    } catch {
+      /* silent */
+    }
+  }, []);
 
   useEffect(() => {
     const token = localStorage.getItem("sawali_token");
@@ -22,32 +48,30 @@ export function AuthProvider({ children }) {
       .then((r) => {
         setUser(r.data);
         localStorage.setItem("sawali_user", JSON.stringify(r.data));
+        refreshTenantMeta();
       })
       .catch(() => {
         localStorage.removeItem("sawali_token");
         localStorage.removeItem("sawali_user");
+        localStorage.removeItem("sawali_tenant_meta");
         setUser(null);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [refreshTenantMeta]);
 
   const login = (token, userObj) => {
     localStorage.setItem("sawali_token", token);
     localStorage.setItem("sawali_user", JSON.stringify(userObj));
-    // Iter36o — Clear once-per-session flags so the new user gets a fresh
-    // Welcome Briefing on the same tab (covers the case where the user
-    // switches account without closing the tab).
     try {
       sessionStorage.removeItem("sawali_welcome_briefing_seen");
     } catch { /* noop */ }
     setUser(userObj);
+    refreshTenantMeta();
   };
 
   const logout = () => {
     localStorage.removeItem("sawali_token");
     localStorage.removeItem("sawali_user");
-    // Iter36o — Clear per-session flags so the next login on the same tab
-    // re-triggers the Welcome Briefing modal (and any future once-per-session UI).
     try {
       sessionStorage.removeItem("sawali_welcome_briefing_seen");
     } catch { /* noop */ }
@@ -55,10 +79,15 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthCtx.Provider value={{ user, loading, login, logout }}>
+    <AuthCtx.Provider value={{ user, loading, login, logout, tenantMeta, refreshTenantMeta }}>
       {children}
     </AuthCtx.Provider>
   );
 }
 
 export const useAuth = () => useContext(AuthCtx);
+
+export const usePhonePlaceholder = () => {
+  const { tenantMeta } = useAuth() || {};
+  return (tenantMeta && tenantMeta.phone_example) || DEFAULT_TENANT_META.phone_example;
+};

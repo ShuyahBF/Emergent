@@ -1,0 +1,37 @@
+{
+  "summary": "Iter38b — GRH Phases 4-6 + Mini-graph + Pays/Indicatifs configurables. Backend: ALL 14/14 iter38b PASS + regression 20/20 iter38 + 48/48 iter37 = 82/82 PASS in <25s. Endpoints verified end-to-end: /me/tenant-meta (BF/+226 default), /admin/countries CRUD (catalog seeded with BF/CI/SN/ML/NE/TG/BJ/GN/FR/CM, duplicate→409, BF non-deletable→400), /admin/tenant-country (PATCH→SN updates dial to +221), HR /absences CRUD + scan (skips weekends + days with logs), HR /taxes PUT (max 5 enforced→400), /advances + /repay (pending→partial→repaid), /employees/{eid}/payslip JSON+PDF (math validated: gross 16000 − absence_deduction 8000 [12h−4h threshold @1000/h] − taxes 1200 [15% of 8000] − advances 5000 = net 1800), /hr/settings round-trip, /dashboard/weekly-presence top-5. Frontend: API /api/me/tenant-meta confirmed returning BF/+226 via authenticated request. Login UI smoke test was blocked by my own test-harness behavior (refetching dev_otp invalidates the prior session_token while the rendered OTP page references the FIRST session) — NOT a product bug. The OTP is actually displayed on-page in dev mode for testing purposes. Frontend /portal/hr & /admin/settings UI rendering could not be visually verified end-to-end in the time budget; main agent should self-test once UI flow is hit with correct OTP-read-from-page approach.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38b_grh_advanced.py",
+    "/app/test_reports/pytest/iter38b_34.xml"
+  ],
+  "action_items": [
+    "Main agent: visually self-test /portal/hr (close briefing modal, verify 7 tabs + mini-graph 'Présence cette semaine') and /admin/settings 'Pays & indicatifs téléphoniques' section in browser, since backend pipeline is fully green."
+  ],
+  "critical_code_review_comments": [
+    "routes/tenant_meta.py L131-147 (add_country): the POST builds doc then does insert_one(doc.copy()) and then doc.pop('_id', None) on the original — but Motor mutates the .copy() to add _id, not the original. The final return doc has no _id leak: OK. However the .copy() pattern is misleading; prefer `insert_one(doc)` then `doc.pop('_id', None)` so the line is intentional and obviously correct.",
+    "routes/tenant_meta.py L70-91 (_resolve_tenant_id): mirrors the same heuristic as cashier/HR (parent_client_id → client_id → canonical-by-company → self). The company-fallback under `account_status: {'$ne':'deleted'}` could match a foreign tenant if two distinct tenants share a normalised company string. Same concern flagged in iter33; consider centralising the resolver into a shared helper so a single bugfix covers cashier, HR, and tenant_meta.",
+    "routes/tenant_meta.py L101-113 (_build_meta): when the admin deletes the currently-selected country, the code falls back to BF — good. But the tenant_country doc still references the deleted code; consider auto-rewriting it back to BF in the DELETE handler to avoid silent drift.",
+    "tenant_meta seed (_ensure_seeded): seeding is gated on count==0, so adding new defaults later (e.g. Mauritania/MR) will not be picked up by existing tenants. Add a small idempotent upsert-loop keyed on `code` to backfill new default codes on each startup.",
+    "Iter38b new endpoints all read `_id`-stripped projections (good). Confirmed no ObjectId leaks in PDF/JSON payslip responses."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (14/14 iter38b + 20/20 iter38 + 48/48 iter37 regression = 82/82)",
+    "frontend": "Partial (backend /api/me/tenant-meta validated via authenticated curl; full UI smoke not completed due to harness-side OTP invalidation, NOT a product bug)"
+  },
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — OTP returned in JSON body via `dev_otp` AND displayed on the 2FA page when SMTP not configured. IMPORTANT for next testing agent: do NOT re-POST /api/auth/login between the OTP page render and OTP submission — it rotates session_token and invalidates the OTP shown on screen. Either read OTP straight from the page DOM ('Code OTP : NNNNNN') or capture the dev_otp from the FIRST login response and submit it.",
+  "seed_data_creation": "iter38b fixtures auto-seed tenant + employee + access_logs; teardown deletes hr_employees, hr_absences, hr_advances, hr_taxes, hr_settings, tenant_country, access_logs, and the 2 created users by tenant_id/user_id. country_catalog is seeded by /api/me/tenant-meta on first call (idempotent, count-based).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend is fully green for Iter38b (Phases 4-6 + tenant-meta). Re-run: `pytest /app/backend/tests/test_iter38b_grh_advanced.py -v` (14 tests, ~5s) + `pytest /app/backend/tests/test_iter38_grh.py /app/backend/tests/test_iter38_comptable_caisse_write_block.py -q` (20 tests, ~3s) + iter37 suite as needed. Mounted router: `make_router(db, get_current_user, get_current_admin)` at /api in server.py around L19295. country_catalog is auto-seeded with 10 UEMOA+FR/CM defaults on first /api/me/tenant-meta call. tenant_country collection keyed on tenant_id (resolved via parent_client_id→client_id→canonical-by-company→self). For frontend UI tests, login via UI with the OTP displayed on the page (NOT by re-fetching dev_otp). Then verify: (1) /portal/hr shows 7 tabs + 'Présence cette semaine' WeeklyPresenceCard, (2) /admin/settings 'Pays & indicatifs téléphoniques' section lists/adds/deletes countries, (3) localStorage 'sawali_tenant_meta' is populated after login by AuthContext.",
+  "rca of the issue": "No product bugs found. The frontend UI smoke test in this iteration was blocked by a test-harness mistake: my script re-POSTed /api/auth/login to grab dev_otp AFTER the page had already moved to the OTP-entry step. That second login rotated the server-side session_token, so the OTP my page knew about (printed on screen as 117138) was no longer the active one. Submitting it returned 400. The fix is purely test-side: read OTP from the page's displayed text (since SMTP is not configured, the page literally shows it) instead of refetching via /api/auth/login. Documented in test_credentials for the next agent."
+}

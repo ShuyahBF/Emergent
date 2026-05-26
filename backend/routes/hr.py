@@ -39,6 +39,11 @@ class EmployeePayload(BaseModel):
     department: Optional[str] = Field(None, max_length=80)
     job_title: Optional[str] = Field(None, max_length=120)
     notes: Optional[str] = Field(None, max_length=1000)
+    # Iter38b — Phase 4 override for absence tolerance threshold (hours/month).
+    # None means: use tenant global threshold.
+    absence_threshold_hours_override: Optional[float] = Field(None, ge=0)
+    # Iter38b — Phase 5 per-employee tax overrides {tax_id: value}
+    tax_overrides: Optional[Dict[str, float]] = None
 
 
 class EmployeeUpdate(BaseModel):
@@ -50,6 +55,76 @@ class EmployeeUpdate(BaseModel):
     department: Optional[str] = Field(None, max_length=80)
     job_title: Optional[str] = Field(None, max_length=120)
     notes: Optional[str] = Field(None, max_length=1000)
+    absence_threshold_hours_override: Optional[float] = Field(None, ge=0)
+    tax_overrides: Optional[Dict[str, float]] = None
+
+
+# ---------------------------------------------------------------------
+# Iter38b — Phase 4 Absences
+# ---------------------------------------------------------------------
+class AbsencePayload(BaseModel):
+    employee_id: str = Field(..., min_length=1)
+    start_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end_date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    hours_count: float = Field(8.0, ge=0)
+    abs_type: str = Field("non_justifiee")  # maladie | conge | non_justifiee | personnelle | autre
+    is_justified: bool = False
+    justification: Optional[str] = Field(None, max_length=1000)
+
+
+class AbsenceUpdate(BaseModel):
+    start_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    end_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    hours_count: Optional[float] = Field(None, ge=0)
+    abs_type: Optional[str] = None
+    is_justified: Optional[bool] = None
+    justification: Optional[str] = Field(None, max_length=1000)
+
+
+# ---------------------------------------------------------------------
+# Iter38b — Phase 5 Taxes (up to 5 per tenant, configurable)
+# ---------------------------------------------------------------------
+class TaxDefinitionPayload(BaseModel):
+    label: str = Field(..., min_length=1, max_length=80)
+    calc_type: str = Field("percentage", pattern=r"^(percentage|fixed)$")
+    value: float = Field(0.0, ge=0)
+    applies_to: str = Field("gross", pattern=r"^(gross|net)$")
+    active: bool = True
+    sort_order: int = 0
+
+
+class TaxesReplacePayload(BaseModel):
+    """Replace all tenant taxes at once (max 5)."""
+    taxes: List[TaxDefinitionPayload] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------
+# Iter38b — Phase 5 Advances
+# ---------------------------------------------------------------------
+class AdvancePayload(BaseModel):
+    employee_id: str = Field(..., min_length=1)
+    amount: float = Field(..., gt=0)
+    currency: str = Field("XOF", max_length=8)
+    motive: Optional[str] = Field(None, max_length=500)
+    granted_at: Optional[str] = None  # ISO date string YYYY-MM-DD; defaults to today
+    auto_deduct: bool = True
+
+
+class AdvanceRepayPayload(BaseModel):
+    repaid_amount: float = Field(..., gt=0)
+    note: Optional[str] = Field(None, max_length=500)
+
+
+# ---------------------------------------------------------------------
+# Iter38b — Tenant HR settings (thresholds + payslip template)
+# ---------------------------------------------------------------------
+class HrSettingsPayload(BaseModel):
+    absence_threshold_hours: Optional[float] = Field(None, ge=0)  # global default
+    payslip_company_name: Optional[str] = Field(None, max_length=200)
+    payslip_employer_id: Optional[str] = Field(None, max_length=80)
+    payslip_address: Optional[str] = Field(None, max_length=400)
+    payslip_legal_mentions: Optional[str] = Field(None, max_length=1000)
+    payslip_footer: Optional[str] = Field(None, max_length=500)
 
 
 def _now_iso() -> str:
@@ -398,7 +473,671 @@ def make_router(*, db, get_current_user):
             },
         }
 
+    # ================================================================
+    # Iter38b — HR Settings (tenant scope, stored in db.hr_settings)
+    # ================================================================
+    async def _hr_settings(user: dict) -> dict:
+        if _is_super_admin(user):
+            return await db.hr_settings.find_one({"_id": "default"}, {"_id": 0}) or {}
+        tid = await _resolve_tenant_id(user)
+        return await db.hr_settings.find_one({"tenant_id": tid}, {"_id": 0}) or {}
+
+    @router.get("/settings")
+    async def get_hr_settings(user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        s = await _hr_settings(user)
+        # Defaults
+        return {
+            "absence_threshold_hours": float(s.get("absence_threshold_hours", 0)),
+            "payslip_company_name": s.get("payslip_company_name") or "",
+            "payslip_employer_id": s.get("payslip_employer_id") or "",
+            "payslip_address": s.get("payslip_address") or "",
+            "payslip_legal_mentions": s.get("payslip_legal_mentions") or "",
+            "payslip_footer": s.get("payslip_footer") or "",
+        }
+
+    @router.patch("/settings")
+    async def update_hr_settings(payload: HrSettingsPayload, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        tid = await _resolve_tenant_id(user)
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        updates["tenant_id"] = tid
+        updates["updated_at"] = _now_iso()
+        await db.hr_settings.update_one(
+            {"tenant_id": tid}, {"$set": updates}, upsert=True
+        )
+        return await get_hr_settings(user)
+
+    # ================================================================
+    # Iter38b — Phase 4: Absences
+    # ================================================================
+    def _days_inclusive(start: str, end: str) -> List[str]:
+        try:
+            s = datetime.strptime(start, "%Y-%m-%d").date()
+            e = datetime.strptime(end, "%Y-%m-%d").date()
+        except ValueError:
+            return []
+        from datetime import timedelta as _td
+        out = []
+        cur = s
+        while cur <= e:
+            out.append(cur.isoformat())
+            cur = cur + _td(days=1)
+        return out
+
+    async def _employee_in_tenant(user: dict, employee_id: str) -> Optional[dict]:
+        scope = await _scoped(user)
+        return await db.hr_employees.find_one(
+            {**scope, "id": employee_id, "deleted_at": None}, {"_id": 0}
+        )
+
+    @router.get("/absences")
+    async def list_absences(
+        employee_id: Optional[str] = None,
+        month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        q: Dict[str, Any] = {**scope}
+        if employee_id:
+            q["employee_id"] = employee_id
+        if month:
+            q["start_date"] = {"$gte": f"{month}-01", "$lt": f"{month}-32"}
+        cursor = db.hr_absences.find(q, {"_id": 0}).sort("start_date", -1)
+        return [a async for a in cursor]
+
+    @router.post("/absences")
+    async def create_absence(payload: AbsencePayload, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        emp = await _employee_in_tenant(user, payload.employee_id)
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        if payload.end_date < payload.start_date:
+            raise HTTPException(status_code=400, detail="end_date doit être ≥ start_date")
+        tid = await _resolve_tenant_id(user)
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "auto_detected": False,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+        })
+        await db.hr_absences.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/absences/{aid}")
+    async def update_absence(aid: str, payload: AbsenceUpdate, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_absences.find_one({**scope, "id": aid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Absence introuvable")
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            return existing
+        updates["updated_at"] = _now_iso()
+        await db.hr_absences.update_one({"id": aid}, {"$set": updates})
+        return await db.hr_absences.find_one({"id": aid}, {"_id": 0})
+
+    @router.delete("/absences/{aid}")
+    async def delete_absence(aid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        res = await db.hr_absences.delete_one({**scope, "id": aid})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Absence introuvable")
+        return {"ok": True}
+
+    @router.post("/absences/scan")
+    async def scan_auto_absences(
+        employee_id: str = Query(...),
+        month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        """Auto-detect business days in month with no access_logs entry.
+        Returns suggested absences (not persisted). Caller can POST them with
+        is_justified=false to persist.
+        """
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        emp = await _employee_in_tenant(user, employee_id)
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        year_i, month_i = int(month[:4]), int(month[5:7])
+        from calendar import monthrange
+        last_day = monthrange(year_i, month_i)[1]
+        # Compute set of days with logs
+        uid = emp.get("user_id")
+        snap_email = (emp.get("email_snapshot") or "").lower()
+        or_conds: List[Dict[str, Any]] = []
+        if uid:
+            or_conds.append({"user_id": uid})
+        if snap_email:
+            or_conds.append({"user_email": snap_email})
+        days_seen: set = set()
+        if or_conds:
+            pipeline = [
+                {"$match": {
+                    "$or": or_conds,
+                    "created_at": {"$gte": f"{month}-01", "$lt": f"{month}-32"},
+                }},
+                {"$group": {"_id": {"$substr": ["$created_at", 0, 10]}}},
+            ]
+            async for r in db.access_logs.aggregate(pipeline):
+                days_seen.add(r.get("_id"))
+        # Filter business days (Mon-Fri)
+        suggestions = []
+        for d in range(1, last_day + 1):
+            date_iso = f"{year_i:04d}-{month_i:02d}-{d:02d}"
+            try:
+                dt = datetime.strptime(date_iso, "%Y-%m-%d")
+            except ValueError:
+                continue
+            # weekday 0=Mon..6=Sun → business if <5
+            if dt.weekday() >= 5:
+                continue
+            if date_iso not in days_seen:
+                suggestions.append({
+                    "date": date_iso,
+                    "weekday": dt.strftime("%A"),
+                    "suggested_hours": 8.0,
+                    "abs_type": "non_justifiee",
+                })
+        return {"employee_id": employee_id, "month": month, "suggestions": suggestions}
+
+    async def _absence_hours_for_month(user: dict, employee_id: str, month: str) -> Dict[str, float]:
+        """Aggregate absences for a given employee+month.
+        Returns {justified: float, unjustified: float, total: float}.
+        """
+        scope = await _scoped(user)
+        cursor = db.hr_absences.find({
+            **scope,
+            "employee_id": employee_id,
+            "start_date": {"$gte": f"{month}-01", "$lt": f"{month}-32"},
+        }, {"_id": 0})
+        j = 0.0
+        u = 0.0
+        async for a in cursor:
+            h = float(a.get("hours_count") or 0)
+            if a.get("is_justified"):
+                j += h
+            else:
+                u += h
+        return {"justified": j, "unjustified": u, "total": j + u}
+
+    # ================================================================
+    # Iter38b — Phase 5: Taxes (definitions)
+    # ================================================================
+    @router.get("/taxes")
+    async def list_taxes(user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        cursor = db.hr_taxes.find(scope, {"_id": 0}).sort("sort_order", 1)
+        return [t async for t in cursor]
+
+    @router.put("/taxes")
+    async def replace_taxes(payload: TaxesReplacePayload, user: dict = Depends(get_current_user)):
+        """Replace the tenant's taxes (max 5)."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        if len(payload.taxes) > 5:
+            raise HTTPException(status_code=400, detail="Maximum 5 taxes par tenant")
+        tid = await _resolve_tenant_id(user)
+        await db.hr_taxes.delete_many({"tenant_id": tid})
+        docs = []
+        for idx, t in enumerate(payload.taxes):
+            d = t.model_dump()
+            d.update({
+                "id": str(uuid.uuid4()),
+                "tenant_id": tid,
+                "sort_order": d.get("sort_order") or idx,
+                "created_at": _now_iso(),
+            })
+            docs.append(d)
+        if docs:
+            await db.hr_taxes.insert_many([d.copy() for d in docs])
+        for d in docs:
+            d.pop("_id", None)
+        return docs
+
+    # ================================================================
+    # Iter38b — Phase 5: Advances
+    # ================================================================
+    @router.get("/advances")
+    async def list_advances(
+        employee_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        q: Dict[str, Any] = {**scope}
+        if employee_id:
+            q["employee_id"] = employee_id
+        cursor = db.hr_advances.find(q, {"_id": 0}).sort("granted_at", -1)
+        return [a async for a in cursor]
+
+    @router.post("/advances")
+    async def create_advance(payload: AdvancePayload, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        emp = await _employee_in_tenant(user, payload.employee_id)
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        tid = await _resolve_tenant_id(user)
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "granted_at": doc.get("granted_at") or datetime.now(timezone.utc).date().isoformat(),
+            "repaid_amount": 0.0,
+            "status": "pending",
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+        })
+        await db.hr_advances.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.post("/advances/{aid}/repay")
+    async def repay_advance(aid: str, payload: AdvanceRepayPayload, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        adv = await db.hr_advances.find_one({**scope, "id": aid}, {"_id": 0})
+        if not adv:
+            raise HTTPException(status_code=404, detail="Avance introuvable")
+        new_repaid = float(adv.get("repaid_amount", 0)) + payload.repaid_amount
+        amount = float(adv.get("amount") or 0)
+        status_val = "repaid" if new_repaid >= amount else ("partial" if new_repaid > 0 else "pending")
+        await db.hr_advances.update_one(
+            {"id": aid},
+            {"$set": {
+                "repaid_amount": round(new_repaid, 2),
+                "status": status_val,
+                "last_repay_note": payload.note,
+                "last_repay_at": _now_iso(),
+            }},
+        )
+        return await db.hr_advances.find_one({"id": aid}, {"_id": 0})
+
+    @router.delete("/advances/{aid}")
+    async def delete_advance(aid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        res = await db.hr_advances.delete_one({**scope, "id": aid})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Avance introuvable")
+        return {"ok": True}
+
+    # ================================================================
+    # Iter38b — Phase 6: Payslip synthesis (preview + PDF)
+    # ================================================================
+    async def _compute_payslip(user: dict, eid: str, month: str) -> Dict[str, Any]:
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid}, {"_id": 0})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        # Reuse timesheet computation
+        ts = await employee_timesheet(eid=eid, month=month, user=user)  # type: ignore[name-defined]
+        totals = ts["totals"]
+        gross = float(totals.get("computed_gross") or 0)
+        hr_set = await _hr_settings(user)
+        global_threshold = float(hr_set.get("absence_threshold_hours", 0))
+        threshold = float(emp.get("absence_threshold_hours_override") or 0) or global_threshold
+        abs_h = await _absence_hours_for_month(user, eid, month)
+        # Deduction: per-hour rate
+        baseline_hours = float(emp.get("monthly_hours_baseline") or 1) or 1
+        if emp.get("pay_type") == "hourly":
+            hourly_for_deduction = float(emp.get("hourly_rate") or 0)
+        else:
+            hourly_for_deduction = float(emp.get("base_salary") or 0) / baseline_hours
+        billable_unjustified = max(0.0, abs_h["unjustified"] - threshold)
+        absence_deduction = round(billable_unjustified * hourly_for_deduction, 2)
+        # Apply tax overrides
+        emp_overrides = emp.get("tax_overrides") or {}
+        taxes_cursor = db.hr_taxes.find({**scope}, {"_id": 0}).sort("sort_order", 1)
+        taxes = [t async for t in taxes_cursor]
+        tax_lines = []
+        total_taxes = 0.0
+        gross_after_abs = max(0.0, gross - absence_deduction)
+        for t in taxes:
+            if not t.get("active"):
+                continue
+            override_val = emp_overrides.get(t["id"])
+            v = float(override_val if override_val is not None else t.get("value", 0))
+            if t.get("calc_type") == "fixed":
+                amt = v
+            else:
+                base = gross_after_abs  # for simplicity, both gross/net use post-absence gross
+                amt = round(base * v / 100.0, 2)
+            total_taxes += amt
+            tax_lines.append({
+                "id": t["id"], "label": t.get("label"),
+                "calc_type": t.get("calc_type"), "value": v,
+                "amount": round(amt, 2),
+                "overridden": override_val is not None,
+            })
+        total_taxes = round(total_taxes, 2)
+        # Advances pending auto-deduct
+        adv_cursor = db.hr_advances.find({
+            **scope, "employee_id": eid,
+            "auto_deduct": True, "status": {"$ne": "repaid"},
+        }, {"_id": 0})
+        adv_total = 0.0
+        adv_lines = []
+        async for a in adv_cursor:
+            remaining = float(a.get("amount", 0)) - float(a.get("repaid_amount", 0))
+            if remaining <= 0:
+                continue
+            adv_total += remaining
+            adv_lines.append({
+                "id": a["id"], "motive": a.get("motive"),
+                "amount": float(a.get("amount", 0)),
+                "remaining": round(remaining, 2),
+            })
+        adv_total = round(adv_total, 2)
+        net = round(gross_after_abs - total_taxes - adv_total, 2)
+        return {
+            "employee": {
+                "id": emp["id"], "user_id": emp.get("user_id"),
+                "full_name": emp.get("name_snapshot"),
+                "email": emp.get("email_snapshot"),
+                "job_title": emp.get("job_title"),
+                "department": emp.get("department"),
+                "currency": emp.get("currency") or "XOF",
+                "pay_type": emp.get("pay_type"),
+            },
+            "month": month,
+            "hours_worked": totals.get("hours_worked"),
+            "expected_hours": totals.get("expected_hours"),
+            "absence_hours": abs_h,
+            "absence_threshold_hours": threshold,
+            "billable_unjustified_hours": round(billable_unjustified, 2),
+            "absence_deduction": absence_deduction,
+            "gross": gross,
+            "gross_after_absence": round(gross_after_abs, 2),
+            "taxes": tax_lines,
+            "total_taxes": total_taxes,
+            "advances": adv_lines,
+            "advances_deduction": adv_total,
+            "net": net,
+            "hr_settings": hr_set,
+        }
+
+    @router.get("/employees/{eid}/payslip")
+    async def employee_payslip(
+        eid: str,
+        month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        return await _compute_payslip(user, eid, month)
+
+    @router.get("/employees/{eid}/payslip.pdf")
+    async def employee_payslip_pdf(
+        eid: str,
+        month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        from fastapi import Response  # local import
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        data = await _compute_payslip(user, eid, month)
+        pdf_bytes = _render_payslip_pdf(data)
+        fname = f"paie_{eid}_{month}.pdf"
+        return Response(
+            content=pdf_bytes,
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="{fname}"'},
+        )
+
+    # ================================================================
+    # Iter38b — Dashboard mini-graph: weekly presence
+    # ================================================================
+    @router.get("/dashboard/weekly-presence")
+    async def weekly_presence(user: dict = Depends(get_current_user)):
+        """Top 5 active employees this calendar week (Mon-Sun, UTC)."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta as _td
+        week_start = (now - _td(days=now.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+        week_end = week_start + _td(days=7)
+        cursor = db.hr_employees.find({**scope, "deleted_at": None}, {"_id": 0})
+        emps = [e async for e in cursor]
+        results = []
+        for e in emps:
+            uid = e.get("user_id")
+            email = (e.get("email_snapshot") or "").lower()
+            or_conds: List[Dict[str, Any]] = []
+            if uid:
+                or_conds.append({"user_id": uid})
+            if email:
+                or_conds.append({"user_email": email})
+            if not or_conds:
+                results.append({"employee_id": e["id"], "name": e.get("name_snapshot"), "hours": 0.0, "days": 0})
+                continue
+            pipeline = [
+                {"$match": {
+                    "$or": or_conds,
+                    "created_at": {"$gte": week_start.isoformat(), "$lt": week_end.isoformat()},
+                }},
+                {"$group": {
+                    "_id": {"$substr": ["$created_at", 0, 10]},
+                    "first": {"$min": "$created_at"},
+                    "last": {"$max": "$created_at"},
+                }},
+            ]
+            secs = 0.0
+            days = 0
+            async for row in db.access_logs.aggregate(pipeline):
+                try:
+                    f_dt = datetime.fromisoformat(row["first"].replace("Z", "+00:00"))
+                    l_dt = datetime.fromisoformat(row["last"].replace("Z", "+00:00"))
+                    secs += max(0.0, (l_dt - f_dt).total_seconds())
+                    days += 1
+                except Exception:
+                    pass
+            results.append({
+                "employee_id": e["id"],
+                "name": e.get("name_snapshot") or e.get("email_snapshot"),
+                "hours": round(secs / 3600.0, 2),
+                "days": days,
+            })
+        results.sort(key=lambda x: x["hours"], reverse=True)
+        return {
+            "week_start": week_start.date().isoformat(),
+            "week_end": (week_end - _td(days=1)).date().isoformat(),
+            "top": results[:5],
+            "total_employees": len(results),
+        }
+
     return router
+
+
+# =====================================================================
+# Payslip PDF rendering (Iter38b — Phase 6)
+# =====================================================================
+def _fmt_amount(v: float, currency: str = "XOF") -> str:
+    try:
+        return f"{float(v):,.0f} {currency}".replace(",", " ")
+    except Exception:
+        return f"{v} {currency}"
+
+
+def _render_payslip_pdf(data: Dict[str, Any]) -> bytes:
+    import io
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+
+    hr_set = data.get("hr_settings") or {}
+    emp = data["employee"]
+    currency = emp.get("currency", "XOF")
+    company_name = hr_set.get("payslip_company_name") or "—"
+    employer_id = hr_set.get("payslip_employer_id") or ""
+    addr = hr_set.get("payslip_address") or ""
+    legal = hr_set.get("payslip_legal_mentions") or ""
+    footer = hr_set.get("payslip_footer") or ""
+
+    buf = io.BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        topMargin=24, bottomMargin=24, leftMargin=28, rightMargin=28,
+    )
+    styles = getSampleStyleSheet()
+    title = ParagraphStyle("title", parent=styles["Title"], fontSize=15, textColor=colors.HexColor("#0E1F3D"))
+    h = ParagraphStyle("h", parent=styles["Heading4"], fontSize=10, textColor=colors.HexColor("#0E1F3D"))
+    muted = ParagraphStyle("m", parent=styles["BodyText"], fontSize=8, textColor=colors.HexColor("#64748b"))
+
+    story = []
+    # Header
+    story.append(Paragraph(f"<b>{company_name}</b>", title))
+    if employer_id:
+        story.append(Paragraph(f"N° employeur : {employer_id}", muted))
+    if addr:
+        story.append(Paragraph(addr.replace("\n", "<br/>"), muted))
+    story.append(Spacer(1, 8))
+    story.append(Paragraph(f"<b>BULLETIN DE PAIE — {data['month']}</b>", h))
+    story.append(Spacer(1, 6))
+
+    # Identity
+    id_data = [
+        ["Employé", emp.get("full_name") or "—", "Période", data["month"]],
+        ["Email", emp.get("email") or "—", "Poste", emp.get("job_title") or "—"],
+        ["Département", emp.get("department") or "—", "Type", "Horaire" if emp.get("pay_type") == "hourly" else "Mensuel"],
+    ]
+    t = Table(id_data, colWidths=[70, 180, 70, 180])
+    t.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("TEXTCOLOR", (0, 0), (0, -1), colors.HexColor("#64748b")),
+        ("TEXTCOLOR", (2, 0), (2, -1), colors.HexColor("#64748b")),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("LINEBELOW", (0, 0), (-1, -1), 0.25, colors.HexColor("#e2e8f0")),
+    ]))
+    story.append(t)
+    story.append(Spacer(1, 10))
+
+    # Gains
+    story.append(Paragraph("<b>GAINS</b>", h))
+    gains_data = [
+        ["Salaire brut estimé", _fmt_amount(data["gross"], currency)],
+        ["Heures travaillées (mois)", f"{data['hours_worked']} h / {data['expected_hours']} h"],
+    ]
+    tg = Table(gains_data, colWidths=[350, 150])
+    tg.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(tg)
+    story.append(Spacer(1, 8))
+
+    # Absences
+    story.append(Paragraph("<b>ABSENCES</b>", h))
+    abs_data = [
+        ["Absences justifiées", f"{data['absence_hours']['justified']:.1f} h"],
+        ["Absences non justifiées", f"{data['absence_hours']['unjustified']:.1f} h"],
+        ["Seuil de tolérance", f"{data['absence_threshold_hours']:.1f} h"],
+        ["Heures à déduire", f"{data['billable_unjustified_hours']:.1f} h"],
+        ["Déduction sur salaire", _fmt_amount(data['absence_deduction'], currency)],
+    ]
+    ta = Table(abs_data, colWidths=[350, 150])
+    ta.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+    ]))
+    story.append(ta)
+    story.append(Spacer(1, 8))
+
+    # Taxes
+    story.append(Paragraph("<b>RETENUES & TAXES</b>", h))
+    if data["taxes"]:
+        tx_rows = [["Libellé", "Valeur", "Montant"]]
+        for tx in data["taxes"]:
+            v = f"{tx['value']}%" if tx["calc_type"] == "percentage" else _fmt_amount(tx["value"], currency)
+            tx_rows.append([tx["label"], v, _fmt_amount(tx["amount"], currency)])
+        tx_rows.append(["", "Total taxes", _fmt_amount(data["total_taxes"], currency)])
+        ttx = Table(tx_rows, colWidths=[260, 90, 150])
+        ttx.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("FONTNAME", (-1, -1), (-1, -1), "Helvetica-Bold"),
+            ("LINEABOVE", (-2, -1), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(ttx)
+    else:
+        story.append(Paragraph("Aucune taxe configurée pour ce tenant.", muted))
+    story.append(Spacer(1, 8))
+
+    # Advances
+    if data["advances"]:
+        story.append(Paragraph("<b>AVANCES SUR SALAIRE</b>", h))
+        adv_rows = [["Motif", "Montant initial", "Restant à déduire"]]
+        for a in data["advances"]:
+            adv_rows.append([a.get("motive") or "—",
+                             _fmt_amount(a["amount"], currency),
+                             _fmt_amount(a["remaining"], currency)])
+        adv_rows.append(["", "Total avances", _fmt_amount(data["advances_deduction"], currency)])
+        tadv = Table(adv_rows, colWidths=[260, 130, 110])
+        tadv.setStyle(TableStyle([
+            ("FONTSIZE", (0, 0), (-1, -1), 9),
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f1f5f9")),
+            ("ALIGN", (1, 0), (-1, -1), "RIGHT"),
+            ("FONTNAME", (-1, -1), (-1, -1), "Helvetica-Bold"),
+            ("LINEABOVE", (-2, -1), (-1, -1), 0.5, colors.HexColor("#94a3b8")),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+            ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ]))
+        story.append(tadv)
+        story.append(Spacer(1, 8))
+
+    # Net
+    net_data = [["NET À PAYER", _fmt_amount(data["net"], currency)]]
+    tn = Table(net_data, colWidths=[350, 150])
+    tn.setStyle(TableStyle([
+        ("FONTSIZE", (0, 0), (-1, -1), 12),
+        ("ALIGN", (1, 0), (1, -1), "RIGHT"),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#0E1F3D")),
+        ("TEXTCOLOR", (0, 0), (-1, -1), colors.white),
+        ("FONTNAME", (0, 0), (-1, -1), "Helvetica-Bold"),
+        ("TOPPADDING", (0, 0), (-1, -1), 8),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+    ]))
+    story.append(tn)
+    story.append(Spacer(1, 10))
+
+    if legal:
+        story.append(Paragraph(legal.replace("\n", "<br/>"), muted))
+    if footer:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(footer.replace("\n", "<br/>"), muted))
+
+    doc.build(story)
+    return buf.getvalue()
+
 
 
 __all__ = ["make_router"]

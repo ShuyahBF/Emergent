@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
+import { phonePlaceholder } from "@/lib/tenantMeta";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -520,7 +521,7 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
               value={waValue}
               onChange={(e) => setWaValue(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Enter") saveWa(); if (e.key === "Escape") { setEditingWa(false); setWaValue(c.whatsapp || ""); } }}
-              placeholder="+225xxxxxxxx"
+              placeholder={phonePlaceholder()}
               className="w-36 rounded border border-sawali-blue px-2 py-1 text-[12px]"
               data-testid={`contact-wa-inline-${c.id}`}
             />
@@ -852,8 +853,8 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             </datalist>
             <p className="text-[10px] text-slate-400 mt-0.5">Tapez quelques lettres pour filtrer la liste, ou saisissez un nouveau nom.</p>
           </div>
-          <Input label="Téléphone (E.164)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder="+225xxxxxxxx" testid="contact-field-phone" />
-          <Input label="WhatsApp (E.164)" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} placeholder="+225xxxxxxxx" testid="contact-field-whatsapp" />
+          <Input label="Téléphone (E.164)" value={form.phone} onChange={(v) => setForm({ ...form, phone: v })} placeholder={phonePlaceholder()} testid="contact-field-phone" />
+          <Input label="WhatsApp (E.164)" value={form.whatsapp} onChange={(v) => setForm({ ...form, whatsapp: v })} placeholder={phonePlaceholder()} testid="contact-field-whatsapp" />
           <Input label="Email" value={form.email} onChange={(v) => setForm({ ...form, email: v })} testid="contact-field-email" />
           {/* Iter29 — Plus de toggle "partager" : tous les contacts sont
               désormais visibles et modifiables par tous les utilisateurs du

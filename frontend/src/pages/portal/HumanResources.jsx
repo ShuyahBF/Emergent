@@ -17,6 +17,9 @@ import {
   Briefcase, Building, X, Search, ChevronDown, RefreshCw, ArrowRight,
   AlertTriangle, Loader2,
 } from "lucide-react";
+import {
+  WeeklyPresenceCard, AbsencesTab, TaxesTab, AdvancesTab, PayslipsTab, HrSettingsTab,
+} from "./HumanResourcesAdvanced";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const fmtDate = (iso) => {
@@ -44,6 +47,11 @@ function Tabs({ tab, setTab, hideTimesheet }) {
     { id: "salaries", label: "Salaires", icon: Banknote },
   ];
   if (!hideTimesheet) tabs.push({ id: "timesheet", label: "Présence", icon: Calendar });
+  tabs.push({ id: "absences", label: "Absences", icon: Calendar });
+  tabs.push({ id: "taxes", label: "Taxes", icon: Banknote });
+  tabs.push({ id: "advances", label: "Avances", icon: Banknote });
+  tabs.push({ id: "payslips", label: "Paie", icon: Briefcase });
+  tabs.push({ id: "settings", label: "Réglages", icon: Briefcase });
   return (
     <div className="flex gap-1 mb-6 border-b border-slate-200 overflow-x-auto" data-testid="hr-tabs">
       {tabs.map((t) => {
@@ -685,7 +693,7 @@ export default function HumanResources() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Ressources Humaines</h1>
             <p className="text-sm text-slate-500">
-              Personnel · Salaires · Présence — Phase 1+2+3
+              Personnel · Salaires · Présence · Absences · Taxes · Avances · Paie
             </p>
           </div>
         </div>
@@ -696,18 +704,31 @@ export default function HumanResources() {
       {loading ? (
         <Empty label="Chargement…" />
       ) : tab === "personnel" ? (
-        <PersonnelTable
-          employees={employees}
-          includeDeleted={includeDeleted}
-          setIncludeDeleted={setIncludeDeleted}
-          eligibleUsers={eligible}
-          refresh={refresh}
-        />
+        <>
+          <WeeklyPresenceCard />
+          <PersonnelTable
+            employees={employees}
+            includeDeleted={includeDeleted}
+            setIncludeDeleted={setIncludeDeleted}
+            eligibleUsers={eligible}
+            refresh={refresh}
+          />
+        </>
       ) : tab === "salaries" ? (
         <SalariesTable employees={activeEmployees} refresh={refresh} />
-      ) : (
+      ) : tab === "timesheet" ? (
         <TimesheetView employees={activeEmployees} />
-      )}
+      ) : tab === "absences" ? (
+        <AbsencesTab employees={activeEmployees} />
+      ) : tab === "taxes" ? (
+        <TaxesTab />
+      ) : tab === "advances" ? (
+        <AdvancesTab employees={activeEmployees} />
+      ) : tab === "payslips" ? (
+        <PayslipsTab employees={activeEmployees} />
+      ) : tab === "settings" ? (
+        <HrSettingsTab />
+      ) : null}
     </div>
   );
 }

@@ -2,6 +2,69 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## Iter38b (2026-05-26) — GRH Phases 4+5+6 + Mini-graph + Pays/Indicatifs configurables
+
+### 🌍 1) Pays & indicatifs téléphoniques configurables (par défaut Burkina Faso +226)
+- **Nouveau module** `/app/backend/routes/tenant_meta.py` :
+  - Endpoints publics : `GET /api/me/tenant-meta` (tous les users) — retourne `{country_code, country_name, dial_prefix, phone_example}`.
+  - Endpoints admin : `GET/POST /api/admin/countries`, `PATCH/DELETE /api/admin/countries/{code}`, `GET/PATCH /api/admin/tenant-country`.
+  - Catalogue seedé : Burkina Faso (par défaut), Côte d'Ivoire, Sénégal, Mali, Niger, Togo, Bénin, Guinée, France, Cameroun.
+  - **BF non supprimable** (garde-fou).
+- **Frontend** :
+  - `AuthContext` étendu : récupère et stocke `tenantMeta` au login dans le state ET dans `localStorage["sawali_tenant_meta"]`.
+  - Helper `/app/frontend/src/lib/tenantMeta.js` : `phonePlaceholder()` lit le localStorage et retourne l'exemple — utilisable depuis n'importe quel composant sans hook.
+  - **Nouvelle section AdminSettings** : "Pays & indicatifs téléphoniques" — sélecteur de pays par défaut, liste avec suppression, formulaire d'ajout.
+  - Placeholders dynamiques dans `Contacts.jsx` (3 inputs), `Subscriptions.jsx` (phone), `AdminSettings.jsx` (WhatsApp société).
+
+### 📅 2) GRH Phase 4 — Absences / Déductions (choix 1.b + 2.c)
+- Collection `db.hr_absences` : `start_date`, `end_date`, `hours_count`, `abs_type` (maladie | conge | non_justifiee | personnelle | autre), `is_justified`, `justification`, `auto_detected`.
+- Endpoints :
+  - `GET /api/hr/absences?employee_id=&month=YYYY-MM` (filtre tenant strict)
+  - `POST /api/hr/absences` (valide end_date ≥ start_date)
+  - `PATCH /api/hr/absences/{aid}` (toggle justifiée + édit)
+  - `DELETE /api/hr/absences/{aid}`
+  - **`POST /api/hr/absences/scan?employee_id=&month=YYYY-MM`** — auto-détection : jours ouvrés (lun-ven) sans aucun `access_log` → propose 8h "non_justifiee" par défaut, NON persistés (l'utilisateur valide en cliquant).
+- **Seuil de tolérance** : `db.hr_settings.absence_threshold_hours` (global tenant) + override par employé via `employee.absence_threshold_hours_override`. Au-delà du seuil, l'excédent d'heures non justifiées est déduit au taux horaire de l'employé.
+
+### 🧾 3) GRH Phase 5 — Taxes & Avances (choix 3.a + 4.b + 5.b)
+- **Taxes** (collection `db.hr_taxes`) — max **5 par tenant**, configurables 100% :
+  - `label`, `calc_type` (`percentage` | `fixed`), `value`, `applies_to` (`gross` | `net`), `active`, `sort_order`.
+  - `GET /api/hr/taxes`, `PUT /api/hr/taxes` (remplace toutes — 400 si > 5).
+  - Override par employé : `employee.tax_overrides = {tax_id: value}` (déjà côté backend, UI dans Phase 5 v2).
+- **Avances** (collection `db.hr_advances`) :
+  - `amount`, `currency`, `motive`, `granted_at`, `auto_deduct`, `repaid_amount`, `status` (`pending` → `partial` → `repaid`).
+  - `POST /api/hr/advances`, `GET /api/hr/advances?employee_id=`, `POST /api/hr/advances/{aid}/repay`, `DELETE`.
+  - **Auto-déduction** sur la paie suivante si `auto_deduct=true` et `status != repaid`.
+
+### 💰 4) GRH Phase 6 — Synthèse mensuelle PDF de paie (choix 6.d)
+- `GET /api/hr/employees/{eid}/payslip?month=YYYY-MM` → JSON complet (gross, absence_deduction, taxes, advances, **net**).
+- `GET /api/hr/employees/{eid}/payslip.pdf?month=YYYY-MM` → PDF A4 propre (reportlab) :
+  - Entête (entreprise, n° employeur, adresse — depuis `hr_settings.payslip_*`).
+  - Identité employé, période.
+  - GAINS, ABSENCES, RETENUES & TAXES, AVANCES, **NET À PAYER** en bandeau noir.
+  - Mentions légales + pied de page (configurables).
+- **Modèle configurable** via UI : Réglages → "Modèle de fiche de paie" (nom employeur, N° employeur, adresse, mentions légales, pied de page).
+- Math validée par test : 16h travaillées → 16 000 brut → −8 000 (12h−4h seuil × 1000/h) → −1 200 (15% taxes) → −5 000 avance → **net 1 800**.
+
+### 📊 5) Mini-graph "Présence cette semaine" (choix 7.c)
+- `GET /api/hr/dashboard/weekly-presence` → top 5 employés (lun→dim courant, UTC) avec `hours` et `days`.
+- Frontend : `<WeeklyPresenceCard />` affichée en haut de l'onglet **Personnel** du module GRH — barres horizontales animées (gradient bleu→émeraude) + heures + jours.
+
+### 🎨 6) Frontend HR enrichi
+- Nouvelle page jumelle `/app/frontend/src/pages/portal/HumanResourcesAdvanced.jsx` (composants : `WeeklyPresenceCard`, `AbsencesTab`, `TaxesTab`, `AdvancesTab`, `PayslipsTab`, `HrSettingsTab`).
+- 7 onglets total : Personnel · Salaires · Présence · **Absences** · **Taxes** · **Avances** · **Paie** · **Réglages**.
+- Tous les éléments interactifs ont des `data-testid` (`hr-tab-*`, `hr-absences-*`, `hr-tax-*`, `hr-advance-*`, `hr-payslip-*`, `hr-settings-*`, `hr-weekly-card`, etc.).
+- Téléchargement du PDF de paie depuis l'onglet Paie via le bouton "Télécharger PDF".
+
+### ✅ Tests
+- **14/14 tests pytest verts** dans `tests/test_iter38b_grh_advanced.py` (couverture : tenant-meta, country CRUD, absences CRUD + scan, taxes limits, advances flow complet, payslip math + PDF, settings, weekly-presence).
+- **Régression** : 50/50 iter37 (cashier), 20/20 iter38a (GRH base + Comptable), 14/14 iter38b → **84/84 verts**.
+- Aucun bug remonté par le testing agent.
+
+### 🔄 Prochaines étapes
+- A.3 (Corbeille Caisse UI) et B.1→B.4 (suite Caisse) après votre déploiement.
+
+
 ## Iter38 (2026-05-26) — Module GRH (Ressources Humaines) Phases 1+2+3 + rôle Comptable
 
 ### 🧑‍💼 1) Nouveau rôle tracked `Comptable`

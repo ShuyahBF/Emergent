@@ -48,6 +48,8 @@ const clientLinks = [
   { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
+  // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
+  { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
 ];
 
 const adminLinks = [
@@ -113,7 +115,9 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.cashOnly || canCash || isComptable)
     .filter((l) => !l.hrOnly || canHR)
     .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
-    .filter((l) => !l.cashAdminOnly || isAdminOrSup);
+    .filter((l) => !l.cashAdminOnly || isAdminOrSup)
+    // Iter38n — Catalog stats visible to admin/sup/tracked users
+    .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page
   // that was counted refreshes the list). Also refresh every 90s.

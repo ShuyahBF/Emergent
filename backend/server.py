@@ -1018,8 +1018,10 @@ async def public_documents():
 # No auth required. Returns only safe display fields (no internal SKU
 # notes, costs, stock, tenant_id). Grouped by category.
 # ============================================================
+_CATALOG_ANALYTICS: Optional[Dict[str, Any]] = None  # Iter38n — wired at the bottom of this file
+
 @api.get("/public/products", tags=["Public"])
-async def public_products():
+async def public_products(request: Request):
     cursor = db.products.find(
         {"is_public": True, "active": True, "deleted_at": None},
         {
@@ -1034,6 +1036,14 @@ async def public_products():
     for p in items:
         cat = (p.get("category") or "Autres").strip() or "Autres"
         groups.setdefault(cat, []).append(p)
+    # Iter38n — Track anonymous catalog view (best-effort, never blocks)
+    try:
+        if _CATALOG_ANALYTICS:
+            await _CATALOG_ANALYTICS["log_event"](
+                "catalog_view", request=request,
+            )
+    except Exception:
+        pass
     return {
         "count": len(items),
         "categories": [{"label": k, "items": v} for k, v in groups.items()],
@@ -1058,7 +1068,7 @@ def _escape_html(s: Optional[str]) -> str:
 async def public_og_product(product_id: str, request: Request):
     p = await db.products.find_one(
         {"id": product_id, "is_public": True, "active": True, "deleted_at": None},
-        {"_id": 0, "name": 1, "description": 1, "unit_price_ht": 1, "unit": 1, "image_url": 1, "sku": 1},
+        {"_id": 0, "name": 1, "description": 1, "unit_price_ht": 1, "unit": 1, "image_url": 1, "sku": 1, "tenant_id": 1, "client_id": 1},
     )
     base = _public_base_url(request) or str(request.base_url).rstrip("/")
     target = f"{base}/catalogue"
@@ -1109,6 +1119,19 @@ async def public_og_product(product_id: str, request: Request):
 </body>
 </html>
 """
+    # Iter38n — Track OG fetch event (best-effort)
+    try:
+        if _CATALOG_ANALYTICS:
+            await _CATALOG_ANALYTICS["log_event"](
+                "product_og_fetch",
+                product_id=product_id,
+                product_sku=p.get("sku"),
+                product_name=p.get("name"),
+                tenant_id=p.get("tenant_id") or p.get("client_id"),
+                request=request,
+            )
+    except Exception:
+        pass
     return HTMLResponse(html, status_code=200)
 
 
@@ -19743,6 +19766,13 @@ _setup_inbox_routes(
 from routes.ai_media import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402
 _setup_ai_media_routes(db=db, api=api, get_current_user=get_current_user)
 
+# =====================================================================
+# Iter38n — Catalogue public analytics (vues, partages, devis).
+# =====================================================================
+from routes.catalog_analytics import setup_catalog_analytics_routes as _setup_catalog_analytics  # noqa: E402
+_CATALOG_ANALYTICS = _setup_catalog_analytics(
+    db=db, api=api, get_current_user=get_current_user,
+)
 app.include_router(api)
 
 

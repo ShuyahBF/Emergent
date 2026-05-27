@@ -8,6 +8,41 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38n (2026-05-27) — Cockpit Statistiques Catalogue (vues / partages / devis)
+
+### 📊 1) Backend `routes/catalog_analytics.py`
+- Nouveau module (~270 lignes) qui capture 4 types d'événements anonymes sur le catalogue public : `catalog_view`, `product_og_fetch`, `product_share`, `product_quote_click`.
+- Collection `db.catalog_events` `{id, event_type, tenant_id, product_id, product_sku, product_name, referrer, user_agent, ip_hash, created_at}` — IP hashée (SHA-256 tronqué) pour zéro PII stockée.
+- Endpoint public `POST /api/public/catalog/track` (anonyme) — résolution automatique du tenant via `product.tenant_id`.
+- Endpoint portail `GET /api/me/catalog/stats?days=N` — totaux par type, top 5 produits, tunnel de conversion (share_rate, quote_rate), timeline quotidienne dense.
+- Endpoint portail `GET /api/me/catalog/history?days=N&event_type=` — flux des derniers événements (sans ip_hash).
+- Gating multi-tenant : super-admin voit tout, sinon scoped au `tenant_id` (logique alignée sur cashier).
+- Accès : Admin, Superviseur, et **tous les utilisateurs suivis** (tracked_user_id ou tracked_role). Refusé pour les clients réguliers (403).
+
+### 🪝 2) Hooks dans server.py
+- `GET /api/public/products` log `catalog_view` à chaque hit.
+- `GET /api/public/og/product/{id}` log `product_og_fetch` avec le tenant du produit résolu.
+- Tracking best-effort : un échec d'analytics ne casse jamais la requête utilisateur.
+
+### 🛍️ 3) Frontend public — Catalogue.jsx
+- Nouvelle fonction `trackCatalogEvent(eventType, product)` (fetch keepalive vers `/api/public/catalog/track`).
+- Bouton "Partager" → fire `product_share`. Bouton "Demander un devis" → fire `product_quote_click` au clic Link.
+
+### 🎛️ 4) Frontend portail `/portal/catalog-stats` — CatalogStats.jsx
+- Nouvelle page (~280 lignes) avec :
+  - 4 KPI cards (Vues catalogue, Aperçus produits, Partages, Devis demandés)
+  - Tunnel de conversion avec barres proportionnelles
+  - Top 5 produits (tableau Aperçus/Partages/Devis/Total)
+  - 3 sparklines quotidiennes (Aperçus/Partages/Devis)
+  - Historique filtrable des 100 derniers événements (filtre par type d'événement)
+- Sélecteur de période (7/14/30/60/90 jours).
+- Entrée sidebar "Statistiques catalogue" (icône BarChart3) visible pour admin/sup/tracked.
+- Route React `/portal/catalog-stats` ajoutée dans `App.js`.
+
+### ✅ Tests
+- 14 nouveaux pytest verts (`tests/test_iter38n_catalog_analytics.py`) : tracking + résolution tenant, gating (admin/sup/tracked OK, regular client 403), top products, tenant isolation, funnel ratios, timeline dense, history avec filtre, exclusion ip_hash de la réponse, hooks implicites via /public/products & /public/og/product.
+- Régression iter38 (a→n) : **82/82 verts**.
+
 ## Iter38m (2026-05-27) — Jours fériés GRH + Dépenses pour Employé + Aperçu/Renvoi WA
 
 ### 📅 1) Jours fériés (GRH) — Onglet complet avec import par pays

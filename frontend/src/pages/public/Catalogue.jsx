@@ -13,11 +13,30 @@ import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, A
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
-function shareProduct(productId, name) {
-  const url = `${BACKEND}/api/public/og/product/${productId}`;
-  const text = `Découvrez "${name}" — SAWALI SMART SYSTEMS`;
+// Iter38n — Fire-and-forget analytics tracking (no auth required)
+function trackCatalogEvent(eventType, product = {}) {
+  try {
+    fetch(`${BACKEND}/api/public/catalog/track`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        event_type: eventType,
+        product_id: product.id,
+        product_sku: product.sku,
+        product_name: product.name,
+      }),
+      // keepalive lets the request finish even if user navigates away
+      keepalive: true,
+    }).catch(() => {});
+  } catch { /* noop */ }
+}
+
+function shareProduct(product) {
+  const url = `${BACKEND}/api/public/og/product/${product.id}`;
+  const text = `Découvrez "${product.name}" — SAWALI SMART SYSTEMS`;
+  trackCatalogEvent("product_share", product);
   if (navigator.share) {
-    navigator.share({ title: name, text, url }).catch(() => {});
+    navigator.share({ title: product.name, text, url }).catch(() => {});
   } else if (navigator.clipboard) {
     navigator.clipboard.writeText(url).then(() => {
       // eslint-disable-next-line no-alert
@@ -147,6 +166,7 @@ export default function Catalogue() {
                             )}
                             <Link
                               to={`/rdv?product=${encodeURIComponent(p.name)}&sku=${encodeURIComponent(p.sku || "")}`}
+                              onClick={() => trackCatalogEvent("product_quote_click", p)}
                               className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue-light text-sawali-navy hover:bg-white px-4 py-2 text-sm font-semibold transition mt-auto"
                               data-testid={`catalog-quote-${p.id}`}
                             >
@@ -156,7 +176,7 @@ export default function Catalogue() {
                             {/* Iter38g — Share with rich OG preview (WhatsApp / FB / LinkedIn) */}
                             <button
                               type="button"
-                              onClick={() => shareProduct(p.id, p.name)}
+                              onClick={() => shareProduct(p)}
                               className="mt-2 inline-flex items-center justify-center gap-2 rounded-lg ring-1 ring-white/15 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white px-3 py-1.5 text-xs"
                               data-testid={`catalog-share-${p.id}`}
                               title="Partager ce produit avec un aperçu riche"

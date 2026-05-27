@@ -35,6 +35,8 @@ const clientLinks = [
   { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", icon: FileText },
   { to: "/portal/contacts", label: "Centre de Messagerie", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
+  // Iter38i — Unified omnichannel inbox (WhatsApp + Messenger)
+  { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },

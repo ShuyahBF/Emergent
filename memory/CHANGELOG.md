@@ -8,7 +8,50 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38i (2026-05-27) — Inbox omnicanal unifiée (WhatsApp + Messenger)
+
+### 📥 1) Backend `routes/unified_inbox.py`
+- Nouveau module (~150 lignes) agrégeant `db.whatsapp_messages` et `db.meta_messenger_messages` en threads recency-sorted.
+- Endpoint `GET /api/me/inbox/unified` : retourne max 60 threads avec channel/peer_id/peer_name/preview/last_at/unread_count/total_count.
+- Endpoint `GET /api/me/inbox/unified/{channel}/{thread_id}` : retourne les messages ordonnés d'un thread (50 par défaut), avec direction (inbound/outbound), texte, timestamp, media_url.
+- Multi-tenant strict + gating Messenger (403 si `meta_messenger` désactivé).
+- Compte agrégé : `totals.unread`, `totals.whatsapp`, `totals.messenger`.
+
+### 🖼️ 2) Frontend `UnifiedInbox.jsx`
+- Nouvelle page `/portal/inbox` (~180 lignes) avec layout 2-pane :
+  - Gauche : liste threads avec badge canal coloré (vert WA / bleu MSG), compteur non-lus, dernière prévisualisation, horodatage.
+  - Droite : messages du thread sélectionné avec bulles direction-aware (indigo→outbound, gris→inbound).
+- Filtre par canal (Tous / WhatsApp / Messenger) avec compteurs.
+- Bouton "Actualiser" + auto-fetch au montage.
+- Pièces jointes (media_url) cliquables.
+
+### 🧭 3) Sidebar + routes
+- Nouvelle entrée "Inbox unifiée (WA + Messenger)" dans la sidebar portail.
+- Route React `/portal/inbox` ajoutée.
+
 ## Iter38h (2026-05-27) — Implémentation Meta Graph API complète
+
+### 🏛️ 1) Module backend routes/meta.py
+- Nouveau module FastAPI (~470 lignes) : OAuth Facebook Login, Pages API, Messenger Platform, Marketing API, Webhook avec validation HMAC SHA256.
+- 16 endpoints au total. Gating multi-tenant strict.
+- Stockage : db.meta_integrations, db.meta_messenger_messages, db.meta_webhook_events.
+
+### ⚙️ 2) Configuration admin Meta App
+- Section MetaConfigSection.jsx (~150 lignes) dans Admin Settings.
+- Champs : App ID, App Secret (masqué), Verify Token, Graph version, Redirect URI.
+- Bandeau guide en 5 étapes côté Meta App Dashboard.
+
+### 🌐 3) Page Portail /portal/meta
+- Composant MetaIntegration.jsx (~360 lignes) avec 3 onglets : Pages, Messenger, Ads.
+- OAuth connect/disconnect, composer post, uploader photo, conversations Messenger, stats Ads.
+
+### 🧭 4) Sidebar + routes
+- Entrée "Meta (Facebook/Messenger/Ads)" visible si au moins une feature Meta activée.
+
+### ✅ 5) Tests pytest
+- 11/11 tests passent (tests/test_iter38h_meta.py).
+
+
 
 ### 🏛️ 1) Module backend `routes/meta.py`
 - Nouveau module FastAPI (~470 lignes) : OAuth Facebook Login, Pages API, Messenger Platform, Marketing API, Webhook avec validation HMAC SHA256.

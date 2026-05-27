@@ -17678,6 +17678,18 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=120,
             )
+            # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
+            try:
+                _scheduler.add_job(
+                    _pwh_router._scheduled_auto_dispatch,  # type: ignore[attr-defined]
+                    CronTrigger(day=1, hour=3, minute=0, timezone="UTC"),
+                    id="payroll_outbound_monthly",
+                    replace_existing=True,
+                    misfire_grace_time=3600,
+                )
+                logger.info("Iter38d — Scheduled payroll outbound webhook (monthly @ 1st 03:00 UTC).")
+            except Exception as _ex:
+                logger.warning("Failed to schedule payroll outbound webhook: %s", _ex)
             # Minute-level SMS scheduler — drains pending SMS schedules due for send.
             _scheduler.add_job(
                 _run_scheduled_sms,
@@ -19235,6 +19247,52 @@ async def me_welcome_briefing(
             # Invalid ISO timestamp → silently skip
             since_last_visit = None
 
+    # Iter38d — Expense reminder for tracked users with cashier access:
+    # Sum of unjustified expenses for the current month + count of those
+    # already past the deadline (will be deducted from payslip).
+    expense_reminder = None
+    try:
+        is_tracked = bool(user.get("tracked_user_id") or user.get("tracked_role"))
+        can_cash = bool(user.get("can_cash")) or (user.get("role") in ("admin", "superviseur"))
+        is_comptable = (user.get("tracked_role") or "") == "Comptable"
+        if is_tracked and (can_cash or is_comptable):
+            from routes.cashier_expenses import _is_late_unjustified  # local import
+            s_global = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+            try:
+                deadline_h = int(s_global.get("expense_justification_deadline_hours", 72))
+            except (TypeError, ValueError):
+                deadline_h = 72
+            cur_month = today_start.strftime("%Y-%m")
+            cursor = db.cashier_expenses.find({
+                "created_by": user["id"],
+                "is_justified": False,
+                "deleted_at": None,
+                "expense_date": {"$gte": f"{cur_month}-01", "$lt": f"{cur_month}-32"},
+            }, {"_id": 0, "amount": 1, "created_at": 1, "currency": 1})
+            total_unj = 0.0
+            late_unj = 0.0
+            cur = "XOF"
+            cnt = 0
+            async for e in cursor:
+                amt = float(e.get("amount") or 0)
+                total_unj += amt
+                cnt += 1
+                if e.get("currency"):
+                    cur = e["currency"]
+                if _is_late_unjustified(e, deadline_h):
+                    late_unj += amt
+            if cnt > 0:
+                expense_reminder = {
+                    "count": cnt,
+                    "total_unjustified": round(total_unj, 2),
+                    "late_unjustified": round(late_unj, 2),
+                    "deadline_hours": deadline_h,
+                    "currency": cur,
+                    "month": cur_month,
+                }
+    except Exception:
+        expense_reminder = None
+
     return {
         "tickets": tickets,
         "tickets_count": len(tickets),
@@ -19244,6 +19302,7 @@ async def me_welcome_briefing(
         "recent_notes_window_days": notes_days,
         "daily_health": daily_health,
         "since_last_visit": since_last_visit,
+        "expense_reminder": expense_reminder,
         "server_now": _now(),
     }
 
@@ -19307,6 +19366,18 @@ api.include_router(_tm_router)
 from routes.cashier_expenses import make_router as _make_expenses_router  # noqa: E402
 _exp_router = _make_expenses_router(db=db, get_current_user=get_current_user)
 api.include_router(_exp_router)
+
+# =====================================================================
+# Iter38d — Payroll webhooks (outbound to n8n + inbound from n8n).
+# =====================================================================
+from routes.payroll_webhooks import make_router as _make_payroll_webhooks_router  # noqa: E402
+_pwh_router = _make_payroll_webhooks_router(
+    db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_admin_or_supervisor,
+    compute_payslip=_hr_router.compute_payslip,
+)
+api.include_router(_pwh_router)
 
 app.include_router(api)
 

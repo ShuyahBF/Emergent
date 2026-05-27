@@ -16,7 +16,8 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { useInternalChat } from "@/hooks/useInternalChat";
 import { toast } from "sonner";
-import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply } from "lucide-react";
+import { MessageSquareText, Send, X, Hash, Users as UsersIcon, Circle, RefreshCw, Mic, Square, Camera, Image as ImageIcon, Loader2, Sparkles, Search, Reply, PanelLeftClose, PanelLeft } from "lucide-react";
+import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 
 /*
  * Iter36r — Distinct sound for incoming internal chat messages.
@@ -140,6 +141,27 @@ export default function InternalChatPanel() {
   const [searching, setSearching] = useState(false);
   const [highlightMsgId, setHighlightMsgId] = useState(null);
   const searchInputRef = useRef(null);
+
+  // Iter38d — Resizable left panel (mouse + touch) + mobile collapse
+  const { leftWidth, dragHandlers, isCollapsed, toggleCollapsed } = useResizablePanel({
+    storageKey: "sawali_internal_chat_split",
+    initial: 256,
+    min: 180,
+    max: 480,
+  });
+
+  // Iter38d — Expense reminder banner (shown to tracked users with cashier access)
+  const [expenseReminder, setExpenseReminder] = useState(null);
+  useEffect(() => {
+    if (!open) return;
+    apiClient
+      .get("/cashier/expenses/me/dashboard-card")
+      .then((r) => {
+        const d = r.data;
+        if (d && d.count > 0) setExpenseReminder(d); else setExpenseReminder(null);
+      })
+      .catch(() => setExpenseReminder(null));
+  }, [open]);
 
   // Iter36t — Cmd/Ctrl+K global shortcut to open search from anywhere
   // in the portal. Also Esc closes the search bar.
@@ -658,8 +680,12 @@ export default function InternalChatPanel() {
           className="fixed bottom-4 right-4 z-[70] w-[95vw] max-w-2xl h-[600px] max-h-[85vh] rounded-2xl bg-white shadow-2xl ring-1 ring-slate-200 flex overflow-hidden"
           data-testid="internal-chat-drawer"
         >
-          {/* Left pane — clients + threads */}
-          <div className="w-64 shrink-0 border-r border-slate-200 bg-slate-50 flex flex-col">
+          {/* Left pane — clients + threads (Iter38d resizable + mobile collapse) */}
+          <div
+            className={`shrink-0 border-r border-slate-200 bg-slate-50 flex-col ${isCollapsed ? "hidden" : "flex"}`}
+            style={{ width: `${leftWidth}px` }}
+            data-testid="internal-chat-left-panel"
+          >
             <div className="px-3 py-3 border-b border-slate-200 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <MessageSquareText className="h-4 w-4 text-sawali-blue" />
@@ -744,9 +770,22 @@ export default function InternalChatPanel() {
           </div>
 
           {/* Right pane — messages */}
+          {/* Iter38d — Resizable drag handle between panels */}
+          {!isCollapsed && <DragHandle dragHandlers={dragHandlers} data-testid="internal-chat-resize" />}
+
           <div className="flex-1 flex flex-col min-w-0">
             <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-white">
-              <div className="min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                {/* Iter38d — Mobile-friendly toggle of left panel */}
+                <button
+                  onClick={toggleCollapsed}
+                  data-testid="internal-chat-toggle-left"
+                  title={isCollapsed ? "Afficher la liste des conversations" : "Masquer la liste"}
+                  className="md:hidden inline-flex items-center justify-center h-8 w-8 rounded-md text-slate-500 hover:text-slate-900 hover:bg-slate-100"
+                >
+                  {isCollapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+                </button>
+                <div className="min-w-0">
                 <p className="text-sm font-bold text-slate-800 truncate">
                   {activeThreadKey === "general"
                     ? `#général — ${activeClient?.full_name || activeClient?.company || ""}`
@@ -758,6 +797,7 @@ export default function InternalChatPanel() {
                     {activeMember?.online ? "En ligne" : "Hors ligne"}
                   </p>
                 )}
+                </div>
               </div>
               <div className="flex items-center gap-1">
                 <button
@@ -846,6 +886,30 @@ export default function InternalChatPanel() {
                     )}
                   </div>
                 )}
+              </div>
+            )}
+
+            {/* Iter38d — Expense reminder banner shown above messages */}
+            {expenseReminder && expenseReminder.count > 0 && (
+              <div
+                className={`mx-4 mt-3 mb-1 rounded-lg ring-1 px-3 py-2 text-xs flex items-center justify-between gap-2 ${expenseReminder.late_unjustified > 0 ? "ring-rose-300 bg-rose-50 text-rose-900" : "ring-amber-300 bg-amber-50 text-amber-900"}`}
+                data-testid="internal-chat-expense-reminder"
+              >
+                <div className="min-w-0">
+                  <strong>Rappel :</strong> {expenseReminder.count} dépense(s) à justifier (
+                  {Number(expenseReminder.total_unjustified || 0).toLocaleString("fr-FR")}{" "}{expenseReminder.currency})
+                  {expenseReminder.late_unjustified > 0 && (
+                    <span> — <strong>{Number(expenseReminder.late_unjustified).toLocaleString("fr-FR")}</strong> hors délai !</span>
+                  )}
+                </div>
+                <button
+                  onClick={() => setExpenseReminder(null)}
+                  data-testid="internal-chat-expense-dismiss"
+                  className="text-slate-400 hover:text-slate-700 flex-shrink-0"
+                  title="Masquer"
+                >
+                  <X className="h-3 w-3" />
+                </button>
               </div>
             )}
 

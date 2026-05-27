@@ -18,7 +18,7 @@ import {
   Banknote, Receipt, ShoppingBag, Building2, CreditCard, Plus, Search, X,
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
-  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy,
+  TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy, RotateCcw,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import ExpensesTab from "./ExpensesTab";
@@ -411,6 +411,7 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showTrash, setShowTrash] = useState(false);
   const [filter, setFilter] = useState({ kind: "", status: "" });
   const [overdueCount, setOverdueCount] = useState(0);
   const [relancing, setRelancing] = useState(false);
@@ -427,7 +428,7 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
   const load = async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/cashier/invoices", { params: { limit: 100, ...filter } });
+      const r = await apiClient.get("/cashier/invoices", { params: { limit: 100, include_deleted: showTrash, ...filter } });
       setItems(r.data || []);
     } catch { setItems([]); } finally { setLoading(false); }
   };
@@ -437,8 +438,27 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
       setOverdueCount(r.data?.count || 0);
     } catch { /* noop */ }
   };
-  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter.kind, filter.status]);
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [filter.kind, filter.status, showTrash]);
   useEffect(() => { refreshOverdue(); }, []);
+
+  // Iter38d — Trash actions (restore + permanent delete + duplicate)
+  const restoreInvoice = async (id, number) => {
+    if (!canDelete) return;
+    try {
+      await apiClient.post(`/cashier/invoices/${id}/restore`);
+      toast.success(`Facture ${number || id} restaurée`);
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+  const purgeInvoice = async (id, number) => {
+    if (!canDelete) return;
+    if (!window.confirm(`Supprimer DÉFINITIVEMENT la facture ${number || id} ? Cette action est irréversible.`)) return;
+    try {
+      await apiClient.delete(`/cashier/invoices/${id}/permanent`);
+      toast.success("Suppression définitive");
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
 
   const relanceOverdue = async () => {
     if (overdueCount === 0 || relancing) return;
@@ -595,6 +615,14 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
           <Receipt className="h-5 w-5 text-sawali-blue" /> Factures & Proformas
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowTrash((v) => !v)}
+            data-testid="invoices-trash-toggle"
+            title={showTrash ? "Revenir aux factures actives" : "Voir la corbeille"}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium ${showTrash ? "bg-rose-600 text-white hover:bg-rose-700" : "bg-slate-100 text-slate-700 hover:bg-slate-200"}`}
+          >
+            <Trash2 className="h-4 w-4" /> {showTrash ? "Sortir de la corbeille" : "Corbeille"}
+          </button>
           <select value={filter.kind} onChange={(e) => setFilter({ ...filter, kind: e.target.value })}
             className="rounded-md border border-slate-300 px-2 py-1 text-xs">
             <option value="">Tous types</option>
@@ -819,31 +847,58 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
                     >
                       <Copy className="h-3.5 w-3.5 inline" />
                     </button>
-                    {i.kind === "proforma" && i.status === "issued" && (
-                      <button onClick={() => convertToInvoice(i.id)} className="text-xs text-emerald-600 hover:underline" title="Convertir en facture">
-                        <ArrowRight className="h-3.5 w-3.5 inline" />
-                      </button>
-                    )}
-                    {i.kind === "invoice" && i.status === "issued" && (
-                      <button onClick={() => markPaid(i.id)} className="text-xs text-emerald-600 hover:underline" title="Marquer réglée">
-                        <CheckCircle2 className="h-3.5 w-3.5 inline" />
-                      </button>
-                    )}
-                    {i.status === "issued" && (
-                      <button onClick={() => cancel(i.id)} className="text-xs text-amber-600 hover:underline" title="Annuler (statut)">
-                        <XCircle className="h-3.5 w-3.5 inline" />
-                      </button>
-                    )}
-                    {/* Iter37h — Hard delete (admin/superviseur only) */}
-                    {canDelete && (
-                      <button
-                        onClick={() => deleteInvoice(i.id, i.number, i.kind)}
-                        className="text-xs text-rose-600 hover:underline"
-                        title="Supprimer définitivement (admin/superviseur)"
-                        data-testid={`invoice-delete-${i.id}`}
-                      >
-                        <Trash2 className="h-3.5 w-3.5 inline" />
-                      </button>
+                    {/* Iter38d — Trash mode: restore + permanent delete; otherwise standard actions */}
+                    {i.deleted_at ? (
+                      <>
+                        {canDelete && (
+                          <>
+                            <button
+                              onClick={() => restoreInvoice(i.id, i.number)}
+                              className="text-xs text-emerald-600 hover:underline"
+                              title="Restaurer cette facture"
+                              data-testid={`invoice-restore-${i.id}`}
+                            >
+                              <RotateCcw className="h-3.5 w-3.5 inline" />
+                            </button>
+                            <button
+                              onClick={() => purgeInvoice(i.id, i.number)}
+                              className="text-xs text-rose-700 hover:underline"
+                              title="Supprimer définitivement (irréversible)"
+                              data-testid={`invoice-purge-${i.id}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5 inline" />
+                            </button>
+                          </>
+                        )}
+                      </>
+                    ) : (
+                      <>
+                        {i.kind === "proforma" && i.status === "issued" && (
+                          <button onClick={() => convertToInvoice(i.id)} className="text-xs text-emerald-600 hover:underline" title="Convertir en facture">
+                            <ArrowRight className="h-3.5 w-3.5 inline" />
+                          </button>
+                        )}
+                        {i.kind === "invoice" && i.status === "issued" && (
+                          <button onClick={() => markPaid(i.id)} className="text-xs text-emerald-600 hover:underline" title="Marquer réglée">
+                            <CheckCircle2 className="h-3.5 w-3.5 inline" />
+                          </button>
+                        )}
+                        {i.status === "issued" && (
+                          <button onClick={() => cancel(i.id)} className="text-xs text-amber-600 hover:underline" title="Annuler (statut)">
+                            <XCircle className="h-3.5 w-3.5 inline" />
+                          </button>
+                        )}
+                        {canDelete && (
+                          <button
+                            onClick={() => deleteInvoice(i.id, i.number, i.kind)}
+                            className="text-xs text-rose-600 hover:underline"
+                            title="Mettre à la corbeille (admin/superviseur)"
+                            data-testid={`invoice-delete-${i.id}`}
+                          >
+                            <Trash2 className="h-3.5 w-3.5 inline" />
+                          </button>
+                        )}
+                      </>
                     )}
                   </td>
                 </tr>

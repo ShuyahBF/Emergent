@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock } from "lucide-react";
+import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock, Banknote } from "lucide-react";
 
 /*
   Iter35r → Iter36g — Welcome briefing modal.
@@ -59,6 +59,8 @@ export default function WelcomeBriefing({ onClose }) {
   const notes = data?.recent_notes || [];
   const health = data?.daily_health || null;
   const sinceLast = data?.since_last_visit || null;
+  // Iter38d — Expense reminder for tracked users
+  const expenseReminder = data?.expense_reminder || null;
   const hasHealth = !!health && (
     (health.tickets_resolved_yesterday || 0) > 0
     || (health.messages_sent_today || 0) > 0
@@ -66,7 +68,8 @@ export default function WelcomeBriefing({ onClose }) {
     || (health.wa_response_rate_24h !== null && health.wa_response_rate_24h !== undefined)
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast;
+  const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -93,6 +96,38 @@ export default function WelcomeBriefing({ onClose }) {
           <div className="p-8 text-center text-slate-500">Chargement…</div>
         ) : (
           <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* Iter38d — Expense reminder for tracked users with cashier access */}
+            {hasExpenseReminder && (
+              <section
+                className={`rounded-lg ring-1 p-3 ${expenseReminder.late_unjustified > 0 ? "ring-rose-300 bg-gradient-to-br from-rose-50 to-amber-50" : "ring-amber-200 bg-amber-50"}`}
+                data-testid="welcome-expense-reminder"
+              >
+                <div className="flex items-center gap-2 mb-2">
+                  <Banknote className={`h-4 w-4 ${expenseReminder.late_unjustified > 0 ? "text-rose-700" : "text-amber-700"}`} />
+                  <h3 className={`text-sm font-semibold ${expenseReminder.late_unjustified > 0 ? "text-rose-900" : "text-amber-900"}`}>
+                    Rappel — Mes dépenses caisse à justifier
+                  </h3>
+                </div>
+                <p className="text-sm text-slate-700">
+                  Vous avez <strong>{expenseReminder.count}</strong> dépense(s) en attente de justification ce mois pour un total de{" "}
+                  <strong className="text-amber-900">{Number(expenseReminder.total_unjustified || 0).toLocaleString("fr-FR")} {expenseReminder.currency}</strong>.
+                </p>
+                {expenseReminder.late_unjustified > 0 && (
+                  <p className="text-sm text-rose-800 mt-1.5" data-testid="welcome-expense-late">
+                    ⚠️ Dont <strong>{Number(expenseReminder.late_unjustified).toLocaleString("fr-FR")} {expenseReminder.currency}</strong> sont déjà <strong>hors délai ({expenseReminder.deadline_hours}h)</strong> et seront <strong>déduites de votre prochaine paie</strong> si non justifiées.
+                  </p>
+                )}
+                <Link
+                  to="/portal/cash"
+                  onClick={dismiss}
+                  data-testid="welcome-expense-link"
+                  className="mt-2 inline-flex items-center gap-1 text-xs font-medium text-rose-700 hover:underline"
+                >
+                  Aller à la Caisse pour régulariser →
+                </Link>
+              </section>
+            )}
+
             {/* Iter35t — Santé quotidienne (mini-dashboard motivant) */}
             {hasHealth && (
               <section className="rounded-lg ring-1 ring-sky-200 bg-gradient-to-br from-sky-50 via-white to-emerald-50/40 p-3" data-testid="welcome-daily-health">

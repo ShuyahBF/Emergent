@@ -154,6 +154,9 @@ def _can_access_hr(user: dict) -> bool:
 def make_router(*, db, get_current_user):
     router = APIRouter(prefix="/hr", tags=["GRH"])
 
+    # Iter38d — Exposed so payroll_webhooks can re-use payslip computation
+    _exposed = {}
+
     # ----------------------------------------------------------------
     # Tenant resolution (mirrors cashier logic)
     # ----------------------------------------------------------------
@@ -1032,6 +1035,11 @@ def make_router(*, db, get_current_user):
             "top": results[:5],
             "total_employees": len(results),
         }
+
+    # Iter38d — Expose _compute_payslip to payroll_webhooks module
+    async def compute_payslip_public(user: dict, eid: str, month: str):
+        return await _compute_payslip(user, eid, month)
+    router.compute_payslip = compute_payslip_public  # type: ignore[attr-defined]
 
     return router
 

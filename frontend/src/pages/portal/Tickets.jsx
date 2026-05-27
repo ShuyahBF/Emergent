@@ -6,6 +6,7 @@ import {
   Ticket, RefreshCw, X, Check, Clock, AlertCircle, PauseCircle, Ban,
   ArrowRight, Search, MessageCircle, ChevronDown, ChevronRight,
   UserPlus, RotateCw, Plus, Trash2, ClipboardList, FileSpreadsheet, FileText,
+  AlertTriangle,
 } from "lucide-react";
 
 /*
@@ -124,6 +125,10 @@ export default function Tickets() {
       || (t.contact_name || "").toLowerCase().includes(q)
     );
   }, [items, search]);
+
+  // Iter38d — If the user is searching by ticket number and no result is found,
+  // suggest switching to "Tous" because a status filter may be hiding it.
+  const noResultsButFiltering = !loading && filtered.length === 0 && search.trim() && filterStatus !== "";
 
   return (
     <div className="space-y-6" data-testid="tickets-page">
@@ -246,12 +251,35 @@ export default function Tickets() {
       {loading ? (
         <div className="text-center text-slate-500 py-10">Chargement…</div>
       ) : filtered.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center">
-          <Ticket className="h-10 w-10 text-slate-300 mx-auto mb-2" />
-          <p className="text-slate-500 text-sm">Aucun ticket. Créez-en un depuis la fenêtre de chat WhatsApp d'un contact.</p>
-          <Link to="/portal/contacts" className="inline-flex items-center gap-1 mt-2 text-sm text-sawali-blue hover:underline">
-            <MessageCircle className="h-4 w-4" /> Ouvrir les contacts
-          </Link>
+        <div className="text-center text-slate-500 py-10" data-testid="tickets-empty">
+          {search.trim() ? (
+            <>
+              <p>Aucun ticket dans cette liste.</p>
+              {noResultsButFiltering && (
+                <div className="mt-3 inline-flex items-center gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 text-amber-900 px-3 py-2 text-xs" data-testid="tickets-search-hint">
+                  <AlertTriangle className="h-4 w-4" />
+                  <span>
+                    Aucun ticket trouvé avec ce numéro <strong>parmi les "{filterStatus === "open_all" ? "Ouverts" : filterStatus}"</strong>.
+                  </span>
+                  <button
+                    onClick={() => setFilterStatus("")}
+                    data-testid="tickets-search-switch-all"
+                    className="ml-1 underline font-semibold hover:text-amber-700"
+                  >
+                    Chercher dans tous les statuts (y compris terminés/annulés) →
+                  </button>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center">
+              <Ticket className="h-10 w-10 text-slate-300 mx-auto mb-2" />
+              <p className="text-slate-500 text-sm">Aucun ticket. Créez-en un depuis la fenêtre de chat WhatsApp d'un contact.</p>
+              <Link to="/portal/contacts" className="inline-flex items-center gap-1 mt-2 text-sm text-sawali-blue hover:underline">
+                <MessageCircle className="h-4 w-4" /> Ouvrir les contacts
+              </Link>
+            </div>
+          )}
         </div>
       ) : (
         <ul className="space-y-2">

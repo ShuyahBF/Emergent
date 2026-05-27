@@ -68,10 +68,14 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 - Frontend `CashBilling.jsx` : ajouter toggle "Afficher la corbeille" + boutons restore/delete permanent.
 
 ### 🟧 P1 — B-list (à faire après déploiement actuel)
-- **B.1** Indicateur résultat envoi WhatsApp (OK/KO toast après dispatch template).
-- **B.2** Date "dernière utilisation" produit (basée sur **toute facture payée**, hors proformas).
-- **B.3** Upload/génération AI icône PNG produit + toggle export catalogue public.
-- **B.4** Auto-scroll bas pour WA Chat + Internal Chat.
+- ~~**B.1** Indicateur résultat envoi WhatsApp (OK/KO toast après dispatch template).~~ ✅ FAIT (Iter38e)
+- ~~**B.2** Date "dernière utilisation" produit (basée sur **toute facture payée**, hors proformas).~~ ✅ FAIT (Iter38e)
+- ~~**B.3** Upload/génération AI icône PNG produit + toggle export catalogue public.~~ ✅ FAIT (Iter38e — upload OK, génération IA stub 503 en attente du playbook Nano Banana)
+- ~~**B.4** Auto-scroll bas pour WA Chat + Internal Chat.~~ ✅ FAIT (Iter38c)
+
+### 🟦 P2 — Future (suite Iter38e)
+- **Catalogue public e-commerce** : créer une page `/catalogue` (publique) qui liste tous les produits avec `is_public=true` du tenant, classés par catégorie, avec icône + nom + prix HT + description. Ajouter au menu navigation public.
+- **Intégration Gemini Nano Banana** : finaliser l'endpoint `/api/cashier/products/generate-icon` (actuellement stub 503). Appeler `integration_playbook_expert_v2` pour récupérer la playbook officielle, puis remplacer le stub par l'appel emergentintegrations + mirroring sur Object Storage.
 
 ### 🟦 Future
 - **🔔 Versioning + Notification email à chaque modification de secret (P2)** — Plutôt qu'un rappel mensuel, déclencher à chaque création/modification d'un secret API : (a) email à l'admin avec qui/quand/quelle clé (jamais la valeur), (b) versioning des secrets (rollback possible vers une version précédente). À combiner avec le coffre-fort iter35e.

@@ -2,6 +2,44 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## Iter38e (2026-05-27) — UI Webhooks n8n + WhatsApp Status Badge + Catalog enrichments
+
+### 🔧 1) Frontend Admin UI — Webhooks Paie (n8n)
+- **Bloqueur P0 résolu** : erreur de syntaxe JSX dans `AdminSettings.jsx` (lignes 2229-2241, fragments orphelins laissés par un précédent `search_replace`).
+- **Refactor** : `PayrollWebhooksSection` extrait dans `/app/frontend/src/pages/admin/sections/PayrollWebhooksSection.jsx` (composant autonome, ~225 lignes), pour alléger `AdminSettings.jsx` (5247 lignes au lieu de 5476).
+- Section visible dans Admin Settings, configure outbound (URL n8n, secret HMAC, auto mensuel) + inbound (URL exposée, secret HMAC, format JSON) + journal d'audit (20 dernières entrées).
+- Anchor : `s-webhooks-paie-n8n` (testid : `admin-payroll-webhooks`).
+
+### 📲 2) B.1 — Indicateur de résultat WhatsApp (OK/KO persistant)
+- **Backend** (`cashier.py`) :
+  - Sur **KO** : persiste `whatsapp_last_attempt_at`, `whatsapp_last_status="ko"`, `whatsapp_last_error`, `whatsapp_last_to` dans `db.receipts` et `db.invoices`.
+  - Sur **OK** : persiste les mêmes champs avec `status="ok"` et `last_error=None` (efface l'erreur précédente).
+- **Frontend** : nouveau composant `/app/frontend/src/components/WaStatusBadge.jsx`.
+  - Badge vert "✓ Envoyé → +226… (date)" quand `whatsapp_last_status="ok"` ou `whatsapp_sent_at` présent (legacy).
+  - Badge rouge "⚠ KO — {message}" quand `whatsapp_last_status="ko"`.
+  - Affiché dans `ReceiptPrint.jsx` et `InvoicePrint.jsx` à côté du bouton "Envoyer par WhatsApp".
+  - Le doc est rechargé après chaque envoi pour rafraîchir le badge en temps réel.
+
+### 📦 3) B.2 — Date de dernière utilisation des produits
+- **Backend** (`cashier.py`) : helper `_bump_products_last_used(items, tenant_id)` qui met à jour `last_used_at` (ISO UTC) sur tous les produits référencés (via `product_id`) dans une **facture réelle** (jamais sur proforma).
+- Hook posé à 2 endroits : (a) création d'invoice avec `kind=="invoice"`, (b) conversion proforma → invoice.
+- **Frontend** : badge vert "🕒 {date}" affiché dans la liste du catalogue (CashBilling.jsx > tab "Catalogue") avec tooltip horodaté complet. Testid : `product-last-used-{id}`.
+
+### 🖼️ 4) B.3 — Upload PNG/JPG d'icônes + toggle catalogue public
+- **Backend** (`cashier.py`) :
+  - Champ `is_public: bool = False` ajouté au modèle `ProductPayload`.
+  - Nouvel endpoint `POST /api/cashier/products/generate-icon` (supervisor+) — stub graceful retournant 503 avec message clair (intégration Nano Banana en attente de playbook).
+- **Frontend** (`CashBilling.jsx`) :
+  - Nouveau type de champ `imageUpload` dans `CrudTab`.
+  - Composant `ImageUploadField` : upload via `/me/upload` (multipart, max 5 Mo, PNG/JPG/WEBP), miniature 64×64, bouton "Retirer", input texte (URL manuelle), bouton "Générer IA" avec champ prompt.
+  - Formulaire produit : remplace l'input `image_url` plain text par le widget complet. Nouvelle checkbox "Exporter au catalogue public" (`is_public`).
+
+### ✅ Tests
+- 35/35 tests caisse + webhooks payroll passent (test_iter36u, test_iter37d, test_iter37f, test_iter38d).
+- Lint Python + JS : aucun problème.
+- Smoke test frontend : page de login charge sans erreur de compilation.
+
+
 ## Iter38c (2026-05-26) — Caisse Dépenses + Matricule auto + Dashboard card
 
 ### 💸 1) Caisse — Module "Dépenses" (cash | chèque)

@@ -7,6 +7,7 @@ import { apiClient } from "@/lib/api";
 import { Printer, MessageCircle, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { LOGO_URL } from "@/lib/brand";
+import WaStatusBadge from "@/components/WaStatusBadge";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 
@@ -45,6 +46,11 @@ export default function InvoicePrint() {
         toast.warning(resp.data?.error || "Envoi WhatsApp impossible — ouverture du lien de secours");
         if (resp.data?.fallback_wa_link) window.open(resp.data.fallback_wa_link, "_blank");
       }
+      // Iter38e (B.1) — Refresh invoice to update the status badge
+      try {
+        const refreshed = await apiClient.get(`/cashier/invoices/${i.id}`);
+        setI(refreshed.data);
+      } catch { /* noop */ }
     } catch (err) {
       const detail = err?.response?.data?.detail || "Erreur d'envoi WhatsApp";
       toast.error(typeof detail === "string" ? detail : "Erreur d'envoi");
@@ -61,6 +67,8 @@ export default function InvoicePrint() {
   return (
     <div className="min-h-screen bg-slate-100 print:bg-white p-4 print:p-0">
       <div className="max-w-3xl mx-auto mb-4 flex items-center justify-end gap-2 print:hidden">
+        {/* Iter38e (B.1) — Last WhatsApp send status badge */}
+        <WaStatusBadge doc={i} />
         <button onClick={sendWhatsApp} disabled={sending} className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white px-3 py-1.5 text-sm font-medium" data-testid="invoice-send-wa-btn">
           {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />}
           {sending ? "Envoi…" : "Envoyer par WhatsApp"}

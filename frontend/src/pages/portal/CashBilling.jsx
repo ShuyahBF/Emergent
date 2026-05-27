@@ -19,6 +19,7 @@ import {
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
   TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy, RotateCcw,
+  Upload, Image as ImageIcon, Sparkles,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import ExpensesTab from "./ExpensesTab";
@@ -1009,6 +1010,140 @@ function CsvImportButton({ resourceKind, onSuccess }) {
 }
 
 
+// =====================================================================
+// Iter38e (B.3) — Image upload field for product icons / catalog images.
+// Uploads to /me/upload (supervisor-allowed), then stores returned `url`.
+// Includes an "AI" generate button (Gemini Nano Banana, server-side route
+// `/admin/ai/generate-icon`) — degrades gracefully when not configured.
+// =====================================================================
+function ImageUploadField({ value, onChange, testId }) {
+  const [uploading, setUploading] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [aiPrompt, setAiPrompt] = useState("");
+  const inputRef = React.useRef(null);
+  const backend = process.env.REACT_APP_BACKEND_URL || "";
+
+  const onPickFile = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error("Image trop volumineuse (max 5 Mo)");
+      return;
+    }
+    const form = new FormData();
+    form.append("file", file);
+    setUploading(true);
+    try {
+      const r = await apiClient.post("/me/upload", form, { headers: { "Content-Type": "multipart/form-data" } });
+      const url = r.data?.public_url || r.data?.url || "";
+      if (url) {
+        onChange(url);
+        toast.success("Image téléversée");
+      } else {
+        toast.error("Réponse upload invalide");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec du téléversement");
+    } finally {
+      setUploading(false);
+      if (inputRef.current) inputRef.current.value = "";
+    }
+  };
+
+  const onGenerateAi = async () => {
+    if (!aiPrompt.trim()) {
+      toast.warning("Décrivez l'icône souhaitée");
+      return;
+    }
+    setGenerating(true);
+    try {
+      const r = await apiClient.post("/cashier/products/generate-icon", { prompt: aiPrompt.trim() });
+      const url = r.data?.public_url || r.data?.url || "";
+      if (url) {
+        onChange(url);
+        toast.success("Icône générée par IA");
+      } else {
+        toast.error("Génération IA indisponible");
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || "IA non configurée";
+      toast.warning(msg);
+    } finally { setGenerating(false); }
+  };
+
+  const fullSrc = value
+    ? (value.startsWith("http") ? value : `${backend}${value.startsWith("/") ? "" : "/"}${value}`)
+    : null;
+
+  return (
+    <div className="space-y-2" data-testid={testId}>
+      <div className="flex items-start gap-3">
+        <div className="w-16 h-16 rounded-lg ring-1 ring-slate-200 bg-slate-50 flex items-center justify-center overflow-hidden flex-shrink-0">
+          {fullSrc ? (
+            <img src={fullSrc} alt="Icône" className="w-full h-full object-cover" onError={(e) => { e.target.style.display = "none"; }} />
+          ) : (
+            <ImageIcon className="h-6 w-6 text-slate-300" />
+          )}
+        </div>
+        <div className="flex-1 min-w-0">
+          <input
+            type="text"
+            value={value || ""}
+            onChange={(e) => onChange(e.target.value)}
+            placeholder="https://… ou /api/files/…"
+            className="w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono"
+          />
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            <input ref={inputRef} type="file" accept="image/png,image/jpeg,image/webp" onChange={onPickFile} className="hidden" data-testid={`${testId}-input`} />
+            <button
+              type="button"
+              onClick={() => inputRef.current?.click()}
+              disabled={uploading}
+              className="inline-flex items-center gap-1.5 rounded bg-violet-600 hover:bg-violet-700 disabled:opacity-60 text-white px-2.5 py-1 text-xs font-medium"
+              data-testid={`${testId}-btn`}
+            >
+              {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+              {uploading ? "Téléversement…" : "Téléverser PNG/JPG"}
+            </button>
+            {value && (
+              <button
+                type="button"
+                onClick={() => onChange("")}
+                className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-rose-600"
+              >
+                <X className="h-3 w-3" /> Retirer
+              </button>
+            )}
+          </div>
+        </div>
+      </div>
+      {/* AI generation row */}
+      <div className="flex items-center gap-2 pl-[76px]">
+        <input
+          type="text"
+          value={aiPrompt}
+          onChange={(e) => setAiPrompt(e.target.value)}
+          placeholder="Décrire pour génération IA (ex: ordinateur portable bleu pictogramme)"
+          className="flex-1 rounded border border-slate-200 px-2 py-1 text-xs"
+          data-testid={`${testId}-ai-prompt`}
+        />
+        <button
+          type="button"
+          onClick={onGenerateAi}
+          disabled={generating}
+          className="inline-flex items-center gap-1 rounded bg-amber-500 hover:bg-amber-600 disabled:opacity-60 text-white px-2 py-1 text-xs font-medium"
+          data-testid={`${testId}-ai-btn`}
+        >
+          {generating ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />}
+          {generating ? "Génération…" : "Générer IA"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+
+
 function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, fields, formInitial, transformBeforeSubmit, dataTestId, extraHeaderButton }) {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -1125,6 +1260,13 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
                     <input type="checkbox" checked={!!form[fld.key]} onChange={(e) => setForm({ ...form, [fld.key]: e.target.checked })} />
                     {fld.checkboxLabel || fld.label}
                   </label>
+                ) : fld.type === "imageUpload" ? (
+                  /* Iter38e (B.3) — Upload PNG/JPG icon via /me/upload then prefill URL */
+                  <ImageUploadField
+                    value={form[fld.key] || ""}
+                    onChange={(url) => setForm({ ...form, [fld.key]: url })}
+                    testId={`${fld.key}-upload`}
+                  />
                 ) : (
                   <input type={fld.type || "text"} value={form[fld.key] ?? ""} onChange={(e) => {
                     let v = fld.type === "number" ? Number(e.target.value) : e.target.value;
@@ -1159,6 +1301,16 @@ function CrudTab({ title, icon: Icon, color, listPath, createPath, deletePath, f
                     {it.unit_price_ht !== undefined && <span>{FCFA(it.unit_price_ht)} FCFA / {it.unit}</span>}
                     {it.phone && <span>{it.phone}</span>}
                     {it.kind && <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-slate-100 text-slate-600 px-1.5 py-0.5">{it.kind}</span>}
+                    {/* Iter38e (B.2) — Dernière utilisation sur une facture (jamais sur proforma) */}
+                    {it.last_used_at && (
+                      <span
+                        className="ml-2 inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5"
+                        title={`Dernière facturation: ${new Date(it.last_used_at).toLocaleString("fr-FR")}`}
+                        data-testid={`product-last-used-${it.id}`}
+                      >
+                        🕒 {new Date(it.last_used_at).toLocaleDateString("fr-FR")}
+                      </span>
+                    )}
                   </p>
                 </div>
                 <button onClick={() => startEdit(it)} className="text-slate-500 hover:text-slate-900"><Edit2 className="h-3.5 w-3.5" /></button>
@@ -1482,7 +1634,7 @@ export default function CashBilling({ defaultTab = "receipts" }) {
           listPath="/admin/products" createPath="/admin/products" deletePath="/admin/products"
           dataTestId="cashier-products-tab"
           extraHeaderButton={({ onRefresh }) => <CsvImportButton resourceKind="products" onSuccess={onRefresh} />}
-          formInitial={{ sku: "", name: "", description: "", category: "", unit: "pièce", unit_price_ht: 0, tva_pct: 18, stock: null, image_url: "", active: true }}
+          formInitial={{ sku: "", name: "", description: "", category: "", unit: "pièce", unit_price_ht: 0, tva_pct: 18, stock: null, image_url: "", active: true, is_public: false }}
           fields={[
             { key: "sku", label: "Référence (SKU) — auto-générée", type: "readonly" },
             { key: "name", label: "Nom (MAJUSCULES auto)", required: true, uppercase: true, full: true },
@@ -1493,9 +1645,10 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             { key: "unit_price_ht", label: "Prix unitaire HT", type: "number", required: true },
             { key: "tva_pct", label: "TVA %", type: "number" },
             { key: "stock", label: "Stock (optionnel)", type: "number" },
-            { key: "image_url", label: "URL image" },
+            { key: "image_url", label: "Icône / Image produit", type: "imageUpload", full: true },
             { key: "description", label: "Description", type: "textarea", full: true },
             { key: "active", label: "Actif", type: "checkbox" },
+            { key: "is_public", label: "Exporter au catalogue public", type: "checkbox", checkboxLabel: "Visible dans le futur catalogue e-commerce" },
           ]} />
       )}
       {tab === "business" && (

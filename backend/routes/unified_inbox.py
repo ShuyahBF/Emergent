@@ -9,16 +9,32 @@ Endpoints:
 """
 from __future__ import annotations
 import logging
+import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query
+import httpx
+from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.inbox")
 
 
-def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features):
-    """Mount the unified inbox endpoints on the provided `api` router."""
+class InboxSendPayload(BaseModel):
+    channel: str = Field(..., pattern="^(whatsapp|messenger)$")
+    thread_id: str = Field(..., min_length=1)
+    text: str = Field(..., min_length=1, max_length=4000)
+    page_id: Optional[str] = None  # required for messenger
+
+
+def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, meta_get_meta_settings=None):
+    """Mount the unified inbox endpoints on the provided `api` router.
+
+    Optional integrations:
+      - wa_send_text(to_e164, text) -> dict({"ok", "message_id", "status", "error"})
+      - meta_get_meta_settings() -> dict with meta_app_secret / graph_version  (currently unused;
+        Messenger sends will route through Graph using the stored page token).
+    """
 
     async def _tenant_id(user: dict) -> str:
         return user.get("client_id") or user.get("id")
@@ -81,7 +97,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             mg_msgs = await db.meta_messenger_messages.find(
                 {"tenant_id": tid},
                 {"_id": 0, "page_id": 1, "sender_id": 1, "recipient_id": 1, "text": 1,
-                 "created_at": 1, "timestamp_ms": 1},
+                 "created_at": 1, "timestamp_ms": 1, "read_by_us_at": 1},
             ).sort("created_at", -1).to_list(500)
             # Resolve page IDs to names from the integration doc
             integ = await db.meta_integrations.find_one({"tenant_id": tid}, {"_id": 0, "pages": 1})
@@ -102,9 +118,9 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "unread_count": 0, "total_count": 0,
                 })
                 slot["total_count"] += 1
-                # Inbound = sender != page_id
-                if sender and sender != page_id:
-                    slot["unread_count"] += 1  # naive: until UI explicit-read
+                # Inbound = sender != page_id (the customer is talking to the page)
+                if sender and sender != page_id and not m.get("read_by_us_at"):
+                    slot["unread_count"] += 1
             threads.extend(mg_by_peer.values())
 
         # Sort by last_at desc, truncate
@@ -176,3 +192,102 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                 } for m in msgs
             ]}
         raise HTTPException(status_code=400, detail="Canal inconnu (whatsapp | messenger)")
+
+    # =========================================================================
+    # Iter38j — Send a message from the unified inbox.
+    # Routes to WhatsApp or Messenger depending on `channel`.
+    # =========================================================================
+    @api.post("/me/inbox/send", tags=["Portail Client — Inbox"])
+    async def inbox_send(payload: InboxSendPayload, user: dict = Depends(get_current_user)):
+        tid = await _tenant_id(user)
+        feats = await _tenant_features(tid)
+        now_iso = datetime.now(timezone.utc).isoformat()
+
+        if payload.channel == "whatsapp":
+            if wa_send_text is None:
+                raise HTTPException(status_code=503, detail="WhatsApp sender non configuré.")
+            r = await wa_send_text(payload.thread_id, payload.text)
+            if not r.get("ok"):
+                raise HTTPException(status_code=502, detail=r.get("error") or "Échec WhatsApp")
+            # Persist outbound message into the existing collection so it
+            # appears in the unified inbox via the regular aggregator.
+            await db.whatsapp_messages.insert_one({
+                "id": secrets.token_urlsafe(12),
+                "client_id": tid,
+                "direction": "outbound",
+                "to_number": payload.thread_id,
+                "text": payload.text,
+                "wa_message_id": r.get("message_id"),
+                "wa_status": "sent",
+                "created_at": now_iso,
+            })
+            return {"ok": True, "message_id": r.get("message_id"), "channel": "whatsapp"}
+
+        # ---- Messenger ----
+        if payload.channel == "messenger":
+            if not feats.get("meta_messenger"):
+                raise HTTPException(status_code=403, detail="Module Messenger désactivé.")
+            if not payload.page_id:
+                raise HTTPException(status_code=400, detail="page_id requis pour Messenger.")
+            integ = await db.meta_integrations.find_one({"tenant_id": tid}, {"_id": 0, "pages": 1})
+            page = next((p for p in (integ or {}).get("pages") or [] if p.get("page_id") == payload.page_id), None)
+            if not page or not page.get("page_access_token"):
+                raise HTTPException(status_code=404, detail="Page Messenger introuvable ou token absent.")
+            # Resolve graph version from settings
+            s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "meta_graph_version": 1}) or {}
+            gv = (s.get("meta_graph_version") or "v20.0").strip()
+            url = f"https://graph.facebook.com/{gv}/{payload.page_id}/messages"
+            body = {
+                "recipient": {"id": payload.thread_id},
+                "message": {"text": payload.text},
+                "messaging_type": "RESPONSE",
+            }
+            async with httpx.AsyncClient(timeout=30.0) as c:
+                resp = await c.post(url, params={"access_token": page["page_access_token"]}, json=body)
+            if resp.status_code >= 400:
+                raise HTTPException(status_code=502, detail=f"Meta error {resp.status_code}: {resp.text[:200]}")
+            data = resp.json()
+            # Persist outbound for the unified inbox
+            await db.meta_messenger_messages.insert_one({
+                "id": secrets.token_urlsafe(12),
+                "tenant_id": tid,
+                "page_id": payload.page_id,
+                "sender_id": payload.page_id,
+                "recipient_id": payload.thread_id,
+                "text": payload.text,
+                "created_at": now_iso,
+            })
+            return {"ok": True, "message_id": data.get("message_id"), "channel": "messenger"}
+
+        raise HTTPException(status_code=400, detail="Canal inconnu.")
+
+    # =========================================================================
+    # Iter38j — Mark a thread as read (resets unread_count for inbound msgs).
+    # =========================================================================
+    @api.post("/me/inbox/mark-read/{channel}/{thread_id}", tags=["Portail Client — Inbox"])
+    async def inbox_mark_read(
+        channel: str, thread_id: str, page_id: Optional[str] = Query(None),
+        user: dict = Depends(get_current_user),
+    ):
+        tid = await _tenant_id(user)
+        now_iso = datetime.now(timezone.utc).isoformat()
+        if channel == "whatsapp":
+            q: Dict[str, Any] = {
+                "$or": [{"to_number": thread_id}, {"from": thread_id}],
+                "direction": "inbound",
+                "read_by_us_at": None,
+            }
+            if user.get("role") != "admin":
+                q["client_id"] = tid
+            res = await db.whatsapp_messages.update_many(q, {"$set": {"read_by_us_at": now_iso}})
+            return {"ok": True, "channel": "whatsapp", "marked": res.modified_count}
+        if channel == "messenger":
+            feats = await _tenant_features(tid)
+            if not feats.get("meta_messenger"):
+                raise HTTPException(status_code=403, detail="Module Messenger désactivé.")
+            q = {"tenant_id": tid, "sender_id": thread_id, "read_by_us_at": None}
+            if page_id:
+                q["page_id"] = page_id
+            res = await db.meta_messenger_messages.update_many(q, {"$set": {"read_by_us_at": now_iso}})
+            return {"ok": True, "channel": "messenger", "marked": res.modified_count}
+        raise HTTPException(status_code=400, detail="Canal inconnu.")

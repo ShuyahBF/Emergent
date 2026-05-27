@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, ArrowDown } from "lucide-react";
+import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {
@@ -22,6 +22,9 @@ export default function UnifiedInbox() {
   const [messages, setMessages] = useState([]);
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [filterCh, setFilterCh] = useState("all");
+  const [composer, setComposer] = useState("");
+  const [sending, setSending] = useState(false);
+  const messagesEndRef = React.useRef(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -37,17 +40,67 @@ export default function UnifiedInbox() {
 
   useEffect(() => { load(); }, [load]);
 
+  // Iter38j — Poll every 20s to refresh threads (cheap call, ~60 threads max)
+  useEffect(() => {
+    const id = setInterval(() => { load(); }, 20000);
+    return () => clearInterval(id);
+  }, [load]);
+
+  // Iter38j — Update browser tab title with unread count
+  useEffect(() => {
+    const n = totals.unread || 0;
+    document.title = n > 0 ? `(${n}) Inbox — SAWALI` : "Inbox — SAWALI";
+    return () => { document.title = "SAWALI SMART SYSTEMS"; };
+  }, [totals.unread]);
+
+  // Auto-scroll bottom on new messages
+  useEffect(() => {
+    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
   const openThread = async (t) => {
     setSelected(t);
     setLoadingMsgs(true);
     setMessages([]);
+    setComposer("");
     try {
       const q = t.channel === "messenger" && t.page_id ? `?page_id=${encodeURIComponent(t.page_id)}` : "";
       const r = await apiClient.get(`/me/inbox/unified/${t.channel}/${encodeURIComponent(t.peer_id)}${q}`);
       setMessages(r.data?.messages || []);
+      // Iter38j — Mark thread as read silently
+      if (t.unread_count > 0) {
+        try {
+          await apiClient.post(`/me/inbox/mark-read/${t.channel}/${encodeURIComponent(t.peer_id)}${q}`);
+          load();
+        } catch { /* noop */ }
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
     } finally { setLoadingMsgs(false); }
+  };
+
+  const sendMessage = async () => {
+    if (!selected || !composer.trim() || sending) return;
+    setSending(true);
+    try {
+      await apiClient.post("/me/inbox/send", {
+        channel: selected.channel,
+        thread_id: selected.peer_id,
+        text: composer.trim(),
+        page_id: selected.page_id,
+      });
+      // Optimistically add to messages
+      setMessages((m) => [...m, {
+        id: `local-${Date.now()}`, direction: "outbound", text: composer.trim(),
+        at: new Date().toISOString(),
+      }]);
+      setComposer("");
+      toast.success("Message envoyé");
+      // Refresh threads list to update last_at
+      setTimeout(() => load(), 500);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'envoi");
+    } finally { setSending(false); }
   };
 
   const filtered = threads.filter((t) => filterCh === "all" || t.channel === filterCh);
@@ -165,9 +218,30 @@ export default function UnifiedInbox() {
                     </div>
                   );
                 })}
+                <div ref={messagesEndRef} />
               </div>
-              <div className="p-3 border-t border-slate-200 text-xs text-slate-500 italic flex items-center gap-2">
-                💬 Envoi de messages depuis l'inbox unifiée — disponible dans la prochaine itération. Utilisez en attendant <strong>Centre de Messagerie</strong> (WhatsApp) ou <strong>Meta → Messenger</strong>.
+              <div className="p-3 border-t border-slate-200">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={composer} onChange={(e) => setComposer(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+                    placeholder={`Répondre via ${selected.channel === "whatsapp" ? "WhatsApp" : "Messenger"}…`}
+                    rows={1}
+                    className="flex-1 resize-none px-3 py-2 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+                    data-testid="inbox-composer"
+                  />
+                  <button
+                    onClick={sendMessage} disabled={sending || !composer.trim()}
+                    className="inline-flex items-center gap-1 px-4 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+                    data-testid="inbox-send-btn"
+                  >
+                    {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                    Envoyer
+                  </button>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">
+                  Entrée pour envoyer · Maj+Entrée pour saut de ligne
+                </p>
               </div>
             </>
           )}

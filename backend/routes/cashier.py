@@ -404,9 +404,16 @@ def _pick_wa_phone(snapshot: Optional[dict], live_bc: Optional[dict]) -> Optiona
 
 
 def _public_base_url(db_settings: Optional[dict]) -> str:
+    # 1. Explicit DB setting wins.
     if db_settings and db_settings.get("public_base_url"):
         return str(db_settings["public_base_url"]).rstrip("/")
-    return (os.environ.get("PUBLIC_BASE_URL") or "https://sawalismartsystems.com").rstrip("/")
+    # 2. Env var — but reject preview/dev URLs so receipts generated in the
+    #    preview environment do NOT bake preview hostnames into the QR.
+    env_url = (os.environ.get("PUBLIC_BASE_URL") or "").strip().rstrip("/")
+    if env_url and ".preview.emergentagent.com" not in env_url and ".localhost" not in env_url:
+        return env_url
+    # 3. Safe default: production domain.
+    return "https://sawalismartsystems.com"
 
 
 # =====================================================================
@@ -548,6 +555,34 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         settings = await _settings()
         base = _public_base_url(settings)
         return f"{base}/verify/{token}"
+
+    # ----------------------------------------------------------------
+    # Iter38j — Backfill: rewrite qr_url base for existing receipts/invoices
+    # when the admin updates `public_base_url` after the docs were generated
+    # with a stale (preview) hostname.
+    # ----------------------------------------------------------------
+    @router.post("/admin/cashier/qr/rewrite-base-url")
+    async def rewrite_qr_base_url(payload: dict = Body(default_factory=dict), user: dict = Depends(get_current_admin)):
+        new_base = (payload.get("new_base") or "").strip().rstrip("/")
+        if not new_base:
+            settings = await _settings()
+            new_base = _public_base_url(settings)
+        if not new_base.startswith(("http://", "https://")):
+            raise HTTPException(status_code=400, detail="new_base doit commencer par http(s)://")
+        # Rewrite by computing a new URL via the existing path component
+        updated = {"receipts": 0, "invoices": 0}
+        for col, key in (("receipts", "receipts"), ("invoices", "invoices")):
+            async for d in db[col].find({"qr_url": {"$regex": "/verify/"}}, {"_id": 0, "id": 1, "qr_url": 1}):
+                old = d.get("qr_url") or ""
+                # Split at /verify/ to extract the token
+                if "/verify/" not in old:
+                    continue
+                token = old.split("/verify/", 1)[1]
+                new_url = f"{new_base}/verify/{token}"
+                if new_url != old:
+                    await db[col].update_one({"id": d["id"]}, {"$set": {"qr_url": new_url}})
+                    updated[key] += 1
+        return {"ok": True, "new_base": new_base, "updated": updated}
 
     # ----------------------------------------------------------------
     # Business clients (clients en compte)

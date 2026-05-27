@@ -8,7 +8,39 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
-## Iter38i (2026-05-27) — Inbox omnicanal unifiée (WhatsApp + Messenger)
+## Iter38j (2026-05-27) — Bug fix QR URL + Inbox unifiée complète (mini-Hootsuite)
+
+### 🐛 1) Fix bug URL preview dans les QR codes (factures, proformas, reçus)
+- **Bug** : Les QR codes des PDF/HTML générés pointaient vers `https://sawali-portal.preview.emergentagent.com/verify/...` au lieu de l'URL publique production.
+- **Cause** : variable d'environnement `PUBLIC_BASE_URL` du conteneur `.env` était définie sur preview, et utilisée comme fallback par `cashier.py:_public_base_url()`.
+- **Fix backend** (`routes/cashier.py`) : la fonction détecte et **ignore** les URLs `*.preview.emergentagent.com` / `*.localhost` → fallback automatique sur `https://sawalismartsystems.com`. L'admin peut toujours surcharger via setting DB `public_base_url`.
+- **Backfill** : nouvel endpoint admin `POST /api/admin/cashier/qr/rewrite-base-url` qui réécrit les `qr_url` existants en remplaçant la base. **Exécuté** sur la BDD : **1 091 documents corrigés** (689 reçus + 402 factures) → tous maintenant en `https://sawalismartsystems.com/verify/{token}`.
+
+### 📨 2) Inbox unifiée complète (envoi + marquer-lu + polling)
+- **Backend** (`routes/unified_inbox.py`) :
+  - `POST /api/me/inbox/send` — route vers WhatsApp ou Messenger selon `channel`, persiste outbound dans la collection ad hoc.
+  - `POST /api/me/inbox/mark-read/{channel}/{thread_id}` — flag tous les messages inbound non-lus du thread avec `read_by_us_at`.
+  - Calcul `unread_count` Messenger respecte maintenant `read_by_us_at`.
+- **Frontend** (`UnifiedInbox.jsx`) :
+  - **Composer fonctionnel** : textarea + bouton Envoyer, raccourci Entrée pour envoyer / Maj+Entrée saut de ligne, optimistic update.
+  - **Marquer-lu auto** : à l'ouverture d'un thread, mark-read silencieux + refresh des compteurs.
+  - **Polling 20s** : refresh automatique de la liste des threads.
+  - **Titre onglet dynamique** : `(3) Inbox — SAWALI` quand 3 messages non-lus.
+  - **Auto-scroll** vers le bas à chaque nouveau message.
+
+## Iter38i (2026-05-27) — Inbox omnicanal unifiée (WhatsApp + Messenger) — première version
+
+### 📥 1) Backend routes/unified_inbox.py
+- Module agrégeant whatsapp_messages + meta_messenger_messages en threads recency-sorted.
+- Endpoints GET pour lister threads et messages d'un thread.
+
+### 🖼️ 2) Frontend UnifiedInbox.jsx
+- Layout 2-pane (threads + messages), filtres par canal, badges colorés.
+
+### 🧭 3) Sidebar + routes
+- Entrée "Inbox unifiée (WA + Messenger)" + route /portal/inbox.
+
+
 
 ### 📥 1) Backend `routes/unified_inbox.py`
 - Nouveau module (~150 lignes) agrégeant `db.whatsapp_messages` et `db.meta_messenger_messages` en threads recency-sorted.

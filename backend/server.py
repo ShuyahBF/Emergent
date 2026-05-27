@@ -19691,7 +19691,9 @@ _setup_meta_routes(
 # =====================================================================
 from routes.unified_inbox import setup_unified_inbox_routes as _setup_inbox_routes  # noqa: E402
 _setup_inbox_routes(
-    db=db, api=api, get_current_user=get_current_user, _normalize_features=_normalize_features,
+    db=db, api=api, get_current_user=get_current_user,
+    _normalize_features=_normalize_features,
+    wa_send_text=_wa_send_text,
 )
 
 app.include_router(api)

@@ -1014,6 +1014,34 @@ async def public_documents():
 
 
 # ============================================================
+# Iter38f — Public catalogue: list products flagged is_public=true.
+# No auth required. Returns only safe display fields (no internal SKU
+# notes, costs, stock, tenant_id). Grouped by category.
+# ============================================================
+@api.get("/public/products", tags=["Public"])
+async def public_products():
+    cursor = db.products.find(
+        {"is_public": True, "active": True, "deleted_at": None},
+        {
+            "_id": 0,
+            "id": 1, "sku": 1, "name": 1, "description": 1, "category": 1,
+            "unit": 1, "unit_price_ht": 1, "tva_pct": 1, "image_url": 1,
+        },
+    ).sort([("category", 1), ("name", 1)])
+    items = [p async for p in cursor]
+    # Group by category for the public UI (preserves alphabetical order)
+    groups: Dict[str, List[Dict[str, Any]]] = {}
+    for p in items:
+        cat = (p.get("category") or "Autres").strip() or "Autres"
+        groups.setdefault(cat, []).append(p)
+    return {
+        "count": len(items),
+        "categories": [{"label": k, "items": v} for k, v in groups.items()],
+    }
+
+
+
+# ============================================================
 # Support Technique — Load Gauge (0..7) — public + admin + webhook
 # Mirrors the "cellular signal bars" UX so users instantly grasp the
 # current support team load. Set via Admin UI or POST webhook.
@@ -4352,6 +4380,25 @@ def _should_skip_h3(title: str) -> bool:
     return False
 
 
+def _estimate_duration_h(details: str) -> float:
+    """Iter38f — Estimate `duration_h` for auto-synced CHANGELOG entries.
+    Heuristic based on details size (proxy for scope). Bounded 0.25..3.0h.
+    Users can override via PATCH /admin/roadmap-actions/{code}.
+    """
+    n = len((details or "").strip())
+    if n < 150:
+        return 0.25
+    if n < 350:
+        return 0.5
+    if n < 700:
+        return 0.75
+    if n < 1200:
+        return 1.25
+    if n < 1800:
+        return 2.0
+    return 3.0
+
+
 async def _sync_roadmap_from_changelog() -> Dict[str, int]:
     """Parse CHANGELOG.md and upsert `ACT-CL-<iter>-<NN>` rows.
     Returns counts: {parsed, inserted, updated, deleted}. Idempotent — safe to call
@@ -4393,8 +4440,10 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
             ts = f"{date_iso}T00:00:00+00:00"
             existing = await db.roadmap_actions.find_one(
                 {"code": code},
-                {"_id": 0, "title": 1, "details": 1, "backlog_ref": 1},
+                {"_id": 0, "title": 1, "details": 1, "backlog_ref": 1, "duration_h": 1, "cost_xof": 1},
             )
+            est_h = _estimate_duration_h(details)
+            est_xof = int(round(est_h * DEFAULT_ROADMAP_HOURLY_RATE_XOF))
             if existing:
                 diffs: Dict[str, Any] = {}
                 if existing.get("title") != clean_title:
@@ -4403,6 +4452,10 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
                     diffs["details"] = details
                 if existing.get("backlog_ref") != iter_name:
                     diffs["backlog_ref"] = iter_name
+                # Backfill duration/cost when missing (or still 0 from earlier sync)
+                if not existing.get("duration_h"):
+                    diffs["duration_h"] = est_h
+                    diffs["cost_xof"] = est_xof
                 if diffs:
                     await db.roadmap_actions.update_one({"code": code}, {"$set": diffs})
                     updated += 1
@@ -4415,8 +4468,8 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
                 "title": clean_title,
                 "backlog_ref": iter_name,
                 "details": details,
-                "duration_h": 0.0,
-                "cost_xof": 0,
+                "duration_h": est_h,
+                "cost_xof": est_xof,
                 "done": True,
                 "status": "done",
                 "observations": "",

@@ -8,6 +8,27 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38f (2026-05-27) — Auto-sync CHANGELOG + Catalogue public
+
+### 🔁 1) Auto-sync CHANGELOG → roadmap_actions
+- Backend `server.py` : parser `_sync_roadmap_from_changelog()` qui scanne `/app/memory/CHANGELOG.md` à chaque GET `/api/admin/roadmap-actions`.
+- Identifie les blocs `## IterXXX (date) — …` et extrait chaque `### emoji N) Title` comme action `ACT-CL-IterXXX-NN`.
+- Filtre intelligent : ignore les sections "Tests", "Frontend", "Backend", "Prochaines …", "🚨", "🟧", "🟨", "🟦", "P0/P1/P2/P3".
+- Cleanup des orphelins (entrées dont la section a été retirée).
+- Backfill : 145 actions historiques du 13/05 → 27/05/2026 désormais visibles dans Admin Settings.
+
+### ⏱️ 2) Estimation auto de durée/coût
+- Heuristique `_estimate_duration_h(details)` basée sur la taille des détails (proxy de la complexité).
+- Bornée 0.25h ↔ 3.0h. Coût XOF recalculé via `DEFAULT_ROADMAP_HOURLY_RATE_XOF` (25 000 XOF/h).
+- Totalisation actuelle : 178 actions, 252.8h, 6 320 000 XOF.
+- Editable manuellement par l'admin via PATCH `/admin/roadmap-actions/{code}`.
+
+### 🛍️ 3) Catalogue public e-commerce
+- Backend : nouvel endpoint `GET /api/public/products` (sans auth) renvoyant `{count, categories: [{label, items}]}` avec uniquement les produits `is_public=true && active=true && deleted_at=null`. Champs sensibles (stock, tenant_id, notes internes) exclus.
+- Frontend `/catalogue` (Catalogue.jsx) refondue : 2 sections — **Produits & Services** (nouvelle, depuis `/public/products`) + **Brochures & Fiches produits** (existante).
+- UX : recherche texte + pills de filtres par catégorie + grouping par catégorie + cards avec image, prix HT, unité, TVA, bouton "Demander un devis" → `/rdv?product=NAME&sku=SKU`.
+- Page RDV (`RDV.jsx`) lit les params `product` et `sku` via `useSearchParams` et pré-remplit `subject` + `message` (sans écraser si l'utilisateur a déjà tapé quelque chose).
+
 ## Iter38e (2026-05-27) — UI Webhooks n8n + WhatsApp Status Badge + Catalog enrichments
 
 ### 🔧 1) Frontend Admin UI — Webhooks Paie (n8n)

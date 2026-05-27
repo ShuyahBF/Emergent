@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
@@ -8,6 +9,7 @@ const dayLabel = (d) =>
   d.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" });
 
 export default function RDV() {
+  const [params] = useSearchParams();
   const [days, setDays] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
   const [slots, setSlots] = useState([]);
@@ -16,6 +18,21 @@ export default function RDV() {
   const [form, setForm] = useState({ name: "", email: "", phone: "", company: "", subject: "", message: "" });
   const [sending, setSending] = useState(false);
   const [success, setSuccess] = useState(null);
+
+  // Iter38f — Pre-fill subject/message when arriving from a catalogue CTA
+  useEffect(() => {
+    const product = params.get("product");
+    const sku = params.get("sku");
+    if (product) {
+      const subject = `Demande de devis — ${product}`.slice(0, 200);
+      const message = `Bonjour,\n\nJe souhaite recevoir un devis pour : ${product}${sku ? ` (réf. ${sku})` : ""}.\n\nMerci de me recontacter.`;
+      setForm((f) => ({
+        ...f,
+        subject: f.subject || subject,
+        message: f.message || message,
+      }));
+    }
+  }, [params]);
 
   useEffect(() => {
     const list = [];

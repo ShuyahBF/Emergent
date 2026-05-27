@@ -19,7 +19,7 @@ import {
   Printer, MessageCircle, Edit2, Trash2, FileText, CheckCircle2, XCircle,
   Loader2, ArrowRight, AlertTriangle, Download, FileSpreadsheet, Bell,
   TrendingUp, TrendingDown, Clock, AlertOctagon, Tag, RefreshCw, Users, Building, Copy, RotateCcw,
-  Upload, Image as ImageIcon, Sparkles,
+  Upload, Image as ImageIcon, Sparkles, Send, Eye,
 } from "lucide-react";
 import { Link } from "react-router-dom";
 import ExpensesTab from "./ExpensesTab";
@@ -58,6 +58,122 @@ async function downloadExport(apiPath, fallbackName) {
 function Empty({ label }) {
   return (
     <div className="text-center py-12 text-slate-400 text-sm italic">{label}</div>
+  );
+}
+
+// =====================================================================
+// Iter38m — WhatsApp Preview & Resend modal (P1.3)
+// Shows the current WA delivery status, template used, recipient and last
+// error, plus a "Renvoyer" button that re-fires the send endpoint.
+// =====================================================================
+function WaPreviewModal({ doc, kind, onClose, onSent }) {
+  const [resending, setResending] = useState(false);
+  if (!doc) return null;
+  const endpoint = kind === "receipt" ? `/cashier/receipts/${doc.id}/send-whatsapp` : `/cashier/invoices/${doc.id}/send-whatsapp`;
+  const number = doc.number || doc.id;
+  const lastStatus = doc.whatsapp_last_status || (doc.whatsapp_sent_at ? "ok" : null);
+  const lastSentAt = doc.whatsapp_sent_at || doc.whatsapp_last_attempt_at;
+  const lastTo = doc.whatsapp_to || doc.whatsapp_last_to;
+  const lastError = doc.whatsapp_last_error;
+  const tplName = doc.whatsapp_template_name;
+  const pdfUrl = doc.whatsapp_pdf_url;
+  const moduleUsed = tplName ? `Meta WhatsApp Cloud API (template "${tplName}")` : (lastSentAt ? "Meta WhatsApp Cloud API (texte libre)" : "Aucun envoi enregistré");
+
+  const resend = async () => {
+    setResending(true);
+    try {
+      const r = await apiClient.post(endpoint, {});
+      if (r.data && r.data.ok) {
+        toast.success(`✓ Renvoyé à ${r.data.to}`);
+      } else {
+        toast.error(`KO — ${r.data?.error || "Échec WhatsApp"}`);
+      }
+      onSent && onSent();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'envoi");
+    } finally { setResending(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="wa-preview-modal">
+      <div className="bg-white rounded-2xl max-w-xl w-full shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-900 flex items-center gap-2">
+            <MessageCircle className="text-emerald-600" size={20} />
+            Aperçu envoi WhatsApp — {kind === "receipt" ? "Reçu" : "Facture"} {number}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600" data-testid="wa-preview-close"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-3 text-sm">
+          {/* Status banner */}
+          {lastStatus === "ok" ? (
+            <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-lg p-3 flex items-start gap-2" data-testid="wa-preview-status-ok">
+              <CheckCircle2 size={16} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">Dernier envoi : OK</div>
+                <div className="text-xs">Envoyé le {fmtDt(lastSentAt)}</div>
+              </div>
+            </div>
+          ) : lastStatus === "ko" ? (
+            <div className="bg-rose-50 border border-rose-200 text-rose-800 rounded-lg p-3 flex items-start gap-2" data-testid="wa-preview-status-ko">
+              <AlertTriangle size={16} className="flex-shrink-0 mt-0.5" />
+              <div>
+                <div className="font-semibold">Dernier envoi : ÉCHEC</div>
+                {lastError && <div className="text-xs mt-1">{lastError}</div>}
+                <div className="text-xs">Tenté le {fmtDt(lastSentAt)}</div>
+              </div>
+            </div>
+          ) : (
+            <div className="bg-slate-50 border border-slate-200 text-slate-700 rounded-lg p-3 flex items-start gap-2" data-testid="wa-preview-status-none">
+              <Clock size={16} className="flex-shrink-0 mt-0.5" />
+              <span>Aucun envoi WhatsApp enregistré pour ce document.</span>
+            </div>
+          )}
+
+          {/* Details */}
+          <div className="bg-slate-50 rounded-lg p-3 space-y-1">
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">Module utilisé</span>
+              <span className="font-medium text-right">{moduleUsed}</span>
+            </div>
+            <div className="flex justify-between gap-3">
+              <span className="text-slate-500">Destinataire</span>
+              <span className="font-mono text-right">{lastTo || "—"}</span>
+            </div>
+            {tplName && (
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-500">Nom du template</span>
+                <span className="font-mono text-xs text-right">{tplName}</span>
+              </div>
+            )}
+            {pdfUrl && (
+              <div className="flex justify-between gap-3">
+                <span className="text-slate-500">PDF joint</span>
+                <a href={pdfUrl} target="_blank" rel="noreferrer" className="text-blue-600 hover:underline text-xs truncate max-w-xs">{pdfUrl}</a>
+              </div>
+            )}
+          </div>
+
+          {/* Preview body */}
+          <div>
+            <p className="text-xs font-semibold text-slate-600 mb-1">Aperçu du contenu :</p>
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3 text-xs whitespace-pre-line font-mono text-slate-700" data-testid="wa-preview-body">
+              {kind === "receipt"
+                ? `📄 Reçu *${number}*\nBénéficiaire : ${(doc.business_client_snapshot?.name) || doc.beneficiary_name || "—"}\nMontant : ${FCFA(doc.amount)} FCFA\nMotif : ${doc.motif || "—"}${pdfUrl ? `\nPDF : ${pdfUrl}` : ""}`
+                : `📄 ${doc.kind === "proforma" ? "Proforma" : "Facture"} *${number}*\nClient : ${(doc.business_client_snapshot?.name) || "—"}\nMontant : ${FCFA(doc.net_to_pay ?? doc.total_ttc)} FCFA${pdfUrl ? `\nPDF : ${pdfUrl}` : ""}`}
+            </div>
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+          <button onClick={onClose} className="px-4 py-2 text-sm text-slate-600" data-testid="wa-preview-cancel">Fermer</button>
+          <button onClick={resend} disabled={resending} data-testid="wa-preview-resend-btn"
+            className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
+            {resending ? <Loader2 size={14} className="animate-spin" /> : <Send size={14} />}
+            {lastStatus === "ok" ? "Renvoyer le message" : "Envoyer maintenant"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -102,6 +218,9 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
     try { await apiClient.delete(`/cashier/receipts/${rid}`, { params: { purge: true } }); toast.success("Supprimé définitivement"); load(); }
     catch (err) { toast.error(err?.response?.data?.detail || "Échec"); }
   };
+
+  // Iter38m — WA preview/resend modal
+  const [waPreview, setWaPreview] = useState(null);
 
   const submit = async () => {
     if (!form.business_client_id) { toast.error("Sélectionnez un client en compte"); return; }
@@ -254,11 +373,32 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
                   <td className="px-3 py-2 text-slate-500 text-xs">{r.cashier_name}</td>
                   <td className="px-3 py-2 text-xs" data-testid={`receipt-wa-status-${r.id}`}>
                     {r.whatsapp_sent_at ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5" title={`Envoyé à ${r.whatsapp_to || ""}`}>
+                      <button
+                        onClick={() => setWaPreview(r)}
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5 hover:bg-emerald-100"
+                        title={`Cliquer pour voir l'aperçu / renvoyer · Envoyé à ${r.whatsapp_to || ""}`}
+                        data-testid={`receipt-wa-preview-${r.id}`}
+                      >
                         <CheckCircle2 className="h-3 w-3" /> {fmtDt(r.whatsapp_sent_at)}
-                      </span>
+                      </button>
+                    ) : r.whatsapp_last_status === "ko" ? (
+                      <button
+                        onClick={() => setWaPreview(r)}
+                        className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-1.5 py-0.5 hover:bg-rose-100"
+                        title={r.whatsapp_last_error || "Envoi WhatsApp échoué — cliquer pour réessayer"}
+                        data-testid={`receipt-wa-preview-${r.id}`}
+                      >
+                        <AlertTriangle className="h-3 w-3" /> KO
+                      </button>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <button
+                        onClick={() => setWaPreview(r)}
+                        className="inline-flex items-center gap-1 text-slate-500 hover:text-emerald-600 underline-offset-2 hover:underline text-xs"
+                        title="Aperçu et envoi WhatsApp"
+                        data-testid={`receipt-wa-preview-${r.id}`}
+                      >
+                        <Eye className="h-3 w-3" /> Aperçu
+                      </button>
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
@@ -305,6 +445,14 @@ function ReceiptsTab({ businessClients, paymentMethods, refreshClients }) {
           </table>
         )}
       </div>
+      {waPreview && (
+        <WaPreviewModal
+          doc={waPreview}
+          kind="receipt"
+          onClose={() => setWaPreview(null)}
+          onSent={() => { setWaPreview(null); load(); }}
+        />
+      )}
     </div>
   );
 }
@@ -425,6 +573,8 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
     notes: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  // Iter38m — WA preview/resend modal
+  const [waPreview, setWaPreview] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -822,11 +972,32 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
                   <td className="px-3 py-2 text-slate-500 text-xs">{new Date(i.created_at).toLocaleDateString("fr-FR")}</td>
                   <td className="px-3 py-2 text-xs" data-testid={`invoice-wa-status-${i.id}`}>
                     {i.whatsapp_sent_at ? (
-                      <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5" title={`Envoyé à ${i.whatsapp_to || ""}`}>
+                      <button
+                        onClick={() => setWaPreview(i)}
+                        className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200 px-1.5 py-0.5 hover:bg-emerald-100"
+                        title={`Cliquer pour voir l'aperçu / renvoyer · Envoyé à ${i.whatsapp_to || ""}`}
+                        data-testid={`invoice-wa-preview-${i.id}`}
+                      >
                         <CheckCircle2 className="h-3 w-3" /> {fmtDt(i.whatsapp_sent_at)}
-                      </span>
+                      </button>
+                    ) : i.whatsapp_last_status === "ko" ? (
+                      <button
+                        onClick={() => setWaPreview(i)}
+                        className="inline-flex items-center gap-1 rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-1.5 py-0.5 hover:bg-rose-100"
+                        title={i.whatsapp_last_error || "Envoi WhatsApp échoué — cliquer pour réessayer"}
+                        data-testid={`invoice-wa-preview-${i.id}`}
+                      >
+                        <AlertTriangle className="h-3 w-3" /> KO
+                      </button>
                     ) : (
-                      <span className="text-slate-400">—</span>
+                      <button
+                        onClick={() => setWaPreview(i)}
+                        className="inline-flex items-center gap-1 text-slate-500 hover:text-emerald-600 underline-offset-2 hover:underline text-xs"
+                        title="Aperçu et envoi WhatsApp"
+                        data-testid={`invoice-wa-preview-${i.id}`}
+                      >
+                        <Eye className="h-3 w-3" /> Aperçu
+                      </button>
                     )}
                     {i.last_reminder_at && (
                       <span className="ml-1 inline-flex items-center gap-0.5 rounded-full bg-amber-50 text-amber-700 ring-1 ring-amber-200 px-1.5 py-0.5"
@@ -908,6 +1079,14 @@ function InvoicesTab({ businessClients, products, paymentMethods, refreshClients
           </table>
         )}
       </div>
+      {waPreview && (
+        <WaPreviewModal
+          doc={waPreview}
+          kind="invoice"
+          onClose={() => setWaPreview(null)}
+          onSent={() => { setWaPreview(null); load(); }}
+        />
+      )}
     </div>
   );
 }

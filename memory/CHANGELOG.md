@@ -8,6 +8,34 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38m (2026-05-27) — Jours fériés GRH + Dépenses pour Employé + Aperçu/Renvoi WA
+
+### 📅 1) Jours fériés (GRH) — Onglet complet avec import par pays
+- Nouvelle collection `db.hr_holidays` `{tenant_id, date, label, holiday_type, is_paid}`.
+- 5 nouveaux endpoints dans `routes/hr.py` : `GET /hr/holidays?year=`, `POST /hr/holidays`, `PATCH /hr/holidays/{hid}`, `DELETE /hr/holidays/{hid}`, `POST /hr/holidays/import?year=&country=`.
+- Catalogue de jours fériés fixes par pays (BF, CI, SN, FR) — Burkina Faso par défaut (10 jours fériés nationaux + religieux : Nouvel An, Soulèvement populaire, Journée des femmes, Fête du Travail, Journée du 4 août, Indépendance, Assomption, Toussaint, Proclamation République, Noël).
+- Bouton "Importer fêtes {ANNÉE} ({PAYS})" déclenche l'import idempotent + bandeau d'info pour les fêtes mobiles (Aïd, Mawlid) à saisir manuellement.
+- Frontend : nouvel onglet "Jours fériés" dans le module GRH (entre Absences et Taxes). Tableau éditable avec date / jour de la semaine / libellé / type (national/religieux/local/autre) / payé. CRUD complet via modal.
+
+### 💸 2) Dépenses Caisse → attribuables à un Employé
+- `cashier_expenses` étendu : nouveaux champs `attribution_type` ("third_party" | "employee"), `employee_id`, `employee_user_id`, `employee_name_snapshot`.
+- Nouveau endpoint `GET /cashier/expenses/employees-list` (admin/sup/caissier/Comptable) — liste légère des employés du tenant pour le dropdown.
+- Le formulaire de création de dépense présente désormais un toggle "Tiers / Fournisseur" ↔ "Employé". Quand "Employé" est sélectionné, un dropdown liste les employés enrôlés du tenant.
+- Backend `late_unjustified_for_employee` étendu : inclut les dépenses où `employee_user_id == user_id`, en plus de celles créées par l'utilisateur. Impact direct sur la fiche de paie (déduction visible).
+- `GET /cashier/expenses/me/dashboard-card` étendu : retourne aussi les dépenses attribuées à l'utilisateur (employee_user_id), pas seulement les siennes.
+- `GET /me/welcome-briefing` `expense_reminder` : étendu de la même façon — un employé voit le rappel dès qu'une dépense lui est attribuée, sans avoir besoin du flag `can_cash`.
+- Frontend `ExpensesTab` : nouvelle colonne "Attribuée à" affichant le nom de l'employé concerné (badge rose). Carte dashboard désormais visible pour tout utilisateur ayant des dépenses en attente attribuées (gating élargi).
+
+### 📩 3) Aperçu / Renvoi message WhatsApp (Reçus & Factures / Proformas)
+- Nouveau composant `WaPreviewModal` dans `CashBilling.jsx` : ouvert via clic sur le badge WhatsApp dans les tables Caisse et Facturation.
+- Affiche : statut dernier envoi (OK vert / KO rouge / Aucun envoi), date+heure, module utilisé (Meta Cloud API + nom template), destinataire E.164, PDF joint, erreur éventuelle, aperçu textuel du message.
+- Bouton "Renvoyer le message" / "Envoyer maintenant" qui re-fire `POST /cashier/receipts/{id}/send-whatsapp` ou `/cashier/invoices/{id}/send-whatsapp` (idempotent — l'endpoint existant gère déjà la mise à jour des `whatsapp_last_*`).
+- Accessible aux rôles admin, superviseur, **et caissier (can_cash=true)** — déjà permis par `_can_invoice` côté backend.
+
+### ✅ Tests
+- 12 nouveaux pytest verts (`tests/test_iter38m_holidays_employee_expense.py`) : holidays CRUD + import idempotent + isolation tenant + gating ; expenses employee attribution + validation + dashboard card + welcome briefing.
+- Régression iter38 (a→m) : **81/81 verts**. Cashier régression Iter36u→Iter37h : **91/91 verts**.
+
 ## Iter38k (2026-05-27) — Nano Banana production-ready + SMS inbox + Meta webhook auto-subscribe
 
 ### 🎨 1) Gemini Nano Banana — Génération d'images IA (production)

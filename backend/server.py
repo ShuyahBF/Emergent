@@ -19537,44 +19537,47 @@ async def me_welcome_briefing(
     # already past the deadline (will be deducted from payslip).
     expense_reminder = None
     try:
-        is_tracked = bool(user.get("tracked_user_id") or user.get("tracked_role"))
-        can_cash = bool(user.get("can_cash")) or (user.get("role") in ("admin", "superviseur"))
-        is_comptable = (user.get("tracked_role") or "") == "Comptable"
-        if is_tracked and (can_cash or is_comptable):
-            from routes.cashier_expenses import _is_late_unjustified  # local import
-            s_global = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
-            try:
-                deadline_h = int(s_global.get("expense_justification_deadline_hours", 72))
-            except (TypeError, ValueError):
-                deadline_h = 72
-            cur_month = today_start.strftime("%Y-%m")
-            cursor = db.cashier_expenses.find({
-                "created_by": user["id"],
-                "is_justified": False,
-                "deleted_at": None,
-                "expense_date": {"$gte": f"{cur_month}-01", "$lt": f"{cur_month}-32"},
-            }, {"_id": 0, "amount": 1, "created_at": 1, "currency": 1})
-            total_unj = 0.0
-            late_unj = 0.0
-            cur = "XOF"
-            cnt = 0
-            async for e in cursor:
-                amt = float(e.get("amount") or 0)
-                total_unj += amt
-                cnt += 1
-                if e.get("currency"):
-                    cur = e["currency"]
-                if _is_late_unjustified(e, deadline_h):
-                    late_unj += amt
-            if cnt > 0:
-                expense_reminder = {
-                    "count": cnt,
-                    "total_unjustified": round(total_unj, 2),
-                    "late_unjustified": round(late_unj, 2),
-                    "deadline_hours": deadline_h,
-                    "currency": cur,
-                    "month": cur_month,
-                }
+        # Iter38m — Show reminder for ANY user with pending unjustified
+        # expenses attributed to them (either they created it OR an
+        # admin/cashier attributed it to them as employee).
+        from routes.cashier_expenses import _is_late_unjustified  # local import
+        s_global = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        try:
+            deadline_h = int(s_global.get("expense_justification_deadline_hours", 72))
+        except (TypeError, ValueError):
+            deadline_h = 72
+        cur_month = now.strftime("%Y-%m")
+        # Iter38m — Include expenses ATTRIBUTED to me as employee
+        cursor = db.cashier_expenses.find({
+            "is_justified": False,
+            "deleted_at": None,
+            "expense_date": {"$gte": f"{cur_month}-01", "$lt": f"{cur_month}-32"},
+            "$or": [
+                {"created_by": user["id"]},
+                {"employee_user_id": user["id"]},
+            ],
+        }, {"_id": 0, "amount": 1, "created_at": 1, "currency": 1})
+        total_unj = 0.0
+        late_unj = 0.0
+        cur = "XOF"
+        cnt = 0
+        async for e in cursor:
+            amt = float(e.get("amount") or 0)
+            total_unj += amt
+            cnt += 1
+            if e.get("currency"):
+                cur = e["currency"]
+            if _is_late_unjustified(e, deadline_h):
+                late_unj += amt
+        if cnt > 0:
+            expense_reminder = {
+                "count": cnt,
+                "total_unjustified": round(total_unj, 2),
+                "late_unjustified": round(late_unj, 2),
+                "deadline_hours": deadline_h,
+                "currency": cur,
+                "month": cur_month,
+            }
     except Exception:
         expense_reminder = None
 

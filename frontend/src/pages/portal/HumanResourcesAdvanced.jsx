@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   Plus, X, RotateCcw, Trash2, Edit2, Save, Loader2,
   Calendar, RefreshCw, Download, FileText, AlertTriangle, BarChart3, Search,
+  CalendarDays, ChevronDown,
 } from "lucide-react";
 
 export const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -731,6 +732,251 @@ export function HrSettingsTab() {
           className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
           {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Enregistrer
         </button>
+      </div>
+    </div>
+  );
+}
+
+
+// =====================================================================
+// Iter38m — Holidays tab (Jours fériés)
+// Allows admins / supervisors / Comptable to manage the list of public
+// holidays of the year (CRUD + bulk import for the current country).
+// =====================================================================
+export function HolidaysTab() {
+  const currentYear = new Date().getFullYear();
+  const [year, setYear] = useState(currentYear);
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [country, setCountry] = useState("");
+  const [importing, setImporting] = useState(false);
+
+  // Fetch tenant country (BF default) for the import button label.
+  useEffect(() => {
+    apiClient.get("/me/tenant-meta")
+      .then((r) => setCountry((r.data?.country_code || "BF").toUpperCase()))
+      .catch(() => setCountry("BF"));
+  }, []);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get(`/hr/holidays?year=${year}`);
+      setItems(r.data || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement");
+    } finally { setLoading(false); }
+  }, [year]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const doImport = async () => {
+    if (!window.confirm(`Importer les jours fériés ${year} (${country || "BF"}) ?`)) return;
+    setImporting(true);
+    try {
+      const r = await apiClient.post(`/hr/holidays/import?year=${year}${country ? `&country=${country}` : ""}`);
+      const d = r.data || {};
+      toast.success(`Importés: ${d.created_count || 0} · Ignorés (déjà présents): ${d.skipped_count || 0}`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'import");
+    } finally { setImporting(false); }
+  };
+
+  const remove = async (h) => {
+    if (!window.confirm(`Supprimer "${h.label}" du ${h.date} ?`)) return;
+    try {
+      await apiClient.delete(`/hr/holidays/${h.id}`);
+      toast.success("Jour férié supprimé");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  return (
+    <div data-testid="hr-holidays-tab" className="space-y-4">
+      <div className="flex flex-wrap items-center gap-3">
+        <div>
+          <label className="text-xs text-slate-500 mb-1 block">Année</label>
+          <input
+            type="number"
+            value={year}
+            min={2000}
+            max={2100}
+            onChange={(e) => setYear(parseInt(e.target.value || currentYear, 10))}
+            data-testid="hr-holidays-year"
+            className="w-24 px-3 py-2 border border-slate-200 rounded-lg text-sm"
+          />
+        </div>
+        <button
+          onClick={doImport}
+          disabled={importing}
+          data-testid="hr-holidays-import-btn"
+          className="px-3 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60"
+          title={`Importe les jours fériés fixes ${country || "BF"} pour l'année sélectionnée. Les fêtes mobiles (Aïd, Mawlid) restent à saisir manuellement.`}
+        >
+          {importing ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+          Importer fêtes {year} ({country || "BF"})
+        </button>
+        <button
+          onClick={() => setCreating(true)}
+          data-testid="hr-holidays-add-btn"
+          className="px-3 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2"
+        >
+          <Plus size={14} /> Ajouter un jour férié
+        </button>
+        <button onClick={load} className="p-2 text-slate-500 hover:text-slate-800" title="Rafraîchir" data-testid="hr-holidays-refresh">
+          <RefreshCw size={14} />
+        </button>
+      </div>
+
+      <div className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2 flex items-start gap-2">
+        <AlertTriangle size={14} className="mt-0.5 flex-shrink-0" />
+        <div>
+          Les fêtes <strong>fixes</strong> (Indépendance, Travail, Noël…) sont importées automatiquement.
+          Les fêtes <strong>mobiles</strong> (Aïd el-Fitr, Aïd el-Kébir, Mawlid) changent chaque année — saisissez-les manuellement.
+        </div>
+      </div>
+
+      {loading ? (
+        <Empty label="Chargement…" />
+      ) : items.length === 0 ? (
+        <Empty label={`Aucun jour férié pour ${year}. Cliquez sur "Importer" ou "Ajouter".`} />
+      ) : (
+        <div className="border border-slate-200 rounded-xl overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-xs">
+              <tr>
+                <th className="px-3 py-2 text-left">Date</th>
+                <th className="px-3 py-2 text-left">Jour</th>
+                <th className="px-3 py-2 text-left">Libellé</th>
+                <th className="px-3 py-2 text-left">Type</th>
+                <th className="px-3 py-2 text-center">Payé</th>
+                <th className="px-3 py-2 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {items.map((h) => {
+                const d = new Date(`${h.date}T00:00:00Z`);
+                const weekday = d.toLocaleDateString("fr-FR", { weekday: "long", timeZone: "UTC" });
+                return (
+                  <tr key={h.id} className="border-t border-slate-100" data-testid={`hr-holiday-row-${h.id}`}>
+                    <td className="px-3 py-2 font-mono text-xs">{h.date}</td>
+                    <td className="px-3 py-2 text-slate-600 capitalize">{weekday}</td>
+                    <td className="px-3 py-2 font-medium">{h.label}</td>
+                    <td className="px-3 py-2">
+                      <span className={`px-2 py-0.5 rounded text-xs ${
+                        h.holiday_type === "national" ? "bg-blue-100 text-blue-700"
+                        : h.holiday_type === "religious" ? "bg-violet-100 text-violet-700"
+                        : "bg-slate-100 text-slate-700"
+                      }`}>
+                        {h.holiday_type === "national" ? "National" : h.holiday_type === "religious" ? "Religieux" : h.holiday_type === "local" ? "Local" : "Autre"}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      {h.is_paid ? <span className="text-emerald-600">✓</span> : <span className="text-slate-400">—</span>}
+                    </td>
+                    <td className="px-3 py-2 text-right">
+                      <button onClick={() => setEditing(h)} className="p-1.5 hover:bg-blue-50 text-blue-600 rounded" data-testid={`hr-holiday-edit-${h.id}`} title="Modifier">
+                        <Edit2 size={14} />
+                      </button>
+                      <button onClick={() => remove(h)} className="p-1.5 hover:bg-rose-50 text-rose-600 rounded ml-1" data-testid={`hr-holiday-delete-${h.id}`} title="Supprimer">
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {(creating || editing) && (
+        <HolidayFormModal
+          initial={editing}
+          year={year}
+          onSave={() => { setCreating(false); setEditing(null); load(); }}
+          onCancel={() => { setCreating(false); setEditing(null); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function HolidayFormModal({ initial, year, onSave, onCancel }) {
+  const isEdit = !!initial;
+  const [form, setForm] = useState(initial || {
+    date: `${year}-01-01`,
+    label: "",
+    holiday_type: "national",
+    is_paid: true,
+  });
+  const [saving, setSaving] = useState(false);
+  const submit = async () => {
+    if (!form.date || !form.label) { toast.error("Date et libellé requis"); return; }
+    setSaving(true);
+    try {
+      if (isEdit) {
+        await apiClient.patch(`/hr/holidays/${initial.id}`, form);
+        toast.success("Jour férié modifié");
+      } else {
+        await apiClient.post("/hr/holidays", form);
+        toast.success("Jour férié ajouté");
+      }
+      onSave();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="hr-holiday-form-modal">
+      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-900">{isEdit ? "Modifier" : "Ajouter"} un jour férié</h3>
+          <button onClick={onCancel} className="text-slate-400" data-testid="hr-holiday-form-close"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Date *</label>
+            <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
+              data-testid="hr-holiday-form-date"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Libellé *</label>
+            <input value={form.label} onChange={(e) => setForm({ ...form, label: e.target.value })}
+              placeholder="Ex: Fête de l'Indépendance"
+              data-testid="hr-holiday-form-label"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Type</label>
+            <select value={form.holiday_type} onChange={(e) => setForm({ ...form, holiday_type: e.target.value })}
+              data-testid="hr-holiday-form-type"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm">
+              <option value="national">National</option>
+              <option value="religious">Religieux</option>
+              <option value="local">Local</option>
+              <option value="other">Autre</option>
+            </select>
+          </div>
+          <label className="flex items-center gap-2 cursor-pointer text-sm">
+            <input type="checkbox" checked={form.is_paid} onChange={(e) => setForm({ ...form, is_paid: e.target.checked })}
+              data-testid="hr-holiday-form-paid" />
+            Jour férié payé
+          </label>
+        </div>
+        <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="hr-holiday-form-cancel">Annuler</button>
+          <button onClick={submit} disabled={saving} data-testid="hr-holiday-form-submit"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} {isEdit ? "Enregistrer" : "Ajouter"}
+          </button>
+        </div>
       </div>
     </div>
   );

@@ -42,14 +42,32 @@ function ExpenseForm({ onSave, onCancel }) {
     amount: 0, currency: "XOF", method: "cash", payee: "",
     motif: "", expense_date: new Date().toISOString().slice(0, 10),
     note: "",
+    attribution_type: "third_party",
+    employee_id: "",
   });
+  const [employees, setEmployees] = useState([]);
   const [saving, setSaving] = useState(false);
+
+  // Iter38m — Load employees list for the dropdown
+  useEffect(() => {
+    apiClient.get("/cashier/expenses/employees-list")
+      .then((r) => setEmployees(r.data || []))
+      .catch(() => setEmployees([]));
+  }, []);
+
   const submit = async () => {
     if (!form.amount || form.amount <= 0) { toast.error("Montant requis"); return; }
     if (!form.motif) { toast.error("Motif requis"); return; }
+    if (form.attribution_type === "employee" && !form.employee_id) {
+      toast.error("Sélectionnez l'employé concerné"); return;
+    }
     setSaving(true);
     try {
-      await apiClient.post("/cashier/expenses", form);
+      const payload = { ...form };
+      if (payload.attribution_type === "third_party") {
+        delete payload.employee_id;
+      }
+      await apiClient.post("/cashier/expenses", payload);
       toast.success("Dépense enregistrée");
       onSave();
     } catch (err) {
@@ -98,10 +116,52 @@ function ExpenseForm({ onSave, onCancel }) {
             </div>
           </div>
           <div>
-            <label className="text-xs text-slate-500 mb-1 block">Bénéficiaire (à qui)</label>
-            <input value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })}
-              data-testid="expense-form-payee" placeholder="Nom du fournisseur, prestataire…"
-              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            <label className="text-xs text-slate-500 mb-1 block">Attribuer la dépense à</label>
+            <div className="flex gap-2 mb-2" data-testid="expense-form-attribution">
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, attribution_type: "third_party", employee_id: "" })}
+                data-testid="expense-form-attr-thirdparty"
+                className={`flex-1 px-3 py-2 text-xs rounded-lg border ${form.attribution_type === "third_party" ? "bg-blue-50 border-blue-400 text-blue-700 font-semibold" : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"}`}
+              >
+                Tiers / Fournisseur
+              </button>
+              <button
+                type="button"
+                onClick={() => setForm({ ...form, attribution_type: "employee" })}
+                data-testid="expense-form-attr-employee"
+                className={`flex-1 px-3 py-2 text-xs rounded-lg border ${form.attribution_type === "employee" ? "bg-rose-50 border-rose-400 text-rose-700 font-semibold" : "bg-white border-slate-200 text-slate-600 hover:border-slate-300"}`}
+              >
+                Employé
+              </button>
+            </div>
+            {form.attribution_type === "third_party" ? (
+              <input value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })}
+                data-testid="expense-form-payee" placeholder="Nom du fournisseur, prestataire…"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            ) : (
+              <select
+                value={form.employee_id}
+                onChange={(e) => {
+                  const emp = employees.find((x) => x.id === e.target.value);
+                  setForm({ ...form, employee_id: e.target.value, payee: emp ? emp.name : "" });
+                }}
+                data-testid="expense-form-employee"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                <option value="">— Choisir un employé —</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.matricule ? `[${e.matricule}] ` : ""}{e.name}{e.job_title ? ` — ${e.job_title}` : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            {form.attribution_type === "employee" && (
+              <p className="text-xs text-rose-600 mt-1 flex items-center gap-1">
+                <AlertTriangle size={11} />
+                L'employé recevra un rappel si la dépense n'est pas justifiée dans les délais.
+              </p>
+            )}
           </div>
           <div>
             <label className="text-xs text-slate-500 mb-1 block">Motif *</label>
@@ -330,6 +390,7 @@ export default function ExpensesTab({ isAdmin }) {
                 <th className="px-3 py-2 text-left">Mode</th>
                 <th className="px-3 py-2 text-left">Auteur</th>
                 <th className="px-3 py-2 text-left">Motif</th>
+                <th className="px-3 py-2 text-left">Attribuée à</th>
                 <th className="px-3 py-2 text-right">Montant</th>
                 <th className="px-3 py-2 text-center">Statut</th>
                 <th className="px-3 py-2 text-right">Actions</th>
@@ -352,6 +413,15 @@ export default function ExpensesTab({ isAdmin }) {
                   <td className="px-3 py-2">
                     <div>{e.motif}</div>
                     {e.payee && <div className="text-xs text-slate-400">→ {e.payee}</div>}
+                  </td>
+                  <td className="px-3 py-2">
+                    {e.attribution_type === "employee" && e.employee_name_snapshot ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs bg-rose-50 text-rose-700 border border-rose-200" data-testid={`expense-employee-${e.id}`}>
+                        <Banknote size={10} /> {e.employee_name_snapshot}
+                      </span>
+                    ) : (
+                      <span className="text-xs text-slate-400">—</span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right font-semibold">{FCFA(e.amount)} {e.currency}</td>
                   <td className="px-3 py-2 text-center">

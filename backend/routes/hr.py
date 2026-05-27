@@ -127,6 +127,69 @@ class HrSettingsPayload(BaseModel):
     payslip_footer: Optional[str] = Field(None, max_length=500)
 
 
+# ---------------------------------------------------------------------
+# Iter38m — Holidays (jours fériés) per tenant
+# ---------------------------------------------------------------------
+class HolidayPayload(BaseModel):
+    date: str = Field(..., pattern=r"^\d{4}-\d{2}-\d{2}$")
+    label: str = Field(..., min_length=1, max_length=160)
+    holiday_type: str = Field("national", pattern=r"^(national|religious|local|other)$")
+    is_paid: bool = True
+
+
+class HolidayUpdate(BaseModel):
+    date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    label: Optional[str] = Field(None, min_length=1, max_length=160)
+    holiday_type: Optional[str] = Field(None, pattern=r"^(national|religious|local|other)$")
+    is_paid: Optional[bool] = None
+
+
+# Catalogue of well-known fixed-date holidays by country.
+# Mobile religious holidays (Aïd el-Fitr, Aïd el-Kébir, Mawlid) are excluded
+# from automatic import (dates change every year) — admin sets them manually.
+_HOLIDAYS_CATALOG: Dict[str, List[Dict[str, Any]]] = {
+    "BF": [  # Burkina Faso
+        {"md": "01-01", "label": "Jour de l'An", "holiday_type": "national"},
+        {"md": "01-03", "label": "Soulèvement populaire (1966)", "holiday_type": "national"},
+        {"md": "03-08", "label": "Journée internationale des droits des femmes", "holiday_type": "national"},
+        {"md": "05-01", "label": "Fête du Travail", "holiday_type": "national"},
+        {"md": "08-04", "label": "Journée nationale du 4 août", "holiday_type": "national"},
+        {"md": "08-05", "label": "Fête de l'Indépendance", "holiday_type": "national"},
+        {"md": "08-15", "label": "Assomption", "holiday_type": "religious"},
+        {"md": "11-01", "label": "Toussaint", "holiday_type": "religious"},
+        {"md": "12-11", "label": "Proclamation de la République", "holiday_type": "national"},
+        {"md": "12-25", "label": "Noël", "holiday_type": "religious"},
+    ],
+    "CI": [  # Côte d'Ivoire
+        {"md": "01-01", "label": "Jour de l'An", "holiday_type": "national"},
+        {"md": "05-01", "label": "Fête du Travail", "holiday_type": "national"},
+        {"md": "08-07", "label": "Fête de l'Indépendance", "holiday_type": "national"},
+        {"md": "08-15", "label": "Assomption", "holiday_type": "religious"},
+        {"md": "11-01", "label": "Toussaint", "holiday_type": "religious"},
+        {"md": "11-15", "label": "Journée nationale de la paix", "holiday_type": "national"},
+        {"md": "12-25", "label": "Noël", "holiday_type": "religious"},
+    ],
+    "SN": [  # Sénégal
+        {"md": "01-01", "label": "Jour de l'An", "holiday_type": "national"},
+        {"md": "04-04", "label": "Fête de l'Indépendance", "holiday_type": "national"},
+        {"md": "05-01", "label": "Fête du Travail", "holiday_type": "national"},
+        {"md": "08-15", "label": "Assomption", "holiday_type": "religious"},
+        {"md": "11-01", "label": "Toussaint", "holiday_type": "religious"},
+        {"md": "12-25", "label": "Noël", "holiday_type": "religious"},
+    ],
+    "FR": [  # France
+        {"md": "01-01", "label": "Jour de l'An", "holiday_type": "national"},
+        {"md": "05-01", "label": "Fête du Travail", "holiday_type": "national"},
+        {"md": "05-08", "label": "Victoire 1945", "holiday_type": "national"},
+        {"md": "07-14", "label": "Fête nationale", "holiday_type": "national"},
+        {"md": "08-15", "label": "Assomption", "holiday_type": "religious"},
+        {"md": "11-01", "label": "Toussaint", "holiday_type": "religious"},
+        {"md": "11-11", "label": "Armistice 1918", "holiday_type": "national"},
+        {"md": "12-25", "label": "Noël", "holiday_type": "religious"},
+    ],
+}
+
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -1034,6 +1097,133 @@ def make_router(*, db, get_current_user):
             "week_end": (week_end - _td(days=1)).date().isoformat(),
             "top": results[:5],
             "total_employees": len(results),
+        }
+
+    # ================================================================
+    # Iter38m — Holidays (Jours fériés) — per tenant
+    # ================================================================
+    @router.get("/holidays")
+    async def list_holidays(
+        year: Optional[int] = Query(None, ge=1970, le=3000),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        q: Dict[str, Any] = {**scope}
+        if year is not None:
+            q["date"] = {"$gte": f"{year:04d}-01-01", "$lte": f"{year:04d}-12-31"}
+        cursor = db.hr_holidays.find(q, {"_id": 0}).sort("date", 1)
+        return [h async for h in cursor]
+
+    @router.post("/holidays")
+    async def create_holiday(
+        payload: HolidayPayload, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        tid = await _resolve_tenant_id(user)
+        # Idempotence: prevent two holidays with same (tenant, date, label)
+        existing = await db.hr_holidays.find_one(
+            {"tenant_id": tid, "date": payload.date, "label": payload.label},
+            {"_id": 0, "id": 1},
+        )
+        if existing:
+            raise HTTPException(
+                status_code=409, detail="Jour férié déjà enregistré à cette date avec ce libellé"
+            )
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "updated_at": _now_iso(),
+        })
+        await db.hr_holidays.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/holidays/{hid}")
+    async def update_holiday(
+        hid: str, payload: HolidayUpdate, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_holidays.find_one({**scope, "id": hid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Jour férié introuvable")
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            return existing
+        updates["updated_at"] = _now_iso()
+        await db.hr_holidays.update_one({"id": hid}, {"$set": updates})
+        return await db.hr_holidays.find_one({"id": hid}, {"_id": 0})
+
+    @router.delete("/holidays/{hid}")
+    async def delete_holiday(hid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        res = await db.hr_holidays.delete_one({**scope, "id": hid})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Jour férié introuvable")
+        return {"ok": True}
+
+    @router.post("/holidays/import")
+    async def import_holidays(
+        year: int = Query(..., ge=1970, le=3000),
+        country: Optional[str] = Query(None, min_length=2, max_length=4),
+        user: dict = Depends(get_current_user),
+    ):
+        """Import known fixed-date holidays for the given year/country.
+        Country code defaults to the tenant's configured default (BF if none).
+        Returns {created, skipped, items: [...]}.
+        Mobile religious holidays (Aïd, Mawlid) must be added manually."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        tid = await _resolve_tenant_id(user)
+        # Resolve country from tenant_meta if not provided
+        country_code = (country or "").strip().upper()
+        if not country_code:
+            tm = await db.tenant_meta.find_one(
+                {"tenant_id": tid}, {"_id": 0, "country_code": 1}
+            ) or {}
+            country_code = (tm.get("country_code") or "BF").upper()
+        catalog = _HOLIDAYS_CATALOG.get(country_code) or _HOLIDAYS_CATALOG["BF"]
+        created: List[Dict[str, Any]] = []
+        skipped: List[Dict[str, Any]] = []
+        for entry in catalog:
+            date_iso = f"{year:04d}-{entry['md']}"
+            existing = await db.hr_holidays.find_one(
+                {"tenant_id": tid, "date": date_iso, "label": entry["label"]},
+                {"_id": 0, "id": 1},
+            )
+            if existing:
+                skipped.append({"date": date_iso, "label": entry["label"]})
+                continue
+            doc = {
+                "id": str(uuid.uuid4()),
+                "tenant_id": tid,
+                "date": date_iso,
+                "label": entry["label"],
+                "holiday_type": entry["holiday_type"],
+                "is_paid": True,
+                "created_at": _now_iso(),
+                "created_by": user["id"],
+                "updated_at": _now_iso(),
+            }
+            await db.hr_holidays.insert_one(doc.copy())
+            doc.pop("_id", None)
+            created.append(doc)
+        return {
+            "country": country_code,
+            "year": year,
+            "created": created,
+            "skipped": skipped,
+            "created_count": len(created),
+            "skipped_count": len(skipped),
         }
 
     # Iter38d — Expose _compute_payslip to payroll_webhooks module

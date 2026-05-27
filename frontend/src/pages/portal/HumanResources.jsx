@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 import {
   WeeklyPresenceCard, AbsencesTab, TaxesTab, AdvancesTab, PayslipsTab, HrSettingsTab,
+  HolidaysTab,
 } from "./HumanResourcesAdvanced";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -48,6 +49,7 @@ function Tabs({ tab, setTab, hideTimesheet }) {
   ];
   if (!hideTimesheet) tabs.push({ id: "timesheet", label: "Présence", icon: Calendar });
   tabs.push({ id: "absences", label: "Absences", icon: Calendar });
+  tabs.push({ id: "holidays", label: "Jours fériés", icon: Calendar });
   tabs.push({ id: "taxes", label: "Taxes", icon: Banknote });
   tabs.push({ id: "advances", label: "Avances", icon: Banknote });
   tabs.push({ id: "payslips", label: "Paie", icon: Briefcase });
@@ -697,7 +699,7 @@ export default function HumanResources() {
           <div>
             <h1 className="text-2xl font-bold text-slate-900">Ressources Humaines</h1>
             <p className="text-sm text-slate-500">
-              Personnel · Salaires · Présence · Absences · Taxes · Avances · Paie
+              Personnel · Salaires · Présence · Absences · Jours fériés · Taxes · Avances · Paie
             </p>
           </div>
         </div>
@@ -724,6 +726,8 @@ export default function HumanResources() {
         <TimesheetView employees={activeEmployees} />
       ) : tab === "absences" ? (
         <AbsencesTab employees={activeEmployees} />
+      ) : tab === "holidays" ? (
+        <HolidaysTab />
       ) : tab === "taxes" ? (
         <TaxesTab />
       ) : tab === "advances" ? (

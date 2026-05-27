@@ -54,6 +54,9 @@ class ExpensePayload(BaseModel):
     motif: str = Field(..., min_length=1, max_length=500)
     expense_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     note: Optional[str] = Field(None, max_length=500)
+    # Iter38m — Attribution: "third_party" (default) or "employee"
+    attribution_type: str = Field("third_party", pattern=r"^(third_party|employee)$")
+    employee_id: Optional[str] = Field(None, max_length=80)
 
 
 class ExpenseUpdatePayload(BaseModel):
@@ -64,6 +67,8 @@ class ExpenseUpdatePayload(BaseModel):
     motif: Optional[str] = Field(None, max_length=500)
     expense_date: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     note: Optional[str] = Field(None, max_length=500)
+    attribution_type: Optional[str] = Field(None, pattern=r"^(third_party|employee)$")
+    employee_id: Optional[str] = Field(None, max_length=80)
 
 
 class ExpenseJustifyPayload(BaseModel):
@@ -202,6 +207,27 @@ def make_router(*, db, get_current_user):
         if not _can_create_expense(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         tid = await _resolve_tenant_id(user)
+        # Iter38m — If attribution is "employee", resolve the employee
+        # and capture a name snapshot for display
+        employee_user_id: Optional[str] = None
+        employee_name: Optional[str] = None
+        if payload.attribution_type == "employee":
+            if not payload.employee_id:
+                raise HTTPException(
+                    status_code=400,
+                    detail="employee_id requis lorsque attribution_type=employee",
+                )
+            emp = await db.hr_employees.find_one(
+                {"tenant_id": tid, "id": payload.employee_id, "deleted_at": None},
+                {"_id": 0, "id": 1, "user_id": 1, "name_snapshot": 1,
+                 "email_snapshot": 1, "matricule": 1},
+            )
+            if not emp:
+                raise HTTPException(
+                    status_code=404, detail="Employé introuvable dans ce tenant"
+                )
+            employee_user_id = emp.get("user_id")
+            employee_name = emp.get("name_snapshot") or emp.get("email_snapshot")
         doc = payload.model_dump()
         doc.update({
             "id": str(uuid.uuid4()),
@@ -217,6 +243,9 @@ def make_router(*, db, get_current_user):
             "justification_text": None,
             "justification_proof_url": None,
             "deleted_at": None,
+            # Iter38m — employee attribution snapshot
+            "employee_user_id": employee_user_id,
+            "employee_name_snapshot": employee_name,
         })
         await db.cashier_expenses.insert_one(doc.copy())
         doc.pop("_id", None)
@@ -312,18 +341,56 @@ def make_router(*, db, get_current_user):
         )
         return await db.cashier_expenses.find_one({"id": eid}, {"_id": 0})
 
+    @router.get("/employees-list")
+    async def list_employees_for_expenses(user: dict = Depends(get_current_user)):
+        """Iter38m — Lightweight list of employees of the current tenant for the
+        expense attribution dropdown. Accessible to all roles that can create
+        an expense (admin/sup/can_cash/Comptable) without requiring full HR access.
+        Returns [{id, name, matricule, user_id}].
+        """
+        if not _can_create_expense(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        scope = await _scoped(user)
+        cursor = db.hr_employees.find(
+            {**scope, "deleted_at": None},
+            {"_id": 0, "id": 1, "user_id": 1, "name_snapshot": 1,
+             "email_snapshot": 1, "matricule": 1, "job_title": 1},
+        ).sort("name_snapshot", 1)
+        items = []
+        async for e in cursor:
+            items.append({
+                "id": e.get("id"),
+                "user_id": e.get("user_id"),
+                "name": e.get("name_snapshot") or e.get("email_snapshot") or "—",
+                "matricule": e.get("matricule"),
+                "job_title": e.get("job_title"),
+            })
+        return items
+
     # ----------------------------------------------------------------
     # /me/dashboard/unjustified-expenses — for tracked-user dashboard card
     # ----------------------------------------------------------------
     @router.get("/me/dashboard-card")
     async def my_dashboard_card(user: dict = Depends(get_current_user)):
-        """Sum of MY unjustified expenses + those late-unjustified."""
+        """Sum of MY unjustified expenses + those late-unjustified.
+
+        Iter38m — Includes:
+          - expenses I created (created_by == me)
+          - expenses attributed to me as employee (employee_user_id == me)
+        """
         scope = await _scoped(user)
         deadline_h = await _justification_deadline_hours()
-        cursor = db.cashier_expenses.find(
-            {**scope, "created_by": user["id"], "is_justified": False, "deleted_at": None},
-            {"_id": 0},
-        )
+        # Match either created_by OR employee_user_id == me
+        q: Dict[str, Any] = {
+            **scope,
+            "is_justified": False,
+            "deleted_at": None,
+            "$or": [
+                {"created_by": user["id"]},
+                {"employee_user_id": user["id"]},
+            ],
+        }
+        cursor = db.cashier_expenses.find(q, {"_id": 0})
         items = [e async for e in cursor]
         total = sum(float(e.get("amount") or 0) for e in items)
         late_total = sum(float(e.get("amount") or 0) for e in items if _is_late_unjustified(e, deadline_h))
@@ -372,6 +439,10 @@ def _is_late_unjustified(exp: dict, deadline_h: int) -> bool:
 async def late_unjustified_for_employee(db, *, tenant_id: str, user_id: str, month: str) -> float:
     """Sum (XOF-equivalent) of late-unjustified expenses for a given user in a given month.
     Used by HR payslip computation to add the corresponding deduction line.
+
+    Iter38m — Includes both:
+      - expenses CREATED by the user (created_by == user_id)
+      - expenses ATTRIBUTED to the user as employee (employee_user_id == user_id)
     """
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     try:
@@ -381,9 +452,13 @@ async def late_unjustified_for_employee(db, *, tenant_id: str, user_id: str, mon
     if deadline_h <= 0:
         return 0.0
     cursor = db.cashier_expenses.find(
-        {"tenant_id": tenant_id, "created_by": user_id, "is_justified": False,
+        {"tenant_id": tenant_id, "is_justified": False,
          "deleted_at": None,
-         "expense_date": {"$gte": f"{month}-01", "$lt": f"{month}-32"}},
+         "expense_date": {"$gte": f"{month}-01", "$lt": f"{month}-32"},
+         "$or": [
+             {"created_by": user_id},
+             {"employee_user_id": user_id},
+         ]},
         {"_id": 0, "amount": 1, "created_at": 1},
     )
     total = 0.0

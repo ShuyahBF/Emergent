@@ -164,16 +164,15 @@ export default function ClientDashboard() {
 function UnjustifiedExpensesCard() {
   const { user } = useAuth() || {};
   const [data, setData] = useState(null);
-  const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
-  const canExpense = ["admin", "superviseur"].includes(user?.role) || !!user?.can_cash || (user?.tracked_role === "Comptable");
-  const shouldShow = isTracked && canExpense;
+  // Iter38m — Show whenever the user has any pending expense (either created by
+  // them or attributed to them as employee). The backend returns count=0 if none.
   useEffect(() => {
-    if (!shouldShow) return;
+    if (!user) return;
     apiClient.get("/cashier/expenses/me/dashboard-card")
       .then((r) => setData(r.data))
       .catch(() => setData(null));
-  }, [shouldShow]);
-  if (!shouldShow || !data) return null;
+  }, [user]);
+  if (!data || (data.count || 0) === 0) return null;
   const hasLate = (data.late_unjustified || 0) > 0;
   return (
     <Link to="/portal/cash" className="block rounded-xl border-2 border-rose-200 bg-gradient-to-br from-rose-50 to-amber-50 p-5 hover:shadow-md transition-shadow"

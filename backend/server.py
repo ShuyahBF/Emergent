@@ -4305,11 +4305,153 @@ async def _seed_roadmap_actions() -> int:
     return inserted
 
 
+# ====================================================================
+# Iter38f — Auto-sync of /app/memory/CHANGELOG.md → db.roadmap_actions
+# Each `## IterXXX (YYYY-MM-DD) — Title` block is scanned for `### …` h3
+# headers. Substantive headers (skipping Tests/Frontend/Backend/etc.) are
+# auto-inserted as roadmap actions with code `ACT-CL-<IterXXX>-<NN>`.
+# Edits to titles/details propagate on next call. Manual ACT-XXXX entries
+# from ROADMAP_SEED remain untouched.
+# ====================================================================
+_CHANGELOG_PATH = Path("/app/memory/CHANGELOG.md")
+_ITER_HEADER_RE = re.compile(
+    r"^##\s+(Iter\S+)\s*\(([0-9]{4}-[0-9]{2}-[0-9]{2})\)\s*—\s*(.+)$",
+    re.MULTILINE,
+)
+_H3_RE = re.compile(r"^###\s+(.+?)$", re.MULTILINE)
+# H3 titles whose first significant word matches one of these are NOT real actions.
+_SKIP_KEYWORDS = {
+    "tests", "test", "frontend", "backend", "prochaine", "prochaines",
+    "résumé", "summary", "note",
+}
+# H3 titles starting with one of these (after emoji removal) are noise.
+_SKIP_PREFIXES = (
+    "action utilisateur", "action requise",
+    "p0", "p1", "p2", "p3",
+    "🚨", "🟧", "🟨", "🟦",
+)
+
+
+def _strip_leading_emoji(s: str) -> str:
+    """Remove leading non-word chars (emojis, bullets, etc.) so we can match the title text."""
+    return re.sub(r"^[\W_]+", "", s, flags=re.UNICODE).strip()
+
+
+def _should_skip_h3(title: str) -> bool:
+    """Decide whether an h3 header is a real roadmap action or just a section header."""
+    stripped = _strip_leading_emoji(title).lower()
+    if not stripped or len(stripped) < 6:
+        return True
+    # Match first word against skip vocabulary (handles bare 'Frontend', 'Tests :', etc.)
+    first_word = re.split(r"[\s:.,;—-]", stripped, 1)[0]
+    if first_word in _SKIP_KEYWORDS:
+        return True
+    for prefix in _SKIP_PREFIXES:
+        if stripped.startswith(prefix):
+            return True
+    return False
+
+
+async def _sync_roadmap_from_changelog() -> Dict[str, int]:
+    """Parse CHANGELOG.md and upsert `ACT-CL-<iter>-<NN>` rows.
+    Returns counts: {parsed, inserted, updated, deleted}. Idempotent — safe to call
+    on every GET. Manual ACT-XXXX entries are never touched.
+    """
+    if not _CHANGELOG_PATH.exists():
+        return {"parsed": 0, "inserted": 0, "updated": 0, "deleted": 0}
+    try:
+        content = _CHANGELOG_PATH.read_text(encoding="utf-8")
+    except Exception:
+        return {"parsed": 0, "inserted": 0, "updated": 0, "deleted": 0}
+
+    iter_matches = list(_ITER_HEADER_RE.finditer(content))
+    parsed = inserted = updated = deleted = 0
+    seen_codes: set = set()
+
+    for idx, m in enumerate(iter_matches):
+        iter_name = m.group(1)            # "Iter38e"
+        date_iso = m.group(2)             # "2026-05-27"
+        block_start = m.end()
+        block_end = iter_matches[idx + 1].start() if idx + 1 < len(iter_matches) else len(content)
+        block = content[block_start:block_end]
+
+        h3_matches = list(_H3_RE.finditer(block))
+        action_num = 0
+        for h_idx, h in enumerate(h3_matches):
+            raw_title = h.group(1).strip()
+            if _should_skip_h3(raw_title):
+                continue
+            action_num += 1
+            parsed += 1
+            clean_title = _strip_leading_emoji(raw_title)[:280]
+            code = f"ACT-CL-{iter_name}-{action_num:02d}"
+            seen_codes.add(code)
+            d_start = h.end()
+            d_end = h3_matches[h_idx + 1].start() if h_idx + 1 < len(h3_matches) else len(block)
+            details_raw = block[d_start:d_end].strip()
+            details = details_raw[:2000] + ("…" if len(details_raw) > 2000 else "")
+            ts = f"{date_iso}T00:00:00+00:00"
+            existing = await db.roadmap_actions.find_one(
+                {"code": code},
+                {"_id": 0, "title": 1, "details": 1, "backlog_ref": 1},
+            )
+            if existing:
+                diffs: Dict[str, Any] = {}
+                if existing.get("title") != clean_title:
+                    diffs["title"] = clean_title
+                if existing.get("details") != details:
+                    diffs["details"] = details
+                if existing.get("backlog_ref") != iter_name:
+                    diffs["backlog_ref"] = iter_name
+                if diffs:
+                    await db.roadmap_actions.update_one({"code": code}, {"$set": diffs})
+                    updated += 1
+                continue
+            doc = {
+                "id": _uuid(),
+                "code": code,
+                "created_at": ts,
+                "done_at": ts,
+                "title": clean_title,
+                "backlog_ref": iter_name,
+                "details": details,
+                "duration_h": 0.0,
+                "cost_xof": 0,
+                "done": True,
+                "status": "done",
+                "observations": "",
+                "source": "changelog_auto",
+            }
+            await db.roadmap_actions.insert_one(doc)
+            inserted += 1
+
+    # Clean up orphan ACT-CL-* rows whose CHANGELOG block no longer produces them
+    # (only when we successfully parsed something, to avoid wiping on transient parse errors)
+    if parsed > 0:
+        cursor = db.roadmap_actions.find(
+            {"code": {"$regex": r"^ACT-CL-"}, "source": "changelog_auto"},
+            {"_id": 0, "code": 1},
+        )
+        existing_codes = [r["code"] async for r in cursor]
+        orphans = [c for c in existing_codes if c not in seen_codes]
+        if orphans:
+            res = await db.roadmap_actions.delete_many({"code": {"$in": orphans}})
+            deleted = res.deleted_count
+    return {"parsed": parsed, "inserted": inserted, "updated": updated, "deleted": deleted}
+
+
+
 @api.get("/admin/roadmap-actions", tags=["Admin"])
 async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
     """List every roadmap action ordered by code asc. Seeds on first call.
-    Iter34j: One-shot backfill of `status` for rows that pre-date the field."""
+    Iter34j: One-shot backfill of `status` for rows that pre-date the field.
+    Iter38f: Auto-syncs CHANGELOG.md entries on every call (idempotent)."""
     await _seed_roadmap_actions()
+    # Iter38f — Auto-sync from /app/memory/CHANGELOG.md (best-effort, never blocks)
+    try:
+        await _sync_roadmap_from_changelog()
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[roadmap] CHANGELOG auto-sync failed: %s", exc)
     # Iter34j backfill: rows without `status` get inferred from `done`
     try:
         await db.roadmap_actions.update_many({"status": {"$exists": False}, "done": True}, {"$set": {"status": "done"}})

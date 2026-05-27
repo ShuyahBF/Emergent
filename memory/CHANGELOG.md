@@ -2,6 +2,12 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+> 🔁 **Auto-sync vers Admin Settings** (Iter38f) — Chaque section `## IterXXX (YYYY-MM-DD) — Title`
+> est automatiquement scannée. Chaque sous-section `### emoji N) Title` est convertie en action
+> `ACT-CL-IterXXX-NN` dans **Admin Settings → Suivi des actions**. Pour qu'une nouvelle entrée
+> apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
+> "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
+
 ## Iter38e (2026-05-27) — UI Webhooks n8n + WhatsApp Status Badge + Catalog enrichments
 
 ### 🔧 1) Frontend Admin UI — Webhooks Paie (n8n)

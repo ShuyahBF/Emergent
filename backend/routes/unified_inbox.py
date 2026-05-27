@@ -21,17 +21,18 @@ logger = logging.getLogger("sawali.inbox")
 
 
 class InboxSendPayload(BaseModel):
-    channel: str = Field(..., pattern="^(whatsapp|messenger)$")
+    channel: str = Field(..., pattern="^(whatsapp|sms|messenger)$")
     thread_id: str = Field(..., min_length=1)
     text: str = Field(..., min_length=1, max_length=4000)
     page_id: Optional[str] = None  # required for messenger
 
 
-def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, meta_get_meta_settings=None):
+def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, sms_send_text=None, meta_get_meta_settings=None):
     """Mount the unified inbox endpoints on the provided `api` router.
 
     Optional integrations:
       - wa_send_text(to_e164, text) -> dict({"ok", "message_id", "status", "error"})
+      - sms_send_text(user, msisdn, text) -> dict({"ok", "id", "status", "error"})
       - meta_get_meta_settings() -> dict with meta_app_secret / graph_version  (currently unused;
         Messenger sends will route through Graph using the stored page token).
     """
@@ -92,6 +93,24 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                 slot["unread_count"] += 1
         threads.extend(wa_by_peer.values())
 
+        # ---- SMS (outbound only — no inbound webhook for SMS yet) ----
+        sms_query: Dict[str, Any] = {"client_id": tid} if user.get("role") != "admin" else {}
+        sms_msgs = await db.sms_messages.find(
+            sms_query, {"_id": 0, "msisdn": 1, "message": 1, "created_at": 1, "status": 1, "provider": 1},
+        ).sort("created_at", -1).to_list(500)
+        sms_by_peer: Dict[str, Dict[str, Any]] = {}
+        for m in sms_msgs:
+            peer = m.get("msisdn") or "unknown"
+            slot = sms_by_peer.setdefault(peer, {
+                "channel": "sms", "peer_id": peer, "peer_name": peer,
+                "preview": (m.get("message") or "")[:120],
+                "last_at": _ts_to_iso(m.get("created_at")),
+                "unread_count": 0, "total_count": 0,
+                "provider": m.get("provider"),
+            })
+            slot["total_count"] += 1
+        threads.extend(sms_by_peer.values())
+
         # ---- Messenger ----
         if feats.get("meta_messenger"):
             mg_msgs = await db.meta_messenger_messages.find(
@@ -132,11 +151,13 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             "total": len(threads),
             "channels_enabled": {
                 "whatsapp": True,
+                "sms": True,
                 "messenger": bool(feats.get("meta_messenger")),
             },
             "totals": {
                 "unread": sum(t.get("unread_count", 0) for t in threads),
                 "whatsapp": sum(1 for t in threads if t["channel"] == "whatsapp"),
+                "sms": sum(1 for t in threads if t["channel"] == "sms"),
                 "messenger": sum(1 for t in threads if t["channel"] == "messenger"),
             },
         }
@@ -191,7 +212,23 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "page_id": m.get("page_id"),
                 } for m in msgs
             ]}
-        raise HTTPException(status_code=400, detail="Canal inconnu (whatsapp | messenger)")
+        if channel == "sms":
+            # SMS are outbound-only; list by msisdn (current tenant only)
+            q: Dict[str, Any] = {"msisdn": thread_id}
+            if user.get("role") != "admin":
+                q["client_id"] = tid
+            msgs = await db.sms_messages.find(
+                q, {"_id": 0, "id": 1, "message": 1, "created_at": 1, "status": 1, "provider": 1},
+            ).sort("created_at", 1).to_list(limit)
+            return {"channel": "sms", "thread_id": thread_id, "messages": [
+                {
+                    "id": m.get("id", ""), "direction": "outbound",
+                    "text": m.get("message") or "",
+                    "at": _ts_to_iso(m.get("created_at")),
+                    "status": m.get("status"), "provider": m.get("provider"),
+                } for m in msgs
+            ]}
+        raise HTTPException(status_code=400, detail="Canal inconnu (whatsapp | sms | messenger)")
 
     # =========================================================================
     # Iter38j — Send a message from the unified inbox.
@@ -222,6 +259,15 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                 "created_at": now_iso,
             })
             return {"ok": True, "message_id": r.get("message_id"), "channel": "whatsapp"}
+
+        # ---- SMS ----
+        if payload.channel == "sms":
+            if sms_send_text is None:
+                raise HTTPException(status_code=503, detail="SMS sender non configuré.")
+            r = await sms_send_text(user, payload.thread_id, payload.text)
+            if not r.get("ok"):
+                raise HTTPException(status_code=502, detail=r.get("error") or "Échec SMS")
+            return {"ok": True, "message_id": r.get("id"), "channel": "sms"}
 
         # ---- Messenger ----
         if payload.channel == "messenger":

@@ -19690,11 +19690,55 @@ _setup_meta_routes(
 # Iter38i — Unified omnichannel inbox (WhatsApp + Messenger).
 # =====================================================================
 from routes.unified_inbox import setup_unified_inbox_routes as _setup_inbox_routes  # noqa: E402
+# =====================================================================
+# Iter38k — Unified inbox helper for SMS dispatch (uses the existing
+# _sms_dispatch pipeline). Returns the standard {ok, id, error} shape.
+# =====================================================================
+async def _inbox_sms_send_helper(user: dict, msisdn: str, text: str) -> dict:  # noqa: ANN001
+    try:
+        result = await _sms_dispatch("auto", msisdn, text, None)
+        parent_id = user.get("client_id") or user["id"]
+        doc = {
+            "id": _uuid(),
+            "client_id": parent_id,
+            "user_id": user["id"],
+            "user_email": user.get("email"),
+            "user_label": user.get("full_name") or user.get("email"),
+            "provider": result.get("provider"),
+            "msisdn": msisdn,
+            "msisdn_digits": "".join(ch for ch in msisdn if ch.isdigit()),
+            "message": text,
+            "length": len(text),
+            "status": result.get("status"),
+            "api_message": result.get("api_message"),
+            "http_status": result.get("http_status"),
+            "created_at": _now(),
+        }
+        await db.sms_messages.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return {
+            "ok": bool(result.get("ok")),
+            "id": doc["id"],
+            "status": result.get("status"),
+            "error": None if result.get("ok") else _safe_text(result.get("api_message")),
+        }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:200]}
+
+INBOX_SMS_HELPER_DEFINED = True
+
 _setup_inbox_routes(
     db=db, api=api, get_current_user=get_current_user,
     _normalize_features=_normalize_features,
     wa_send_text=_wa_send_text,
+    sms_send_text=_inbox_sms_send_helper,
 )
+
+# =====================================================================
+# Iter38k — Gemini Nano Banana image generation (icons + media generator).
+# =====================================================================
+from routes.ai_media import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402
+_setup_ai_media_routes(db=db, api=api, get_current_user=get_current_user)
 
 app.include_router(api)
 

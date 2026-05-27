@@ -5,11 +5,12 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send } from "lucide-react";
+import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {
   whatsapp: { label: "WA", color: "bg-emerald-100 text-emerald-700 ring-emerald-200", Icon: MessageCircle },
+  sms: { label: "SMS", color: "bg-amber-100 text-amber-700 ring-amber-200", Icon: Smartphone },
   messenger: { label: "MSG", color: "bg-blue-100 text-blue-700 ring-blue-200", Icon: Facebook },
 };
 
@@ -126,6 +127,7 @@ export default function UnifiedInbox() {
           >
             <option value="all">Tous canaux ({threads.length})</option>
             <option value="whatsapp">WhatsApp ({totals.whatsapp || 0})</option>
+            <option value="sms">SMS ({totals.sms || 0})</option>
             {channelsEnabled.messenger && <option value="messenger">Messenger ({totals.messenger || 0})</option>}
           </select>
           <button onClick={load} className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm" data-testid="inbox-refresh-btn">

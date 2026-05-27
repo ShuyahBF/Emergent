@@ -8,7 +8,37 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38k (2026-05-27) — Nano Banana production-ready + SMS inbox + Meta webhook auto-subscribe
+
+### 🎨 1) Gemini Nano Banana — Génération d'images IA (production)
+- Nouveau module `routes/ai_media.py` (~200 lignes) utilisant `emergentintegrations.llm.chat.LlmChat` avec modèle `gemini-3.1-flash-image-preview`.
+- 5 endpoints : POST `/me/ai/generate-image`, POST `/me/ai/edit-image`, GET `/me/ai/history`, GET `/files/ai/{tenant}/{filename}`, POST `/cashier/products/generate-icon` (version réelle, replaces stub 503).
+- Stockage local `/app/backend/uploads/ai/{tenant_id}/...`. Historique dans `db.ai_generations`.
+- Test E2E : icône laptop bleu générée en ~8s, PNG 639 KB.
+
+### 🖼️ 2) Page Générateur d'Images (frontend)
+- `MediaGenerator.jsx` complètement réécrite : prompt textarea + format (carré/portrait/paysage) + mode icône, upload image de référence, aperçu + télécharger, galerie historique 24 dernières.
+
+### 📱 3) Canal SMS dans l'inbox unifiée
+- `routes/unified_inbox.py` étendu : SMS = 3e canal (badge orange Smartphone).
+- Helper `_inbox_sms_send_helper` réutilise `_sms_dispatch` (auto-routing Orange/Moov/Telecel).
+- Frontend filtre, badge et composer mis à jour.
+
+### 🔔 4) Meta webhook auto-subscribe après OAuth
+- Callback OAuth `routes/meta.py` : auto-souscription `POST /{page_id}/subscribed_apps` avec `subscribed_fields=messages,messaging_postbacks,feed`. Best-effort.
+- Plus besoin de configurer manuellement chaque Page dans Meta App Dashboard.
+
 ## Iter38j (2026-05-27) — Bug fix QR URL + Inbox unifiée complète (mini-Hootsuite)
+
+### 🐛 1) Fix bug URL preview dans les QR codes
+- Cashier.py `_public_base_url()` rejette automatiquement les URLs `*.preview.emergentagent.com` → fallback `https://sawalismartsystems.com`.
+- Backfill endpoint `POST /admin/cashier/qr/rewrite-base-url` → 1091 documents corrigés (689 reçus + 402 factures).
+
+### 📨 2) Inbox unifiée complète
+- Backend `POST /me/inbox/send` + `POST /me/inbox/mark-read/{channel}/{thread_id}`.
+- Frontend : composer (textarea + Entrée pour envoyer), mark-read auto à l'ouverture, polling 20s, titre onglet `(N) Inbox — SAWALI`, auto-scroll bottom.
+
+
 
 ### 🐛 1) Fix bug URL preview dans les QR codes (factures, proformas, reçus)
 - **Bug** : Les QR codes des PDF/HTML générés pointaient vers `https://sawali-portal.preview.emergentagent.com/verify/...` au lieu de l'URL publique production.

@@ -335,6 +335,27 @@ def setup_meta_routes(
             "category": p.get("category"),
             "subscribed_messenger": False,
         } for p in (pages_resp.get("data") or []) if p.get("access_token")]
+
+        # Iter38k — Auto-subscribe each Page to Messenger + feed webhooks.
+        # Best-effort: errors are logged but never break the OAuth flow.
+        async with httpx.AsyncClient(timeout=20.0) as c:
+            ms = await _get_meta_settings()
+            for page in pages_docs:
+                try:
+                    sub = await c.post(
+                        f"{GRAPH_BASE}/{ms['meta_graph_version']}/{page['page_id']}/subscribed_apps",
+                        params={
+                            "access_token": page["page_access_token"],
+                            "subscribed_fields": "messages,messaging_postbacks,feed",
+                        },
+                    )
+                    if sub.status_code < 400:
+                        page["subscribed_messenger"] = True
+                    else:
+                        logger.warning("[meta-oauth] subscribe failed for %s: %s", page["page_id"], sub.text[:200])
+                except Exception as exc:
+                    logger.warning("[meta-oauth] subscribe error for %s: %s", page["page_id"], exc)
+
         ads_docs = [{
             "id": a["id"], "name": a.get("name"),
             "status": a.get("account_status"), "currency": a.get("currency"),

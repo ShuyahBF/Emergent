@@ -817,33 +817,9 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         return {"ok": True}
 
     # ----------------------------------------------------------------
-    # Iter38e (B.3) — AI icon generation (Gemini Nano Banana).
-    # Returns the same shape as /me/upload so the frontend can plug-and-play.
-    # Gracefully degrades to 503 when emergentintegrations or the LLM key
-    # are unavailable. Requires supervisor+.
+    # NOTE Iter38k — `/cashier/products/generate-icon` is now implemented in
+    # routes/ai_media.py (real Gemini Nano Banana call via Emergent LLM Key).
     # ----------------------------------------------------------------
-    @router.post("/cashier/products/generate-icon")
-    async def generate_product_icon(payload: dict = Body(...), user: dict = Depends(get_current_supervisor)):
-        prompt = (payload or {}).get("prompt", "").strip()
-        if not prompt or len(prompt) < 3:
-            raise HTTPException(status_code=400, detail="Un prompt descriptif (≥ 3 caractères) est requis")
-        # Best-effort: try emergentintegrations Gemini image generation.
-        try:
-            import os as _os
-            key = _os.environ.get("EMERGENT_LLM_KEY")
-            if not key:
-                raise HTTPException(status_code=503, detail="Génération IA non configurée (EMERGENT_LLM_KEY manquant)")
-            # We intentionally avoid coupling cashier.py to a specific LLM SDK.
-            # Until the dedicated integration playbook is wired (see ROADMAP),
-            # we return 503 with a clear message so the UI can guide the user.
-            raise HTTPException(
-                status_code=503,
-                detail="Génération IA d'icônes : intégration Gemini Nano Banana en attente de configuration. Téléversez manuellement pour le moment.",
-            )
-        except HTTPException:
-            raise
-        except Exception as exc:  # noqa: BLE001
-            raise HTTPException(status_code=503, detail=f"Génération IA indisponible: {str(exc)[:120]}")
 
     # ----------------------------------------------------------------
     # Payment methods (admin-only CRUD; everyone can list active)

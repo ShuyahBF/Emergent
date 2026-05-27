@@ -39,8 +39,14 @@ GEMINI_MODEL = "gemini-3.1-flash-image-preview"
 class GenerateImagePayload(BaseModel):
     prompt: str = Field(..., min_length=3, max_length=2000)
     aspect: str = Field("square", pattern="^(square|portrait|landscape)$")
-    # When True, the caller gets a transparent-background icon optimized prompt
     icon_mode: bool = False
+
+
+class GenerateVideoPayload(BaseModel):
+    prompt: str = Field(..., min_length=3, max_length=2000)
+    duration: int = Field(4, description="4, 8, or 12 seconds")
+    size: str = Field("1280x720", pattern="^(1280x720|1792x1024|1024x1792|1024x1024)$")
+    model: str = Field("sora-2", pattern="^(sora-2|sora-2-pro)$")
 
 
 def _safe_slug(text: str, n: int = 24) -> str:
@@ -170,6 +176,52 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         return {"ok": True, "url": saved["url"], "public_url": saved["url"], "filename": saved["filename"]}
 
     # ---------------------------------------------------------------------
+    # 2-bis) Sora 2 — text-to-video. Long-running (2-5 min typical).
+    # ---------------------------------------------------------------------
+    @api.post("/me/ai/generate-video", tags=["Portail Client — IA"])
+    async def generate_video(payload: GenerateVideoPayload, user: dict = Depends(get_current_user)):
+        if not api_key:
+            raise HTTPException(status_code=503, detail="Service IA non configuré (EMERGENT_LLM_KEY manquant).")
+        if payload.duration not in (4, 8, 12):
+            raise HTTPException(status_code=400, detail="duration doit être 4, 8 ou 12.")
+        try:
+            from emergentintegrations.llm.openai.video_generation import OpenAIVideoGeneration
+        except ImportError as exc:
+            raise HTTPException(status_code=503, detail=f"Bibliothèque vidéo IA absente : {exc}") from exc
+        tid = await _tenant_id(user)
+        tenant_dir = UPLOAD_ROOT / (tid or "_global")
+        tenant_dir.mkdir(parents=True, exist_ok=True)
+        slug = _safe_slug(payload.prompt)
+        fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.mp4"
+        target = tenant_dir / fname
+        try:
+            gen = OpenAIVideoGeneration(api_key=api_key)
+            import asyncio as _asyncio
+            video_bytes = await _asyncio.to_thread(
+                gen.text_to_video,
+                prompt=payload.prompt, model=payload.model,
+                size=payload.size, duration=payload.duration,
+                max_wait_time=900 if payload.duration == 12 or payload.model == "sora-2-pro" else 600,
+            )
+        except Exception as exc:
+            logger.exception("[ai-gen-video] failure")
+            raise HTTPException(status_code=502, detail=f"Génération vidéo en échec : {str(exc)[:160]}") from exc
+        if not video_bytes:
+            raise HTTPException(status_code=502, detail="Aucune vidéo générée. Reformulez le prompt.")
+        target.write_bytes(video_bytes)
+        public_url = f"/api/files/ai/{tid}/{fname}"
+        await db.ai_generations.insert_one({
+            "id": secrets.token_urlsafe(12),
+            "tenant_id": tid, "user_id": user.get("id"),
+            "prompt": payload.prompt, "kind": "video",
+            "duration": payload.duration, "size": payload.size,
+            "url": public_url,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "model": payload.model,
+        })
+        return {"ok": True, "url": public_url, "public_url": public_url, "filename": fname}
+
+    # ---------------------------------------------------------------------
     # 3) History (recent generations, current tenant)
     # ---------------------------------------------------------------------
     @api.get("/me/ai/history", tags=["Portail Client — IA"])
@@ -178,7 +230,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         items = await db.ai_generations.find(
             {"tenant_id": tid},
             {"_id": 0, "id": 1, "prompt": 1, "url": 1, "icon_mode": 1, "aspect": 1,
-             "edited_from": 1, "created_at": 1, "model": 1},
+             "edited_from": 1, "created_at": 1, "model": 1, "kind": 1, "duration": 1, "size": 1},
         ).sort("created_at", -1).to_list(min(max(limit, 1), 100))
         return {"items": items}
 
@@ -193,7 +245,8 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         target = UPLOAD_ROOT / tenant_id / filename
         if not target.exists():
             raise HTTPException(status_code=404, detail="Fichier introuvable")
-        return FileResponse(target, media_type="image/png")
+        media_type = "video/mp4" if filename.lower().endswith(".mp4") else "image/png"
+        return FileResponse(target, media_type=media_type)
 
     # ---------------------------------------------------------------------
     # 5) Cashier product icon (replaces the previous 503 stub).

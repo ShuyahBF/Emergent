@@ -52,6 +52,42 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 - Top 10 clients consommateurs SMS
 - Coût estimé (à raison de tarifs configurables admin par provider)
 
+### 🟧 P1 — Backlog 2026-05-27 (4 points utilisateur)
+
+**P1.1 — Onglet "Jours fériés" dans configuration paie (GRH)**
+- Ajouter un onglet "Jours fériés" dans le module GRH/HR (à côté de Personnel, Salaires, Taxes, Absences, etc.)
+- CRUD liste de jours fériés : date, libellé, type (national/religieux/local), payé/non payé.
+- Bouton "Importer les fêtes de l'année" qui peuple automatiquement la liste pour l'année en cours selon le pays défini dans `tenant_meta.company_country` (défaut Burkina Faso).
+- Liste **éditable** : possibilité de modifier les dates en cours d'année (les fêtes musulmanes mobiles bougent chaque année).
+- Pré-peupler avec les jours fériés du Burkina Faso connus : 1er janvier (Nouvel an), 11 mars (Soulèvement populaire 1966 — selon source), 1er mai (Fête du travail), 5 août (Indépendance), 15 août (Assomption), 1er novembre (Toussaint), 11 décembre (Proclamation République), 25 décembre (Noël), + fêtes musulmanes mobiles (Aïd el-Fitr, Aïd el-Kébir, Mawlid).
+- Backend : nouvelle collection `hr_holidays` + endpoints `GET/POST/PATCH/DELETE /api/hr/holidays`.
+- Impact paie : si un employé prend une absence sur un jour férié, soit ne pas le déduire, soit le surligner dans la fiche.
+
+**P1.2 — Dépenses caisse : tiers OU employé**
+- Modifier le module Caisse → Dépenses pour permettre de choisir entre "Tiers libre" et "Employé" lors de la création.
+- Si "Employé" : dropdown des employés du tenant (réutiliser le composant déjà créé dans `HumanResources.jsx`).
+- Quand l'expense est créée pour un employé et qu'elle dépasse le délai de justification (72h) :
+  - ✅ Rappel dans le chat direct (DÉJÀ FAIT — Iter38c)
+  - ➕ Ajouter le rappel sur **l'écran de bienvenue** de l'utilisateur (dashboard portail)
+  - ➕ Ajouter le rappel sur **son chat direct** (notification badge dans la sidebar Chat)
+- Backend : étendre `cashier_expenses` collection avec champ `employee_id` (FK vers hr_employees) + endpoint qui retourne la liste des dépenses en retard pour `user_id` courant.
+
+**P1.3 — Aperçu/Relance message WhatsApp pour Reçus/Factures/Proformas**
+- Sur chaque ligne reçu/facture/proforma dans CashBilling.jsx (et ReceiptPrint.jsx / InvoicePrint.jsx), ajouter un bouton "📩 Aperçu envoi WhatsApp" qui ouvre un modal montrant :
+  - Module utilisé (WhatsApp Cloud API / fallback wa.me)
+  - Numéro destinataire (E.164)
+  - Statut dernier envoi (OK / KO + erreur)
+  - Date du dernier envoi
+  - Preview du message (template name + variables, ou texte)
+  - **Bouton "Renvoyer le message"** si non-distribué ou destinataire se plaint
+- Accessible aux rôles : Admin, Superviseur, et **Caissier** (nouveau — actuellement seulement Admin/Superviseur).
+- Backend : étendre l'endpoint `GET /api/cashier/receipts/{id}` et `GET /api/cashier/invoices/{id}` pour inclure `whatsapp_last_*` fields (déjà persistés via Iter38e B.1). Ajouter endpoint `POST /api/cashier/receipts/{id}/resend-whatsapp` (idempotent).
+
+**P1.4 — (déjà fait, juste à confirmer)**
+- ~~Fix bug ArrowDown not defined dans UnifiedInbox.jsx~~ ✅ FAIT (Iter38l)
+- ~~Fix dropdown "Comptable" manquant dans AdminTrackedUsers + AdminContacts~~ ✅ FAIT (Iter38l)
+- ~~Implémentation Sora 2 (génération vidéo) dans MediaGenerator~~ ✅ FAIT (Iter38l)
+
 ### 🟧 P0 — Refactor `server.py`
 - Découpage en `/app/backend/routes/` : `auth.py`, `admin.py`, `me.py`, `public.py`, `webhooks.py`, `payments.py`, `sms.py`, `whatsapp.py`, `dashboard.py`, `formations.py`…
 - Actuellement >19 300 lignes — devient critique pour maintenabilité.

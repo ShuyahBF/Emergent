@@ -5,20 +5,25 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Sparkles, Image as ImageIcon, Video, Wand2, Loader2, Download, RefreshCw, Upload, X, History } from "lucide-react";
+import { Sparkles, Image as ImageIcon, Video, Wand2, Loader2, Download, RefreshCw, Upload, X, History, Clapperboard } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
 export default function MediaGenerator() {
+  const [tab, setTab] = useState("image"); // 'image' | 'video'
   const [prompt, setPrompt] = useState("");
   const [aspect, setAspect] = useState("square");
   const [iconMode, setIconMode] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [current, setCurrent] = useState(null); // {url}
+  const [current, setCurrent] = useState(null); // {url, kind}
   const [history, setHistory] = useState([]);
   const [refFile, setRefFile] = useState(null);
   const refInputRef = useRef(null);
+  // Video state
+  const [videoDuration, setVideoDuration] = useState(4);
+  const [videoSize, setVideoSize] = useState("1280x720");
+  const [videoModel, setVideoModel] = useState("sora-2");
 
   const loadHistory = useCallback(async () => {
     try {
@@ -33,18 +38,26 @@ export default function MediaGenerator() {
     setBusy(true); setCurrent(null);
     try {
       let r;
-      if (refFile) {
+      if (tab === "video") {
+        r = await apiClient.post("/me/ai/generate-video", {
+          prompt: prompt.trim(), duration: videoDuration, size: videoSize, model: videoModel,
+        }, { timeout: 900000 });
+        setCurrent({ url: r.data?.url, kind: "video" });
+        toast.success("Vidéo générée !");
+      } else if (refFile) {
         const form = new FormData();
         form.append("prompt", prompt.trim());
         form.append("file", refFile);
         r = await apiClient.post("/me/ai/edit-image", form, { headers: { "Content-Type": "multipart/form-data" } });
+        setCurrent({ url: r.data?.url, kind: "image" });
+        toast.success("Image générée !");
       } else {
         r = await apiClient.post("/me/ai/generate-image", {
           prompt: prompt.trim(), aspect, icon_mode: iconMode,
         });
+        setCurrent({ url: r.data?.url, kind: "image" });
+        toast.success("Image générée !");
       }
-      setCurrent({ url: r.data?.url });
-      toast.success("Image générée !");
       loadHistory();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Génération échouée");
@@ -68,9 +81,22 @@ export default function MediaGenerator() {
           <Wand2 className="h-5 w-5 text-sawali-blue" /> Générateur d'Images IA
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Décrivez ce que vous voulez ; <strong>Gemini Nano Banana</strong> crée l'image pour vous en quelques secondes.
-          Téléversez une image de référence pour la <em>retravailler</em>.
+          Décrivez ce que vous voulez ; <strong>Gemini Nano Banana</strong> crée l'image ou <strong>Sora 2</strong> crée la vidéo en quelques secondes.
         </p>
+      </div>
+
+      {/* Tabs image / video */}
+      <div className="flex gap-2 border-b border-slate-200">
+        <button onClick={() => setTab("image")}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "image" ? "border-sawali-blue text-sawali-blue" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          data-testid="mediagen-tab-image">
+          <ImageIcon className="h-4 w-4" /> Image (Nano Banana)
+        </button>
+        <button onClick={() => setTab("video")}
+          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "video" ? "border-violet-600 text-violet-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+          data-testid="mediagen-tab-video">
+          <Clapperboard className="h-4 w-4" /> Vidéo (Sora 2)
+        </button>
       </div>
 
       {/* Composer */}
@@ -86,21 +112,49 @@ export default function MediaGenerator() {
           />
 
           <div className="flex flex-wrap gap-3 items-center">
-            <label className="text-xs text-slate-500">Format :</label>
-            <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
-              {[["square", "Carré"], ["portrait", "Portrait"], ["landscape", "Paysage"]].map(([v, l]) => (
-                <button key={v} onClick={() => setAspect(v)}
-                  className={`px-3 py-1.5 ${aspect === v ? "bg-sawali-blue text-white" : "bg-white hover:bg-slate-50 text-slate-700"}`}
-                  data-testid={`mediagen-aspect-${v}`}>{l}</button>
-              ))}
-            </div>
-            <label className="flex items-center gap-2 text-xs text-slate-600">
-              <input type="checkbox" checked={iconMode} onChange={(e) => setIconMode(e.target.checked)} data-testid="mediagen-iconmode" />
-              Mode icône / pictogramme
-            </label>
+            {tab === "image" ? (
+              <>
+                <label className="text-xs text-slate-500">Format :</label>
+                <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+                  {[["square", "Carré"], ["portrait", "Portrait"], ["landscape", "Paysage"]].map(([v, l]) => (
+                    <button key={v} onClick={() => setAspect(v)}
+                      className={`px-3 py-1.5 ${aspect === v ? "bg-sawali-blue text-white" : "bg-white hover:bg-slate-50 text-slate-700"}`}
+                      data-testid={`mediagen-aspect-${v}`}>{l}</button>
+                  ))}
+                </div>
+                <label className="flex items-center gap-2 text-xs text-slate-600">
+                  <input type="checkbox" checked={iconMode} onChange={(e) => setIconMode(e.target.checked)} data-testid="mediagen-iconmode" />
+                  Mode icône / pictogramme
+                </label>
+              </>
+            ) : (
+              <>
+                <label className="text-xs text-slate-500">Durée :</label>
+                <div className="flex rounded-lg border border-slate-300 overflow-hidden text-xs">
+                  {[4, 8, 12].map((d) => (
+                    <button key={d} onClick={() => setVideoDuration(d)}
+                      className={`px-3 py-1.5 ${videoDuration === d ? "bg-violet-600 text-white" : "bg-white hover:bg-slate-50 text-slate-700"}`}
+                      data-testid={`mediagen-duration-${d}`}>{d}s</button>
+                  ))}
+                </div>
+                <select value={videoSize} onChange={(e) => setVideoSize(e.target.value)}
+                  className="text-xs px-2 py-1.5 border border-slate-300 rounded-lg" data-testid="mediagen-video-size">
+                  <option value="1280x720">720p paysage (1280x720)</option>
+                  <option value="1024x1024">Carré (1024x1024)</option>
+                  <option value="1024x1792">Portrait (1024x1792)</option>
+                  <option value="1792x1024">Large (1792x1024)</option>
+                </select>
+                <select value={videoModel} onChange={(e) => setVideoModel(e.target.value)}
+                  className="text-xs px-2 py-1.5 border border-slate-300 rounded-lg" data-testid="mediagen-video-model">
+                  <option value="sora-2">Sora 2 (rapide)</option>
+                  <option value="sora-2-pro">Sora 2 Pro (qualité)</option>
+                </select>
+              </>
+            )}
           </div>
 
-          {/* Reference image */}
+          {/* Reference image (image mode only) */}
+          {tab === "image" && (
           <div className="pt-2 border-t border-slate-100">
             <label className="text-xs text-slate-500">Image de référence (optionnel — pour image-to-image)</label>
             <div className="flex items-center gap-3 mt-1">
@@ -118,12 +172,19 @@ export default function MediaGenerator() {
               )}
             </div>
           </div>
+          )}
+
+          {tab === "video" && (
+            <p className="text-[11px] text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+              ⏱️ La génération vidéo prend généralement <strong>2 à 5 minutes</strong>. Restez sur la page.
+            </p>
+          )}
 
           <button onClick={generate} disabled={busy || !prompt.trim()}
-            className="w-full inline-flex items-center justify-center gap-2 bg-gradient-to-r from-violet-600 to-pink-600 hover:opacity-90 disabled:opacity-50 text-white px-4 py-3 rounded-lg font-medium"
+            className={`w-full inline-flex items-center justify-center gap-2 ${tab === "video" ? "bg-gradient-to-r from-violet-700 to-fuchsia-700" : "bg-gradient-to-r from-violet-600 to-pink-600"} hover:opacity-90 disabled:opacity-50 text-white px-4 py-3 rounded-lg font-medium`}
             data-testid="mediagen-generate-btn">
             {busy ? <Loader2 className="h-5 w-5 animate-spin" /> : <Sparkles className="h-5 w-5" />}
-            {busy ? "Génération… (5-10 s)" : "Générer l'image"}
+            {busy ? (tab === "video" ? "Génération vidéo… (2-5 min)" : "Génération… (5-10 s)") : (tab === "video" ? "Générer la vidéo" : "Générer l'image")}
           </button>
         </div>
 
@@ -136,24 +197,22 @@ export default function MediaGenerator() {
             </div>
           ) : current ? (
             <div className="relative w-full h-full">
-              <img src={fullUrl(current.url)} alt="Generated" className="w-full h-full object-contain" data-testid="mediagen-current-img" />
+              {current.kind === "video" ? (
+                <video src={fullUrl(current.url)} controls autoPlay className="w-full h-full object-contain" data-testid="mediagen-current-video" />
+              ) : (
+                <img src={fullUrl(current.url)} alt="Generated" className="w-full h-full object-contain" data-testid="mediagen-current-img" />
+              )}
               <a href={fullUrl(current.url)} download className="absolute bottom-3 right-3 inline-flex items-center gap-1 bg-white/90 hover:bg-white text-slate-700 px-3 py-1.5 rounded-lg text-xs shadow">
                 <Download className="h-3.5 w-3.5" /> Télécharger
               </a>
             </div>
           ) : (
             <div className="text-center text-slate-400 px-4">
-              <ImageIcon className="h-12 w-12 mx-auto mb-2" />
-              <p className="text-sm">L'image générée apparaîtra ici</p>
+              {tab === "video" ? <Video className="h-12 w-12 mx-auto mb-2" /> : <ImageIcon className="h-12 w-12 mx-auto mb-2" />}
+              <p className="text-sm">{tab === "video" ? "La vidéo générée apparaîtra ici" : "L'image générée apparaîtra ici"}</p>
             </div>
           )}
         </div>
-      </div>
-
-      {/* Video placeholder — Sora 2 plus tard */}
-      <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-4 text-center text-xs text-slate-500">
-        <Video className="h-4 w-4 inline mr-1 text-slate-400" />
-        Génération <strong>vidéo</strong> (Sora 2) à venir dans une prochaine itération.
       </div>
 
       {/* History */}
@@ -171,10 +230,19 @@ export default function MediaGenerator() {
         ) : (
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {history.map((h) => (
-              <button key={h.id} onClick={() => setCurrent({ url: h.url })}
-                title={h.prompt} className="aspect-square overflow-hidden rounded-lg ring-1 ring-slate-200 bg-slate-100 hover:ring-2 hover:ring-violet-500 transition"
+              <button key={h.id} onClick={() => setCurrent({ url: h.url, kind: h.kind || "image" })}
+                title={h.prompt} className="aspect-square overflow-hidden rounded-lg ring-1 ring-slate-200 bg-slate-100 hover:ring-2 hover:ring-violet-500 transition relative"
                 data-testid={`mediagen-hist-${h.id}`}>
-                <img src={fullUrl(h.url)} alt={h.prompt} className="w-full h-full object-cover" loading="lazy" />
+                {h.kind === "video" ? (
+                  <>
+                    <video src={fullUrl(h.url)} muted className="w-full h-full object-cover" />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/30">
+                      <Clapperboard className="h-6 w-6 text-white" />
+                    </span>
+                  </>
+                ) : (
+                  <img src={fullUrl(h.url)} alt={h.prompt} className="w-full h-full object-cover" loading="lazy" />
+                )}
               </button>
             ))}
           </div>

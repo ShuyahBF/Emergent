@@ -4,7 +4,7 @@ import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "l
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable"];
 const empty = { client_id: "", name: "", email: "", phone: "", whatsapp_number: "", role: "Consultation", department: "", company: "", status: "active" };
 
 export default function AdminTrackedUsers() {

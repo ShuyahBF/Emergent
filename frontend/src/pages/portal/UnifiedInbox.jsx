@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone } from "lucide-react";
+import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {

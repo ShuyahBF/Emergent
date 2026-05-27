@@ -3,7 +3,7 @@ import { apiClient } from "@/lib/api";
 import { UserPlus, Check, X } from "lucide-react";
 import { toast } from "sonner";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable"];
 
 export default function AdminContacts() {
   const [items, setItems] = useState([]);

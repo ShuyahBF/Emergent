@@ -6,6 +6,7 @@ import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
+import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -349,6 +350,7 @@ export default function AdminSettings() {
 
       <CountryPrefixSection />
       <PayrollWebhooksSection />
+      <MetaConfigSection />
 
       {/* Iter38c — Cashier expense justification deadline */}
       <Section icon={CreditCard} title="Caisse — Délai de justification des dépenses">

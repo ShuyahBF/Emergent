@@ -112,6 +112,7 @@ import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
 import CashBilling from "@/pages/portal/CashBilling";
 import HumanResources from "@/pages/portal/HumanResources";
+import MetaIntegration from "@/pages/portal/MetaIntegration";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
 import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
@@ -200,6 +201,7 @@ export default function App() {
             <Route path="billing/invoice/:id" element={<InvoicePrint />} />
             <Route path="catalog" element={<CashBilling defaultTab="catalog" />} />
             <Route path="hr" element={<HumanResources />} />
+            <Route path="meta" element={<MetaIntegration />} />
             <Route path="tickets" element={<Tickets />} />
           </Route>
 

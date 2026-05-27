@@ -8,7 +8,45 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
-## Iter38g (2026-05-27) — Meta-OG + Toggles Intégration Meta
+## Iter38h (2026-05-27) — Implémentation Meta Graph API complète
+
+### 🏛️ 1) Module backend `routes/meta.py`
+- Nouveau module FastAPI (~470 lignes) : OAuth Facebook Login, Pages API, Messenger Platform, Marketing API, Webhook avec validation HMAC SHA256.
+- Endpoints : 16 routes au total (admin config, OAuth, status, pages CRUD, messenger conversations+send, ads accounts+insights+campaigns, webhook GET+POST).
+- Gating multi-tenant strict : chaque endpoint vérifie `tenant_features.meta_pages/meta_messenger/meta_ads` avant de toucher Graph API → 403 sinon.
+- Stockage : `db.meta_integrations` (1 doc par tenant avec user_token, pages, ads_accounts), `db.meta_messenger_messages` (inbox webhook), `db.meta_webhook_events` (autres événements).
+- Sécurité : HMAC SHA256 sur webhook + signature de state OAuth + ttl 10 min sur state.
+
+### ⚙️ 2) Configuration admin Meta App
+- Nouvelle section `MetaConfigSection` extraite dans `/app/frontend/src/pages/admin/sections/MetaConfigSection.jsx` (~150 lignes, autonome).
+- Affichée dans Admin Settings (anchor `s-meta-integration`).
+- Champs : App ID, App Secret (masqué, vide = conserver), Verify Token Webhook, Graph version (défaut `v20.0`), Redirect URI auto-rempli.
+- Bouton copier pour Redirect URI + URL Webhook (à coller dans Meta App Dashboard).
+- Bandeau jaune avec les 5 étapes à suivre côté Meta (créer l'App, activer produits, configurer OAuth, configurer Webhook, demander permissions en App Review).
+
+### 🌐 3) Page Portail `/portal/meta`
+- Composant `MetaIntegration.jsx` (~360 lignes) avec 3 onglets gating-aware :
+  - **Pages** : sélection de Page, lister derniers posts (avec réactions/commentaires), composer un nouveau post (texte + lien), publier une photo (URL).
+  - **Messenger** : sélection de Page, lister conversations récentes avec participant + dernier message + horodatage.
+  - **Ads** : sélection compte publicitaire + preset date, cartes statistiques (Impressions, Clics, Dépenses, Portée, CTR, CPC).
+- Bouton "Connecter Facebook" → flow OAuth (popup Meta) ; "Déconnecter" pour révoquer.
+- Retour OAuth via `?cb=1&status=success/error` : toast + reload du status.
+
+### 🧭 4) Sidebar + routes
+- Nouvelle entrée sidebar "Meta (Facebook/Messenger/Ads)" visible uniquement si au moins une feature Meta est activée (ou si admin/superviseur).
+- Route React `/portal/meta` ajoutée dans `App.js`.
+
+### ✅ 5) Tests pytest
+- 11/11 tests passent : `tests/test_iter38h_meta.py` couvre :
+  - Admin config GET/PUT (avec préservation des secrets si champ vide)
+  - Status tenant par défaut (3 features OFF, connected=false)
+  - OAuth URL 403 sans features activées
+  - Pages endpoint 403 sans features
+  - Webhook GET avec/sans bon verify token
+  - Webhook POST avec mauvaise/bonne signature HMAC
+  - Disconnect idempotent
+
+
 
 ### 🌐 1) Open Graph (preview riche social)
 - `index.html` : meta-tags par défaut (og:type, og:site_name, og:title, og:description, og:image, twitter:card) avec logo SAWALI comme image partagée.
@@ -22,7 +60,20 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 - Section "SMART COMMUNICATIONS" / Fiche Client lié → onglet Features : 3 toggles ON/OFF — Meta Pages Facebook, Meta Messenger, Meta Ads Manager.
 - Lorsque OFF (défaut) : aucun module Meta dans le portail utilisateur. Lorsque ON : module accessible (l'implémentation OAuth + API Meta complète sera dans Iter38h+ via playbook).
 
-## Iter38f (2026-05-27) — Auto-sync CHANGELOG + Catalogue public
+## Iter38f (2026-05-27) — Auto-sync CHANGELOG + Catalogue public + Meta-OG + Toggles Meta
+
+> Note : iter38g (Meta-OG + toggles) a été fusionnée dans cette section après remaniement.
+
+### 🌐 1) Open Graph (preview riche social)
+- `index.html` : meta-tags par défaut (og:type, og:site_name, og:title, og:description, og:image, twitter:card).
+- Backend `GET /api/public/og/product/{id}` : sert un HTML statique avec OG tags spécifiques au produit, auto-redirect humain vers `/catalogue`.
+- Bouton "Partager" sur chaque card catalogue (`navigator.share()` ou clipboard).
+
+### 🏢 2) Toggles Meta dans SMART COMMUNICATIONS
+- 3 nouveaux feature flags `meta_pages`, `meta_messenger`, `meta_ads`.
+- Visibles dans `AdminClientFeatures.jsx` (fiche Client lié → Features).
+
+
 
 
 ### 🔁 1) Auto-sync CHANGELOG → roadmap_actions

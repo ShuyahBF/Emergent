@@ -40,6 +40,9 @@ const clientLinks = [
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
+  // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
+  // least one of the three meta_* features is enabled for the tenant.
+  { to: "/portal/meta", label: "Meta (Facebook/Messenger/Ads)", icon: MessageCircle, metaOnly: true },
   { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
@@ -88,6 +91,14 @@ export default function PortalLayout({ admin = false }) {
   // Iter35o — Pending tickets count is fetched from a dedicated endpoint
   // (count is per-client scope, not "unseen" semantics like other badges).
   const [ticketsPending, setTicketsPending] = useState(0);
+  // Iter38h — Tenant meta features (loaded from /me/features)
+  const [metaEnabled, setMetaEnabled] = useState(false);
+  useEffect(() => {
+    apiClient.get("/me/features").then((r) => {
+      const f = r.data?.features || r.data || {};
+      setMetaEnabled(!!(f.meta_pages || f.meta_messenger || f.meta_ads));
+    }).catch(() => {});
+  }, []);
   const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
   const isSuperAdmin = (user?.email || "").toLowerCase() === "admin@sawalismartsystems.com";
   const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
@@ -99,6 +110,7 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
     .filter((l) => !l.cashOnly || canCash || isComptable)
     .filter((l) => !l.hrOnly || canHR)
+    .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page

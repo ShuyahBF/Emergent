@@ -3832,6 +3832,8 @@ SENSITIVE_SETTINGS_KEYS = {
     "sms_telecel_client_secret",
     "sms_ovh_application_secret", "sms_ovh_consumer_key",
     "pawapay_api_token",
+    # Iter38h — Meta App secrets (Pages + Messenger + Ads)
+    "meta_app_secret", "meta_webhook_verify_token",
 }
 SNAPSHOT_MASK = "***MASKED***"
 
@@ -5022,6 +5024,8 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     "public_base_url",
     # WhatsApp Business (non-secret but needed)
     "wa_business_account_id", "wa_phone_number_id", "wa_app_id", "wa_default_language",
+    # Iter38h — Meta App config (non-secret keys)
+    "meta_app_id", "meta_graph_version", "meta_redirect_uri",
     # SMTP (smtp_password is already in sensitive, add the rest)
     "smtp_host", "smtp_port", "smtp_user", "smtp_from_email", "smtp_use_tls",
     # Google OAuth & calendar (non-secret IDs)
@@ -19659,6 +19663,28 @@ _pwh_router = _make_payroll_webhooks_router(
     compute_payslip=_hr_router.compute_payslip,
 )
 api.include_router(_pwh_router)
+
+# =====================================================================
+# Iter38h — Meta Graph API integration (Pages + Messenger + Ads).
+# =====================================================================
+from routes.meta import setup_meta_routes as _setup_meta_routes  # noqa: E402
+
+async def _meta_save_settings(updates: dict) -> None:
+    """Persist a partial settings update under the singleton {_id:'global'} doc."""
+    if not updates:
+        return
+    await db.settings.update_one({"_id": "global"}, {"$set": updates}, upsert=True)
+
+_setup_meta_routes(
+    db=db,
+    api=api,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    get_settings_doc=_get_settings_doc,
+    save_settings=_meta_save_settings,
+    public_base_url_fn=_public_base_url,
+    _normalize_features=_normalize_features,
+)
 
 app.include_router(api)
 

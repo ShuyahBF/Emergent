@@ -3015,6 +3015,11 @@ DEFAULT_CLIENT_FEATURES = {
     "meta_pages": False,        # Facebook Pages management (publish posts, comments)
     "meta_messenger": False,    # Messenger inbox unified with WhatsApp inbox
     "meta_ads": False,          # Meta Ads Manager — campaign creation & monitoring
+    # Iter38o — AI media generation (Nano Banana images, Sora 2 videos).
+    # When OFF, calls to /api/me/ai/generate-image|edit-image|generate-video
+    # are rejected with 403. Default OFF (paid LLM credits).
+    "ai_image_gen": False,
+    "ai_video_gen": False,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -3251,6 +3256,9 @@ class ClientFeaturesUpdate(BaseModel):
     meta_pages: Optional[bool] = None
     meta_messenger: Optional[bool] = None
     meta_ads: Optional[bool] = None
+    # Iter38o — AI media generation toggles
+    ai_image_gen: Optional[bool] = None
+    ai_video_gen: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 
@@ -19773,6 +19781,11 @@ from routes.catalog_analytics import setup_catalog_analytics_routes as _setup_ca
 _CATALOG_ANALYTICS = _setup_catalog_analytics(
     db=db, api=api, get_current_user=get_current_user,
 )
+
+# Iter38o — Stripe Checkout for paid formations.
+from routes.payments_stripe import setup_stripe_routes as _setup_stripe_routes  # noqa: E402
+_setup_stripe_routes(db=db, api=api, get_current_user=get_current_user)
+
 app.include_router(api)
 
 

@@ -781,9 +781,22 @@ def make_router(*, db, get_current_user):
 
     async def _absence_hours_for_month(user: dict, employee_id: str, month: str) -> Dict[str, float]:
         """Aggregate absences for a given employee+month.
-        Returns {justified: float, unjustified: float, total: float}.
+        Returns {justified: float, unjustified: float, total: float, holiday: float}.
+
+        Iter38o — Absences whose date falls on a configured public holiday
+        (jour férié payé) are NOT counted as unjustified — they are reclassified
+        to a separate 'holiday' bucket so HR / payroll never deducts pay for them.
         """
         scope = await _scoped(user)
+        # Preload holiday dates for this month (set lookup, O(1))
+        tid = await _resolve_tenant_id(user)
+        holiday_dates = set()
+        async for h in db.hr_holidays.find({
+            "tenant_id": tid,
+            "date": {"$gte": f"{month}-01", "$lte": f"{month}-31"},
+            "is_paid": True,
+        }, {"_id": 0, "date": 1}):
+            holiday_dates.add(h["date"])
         cursor = db.hr_absences.find({
             **scope,
             "employee_id": employee_id,
@@ -791,13 +804,17 @@ def make_router(*, db, get_current_user):
         }, {"_id": 0})
         j = 0.0
         u = 0.0
+        holiday_hours = 0.0
         async for a in cursor:
             h = float(a.get("hours_count") or 0)
-            if a.get("is_justified"):
+            on_holiday = (a.get("start_date") or "")[:10] in holiday_dates
+            if on_holiday:
+                holiday_hours += h
+            elif a.get("is_justified"):
                 j += h
             else:
                 u += h
-        return {"justified": j, "unjustified": u, "total": j + u}
+        return {"justified": j, "unjustified": u, "holiday": holiday_hours, "total": j + u + holiday_hours}
 
     # ================================================================
     # Iter38b — Phase 5: Taxes (definitions)

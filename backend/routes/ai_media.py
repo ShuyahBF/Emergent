@@ -110,11 +110,36 @@ def setup_ai_media_routes(*, db, api, get_current_user):
     async def _tenant_id(user: dict) -> str:
         return user.get("client_id") or user.get("id")
 
+    async def _ensure_feature_enabled(user: dict, feature_key: str, label: str) -> None:
+        """Iter38o — Block AI generation if the client's feature flag is OFF.
+
+        Admin / Superviseur bypass this check (they manage the toggle themselves).
+        Features are stored on the OWNING CLIENT user document under the
+        `features` embedded dict. We resolve the client via parent_client_id
+        first (tracked users), then client_id, then the user himself.
+        """
+        role = (user or {}).get("role")
+        if role in ("admin", "superviseur"):
+            return
+        client_id = user.get("parent_client_id") or user.get("client_id") or user.get("id")
+        if not client_id:
+            return
+        client = await db.users.find_one(
+            {"id": client_id}, {"_id": 0, "features": 1}
+        ) or {}
+        feats = (client.get("features") or {}) if isinstance(client.get("features"), dict) else {}
+        if not bool(feats.get(feature_key, False)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Fonctionnalité « {label} » désactivée pour ce client. Contactez votre administrateur.",
+            )
+
     # ---------------------------------------------------------------------
     # 1) Generic text-to-image (used by /portal/media-generator)
     # ---------------------------------------------------------------------
     @api.post("/me/ai/generate-image", tags=["Portail Client — IA"])
     async def generate_image(payload: GenerateImagePayload, user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
         tid = await _tenant_id(user)
         # Augment the prompt with format hints
         prompt = payload.prompt.strip()
@@ -150,6 +175,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         file: UploadFile = File(...),
         user: dict = Depends(get_current_user),
     ):
+        await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
         tid = await _tenant_id(user)
         try:
             data = await file.read()
@@ -180,6 +206,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
     # ---------------------------------------------------------------------
     @api.post("/me/ai/generate-video", tags=["Portail Client — IA"])
     async def generate_video(payload: GenerateVideoPayload, user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_video_gen", "Génération Vidéo IA")
         if not api_key:
             raise HTTPException(status_code=503, detail="Service IA non configuré (EMERGENT_LLM_KEY manquant).")
         if payload.duration not in (4, 8, 12):

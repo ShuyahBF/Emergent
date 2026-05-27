@@ -8,6 +8,52 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38o (2026-05-27) — Backlog complet + Stripe + dépenses éditables
+
+### ✏️ 1) Édition des dépenses non clôturées
+- `PATCH /api/cashier/expenses/{eid}` : nouvelle gating — admin/sup peuvent toujours, créateur OU employé attribué peuvent éditer **tant que la dépense n'est pas justifiée**. Une fois clôturée (justifiée), seul l'admin peut modifier (force).
+- Frontend `ExpensesTab.jsx` : nouveau bouton crayon par ligne + nouveau modal `ExpenseEditForm` complet (date, mode, montant, motif, attribution tiers/employé, note). Bandeau informatif "Modification autorisée uniquement tant que non clôturée".
+
+### 🏝️ 2) Jours fériés excluent les heures déduites (paie)
+- `_absence_hours_for_month` retourne désormais 4 buckets : `justified`, `unjustified`, `holiday`, `total`. Les absences tombant sur un jour férié `is_paid=true` sont reclassifiées dans `holiday` et **ne sont JAMAIS déduites du salaire**.
+- Impact direct sur les fiches de paie : une journée prise pendant le 1er mai n'est plus pénalisée.
+
+### 🤖 3) Toggle Génération Image/Vidéo IA (Smart Communications)
+- 2 nouveaux feature flags client : `ai_image_gen` (Nano Banana) et `ai_video_gen` (Sora 2). Stockés dans `users.features` comme les autres, hérités par tous les utilisateurs suivis.
+- Backend `routes/ai_media.py` : nouveau helper `_ensure_feature_enabled()` qui bloque `/me/ai/generate-image`, `/me/ai/edit-image` et `/me/ai/generate-video` avec un 403 explicite quand le flag est OFF (admin/sup bypassent).
+- Frontend Admin → SMART Communications : 2 nouvelles cartes toggle "Génération d'Image IA" et "Génération de Vidéo IA".
+- Frontend `MediaGenerator.jsx` : lit `/me/features`, masque les onglets désactivés, affiche un bandeau "Génération IA désactivée pour ce client" si les deux flags sont OFF.
+
+### 🔔 4) Alerte demandes de devis non traitées (>10)
+- `GET /me/catalog/stats` retourne désormais `pending_quotes_alerts: [{product_id, product_name, pending_count, oldest_at}]` pour tout produit dépassant le seuil de 10 clics "Demander un devis" non traités.
+- Nouveau endpoint `POST /me/catalog/quotes/mark-treated` qui marque tous les clics non traités d'un produit comme traités (champ `treated_at` + `treated_by`).
+- Frontend `CatalogStats.jsx` : nouveau bandeau ambré au-dessus du tunnel, listant chaque produit en alerte avec bouton "Marquer traitées".
+
+### 📥 5) Export CSV événements catalogue
+- `GET /me/catalog/export.csv?days=N&event_type=` retourne un fichier CSV (séparateur `;`, encodage UTF-8) avec les 5000 derniers événements de la période. Colonnes : date, event_type, product_id, sku, name, referrer, user_agent (IP exclue).
+- Frontend `CatalogStats.jsx` : bouton "CSV" à côté du sélecteur de période, télécharge directement.
+
+### 💳 6) Stripe Checkout pour Formations Payantes
+- Nouveau module `routes/payments_stripe.py` qui expose 3 endpoints via `emergentintegrations.payments.stripe.checkout` (STRIPE_API_KEY=sk_test_emergent en .env) :
+  - `POST /me/formations/{fid}/stripe/checkout` — crée une session Stripe Checkout (montant lu côté serveur depuis `formations.price`, jamais frontend). XOF converti en EUR (655.957) car Stripe Checkout ne supporte pas XOF.
+  - `GET /payments/stripe/status/{session_id}` — polling status, crée l'enrollment de manière idempotente après confirmation.
+  - `POST /webhook/stripe` — handler webhook qui crée également l'enrollment idempotent.
+- Nouvelle collection `payment_transactions` `{session_id, kind, formation_id, user_id, amount, currency, amount_xof, payment_status, enrollment_created, ...}`.
+- Frontend `Formations.jsx` : bouton orange/ambré "Acheter (X XOF)" pour formations `access=paid`, redirige vers Stripe. Au retour, polling de 5×2s + bandeau succès/échec affiché en haut de `/portal/formations/{fid}?session_id=...`.
+
+### 🆕 7) Fix badge "Nouveau" pour sections Admin Settings extraites
+- `MetaConfigSection` et `PayrollWebhooksSection` étaient extraites dans des fichiers séparés sans wrapping `Filterable`, donc invisibles au système de bulles "NOUVEAU".
+- Fix : les 2 composants sont maintenant enveloppés dans `<Filterable title="...">` au point de mount dans `AdminSettings.jsx`, et leurs titres ajoutés à `NEW_SECTIONS` (badges 21 jours).
+
+### 🪟 8) Catalogue public en multi-colonnes responsive
+- Container élargi : `max-w-7xl` → `max-w-screen-2xl` (1280 → 1536px).
+- Grilles produits + brochures : `sm:grid-cols-2 lg:grid-cols-3` → `sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5`. Visuellement vérifié avec 2 produits : 2 colonnes confirmées sur écran HD.
+
+### ✅ Tests
+- 10 nouveaux pytest verts (`tests/test_iter38o_edit_holiday_ai_csv.py`) : édition créateur/admin/employé attribué, lock après justification, exclusion jours fériés, gating AI image/vidéo, bypass admin, CSV export, alertes pending quotes + mark-treated.
+- Test legacy `test_admin_can_edit_and_delete_only` mis à jour pour refléter la nouvelle gating.
+- Régression iter38 (a→o) : **105/105 verts**. Cashier (Iter36u→Iter37h) : **91/91 verts**.
+
 ## Iter38n (2026-05-27) — Cockpit Statistiques Catalogue (vues / partages / devis)
 
 ### 📊 1) Backend `routes/catalog_analytics.py`

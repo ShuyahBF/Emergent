@@ -17,7 +17,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   BarChart3, Eye, Share2, Sparkles, TrendingUp, RefreshCw,
-  ShoppingBag, Clock, History, Loader2, Filter,
+  ShoppingBag, Clock, History, Loader2, Filter, Download, AlertTriangle, CheckCircle2,
 } from "lucide-react";
 
 const fmtNum = (n) => Number(n || 0).toLocaleString("fr-FR");
@@ -136,6 +136,16 @@ export default function CatalogStats() {
             <option value={60}>60 jours</option>
             <option value={90}>90 jours</option>
           </select>
+          {/* Iter38o — CSV export */}
+          <a
+            href={`${process.env.REACT_APP_BACKEND_URL}/api/me/catalog/export.csv?days=${days}${eventFilter ? `&event_type=${eventFilter}` : ""}`}
+            target="_blank" rel="noreferrer"
+            className="px-3 py-2 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 rounded-lg text-sm flex items-center gap-1"
+            data-testid="catalog-stats-export-csv"
+            title="Télécharger les événements en CSV"
+          >
+            <Download size={14} /> CSV
+          </a>
           <button
             onClick={() => { loadStats(); loadHistory(); }}
             className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg"
@@ -187,6 +197,45 @@ export default function CatalogStats() {
               accent="bg-emerald-50 border-emerald-200 text-emerald-800"
             />
           </div>
+
+          {/* Iter38o — Pending quotes alert */}
+          {(stats.pending_quotes_alerts || []).length > 0 && (
+            <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-4 mb-6" data-testid="catalog-stats-pending-alerts">
+              <div className="flex items-center gap-2 mb-3">
+                <AlertTriangle className="text-amber-700" size={20} />
+                <h2 className="text-sm font-bold text-amber-900">
+                  {stats.pending_quotes_alerts.length} produit(s) avec demandes de devis non traitées (&gt;10)
+                </h2>
+              </div>
+              <div className="space-y-2">
+                {stats.pending_quotes_alerts.map((p) => (
+                  <div key={p.product_id} className="flex items-center justify-between bg-white rounded-lg p-3" data-testid={`pending-alert-${p.product_id}`}>
+                    <div className="flex-1">
+                      <div className="font-semibold text-slate-900">{p.product_name}</div>
+                      <div className="text-xs text-slate-500">
+                        SKU: {p.product_sku} · {p.pending_count} demande(s) en attente · plus ancienne : {fmtDate(p.oldest_at)}
+                      </div>
+                    </div>
+                    <button
+                      onClick={async () => {
+                        try {
+                          await apiClient.post("/me/catalog/quotes/mark-treated", { product_id: p.product_id });
+                          toast.success("Demandes marquées comme traitées");
+                          loadStats();
+                        } catch (err) {
+                          toast.error(err?.response?.data?.detail || "Erreur");
+                        }
+                      }}
+                      data-testid={`mark-treated-${p.product_id}`}
+                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-lg flex items-center gap-1"
+                    >
+                      <CheckCircle2 size={12} /> Marquer traitées
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Funnel */}
           <div className="bg-white rounded-xl border border-slate-200 p-5 mb-6" data-testid="catalog-stats-funnel">

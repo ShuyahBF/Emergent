@@ -24,6 +24,21 @@ export default function MediaGenerator() {
   const [videoDuration, setVideoDuration] = useState(4);
   const [videoSize, setVideoSize] = useState("1280x720");
   const [videoModel, setVideoModel] = useState("sora-2");
+  // Iter38o — Feature flags from /me/features
+  const [features, setFeatures] = useState(null);
+  useEffect(() => {
+    apiClient.get("/me/features")
+      .then((r) => setFeatures(r.data?.features || {}))
+      .catch(() => setFeatures({}));
+  }, []);
+  const aiImageEnabled = features === null ? true : !!features.ai_image_gen;
+  const aiVideoEnabled = features === null ? true : !!features.ai_video_gen;
+  // Auto-switch to a visible tab if current one is disabled
+  useEffect(() => {
+    if (features === null) return;
+    if (tab === "image" && !aiImageEnabled && aiVideoEnabled) setTab("video");
+    else if (tab === "video" && !aiVideoEnabled && aiImageEnabled) setTab("image");
+  }, [features, aiImageEnabled, aiVideoEnabled, tab]);
 
   const loadHistory = useCallback(async () => {
     try {
@@ -86,20 +101,36 @@ export default function MediaGenerator() {
       </div>
 
       {/* Tabs image / video */}
+      {features !== null && !aiImageEnabled && !aiVideoEnabled ? (
+        <div className="rounded-xl border-2 border-amber-300 bg-amber-50 p-6 text-center" data-testid="mediagen-feature-disabled">
+          <Wand2 className="h-10 w-10 text-amber-600 mx-auto mb-2" />
+          <p className="text-sm text-amber-900 font-semibold">Génération IA désactivée pour ce client.</p>
+          <p className="text-xs text-amber-700 mt-1">
+            Contactez votre administrateur pour activer "Génération d'Image IA" ou "Génération de Vidéo IA"
+            dans <em>SMART Communications</em>.
+          </p>
+        </div>
+      ) : (
       <div className="flex gap-2 border-b border-slate-200">
-        <button onClick={() => setTab("image")}
-          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "image" ? "border-sawali-blue text-sawali-blue" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          data-testid="mediagen-tab-image">
-          <ImageIcon className="h-4 w-4" /> Image (Nano Banana)
-        </button>
-        <button onClick={() => setTab("video")}
-          className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "video" ? "border-violet-600 text-violet-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
-          data-testid="mediagen-tab-video">
-          <Clapperboard className="h-4 w-4" /> Vidéo (Sora 2)
-        </button>
+        {aiImageEnabled && (
+          <button onClick={() => setTab("image")}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "image" ? "border-sawali-blue text-sawali-blue" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            data-testid="mediagen-tab-image">
+            <ImageIcon className="h-4 w-4" /> Image (Nano Banana)
+          </button>
+        )}
+        {aiVideoEnabled && (
+          <button onClick={() => setTab("video")}
+            className={`inline-flex items-center gap-2 px-4 py-2 text-sm font-medium border-b-2 transition ${tab === "video" ? "border-violet-600 text-violet-600" : "border-transparent text-slate-500 hover:text-slate-700"}`}
+            data-testid="mediagen-tab-video">
+            <Clapperboard className="h-4 w-4" /> Vidéo (Sora 2)
+          </button>
+        )}
       </div>
+      )}
 
       {/* Composer */}
+      {(aiImageEnabled || aiVideoEnabled) && (
       <div className="grid lg:grid-cols-[1fr_400px] gap-6">
         <div className="bg-white rounded-2xl border border-slate-200 p-5 space-y-3">
           <label className="text-xs text-slate-500">Description (prompt)</label>
@@ -214,6 +245,7 @@ export default function MediaGenerator() {
           )}
         </div>
       </div>
+      )}
 
       {/* History */}
       <div>

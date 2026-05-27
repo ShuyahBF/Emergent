@@ -20,6 +20,9 @@ import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // Iter38o (2026-05-27)
+  "Intégration Meta (Facebook / Messenger / Ads)": "2026-05-26",
+  "Webhooks Paie (n8n)": "2026-05-24",
   // Iter37h.A — Recently added (2026-05-24 → 2026-05-25)
   "Recalibrage des tenants Caisse/Facturation": "2026-05-24",
   "Briefing de bienvenue — Mode du compteur 'Non lus'": "2026-05-24",
@@ -349,8 +352,12 @@ export default function AdminSettings() {
       </Section>
 
       <CountryPrefixSection />
-      <PayrollWebhooksSection />
-      <MetaConfigSection />
+      <Filterable title="Webhooks Paie (n8n)" anchorId="s-webhooks-paie-n8n">
+        <PayrollWebhooksSection />
+      </Filterable>
+      <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
+        <MetaConfigSection />
+      </Filterable>
 
       {/* Iter38c — Cashier expense justification deadline */}
       <Section icon={CreditCard} title="Caisse — Délai de justification des dépenses">

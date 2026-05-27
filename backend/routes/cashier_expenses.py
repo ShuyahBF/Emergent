@@ -256,13 +256,45 @@ def make_router(*, db, get_current_user):
 
     @router.patch("/{eid}")
     async def update_expense(eid: str, payload: ExpenseUpdatePayload, user: dict = Depends(get_current_user)):
-        if not _is_admin(user):
-            raise HTTPException(status_code=403, detail="Seul l'administrateur peut modifier une dépense")
+        """Iter38o — Edit allowed if NOT justified (clôturée):
+        - admin/sup can always edit
+        - creator (created_by == me) can edit while not justified
+        - employee on whom the expense is attributed (employee_user_id == me)
+          can edit while not justified
+        Once justified ('clôturée'), only admin can edit (force).
+        """
         scope = await _scoped(user)
         exp = await db.cashier_expenses.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0})
         if not exp:
             raise HTTPException(status_code=404, detail="Dépense introuvable")
+        is_admin = _is_admin_or_sup(user)
+        is_creator = exp.get("created_by") == user["id"]
+        is_attributed = exp.get("employee_user_id") == user["id"]
+        if exp.get("is_justified"):
+            if not is_admin:
+                raise HTTPException(status_code=403, detail="Dépense clôturée — seul l'administrateur peut la modifier")
+        else:
+            if not (is_admin or is_creator or is_attributed):
+                raise HTTPException(status_code=403, detail="Vous ne pouvez modifier que vos propres dépenses non clôturées")
         updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        # If attribution_type changes to employee, ensure employee snapshot is refreshed
+        if updates.get("attribution_type") == "employee":
+            new_eid = updates.get("employee_id") or exp.get("employee_id")
+            if not new_eid:
+                raise HTTPException(status_code=400, detail="employee_id requis pour une attribution employé")
+            tid = await _resolve_tenant_id(user)
+            emp = await db.hr_employees.find_one(
+                {"tenant_id": tid, "id": new_eid, "deleted_at": None},
+                {"_id": 0, "id": 1, "user_id": 1, "name_snapshot": 1, "email_snapshot": 1},
+            )
+            if not emp:
+                raise HTTPException(status_code=404, detail="Employé introuvable")
+            updates["employee_user_id"] = emp.get("user_id")
+            updates["employee_name_snapshot"] = emp.get("name_snapshot") or emp.get("email_snapshot")
+        elif updates.get("attribution_type") == "third_party":
+            updates["employee_id"] = None
+            updates["employee_user_id"] = None
+            updates["employee_name_snapshot"] = None
         if not updates:
             return exp
         updates["updated_at"] = _now_iso()

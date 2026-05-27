@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -172,12 +172,29 @@ const FEATURE_META = [
     bg: "bg-blue-50",
     meta: true,
   },
+  // Iter38o — AI media generation toggles (Nano Banana + Sora 2)
+  {
+    key: "ai_image_gen",
+    label: "Génération d'Image IA (Nano Banana)",
+    description: "Active la génération de visuels IA via Gemini Nano Banana (icônes produits, illustrations marketing). Quand désactivé, le bouton de génération est masqué et les appels API retournent 403.",
+    icon: ImageIcon,
+    color: "text-fuchsia-600",
+    bg: "bg-fuchsia-50",
+  },
+  {
+    key: "ai_video_gen",
+    label: "Génération de Vidéo IA (Sora 2)",
+    description: "Active la génération vidéo IA via OpenAI Sora 2 (clips de 4 à 12 secondes). Quand désactivé, l'onglet vidéo est masqué et les appels API retournent 403.",
+    icon: Film,
+    color: "text-violet-600",
+    bg: "bg-violet-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

@@ -65,6 +65,11 @@ class CatalogTrackPayload(BaseModel):
     referrer: Optional[str] = Field(None, max_length=500)
 
 
+# Iter38o — Mark untreated quote-clicks for a product as treated.
+class MarkQuoteTreatedPayload(BaseModel):
+    product_id: str = Field(..., min_length=1, max_length=80)
+
+
 def setup_catalog_analytics_routes(*, db, api, get_current_user):
     """Wire the public + portal endpoints into the main API router."""
 
@@ -275,7 +280,39 @@ def setup_catalog_analytics_routes(*, db, api, get_current_user):
             "funnel": funnel,
             "top_products": top_products,
             "timeline": timeline,
+            "pending_quotes_alerts": await _compute_pending_alerts(scope),
         }
+
+    PENDING_QUOTES_THRESHOLD = 10  # Iter38o — Trigger alert at >10 untreated quote clicks per product
+
+    async def _compute_pending_alerts(scope: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Return products with > N untreated quote clicks (Iter38o)."""
+        match: Dict[str, Any] = {"event_type": "product_quote_click", "treated_at": None}
+        if scope:
+            match.update(scope)
+        pipeline = [
+            {"$match": match},
+            {"$group": {
+                "_id": "$product_id",
+                "name": {"$last": "$product_name"},
+                "sku": {"$last": "$product_sku"},
+                "n": {"$sum": 1},
+                "oldest": {"$min": "$created_at"},
+            }},
+            {"$match": {"n": {"$gt": PENDING_QUOTES_THRESHOLD}}},
+            {"$sort": {"n": -1}},
+            {"$limit": 20},
+        ]
+        out: List[Dict[str, Any]] = []
+        async for row in db.catalog_events.aggregate(pipeline):
+            out.append({
+                "product_id": row["_id"],
+                "product_name": row.get("name") or "—",
+                "product_sku": row.get("sku") or "—",
+                "pending_count": int(row["n"]),
+                "oldest_at": row.get("oldest"),
+            })
+        return out
 
     @api.get("/me/catalog/history", tags=["Portail Client"])
     async def catalog_history(
@@ -298,6 +335,64 @@ def setup_catalog_analytics_routes(*, db, api, get_current_user):
         ).sort("created_at", -1).limit(limit)
         items = [e async for e in cursor]
         return {"days": days, "count": len(items), "items": items}
+
+    # Iter38o — CSV export of catalog events for offline analysis.
+    @api.get("/me/catalog/export.csv", tags=["Portail Client"])
+    async def catalog_export_csv(
+        days: int = Query(30, ge=1, le=365),
+        event_type: Optional[str] = Query(None),
+        user: dict = Depends(get_current_user),
+    ):
+        import csv
+        import io
+        from fastapi.responses import StreamingResponse
+        if not _can_view_catalog_stats(user):
+            raise HTTPException(status_code=403, detail="Accès réservé")
+        scope = await _scope_for_user(user)
+        since = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        q: Dict[str, Any] = {"created_at": {"$gte": since}}
+        if scope:
+            q.update(scope)
+        if event_type:
+            q["event_type"] = event_type
+        buf = io.StringIO()
+        w = csv.writer(buf, delimiter=";")
+        w.writerow(["date", "event_type", "product_id", "product_sku", "product_name", "referrer", "user_agent"])
+        cursor = db.catalog_events.find(q, {"_id": 0, "ip_hash": 0}).sort("created_at", -1).limit(5000)
+        async for e in cursor:
+            w.writerow([
+                e.get("created_at", ""),
+                e.get("event_type", ""),
+                e.get("product_id") or "",
+                e.get("product_sku") or "",
+                e.get("product_name") or "",
+                (e.get("referrer") or "")[:200],
+                (e.get("user_agent") or "")[:200],
+            ])
+        buf.seek(0)
+        fname = f"catalog-events-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}.csv"
+        return StreamingResponse(
+            iter([buf.getvalue()]),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f"attachment; filename={fname}"},
+        )
+
+    # Iter38o — Mark quote-clicks for a product as "treated" (so the badge clears).
+    @api.post("/me/catalog/quotes/mark-treated", tags=["Portail Client"])
+    async def mark_quotes_treated(
+        payload: MarkQuoteTreatedPayload, user: dict = Depends(get_current_user)
+    ):
+        if not _can_view_catalog_stats(user):
+            raise HTTPException(status_code=403, detail="Accès réservé")
+        scope = await _scope_for_user(user)
+        q: Dict[str, Any] = {"product_id": payload.product_id, "event_type": "product_quote_click", "treated_at": None}
+        if scope:
+            q.update(scope)
+        res = await db.catalog_events.update_many(
+            q,
+            {"$set": {"treated_at": _now_iso(), "treated_by": user["id"]}},
+        )
+        return {"ok": True, "marked": res.modified_count}
 
     # Expose helper for use by /public/products + /public/og/product
     return {"log_event": log_event}

@@ -280,6 +280,7 @@ export default function ExpensesTab({ isAdmin }) {
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
   const [creating, setCreating] = useState(false);
+  const [editing, setEditing] = useState(null);
   const [justifying, setJustifying] = useState(null);
 
   const load = useCallback(async () => {
@@ -445,6 +446,16 @@ export default function ExpensesTab({ isAdmin }) {
                     )}
                   </td>
                   <td className="px-3 py-2 text-right">
+                    {/* Iter38o — Creator/admin/sup/attributed-employee can edit while not justified */}
+                    {!e.is_justified && (
+                      (user?.role === "admin" || user?.role === "superviseur" ||
+                       e.created_by === user?.id || e.employee_user_id === user?.id) && (
+                        <button onClick={() => setEditing(e)} data-testid={`expense-edit-${e.id}`}
+                          className="p-1.5 hover:bg-blue-50 text-blue-600 rounded mr-1" title="Modifier (tant que non clôturée)">
+                          <Edit2 size={14} />
+                        </button>
+                      )
+                    )}
                     {isAdmin && (
                       <button onClick={() => remove(e)} data-testid={`expense-delete-${e.id}`}
                         className="p-1.5 hover:bg-rose-50 text-rose-600 rounded" title="Supprimer (admin)">
@@ -460,7 +471,138 @@ export default function ExpensesTab({ isAdmin }) {
       )}
 
       {creating && <ExpenseForm onSave={() => { setCreating(false); load(); }} onCancel={() => setCreating(false)} />}
+      {editing && <ExpenseEditForm expense={editing} onSave={() => { setEditing(null); load(); }} onCancel={() => setEditing(null)} />}
       {justifying && <JustifyModal expense={justifying} isAdmin={isAdmin} onSave={() => { setJustifying(null); load(); }} onCancel={() => setJustifying(null)} />}
+    </div>
+  );
+}
+
+// =====================================================================
+// Iter38o — Expense edit modal (for non-clôturée expenses only)
+// =====================================================================
+function ExpenseEditForm({ expense, onSave, onCancel }) {
+  const [form, setForm] = useState({
+    amount: expense.amount || 0,
+    method: expense.method || "cash",
+    motif: expense.motif || "",
+    payee: expense.payee || "",
+    expense_date: expense.expense_date || new Date().toISOString().slice(0, 10),
+    note: expense.note || "",
+    attribution_type: expense.attribution_type || "third_party",
+    employee_id: expense.employee_id || "",
+  });
+  const [employees, setEmployees] = useState([]);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    apiClient.get("/cashier/expenses/employees-list")
+      .then((r) => setEmployees(r.data || []))
+      .catch(() => setEmployees([]));
+  }, []);
+
+  const submit = async () => {
+    if (!form.amount || form.amount <= 0) { toast.error("Montant requis"); return; }
+    if (!form.motif) { toast.error("Motif requis"); return; }
+    if (form.attribution_type === "employee" && !form.employee_id) {
+      toast.error("Sélectionnez l'employé"); return;
+    }
+    setSaving(true);
+    try {
+      const payload = { ...form };
+      if (payload.attribution_type === "third_party") delete payload.employee_id;
+      await apiClient.patch(`/cashier/expenses/${expense.id}`, payload);
+      toast.success("Dépense modifiée");
+      onSave();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="expense-edit-modal">
+      <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl">
+        <div className="flex items-center justify-between p-5 border-b border-slate-100">
+          <h3 className="text-lg font-semibold text-slate-900">Modifier la dépense</h3>
+          <button onClick={onCancel} className="text-slate-400" data-testid="expense-edit-close"><X size={20} /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 text-xs flex items-start gap-2">
+            <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+            Modification autorisée uniquement tant que la dépense n'est pas clôturée (justifiée).
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Date</label>
+              <input type="date" value={form.expense_date} onChange={(e) => setForm({ ...form, expense_date: e.target.value })}
+                data-testid="expense-edit-date"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            </div>
+            <div>
+              <label className="text-xs text-slate-500 mb-1 block">Mode</label>
+              <select value={form.method} onChange={(e) => setForm({ ...form, method: e.target.value })}
+                data-testid="expense-edit-method"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                <option value="cash">Caisse</option>
+                <option value="check">Chèque</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Montant *</label>
+            <input type="number" value={form.amount} onChange={(e) => setForm({ ...form, amount: parseFloat(e.target.value || 0) })}
+              data-testid="expense-edit-amount"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Motif *</label>
+            <input value={form.motif} onChange={(e) => setForm({ ...form, motif: e.target.value })}
+              data-testid="expense-edit-motif"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Attribuer à</label>
+            <div className="flex gap-2 mb-2">
+              <button type="button" onClick={() => setForm({ ...form, attribution_type: "third_party", employee_id: "" })}
+                className={`flex-1 px-3 py-2 text-xs rounded-lg border ${form.attribution_type === "third_party" ? "bg-blue-50 border-blue-400 text-blue-700 font-semibold" : "bg-white border-slate-200 text-slate-600"}`}>
+                Tiers
+              </button>
+              <button type="button" onClick={() => setForm({ ...form, attribution_type: "employee" })}
+                className={`flex-1 px-3 py-2 text-xs rounded-lg border ${form.attribution_type === "employee" ? "bg-rose-50 border-rose-400 text-rose-700 font-semibold" : "bg-white border-slate-200 text-slate-600"}`}>
+                Employé
+              </button>
+            </div>
+            {form.attribution_type === "third_party" ? (
+              <input value={form.payee} onChange={(e) => setForm({ ...form, payee: e.target.value })}
+                data-testid="expense-edit-payee"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+            ) : (
+              <select value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
+                data-testid="expense-edit-employee"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm bg-white">
+                <option value="">— Choisir un employé —</option>
+                {employees.map((e) => (
+                  <option key={e.id} value={e.id}>
+                    {e.matricule ? `[${e.matricule}] ` : ""}{e.name}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="text-xs text-slate-500 mb-1 block">Note (optionnel)</label>
+            <textarea value={form.note} rows={2} onChange={(e) => setForm({ ...form, note: e.target.value })}
+              data-testid="expense-edit-note"
+              className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm" />
+          </div>
+        </div>
+        <div className="flex justify-end gap-2 p-5 border-t border-slate-100">
+          <button onClick={onCancel} className="px-4 py-2 text-sm text-slate-600" data-testid="expense-edit-cancel">Annuler</button>
+          <button onClick={submit} disabled={saving} data-testid="expense-edit-submit"
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded-lg flex items-center gap-2 disabled:opacity-60">
+            {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />} Enregistrer
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

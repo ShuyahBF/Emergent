@@ -165,20 +165,21 @@ def test_admin_can_edit_and_delete_only(tenant):
         timeout=10,
     )
     eid = cr.json()["id"]
-    # Cashier cannot edit
+    # Iter38o — Cashier (creator) CAN edit while not justified
     r1 = requests.patch(f"{API}/cashier/expenses/{eid}", headers=tenant["csh"],
                         json={"amount": 4000}, timeout=10)
-    assert r1.status_code == 403
-    # Sup cannot edit either (admin only)
+    assert r1.status_code == 200
+    assert r1.json()["amount"] == 4000
+    # Sup CAN edit (treated as admin/sup tier)
     r2 = requests.patch(f"{API}/cashier/expenses/{eid}", headers=tenant["sh"],
-                        json={"amount": 4000}, timeout=10)
-    assert r2.status_code == 403
-    # Admin can
+                        json={"amount": 4200}, timeout=10)
+    assert r2.status_code == 200
+    # Admin can edit as well
     r3 = requests.patch(f"{API}/cashier/expenses/{eid}", headers=tenant["ah"],
                         json={"amount": 4500, "motif": "Frais bureau (corrigé)"}, timeout=10)
     assert r3.status_code == 200
     assert r3.json()["amount"] == 4500
-    # Sup cannot delete
+    # Sup cannot delete (admin only)
     rd1 = requests.delete(f"{API}/cashier/expenses/{eid}", headers=tenant["sh"], timeout=10)
     assert rd1.status_code == 403
     # Admin can delete (soft)

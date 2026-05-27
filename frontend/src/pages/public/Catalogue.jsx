@@ -84,7 +84,7 @@ export default function Catalogue() {
 
   return (
     <section className="py-20" data-testid="catalogue-page">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8">
         <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Nos solutions</p>
         <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">Catalogue</h1>
         <p className="mt-4 text-slate-300 max-w-2xl">
@@ -142,7 +142,7 @@ export default function Catalogue() {
               filteredProducts.map((group) => (
                 <div key={group.label} className="mb-10" data-testid={`catalog-group-${group.label}`}>
                   <h3 className="text-sm uppercase tracking-wider text-sawali-blue-light/80 mb-3">{group.label}</h3>
-                  <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+                  <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
                     {group.items.map((p) => {
                       const img = resolveImg(p.image_url);
                       return (
@@ -208,7 +208,7 @@ export default function Catalogue() {
           ) : brochures.length === 0 ? (
             <p className="text-sm text-slate-400">Aucune brochure pour le moment.</p>
           ) : (
-            <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-5">
+            <div className="grid sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5">
               {brochures.map((it) => (
                 <article key={it.id} className="glow-card rounded-xl overflow-hidden" data-testid={`catalog-item-${it.id}`}>
                   {it.cover_image_url ? (

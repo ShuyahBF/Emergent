@@ -34,6 +34,23 @@ export function FormationsList() {
     finally { setBusy(null); }
   };
 
+  // Iter38o — Stripe Checkout for paid formations
+  const startCheckout = async (fid) => {
+    setBusy(fid);
+    try {
+      const r = await apiClient.post(`/me/formations/${fid}/stripe/checkout`, {
+        origin_url: window.location.origin,
+      });
+      if (r.data?.url) {
+        window.location.href = r.data.url;  // Redirect to Stripe Checkout
+      } else {
+        toast.error("Lien de paiement non disponible");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur Stripe");
+    } finally { setBusy(null); }
+  };
+
   return (
     <div className="space-y-6" data-testid="formations-list-page">
       <div>
@@ -70,9 +87,21 @@ export function FormationsList() {
                     {enr ? (
                       <Link to={`/portal/formations/${f.id}`} className="block w-full text-center rounded-lg bg-sawali-blue text-white px-3 py-2 text-sm hover:bg-sawali-blue-light" data-testid={`open-formation-${f.id}`}>Continuer</Link>
                     ) : isTracked ? (
-                      <button disabled={busy === f.id} onClick={() => enroll(f.id)} className="w-full rounded-lg border border-sawali-blue text-sawali-blue px-3 py-2 text-sm hover:bg-sawali-blue/10 disabled:opacity-50" data-testid={`enroll-${f.id}`}>
-                        {busy === f.id ? "..." : "M'inscrire"}
-                      </button>
+                      f.access === "paid" && f.price > 0 ? (
+                        // Iter38o — Paid formation: Stripe Checkout
+                        <button
+                          disabled={busy === f.id}
+                          onClick={() => startCheckout(f.id)}
+                          data-testid={`buy-formation-${f.id}`}
+                          className="w-full rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 text-white px-3 py-2 text-sm hover:opacity-90 disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                        >
+                          {busy === f.id ? "..." : <><Coins className="h-3.5 w-3.5" /> Acheter ({Math.round(f.price)} XOF)</>}
+                        </button>
+                      ) : (
+                        <button disabled={busy === f.id} onClick={() => enroll(f.id)} className="w-full rounded-lg border border-sawali-blue text-sawali-blue px-3 py-2 text-sm hover:bg-sawali-blue/10 disabled:opacity-50" data-testid={`enroll-${f.id}`}>
+                          {busy === f.id ? "..." : "M'inscrire"}
+                        </button>
+                      )
                     ) : (
                       <span className="block text-xs text-slate-400 italic">Inscription réservée aux utilisateurs suivis</span>
                     )}
@@ -95,12 +124,50 @@ export function FormationDetail() {
   const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [activeMid, setActiveMid] = useState(null);
+  // Iter38o — Handle Stripe return (session_id in URL)
+  const [paymentMsg, setPaymentMsg] = useState(null);
 
   const load = () => apiClient.get(`/me/formations/${fid}`).then((r) => {
     setData(r.data);
     if (!activeMid && r.data.modules?.length) setActiveMid(r.data.modules[0].id);
   });
   useEffect(() => { load().catch(() => navigate("/portal/formations")); /* eslint-disable-next-line */ }, [fid]);
+
+  // Iter38o — Poll the Stripe payment status if we returned with session_id
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const sessionId = params.get("session_id");
+    const canceled = params.get("canceled");
+    if (canceled) {
+      setPaymentMsg({ kind: "warn", text: "Paiement annulé. Vous pouvez réessayer quand vous voulez." });
+      return;
+    }
+    if (!sessionId) return;
+    setPaymentMsg({ kind: "info", text: "Vérification du paiement…" });
+    let attempts = 0;
+    const poll = async () => {
+      attempts += 1;
+      if (attempts > 6) {
+        setPaymentMsg({ kind: "warn", text: "Délai dépassé. Si le paiement aboutit, l'inscription apparaîtra automatiquement." });
+        return;
+      }
+      try {
+        const r = await apiClient.get(`/payments/stripe/status/${sessionId}`);
+        if (r.data?.payment_status === "paid") {
+          setPaymentMsg({ kind: "success", text: "✓ Paiement confirmé — inscription activée." });
+          await load();
+          return;
+        }
+        if (r.data?.status === "expired") {
+          setPaymentMsg({ kind: "warn", text: "Session expirée. Veuillez réessayer." });
+          return;
+        }
+        setTimeout(poll, 2000);
+      } catch { setTimeout(poll, 2000); }
+    };
+    poll();
+  // eslint-disable-next-line
+  }, [fid]);
 
   if (!data) return <div className="text-slate-500">Chargement…</div>;
   const { formation, modules, enrollment } = data;
@@ -109,6 +176,11 @@ export function FormationDetail() {
 
   return (
     <div className="space-y-4" data-testid="formation-detail-page">
+      {paymentMsg && (
+        <div className={`rounded-xl border p-3 text-sm ${paymentMsg.kind === "success" ? "bg-emerald-50 border-emerald-200 text-emerald-800" : paymentMsg.kind === "warn" ? "bg-amber-50 border-amber-200 text-amber-800" : "bg-blue-50 border-blue-200 text-blue-800"}`} data-testid="formation-payment-banner">
+          {paymentMsg.text}
+        </div>
+      )}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div className="flex items-center gap-3">
           <button onClick={() => navigate("/portal/formations")} className="text-slate-500 hover:text-sawali-blue"><ArrowLeft className="h-5 w-5" /></button>

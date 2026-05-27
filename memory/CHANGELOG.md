@@ -8,7 +8,22 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38g (2026-05-27) — Meta-OG + Toggles Intégration Meta
+
+### 🌐 1) Open Graph (preview riche social)
+- `index.html` : meta-tags par défaut (og:type, og:site_name, og:title, og:description, og:image, twitter:card) avec logo SAWALI comme image partagée.
+- Backend : nouvel endpoint `GET /api/public/og/product/{id}` qui sert un HTML statique avec OG tags spécifiques au produit (titre, prix HT, image produit, lien devis), avec auto-redirect humain vers `/catalogue` via meta-refresh. Conforme aux exigences des bots Facebook/WhatsApp/LinkedIn/Twitter (ils ne lisent pas le JS).
+- Frontend : bouton "Partager" sur chaque card du catalogue → `navigator.share()` ou fallback clipboard. URL partagée : `/api/public/og/product/{id}`.
+- `document.title` dynamique sur la page `/catalogue` pour l'expérience navigateur.
+
+### 🏢 2) Toggles Intégration Meta dans SMART COMMUNICATIONS
+- Backend : 3 nouveaux feature flags `meta_pages`, `meta_messenger`, `meta_ads` ajoutés à `DEFAULT_CLIENT_FEATURES` (server.py ~ligne 2912) et au modèle `ClientFeaturesUpdate` (ligne ~3225).
+- Frontend `AdminClientFeatures.jsx` : 3 nouvelles entrées dans `FEATURE_META` avec icônes Facebook/MessageCircle/Megaphone (bleu Meta) — pattern identique aux toggles RGPD (anon_*).
+- Section "SMART COMMUNICATIONS" / Fiche Client lié → onglet Features : 3 toggles ON/OFF — Meta Pages Facebook, Meta Messenger, Meta Ads Manager.
+- Lorsque OFF (défaut) : aucun module Meta dans le portail utilisateur. Lorsque ON : module accessible (l'implémentation OAuth + API Meta complète sera dans Iter38h+ via playbook).
+
 ## Iter38f (2026-05-27) — Auto-sync CHANGELOG + Catalogue public
+
 
 ### 🔁 1) Auto-sync CHANGELOG → roadmap_actions
 - Backend `server.py` : parser `_sync_roadmap_from_changelog()` qui scanne `/app/memory/CHANGELOG.md` à chaque GET `/api/admin/roadmap-actions`.

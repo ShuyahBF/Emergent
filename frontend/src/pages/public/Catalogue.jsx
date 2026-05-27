@@ -8,10 +8,23 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight } from "lucide-react";
+import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight, Share2 } from "lucide-react";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+
+function shareProduct(productId, name) {
+  const url = `${BACKEND}/api/public/og/product/${productId}`;
+  const text = `Découvrez "${name}" — SAWALI SMART SYSTEMS`;
+  if (navigator.share) {
+    navigator.share({ title: name, text, url }).catch(() => {});
+  } else if (navigator.clipboard) {
+    navigator.clipboard.writeText(url).then(() => {
+      // eslint-disable-next-line no-alert
+      alert("Lien copié dans le presse-papier !");
+    });
+  }
+}
 
 export default function Catalogue() {
   const [products, setProducts] = useState({ count: 0, categories: [] });
@@ -20,6 +33,7 @@ export default function Catalogue() {
   const [activeCategory, setActiveCategory] = useState("Tous");
 
   useEffect(() => {
+    document.title = "Catalogue — SAWALI SMART SYSTEMS";
     apiClient.get("/public/products").then((r) => setProducts(r.data || { count: 0, categories: [] })).catch(() => {});
     apiClient.get("/catalog").then((r) => setBrochures(r.data || [])).catch(() => {});
   }, []);
@@ -139,6 +153,16 @@ export default function Catalogue() {
                               <Sparkles className="h-4 w-4" /> Demander un devis
                               <ArrowRight className="h-4 w-4" />
                             </Link>
+                            {/* Iter38g — Share with rich OG preview (WhatsApp / FB / LinkedIn) */}
+                            <button
+                              type="button"
+                              onClick={() => shareProduct(p.id, p.name)}
+                              className="mt-2 inline-flex items-center justify-center gap-2 rounded-lg ring-1 ring-white/15 bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white px-3 py-1.5 text-xs"
+                              data-testid={`catalog-share-${p.id}`}
+                              title="Partager ce produit avec un aperçu riche"
+                            >
+                              <Share2 className="h-3.5 w-3.5" /> Partager
+                            </button>
                           </div>
                         </article>
                       );

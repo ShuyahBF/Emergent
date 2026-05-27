@@ -43,7 +43,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr
@@ -1038,6 +1038,78 @@ async def public_products():
         "count": len(items),
         "categories": [{"label": k, "items": v} for k, v in groups.items()],
     }
+
+
+# ============================================================
+# Iter38g — Open Graph share landing for a public product.
+# When a customer shares https://sawalismartsystems.com/api/public/og/product/{id}
+# on WhatsApp / Facebook / LinkedIn, the social bot gets a static HTML with
+# rich Open Graph tags. A human browser auto-redirects to /catalogue.
+# ============================================================
+def _escape_html(s: Optional[str]) -> str:
+    s = str(s or "")
+    return (
+        s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+         .replace('"', "&quot;").replace("'", "&#39;")
+    )
+
+
+@api.get("/public/og/product/{product_id}", tags=["Public"], response_class=HTMLResponse)
+async def public_og_product(product_id: str, request: Request):
+    p = await db.products.find_one(
+        {"id": product_id, "is_public": True, "active": True, "deleted_at": None},
+        {"_id": 0, "name": 1, "description": 1, "unit_price_ht": 1, "unit": 1, "image_url": 1, "sku": 1},
+    )
+    base = _public_base_url(request) or str(request.base_url).rstrip("/")
+    target = f"{base}/catalogue"
+    if not p:
+        # Unknown product → redirect to the generic catalogue
+        return HTMLResponse(
+            f'<!doctype html><meta http-equiv="refresh" content="0;url={target}"><title>Catalogue</title>',
+            status_code=200,
+        )
+    name = _escape_html(p.get("name"))
+    desc = _escape_html(p.get("description") or "")
+    price = int(round(float(p.get("unit_price_ht") or 0)))
+    unit = _escape_html(p.get("unit") or "pièce")
+    sku = _escape_html(p.get("sku") or "")
+    img = p.get("image_url") or ""
+    if img and not img.startswith("http"):
+        img = f"{base}{'' if img.startswith('/') else '/'}{img}"
+    if not img:
+        img = "https://customer-assets.emergentagent.com/job_sawali-portal/artifacts/aprzh1m4_LogoSawaliSmartSystems-removebg.png"
+    title = f"{name} — SAWALI SMART SYSTEMS"
+    teaser = f"{price:,} FCFA HT / {unit}".replace(",", " ") + (f" — {desc[:140]}" if desc else "")
+    quote_url = f"{base}/rdv?product={_escape_html(p.get('name'))}&sku={sku}"
+    html = f"""<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<title>{title}</title>
+<meta property="og:type" content="product">
+<meta property="og:site_name" content="SAWALI SMART SYSTEMS">
+<meta property="og:title" content="{title}">
+<meta property="og:description" content="{teaser}">
+<meta property="og:image" content="{img}">
+<meta property="og:url" content="{base}/api/public/og/product/{product_id}">
+<meta property="og:locale" content="fr_FR">
+<meta property="product:price:amount" content="{price}">
+<meta property="product:price:currency" content="XOF">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="{title}">
+<meta name="twitter:description" content="{teaser}">
+<meta name="twitter:image" content="{img}">
+<meta http-equiv="refresh" content="0;url={target}">
+<style>body{{font-family:system-ui;max-width:600px;margin:40px auto;padding:0 20px;text-align:center}}</style>
+</head>
+<body>
+<h1>{name}</h1>
+<p>{teaser}</p>
+<p><a href="{target}">Voir le catalogue</a> · <a href="{quote_url}">Demander un devis</a></p>
+</body>
+</html>
+"""
+    return HTMLResponse(html, status_code=200)
 
 
 
@@ -2913,6 +2985,13 @@ DEFAULT_CLIENT_FEATURES = {
     # client) peuvent ouvrir un panneau de discussion 1-à-1 et un fil collectif
     # (#general) propre à ce client. Hérité par tous les utilisateurs suivis.
     "internal_chat": False,
+    # Iter38g — Meta integration toggles (Pages, Messenger, Ads).
+    # When OFF (default), the integration code paths are gated and the UI hides
+    # the related modules. Activation requires the admin to first complete the
+    # Meta App connection in Admin Settings (App ID + secret + access tokens).
+    "meta_pages": False,        # Facebook Pages management (publish posts, comments)
+    "meta_messenger": False,    # Messenger inbox unified with WhatsApp inbox
+    "meta_ads": False,          # Meta Ads Manager — campaign creation & monitoring
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -3140,8 +3219,15 @@ class ClientFeaturesUpdate(BaseModel):
     anon_email: Optional[bool] = None
     anon_phone: Optional[bool] = None
     anon_whatsapp: Optional[bool] = None
+    anon_rapports: Optional[bool] = None
+    anon_suivis: Optional[bool] = None
+    anon_communications: Optional[bool] = None
     wa_sound_alerts: Optional[bool] = None
     internal_chat: Optional[bool] = None  # Iter36k — chat interne temps réel
+    # Iter38g — Meta integration
+    meta_pages: Optional[bool] = None
+    meta_messenger: Optional[bool] = None
+    meta_ads: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
 
 

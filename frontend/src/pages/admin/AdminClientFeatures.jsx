@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -142,12 +142,42 @@ const FEATURE_META = [
     color: "text-sky-600",
     bg: "bg-sky-50",
   },
+  // Iter38g — Meta integration toggles (gated by Admin Settings > Meta App).
+  // When ON, the corresponding module appears in the user's portal AND the
+  // backend integration routes become accessible for this client.
+  {
+    key: "meta_pages",
+    label: "Meta — Pages Facebook",
+    description: "Gestion des pages Facebook (publication, modération des commentaires, statistiques). Requiert une App Meta connectée dans les paramètres admin.",
+    icon: Facebook,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    meta: true,
+  },
+  {
+    key: "meta_messenger",
+    label: "Meta — Messenger",
+    description: "Réception et réponse aux messages Messenger dans la même inbox unifiée que WhatsApp.",
+    icon: MessageCircle,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    meta: true,
+  },
+  {
+    key: "meta_ads",
+    label: "Meta — Ads Manager",
+    description: "Création, suivi et statistiques des campagnes publicitaires Meta (Facebook + Instagram). Requiert un Business Manager connecté.",
+    icon: Megaphone,
+    color: "text-blue-600",
+    bg: "bg-blue-50",
+    meta: true,
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);

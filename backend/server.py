@@ -46,7 +46,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse, HTMLResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from db import db, serialize, serialize_many
 from models import (
@@ -2053,56 +2053,157 @@ def _pawapay_correspondent(mno: str, country: str = "BFA") -> str:
     return table.get(c, {}).get(m) or f"{m}_{c}"
 
 
+# Iter38r — The legacy direct /deposits endpoint is intentionally removed.
+# All callers now go through the hosted PaymentPage flow defined below
+# (which handles MSISDN + PIN/OTP collection natively).
+
+
 @api.post("/me/payments/pawapay/deposit", tags=["Portail Client"])
 async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, user: dict = Depends(get_current_user)):
-    """Initiate a PawaPay deposit (collect) — the user pays. Stores a row in
-    db.payments with status=pending then resolves via webhook callback."""
+    """DEPRECATED (Iter38r) — Replaced by the hosted Payment Page flow because
+    the direct /deposits endpoint does NOT collect the customer's PIN/OTP from
+    our merchant UI (the OTP is prompted on the customer's phone via USSD,
+    which often fails / is not transparent to the user). The new flow uses
+    PawaPay's hosted page which handles MSISDN + PIN collection natively.
+
+    This endpoint now forwards to the Payment Page endpoint, building a
+    response shaped identically to the legacy success payload so that
+    pre-v38r clients (mobile apps, embedded checkouts) keep working until
+    they migrate.
+    """
+    pp_payload = PawaPayPaymentPageCreate(
+        amount=payload.amount,
+        msisdn=payload.msisdn,
+        country=None,
+        reason=payload.description,
+        return_url=None,
+    )
+    res = await me_pawapay_payment_page(pp_payload, request, user)
+    return {
+        "ok": True,
+        "deposit_id": res["deposit_id"],
+        "status": "initiated",
+        "redirect_url": res["redirect_url"],
+        "deprecated": True,
+        "message": "Veuillez utiliser /me/payments/pawapay/payment-page (Iter38r).",
+    }
+
+
+class PawaPayPaymentPageCreate(BaseModel):
+    amount: Optional[float] = Field(None, gt=0)
+    # Optional — pre-fixes the MSISDN on the hosted page. When omitted the
+    # customer enters it on the PawaPay page.
+    msisdn: Optional[str] = None
+    country: Optional[str] = None  # ISO-3 (BFA, CIV, SEN…). Defaults to settings.pawapay_country.
+    reason: Optional[str] = Field(None, max_length=22)
+    # Where PawaPay redirects the customer after they "Pay" / abandon. Defaults
+    # to {origin}/portal/payments/return.
+    return_url: Optional[str] = Field(None, max_length=500)
+
+
+@api.post("/me/payments/pawapay/payment-page", tags=["Portail Client"])
+async def me_pawapay_payment_page(
+    payload: PawaPayPaymentPageCreate, request: Request, user: dict = Depends(get_current_user)
+):
+    """Iter38r — Initiate a hosted PawaPay Payment Page session.
+
+    The hosted page collects the MSISDN + PIN/OTP. We persist the payment row
+    BEFORE calling PawaPay so reconciliation is guaranteed even on network
+    error (per PawaPay's recommended best-practice).
+    """
     s = await db.settings.find_one({"_id": "global"}) or {}
     if not s.get("pawapay_enabled"):
         raise HTTPException(status_code=503, detail="PawaPay non activé")
-    # Feature gating + per-client MNO whitelist
+    token = _pawapay_active_token(s)
+    if not token:
+        raise HTTPException(status_code=503, detail="Clé API PawaPay non configurée")
+    # Feature gating
     parent_id = user.get("client_id") or user["id"]
-    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1, "pawapay_mnos": 1, "id": 1, "company": 1})
+    parent = await db.users.find_one(
+        {"id": parent_id},
+        {"_id": 0, "features": 1, "pawapay_mnos": 1, "pawapay_fix_msisdn": 1, "phone": 1, "whatsapp": 1, "id": 1, "company": 1},
+    )
     if user.get("role") not in ("admin", "superviseur"):
         feats = _normalize_features((parent or {}).get("features"))
         if not feats.get("payments"):
             raise HTTPException(status_code=403, detail="Paiements non autorisés pour votre client")
-        allowed = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
-        if (payload.mno or "").upper() not in allowed:
-            raise HTTPException(status_code=403, detail=f"Opérateur non autorisé. Disponibles : {', '.join(allowed)}")
-    token = _pawapay_active_token(s)
-    if not token:
-        raise HTTPException(status_code=503, detail="Clé API PawaPay non configurée")
+    # MSISDN policy: per-client toggle (None = inherit global; True = always fix; False = leave open)
+    fix_msisdn_pref = (parent or {}).get("pawapay_fix_msisdn")
+    if fix_msisdn_pref is None:
+        fix_msisdn_pref = s.get("pawapay_fix_msisdn_default", True)
+    msisdn_final: Optional[str] = None
+    if fix_msisdn_pref:
+        # Use explicit payload msisdn, then user profile fallback
+        candidate = (payload.msisdn or user.get("whatsapp") or user.get("phone") or "").strip()
+        msisdn_final = "".join(ch for ch in candidate if ch.isdigit()) or None
+        if msisdn_final and len(msisdn_final) < 8:
+            msisdn_final = None  # Too short → let PawaPay collect it instead
+    elif payload.msisdn:
+        # Free mode but caller passed an explicit number → honor it
+        msisdn_final = "".join(ch for ch in payload.msisdn if ch.isdigit()) or None
     env = (s.get("pawapay_environment") or "sandbox").lower()
     host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
-    country = (s.get("pawapay_country") or "BFA").upper()
+    country = (payload.country or s.get("pawapay_country") or "BFA").upper()
     deposit_id = _uuid()
-    msisdn_clean = "".join(ch for ch in (payload.msisdn or "") if ch.isdigit())
-    if len(msisdn_clean) < 8:
-        raise HTTPException(status_code=400, detail="Numéro mobile invalide (format international attendu)")
-    if payload.amount <= 0:
-        raise HTTPException(status_code=400, detail="Montant invalide")
-    body = {
+    # Build return URL from explicit payload, else from request Origin/Referer
+    origin = (
+        payload.return_url
+        or _frontend_origin_from_request(request)
+        or "https://sawalismartsystems.com"
+    ).rstrip("/")
+    return_url = (
+        payload.return_url
+        if payload.return_url
+        else f"{origin}/portal/payments/return?depositId={deposit_id}"
+    )
+    body: Dict[str, Any] = {
         "depositId": deposit_id,
-        "amount": str(payload.amount),
+        "returnUrl": return_url,
+    }
+    if payload.amount and payload.amount > 0:
+        body["amount"] = str(int(payload.amount)) if float(payload.amount).is_integer() else f"{payload.amount:.2f}"
+        # Amount requires country per PawaPay docs
+        body["country"] = country
+    if msisdn_final:
+        body["msisdn"] = msisdn_final
+    if payload.reason:
+        body["reason"] = payload.reason[:22]
+    # Persist FIRST (PawaPay best-practice: never lose track of a depositId)
+    payment_doc = {
+        "id": _uuid(),
+        "deposit_id": deposit_id,
+        "client_id": parent_id,
+        "user_id": user["id"],
+        "user_email": user.get("email"),
+        "user_label": user.get("full_name") or user.get("email"),
+        "amount": float(payload.amount) if payload.amount else None,
         "currency": "XOF",
         "country": country,
-        "correspondent": _pawapay_correspondent(payload.mno, country),
-        "payer": {
-            "type": "MSISDN",
-            "address": {"value": msisdn_clean},
-        },
-        "customerTimestamp": _now(),
-        "statementDescription": (payload.description or "SAWALI Smart Systems")[:22],
+        "mno": None,  # determined by customer on hosted page
+        "msisdn": msisdn_final,
+        "description": payload.reason,
+        "environment": env,
+        "flow": "payment_page",
+        "status": "initiated",
+        "api_status": None,
+        "api_message": None,
+        "return_url": return_url,
+        "redirect_url": None,
+        "ip": _client_ip_from_request(request),
+        "user_agent": request.headers.get("user-agent"),
+        "created_at": _now(),
+        "updated_at": _now(),
     }
+    await db.payments.insert_one(payment_doc.copy())
+    payment_doc.pop("_id", None)
+    # Call PawaPay
     try:
-        async with httpx.AsyncClient(timeout=30) as http:
+        async with httpx.AsyncClient(timeout=20) as http:
             r = await http.post(
-                f"{host}/deposits",
+                f"{host}/v2/paymentpage",
                 headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
                 json=body,
             )
-            api_resp: Dict[str, Any] = {}
             try:
                 api_resp = r.json()
             except Exception:
@@ -2110,38 +2211,49 @@ async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, us
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à PawaPay")
     except Exception as exc:  # noqa: BLE001
-        raise HTTPException(status_code=502, detail=f"Erreur PawaPay : {exc}"[:300])
-
-    # Persist a row regardless of API outcome — the webhook (or polling) finalizes status
-    api_status = (api_resp.get("status") or "").upper()
-    initial_status = "pending" if api_status in ("ACCEPTED", "PENDING", "") else "failed"
-    doc = {
-        "id": _uuid(),
+        raise HTTPException(status_code=502, detail=f"Erreur PawaPay : {str(exc)[:200]}") from exc
+    redirect_url = (api_resp or {}).get("redirectUrl")
+    if not redirect_url:
+        # API call failed — mark as failed for reconciliation visibility
+        await db.payments.update_one(
+            {"deposit_id": deposit_id},
+            {"$set": {
+                "status": "failed",
+                "api_status": "PAYMENT_PAGE_REJECTED",
+                "api_message": _pawapay_str(api_resp.get("failureReason") or api_resp.get("message") or api_resp),
+                "updated_at": _now(),
+            }},
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=_pawapay_str(api_resp.get("failureReason") or api_resp.get("message")) or "PawaPay n'a pas renvoyé de lien de paiement.",
+        )
+    await db.payments.update_one(
+        {"deposit_id": deposit_id},
+        {"$set": {"redirect_url": redirect_url, "updated_at": _now()}},
+    )
+    return {
+        "ok": True,
         "deposit_id": deposit_id,
-        "client_id": (user.get("client_id") or user["id"]),
-        "user_id": user["id"],
-        "user_email": user.get("email"),
-        "user_label": user.get("full_name") or user.get("email"),
-        "amount": float(payload.amount),
-        "currency": "XOF",
-        "country": country,
-        "mno": (payload.mno or "").upper(),
-        "msisdn": msisdn_clean,
-        "description": payload.description,
-        "environment": env,
-        "status": initial_status,
-        "api_status": api_status or None,
-        "api_message": _pawapay_str(api_resp.get("failureReason") or api_resp.get("rejectionReason") or api_resp.get("message")),
-        "ip": _client_ip_from_request(request),
-        "user_agent": request.headers.get("user-agent"),
-        "created_at": _now(),
-        "updated_at": _now(),
+        "redirect_url": redirect_url,
+        "return_url": return_url,
+        "msisdn_fixed": bool(msisdn_final),
     }
-    await db.payments.insert_one(doc.copy())
-    doc.pop("_id", None)
-    if api_resp.get("status") == "REJECTED":
-        return {"ok": False, "deposit_id": deposit_id, "status": "failed", "reason": _pawapay_str(api_resp.get("rejectionReason")), "payment": doc}
-    return {"ok": True, "deposit_id": deposit_id, "status": initial_status, "payment": doc}
+
+
+def _frontend_origin_from_request(request: Request) -> Optional[str]:
+    """Best-effort extraction of the caller's web origin (for buildling
+    return_url). Prefers Origin, falls back to Referer."""
+    o = request.headers.get("origin") or ""
+    if o.startswith("http"):
+        return o
+    ref = request.headers.get("referer") or ""
+    if ref.startswith("http"):
+        from urllib.parse import urlparse
+        u = urlparse(ref)
+        if u.scheme and u.netloc:
+            return f"{u.scheme}://{u.netloc}"
+    return None
 
 
 @api.get("/me/payments", tags=["Portail Client"])
@@ -2163,7 +2275,7 @@ async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)
         raise HTTPException(status_code=404, detail="Paiement introuvable")
     if user.get("role") not in ("admin", "superviseur") and p.get("user_id") != user["id"]:
         raise HTTPException(status_code=403, detail="Accès non autorisé")
-    if p.get("status") not in ("pending",):
+    if p.get("status") not in ("pending", "initiated"):
         return p
     # Live refresh
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -2174,9 +2286,19 @@ async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)
     host = PAWAPAY_HOSTS.get(env, PAWAPAY_HOSTS["sandbox"])
     try:
         async with httpx.AsyncClient(timeout=15) as http:
-            r = await http.get(f"{host}/deposits/{deposit_id}", headers={"Authorization": f"Bearer {token}"})
-            arr = r.json() if r.status_code < 400 else []
-            entry = arr[0] if isinstance(arr, list) and arr else (arr if isinstance(arr, dict) else {})
+            # Iter38r — use v2 endpoint (returns FOUND/NOT_FOUND wrapper)
+            r = await http.get(f"{host}/v2/deposits/{deposit_id}", headers={"Authorization": f"Bearer {token}"})
+            data = r.json() if r.status_code < 400 else {}
+            # v2 returns {status: "FOUND", data: {...}} or {status: "NOT_FOUND"}
+            wrapper_status = (data.get("status") or "").upper() if isinstance(data, dict) else ""
+            entry: Dict[str, Any] = {}
+            if wrapper_status == "FOUND":
+                entry = data.get("data") or {}
+            elif isinstance(data, list) and data:
+                # Defensive fallback for v1 shape
+                entry = data[0]
+            elif isinstance(data, dict) and data.get("depositId"):
+                entry = data
             api_status = (entry.get("status") or "").upper()
             new_status = {
                 "COMPLETED": "completed",
@@ -3263,32 +3385,40 @@ class ClientFeaturesUpdate(BaseModel):
     ai_image_gen: Optional[bool] = None
     ai_video_gen: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
+    # Iter38r — Pre-fix MSISDN on PawaPay Payment Page (true) or let the
+    # customer enter it themselves on the hosted page (false). When null,
+    # the server-side default `settings.pawapay_fix_msisdn_default` applies.
+    pawapay_fix_msisdn: Optional[bool] = None
 
 
 @api.get("/admin/clients/{client_id}/features", tags=["Admin"])
 async def admin_get_client_features(client_id: str, _: dict = Depends(get_current_admin)):
-    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1, "pawapay_fix_msisdn": 1})
     if not u:
         raise HTTPException(status_code=404, detail="Client introuvable")
     return {
         "client": {"id": u["id"], "full_name": u.get("full_name"), "company": u.get("company")},
         "features": _normalize_features(u.get("features")),
         "pawapay_mnos": _normalize_pawapay_mnos(u.get("pawapay_mnos")),
+        "pawapay_fix_msisdn": u.get("pawapay_fix_msisdn"),
     }
 
 
 @api.put("/admin/clients/{client_id}/features", tags=["Admin"])
 async def admin_update_client_features(client_id: str, payload: ClientFeaturesUpdate, _: dict = Depends(get_current_admin)):
-    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "features": 1, "pawapay_mnos": 1})
+    u = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "features": 1, "pawapay_mnos": 1, "pawapay_fix_msisdn": 1})
     if not u:
         raise HTTPException(status_code=404, detail="Client introuvable")
     current = _normalize_features(u.get("features"))
     update_dict = payload.model_dump(exclude_none=True)
     mnos = update_dict.pop("pawapay_mnos", None)
+    fix_msisdn = update_dict.pop("pawapay_fix_msisdn", None)
     current.update({k: bool(v) for k, v in update_dict.items()})
     set_doc: Dict[str, Any] = {"features": current, "features_updated_at": _now()}
     if mnos is not None:
         set_doc["pawapay_mnos"] = _normalize_pawapay_mnos(mnos)
+    if fix_msisdn is not None:
+        set_doc["pawapay_fix_msisdn"] = bool(fix_msisdn)
     await db.users.update_one(
         {"id": client_id},
         {"$set": set_doc},
@@ -3297,6 +3427,7 @@ async def admin_update_client_features(client_id: str, payload: ClientFeaturesUp
         "ok": True,
         "features": current,
         "pawapay_mnos": set_doc.get("pawapay_mnos") or _normalize_pawapay_mnos(u.get("pawapay_mnos")),
+        "pawapay_fix_msisdn": set_doc.get("pawapay_fix_msisdn", u.get("pawapay_fix_msisdn")),
     }
 
 

@@ -195,6 +195,8 @@ export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
   const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false });
+  // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
+  const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -205,6 +207,7 @@ export default function AdminClientFeatures() {
       const r = await apiClient.get(`/admin/clients/${id}/features`);
       setData(r.data);
       setFeatures(r.data?.features || {});
+      setPawapayFixMsisdn(r.data?.pawapay_fix_msisdn);
       setDirty(false);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
@@ -222,7 +225,10 @@ export default function AdminClientFeatures() {
   const save = async () => {
     setSaving(true);
     try {
-      await apiClient.put(`/admin/clients/${id}/features`, features);
+      await apiClient.put(`/admin/clients/${id}/features`, {
+        ...features,
+        pawapay_fix_msisdn: pawapayFixMsisdn,
+      });
       toast.success("Fonctionnalités enregistrées");
       setDirty(false);
     } catch (err) {
@@ -310,6 +316,47 @@ export default function AdminClientFeatures() {
             </button>
           );
         })}
+      </div>
+
+      {/* Iter38r — PawaPay MSISDN policy (true/false/null=global default) */}
+      <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5 space-y-3" data-testid="pawapay-msisdn-policy-section">
+        <div className="flex items-start gap-3">
+          <div className="h-10 w-10 rounded-xl bg-sky-50 flex items-center justify-center">
+            <ShieldCheck className="h-5 w-5 text-sky-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="font-display font-semibold text-slate-900">Politique MSISDN PawaPay (page hébergée)</h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Définit si le numéro mobile du client doit être pré-rempli sur la page de paiement PawaPay, ou laissé vide pour qu'il le saisisse lui-même.
+            </p>
+          </div>
+        </div>
+        <div className="grid sm:grid-cols-3 gap-2">
+          {[
+            { v: null, label: "Défaut global", hint: "Suit le réglage du paramétrage PawaPay" },
+            { v: true, label: "Pré-remplir", hint: "Utilise le numéro WhatsApp/téléphone enregistré" },
+            { v: false, label: "Saisie libre", hint: "Le client tape son numéro sur la page PawaPay" },
+          ].map((opt) => {
+            const active = pawapayFixMsisdn === opt.v;
+            return (
+              <button
+                key={String(opt.v)}
+                type="button"
+                onClick={() => { setPawapayFixMsisdn(opt.v); setDirty(true); }}
+                className={`text-left rounded-xl ring-1 px-4 py-3 transition ${
+                  active ? "ring-2 ring-sky-500 bg-sky-50 text-sky-900" : "ring-slate-200 bg-white hover:ring-slate-300 text-slate-600"
+                }`}
+                data-testid={`pawapay-fix-msisdn-${opt.v === null ? "default" : opt.v ? "true" : "false"}`}
+              >
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`h-3 w-3 rounded-full ${active ? "bg-sky-500" : "bg-slate-300"}`} />
+                  <span className="font-semibold text-sm">{opt.label}</span>
+                </div>
+                <p className="text-[11px] leading-tight">{opt.hint}</p>
+              </button>
+            );
+          })}
+        </div>
       </div>
 
       <div className="rounded-xl ring-1 ring-amber-200 bg-amber-50 p-4 text-xs text-amber-900">

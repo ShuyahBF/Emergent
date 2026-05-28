@@ -115,6 +115,7 @@ import HumanResources from "@/pages/portal/HumanResources";
 import MetaIntegration from "@/pages/portal/MetaIntegration";
 import UnifiedInbox from "@/pages/portal/UnifiedInbox";
 import CatalogStats from "@/pages/portal/CatalogStats";
+import PaymentReturn from "@/pages/portal/PaymentReturn";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
 import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
@@ -206,6 +207,7 @@ export default function App() {
             <Route path="meta" element={<MetaIntegration />} />
             <Route path="inbox" element={<UnifiedInbox />} />
             <Route path="catalog-stats" element={<CatalogStats />} />
+            <Route path="payments/return" element={<PaymentReturn />} />
             <Route path="tickets" element={<Tickets />} />
           </Route>
 

@@ -8,7 +8,34 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
-## Iter38q (2026-05-27) — Corbeille tickets (archivage irréversible)
+## Iter38r (2026-05-28) — PawaPay Hosted Payment Page (v2)
+
+### 💳 1) Migration vers `/v2/paymentpage` (hosted page)
+- L'ancien `/v2/deposits` direct (qui ne collectait pas l'OTP dans le CRM) est remplacé par la **PawaPay Payment Page hébergée** côté PawaPay : MSISDN + PIN/OTP saisis sur leur page sécurisée, conformément à la documentation officielle.
+- Nouvel endpoint `POST /api/me/payments/pawapay/payment-page` qui retourne `redirect_url` + `deposit_id`.
+- L'ancien `POST /api/me/payments/pawapay/deposit` est conservé en *forwarder* (deprecated) afin que les clients pré-Iter38r continuent de fonctionner ; il appelle désormais la même payment-page en interne.
+- Persistance préalable du document `payments` (status=initiated, flow="payment_page") **avant** l'appel HTTP à PawaPay, pour garantir la réconciliation même en cas de timeout réseau (best-practice recommandée par PawaPay).
+
+### 📲 2) Toggle MSISDN par client : `pawapay_fix_msisdn`
+- Nouveau champ `users.pawapay_fix_msisdn` (`true` = pré-rempli ; `false` = laissé vide pour saisie libre sur la page PawaPay ; `null` = hérite de `settings.pawapay_fix_msisdn_default`).
+- Réglage exposé dans **Admin → Clients → Fonctionnalités** (`/admin/clients/{id}/features`) : section dédiée « Politique MSISDN PawaPay » avec 3 boutons radio.
+- GET/PUT `/api/admin/clients/{id}/features` étendus pour retourner et accepter ce champ.
+
+### 🔄 3) Polling du statut via `/v2/deposits/{id}` (wrapper FOUND/NOT_FOUND)
+- L'endpoint `GET /api/me/payments/{deposit_id}` interroge maintenant l'endpoint v2 (qui retourne `{status: "FOUND", data: {...}}`).
+- Fallback défensif pour les anciennes réponses v1 (array ou objet plat).
+- Mapping des statuts PawaPay (`COMPLETED`/`FAILED`/`REJECTED`/`ACCEPTED`/`PROCESSING`/`SUBMITTED`/`PENDING`) vers les statuts internes (`completed`/`failed`/`pending`).
+
+### 🎯 4) Page retour `/portal/payments/return`
+- Nouvelle page React `PaymentReturn.jsx` ouverte automatiquement par PawaPay après paiement/abandon.
+- Poll automatique de 3 s × 25 tentatives (~75 s) jusqu'à statut final.
+- Affiche le statut visuel (✅ confirmé / ❌ échoué / ⏳ en cours) + résumé deposit_id/montant/MNO/MSISDN.
+- Bouton « Actualiser » manuel + « Voir mes paiements ».
+
+### 🧪 5) Tests Pytest — `test_iter38r_pawapay_hosted.py` (14 tests, 100% pass)
+- Couverture : 503 (PawaPay off), 503 (token vide), 403 (feature off), persistance doc même si PawaPay rejette, MSISDN pré-rempli quand `pawapay_fix_msisdn=true`, MSISDN vide quand `false`, return_url contient `/portal/payments/return`, forwarder legacy garde le shape v1, GET/PUT admin features, polling 404 sur deposit inconnu, polling rend doc final sans refresh, polling rejette accès cross-user.
+
+
 
 ### 🗑️ 1) Endpoint d'archivage `POST /me/tickets/{tid}/archive`
 - Admin/Superviseur uniquement. Marque le ticket `archived_at` + `archived_by_id` + `archived_by_label`.

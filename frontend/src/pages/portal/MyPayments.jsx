@@ -449,11 +449,11 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
   const submit = async () => {
     const amt = parseFloat(amount);
     if (!amt || amt <= 0) { toast.error("Montant invalide"); return; }
-    if (!msisdn || msisdn.replace(/\D/g, "").length < 11) {
-      toast.error("Numéro mobile invalide (format international, ex: 22670000000)");
+    // Iter38r — MSISDN is now OPTIONAL (collected on PawaPay's hosted page if blank)
+    if (msisdn && msisdn.replace(/\D/g, "").length < 8) {
+      toast.error("Numéro mobile invalide. Laissez vide pour le saisir sur la page PawaPay.");
       return;
     }
-    if (!mnos.includes(mno)) { toast.error("Opérateur non autorisé"); return; }
     setSubmitting(true);
     let toastId;
     try {
@@ -463,20 +463,21 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
         module: "payment-submit-pre",
         request_body: { amount: amt, mno, msisdn_len: msisdn.replace(/\D/g, "").length, has_description: !!description },
       }).catch(() => {});
-      toastId = toast.loading("Envoi de la demande à PawaPay…", { duration: 35000 });
-      const r = await apiClient.post("/me/payments/pawapay/deposit", {
+      toastId = toast.loading("Création de la session de paiement…", { duration: 35000 });
+      // Iter38r — Use the hosted Payment Page flow (handles MSISDN + PIN/OTP)
+      const r = await apiClient.post("/me/payments/pawapay/payment-page", {
         amount: amt,
-        msisdn: msisdn.replace(/\D/g, ""),
-        mno,
-        description: description || undefined,
+        msisdn: msisdn.replace(/\D/g, "") || undefined,
+        reason: (description || "").slice(0, 22) || undefined,
       }, { timeout: 32000 });
       if (toastId !== undefined) toast.dismiss(toastId);
-      if (r.data?.ok) {
-        toast.success("Demande envoyée — vous allez recevoir une notification mobile pour confirmer le paiement.");
-        onCreated && onCreated();
-        onClose();
+      const redirectUrl = r.data?.redirect_url;
+      if (redirectUrl) {
+        toast.success("Redirection vers PawaPay…");
+        // Brief delay so the toast renders before navigation
+        setTimeout(() => { window.location.href = redirectUrl; }, 300);
       } else {
-        toast.error(safeText(r.data?.reason) || "Demande rejetée par PawaPay");
+        toast.error("Aucun lien de paiement reçu de PawaPay");
         onCreated && onCreated();
       }
     } catch (err) {
@@ -529,35 +530,21 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
           </div>
           <div>
             <label className="text-xs font-semibold block mb-1">Opérateur Mobile Money</label>
-            <div className="grid grid-cols-3 gap-2">
-              {mnos.map((m) => {
-                const meta = MNO_LABELS[m] || { label: m, color: "#64748b" };
-                const active = mno === m;
-                return (
-                  <button
-                    key={m}
-                    type="button"
-                    onClick={() => setMno(m)}
-                    className={`rounded-lg px-2 py-2 text-xs font-semibold ring-1 transition ${active ? "ring-2 text-white shadow" : "ring-slate-200 text-slate-600 bg-white hover:bg-slate-50"}`}
-                    style={active ? { backgroundColor: meta.color, borderColor: meta.color } : {}}
-                    data-testid={`payment-mno-${m}`}
-                  >
-                    {meta.label}
-                  </button>
-                );
-              })}
+            <div className="text-xs text-slate-600 bg-blue-50 border border-blue-200 rounded-lg p-2 mb-2">
+              ℹ️ Vous choisirez votre opérateur (Orange, Moov, Telecel…) directement sur la page sécurisée PawaPay à l'étape suivante.
             </div>
+            {/* Hidden mno kept for potential pre-fill compat — not used by Payment Page */}
           </div>
           <div>
-            <label className="text-xs font-semibold block mb-1">Numéro Mobile Money (format international)</label>
+            <label className="text-xs font-semibold block mb-1">Numéro Mobile Money (optionnel)</label>
             <input
               value={msisdn}
               onChange={(e) => setMsisdn(e.target.value)}
-              placeholder="22670XXXXXX"
+              placeholder="Laissez vide pour le saisir sur PawaPay"
               className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
               data-testid="payment-msisdn"
             />
-            <p className="text-[10px] text-slate-400 mt-0.5">Sans le « + ». Exemple Burkina : 22670000000.</p>
+            <p className="text-[10px] text-slate-400 mt-0.5">Si renseigné, le numéro sera pré-fixé sur la page de paiement.</p>
           </div>
           <div>
             <label className="text-xs font-semibold block mb-1">Description (facultatif, max 22 car.)</label>
@@ -579,7 +566,7 @@ function NewPaymentModal({ mnos, prefill, onClose, onCreated }) {
             className="inline-flex items-center gap-1.5 text-sm rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-4 py-2 disabled:opacity-50"
             data-testid="payment-submit-btn"
           >
-            <CreditCard className="h-4 w-4" /> {submitting ? "Envoi…" : "Lancer le paiement"}
+            <CreditCard className="h-4 w-4" /> {submitting ? "Création…" : "Payer via PawaPay"}
           </button>
         </div>
       </div>

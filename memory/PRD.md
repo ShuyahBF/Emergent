@@ -6,6 +6,9 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-28) — Iter38r
+- ✅ **PawaPay Hosted Payment Page (v2)** : migration depuis `/v2/deposits` direct → `/v2/paymentpage` (le client saisit MSISDN + PIN/OTP sur la page sécurisée PawaPay). Endpoint `POST /api/me/payments/pawapay/payment-page` ; ancien `/deposit` conservé en forwarder deprecated. Persistance préalable du doc payment (best-practice PawaPay). Page React `/portal/payments/return` qui poll le statut (3s × 25). Toggle `pawapay_fix_msisdn` exposé dans Admin → Clients → Fonctionnalités (3 états : Défaut global / Pré-remplir / Saisie libre). 14 tests Pytest 100% pass.
+
 ## User Choices
 - **OTP** : par email via SMTP (paramétrable depuis l'admin)
 - **Captcha** : Google reCAPTCHA v2 (clés paramétrables admin)

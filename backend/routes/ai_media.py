@@ -358,7 +358,22 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             {"_id": 0, "id": 1, "prompt": 1, "url": 1, "icon_mode": 1, "aspect": 1,
              "edited_from": 1, "created_at": 1, "model": 1, "kind": 1, "duration": 1, "size": 1},
         ).sort("created_at", -1).to_list(min(max(limit, 1), 100))
-        return {"items": items}
+        # Iter38r-fix8b — Annotate each item with `persistent: true` when the
+        # underlying file lives in Emergent Object Storage (URL contains the
+        # `sawali/` prefix returned by `object_storage.save_and_log`).
+        for it in items:
+            url = it.get("url") or ""
+            it["persistent"] = "/sawali/" in url
+        # Aggregated counters for the UI badge "X Go protégés · Y fichiers"
+        agg_pipeline = [
+            {"$match": {"tenant_id": tid, "is_deleted": False, "kind": "ai_media"}},
+            {"$group": {"_id": None, "files": {"$sum": 1}, "bytes": {"$sum": {"$ifNull": ["$size", 0]}}}},
+        ]
+        agg = await db.stored_objects.aggregate(agg_pipeline).to_list(1)
+        storage_stats = {"files": 0, "bytes": 0}
+        if agg:
+            storage_stats = {"files": int(agg[0].get("files") or 0), "bytes": int(agg[0].get("bytes") or 0)}
+        return {"items": items, "storage_stats": storage_stats}
 
     # ---------------------------------------------------------------------
     # 4) Static file serving for generated images (public — secured by random fname)

@@ -61,6 +61,13 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   const sinceLast = data?.since_last_visit || null;
   // Iter38d — Expense reminder for tracked users
   const expenseReminder = data?.expense_reminder || null;
+  // Iter38r-fix8b — Quick KPIs (Rapports/Suivis/Notes/Tâches) so the briefing
+  // is never empty for active users.
+  const kpis = data?.notes_kpis || null;
+  const totalKpis = kpis
+    ? (kpis.reports?.count || 0) + (kpis.suivis?.count || 0) + (kpis.notes?.count || 0) + (kpis.tasks?.count || 0)
+    : 0;
+  const hasKpis = totalKpis > 0;
   const hasHealth = !!health && (
     (health.tickets_resolved_yesterday || 0) > 0
     || (health.messages_sent_today || 0) > 0
@@ -69,7 +76,7 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
   const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -96,6 +103,64 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
           <div className="p-8 text-center text-slate-500">Chargement…</div>
         ) : (
           <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+            {/* Iter38r-fix8b — Synthèse Rapports / Suivis / Notes / Tâches */}
+            {hasKpis && (
+              <section className="rounded-lg ring-1 ring-indigo-200 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40 p-3" data-testid="welcome-notes-kpis">
+                <div className="flex items-center gap-2 mb-2">
+                  <FileText className="h-4 w-4 text-indigo-700" />
+                  <h3 className="text-sm font-semibold text-indigo-900">Synthèse de votre activité</h3>
+                </div>
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {(kpis.reports?.count || 0) > 0 && !isComptaStrict && (
+                    <Link to="/portal/notes/reports" onClick={dismiss}
+                      className="rounded-lg ring-1 ring-sky-200 bg-sky-50/60 p-2 hover:bg-sky-100 transition"
+                      data-testid="welcome-kpi-reports">
+                      <div className="flex items-center justify-between">
+                        <FileText className="h-4 w-4 text-sky-600" />
+                        <span className="text-lg font-display font-bold text-sky-900 leading-none">{kpis.reports.count}</span>
+                      </div>
+                      <p className="text-[10px] uppercase tracking-wider mt-1 text-sky-800/80">Rapports</p>
+                    </Link>
+                  )}
+                  {(kpis.suivis?.count || 0) > 0 && !isComptaStrict && (
+                    <Link to="/portal/notes/suivis" onClick={dismiss}
+                      className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/60 p-2 hover:bg-emerald-100 transition"
+                      data-testid="welcome-kpi-suivis">
+                      <div className="flex items-center justify-between">
+                        <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+                        <span className="text-lg font-display font-bold text-emerald-900 leading-none">{kpis.suivis.count}</span>
+                      </div>
+                      <p className="text-[10px] uppercase tracking-wider mt-1 text-emerald-800/80">Suivis</p>
+                    </Link>
+                  )}
+                  {(kpis.notes?.count || 0) > 0 && (
+                    <Link to="/portal/notes/notes" onClick={dismiss}
+                      className="rounded-lg ring-1 ring-violet-200 bg-violet-50/60 p-2 hover:bg-violet-100 transition"
+                      data-testid="welcome-kpi-notes">
+                      <div className="flex items-center justify-between">
+                        <FileText className="h-4 w-4 text-violet-600" />
+                        <span className="text-lg font-display font-bold text-violet-900 leading-none">{kpis.notes.count}</span>
+                      </div>
+                      <p className="text-[10px] uppercase tracking-wider mt-1 text-violet-800/80">Notes</p>
+                    </Link>
+                  )}
+                  {(kpis.tasks?.count || 0) > 0 && (
+                    <Link to="/portal/notes/tasks" onClick={dismiss}
+                      className={`rounded-lg ring-1 p-2 transition ${(kpis.tasks?.overdue || 0) > 0 ? "ring-rose-300 bg-rose-50/70 hover:bg-rose-100" : "ring-amber-200 bg-amber-50/60 hover:bg-amber-100"}`}
+                      data-testid="welcome-kpi-tasks">
+                      <div className="flex items-center justify-between">
+                        <Clock className={`h-4 w-4 ${(kpis.tasks?.overdue || 0) > 0 ? "text-rose-600" : "text-amber-600"}`} />
+                        <span className={`text-lg font-display font-bold leading-none ${(kpis.tasks?.overdue || 0) > 0 ? "text-rose-900" : "text-amber-900"}`}>{kpis.tasks.count}</span>
+                      </div>
+                      <p className={`text-[10px] uppercase tracking-wider mt-1 ${(kpis.tasks?.overdue || 0) > 0 ? "text-rose-800/80" : "text-amber-800/80"}`}>
+                        Tâches{(kpis.tasks?.overdue || 0) > 0 ? ` · ${kpis.tasks.overdue} en retard` : ""}
+                      </p>
+                    </Link>
+                  )}
+                </div>
+              </section>
+            )}
+
             {/* Iter38d — Expense reminder for tracked users with cashier access */}
             {hasExpenseReminder && (
               <section

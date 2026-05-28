@@ -5,10 +5,19 @@
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Sparkles, Image as ImageIcon, Video, Wand2, Loader2, Download, RefreshCw, Upload, X, History, Clapperboard } from "lucide-react";
+import { Sparkles, Image as ImageIcon, Video, Wand2, Loader2, Download, RefreshCw, Upload, X, History, Clapperboard, Lock } from "lucide-react";
 import { toast } from "sonner";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
+
+// Iter38r-fix8b — Friendly byte formatter for the "X protégés" badge.
+function fmtBytes(bytes) {
+  const n = Number(bytes) || 0;
+  if (n < 1024) return `${n} o`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} Ko`;
+  if (n < 1024 * 1024 * 1024) return `${(n / (1024 * 1024)).toFixed(1)} Mo`;
+  return `${(n / (1024 * 1024 * 1024)).toFixed(2)} Go`;
+}
 
 export default function MediaGenerator() {
   const [tab, setTab] = useState("image"); // 'image' | 'video'
@@ -18,6 +27,7 @@ export default function MediaGenerator() {
   const [busy, setBusy] = useState(false);
   const [current, setCurrent] = useState(null); // {url, kind}
   const [history, setHistory] = useState([]);
+  const [storageStats, setStorageStats] = useState({ files: 0, bytes: 0 });
   const [refFile, setRefFile] = useState(null);
   const refInputRef = useRef(null);
   // Video state
@@ -44,6 +54,7 @@ export default function MediaGenerator() {
     try {
       const r = await apiClient.get("/me/ai/history?limit=24");
       setHistory(r.data?.items || []);
+      setStorageStats(r.data?.storage_stats || { files: 0, bytes: 0 });
     } catch { /* noop */ }
   }, []);
   useEffect(() => { loadHistory(); }, [loadHistory]);
@@ -249,13 +260,28 @@ export default function MediaGenerator() {
 
       {/* History */}
       <div>
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
           <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-1">
             <History className="h-4 w-4" /> Historique récent ({history.length})
           </h2>
-          <button onClick={loadHistory} className="text-xs text-violet-600 hover:underline inline-flex items-center gap-1">
-            <RefreshCw className="h-3 w-3" /> Actualiser
-          </button>
+          <div className="flex items-center gap-2">
+            {storageStats.files > 0 && (
+              <span
+                className="inline-flex items-center gap-1.5 text-[11px] font-medium rounded-full bg-emerald-50 ring-1 ring-emerald-200 text-emerald-800 px-2.5 py-1"
+                title="Vos fichiers IA sont sauvegardés sur Emergent Object Storage — ils survivent à chaque redéploiement."
+                data-testid="mediagen-storage-stats"
+              >
+                <Lock className="h-3 w-3" />
+                {storageStats.files} fichier{storageStats.files > 1 ? "s" : ""} protégé{storageStats.files > 1 ? "s" : ""}
+                {storageStats.bytes > 0 && (
+                  <span className="text-emerald-700/80">· {fmtBytes(storageStats.bytes)}</span>
+                )}
+              </span>
+            )}
+            <button onClick={loadHistory} className="text-xs text-violet-600 hover:underline inline-flex items-center gap-1">
+              <RefreshCw className="h-3 w-3" /> Actualiser
+            </button>
+          </div>
         </div>
         {history.length === 0 ? (
           <p className="text-xs text-slate-400 italic">Aucune image générée pour le moment.</p>
@@ -263,7 +289,8 @@ export default function MediaGenerator() {
           <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-2">
             {history.map((h) => (
               <button key={h.id} onClick={() => setCurrent({ url: h.url, kind: h.kind || "image" })}
-                title={h.prompt} className="aspect-square overflow-hidden rounded-lg ring-1 ring-slate-200 bg-slate-100 hover:ring-2 hover:ring-violet-500 transition relative"
+                title={`${h.prompt}${h.persistent ? "\n🔒 Stocké de façon persistante" : ""}`}
+                className="aspect-square overflow-hidden rounded-lg ring-1 ring-slate-200 bg-slate-100 hover:ring-2 hover:ring-violet-500 transition relative"
                 data-testid={`mediagen-hist-${h.id}`}>
                 {h.kind === "video" ? (
                   <>
@@ -274,6 +301,14 @@ export default function MediaGenerator() {
                   </>
                 ) : (
                   <img src={fullUrl(h.url)} alt={h.prompt} className="w-full h-full object-cover" loading="lazy" />
+                )}
+                {h.persistent && (
+                  <span
+                    className="absolute top-1 right-1 inline-flex items-center gap-0.5 rounded-full bg-emerald-600/90 text-white text-[9px] font-semibold px-1.5 py-0.5 shadow ring-1 ring-emerald-700/50"
+                    data-testid={`mediagen-hist-persistent-${h.id}`}
+                  >
+                    <Lock className="h-2.5 w-2.5" />
+                  </span>
                 )}
               </button>
             ))}

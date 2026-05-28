@@ -20225,8 +20225,41 @@ async def me_welcome_briefing(
         "daily_health": daily_health,
         "since_last_visit": since_last_visit,
         "expense_reminder": expense_reminder,
+        "notes_kpis": await _build_welcome_notes_kpis(user),
         "server_now": _now(),
     }
+
+
+# Iter38r-fix8b — Compact KPIs for the Welcome modal so the user always
+# sees a quick summary of Rapports / Suivis / Notes / Tâches even when
+# nothing else is pending. Mirrors the logic of /me/notes-summary but
+# also surfaces "overdue" tasks (due_at past).
+async def _build_welcome_notes_kpis(user: dict) -> Dict[str, Any]:
+    base = {} if _is_elevated_creator(user) else {"owner_id": user["id"]}
+    now_iso = datetime.now(timezone.utc).isoformat()
+
+    async def _kpi(coll, label: str) -> Dict[str, Any]:
+        cnt = await coll.count_documents(base)
+        last = await coll.find_one(base, {"_id": 0, "updated_at": 1, "title": 1}, sort=[("updated_at", -1)])
+        return {
+            "label": label,
+            "count": cnt,
+            "last_updated": (last or {}).get("updated_at"),
+            "last_title": (last or {}).get("title") or "",
+        }
+
+    rep = await _kpi(db.user_reports, "Rapports")
+    sui = await _kpi(db.user_suivis, "Suivis")
+    notes = await _kpi(db.user_notes_personal, "Notes")
+    tasks = await _kpi(db.user_tasks_personal, "Tâches")
+    # Overdue tasks (due_at past, status != done) — best-effort
+    overdue = await db.user_tasks_personal.count_documents({
+        **base,
+        "due_at": {"$lt": now_iso, "$ne": None},
+        "status": {"$nin": ["done", "completed", "closed"]},
+    })
+    tasks["overdue"] = int(overdue)
+    return {"reports": rep, "suivis": sui, "notes": notes, "tasks": tasks}
 
 
 # =====================================================================

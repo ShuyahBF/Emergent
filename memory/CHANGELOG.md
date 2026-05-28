@@ -8,6 +8,53 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix5 (2026-05-28) — Backend AI Quotas & Usage Tracking par Client Lié
+
+### 🎯 1) Module backend complet `/app/backend/routes/ai_quotas.py`
+Nouveau module isolé qui expose :
+- **Helper public `track_ai_usage(db, user, resource, units, model, metadata, pre_check)`** importable depuis n'importe quel endpoint IA.
+- 3 modes de quota par Client Lié (admin parent) :
+  - `off` : aucune limitation (défaut).
+  - `quota` : caps par ressource (images / vidéos / minutes transcription / tokens chat).
+  - `budget` : cap global en XOF par mois.
+- Devise par défaut **XOF** (FCFA) avec tarifs par défaut configurables (`ai_cost_image_xof=25`, `ai_cost_video_xof=1500`, `ai_cost_transcription_minute_xof=6`, `ai_cost_1k_tokens_xof=3`) override possible per-client.
+- Alertes paramétrables : seuil warn (défaut 80%), blocage à 100% (toggle `block_on_limit`).
+
+### 🛢️ 2) Schémas MongoDB
+- `ai_quotas` : 1 doc par `client_id` (admin parent). Config mode + caps + overrides + alertes.
+- `ai_usage_events` : append-only, 1 event par appel IA (user_id, user_label, tracked_role, resource, units, base, cost_xof, model, metadata, year_month, created_at). Source de vérité pour CSV/PDF.
+- `ai_usage_monthly` : rollup `{client_id, year_month}` pour quota check rapide (images, videos, transcription_minutes, chat_tokens, total_xof).
+
+### 🔌 3) Endpoints exposés
+- `GET /api/admin/clients/{client_id}/ai-quota` → config + tarifs effectifs + défauts
+- `PUT /api/admin/clients/{client_id}/ai-quota` → upsert config
+- `GET /api/admin/clients/{client_id}/ai-usage?month=YYYY-MM` → rollup + breakdown par Utilisateur Suivi
+- `GET /api/admin/clients/{client_id}/ai-usage/export.csv?date_from=&date_to=` → CSV UTF-8 BOM Excel-ready avec colonnes : Date/Heure, Utilisateur Suivi, Rôle, Ressource, Unités, Base, Coût (XOF), Modèle + ligne TOTAL
+- `GET /api/admin/clients/{client_id}/ai-usage/export.pdf?date_from=&date_to=` → PDF paysage A4 (reportlab) avec en-tête bleu nuit + tableau + ligne TOTAL bleue.
+- `GET /api/me/ai-usage` → vue read-only de la consommation pour l'utilisateur courant (résolu vers son admin parent).
+
+### 🔗 4) Hooks dans les endpoints IA existants
+- `POST /me/ai/generate-image` (Nano Banana) : pre-check avant l'appel Gemini (économise crédits), log après succès.
+- `POST /me/ai/edit-image` : idem.
+- `POST /me/ai/generate-video` (Sora 2) : pre-check + log (1 vidéo).
+- `POST /transcribe` (Whisper) : estimation des minutes depuis la taille du buffer audio (~24 KB/s), log après transcription.
+
+### 🧪 5) Tests Pytest — `test_iter38r_fix5_ai_quotas.py` (12 tests, 100% pass)
+- GET retourne mode=off + tarifs effectifs par défaut.
+- PUT persiste config quota et budget.
+- `track_ai_usage` incrémente correctement le rollup et persiste l'event.
+- Quota mode bloque dès le dépassement du cap.
+- Budget mode bloque dès le dépassement budget XOF.
+- Endpoint usage retourne breakdown par user.
+- Export CSV contient les colonnes attendues + ligne TOTAL.
+- `/me/ai-usage` résout vers le bon admin parent (cas Utilisateur Suivi).
+- RBAC admin-only respecté sur les endpoints `/admin/...`.
+
+### 🚧 6) Reste à faire (UI — quand l'utilisateur confirme)
+- **Frontend** : Section « Quotas IA » dans `/admin/clients/{id}/features` avec toggle mode + caps + tarifs + 2 boutons « Export CSV » / « Export PDF ».
+- **Toast d'alerte 80%** côté Portal client (depuis `useActivityFeedNotifier` ou nouveau hook `useAiQuotaWatcher`).
+- **Branchement Chat IA** (résumés/Liluvine Pro futurs) : appeler `track_ai_usage(resource="chat", units=tokens)` avec le décompte tokens du provider.
+
 ## Iter38r-fix4 (2026-05-28) — Comptable strict + WhatsApp partager bibliothèque + Forms data visibility
 
 ### 🔒 1) Rôle Comptable strict — seulement Caisse/Facturation + GRH

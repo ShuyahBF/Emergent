@@ -59,6 +59,19 @@ def setup_ai_media_routes(*, db, api, get_current_user):
 
     api_key = os.environ.get("EMERGENT_LLM_KEY")
 
+    # Iter38r-fix5 — Lazy import of the quota tracker to avoid a circular
+    # import (server.py mounts ai_quotas which imports from this module's
+    # peer). Returns a no-op {"allowed": True} when the helper is missing.
+    async def _track(user, resource, units, model, metadata=None, pre_check=False):
+        try:
+            from routes.ai_quotas import track_ai_usage
+        except ImportError:
+            return {"allowed": True, "reason": None, "warn": False, "cost_xof": 0.0}
+        return await track_ai_usage(
+            db, user=user, resource=resource, units=units,
+            model=model, metadata=metadata or {}, pre_check=pre_check,
+        )
+
     async def _save_image_bytes(image_bytes: bytes, tenant_id: str, slug: str) -> Dict[str, str]:
         tenant_dir = UPLOAD_ROOT / (tenant_id or "_global")
         tenant_dir.mkdir(parents=True, exist_ok=True)
@@ -140,6 +153,10 @@ def setup_ai_media_routes(*, db, api, get_current_user):
     @api.post("/me/ai/generate-image", tags=["Portail Client — IA"])
     async def generate_image(payload: GenerateImagePayload, user: dict = Depends(get_current_user)):
         await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
+        # Iter38r-fix5 — Pre-check the quota BEFORE calling Gemini (saves credits)
+        chk = await _track(user, "image", 1, GEMINI_MODEL, pre_check=True)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
         tid = await _tenant_id(user)
         # Augment the prompt with format hints
         prompt = payload.prompt.strip()
@@ -164,6 +181,8 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "model": GEMINI_MODEL,
         })
+        # Iter38r-fix5 — Log actual consumption (1 image)
+        await _track(user, "image", 1, GEMINI_MODEL, metadata={"aspect": payload.aspect, "icon_mode": payload.icon_mode})
         return {"ok": True, "url": saved["url"], "public_url": saved["url"], "filename": saved["filename"]}
 
     # ---------------------------------------------------------------------
@@ -176,6 +195,10 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         user: dict = Depends(get_current_user),
     ):
         await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
+        # Iter38r-fix5 — quota pre-check
+        chk = await _track(user, "image", 1, GEMINI_MODEL, pre_check=True)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
         tid = await _tenant_id(user)
         try:
             data = await file.read()
@@ -199,6 +222,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "model": GEMINI_MODEL,
         })
+        await _track(user, "image", 1, GEMINI_MODEL, metadata={"edit": True})
         return {"ok": True, "url": saved["url"], "public_url": saved["url"], "filename": saved["filename"]}
 
     # ---------------------------------------------------------------------
@@ -207,6 +231,10 @@ def setup_ai_media_routes(*, db, api, get_current_user):
     @api.post("/me/ai/generate-video", tags=["Portail Client — IA"])
     async def generate_video(payload: GenerateVideoPayload, user: dict = Depends(get_current_user)):
         await _ensure_feature_enabled(user, "ai_video_gen", "Génération Vidéo IA")
+        # Iter38r-fix5 — quota pre-check (1 video)
+        chk = await _track(user, "video", 1, payload.model, pre_check=True)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
         if not api_key:
             raise HTTPException(status_code=503, detail="Service IA non configuré (EMERGENT_LLM_KEY manquant).")
         if payload.duration not in (4, 8, 12):
@@ -246,6 +274,7 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             "created_at": datetime.now(timezone.utc).isoformat(),
             "model": payload.model,
         })
+        await _track(user, "video", 1, payload.model, metadata={"duration": payload.duration, "size": payload.size})
         return {"ok": True, "url": public_url, "public_url": public_url, "filename": fname}
 
     # ---------------------------------------------------------------------

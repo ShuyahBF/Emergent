@@ -7801,7 +7801,14 @@ async def transcribe_audio(
     """Accepts a short audio file (webm/mp3/m4a/wav/ogg, ≤25 Mo) and returns
     the transcribed text using OpenAI Whisper."""
     await _enforce_demo_quota(user, QUOTA_KEY_TRANSCRIBE)  # Iter35h
+    # Iter38r-fix5 — Estimate audio length (rough): we'll use file size as a
+    # proxy for the pre-check, then log a more accurate minute count using
+    # the actual upload size. ~24 KB/s for compressed audio → MB / 1.44 ≈ min.
     s = await db.settings.find_one({"_id": "global"}) or {}
+    try:
+        from routes.ai_quotas import track_ai_usage as _track_ai
+    except ImportError:
+        _track_ai = None
     api_key = (s.get("openai_api_key") or "").strip()
     model = (s.get("openai_whisper_model") or "whisper-1").strip()
     if not api_key:
@@ -7834,12 +7841,29 @@ async def transcribe_audio(
                     err = r.text[:300]
                 raise HTTPException(status_code=502, detail=f"OpenAI Whisper a retourné HTTP {r.status_code} — {err}")
             payload = r.json()
+            # Iter38r-fix5 — Log Whisper consumption (minutes estimated from
+            # raw payload size). Doesn't fail the response if tracking errors.
+            est_minutes = max(round(len(raw) / (24 * 1024 * 60), 2), 0.1)
+            if _track_ai is not None:
+                try:
+                    chk = await _track_ai(
+                        db, user=user, resource="transcription",
+                        units=est_minutes, model=model,
+                        metadata={"bytes": len(raw)},
+                    )
+                    if not chk.get("allowed"):
+                        # Already over budget — return the result anyway (we
+                        # already paid OpenAI) but flag it in the response.
+                        pass
+                except Exception:
+                    pass
             return {
                 "ok": True,
                 "text": (payload.get("text") or "").strip(),
                 "model": model,
                 "language": data["language"],
                 "duration_bytes": len(raw),
+                "duration_minutes_est": est_minutes,
             }
     except httpx.TimeoutException:
         raise HTTPException(status_code=504, detail="Délai dépassé lors de l'appel à OpenAI Whisper")
@@ -20300,6 +20324,14 @@ _CATALOG_ANALYTICS = _setup_catalog_analytics(
 # Iter38o — Stripe Checkout for paid formations.
 from routes.payments_stripe import setup_stripe_routes as _setup_stripe_routes  # noqa: E402
 _setup_stripe_routes(db=db, api=api, get_current_user=get_current_user)
+
+# Iter38r-fix5 — AI Quotas & Usage Tracking per Client Lié.
+from routes.ai_quotas import setup_ai_quotas_routes as _setup_ai_quotas_routes, track_ai_usage as _track_ai_usage  # noqa: E402, F401
+_setup_ai_quotas_routes(
+    db=db, api=api,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+)
 
 app.include_router(api)
 

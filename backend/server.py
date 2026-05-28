@@ -18571,8 +18571,13 @@ async def me_open_ticket(
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
     # Block when the contact has an already-open ticket
+    # Iter38q — exclude archived tickets from this check
     existing = await db.support_tickets.find_one(
-        {"contact_id": cid, "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {
+            "contact_id": cid,
+            "status": {"$in": list(TICKET_OPEN_STATUSES)},
+            "archived_at": {"$in": [None, ""]},
+        },
         {"_id": 0, "id": 1, "number": 1, "status": 1, "opened_at": 1, "contact_id": 1, "client_id": 1},
     )
     if existing:
@@ -18713,6 +18718,8 @@ async def me_list_tickets(
 ):
     scope_filter = await _ticket_scope_for_user(user)
     q: Dict[str, Any] = {**scope_filter}
+    # Iter38q — exclude archived tickets (corbeille) from normal listings
+    q["archived_at"] = {"$in": [None, ""]}
     if contact_id:
         q["contact_id"] = contact_id
     if status:
@@ -18762,7 +18769,8 @@ async def me_tickets_pending_count(user: dict = Depends(get_current_user)):
     """Return the number of non-closed tickets in the user's scope.
     Used by the sidebar/dashboard badges."""
     scope_filter = await _ticket_scope_for_user(user)
-    q = {**scope_filter, "status": {"$in": list(TICKET_OPEN_STATUSES)}}
+    # Iter38q — exclude archived tickets from counters
+    q = {**scope_filter, "status": {"$in": list(TICKET_OPEN_STATUSES)}, "archived_at": {"$in": [None, ""]}}
     count = await db.support_tickets.count_documents(q)
     by_status: Dict[str, int] = {}
     pipeline = [{"$match": q}, {"$group": {"_id": "$status", "n": {"$sum": 1}}}]
@@ -18781,6 +18789,9 @@ async def me_update_ticket(
     ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    # Iter38q — Archived tickets are read-only (corbeille)
+    if ticket.get("archived_at"):
+        raise HTTPException(status_code=409, detail="Ticket dans la corbeille — modification interdite.")
     if ticket["status"] in TICKET_CLOSED_STATUSES:
         raise HTTPException(status_code=409, detail=f"Ticket déjà clôturé ({ticket['status']}). Réouverture interdite.")
     update: Dict[str, Any] = {}
@@ -19238,6 +19249,7 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
     Iter38p — If the open ticket actually points to a contact that no longer
     exists, auto-close it as orphan and return active=false so the UI lets the
     user create a fresh ticket.
+    Iter38q — Archived tickets (corbeille) are NEVER returned as active.
     """
     scope_filter = await _ticket_scope_for_user(user)
     contact = (
@@ -19247,7 +19259,11 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable.")
     t = await db.support_tickets.find_one(
-        {"contact_id": cid, "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {
+            "contact_id": cid,
+            "status": {"$in": list(TICKET_OPEN_STATUSES)},
+            "archived_at": {"$in": [None, ""]},  # Iter38q — exclude trashed
+        },
         {"_id": 0},
         sort=[("opened_at", -1)],
     )
@@ -19258,6 +19274,76 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
         if was_orphan:
             return {"active": False, "ticket": None, "cleaned_up": True}
     return {"active": t is not None, "ticket": t}
+
+
+# Iter38q — Archive (corbeille) a ticket — IRREVERSIBLE.
+# Admin/Superviseur only. Once archived, the ticket is:
+#   • Excluded from list/active-ticket/lookup queries.
+#   • Cannot be reopened (the reopen endpoint refuses archived parents).
+#   • Cannot be unarchived (there is intentionally no /unarchive endpoint).
+# The archive is stored as a soft-delete: row remains in DB with
+# `archived_at` + `archived_by_*` so audit trails are preserved.
+@api.post("/me/tickets/{tid}/archive", tags=["Portail Client"])
+async def me_archive_ticket(tid: str, user: dict = Depends(get_current_user)):
+    role = (user or {}).get("role")
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(
+            status_code=403,
+            detail="Action réservée aux administrateurs et superviseurs.",
+        )
+    scope_filter = await _ticket_scope_for_user(user)
+    ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    if ticket.get("archived_at"):
+        raise HTTPException(status_code=409, detail="Ticket déjà dans la corbeille.")
+    now_iso = _now()
+    update = {
+        "archived_at": now_iso,
+        "archived_by_id": user["id"],
+        "archived_by_label": user.get("full_name") or user.get("email"),
+        "updated_at": now_iso,
+    }
+    # If still open, also force-close it (cannot be a "live" archived ticket)
+    if ticket.get("status") in TICKET_OPEN_STATUSES:
+        update.update({
+            "status": "closed",
+            "closed_at": now_iso,
+            "closed_by_id": user["id"],
+            "closed_by_label": user.get("full_name") or user.get("email"),
+            "outcome": "archived_to_trash",
+            "resolution_note": "Mis à la corbeille — toutes références supprimées.",
+        })
+    await db.support_tickets.update_one({"id": tid}, {"$set": update})
+    try:
+        await _log_activity(
+            client_id=ticket.get("client_id", ""),
+            kind="ticket", action="archived",
+            label=f"{ticket.get('number', '?')} → corbeille",
+            actor=user, target_id=tid,
+        )
+    except Exception:
+        pass
+    return {"ok": True, "id": tid, "archived_at": now_iso}
+
+
+# Iter38q — Trash listing — admin/superviseur only. Read-only (no restore).
+@api.get("/me/tickets/trash", tags=["Portail Client"])
+async def me_list_trashed_tickets(
+    limit: int = 100, user: dict = Depends(get_current_user)
+):
+    role = (user or {}).get("role")
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(
+            status_code=403,
+            detail="Action réservée aux administrateurs et superviseurs.",
+        )
+    scope_filter = await _ticket_scope_for_user(user)
+    q = {**scope_filter, "archived_at": {"$nin": [None, ""]}}
+    cursor = db.support_tickets.find(q, {"_id": 0}).sort("archived_at", -1).limit(max(1, min(limit, 500)))
+    items = await cursor.to_list(length=limit)
+    items = [_strip_ticket_cost_fields(i) for i in items]
+    return items
 
 
 # ====================================================================
@@ -19336,11 +19422,18 @@ async def me_reopen_ticket(
     parent = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
     if not parent:
         raise HTTPException(status_code=404, detail="Ticket introuvable.")
+    # Iter38q — Archived parents cannot be reopened (corbeille is final)
+    if parent.get("archived_at"):
+        raise HTTPException(status_code=409, detail="Ce ticket est dans la corbeille — réouverture interdite.")
     if parent["status"] not in TICKET_CLOSED_STATUSES:
         raise HTTPException(status_code=409, detail="Le ticket doit être clôturé avant d'être rouvert.")
     # Also ensure the contact does not already have another open ticket
     existing_open = await db.support_tickets.find_one(
-        {"contact_id": parent["contact_id"], "status": {"$in": list(TICKET_OPEN_STATUSES)}},
+        {
+            "contact_id": parent["contact_id"],
+            "status": {"$in": list(TICKET_OPEN_STATUSES)},
+            "archived_at": {"$in": [None, ""]},
+        },
         {"_id": 0, "id": 1, "number": 1, "status": 1, "contact_id": 1, "client_id": 1},
     )
     if existing_open:

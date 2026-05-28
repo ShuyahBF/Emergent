@@ -1360,6 +1360,7 @@ const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
 
 // --- Conversation history modal ---
 const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
+  const { user } = useAuth();
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
@@ -1720,6 +1721,32 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
               >
                 Voir <ArrowUpRight className="h-3 w-3" />
               </Link>
+              {/* Iter38q — Admin/Sup only: archive ticket to trash (irreversible) */}
+              {(user?.role === "admin" || user?.role === "superviseur") && (
+                <button
+                  type="button"
+                  onClick={async () => {
+                    const ok = window.confirm(
+                      `⚠️ Mettre le ticket ${activeTicket.number} à la corbeille ?\n\n` +
+                      "Toutes ses références seront supprimées des listes et conversations. " +
+                      "Cette action est IRRÉVERSIBLE — le ticket ne pourra plus être réactivé."
+                    );
+                    if (!ok) return;
+                    try {
+                      await apiClient.post(`/me/tickets/${activeTicket.id}/archive`);
+                      toast.success(`Ticket ${activeTicket.number} mis à la corbeille`);
+                      await loadActiveTicket();
+                    } catch (err) {
+                      toast.error(err?.response?.data?.detail || "Erreur");
+                    }
+                  }}
+                  className="text-rose-700 hover:bg-rose-100 rounded p-1"
+                  data-testid="conversation-ticket-archive"
+                  title="Mettre à la corbeille (irréversible) — supprime toutes les références"
+                >
+                  <Trash className="h-3.5 w-3.5" />
+                </button>
+              )}
             </div>
           ) : (
             <div className="flex items-center justify-between gap-2 text-xs">

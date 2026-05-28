@@ -8,6 +8,35 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38q (2026-05-27) — Corbeille tickets (archivage irréversible)
+
+### 🗑️ 1) Endpoint d'archivage `POST /me/tickets/{tid}/archive`
+- Admin/Superviseur uniquement. Marque le ticket `archived_at` + `archived_by_id` + `archived_by_label`.
+- Si le ticket est encore ouvert, le clôture également avec `outcome="archived_to_trash"`.
+- **Action irréversible** : pas d'endpoint `/unarchive`. Réouverture refusée (409 « ticket dans la corbeille »).
+- Trace dans le flux d'activité (`ticket.archived`).
+
+### 👁️ 2) Endpoint de listing corbeille `GET /me/tickets/trash`
+- Admin/Superviseur uniquement (403 sinon). Retourne uniquement les tickets `archived_at != null`, triés par date d'archivage descendante.
+- Read-only — pas de restauration possible.
+
+### 🚫 3) Exclusion globale des tickets archivés
+- Tous les endpoints existants filtrent désormais `archived_at: {$in: [null, ""]}` :
+  - `GET /me/tickets` (liste)
+  - `GET /me/contacts/{cid}/active-ticket` (badge chat)
+  - `POST /me/contacts/{cid}/ticket` (check de blocage à la création)
+  - `POST /me/tickets/{tid}/reopen` (parent ET ticket bloqueur)
+  - Compteurs de tickets ouverts
+- Conséquence : un ticket archivé disparaît totalement de l'UI et ne bloque plus jamais la création d'un nouveau ticket.
+
+### 🎨 4) Frontend
+- **`Contacts.jsx`** (chat WA) : nouveau bouton 🗑️ rouge à côté de "Voir" (admin/sup uniquement) — affiche un `window.confirm()` d'avertissement "IRRÉVERSIBLE — Toutes les références seront supprimées". Au clic OK, archive le ticket et rafraîchit le badge actif.
+- **`Tickets.jsx`** : nouveau bouton "Corbeille" dans le header (admin/sup) qui ouvre un modal listant tous les tickets archivés (N°, contact, motif, date d'archivage, par qui). Read-only avec bandeau d'avertissement.
+
+### ✅ Tests
+- 10 nouveaux pytest verts (`tests/test_iter38q_ticket_trash.py`) couvrant : archivage admin OK + sup OK + client refusé, exclusion des listings/active-ticket/blocage, refus de réouverture après archivage, idempotence (409 si déjà archivé), endpoint corbeille filtré par rôle.
+- Régression iter38 (a→q) : **122/122 verts**.
+
 ## Iter38p (2026-05-27) — Auto-nettoyage des tickets orphelins (TKT-2026-0001)
 
 ### 🧹 1) Helper `_auto_close_orphan_ticket_if_contact_missing`

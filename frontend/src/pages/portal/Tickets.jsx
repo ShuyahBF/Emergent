@@ -6,7 +6,7 @@ import {
   Ticket, RefreshCw, X, Check, Clock, AlertCircle, PauseCircle, Ban,
   ArrowRight, Search, MessageCircle, ChevronDown, ChevronRight,
   UserPlus, RotateCw, Plus, Trash2, ClipboardList, FileSpreadsheet, FileText,
-  AlertTriangle,
+  AlertTriangle, Trash,
 } from "lucide-react";
 
 /*
@@ -66,6 +66,21 @@ export default function Tickets() {
   // Iter37d — Monthly cost aggregate (elevated viewers only)
   const [costSummary, setCostSummary] = useState(null);
   const [monthsBack, setMonthsBack] = useState(0);
+  // Iter38q — Trash (corbeille) view (admin/sup only)
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashItems, setTrashItems] = useState([]);
+  const [trashLoading, setTrashLoading] = useState(false);
+  const openTrash = async () => {
+    setTrashOpen(true);
+    setTrashLoading(true);
+    try {
+      const r = await apiClient.get("/me/tickets/trash");
+      setTrashItems(r.data || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+      setTrashOpen(false);
+    } finally { setTrashLoading(false); }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -158,6 +173,15 @@ export default function Tickets() {
           title="Gérer les motifs réutilisables"
         >
           <ClipboardList className="h-4 w-4" /> Modèles de motif ({motifTemplates.length})
+        </button>
+        {/* Iter38q — Trash (corbeille) view for admin/sup */}
+        <button
+          onClick={openTrash}
+          className="inline-flex items-center gap-2 rounded-lg border border-rose-200 text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-2 text-sm"
+          data-testid="tickets-trash-btn"
+          title="Voir la corbeille (admin/sup uniquement)"
+        >
+          <Trash className="h-4 w-4" /> Corbeille
         </button>
       </header>
 
@@ -292,6 +316,55 @@ export default function Tickets() {
           onClose={() => setShowTemplatesMgr(false)}
           onChange={reloadTemplates}
         />
+      )}
+      {/* Iter38q — Trash modal (corbeille) */}
+      {trashOpen && (
+        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-sm z-50 flex items-center justify-center p-4" data-testid="tickets-trash-modal">
+          <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[80vh] overflow-hidden flex flex-col shadow-2xl">
+            <div className="flex items-center justify-between p-5 border-b border-slate-100">
+              <h3 className="text-lg font-semibold text-rose-700 flex items-center gap-2">
+                <Trash size={18} /> Corbeille — Tickets archivés ({trashItems.length})
+              </h3>
+              <button onClick={() => setTrashOpen(false)} data-testid="tickets-trash-close" className="text-slate-400">
+                <X size={20} />
+              </button>
+            </div>
+            <div className="p-5 overflow-y-auto">
+              <div className="text-xs bg-amber-50 border border-amber-200 text-amber-800 rounded-lg p-2 mb-3 flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" />
+                Les tickets dans la corbeille sont définitivement archivés et ne peuvent pas être réactivés.
+              </div>
+              {trashLoading ? (
+                <p className="text-center text-slate-400 italic py-6">Chargement…</p>
+              ) : trashItems.length === 0 ? (
+                <p className="text-center text-slate-400 italic py-6">La corbeille est vide.</p>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="text-xs text-slate-500 border-b border-slate-200">
+                    <tr>
+                      <th className="px-3 py-2 text-left">N°</th>
+                      <th className="px-3 py-2 text-left">Contact</th>
+                      <th className="px-3 py-2 text-left">Motif</th>
+                      <th className="px-3 py-2 text-left">Archivé le</th>
+                      <th className="px-3 py-2 text-left">Archivé par</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {trashItems.map((t) => (
+                      <tr key={t.id} className="border-t border-slate-100" data-testid={`trash-row-${t.id}`}>
+                        <td className="px-3 py-2 font-mono text-xs">{t.number}</td>
+                        <td className="px-3 py-2">{t.contact_name || "—"}</td>
+                        <td className="px-3 py-2 max-w-xs truncate" title={t.motif}>{t.motif}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{fmtDateTime(t.archived_at)}</td>
+                        <td className="px-3 py-2 text-xs text-slate-600">{t.archived_by_label || "—"}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

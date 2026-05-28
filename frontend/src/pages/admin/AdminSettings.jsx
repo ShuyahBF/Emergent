@@ -1198,6 +1198,7 @@ export default function AdminSettings() {
             testid="pawapay-country"
           />
         </div>
+        <PawaPayCallbackUrls />
       </Section>
 
       <Section icon={Calendar} title="Agenda — Webhook n8n / AI Agent">
@@ -4587,6 +4588,90 @@ const Toggle = ({ label, value, onChange, testid }) => (
     <input type="checkbox" checked={value} onChange={(e) => onChange(e.target.checked)} data-testid={testid} />
     {label}
   </label>
+);
+
+// Iter38r-fix2 — PawaPay callback URLs (deposits + refunds) for the merchant
+// dashboard. The endpoint auto-generates the callback_secret if missing so the
+// URLs are always ready to paste. The base host is derived from the request,
+// so preview admins see preview URLs and production admins see production URLs.
+const PawaPayCallbackUrls = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const fetchUrls = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/pawapay/callback-urls");
+      setData(r.data);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Impossible de récupérer les URLs");
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+  useEffect(() => { fetchUrls(); }, [fetchUrls]);
+  const copy = (text, label) => {
+    navigator.clipboard.writeText(text).then(
+      () => toast.success(`${label} copiée`),
+      () => toast.error("Copie impossible — sélectionnez le texte manuellement")
+    );
+  };
+  return (
+    <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50 p-3 space-y-3" data-testid="pawapay-callback-urls">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="text-xs font-semibold text-sky-900">URLs de callback PawaPay</p>
+          <p className="text-[11px] text-sky-800/80">
+            Collez ces URLs dans le tableau de bord PawaPay → Configuration → Callback URLs.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={fetchUrls}
+          disabled={loading}
+          className="text-[11px] inline-flex items-center gap-1 px-2 py-1 rounded ring-1 ring-sky-300 bg-white hover:bg-sky-100 disabled:opacity-50"
+          data-testid="pawapay-callback-refresh"
+        >
+          <RefreshCw className="h-3 w-3" /> Rafraîchir
+        </button>
+      </div>
+      {loading && !data && <p className="text-xs text-sky-800/70">Chargement…</p>}
+      {data && (
+        <div className="space-y-2">
+          <UrlRow label="Deposits" value={data.deposits_url} onCopy={copy} testid="pawapay-deposits-url" />
+          <UrlRow label="Refunds" value={data.refunds_url} onCopy={copy} testid="pawapay-refunds-url" />
+          <details className="text-[11px] text-sky-800/70">
+            <summary className="cursor-pointer">URL legacy (rétro-compatibilité)</summary>
+            <div className="mt-2"><UrlRow label="Legacy" value={data.legacy_url} onCopy={copy} testid="pawapay-legacy-url" /></div>
+          </details>
+          <p className="text-[10px] text-sky-800/60">
+            Secret callback : <span className="font-mono">{data.secret_preview}</span>
+            {data.generated_at && <> · Généré le {new Date(data.generated_at).toLocaleDateString("fr-FR")}</>}
+          </p>
+        </div>
+      )}
+    </div>
+  );
+};
+
+const UrlRow = ({ label, value, onCopy, testid }) => (
+  <div className="flex items-center gap-2">
+    <span className="text-[10px] uppercase tracking-wider font-semibold text-sky-900 w-16 flex-shrink-0">{label}</span>
+    <input
+      readOnly
+      value={value || ""}
+      onClick={(e) => e.target.select()}
+      className="flex-1 bg-white rounded px-2 py-1 text-[11px] font-mono text-slate-700 ring-1 ring-sky-200 select-all"
+      data-testid={`${testid}-input`}
+    />
+    <button
+      type="button"
+      onClick={() => onCopy(value, `URL ${label}`)}
+      className="text-[10px] px-2 py-1 rounded bg-sky-600 text-white hover:bg-sky-700 inline-flex items-center gap-1"
+      data-testid={`${testid}-copy`}
+    >
+      <Copy className="h-3 w-3" /> Copier
+    </button>
+  </div>
 );
 
 // Live preview of the incident banner — mirrors IncidentBanner.jsx visuals

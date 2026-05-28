@@ -8,6 +8,32 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix2 (2026-05-28) — Callbacks deposits/refunds + enrichissement MNO
+
+### 🔔 1) Endpoints callback distincts deposits/refunds
+- Nouvelles routes : `POST /api/webhooks/pawapay/deposits/{secret}` et `POST /api/webhooks/pawapay/refunds/{secret}` (en plus du legacy `/api/webhooks/pawapay/{secret}` conservé pour rétro-compatibilité).
+- Le legacy auto-détecte deposit vs refund via présence de `refundId` dans le payload.
+- Helper interne `_pawapay_webhook_apply(payload, op_type)` partagé entre les 3 routes.
+
+### 🧭 2) Endpoint admin `/api/admin/pawapay/callback-urls`
+- Auto-génère `pawapay_callback_secret` (token urlsafe 32 chars) si absent, pour que les URLs soient toujours utilisables immédiatement.
+- Retourne `deposits_url`, `refunds_url`, `legacy_url` + `secret_preview` masqué.
+- Base host dérivée des headers `X-Forwarded-Host` / `X-Forwarded-Proto` → preview admins voient URLs preview, prod admins voient URLs prod.
+- Section UI dédiée dans **Admin → Paramètres → Paiement PawaPay** avec boutons « Copier » + bouton « Rafraîchir ».
+
+### 🏷️ 3) Enrichissement automatique du doc payment avec MNO + phoneNumber
+- Helper `_pawapay_split_provider("ORANGE_BFA")` → `("ORANGE", "BFA")`, gère aussi `MTN_MOMO_ZMB` → `("MTN", "ZMB")` et `AIRTEL_MONEY_UGA` → `("AIRTEL", "UGA")`.
+- Le polling `GET /me/payments/{deposit_id}` et les webhooks extraient `provider` (code complet, audit) + `mno` (code court matchant les labels frontend) + `phoneNumber` (si absent du doc initial).
+- Conséquence : les paiements créés via Payment Page hébergée — où le client choisit son opérateur — ont désormais leur MNO renseigné dès que PawaPay répond.
+
+### 📋 4) Frontend MyPayments — colonne « Motif » + opérateur garanti
+- Nouvelle colonne « Motif » (visible ≥ lg) affichant `description` ou `reason`.
+- L'opérateur affiché tombe sur `—` (gris) si vraiment inconnu (au lieu d'être vide).
+- Vue mobile compactée : opérateur + numéro + motif empilés sous la date.
+
+### 🧪 5) Tests Pytest — `test_iter38r_fix2_callbacks_and_enrichment.py` (8 tests, 100% pass)
+- Provider parser (ORANGE_BFA, MTN_MOMO_ZMB, AIRTEL_MONEY_UGA, vide), endpoint callback-urls (auto-gen secret, RBAC admin), webhooks deposits/refunds avec enrichissement DB, rejet secret invalide, legacy fallback.
+
 ## Iter38r-fix1 (2026-05-28) — PawaPay v2 body shape fix
 
 ### 🐛 1) Correction du body envoyé à `/v2/paymentpage`

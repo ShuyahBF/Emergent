@@ -350,6 +350,7 @@ function TransactionsPanel({
                 <th className="text-left px-3 py-2 hidden lg:table-cell">Référence</th>
                 <th className="text-left px-3 py-2 hidden sm:table-cell">Opérateur</th>
                 <th className="text-left px-3 py-2 hidden md:table-cell">Numéro</th>
+                <th className="text-left px-3 py-2 hidden lg:table-cell">Motif</th>
                 <th className="text-right px-3 py-2">Montant</th>
                 <th className="text-left px-3 py-2">Statut</th>
                 <th className="text-right px-3 py-2"></th>
@@ -357,29 +358,32 @@ function TransactionsPanel({
             </thead>
             <tbody>
               {loading && items.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Chargement…</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 italic">Chargement…</td></tr>
               )}
               {!loading && filtered.length === 0 && items.length > 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement ne correspond à ces filtres.</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement ne correspond à ces filtres.</td></tr>
               )}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement pour l'instant. Cliquez sur « Nouveau paiement » pour démarrer.</td></tr>
+                <tr><td colSpan={8} className="px-3 py-6 text-center text-slate-400 italic">Aucun paiement pour l'instant. Cliquez sur « Nouveau paiement » pour démarrer.</td></tr>
               )}
               {filtered.map((p) => {
                 const sb = STATUS_BADGE[p.status] || STATUS_BADGE.pending;
                 const Icon = sb.icon;
-                const mno = MNO_LABELS[p.mno] || { label: p.mno, color: "#64748b" };
+                const mno = MNO_LABELS[p.mno] || (p.mno ? { label: p.mno, color: "#64748b" } : { label: "—", color: "#94a3b8" });
+                const motif = p.description || p.reason || "—";
                 return (
                   <tr key={p.deposit_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`payment-row-${p.deposit_id}`}>
                     <td className="px-3 py-2 text-slate-600 whitespace-nowrap text-xs">
                       <div>{fmtDate(p.created_at)}</div>
-                      {/* Mobile-only context: opérateur + numéro */}
-                      <div className="sm:hidden text-[10px] mt-0.5" style={{ color: mno.color }}>{mno.label}</div>
-                      <div className="md:hidden text-[10px] font-mono text-slate-400 mt-0.5">{p.msisdn}</div>
+                      {/* Mobile-only context: opérateur + numéro + motif */}
+                      <div className="sm:hidden text-[10px] mt-0.5" style={{ color: mno.color }} data-testid={`payment-mobile-mno-${p.deposit_id}`}>{mno.label}</div>
+                      <div className="md:hidden text-[10px] font-mono text-slate-400 mt-0.5">{p.msisdn || "—"}</div>
+                      {motif !== "—" && <div className="lg:hidden text-[10px] text-slate-500 mt-0.5 max-w-[140px] truncate" title={motif}>{motif}</div>}
                     </td>
                     <td className="px-3 py-2 hidden lg:table-cell font-mono text-[10px] text-slate-700" title={p.deposit_id}>{p.deposit_id?.slice(0, 8)}…</td>
-                    <td className="px-3 py-2 hidden sm:table-cell"><span className="text-[11px] font-semibold" style={{ color: mno.color }}>{mno.label}</span></td>
-                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-slate-700">{p.msisdn}</td>
+                    <td className="px-3 py-2 hidden sm:table-cell" data-testid={`payment-mno-${p.deposit_id}`}><span className="text-[11px] font-semibold" style={{ color: mno.color }}>{mno.label}</span></td>
+                    <td className="px-3 py-2 hidden md:table-cell font-mono text-xs text-slate-700">{p.msisdn || "—"}</td>
+                    <td className="px-3 py-2 hidden lg:table-cell text-xs text-slate-700 max-w-[180px] truncate" title={motif} data-testid={`payment-motif-${p.deposit_id}`}>{motif}</td>
                     <td className="px-3 py-2 text-right font-mono whitespace-nowrap">{Number(p.amount || 0).toLocaleString("fr-FR")} <span className="text-[10px] text-slate-400">{p.currency || "XOF"}</span></td>
                     <td className="px-3 py-2">
                       <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${sb.cls}`}>

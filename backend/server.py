@@ -27,7 +27,7 @@ import logging
 import mimetypes
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Optional, List, Any, Dict
+from typing import Optional, List, Any, Dict, Tuple
 
 import httpx
 
@@ -2069,6 +2069,26 @@ def _pawapay_currency_for_country(country: str) -> str:
     return _PAWAPAY_CURRENCY_BY_COUNTRY.get((country or "BFA").upper(), "XOF")
 
 
+def _pawapay_split_provider(provider: Optional[str]) -> Tuple[Optional[str], Optional[str]]:
+    """Parse a PawaPay v2 provider code ('ORANGE_BFA', 'MTN_MOMO_ZMB',
+    'TELECEL_BFA'…) into ('MNO_short', 'COUNTRY_ISO3').
+    'MTN_MOMO_ZMB' → ('MTN', 'ZMB') so it matches our short labels.
+    """
+    if not provider:
+        return None, None
+    parts = [p for p in (provider or "").strip().upper().split("_") if p]
+    if not parts:
+        return None, None
+    if len(parts) >= 2:
+        country = parts[-1]
+        mno_full = "_".join(parts[:-1])
+        # Strip common suffix used by PawaPay for MTN/Airtel etc.
+        mno = mno_full.replace("_MOMO", "").replace("_MONEY", "")
+        return mno or mno_full, country
+    return parts[0], None
+
+
+
 
 # Iter38r — The legacy direct /deposits endpoint is intentionally removed.
 # All callers now go through the hosted PaymentPage flow defined below
@@ -2332,23 +2352,76 @@ async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)
                 "SUBMITTED": "pending",
                 "PENDING": "pending",
             }.get(api_status, p.get("status") or "pending")
-            await db.payments.update_one({"deposit_id": deposit_id}, {"$set": {
+            # Iter38r-fix2 — Enrich with provider (MNO) + phoneNumber from PawaPay
+            extracted_mno, extracted_country = _pawapay_split_provider(entry.get("provider"))
+            extracted_phone = _pawapay_str(entry.get("phoneNumber"))
+            set_doc: Dict[str, Any] = {
                 "status": new_status,
                 "api_status": api_status,
                 "api_message": _pawapay_str(entry.get("failureReason") or entry.get("rejectionReason")),
                 "completed_at": entry.get("respondedTimestamp") or (None if new_status == "pending" else _now()),
                 "updated_at": _now(),
                 "raw_response": entry,
-            }})
+            }
+            if extracted_mno:
+                set_doc["mno"] = extracted_mno
+            if entry.get("provider"):
+                set_doc["provider"] = entry.get("provider")  # full code, audit
+            if extracted_country and not p.get("country"):
+                set_doc["country"] = extracted_country
+            if extracted_phone and not p.get("msisdn"):
+                set_doc["msisdn"] = extracted_phone
+            await db.payments.update_one({"deposit_id": deposit_id}, {"$set": set_doc})
             p = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
     except Exception as exc:  # noqa: BLE001
         logger.warning("[pawapay-poll] %s — %s", deposit_id, exc)
     return p
 
 
-@api.post("/webhooks/pawapay/{secret}", tags=["Webhooks"])
-async def webhook_pawapay(secret: str, request: Request):
-    """PawaPay callback — flips local status. Validated via path secret."""
+async def _pawapay_webhook_apply(payload: Dict[str, Any], op_type: str) -> Dict[str, Any]:
+    """Iter38r-fix2 — Shared handler for PawaPay deposit/refund webhooks.
+    `op_type` ∈ {"deposit", "refund"} — currently only deposit flips status;
+    refund webhooks are persisted for audit but do not mutate the source
+    payment row (refunds get their own collection later).
+    """
+    deposit_id = payload.get("depositId") or payload.get("deposit_id") or payload.get("refundId")
+    if not deposit_id:
+        return {"ok": False, "reason": "depositId/refundId manquant"}
+    api_status = (payload.get("status") or "").upper()
+    new_status = {
+        "COMPLETED": "completed",
+        "FAILED": "failed",
+        "REJECTED": "failed",
+        "ACCEPTED": "pending",
+        "PROCESSING": "pending",
+        "SUBMITTED": "pending",
+        "PENDING": "pending",
+    }.get(api_status, "pending")
+    # Enrich with provider (MNO) + phoneNumber if present
+    extracted_mno, extracted_country = _pawapay_split_provider(payload.get("provider"))
+    extracted_phone = _pawapay_str(payload.get("phoneNumber"))
+    set_doc: Dict[str, Any] = {
+        "status": new_status,
+        "api_status": api_status,
+        "api_message": _pawapay_str(payload.get("failureReason") or payload.get("rejectionReason")),
+        "completed_at": payload.get("respondedTimestamp") or _now(),
+        "updated_at": _now(),
+        "raw_response": payload,
+        "last_webhook_op": op_type,
+    }
+    if extracted_mno:
+        set_doc["mno"] = extracted_mno
+    if payload.get("provider"):
+        set_doc["provider"] = payload.get("provider")
+    if extracted_country:
+        set_doc["country_from_provider"] = extracted_country
+    if extracted_phone:
+        set_doc["msisdn_from_webhook"] = extracted_phone
+    await db.payments.update_one({"deposit_id": deposit_id}, {"$set": set_doc})
+    return {"ok": True, "deposit_id": deposit_id, "status": new_status, "op": op_type}
+
+
+async def _pawapay_webhook_entry(secret: str, request: Request, op_type: str) -> Dict[str, Any]:
     s = await db.settings.find_one({"_id": "global"}) or {}
     expected = (s.get("pawapay_callback_secret") or "").strip()
     if not expected or secret != expected:
@@ -2357,27 +2430,67 @@ async def webhook_pawapay(secret: str, request: Request):
         payload = await request.json()
     except Exception:
         payload = {}
-    deposit_id = payload.get("depositId") or payload.get("deposit_id")
-    if not deposit_id:
-        return {"ok": False, "reason": "depositId manquant"}
-    api_status = (payload.get("status") or "").upper()
-    new_status = {
-        "COMPLETED": "completed",
-        "FAILED": "failed",
-        "REJECTED": "failed",
-    }.get(api_status, "pending")
-    await db.payments.update_one(
-        {"deposit_id": deposit_id},
-        {"$set": {
-            "status": new_status,
-            "api_status": api_status,
-            "api_message": _pawapay_str(payload.get("failureReason") or payload.get("rejectionReason")),
-            "completed_at": payload.get("respondedTimestamp") or _now(),
-            "updated_at": _now(),
-            "raw_response": payload,
-        }},
-    )
-    return {"ok": True, "deposit_id": deposit_id, "status": new_status}
+    return await _pawapay_webhook_apply(payload, op_type)
+
+
+@api.post("/webhooks/pawapay/deposits/{secret}", tags=["Webhooks"])
+async def webhook_pawapay_deposits(secret: str, request: Request):
+    """Iter38r-fix2 — PawaPay deposit callback. URL à coller dans le tableau
+    de bord PawaPay → Configuration → Callback URLs → Deposits."""
+    return await _pawapay_webhook_entry(secret, request, "deposit")
+
+
+@api.post("/webhooks/pawapay/refunds/{secret}", tags=["Webhooks"])
+async def webhook_pawapay_refunds(secret: str, request: Request):
+    """Iter38r-fix2 — PawaPay refund callback. URL à coller dans le tableau
+    de bord PawaPay → Configuration → Callback URLs → Refunds."""
+    return await _pawapay_webhook_entry(secret, request, "refund")
+
+
+@api.post("/webhooks/pawapay/{secret}", tags=["Webhooks"])
+async def webhook_pawapay(secret: str, request: Request):
+    """Legacy generic PawaPay callback (kept for pre-Iter38r-fix2 configs).
+    Detects deposit vs refund from payload presence of `depositId` / `refundId`."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    expected = (s.get("pawapay_callback_secret") or "").strip()
+    if not expected or secret != expected:
+        raise HTTPException(status_code=403, detail="Secret invalide")
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    op_type = "refund" if payload.get("refundId") and not payload.get("depositId") else "deposit"
+    return await _pawapay_webhook_apply(payload, op_type)
+
+
+@api.get("/admin/pawapay/callback-urls", tags=["Admin"])
+async def admin_pawapay_callback_urls(request: Request, _: dict = Depends(get_current_admin)):
+    """Iter38r-fix2 — Returns the 2 callback URLs to paste into the PawaPay
+    dashboard. Auto-generates `pawapay_callback_secret` if missing so the
+    URLs are always usable. The base host is derived from the incoming
+    request so admins on preview get preview URLs and admins on production
+    get production URLs."""
+    import secrets as _secrets
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    secret = (s.get("pawapay_callback_secret") or "").strip()
+    if not secret:
+        secret = _secrets.token_urlsafe(32)
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"pawapay_callback_secret": secret, "pawapay_callback_secret_generated_at": _now()}},
+            upsert=True,
+        )
+    # Prefer the X-Forwarded-Host (Kubernetes ingress) + scheme, fall back to request.url
+    fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+    fwd_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+    base = f"{fwd_scheme}://{fwd_host}".rstrip("/") if fwd_host else str(request.base_url).rstrip("/")
+    return {
+        "deposits_url": f"{base}/api/webhooks/pawapay/deposits/{secret}",
+        "refunds_url": f"{base}/api/webhooks/pawapay/refunds/{secret}",
+        "legacy_url": f"{base}/api/webhooks/pawapay/{secret}",
+        "secret_preview": secret[:6] + "…" + secret[-4:],
+        "generated_at": s.get("pawapay_callback_secret_generated_at"),
+    }
 
 
 # ============================================================

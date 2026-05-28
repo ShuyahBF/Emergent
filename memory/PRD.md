@@ -6,8 +6,19 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
-## Recent (2026-05-28) — Iter38r
-- ✅ **PawaPay Hosted Payment Page (v2)** : migration depuis `/v2/deposits` direct → `/v2/paymentpage` (le client saisit MSISDN + PIN/OTP sur la page sécurisée PawaPay). Endpoint `POST /api/me/payments/pawapay/payment-page` ; ancien `/deposit` conservé en forwarder deprecated. Persistance préalable du doc payment (best-practice PawaPay). Page React `/portal/payments/return` qui poll le statut (3s × 25). Toggle `pawapay_fix_msisdn` exposé dans Admin → Clients → Fonctionnalités (3 états : Défaut global / Pré-remplir / Saisie libre). 14 tests Pytest 100% pass.
+## Recent (2026-05-28) — Iter38r-fix4
+- ✅ **Comptable strict** : rôle « Compta » ne voit plus que Caisse/Facturation + GRH. Toutes les autres entrées de menu cachées.
+- ✅ **WhatsApp Conversation — bouton Partager** : modal 3 onglets (Bibliothèque média / Formulaire / Catalogue produit) avec recherche live, insère un lien public formaté dans la zone de saisie.
+- ✅ **Forms** : badge bleu « X soumission(s) reçue(s) » + nouveau bouton « Données » (sky) qui amène directement au tableau brut des soumissions.
+- ✅ Fix3 : `/api/meta/webhook` accepte payloads WhatsApp (`object='whatsapp_business_account'`) + verify token fallback `wa_verify_token` ; Modal Corbeille avec checkbox « Effacer aussi le lien contact ↔ ticket » ; Donut MNO avec pourcentages.
+- ✅ Fix2 : Endpoints `/webhooks/pawapay/deposits/{secret}` + `/webhooks/pawapay/refunds/{secret}` distincts ; Endpoint admin `/admin/pawapay/callback-urls` avec auto-generation du secret ; Enrichissement automatique des paiements (MNO + phoneNumber) via polling et webhooks.
+- ✅ Fix1 : Body PawaPay v2 corrigé (`amountDetails`/`phoneNumber`/`country`).
+- ✅ PawaPay Hosted Payment Page (v2) : flow complet implémenté.
+
+## 🚧 Backlog prioritaire (P1)
+- **Liluvine Pro / Assistant SAWALI** (~15h / 2 jours) : assistant interne piloté par Emergent LLM Key avec accès RAG aux données SAWALI (contacts, tickets, paiements, notes, RDV), conversations historisées MongoDB, tool calling, streaming.
+- **Quotas + Alertes IA par Client Lié** : toggle quota OU budget par mois, devise par défaut FCA/XOF, ventilation Images / Vidéos / Transcriptions / Chat IA, alertes 80%/100%, blocage configurable, export PDF/CSV historique cumulé par "Utilisateur Suivi" (Date/Heure, Utilisateur Suivi, Ressource, unités, base).
+- **PawaPay Payouts** (en attente confirmation account chez l'utilisateur) : décaissements salaires/avances depuis GRH+Paie + interface dédiée Caisse → Décaissements.
 
 ## User Choices
 - **OTP** : par email via SMTP (paramétrable depuis l'admin)

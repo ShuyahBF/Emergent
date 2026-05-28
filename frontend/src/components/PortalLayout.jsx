@@ -109,7 +109,12 @@ export default function PortalLayout({ admin = false }) {
   const canCash = !!user?.can_cash || isAdminOrSup;
   const isComptable = (user?.tracked_role || "") === "Comptable";
   const canHR = isAdminOrSup || isComptable;
+  // Iter38r-fix4 — Comptables (non-admin) ne voient QUE Caisse/Facturation
+  // + GRH. Toutes les autres options du menu sont masquées (demande user).
+  const isComptaStrict = isComptable && !isAdminOrSup;
+  const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const links = (admin ? adminLinks : clientLinks)
+    .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
     .filter((l) => !l.trackedOnly || isTracked)
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
     .filter((l) => !l.cashOnly || canCash || isComptable)

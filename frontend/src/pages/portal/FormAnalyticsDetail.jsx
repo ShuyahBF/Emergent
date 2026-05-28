@@ -361,11 +361,23 @@ function SubmissionsTable({ fid, dateFrom, dateTo }) {
     return () => { cancelled = true; };
   }, [fid, dateFrom, dateTo]);
 
+  // Iter38r-fix4 — Auto-scroll to the submissions table when the URL hash
+  // is `#submissions` (entry point from FormsList "Données" button).
+  React.useEffect(() => {
+    if (loading) return;
+    if (typeof window === "undefined") return;
+    if ((window.location.hash || "").toLowerCase() !== "#submissions") return;
+    const el = document.getElementById("submissions");
+    if (el) {
+      el.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [loading]);
+
   const { columns = [], rows = [] } = data;
   if (loading) return <div className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-400 text-sm">Chargement du tableau des soumissions…</div>;
 
   return (
-    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" data-testid="submissions-table-block">
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden" id="submissions" data-testid="submissions-table-block">
       <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
         <div>
           <h3 className="font-display font-semibold text-sm">Tableau des soumissions</h3>

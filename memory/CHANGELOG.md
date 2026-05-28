@@ -8,6 +8,37 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix4 (2026-05-28) — Comptable strict + WhatsApp partager bibliothèque + Forms data visibility
+
+### 🔒 1) Rôle Comptable strict — seulement Caisse/Facturation + GRH
+**Demande** : « L'utilisateur avec rôle 'Compta' ne doit voir QUE les modules Caisse/Facturation et GRH-Ressources Humaines. Toutes les autres options du Menu sont invisibles. »
+
+**Fix** : Dans `PortalLayout.jsx`, nouveau flag `isComptaStrict = isComptable && !isAdminOrSup`. Quand actif, un nouveau filtre `.filter(l => allowedComptaPaths.has(l.to))` est appliqué AVANT les autres, ne laissant passer que `/portal/cash` et `/portal/hr`. L'admin/superviseur reste non affecté (peut tout voir).
+
+### 📎 2) WhatsApp Conversation — bouton « Partager » (bibliothèque / formulaire / catalogue)
+**Demande** : « La fenêtre de conversations WhatsApp doit avoir un lien pour envoyer un fichier de la bibliothèque, un lien de formulaire, ou d'une fiche produit du catalogue. »
+
+**Fix** : Nouveau bouton **Partager** (icône Share2 bleu) à côté du trombone, qui ouvre un modal `share-library-modal` avec 3 onglets :
+- **Bibliothèque** (FolderOpen) — liste depuis `/me/media-library`, insère `public_url`.
+- **Formulaire** (FileEdit) — liste depuis `/me/forms` (publics + miens), insère `{origin}/f/{form_id}`.
+- **Catalogue** (ShoppingBag) — liste depuis `/public/products` (parcours catégories→produits), insère `{origin}/catalogue?product_id={id}`.
+
+Au clic sur un item, un message formaté est inséré dans la zone de saisie (avec emoji 📝 / 🛍️ / 📎 + label + URL), prêt à envoyer (ou enrichir manuellement). Filtre de recherche live. Limite 100 items max par onglet.
+
+### 📋 3) Formulaires — visibilité des soumissions
+**Demande** : « 7 soumissions aujourd'hui mais `/portal/forms/` n'affiche que les vues, pas les données. »
+
+**Constat après audit** : le compteur `uses_count` était bien incrémenté correctement à chaque soumission (vérifié via test pytest dédié — 3 soumissions → `uses_count=3` ✅). Le problème était **purement UX** : le label `« X utilisation(s) »` était ambigu (interprété comme "vues") et aucun bouton ne permettait d'accéder directement aux données.
+
+**Fix** :
+- Renommage : `« X utilisation(s) »` → `« X soumission(s) reçue(s) »` dans un **badge bleu sky** visible (avec icône Database).
+- Nouveau bouton **« Données »** (sky-600) sur chaque carte de formulaire (avant le bouton Stats) qui pointe vers `/portal/forms/{id}/analytics#submissions`.
+- Dans `FormAnalyticsDetail.jsx`, ajout d'un `id="submissions"` sur le bloc SubmissionsTable + auto-scroll smooth quand le hash `#submissions` est présent au montage.
+
+### 🧪 4) Tests Pytest — `test_iter38r_fix4_compta_share_forms.py` (4 tests, 100% pass)
+- `uses_count` reflète bien le nombre réel de submissions (3 submissions publiques → uses_count=3).
+- Endpoints `/me/media-library`, `/me/forms`, `/public/products` (utilisés par le share modal) répondent 200.
+
 ## Iter38r-fix3 (2026-05-28) — Routing webhook unifié Meta/WhatsApp + Corbeille avec dé-liaison contact
 
 ### 🚨 1) BUG FIX P0 — WhatsApp ne recevait plus rien après l'installation des modules META

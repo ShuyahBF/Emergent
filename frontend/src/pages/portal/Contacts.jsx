@@ -8,7 +8,7 @@ import {
   CheckCheck, AlertCircle, ArrowDownLeft, ArrowUpRight,
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
-  Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft,
+  Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft, FolderOpen, ShoppingBag, FileEdit,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1364,6 +1364,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
+  // Iter38r-fix4 — Share-from-library modal (média / formulaire / catalogue)
+  const [shareModal, setShareModal] = useState({ open: false, tab: "media", items: [], loading: false, query: "" });
   const [sending, setSending] = useState(false);
   // Iter35l — Media attach state. `pendingFile` holds the local File picked by
   // the user but not yet uploaded. We show a small preview row above the text
@@ -1594,6 +1596,79 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // "also unlink contact ↔ ticket" checkbox, replacing window.confirm.
   const [archiveModal, setArchiveModal] = useState({ open: false, ticket: null, alsoUnlink: false, busy: false });
 
+  // Iter38r-fix4 — Open the share-from-library modal and lazy-load the items
+  // for the selected tab. Each tab queries a different endpoint:
+  //   media     → /me/media-library
+  //   form      → /me/forms (only public OR mine)
+  //   catalog   → /public/products (digest=light)
+  const openShareModal = async (tab = "media") => {
+    setShareModal({ open: true, tab, items: [], loading: true, query: "" });
+    await loadShareTab(tab);
+  };
+
+  const loadShareTab = async (tab) => {
+    setShareModal((m) => ({ ...m, tab, loading: true, items: [] }));
+    try {
+      let items = [];
+      if (tab === "media") {
+        const r = await apiClient.get("/me/media-library");
+        items = (r.data || []).map((it) => ({
+          id: it.id,
+          label: it.label || it.file_name || "Document",
+          url: it.public_url,
+          subtitle: it.file_name,
+          icon: "media",
+        }));
+      } else if (tab === "form") {
+        const r = await apiClient.get("/me/forms");
+        items = (r.data || [])
+          .filter((f) => f.is_public || f.is_mine)
+          .map((f) => ({
+            id: f.id,
+            label: f.title || f.number,
+            url: `${window.location.origin}/f/${f.id}`,
+            subtitle: f.number + (f.is_public ? " · Public" : " · Privé"),
+            icon: "form",
+          }));
+      } else if (tab === "catalog") {
+        const r = await apiClient.get("/public/products");
+        const cats = r.data?.categories || [];
+        cats.forEach((cat) => {
+          (cat.products || []).forEach((p) => {
+            items.push({
+              id: p.id,
+              label: p.label || p.name,
+              url: `${window.location.origin}/catalogue?product_id=${p.id}`,
+              subtitle: `${cat.name || "Sans cat."} · ${(p.price_xof || 0).toLocaleString("fr-FR")} XOF`,
+              icon: "catalog",
+            });
+          });
+        });
+      }
+      setShareModal((m) => ({ ...m, items, loading: false }));
+    } catch (err) {
+      toast.error("Impossible de charger la liste");
+      setShareModal((m) => ({ ...m, loading: false }));
+    }
+  };
+
+  const pickShareItem = (item) => {
+    if (!item?.url) {
+      toast.error("Lien indisponible pour cet élément");
+      return;
+    }
+    // Inject a friendly markdown-like message into the textarea
+    const prefix = text.trim() ? text.trim() + "\n\n" : "";
+    const blurb = (() => {
+      if (item.icon === "form") return `📝 Veuillez remplir ce formulaire : ${item.label}\n${item.url}`;
+      if (item.icon === "catalog") return `🛍️ Découvrez ce produit : ${item.label}\n${item.url}`;
+      return `📎 ${item.label}\n${item.url}`;
+    })();
+    setText(prefix + blurb);
+    setShareModal({ open: false, tab: "media", items: [], loading: false, query: "" });
+    toast.success("Lien inséré dans le message — vous pouvez ajouter du texte avant d'envoyer");
+  };
+
   const submitArchive = async () => {
     const tk = archiveModal.ticket;
     if (!tk) return;
@@ -1787,6 +1862,108 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           )}
         </div>
         {/* Iter36k — Modal: create a ticket with explicit "client lié" dropdown */}
+        {/* Iter38r-fix4 — Share-from-library modal (media / form / catalog product) */}
+        {shareModal.open && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50"
+            onClick={(e) => e.target === e.currentTarget && setShareModal({ open: false, tab: "media", items: [], loading: false, query: "" })}
+            data-testid="share-library-modal"
+          >
+            <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full p-5 max-h-[85vh] flex flex-col">
+              <div className="flex items-start justify-between mb-3">
+                <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+                  <Share2 className="h-4 w-4 text-sky-600" /> Partager depuis votre bibliothèque
+                </h3>
+                <button
+                  onClick={() => setShareModal({ open: false, tab: "media", items: [], loading: false, query: "" })}
+                  className="text-slate-400 hover:text-slate-700 p-1"
+                  data-testid="share-modal-close"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-xs text-slate-500 mb-3">
+                Choisissez un élément à partager — son lien sera inséré dans la zone de saisie, prêt à envoyer.
+              </p>
+              <div className="flex gap-1 border-b border-slate-200 mb-3" data-testid="share-modal-tabs">
+                {[
+                  { k: "media", label: "Bibliothèque", icon: FolderOpen },
+                  { k: "form", label: "Formulaire", icon: FileEdit },
+                  { k: "catalog", label: "Catalogue", icon: ShoppingBag },
+                ].map((t) => {
+                  const TIcon = t.icon;
+                  const active = shareModal.tab === t.k;
+                  return (
+                    <button
+                      key={t.k}
+                      type="button"
+                      onClick={() => loadShareTab(t.k)}
+                      className={`inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold border-b-2 transition ${
+                        active ? "border-sky-600 text-sky-700" : "border-transparent text-slate-500 hover:text-slate-800"
+                      }`}
+                      data-testid={`share-modal-tab-${t.k}`}
+                    >
+                      <TIcon className="h-3.5 w-3.5" /> {t.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <input
+                type="text"
+                value={shareModal.query}
+                onChange={(e) => setShareModal((m) => ({ ...m, query: e.target.value }))}
+                placeholder="Rechercher…"
+                className="mb-3 w-full rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:border-sky-500 focus:ring-1 focus:ring-sky-200 outline-none"
+                data-testid="share-modal-search"
+              />
+              <div className="flex-1 overflow-y-auto -mx-2 px-2">
+                {shareModal.loading ? (
+                  <p className="text-center text-slate-400 italic py-8 text-sm">Chargement…</p>
+                ) : shareModal.items.length === 0 ? (
+                  <p className="text-center text-slate-400 italic py-8 text-sm">
+                    Aucun élément disponible dans cet onglet.
+                  </p>
+                ) : (
+                  <ul className="space-y-1.5" data-testid="share-modal-items">
+                    {shareModal.items
+                      .filter((it) => {
+                        const q = shareModal.query.trim().toLowerCase();
+                        if (!q) return true;
+                        return (it.label || "").toLowerCase().includes(q) || (it.subtitle || "").toLowerCase().includes(q);
+                      })
+                      .slice(0, 100)
+                      .map((it) => (
+                        <li key={it.id}>
+                          <button
+                            type="button"
+                            onClick={() => pickShareItem(it)}
+                            className="w-full text-left rounded-lg ring-1 ring-slate-200 bg-white hover:ring-sky-400 hover:bg-sky-50 px-3 py-2 transition flex items-center gap-3"
+                            data-testid={`share-modal-pick-${it.id}`}
+                          >
+                            <div className={`h-9 w-9 rounded-lg flex items-center justify-center shrink-0 ${
+                              it.icon === "form" ? "bg-amber-50 text-amber-600" :
+                              it.icon === "catalog" ? "bg-emerald-50 text-emerald-600" :
+                              "bg-sky-50 text-sky-600"
+                            }`}>
+                              {it.icon === "form" ? <FileEdit className="h-4 w-4" /> :
+                               it.icon === "catalog" ? <ShoppingBag className="h-4 w-4" /> :
+                               <FolderOpen className="h-4 w-4" />}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 truncate">{it.label}</p>
+                              <p className="text-[11px] text-slate-500 truncate">{it.subtitle || it.url}</p>
+                            </div>
+                            <Send className="h-3.5 w-3.5 text-slate-400 shrink-0" />
+                          </button>
+                        </li>
+                      ))}
+                  </ul>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* Iter38r-fix3 — Archive ticket confirmation modal with also_unlink checkbox */}
         {archiveModal.open && archiveModal.ticket && (
           <div
@@ -2100,6 +2277,16 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   title="Joindre un fichier (image, audio, vidéo, PDF — 16 Mo max)"
                 >
                   <Paperclip className="h-4 w-4" />
+                </button>
+                {/* Iter38r-fix4 — Share from library / form / catalog */}
+                <button
+                  onClick={() => openShareModal("media")}
+                  disabled={sending || !!pendingFile || recState !== "idle"}
+                  className="inline-flex items-center gap-1 rounded-lg border border-sky-300 bg-sky-50 hover:bg-sky-100 px-2.5 py-2 text-sm text-sky-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  data-testid="conversation-share-btn"
+                  title="Partager depuis votre bibliothèque, un formulaire ou un produit du catalogue"
+                >
+                  <Share2 className="h-4 w-4" />
                 </button>
                 {/* Iter37h — Voice note button: start recording */}
                 <button

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3 } from "lucide-react";
+import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 
 // Form catalogue : user's forms + public forms from other clients
@@ -130,7 +130,10 @@ export default function FormsList() {
               <h3 className="text-sm font-display font-bold mb-1 line-clamp-2">{f.title}</h3>
               <p className="text-[11px] text-slate-500 line-clamp-2 mb-2">{f.description || "—"}</p>
               <p className="text-[10px] text-slate-400 mb-3">
-                {f.uses_count} utilisation(s) · {new Date(f.updated_at || f.created_at).toLocaleDateString("fr-FR")}
+                <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 font-semibold tabular-nums mb-1" data-testid={`form-submissions-count-${f.id}`}>
+                  <Database className="h-3 w-3" /> {f.uses_count || 0} soumission(s) reçue(s)
+                </span>
+                <br />Modifié le {new Date(f.updated_at || f.created_at).toLocaleDateString("fr-FR")}
                 <br />Par <strong>{f.created_by_label}</strong>
               </p>
               <div className="mt-auto flex gap-1 flex-wrap">
@@ -140,6 +143,7 @@ export default function FormsList() {
                 {f.is_mine ? (
                   <>
                     <Link to={`/portal/forms/${f.id}/edit`} className="inline-flex items-center gap-1 text-[11px] rounded bg-slate-900 text-white px-2.5 py-1.5 hover:bg-slate-800"><Edit className="h-3.5 w-3.5" /> Éditer</Link>
+                    <Link to={`/portal/forms/${f.id}/analytics#submissions`} className="inline-flex items-center gap-1 text-[11px] rounded bg-sky-600 text-white px-2.5 py-1.5 hover:bg-sky-700" data-testid={`form-data-${f.id}`} title="Voir les soumissions reçues"><Database className="h-3.5 w-3.5" /> Données</Link>
                     <Link to={`/portal/forms/${f.id}/analytics`} className="inline-flex items-center gap-1 text-[11px] rounded bg-indigo-600 text-white px-2.5 py-1.5 hover:bg-indigo-700" data-testid={`form-analytics-${f.id}`} title="Analytics du formulaire"><BarChart3 className="h-3.5 w-3.5" /> Stats</Link>
                     {f.is_public && (
                       <button onClick={() => setShareForm(f)} className="inline-flex items-center gap-1 text-[11px] rounded bg-emerald-600 text-white px-2.5 py-1.5 hover:bg-emerald-700" data-testid={`form-share-${f.id}`} title="Partager publiquement"><Share2 className="h-3.5 w-3.5" /> Partager</button>

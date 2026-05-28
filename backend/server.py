@@ -7689,6 +7689,16 @@ async def me_media_library_create(
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     kind = "image" if content_type.startswith("image") else ("video" if content_type.startswith("video") else "document")
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    # Iter38r-fix8 — Mirror to Emergent Object Storage so the file survives prod redeploys.
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), content_type)
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[media_library_upload] storage mirror failed: %s", storage_error)
     # Register in the regular files collection (so /api/files/{id} can serve it)
     file_doc = {
         "id": file_id, "filename": file.filename, "stored_name": safe_name,
@@ -7696,6 +7706,7 @@ async def me_media_library_create(
         "url": public_path, "public_url": public_url, "uploaded_at": _now(),
         "uploaded_by_id": user.get("id"), "uploaded_by_email": user.get("email"),
         "uploaded_from_ip": _client_ip_from_request(request),
+        "storage_path": storage_path, "storage_error": storage_error,
     }
     await db.files.insert_one(file_doc)
     # Register in the shared client library
@@ -12175,10 +12186,21 @@ async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile =
             f.write(chunk)
     ext_suffix = suffix.lstrip(".")
     public_path = f"/api/files/{file_id}.{ext_suffix}" if ext_suffix else f"/api/files/{file_id}"
+    # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort)
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), ctype)
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[contact_photo] storage mirror failed: %s", storage_error)
     await db.files.insert_one({
         "id": file_id, "filename": file.filename, "stored_name": safe_name,
         "extension": ext_suffix or None, "content_type": ctype, "size": size,
         "url": public_path, "uploaded_at": _now(), "uploaded_by_id": user.get("id"),
+        "storage_path": storage_path, "storage_error": storage_error,
     })
     await db.directory_contacts.update_one(
         {"id": cid},
@@ -12630,6 +12652,16 @@ async def _wa_download_inbound_media(media_id: str) -> dict:
             except Exception as exc:  # noqa: BLE001
                 return {"ok": False, "error": f"Écriture disque échouée: {exc!r}"}
             display_name = f"wa-inbound{ext}"
+            # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort)
+            storage_path = None
+            storage_error = None
+            try:
+                from storage import upload_bytes, storage_available
+                if storage_available():
+                    storage_path = upload_bytes(f"files/{stored_name}", raw, mime)
+            except Exception as exc:  # noqa: BLE001
+                storage_error = str(exc)[:300]
+                logger.warning("[wa_inbound_media] storage mirror failed: %s", storage_error)
             file_doc = {
                 "id": file_id,
                 "filename": display_name,
@@ -12643,6 +12675,8 @@ async def _wa_download_inbound_media(media_id: str) -> dict:
                 "uploaded_by_email": "whatsapp-webhook",
                 "uploaded_from_ip": None,
                 "wa_media_id": media_id,
+                "storage_path": storage_path,
+                "storage_error": storage_error,
             }
             try:
                 await db.files.insert_one(file_doc.copy())
@@ -13154,6 +13188,17 @@ async def me_whatsapp_send_media(
     ext = suffix.lstrip(".") or ""
     public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort) so Meta
+    # can still fetch the URL after a redeploy wipes the local disk.
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), content_type)
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[wa_send_media] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id,
         "filename": file.filename or safe_name,
@@ -13167,6 +13212,8 @@ async def me_whatsapp_send_media(
         "uploaded_by_id": user.get("id"),
         "uploaded_by_email": user.get("email"),
         "uploaded_from_ip": _client_ip_from_request(request),
+        "storage_path": storage_path,
+        "storage_error": storage_error,
     }
     try:
         await db.files.insert_one(file_doc.copy())
@@ -16761,6 +16808,16 @@ async def me_form_upload_file(
     public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
+    # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort)
+    storage_path = None
+    storage_error = None
+    try:
+        from storage import upload_bytes, storage_available
+        if storage_available():
+            storage_path = upload_bytes(f"files/{safe_name}", raw, content_type)
+    except Exception as exc:  # noqa: BLE001
+        storage_error = str(exc)[:300]
+        logger.warning("[form_attachment] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id, "filename": file.filename, "stored_name": safe_name,
         "extension": ext, "content_type": content_type, "size": len(raw),
@@ -16769,6 +16826,7 @@ async def me_form_upload_file(
         "uploaded_from_ip": _client_ip_from_request(request),
         "context": "form_attachment",
         "form_id": form_id,
+        "storage_path": storage_path, "storage_error": storage_error,
     }
     await db.files.insert_one(file_doc)
     return {

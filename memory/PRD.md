@@ -6,6 +6,12 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-28) — Iter38r-fix8 🗂️
+- ✅ **Persistance Object Storage finalisée** : tous les uploads (admin, media-library, photos contacts, médias WhatsApp inbound/outbound, pièces jointes de formulaires, médias IA) sont désormais **mirrorés sur Emergent Object Storage** dès l'enregistrement. La rehydratation au moment du `GET /api/files/{file_id}` couvre les redéploiements production qui vidaient le disque éphémère.
+- ✅ **Helper `object_storage.py`** : nouveau module avec `save_and_log()` + collection `stored_objects` pour la traçabilité multi-tenant (utilisé par les générations IA Gemini Nano Banana / Sora 2).
+- ✅ **Templates n8n** : `/app/memory/n8n_templates.md` documente 5 workflows clé-en-main (WhatsApp, Facebook Messenger, SMS, Email, Outbound Dispatcher) connectés à `/api/webhooks/liluvine-pro/{source}/{secret}`.
+- ✅ **Iter38r — 90+/90+ tests pytest pass** (cumulatif sur 8 itérations).
+
 ## Recent (2026-05-28) — Iter38r-fix6 ✨
 - ✅ **UI Quotas IA** : section complète dans `/admin/clients/{id}/features` (mode off/quota/budget XOF, alertes, tarifs override, consommation temps réel par utilisateur, exports CSV/PDF).
 - ✅ **Liluvine PRO / Assistant SAWALI** : assistant interne propulsé par **Claude Sonnet 4.6** avec sessions persistées, RAG par injection contextuelle (contacts/tickets/paiements/RDV/notes), tracking auto via Quotas IA, page `/portal/liluvine` avec sidebar conversations + suggestions de prompts.

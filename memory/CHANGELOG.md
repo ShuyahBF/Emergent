@@ -8,6 +8,20 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix1 (2026-05-28) — PawaPay v2 body shape fix
+
+### 🐛 1) Correction du body envoyé à `/v2/paymentpage`
+- L'erreur PawaPay « *please remove unsupported parameter from request body* » provenait de 3 paramètres en shape v1 :
+  - `msisdn` → renommé **`phoneNumber`** en v2
+  - `amount` (plat top-level) → doit être imbriqué dans **`amountDetails: { amount, currency }`**
+  - Ajout de la **currency ISO-4217** dérivée du pays (XOF pour UEMOA, XAF pour CEMAC, KES/UGX/TZS/RWF/ZMW/GHS/NGN…)
+- `reason` étendu à 50 chars (limite v2) au lieu de 22 (qui était la limite de `customerMessage`).
+- Suppression de tout champ legacy (`statementDescription`, `correspondent`, `payer`) dans le body.
+
+### 🧪 2) Test mock httpx — `test_iter38r_fix1_paymentpage_body_shape.py`
+- Patche `httpx.AsyncClient` pour capturer le body sans appeler PawaPay.
+- Vérifie : présence de `amountDetails`/`phoneNumber`, absence de `amount` plat et `msisdn`, `country` correct, `returnUrl` contient `depositId`, decimal amount rendu en 2 décimales, `amountDetails` absent si amount non fourni.
+
 ## Iter38r (2026-05-28) — PawaPay Hosted Payment Page (v2)
 
 ### 💳 1) Migration vers `/v2/paymentpage` (hosted page)

@@ -2053,6 +2053,23 @@ def _pawapay_correspondent(mno: str, country: str = "BFA") -> str:
     return table.get(c, {}).get(m) or f"{m}_{c}"
 
 
+# ISO-3 country code → ISO-4217 currency for PawaPay deposits.
+# Used to build the v2 `amountDetails.currency` field. UEMOA zone shares XOF.
+_PAWAPAY_CURRENCY_BY_COUNTRY = {
+    "BFA": "XOF", "BEN": "XOF", "CIV": "XOF", "GNB": "XOF",
+    "MLI": "XOF", "NER": "XOF", "SEN": "XOF", "TGO": "XOF",
+    "CMR": "XAF", "CAF": "XAF", "TCD": "XAF", "COG": "XAF", "GAB": "XAF", "GNQ": "XAF",
+    "KEN": "KES", "UGA": "UGX", "TZA": "TZS", "RWA": "RWF", "ZMB": "ZMW",
+    "GHA": "GHS", "NGA": "NGN", "MWI": "MWK", "ZWE": "ZWL", "MOZ": "MZN",
+    "MDG": "MGA", "SLE": "SLE", "COD": "CDF",
+}
+
+
+def _pawapay_currency_for_country(country: str) -> str:
+    return _PAWAPAY_CURRENCY_BY_COUNTRY.get((country or "BFA").upper(), "XOF")
+
+
+
 # Iter38r — The legacy direct /deposits endpoint is intentionally removed.
 # All callers now go through the hosted PaymentPage flow defined below
 # (which handles MSISDN + PIN/OTP collection natively).
@@ -2075,7 +2092,7 @@ async def me_pawapay_deposit(payload: PawaPayDepositCreate, request: Request, us
         amount=payload.amount,
         msisdn=payload.msisdn,
         country=None,
-        reason=payload.description,
+        reason=(payload.description or "")[:50] or None,
         return_url=None,
     )
     res = await me_pawapay_payment_page(pp_payload, request, user)
@@ -2095,7 +2112,7 @@ class PawaPayPaymentPageCreate(BaseModel):
     # customer enters it on the PawaPay page.
     msisdn: Optional[str] = None
     country: Optional[str] = None  # ISO-3 (BFA, CIV, SEN…). Defaults to settings.pawapay_country.
-    reason: Optional[str] = Field(None, max_length=22)
+    reason: Optional[str] = Field(None, max_length=50)
     # Where PawaPay redirects the customer after they "Pay" / abandon. Defaults
     # to {origin}/portal/payments/return.
     return_url: Optional[str] = Field(None, max_length=500)
@@ -2161,13 +2178,19 @@ async def me_pawapay_payment_page(
         "returnUrl": return_url,
     }
     if payload.amount and payload.amount > 0:
-        body["amount"] = str(int(payload.amount)) if float(payload.amount).is_integer() else f"{payload.amount:.2f}"
-        # Amount requires country per PawaPay docs
-        body["country"] = country
+        # v2 — amount is nested under amountDetails with explicit currency.
+        amt_str = str(int(payload.amount)) if float(payload.amount).is_integer() else f"{payload.amount:.2f}"
+        body["amountDetails"] = {
+            "amount": amt_str,
+            "currency": _pawapay_currency_for_country(country),
+        }
+    # Country is always sent — restricts the wallet selection to that country.
+    body["country"] = country
     if msisdn_final:
-        body["msisdn"] = msisdn_final
+        # v2 — `msisdn` was renamed to `phoneNumber`. Must be digits-only, no '+'.
+        body["phoneNumber"] = msisdn_final
     if payload.reason:
-        body["reason"] = payload.reason[:22]
+        body["reason"] = payload.reason[:50]
     # Persist FIRST (PawaPay best-practice: never lose track of a depositId)
     payment_doc = {
         "id": _uuid(),

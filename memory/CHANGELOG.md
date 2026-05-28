@@ -8,6 +8,58 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix6 (2026-05-28) — UI Quotas IA + Liluvine PRO (Assistant SAWALI interne)
+
+### 🎛️ 1) UI Quotas IA dans Admin → Clients → Fonctionnalités
+- Nouvelle section `AiQuotasSection` dédiée dans `AdminClientFeatures.jsx` (sous PawaPay MSISDN policy).
+- **Mode selector** : 3 boutons radio (Désactivé / Quotas par ressource / Budget global XOF).
+- **Mode "quota"** : 4 inputs (Images / Vidéos / Transcription minutes / Chat tokens) avec icônes spécifiques.
+- **Mode "budget"** : input unique en grand FCFA avec explication.
+- **Alertes** : seuil warn % (input) + checkbox "Bloquer à 100%".
+- **Tarifs effectifs** : section repliable avec 4 inputs d'override (placeholders = défauts globaux).
+- **Consommation du mois** : 4 cartes (Images/Vidéos/Minutes/Tokens) qui virent à l'orange (warn) puis rouge (blocked) selon le statut.
+- **Budget bar** : barre de progression colorée mauve→orange→rouge selon le % consommé.
+- **Détail par Utilisateur Suivi** : tableau replié (collapse) avec colonnes Date, Images, Vidéos, Min., Tokens, Coût XOF.
+- **2 boutons d'export** : CSV (vert) et PDF (rose) en haut de la section.
+
+### 🤖 2) Liluvine PRO / Assistant SAWALI interne
+**Backend** (`/app/backend/routes/liluvine_pro.py`) :
+- Module isolé propulsé par **Claude Sonnet 4.6** via Emergent LLM Key.
+- 5 endpoints : `POST /chat`, `GET /sessions`, `GET /sessions/{sid}`, `PATCH /sessions/{sid}`, `DELETE /sessions/{sid}`.
+- Sessions et messages persistés dans MongoDB (`liluvine_pro_sessions`, `liluvine_pro_messages`).
+- **Multi-tenant strict** : chaque user ne voit que ses sessions sous son admin parent. Admin/sup peuvent auditer toutes les sessions de leur tenant.
+- **RAG par injection** : détection automatique de 5 mots-clés (contact/ticket/paiement/RDV/note) → fetch des 10 dernières lignes pertinentes en DB → injection dans le system message comme `--- CONTEXTE DB ---`. Plus simple que function calling, et 100% prévisible.
+- **Tracking automatique** via `track_ai_usage(resource="chat", units=tokens_estimés)` : pré-check avant l'appel LLM (économise quota), log post-réponse avec tokens estimés (~4 chars/token).
+- Bloque à 429 si quota dépassé.
+
+**Frontend** (`/app/frontend/src/pages/portal/LiluvinePro.jsx`) :
+- Page full chat : sidebar conversations (rename/delete) + zone chat principale + composer.
+- Bot avatar gradient fuchsia→violet (distinct de Liluvine Jotform externe).
+- **Suggestions de prompts** au démarrage (3 exemples cliquables).
+- Auto-scroll au nouveau message, indicateur "typing" pendant la requête.
+- **Toast warning à 80%** du quota (depuis flag `warn` de la réponse).
+- Renommage et suppression de session via `window.prompt`/`confirm`.
+- Affiche metadata du message assistant : tokens, contexte injecté ✓, modèle.
+
+**Route + menu** :
+- `/portal/liluvine` ajoutée dans `App.js`.
+- Entrée "Liluvine PRO (Assistant IA)" avec icône `Bot` dans `clientLinks` (PortalLayout).
+
+### 🧪 3) Tests Pytest — `test_iter38r_fix6_liluvine_pro.py` (9 tests, 100% pass)
+- RAG context : contacts/tickets keywords déclenchent fetch DB, question hors-sujet ne déclenche rien.
+- Session lifecycle : list/get/rename/delete + isolation multi-tenant (404 cross-tenant).
+- Quota chat : 429 quand `chat_tokens` dépassé.
+
+### 📦 Bilan Iter38r global
+- **Iter38r** : PawaPay Hosted Page (14 tests)
+- **fix1** : Body PawaPay v2 (1 test)
+- **fix2** : Callbacks deposits/refunds + enrichissement MNO (8 tests)
+- **fix3** : Routing webhook Meta/WhatsApp + Corbeille unlink + Donut MNO (8 tests)
+- **fix4** : Compta strict + WhatsApp share + Forms visibility (4 tests)
+- **fix5** : Backend AI Quotas (12 tests)
+- **fix6** : UI Quotas IA + Liluvine PRO (9 tests)
+- **TOTAL Iter38r : 56 tests pytest 100% pass** 🎯
+
 ## Iter38r-fix5 (2026-05-28) — Backend AI Quotas & Usage Tracking par Client Lié
 
 ### 🎯 1) Module backend complet `/app/backend/routes/ai_quotas.py`

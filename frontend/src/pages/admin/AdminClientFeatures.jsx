@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -359,6 +359,9 @@ export default function AdminClientFeatures() {
         </div>
       </div>
 
+      {/* Iter38r-fix6 — AI Quotas & Usage per Client Lié */}
+      <AiQuotasSection clientId={id} clientLabel={data?.client?.full_name || data?.client?.email || id} />
+
       <div className="rounded-xl ring-1 ring-amber-200 bg-amber-50 p-4 text-xs text-amber-900">
         <p className="font-semibold mb-1">Comment ça marche ?</p>
         <ul className="list-disc list-inside space-y-1">
@@ -367,6 +370,365 @@ export default function AdminClientFeatures() {
           <li>Les utilisateurs du même client héritent automatiquement — pas besoin de configurer chaque utilisateur séparément.</li>
         </ul>
       </div>
+    </div>
+  );
+}
+
+// =============================================================================
+// Iter38r-fix6 — AI Quotas & Usage Section
+// =============================================================================
+const RESOURCE_LABEL = { image: "Images", video: "Vidéos", transcription: "Transcriptions", chat: "Chat IA" };
+const RESOURCE_UNIT = { image: "img", video: "vid", transcription: "min", chat: "tk" };
+
+function AiQuotasSection({ clientId, clientLabel }) {
+  const [cfg, setCfg] = useState(null);
+  const [costs, setCosts] = useState({});
+  const [defaults, setDefaults] = useState({});
+  const [usage, setUsage] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [dirty, setDirty] = useState(false);
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [r1, r2] = await Promise.all([
+        apiClient.get(`/admin/clients/${clientId}/ai-quota`),
+        apiClient.get(`/admin/clients/${clientId}/ai-usage`),
+      ]);
+      setCfg({ mode: "off", alert_warn_pct: 80, block_on_limit: true, ...r1.data.config });
+      setCosts(r1.data.effective_costs_xof || {});
+      setDefaults(r1.data.defaults || {});
+      setUsage(r2.data);
+      setDirty(false);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement des quotas IA");
+    } finally {
+      setLoading(false);
+    }
+  };
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [clientId]);
+
+  const upd = (k, v) => { setCfg((c) => ({ ...c, [k]: v })); setDirty(true); };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      const payload = { ...cfg };
+      // Drop empty strings → null so the server treats them as "unset"
+      Object.keys(payload).forEach((k) => { if (payload[k] === "") payload[k] = null; });
+      await apiClient.put(`/admin/clients/${clientId}/ai-quota`, payload);
+      toast.success("Quotas IA enregistrés");
+      setDirty(false);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  const downloadExport = async (kind) => {
+    try {
+      const r = await apiClient.get(
+        `/admin/clients/${clientId}/ai-usage/export.${kind}`,
+        { responseType: "blob" },
+      );
+      const blob = new Blob([r.data], { type: kind === "csv" ? "text/csv" : "application/pdf" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      const month = new Date().toISOString().slice(0, 7);
+      a.download = `ai-usage-${clientLabel.replace(/[^a-z0-9]/gi, "_")}-${month}.${kind}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Export ${kind.toUpperCase()} téléchargé`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'export");
+    }
+  };
+
+  if (loading || !cfg) {
+    return (
+      <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5" data-testid="ai-quotas-loading">
+        <p className="text-sm text-slate-500">Chargement des quotas IA…</p>
+      </div>
+    );
+  }
+
+  const isQuota = cfg.mode === "quota";
+  const isBudget = cfg.mode === "budget";
+  const rollup = usage?.rollup || {};
+  const status = usage?.status || {};
+  const limits = status.limits || {};
+  const budget = status.budget;
+
+  return (
+    <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5 space-y-4" data-testid="ai-quotas-section">
+      <div className="flex items-start justify-between gap-3 flex-wrap">
+        <div className="flex items-start gap-3">
+          <div className="h-10 w-10 rounded-xl bg-fuchsia-50 flex items-center justify-center">
+            <Gauge className="h-5 w-5 text-fuchsia-600" />
+          </div>
+          <div>
+            <h3 className="font-display font-semibold text-slate-900">Quotas & Consommation IA</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Limitez la consommation IA (Images, Vidéos, Transcriptions, Chat) par quota ou budget mensuel. Devise : <strong>XOF (FCFA)</strong>.
+            </p>
+          </div>
+        </div>
+        <div className="flex gap-2 flex-wrap">
+          <button
+            onClick={() => downloadExport("csv")}
+            className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1.5 text-xs"
+            data-testid="ai-quota-export-csv"
+            title="Exporter l'historique en CSV"
+          >
+            <FileSpreadsheet className="h-3.5 w-3.5" /> CSV
+          </button>
+          <button
+            onClick={() => downloadExport("pdf")}
+            className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-1.5 text-xs"
+            data-testid="ai-quota-export-pdf"
+            title="Exporter l'historique en PDF"
+          >
+            <FileText className="h-3.5 w-3.5" /> PDF
+          </button>
+        </div>
+      </div>
+
+      {/* Mode selector */}
+      <div className="grid sm:grid-cols-3 gap-2">
+        {[
+          { v: "off", label: "Désactivé", hint: "Aucune limite, pas de blocage", color: "slate" },
+          { v: "quota", label: "Quotas par ressource", hint: "Caps mensuels par type", color: "sky" },
+          { v: "budget", label: "Budget global XOF", hint: "Plafond mensuel en FCFA", color: "fuchsia" },
+        ].map((opt) => {
+          const active = cfg.mode === opt.v;
+          return (
+            <button
+              key={opt.v}
+              type="button"
+              onClick={() => upd("mode", opt.v)}
+              className={`text-left rounded-xl ring-1 px-3 py-2.5 transition ${
+                active ? `ring-2 ring-${opt.color}-500 bg-${opt.color}-50` : "ring-slate-200 bg-white hover:ring-slate-300"
+              }`}
+              data-testid={`ai-quota-mode-${opt.v}`}
+            >
+              <div className="flex items-center gap-2 mb-0.5">
+                <span className={`h-3 w-3 rounded-full ${active ? `bg-${opt.color}-500` : "bg-slate-300"}`} />
+                <span className="font-semibold text-sm text-slate-900">{opt.label}</span>
+              </div>
+              <p className="text-[10px] text-slate-500">{opt.hint}</p>
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Quota fields */}
+      {isQuota && (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3" data-testid="ai-quota-caps">
+          {[
+            { k: "monthly_images", label: "Images / mois", unit: "images", icon: ImageIcon },
+            { k: "monthly_videos", label: "Vidéos / mois", unit: "vidéos", icon: Film },
+            { k: "monthly_transcription_minutes", label: "Transcription / mois", unit: "minutes", icon: Volume2 },
+            { k: "monthly_chat_tokens", label: "Chat IA / mois", unit: "tokens", icon: MessageSquareText },
+          ].map((q) => {
+            const Q = q.icon;
+            return (
+              <div key={q.k} className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3">
+                <label className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold flex items-center gap-1 mb-1">
+                  <Q className="h-3 w-3" /> {q.label}
+                </label>
+                <input
+                  type="number" min="0" step="1"
+                  value={cfg[q.k] ?? ""}
+                  onChange={(e) => upd(q.k, e.target.value === "" ? null : Number(e.target.value))}
+                  placeholder="∞ illimité"
+                  className="w-full rounded-md ring-1 ring-slate-300 bg-white px-2 py-1.5 text-sm focus:ring-sky-500 focus:ring-2 outline-none"
+                  data-testid={`ai-quota-input-${q.k}`}
+                />
+                <p className="text-[9px] text-slate-400 mt-0.5">{q.unit} / mois</p>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Budget field */}
+      {isBudget && (
+        <div className="rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50 p-4" data-testid="ai-quota-budget">
+          <label className="text-[10px] uppercase tracking-wider text-fuchsia-700 font-semibold flex items-center gap-1 mb-1">
+            <Wallet className="h-3 w-3" /> Budget mensuel global
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number" min="0" step="100"
+              value={cfg.monthly_budget_xof ?? ""}
+              onChange={(e) => upd("monthly_budget_xof", e.target.value === "" ? null : Number(e.target.value))}
+              placeholder="Ex: 5000"
+              className="flex-1 rounded-md ring-1 ring-fuchsia-300 bg-white px-3 py-1.5 text-lg font-mono focus:ring-fuchsia-500 focus:ring-2 outline-none"
+              data-testid="ai-quota-budget-input"
+            />
+            <span className="text-sm font-bold text-fuchsia-700">XOF / mois</span>
+          </div>
+          <p className="text-[10px] text-fuchsia-700/80 mt-1">
+            Toute consommation IA (images + vidéos + transcriptions + chat) est convertie en XOF et débitée de ce budget.
+          </p>
+        </div>
+      )}
+
+      {/* Alert thresholds */}
+      {(isQuota || isBudget) && (
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3">
+            <label className="text-[10px] uppercase tracking-wider text-amber-700 font-semibold mb-1 block">
+              Seuil d'alerte (warn)
+            </label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number" min="1" max="99" step="1"
+                value={cfg.alert_warn_pct ?? 80}
+                onChange={(e) => upd("alert_warn_pct", Number(e.target.value))}
+                className="w-20 rounded-md ring-1 ring-amber-300 bg-white px-2 py-1 text-sm focus:ring-amber-500 focus:ring-2 outline-none"
+                data-testid="ai-quota-warn-pct"
+              />
+              <span className="text-sm text-amber-800">% du quota</span>
+            </div>
+          </div>
+          <label className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 flex items-start gap-2 cursor-pointer" data-testid="ai-quota-block-toggle">
+            <input
+              type="checkbox"
+              checked={cfg.block_on_limit !== false}
+              onChange={(e) => upd("block_on_limit", e.target.checked)}
+              className="mt-0.5"
+            />
+            <div>
+              <span className="text-sm font-semibold text-rose-900">Bloquer à 100%</span>
+              <p className="text-[10px] text-rose-700/80">
+                Quand le quota est atteint, les nouvelles requêtes IA renvoient une erreur 429. Décocher pour seulement alerter sans bloquer.
+              </p>
+            </div>
+          </label>
+        </div>
+      )}
+
+      {/* Tarifs (collapsible) */}
+      <details className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid="ai-quota-costs-details">
+        <summary className="text-xs font-semibold text-slate-700 cursor-pointer flex items-center gap-1">
+          <Sparkles className="h-3 w-3" /> Tarifs effectifs (XOF) — modifiable
+        </summary>
+        <div className="grid sm:grid-cols-4 gap-2 mt-3">
+          {[
+            { k: "cost_per_image_xof", default_k: "image", label: "Image", unit: "img" },
+            { k: "cost_per_video_xof", default_k: "video", label: "Vidéo", unit: "vid" },
+            { k: "cost_per_transcription_minute_xof", default_k: "transcription", label: "Transcription", unit: "min" },
+            { k: "cost_per_1k_tokens_xof", default_k: "chat", label: "Chat IA", unit: "/ 1k tokens" },
+          ].map((c) => (
+            <div key={c.k}>
+              <label className="text-[9px] uppercase tracking-wider text-slate-500 font-semibold block mb-0.5">{c.label}</label>
+              <input
+                type="number" min="0" step="0.01"
+                value={cfg[c.k] ?? ""}
+                onChange={(e) => upd(c.k, e.target.value === "" ? null : Number(e.target.value))}
+                placeholder={String(defaults[c.default_k] ?? "—")}
+                className="w-full rounded-md ring-1 ring-slate-300 bg-white px-2 py-1 text-xs"
+                data-testid={`ai-quota-cost-${c.k}`}
+              />
+              <p className="text-[9px] text-slate-400">Effectif: {costs[c.default_k]} XOF/{c.unit}</p>
+            </div>
+          ))}
+        </div>
+      </details>
+
+      {/* Current usage */}
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3" data-testid="ai-quota-usage-block">
+        <p className="text-xs font-semibold text-slate-700 mb-2 flex items-center gap-1">
+          <Gauge className="h-3 w-3 text-fuchsia-600" /> Consommation du mois ({usage?.year_month})
+        </p>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-2">
+          {[
+            { k: "images", res: "image", label: "Images", value: rollup.images || 0 },
+            { k: "videos", res: "video", label: "Vidéos", value: rollup.videos || 0 },
+            { k: "transcription_minutes", res: "transcription", label: "Minutes audio", value: rollup.transcription_minutes || 0 },
+            { k: "chat_tokens", res: "chat", label: "Tokens chat", value: rollup.chat_tokens || 0 },
+          ].map((r) => {
+            const lim = limits[r.res] || {};
+            const blocked = lim.blocked;
+            const warn = lim.warn;
+            return (
+              <div key={r.k} className={`rounded-md p-2 ring-1 ${
+                blocked ? "ring-rose-300 bg-rose-50" : warn ? "ring-amber-300 bg-amber-50" : "ring-slate-200 bg-slate-50"
+              }`} data-testid={`usage-card-${r.k}`}>
+                <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">{r.label}</p>
+                <p className="text-xl font-bold text-slate-900 tabular-nums">{r.value}</p>
+                {lim.limit !== null && lim.limit !== undefined && (
+                  <p className="text-[10px] text-slate-500">
+                    / {lim.limit} ({lim.pct}%)
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {budget && budget.limit_xof && (
+          <div className={`mt-2 rounded-md p-3 ring-1 ${
+            budget.blocked ? "ring-rose-400 bg-rose-100" : budget.warn ? "ring-amber-400 bg-amber-50" : "ring-fuchsia-200 bg-fuchsia-50"
+          }`} data-testid="usage-budget-bar">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-semibold text-slate-700">Budget mensuel</span>
+              <span className="text-xs font-mono">{(budget.used_xof || 0).toLocaleString("fr-FR")} / {budget.limit_xof.toLocaleString("fr-FR")} XOF · {budget.pct}%</span>
+            </div>
+            <div className="h-2 rounded-full bg-slate-200 overflow-hidden">
+              <div
+                className={`h-full ${budget.blocked ? "bg-rose-600" : budget.warn ? "bg-amber-500" : "bg-fuchsia-500"}`}
+                style={{ width: `${Math.min(100, budget.pct || 0)}%` }}
+              />
+            </div>
+          </div>
+        )}
+        {/* Per-user breakdown */}
+        {(usage?.per_user || []).length > 0 && (
+          <details className="mt-3" data-testid="usage-per-user-details">
+            <summary className="text-xs font-semibold text-slate-700 cursor-pointer">Détail par Utilisateur Suivi ({usage.per_user.length})</summary>
+            <table className="w-full text-xs mt-2">
+              <thead className="bg-slate-100 text-slate-600">
+                <tr>
+                  <th className="text-left px-2 py-1">Utilisateur</th>
+                  <th className="text-right px-2 py-1">Images</th>
+                  <th className="text-right px-2 py-1">Vidéos</th>
+                  <th className="text-right px-2 py-1">Min.</th>
+                  <th className="text-right px-2 py-1">Tokens</th>
+                  <th className="text-right px-2 py-1">Coût (XOF)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usage.per_user.map((u) => (
+                  <tr key={u.user_id} className="border-t border-slate-100">
+                    <td className="px-2 py-1 text-slate-800">{u.user_label} <span className="text-[9px] text-slate-400">{u.tracked_role || ""}</span></td>
+                    <td className="px-2 py-1 text-right tabular-nums">{u.by_resource?.image?.units || 0}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{u.by_resource?.video?.units || 0}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{(u.by_resource?.transcription?.units || 0).toFixed(1)}</td>
+                    <td className="px-2 py-1 text-right tabular-nums">{u.by_resource?.chat?.units || 0}</td>
+                    <td className="px-2 py-1 text-right tabular-nums font-semibold">{(u.total_xof || 0).toLocaleString("fr-FR")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        )}
+      </div>
+
+      {dirty && (
+        <div className="flex justify-end">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="inline-flex items-center gap-2 rounded-lg bg-fuchsia-600 text-white px-4 py-2 text-sm hover:bg-fuchsia-700 disabled:opacity-50"
+            data-testid="ai-quota-save-btn"
+          >
+            <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer les quotas IA"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

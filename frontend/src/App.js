@@ -116,6 +116,7 @@ import MetaIntegration from "@/pages/portal/MetaIntegration";
 import UnifiedInbox from "@/pages/portal/UnifiedInbox";
 import CatalogStats from "@/pages/portal/CatalogStats";
 import PaymentReturn from "@/pages/portal/PaymentReturn";
+import LiluvinePro from "@/pages/portal/LiluvinePro";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
 import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
@@ -209,6 +210,8 @@ export default function App() {
             <Route path="catalog-stats" element={<CatalogStats />} />
             <Route path="payments/return" element={<PaymentReturn />} />
             <Route path="tickets" element={<Tickets />} />
+            {/* Iter38r-fix6 — Liluvine PRO assistant interne */}
+            <Route path="liluvine" element={<LiluvinePro />} />
           </Route>
 
           {/* Admin */}

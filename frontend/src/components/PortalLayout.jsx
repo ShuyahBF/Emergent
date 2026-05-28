@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -50,6 +50,8 @@ const clientLinks = [
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
+  // Iter38r-fix6 — Liluvine PRO (internal AI assistant)
+  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot },
 ];
 
 const adminLinks = [

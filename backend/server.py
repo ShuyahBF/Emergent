@@ -20333,6 +20333,10 @@ _setup_ai_quotas_routes(
     get_current_admin=get_current_admin,
 )
 
+# Iter38r-fix6 — Liluvine PRO / Assistant SAWALI interne.
+from routes.liluvine_pro import setup_liluvine_pro_routes as _setup_liluvine_pro_routes  # noqa: E402
+_setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user)
+
 app.include_router(api)
 
 

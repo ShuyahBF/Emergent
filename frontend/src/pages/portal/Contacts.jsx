@@ -1607,7 +1607,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     }
   };
 
-  const submitTicket = async () => {
+  const submitTicket = async (forceRelease = false) => {
     const trimmed = (ticketMotif || "").trim();
     if (!ticketClientId) { toast.error("Sélectionnez le client lié"); return; }
     if (!trimmed) { toast.error("Le motif est obligatoire"); return; }
@@ -1617,6 +1617,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       const r = await apiClient.post(`/me/contacts/${contact.id}/ticket`, {
         motif: trimmed,
         client_id: ticketClientId,
+        ...(forceRelease ? { force_release: true } : {}),
       });
       if (r.data?.ok) {
         toast.success(`Ticket ${r.data.ticket.number} créé`);
@@ -1626,7 +1627,21 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
         setTicketModalOpen(false);
       }
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      const detail = err?.response?.data?.detail || "Erreur";
+      const blockingNumber = err?.response?.headers?.["x-blocking-ticket-number"];
+      // Iter38p — If a blocking ticket prevents creation, offer to force-release it
+      if (err?.response?.status === 409 && blockingNumber) {
+        const ok = window.confirm(
+          `${detail}\n\nLe ticket ${blockingNumber} bloque la création. ` +
+          `Voulez-vous le clôturer automatiquement pour pouvoir créer le nouveau ticket ?\n\n` +
+          `(Cette action est irréversible — utilisez-la uniquement si l'ancien ticket est obsolète ou orphelin.)`
+        );
+        if (ok) {
+          await submitTicket(true);  // retry with force_release=true
+          return;
+        }
+      }
+      toast.error(detail);
     } finally {
       setTicketSubmitting(false);
     }

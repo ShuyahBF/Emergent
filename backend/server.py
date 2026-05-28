@@ -238,6 +238,9 @@ app.add_middleware(
     allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
     allow_methods=["*"],
     allow_headers=["*"],
+    # Iter38p — Expose custom headers (e.g., X-Blocking-Ticket-Number sent by
+    # the ticket-create endpoint on 409) so the frontend can read them.
+    expose_headers=["X-Blocking-Ticket-Id", "X-Blocking-Ticket-Number"],
 )
 
 
@@ -18411,6 +18414,69 @@ def _strip_ticket_cost_fields(ticket: dict) -> dict:
     return ticket
 
 
+# Iter38p — Orphan-ticket auto-cleanup.
+#
+# Scenario reported by user (TKT-2026-0001 / Diane): a support ticket created
+# from a WhatsApp conversation persists in `support_tickets` with status=open
+# even after its contact (`directory_contacts` / `contacts`) was deleted. This
+# blocks any future ticket creation for that contact because the open-ticket
+# check raises 409 ("ticket encore ouvert"). The orphan also lingers in
+# `/me/contacts/{cid}/active-ticket` responses, causing the chat UI to show a
+# stale "View ticket" link.
+#
+# Fix: when an open ticket is found whose contact no longer exists in either
+# `directory_contacts` or `contacts`, auto-close it with
+# outcome="orphan_contact_deleted" and return it as the cleaned-up record so
+# downstream logic can treat the slot as free.
+async def _auto_close_orphan_ticket_if_contact_missing(
+    ticket: dict, *, actor_id: Optional[str] = None
+) -> bool:
+    """Close `ticket` as an orphan if its contact_id no longer resolves.
+
+    Returns True when the ticket was closed (orphan), False otherwise."""
+    if not ticket or ticket.get("status") not in TICKET_OPEN_STATUSES:
+        return False
+    cid = ticket.get("contact_id")
+    if not cid:
+        return False
+    contact_exists = await db.directory_contacts.find_one(
+        {"id": cid}, {"_id": 0, "id": 1}
+    )
+    if not contact_exists:
+        contact_exists = await db.contacts.find_one(
+            {"id": cid}, {"_id": 0, "id": 1}
+        )
+    if contact_exists:
+        return False
+    now_iso = _now()
+    await db.support_tickets.update_one(
+        {"id": ticket["id"]},
+        {"$set": {
+            "status": "closed",
+            "closed_at": now_iso,
+            "closed_by_id": actor_id or "system",
+            "closed_by_label": "Système (contact supprimé)",
+            "outcome": "orphan_contact_deleted",
+            "resolution_note": (
+                "Fermeture automatique : le contact lié à ce ticket a été supprimé "
+                "de la base de données."
+            ),
+            "updated_at": now_iso,
+        }},
+    )
+    try:
+        await _log_activity(
+            client_id=ticket.get("client_id", ""),
+            kind="ticket", action="orphan_closed",
+            label=f"{ticket.get('number', '?')} — contact supprimé",
+            actor={"id": actor_id or "system", "full_name": "Système"},
+            target_id=ticket.get("id"),
+        )
+    except Exception:
+        pass
+    return True
+
+
 async def _next_ticket_number(client_id: str) -> str:
     """Iter37c — Atomic counter: {CLIENT_SLUG}-YYYY-NNNN (chronological per client).
     The client slug is read from db.users (company || full_name) at most once
@@ -18507,13 +18573,54 @@ async def me_open_ticket(
     # Block when the contact has an already-open ticket
     existing = await db.support_tickets.find_one(
         {"contact_id": cid, "status": {"$in": list(TICKET_OPEN_STATUSES)}},
-        {"_id": 0, "number": 1, "status": 1, "opened_at": 1},
+        {"_id": 0, "id": 1, "number": 1, "status": 1, "opened_at": 1, "contact_id": 1, "client_id": 1},
     )
     if existing:
-        raise HTTPException(
-            status_code=409,
-            detail=f"Le ticket {existing['number']} est encore ouvert (statut: {existing['status']}). Clôturez-le avant d'en créer un nouveau.",
+        # Iter38p — Auto-cleanup: if the "blocking" open ticket actually
+        # points to a contact that no longer exists, close it as orphan and
+        # proceed with the new ticket creation. This unblocks the case where
+        # an old contact was deleted but its ticket survived.
+        was_orphan = await _auto_close_orphan_ticket_if_contact_missing(
+            existing, actor_id=user.get("id"),
         )
+        if not was_orphan:
+            # Iter38p — Optional force-release for elevated users (admin /
+            # superviseur / moderateur). When the client passes
+            # `force_release: true`, close the blocking ticket as
+            # `force_released` and proceed. This is the explicit escape hatch
+            # for production stuck-ticket cases like TKT-2026-0001.
+            if payload.force_release and _is_elevated_creator(user):
+                now_iso = _now()
+                await db.support_tickets.update_one(
+                    {"id": existing["id"]},
+                    {"$set": {
+                        "status": "closed",
+                        "closed_at": now_iso,
+                        "closed_by_id": user["id"],
+                        "closed_by_label": user.get("full_name") or user.get("email"),
+                        "outcome": "force_released",
+                        "resolution_note": (
+                            "Clôture forcée pour débloquer la création d'un nouveau ticket "
+                            "(orphelin ou bloqué)."
+                        ),
+                        "updated_at": now_iso,
+                    }},
+                )
+                try:
+                    await _log_activity(
+                        client_id=existing.get("client_id", ""),
+                        kind="ticket", action="force_released",
+                        label=f"{existing.get('number', '?')} — clôture forcée",
+                        actor=user, target_id=existing.get("id"),
+                    )
+                except Exception:
+                    pass
+            else:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"Le ticket {existing['number']} est encore ouvert (statut: {existing['status']}). Clôturez-le avant d'en créer un nouveau.",
+                    headers={"X-Blocking-Ticket-Id": existing["id"], "X-Blocking-Ticket-Number": existing["number"]},
+                )
 
     # Iter36k — Le client lié est désormais EXPLICITEMENT choisi via le
     # dropdown frontend (TicketOpenPayload.client_id). Si absent, on
@@ -19126,7 +19233,12 @@ async def me_close_ticket(
 @api.get("/me/contacts/{cid}/active-ticket", tags=["Portail Client"])
 async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_user)):
     """Convenience: returns the non-closed ticket for a contact (if any).
-    Used by the chat UI to swap "Generate ticket" → "View open ticket"."""
+    Used by the chat UI to swap "Generate ticket" → "View open ticket".
+
+    Iter38p — If the open ticket actually points to a contact that no longer
+    exists, auto-close it as orphan and return active=false so the UI lets the
+    user create a fresh ticket.
+    """
     scope_filter = await _ticket_scope_for_user(user)
     contact = (
         await db.directory_contacts.find_one({**scope_filter, "id": cid}, {"_id": 0, "id": 1})
@@ -19139,6 +19251,12 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
         {"_id": 0},
         sort=[("opened_at", -1)],
     )
+    if t:
+        was_orphan = await _auto_close_orphan_ticket_if_contact_missing(
+            t, actor_id=user.get("id"),
+        )
+        if was_orphan:
+            return {"active": False, "ticket": None, "cleaned_up": True}
     return {"active": t is not None, "ticket": t}
 
 
@@ -19223,10 +19341,15 @@ async def me_reopen_ticket(
     # Also ensure the contact does not already have another open ticket
     existing_open = await db.support_tickets.find_one(
         {"contact_id": parent["contact_id"], "status": {"$in": list(TICKET_OPEN_STATUSES)}},
-        {"_id": 0, "number": 1},
+        {"_id": 0, "id": 1, "number": 1, "status": 1, "contact_id": 1, "client_id": 1},
     )
     if existing_open:
-        raise HTTPException(status_code=409, detail=f"{existing_open['number']} est déjà ouvert pour ce contact.")
+        # Iter38p — Auto-clean orphan blocker
+        was_orphan = await _auto_close_orphan_ticket_if_contact_missing(
+            existing_open, actor_id=user.get("id"),
+        )
+        if not was_orphan:
+            raise HTTPException(status_code=409, detail=f"{existing_open['number']} est déjà ouvert pour ce contact.")
     root_number = parent.get("root_number") or parent["number"]
     # Count how many siblings (including parent) share this root → suffix index
     chain_count = await db.support_tickets.count_documents({

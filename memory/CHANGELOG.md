@@ -8,6 +8,22 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38p (2026-05-27) — Auto-nettoyage des tickets orphelins (TKT-2026-0001)
+
+### 🧹 1) Helper `_auto_close_orphan_ticket_if_contact_missing`
+- Nouveau helper dans `server.py` qui vérifie si un ticket "ouvert" pointe sur un `contact_id` n'existant plus ni dans `directory_contacts` ni dans `contacts`. Si oui, le ticket est auto-fermé avec `outcome="orphan_contact_deleted"` + note explicative + entrée dans le flux d'activité (`ticket.orphan_closed`).
+- Appelé depuis 3 endroits : (a) `POST /me/contacts/{cid}/ticket` (création), (b) `GET /me/contacts/{cid}/active-ticket` (chat UI), (c) `POST /me/tickets/{tid}/reopen` (réouverture).
+
+### 🚨 2) Échappatoire `force_release` pour bloqueurs vivants
+- `TicketOpenPayload` reçoit un nouveau champ `force_release: bool` (réservé admin/superviseur/modérateur).
+- Quand un ticket bloque la création mais que le contact existe TOUJOURS (donc auto-cleanup ne s'applique pas), l'utilisateur peut renvoyer la requête avec `force_release=true` : le bloqueur est fermé avec `outcome="force_released"` et la création se poursuit.
+- Headers de réponse 409 : `X-Blocking-Ticket-Id` + `X-Blocking-Ticket-Number` exposés via CORS pour permettre au frontend d'identifier le bloqueur sans avoir à le parser.
+- Frontend `Contacts.jsx` : sur 409 avec headers présents, affiche un `window.confirm()` proposant "Clôturer automatiquement le ticket bloquant ?" — si OK, relance la requête avec `force_release=true`.
+
+### ✅ Tests
+- 7 nouveaux pytest verts (`tests/test_iter38p_orphan_ticket_cleanup.py`) couvrant : auto-cleanup via active-ticket, auto-cleanup via création, force_release admin, ticket vivant bloque toujours (no false-negative), reopen avec auto-cleanup.
+- Régression iter38 (a→p) : **112/112 verts**.
+
 ## Iter38o (2026-05-27) — Backlog complet + Stripe + dépenses éditables
 
 ### ✏️ 1) Édition des dépenses non clôturées

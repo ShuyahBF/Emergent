@@ -847,6 +847,9 @@ class TicketOpenPayload(BaseModel):
     # Si absent ou vide, le backend refuse la création (plus de fallback auto
     # sur le client_id du contact, qui était souvent erroné).
     client_id: Optional[str] = None
+    # Iter38p — When True, force-close any open ticket blocking creation for
+    # this contact (orphan or stuck). Marked as `outcome="force_released"`.
+    force_release: Optional[bool] = False
 
 
 class TicketUpdatePayload(BaseModel):

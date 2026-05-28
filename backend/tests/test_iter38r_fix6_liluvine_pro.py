@@ -191,6 +191,8 @@ def test_delete_session_cleans_messages(env, db):
 # Quota enforcement — chat is blocked when quota is over
 # ====================================================================
 def test_chat_blocked_when_quota_exceeded(env, db):
+    # Activate the feature first (else we get 403 before 429)
+    db.users.update_one({"id": env["admin_id"]}, {"$set": {"features.ai_liluvine_pro": True}})
     # Set a quota that's already busted
     ym = datetime.now(timezone.utc).strftime("%Y-%m")
     db.ai_quotas.replace_one(

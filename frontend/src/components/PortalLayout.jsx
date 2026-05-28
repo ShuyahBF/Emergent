@@ -7,6 +7,7 @@ import {
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
+import { toast } from "sonner";
 import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
@@ -50,8 +51,8 @@ const clientLinks = [
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
-  // Iter38r-fix6 — Liluvine PRO (internal AI assistant)
-  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot },
+  // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
+  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, featureGate: "ai_liluvine_pro" },
 ];
 
 const adminLinks = [
@@ -99,10 +100,13 @@ export default function PortalLayout({ admin = false }) {
   const [ticketsPending, setTicketsPending] = useState(0);
   // Iter38h — Tenant meta features (loaded from /me/features)
   const [metaEnabled, setMetaEnabled] = useState(false);
+  // Iter38r-fix7 — Full features object for per-link gate (visible-but-disabled)
+  const [tenantFeatures, setTenantFeatures] = useState({});
   useEffect(() => {
     apiClient.get("/me/features").then((r) => {
       const f = r.data?.features || r.data || {};
       setMetaEnabled(!!(f.meta_pages || f.meta_messenger || f.meta_ads));
+      setTenantFeatures(f);
     }).catch(() => {});
   }, []);
   const isTracked = !!user?.tracked_user_id || !!user?.tracked_role;
@@ -219,22 +223,44 @@ export default function PortalLayout({ admin = false }) {
         </div>
       </Link>
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon, end, module, soon, badgeKey }) => {
+        {links.map(({ to, label, icon: Icon, end, module, soon, badgeKey, featureGate }) => {
           const count = module ? (badges[module] || 0) : 0;
-          // Iter35o — separate "live count" badges (e.g. tickets_pending) use
-          // a dedicated endpoint and don't have a "mark as seen" semantic.
           const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
+          // Iter38r-fix7 — Feature-gated links stay visible but greyed out
+          // and unclickable when the parent admin's feature is OFF.
+          const featureDisabled = featureGate && !tenantFeatures[featureGate];
           return (
             <NavLink
               key={to}
-              to={to}
+              to={featureDisabled ? "#" : to}
               end={end}
-              onClick={() => setOpen(false)}
-              className={({ isActive }) => `sidebar-link ${isActive ? "active" : ""} group`}
+              onClick={(e) => {
+                if (featureDisabled) {
+                  e.preventDefault();
+                  toast.info(`Fonctionnalité « ${label} » non activée — contactez votre administrateur SAWALI.`);
+                  return;
+                }
+                setOpen(false);
+              }}
+              className={({ isActive }) =>
+                featureDisabled
+                  ? "sidebar-link opacity-40 cursor-not-allowed group"
+                  : `sidebar-link ${isActive ? "active" : ""} group`
+              }
               data-testid={`sidebar-link-${to.replace(/\//g, "-")}`}
+              title={featureDisabled ? `${label} (non activé)` : undefined}
             >
               <Icon className="h-4 w-4" />
               <span className="flex-1 truncate">{label}</span>
+              {featureDisabled && (
+                <span
+                  className="text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-slate-500/30 text-slate-300 ring-1 ring-slate-500/40"
+                  data-testid={`badge-disabled-${to.replace(/\//g, "-")}`}
+                  title="Non activé"
+                >
+                  OFF
+                </span>
+              )}
               {soon && (
                 <span
                   className="text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 ring-1 ring-amber-400/30"
@@ -372,8 +398,9 @@ export default function PortalLayout({ admin = false }) {
         </main>
       </div>
       <VersionStamp tone="dark" />
-      {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} />}
-      <InternalChatPanel />
+      {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} isComptaStrict={isComptaStrict} />}
+      {/* Iter38r-fix7 — Comptable strict: hide the internal chat bubble entirely. */}
+      {!isComptaStrict && <InternalChatPanel />}
     </div>
   );
 }

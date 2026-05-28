@@ -189,12 +189,21 @@ const FEATURE_META = [
     color: "text-violet-600",
     bg: "bg-violet-50",
   },
+  // Iter38r-fix7 — Liluvine PRO (internal AI assistant)
+  {
+    key: "ai_liluvine_pro",
+    label: "Liluvine PRO (Assistant IA interne)",
+    description: "Active l'assistant IA propulsé par Claude Sonnet avec accès lecture seule aux contacts, tickets, paiements, RDV et notes. Quand désactivé, l'entrée menu reste visible mais grisée avec un message d'invitation à contacter l'administrateur.",
+    icon: Sparkles,
+    color: "text-fuchsia-600",
+    bg: "bg-fuchsia-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   const [loading, setLoading] = useState(true);

@@ -26,7 +26,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.liluvine_pro")
@@ -198,10 +198,159 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         return {"reply": reply or "", "tokens": tokens, "model": "claude-sonnet-4-6"}
 
     # ----------------------------------------------------------
+    # Public branding for Liluvine PRO (frontend uses this)
+    # ----------------------------------------------------------
+    @api.get("/me/liluvine-pro/branding", tags=["Portail Client — Liluvine PRO"])
+    async def get_branding(user: dict = Depends(get_current_user)):
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {
+            "name": s.get("liluvine_pro_name") or "Liluvine PRO",
+            "avatar_url": s.get("liluvine_pro_avatar_url") or "",
+            "color": s.get("liluvine_pro_color") or "fuchsia",
+        }
+
+    # ----------------------------------------------------------
+    # Inbound webhook — n8n, WhatsApp, Facebook can POST prompts.
+    # The path-secret protects against random POSTs. Source identifies
+    # the channel for the reply routing.
+    # ----------------------------------------------------------
+    @api.post("/webhooks/liluvine-pro/{source}/{secret}", tags=["Webhooks"])
+    async def liluvine_inbound(source: str, secret: str, request: Request):
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        expected = (s.get("liluvine_pro_inbound_secret") or "").strip()
+        if not expected or secret != expected:
+            raise HTTPException(status_code=403, detail="Secret invalide")
+        if source not in ("n8n", "whatsapp", "facebook", "custom"):
+            raise HTTPException(status_code=400, detail="Source non supportée. Utilisez n8n|whatsapp|facebook|custom.")
+        try:
+            payload = await request.json()
+        except Exception:
+            payload = {}
+        text = (payload.get("text") or payload.get("message") or payload.get("prompt") or "").strip()
+        client_id_hint = payload.get("client_id") or payload.get("tenant_id")
+        session_id_hint = payload.get("session_id")
+        # Resolve user: by client_id if provided, else use the first admin
+        client_id = client_id_hint
+        if not client_id:
+            admin = await db.users.find_one({"role": "admin"}, {"_id": 0, "id": 1})
+            client_id = admin["id"] if admin else None
+        if not client_id or not text:
+            raise HTTPException(status_code=400, detail="Champ 'text' et 'client_id' (ou admin par défaut) requis.")
+        # Find a user we can attribute the request to
+        user_doc = await db.users.find_one({"id": client_id}, {"_id": 0})
+        if not user_doc:
+            raise HTTPException(status_code=404, detail="client_id introuvable")
+        # Persist the inbound message + log it for audit
+        sid = session_id_hint or secrets.token_urlsafe(12)
+        if not session_id_hint:
+            await db.liluvine_pro_sessions.insert_one({
+                "id": sid, "client_id": client_id, "user_id": user_doc["id"],
+                "user_label": f"[{source.upper()}] {payload.get('from') or 'externe'}",
+                "title": f"{source.upper()} · {text[:40]}",
+                "created_at": _now(), "updated_at": _now(),
+                "message_count": 0, "external_source": source,
+                "external_payload": {k: v for k, v in payload.items() if k != "text"},
+            })
+        await db.liluvine_pro_messages.insert_one({
+            "id": secrets.token_urlsafe(12),
+            "session_id": sid, "client_id": client_id,
+            "user_id": user_doc["id"], "role": "user", "content": text,
+            "external_source": source,
+            "created_at": _now(),
+        })
+        # Fetch context + call LLM
+        ctx = await _fetch_context_snippets(db, user_doc, text)
+        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "")
+        try:
+            llm = await _llm_send(sid, system_text, text)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("[liluvine-pro-inbound] LLM failure")
+            raise HTTPException(status_code=502, detail=f"LLM indisponible : {str(exc)[:160]}") from exc
+        msg_id = secrets.token_urlsafe(12)
+        await db.liluvine_pro_messages.insert_one({
+            "id": msg_id, "session_id": sid, "client_id": client_id,
+            "user_id": user_doc["id"], "role": "assistant", "content": llm["reply"],
+            "tokens": llm["tokens"], "model": llm["model"],
+            "context_injected": bool(ctx), "external_source": source,
+            "created_at": _now(),
+        })
+        await db.liluvine_pro_sessions.update_one(
+            {"id": sid}, {"$inc": {"message_count": 2}, "$set": {"updated_at": _now()}},
+        )
+        await _track(user_doc, llm["tokens"], llm["model"],
+                     metadata={"source": source, "session_id": sid})
+        # Outbound forward to n8n if configured (so n8n can dispatch to WhatsApp/Facebook)
+        n8n_url = (s.get("liluvine_pro_n8n_outbound_url") or "").strip()
+        n8n_token = (s.get("liluvine_pro_n8n_outbound_token") or "").strip()
+        forwarded = False
+        if n8n_url:
+            try:
+                import httpx
+                async with httpx.AsyncClient(timeout=8.0) as cli:
+                    fwd_headers = {"Content-Type": "application/json"}
+                    if n8n_token:
+                        fwd_headers["Authorization"] = f"Bearer {n8n_token}"
+                    await cli.post(n8n_url, headers=fwd_headers, json={
+                        "source": source,
+                        "session_id": sid,
+                        "reply": llm["reply"],
+                        "original_text": text,
+                        "from": payload.get("from"),
+                        "to": payload.get("to"),
+                        "metadata": payload.get("metadata"),
+                    })
+                forwarded = True
+            except Exception:
+                logger.exception("[liluvine-pro] n8n forward failed")
+        return {
+            "ok": True, "session_id": sid, "message_id": msg_id,
+            "reply": llm["reply"], "tokens": llm["tokens"], "model": llm["model"],
+            "forwarded_to_n8n": forwarded,
+        }
+
+    # ----------------------------------------------------------
+    # Admin — return the inbound URLs for n8n/WhatsApp/Facebook integration
+    # ----------------------------------------------------------
+    @api.get("/admin/liluvine-pro/inbound-urls", tags=["Admin — Liluvine PRO"])
+    async def admin_inbound_urls(request: Request, _: dict = Depends(get_current_user)):
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        secret = (s.get("liluvine_pro_inbound_secret") or "").strip()
+        if not secret:
+            secret = secrets.token_urlsafe(32)
+            await db.settings.update_one(
+                {"_id": "global"},
+                {"$set": {"liluvine_pro_inbound_secret": secret,
+                          "liluvine_pro_inbound_secret_generated_at": _now()}},
+                upsert=True,
+            )
+        fwd_host = request.headers.get("x-forwarded-host") or request.headers.get("host") or ""
+        fwd_scheme = request.headers.get("x-forwarded-proto") or request.url.scheme or "https"
+        base = f"{fwd_scheme}://{fwd_host}".rstrip("/") if fwd_host else str(request.base_url).rstrip("/")
+        return {
+            "n8n_url": f"{base}/api/webhooks/liluvine-pro/n8n/{secret}",
+            "whatsapp_url": f"{base}/api/webhooks/liluvine-pro/whatsapp/{secret}",
+            "facebook_url": f"{base}/api/webhooks/liluvine-pro/facebook/{secret}",
+            "custom_url": f"{base}/api/webhooks/liluvine-pro/custom/{secret}",
+            "secret_preview": secret[:6] + "…" + secret[-4:],
+        }
+
+    # ----------------------------------------------------------
     # POST /chat — send a message
     # ----------------------------------------------------------
     @api.post("/me/liluvine-pro/chat", tags=["Portail Client — Liluvine PRO"])
     async def chat(payload: ChatMessage, user: dict = Depends(get_current_user)):
+        # Iter38r-fix7 — Feature gate: tenant must have ai_liluvine_pro enabled.
+        # Resolve to the parent admin and inspect their features field.
+        scope_uid = _client_scope(user)
+        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
+        feats = (parent or {}).get("features") or {}
+        if not feats.get("ai_liluvine_pro"):
+            raise HTTPException(
+                status_code=403,
+                detail="Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
+            )
         chk = await _pre_check(user, "claude-sonnet-4-6")
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")

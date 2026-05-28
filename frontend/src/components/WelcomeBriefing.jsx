@@ -22,7 +22,7 @@ import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, L
 const SS_KEY = "sawali_welcome_briefing_seen";
 const LS_LAST_SEEN = "sawali_portal_last_seen_at";
 
-export default function WelcomeBriefing({ onClose }) {
+export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
 
@@ -196,7 +196,7 @@ export default function WelcomeBriefing({ onClose }) {
                       {sinceLast.new_tickets_count} ticket{sinceLast.new_tickets_count > 1 ? "s" : ""}
                     </Link>
                   )}
-                  {sinceLast.new_whatsapp_count > 0 && (
+                  {sinceLast.new_whatsapp_count > 0 && !isComptaStrict && (
                     <Link to="/portal/contacts" className="inline-flex items-center gap-1 rounded-full bg-emerald-100 text-emerald-800 ring-1 ring-emerald-200 px-2 py-0.5 hover:bg-emerald-200 transition" data-testid="welcome-since-last-wa-badge">
                       <MessageCircle className="h-3 w-3" />
                       {sinceLast.new_whatsapp_count} WhatsApp
@@ -296,9 +296,12 @@ export default function WelcomeBriefing({ onClose }) {
                     </span>
                   )}
                 </div>
-                <Link to="/portal/contacts" onClick={dismiss} className="inline-block mt-2 text-xs text-sky-700 hover:underline" data-testid="welcome-messages-link">
-                  Ouvrir le centre de messagerie →
-                </Link>
+                {/* Iter38r-fix7 — Comptable strict has no access to messaging center */}
+                {!isComptaStrict && (
+                  <Link to="/portal/contacts" onClick={dismiss} className="inline-block mt-2 text-xs text-sky-700 hover:underline" data-testid="welcome-messages-link">
+                    Ouvrir le centre de messagerie →
+                  </Link>
+                )}
               </section>
             )}
 

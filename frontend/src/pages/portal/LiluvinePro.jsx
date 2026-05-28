@@ -20,6 +20,10 @@ export default function LiluvinePro() {
   const [input, setInput] = useState("");
   const [sending, setSending] = useState(false);
   const [loadingSession, setLoadingSession] = useState(false);
+  // Iter38r-fix7 — Branding (per-tenant theming from AdminSettings)
+  const [branding, setBranding] = useState({ name: "Liluvine PRO", avatar_url: "", color: "fuchsia" });
+  // Feature gate (ai_liluvine_pro must be enabled on parent admin)
+  const [featureEnabled, setFeatureEnabled] = useState(true);
   const scrollRef = useRef(null);
 
   const loadSessions = useCallback(async () => {
@@ -32,6 +36,17 @@ export default function LiluvinePro() {
   }, []);
 
   useEffect(() => { loadSessions(); }, [loadSessions]);
+
+  // Iter38r-fix7 — Load tenant-customized branding (name + avatar + color)
+  useEffect(() => {
+    apiClient.get("/me/liluvine-pro/branding")
+      .then((r) => { if (r.data) setBranding({
+        name: r.data.name || "Liluvine PRO",
+        avatar_url: r.data.avatar_url || "",
+        color: r.data.color || "fuchsia",
+      }); })
+      .catch(() => {/* silent — defaults stay */});
+  }, []);
 
   const loadSession = async (sid) => {
     if (!sid) { setMessages([]); setActiveId(null); return; }
@@ -73,6 +88,9 @@ export default function LiluvinePro() {
       const detail = err?.response?.data?.detail || "Erreur";
       if (status === 429) {
         toast.error(`Quota IA atteint : ${detail}`);
+      } else if (status === 403) {
+        setFeatureEnabled(false);
+        toast.error("Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.");
       } else {
         toast.error(detail);
       }
@@ -167,16 +185,30 @@ export default function LiluvinePro() {
       {/* Main chat */}
       <main className="flex-1 flex flex-col rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
         <header className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-fuchsia-500 to-violet-600 flex items-center justify-center">
-            <Bot className="h-5 w-5 text-white" />
+          <div className={`h-9 w-9 rounded-xl bg-gradient-to-br from-${branding.color}-500 to-violet-600 flex items-center justify-center overflow-hidden`}>
+            {branding.avatar_url ? (
+              <img src={branding.avatar_url} alt={branding.name} className="h-full w-full object-cover" />
+            ) : (
+              <Bot className="h-5 w-5 text-white" />
+            )}
           </div>
           <div className="flex-1">
             <h1 className="font-display font-bold text-slate-900 text-sm inline-flex items-center gap-1">
-              Liluvine PRO <Sparkles className="h-3 w-3 text-fuchsia-500" />
+              {branding.name} <Sparkles className={`h-3 w-3 text-${branding.color}-500`} />
             </h1>
             <p className="text-[11px] text-slate-500">Assistant interne · Claude Sonnet 4.6 · Accès lecture seule à vos données</p>
           </div>
         </header>
+
+        {!featureEnabled && (
+          <div className="m-4 rounded-xl ring-1 ring-amber-300 bg-amber-50 p-4 text-sm text-amber-900" data-testid="liluvine-disabled-banner">
+            <p className="font-semibold mb-1">⚠️ Fonctionnalité non activée</p>
+            <p className="text-xs">
+              {branding.name} n'est pas activé pour votre compte. Contactez votre administrateur SAWALI pour demander son activation
+              dans <strong>Admin → Clients → Fonctionnalités → {branding.name} (Assistant IA interne)</strong>.
+            </p>
+          </div>
+        )}
 
         <div ref={scrollRef} className="flex-1 overflow-y-auto px-5 py-4 space-y-4" data-testid="liluvine-messages-area">
           {loadingSession ? (
@@ -271,8 +303,8 @@ export default function LiluvinePro() {
             />
             <button
               onClick={send}
-              disabled={sending || !input.trim()}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 text-white px-3.5 py-2 text-sm hover:bg-fuchsia-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm"
+              disabled={sending || !input.trim() || !featureEnabled}
+              className={`inline-flex items-center gap-1.5 rounded-lg bg-${branding.color}-600 text-white px-3.5 py-2 text-sm hover:bg-${branding.color}-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm`}
               data-testid="liluvine-send-btn"
             >
               <Send className="h-4 w-4" />

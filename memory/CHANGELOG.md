@@ -8,6 +8,54 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix7 (2026-05-28) — Toggle Liluvine PRO + Comptable hardening + Branding + n8n/WA/FB inbound + AI profile photo
+
+### 🔒 1) Toggle Liluvine PRO dans Smart Communications
+- Nouveau feature flag `ai_liluvine_pro` ajouté dans `DEFAULT_CLIENT_FEATURES` (backend) et `AdminClientFeatures.jsx` (UI).
+- **Backend** : `POST /me/liluvine-pro/chat` retourne **403** quand `features.ai_liluvine_pro` est false sur le parent admin (résolu via `_client_scope`).
+- **Frontend** : l'entrée menu « Liluvine PRO (Assistant IA) » reste **visible** mais grisée à 40% d'opacité avec badge OFF en gris quand le toggle est désactivé. Un clic sur le lien désactivé déclenche un toast d'information « Fonctionnalité non activée — contactez votre administrateur ».
+- Mécanisme générique `featureGate` dans `clientLinks` réutilisable pour d'autres features à l'avenir.
+
+### 👔 2) Comptable strict : Centre de Messagerie + Chat Direct verrouillés
+- Le bouton/lien **« Ouvrir le centre de messagerie »** dans le `WelcomeBriefing` est masqué si `isComptaStrict=true`.
+- Le badge cliquable **« X WhatsApp »** dans la section "depuis votre dernière connexion" est aussi masqué.
+- La **bulle Chat Direct** (`InternalChatPanel` FAB) n'est plus rendue côté `PortalLayout` quand `isComptaStrict=true`.
+- Cohérent avec la restriction menu déjà en place (Compta voit uniquement Caisse/Facturation + GRH).
+
+### 🎨 3) Branding Liluvine PRO paramétrable
+- 3 nouveaux champs `settings` : `liluvine_pro_name`, `liluvine_pro_avatar_url`, `liluvine_pro_color`.
+- Nouvel endpoint `GET /me/liluvine-pro/branding` → expose nom + avatar + couleur au frontend.
+- `LiluvinePro.jsx` charge le branding au mount et l'applique :
+  - Avatar : image custom OU icône Bot par défaut, dans un cercle gradient `from-{color}-500 to-violet-600`.
+  - Nom dans le header + dans le banner "non activé" + dans tooltips.
+  - Couleur des boutons (Envoyer) dynamique.
+- Le multi-tenant peut donc avoir son propre assistant (« Sawa », « Bot Yaouba », etc.) avec sa couleur et son avatar.
+
+### 🔗 4) Liluvine PRO ↔ n8n / WhatsApp / Facebook (webhooks inbound + outbound)
+- Nouveau endpoint webhook entrant `POST /api/webhooks/liluvine-pro/{source}/{secret}` où `source ∈ {n8n, whatsapp, facebook, custom}`.
+- Protection par secret partagé `liluvine_pro_inbound_secret` (auto-généré si absent via `/admin/liluvine-pro/inbound-urls`).
+- Le payload accepte `{ text, client_id, session_id?, from?, to?, metadata? }`.
+- Création/réutilisation de session, fetch RAG context, appel Claude Sonnet 4.6, persistance des messages avec `external_source`.
+- **Forward outbound automatique** : si `liluvine_pro_n8n_outbound_url` est défini dans settings, la réponse est POST-ée à n8n pour dispatch vers WhatsApp/Facebook/SMS via les workflows n8n.
+- Endpoint admin `GET /api/admin/liluvine-pro/inbound-urls` retourne les 4 URLs prêtes à coller (n8n/whatsapp/facebook/custom).
+
+### 📸 5) Génération photo de profil IA
+- Nouveau endpoint `POST /me/ai/generate-profile-photo` accepte `{ prompt, style }` (5 styles : professional/creative/casual/artistic/avatar).
+- Le prompt est enrichi côté serveur avec consignes de portrait carré, cadrage tête-épaules, regard sympathique, no text.
+- Image générée via Gemini Nano Banana, sauvegardée, et `users.avatar_url` est **automatiquement mis à jour** → visible partout immédiatement.
+- Logged dans `ai_generations` + tracking quota IA.
+- **Frontend MyAccount.jsx** : bouton sparkle fuchsia à côté de l'avatar (existant et initials) → modal avec textarea + select style + boutons Annuler/Générer. Gère erreurs 429 (quota) et 403 (feature off).
+
+### 🧪 6) Tests Pytest — `test_iter38r_fix7_liluvine_branding_gating.py` (7 tests, 100% pass)
+- Feature gate 403 quand `ai_liluvine_pro=false`
+- Branding endpoint retourne défauts puis valeurs customisées
+- Inbound webhook : rejette mauvais secret + mauvaise source
+- Inbound URLs endpoint auto-génère le secret
+- Photo profil 403 quand `ai_image_gen=false` (via user tracked non-admin)
+
+### 📊 Bilan Iter38r mis à jour
+**63 tests pytest 100% pass** sur 8 sous-itérations (Iter38r + fix1-fix7).
+
 ## Iter38r-fix6 (2026-05-28) — UI Quotas IA + Liluvine PRO (Assistant SAWALI interne)
 
 ### 🎛️ 1) UI Quotas IA dans Admin → Clients → Fonctionnalités

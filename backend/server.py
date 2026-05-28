@@ -3281,6 +3281,8 @@ DEFAULT_CLIENT_FEATURES = {
     # are rejected with 403. Default OFF (paid LLM credits).
     "ai_image_gen": False,
     "ai_video_gen": False,
+    # Iter38r-fix7 — Liluvine PRO assistant interne (Claude Sonnet)
+    "ai_liluvine_pro": False,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -5359,6 +5361,10 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     # Agenda / Liluvine
     "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
     "support_load_webhook_secret", "liluvine_remote_secret", "liluvine_remote_admin_phones",
+    # Iter38r-fix7 — Liluvine PRO branding (per-tenant theming)
+    "liluvine_pro_name", "liluvine_pro_avatar_url", "liluvine_pro_color",
+    "liluvine_pro_n8n_outbound_url", "liluvine_pro_n8n_outbound_token",
+    "liluvine_pro_inbound_secret",
 })
 
 

@@ -49,6 +49,12 @@ class GenerateVideoPayload(BaseModel):
     model: str = Field("sora-2", pattern="^(sora-2|sora-2-pro)$")
 
 
+# Iter38r-fix7 — Profile photo payload (module-level so FastAPI recognises it as body)
+class ProfilePhotoPayload(BaseModel):
+    prompt: str = Field(..., min_length=4, max_length=500)
+    style: Optional[str] = Field("professional", max_length=40)
+
+
 def _safe_slug(text: str, n: int = 24) -> str:
     s = re.sub(r"[^A-Za-z0-9]+", "-", (text or "").strip().lower()).strip("-")
     return (s[:n] or "image")
@@ -224,6 +230,49 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         })
         await _track(user, "image", 1, GEMINI_MODEL, metadata={"edit": True})
         return {"ok": True, "url": saved["url"], "public_url": saved["url"], "filename": saved["filename"]}
+
+    # ------------------------------------------------------------------
+    # Iter38r-fix7 — Profile photo generation (square portrait, then
+    # set the user's avatar_url so it shows up everywhere immediately).
+    # ------------------------------------------------------------------
+    @api.post("/me/ai/generate-profile-photo", tags=["Portail Client — IA"])
+    async def generate_profile_photo(payload: ProfilePhotoPayload, user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
+        chk = await _track(user, "image", 1, GEMINI_MODEL, pre_check=True)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
+        # Reinforce the prompt for a square portrait, head-and-shoulders
+        style_map = {
+            "professional": "professional corporate headshot, business attire, soft studio lighting, neutral background",
+            "creative": "creative artistic portrait, colorful tasteful background, modern stylish look",
+            "casual": "casual portrait, natural daylight, friendly expression, slightly blurred outdoor background",
+            "artistic": "stylized illustration portrait, painted aesthetic, vibrant colors",
+            "avatar": "minimalist flat avatar illustration, vector style, simple background",
+        }
+        style_hint = style_map.get(payload.style or "professional", style_map["professional"])
+        enhanced_prompt = (
+            f"Photo de profil carrée, cadrage tête et épaules, "
+            f"{style_hint}. "
+            f"Sujet : {payload.prompt.strip()}. "
+            f"Haute qualité, regard sympathique, fond uni, format 1:1, no text."
+        )
+        tid = await _tenant_id(user)
+        img_bytes = await _generate_via_gemini(enhanced_prompt)
+        saved = await _save_image_bytes(img_bytes, tid, "profile-photo")
+        # Apply as the user's avatar immediately
+        await db.users.update_one(
+            {"id": user["id"]},
+            {"$set": {"avatar_url": saved["url"], "avatar_updated_at": datetime.now(timezone.utc).isoformat()}},
+        )
+        await db.ai_generations.insert_one({
+            "id": secrets.token_urlsafe(12), "tenant_id": tid, "user_id": user.get("id"),
+            "prompt": enhanced_prompt, "kind": "profile_photo", "style": payload.style,
+            "url": saved["url"],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "model": GEMINI_MODEL,
+        })
+        await _track(user, "image", 1, GEMINI_MODEL, metadata={"kind": "profile_photo", "style": payload.style})
+        return {"ok": True, "url": saved["url"], "avatar_url": saved["url"], "filename": saved["filename"]}
 
     # ---------------------------------------------------------------------
     # 2-bis) Sora 2 — text-to-video. Long-running (2-5 min typical).

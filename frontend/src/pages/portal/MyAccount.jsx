@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight } from "lucide-react";
+import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight, Sparkles, Loader2, X } from "lucide-react";
 
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
@@ -43,6 +43,30 @@ export default function MyAccount() {
   const [selectedFields, setSelectedFields] = useState([]);
   const [message, setMessage] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // Iter38r-fix7 — AI profile photo generation
+  const [photoModal, setPhotoModal] = useState({ open: false, prompt: "", style: "professional", busy: false });
+
+  const generateProfilePhoto = async () => {
+    if (!photoModal.prompt.trim() || photoModal.busy) return;
+    setPhotoModal((m) => ({ ...m, busy: true }));
+    try {
+      const r = await apiClient.post("/me/ai/generate-profile-photo", {
+        prompt: photoModal.prompt.trim(),
+        style: photoModal.style,
+      });
+      toast.success("Photo de profil générée et appliquée");
+      setPhotoModal({ open: false, prompt: "", style: "professional", busy: false });
+      await load();
+      // Reflect the new avatar in the auth context refresh (next reload picks it up)
+    } catch (err) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail || "Erreur";
+      if (status === 429) toast.error(`Quota IA atteint : ${detail}`);
+      else if (status === 403) toast.error("Génération IA non activée — contactez votre administrateur.");
+      else toast.error(detail);
+      setPhotoModal((m) => ({ ...m, busy: false }));
+    }
+  };
 
   const load = async () => {
     setLoading(true);
@@ -94,19 +118,107 @@ export default function MyAccount() {
           <p className="text-xs text-slate-500 mt-0.5">Informations de votre compte (lecture seule)</p>
         </div>
         {identity.avatar_url && (
-          <img
-            src={identity.avatar_url}
-            alt="avatar"
-            className="h-16 w-16 rounded-full ring-2 ring-sawali-blue/40 object-cover"
-            data-testid="account-avatar"
-          />
+          <div className="relative group" data-testid="account-avatar-wrap">
+            <img
+              src={identity.avatar_url}
+              alt="avatar"
+              className="h-16 w-16 rounded-full ring-2 ring-sawali-blue/40 object-cover"
+              data-testid="account-avatar"
+            />
+            <button
+              type="button"
+              onClick={() => setPhotoModal((m) => ({ ...m, open: true }))}
+              className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-fuchsia-600 text-white shadow-lg ring-2 ring-white flex items-center justify-center hover:bg-fuchsia-700"
+              title="Générer une nouvelle photo de profil par IA"
+              data-testid="account-ai-photo-btn"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
+          </div>
         )}
         {!identity.avatar_url && identity.full_name && (
-          <div className="h-16 w-16 rounded-full ring-2 ring-sawali-blue/40 bg-gradient-to-br from-sawali-blue to-sawali-blue-light text-white text-2xl font-display font-bold flex items-center justify-center" data-testid="account-avatar-initials">
-            {identity.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
+          <div className="relative group" data-testid="account-avatar-wrap">
+            <div className="h-16 w-16 rounded-full ring-2 ring-sawali-blue/40 bg-gradient-to-br from-sawali-blue to-sawali-blue-light text-white text-2xl font-display font-bold flex items-center justify-center" data-testid="account-avatar-initials">
+              {identity.full_name.split(" ").map((s) => s[0]).slice(0, 2).join("").toUpperCase()}
+            </div>
+            <button
+              type="button"
+              onClick={() => setPhotoModal((m) => ({ ...m, open: true }))}
+              className="absolute -bottom-1 -right-1 h-7 w-7 rounded-full bg-fuchsia-600 text-white shadow-lg ring-2 ring-white flex items-center justify-center hover:bg-fuchsia-700"
+              title="Générer une photo de profil par IA"
+              data-testid="account-ai-photo-btn"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+            </button>
           </div>
         )}
       </header>
+
+      {/* Iter38r-fix7 — AI profile photo modal */}
+      {photoModal.open && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/50"
+          onClick={(e) => e.target === e.currentTarget && !photoModal.busy && setPhotoModal({ open: false, prompt: "", style: "professional", busy: false })}
+          data-testid="ai-photo-modal"
+        >
+          <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5">
+            <div className="flex items-start justify-between mb-3">
+              <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+                <Sparkles className="h-4 w-4 text-fuchsia-600" /> Générer une photo de profil
+              </h3>
+              <button
+                onClick={() => !photoModal.busy && setPhotoModal({ open: false, prompt: "", style: "professional", busy: false })}
+                className="text-slate-400 hover:text-slate-700 p-1"
+                data-testid="ai-photo-close"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <p className="text-xs text-slate-500 mb-3">
+              Décrivez votre photo. L'IA générera un portrait carré (1:1) qui sera appliqué automatiquement.
+            </p>
+            <textarea
+              value={photoModal.prompt}
+              onChange={(e) => setPhotoModal((m) => ({ ...m, prompt: e.target.value }))}
+              placeholder="Ex: Femme africaine 35 ans, sourire chaleureux, lunettes fines, veste bleu marine"
+              rows={3}
+              className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm focus:ring-fuchsia-500 focus:ring-2 outline-none resize-none mb-3"
+              data-testid="ai-photo-prompt"
+            />
+            <label className="block text-[10px] uppercase tracking-wider font-semibold text-slate-500 mb-1">Style</label>
+            <select
+              value={photoModal.style}
+              onChange={(e) => setPhotoModal((m) => ({ ...m, style: e.target.value }))}
+              className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm focus:ring-fuchsia-500 focus:ring-2 outline-none mb-4"
+              data-testid="ai-photo-style"
+            >
+              <option value="professional">Corporate / professionnel</option>
+              <option value="creative">Créatif / coloré</option>
+              <option value="casual">Décontracté / extérieur</option>
+              <option value="artistic">Artistique / peinture</option>
+              <option value="avatar">Avatar vectoriel / minimaliste</option>
+            </select>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setPhotoModal({ open: false, prompt: "", style: "professional", busy: false })}
+                disabled={photoModal.busy}
+                className="px-3 py-1.5 rounded-md ring-1 ring-slate-300 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={generateProfilePhoto}
+                disabled={photoModal.busy || !photoModal.prompt.trim()}
+                className="px-3 py-1.5 rounded-md bg-fuchsia-600 text-white text-sm hover:bg-fuchsia-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+                data-testid="ai-photo-generate"
+              >
+                {photoModal.busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+                {photoModal.busy ? "Génération…" : "Générer"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {loading && !data && (
         <p className="text-center text-slate-400 py-8">Chargement…</p>

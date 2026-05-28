@@ -8,6 +8,40 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter38r-fix3 (2026-05-28) — Routing webhook unifié Meta/WhatsApp + Corbeille avec dé-liaison contact
+
+### 🚨 1) BUG FIX P0 — WhatsApp ne recevait plus rien après l'installation des modules META
+**Cause racine** : depuis l'install du module Meta (Iter38o), l'utilisateur configurait probablement chez Meta App l'URL unique `/api/meta/webhook`. Ce endpoint ne traitait QUE les payloads Messenger/Pages/Ads et ignorait silencieusement les payloads WhatsApp Cloud (`object='whatsapp_business_account'`).
+
+**Fix** : Dans `/api/meta/webhook` POST, détection du type d'objet AVANT la vérification HMAC. Si `object == 'whatsapp_business_account'`, délégation vers le handler WhatsApp Cloud existant (`whatsapp_webhook_incoming`) qui persiste correctement dans `db.whatsapp_messages`. Le HMAC reste appliqué pour les autres types.
+
+Côté `GET /api/meta/webhook` : accepte désormais soit `meta_webhook_verify_token`, soit `wa_verify_token` (fallback) — l'utilisateur peut donc configurer une URL unique chez Meta App avec n'importe lequel des 2 tokens.
+
+### 🗑️ 2) Bug Corbeille tickets — modal de confirmation avec checkbox « Effacer aussi le lien contact ↔ ticket »
+- L'utilisateur reportait une erreur "Ticket introuvable" lors de la corbeille de tickets orphelins.
+- Cause : `window.confirm` brut + appel direct sans gestion des cas particuliers (ticket déjà archivé / déjà supprimé / lien contact orphelin persistant).
+- **Backend** : `POST /me/tickets/{tid}/archive` accepte désormais un body optionnel `{ also_unlink: bool }`. Quand `true`, set `contact_id=None` + `archived_contact_id=<old>` + `unlinked_at` (audit). Idempotent : si le ticket est déjà archivé mais conserve son contact_id (cas legacy), passe en mode "release uniquement le contact" avec `already_archived=true, unlinked=true`.
+- **Frontend** (`Contacts.jsx`) : remplacement du `window.confirm` par un vrai modal `archiveModal` avec :
+  - Liste des risques (irréversible, IRRÉVERSIBLE).
+  - Checkbox « Effacer aussi le lien contact ↔ ticket » expliquant son usage pour les tickets orphelins.
+  - Gestion gracieuse du 404 (ticket déjà supprimé) → toast info + rafraîchissement de l'active-ticket.
+
+### 📊 3) Donut « Répartition par opérateur Mobile Money » avec pourcentages
+- Remplacement du BarChart par un PieChart donut (innerRadius=42, outerRadius=72).
+- Légende verticale en dessous avec pourcentages explicites et nom complet de l'opérateur (`Orange Money`, `Moov Money`, `Telecel Cash`, `MTN Mobile Money`, `Airtel Money`).
+- Couleurs MNO étendues (ajout MTN jaune, Airtel rouge) pour les futurs déploiements pan-africains.
+- Tooltip enrichi : `"X transactions (Y%)"` au lieu de juste `X`.
+
+### 🧪 4) Tests Pytest — `test_iter38r_fix3_archive_unlink_meta_routing.py` (8 tests, 100% pass)
+- Archive sans `also_unlink` → contact_id intact (rétro-compat).
+- Archive avec `also_unlink=true` → contact_id cleared, archived_contact_id preserved.
+- Archive déjà archivé + also_unlink → mode "release contact seul" + flag `already_archived`.
+- Archive déjà archivé sans also_unlink → 409 (comportement existant).
+- Archive sans body → fonctionne (rétro-compat).
+- Cycle complet : archive+unlink → fenêtre contact libérée → nouveau ticket créé immédiatement.
+- `/api/meta/webhook` POST avec payload `whatsapp_business_account` → message persisté dans `whatsapp_messages`.
+- `/api/meta/webhook` GET verify accepte `wa_verify_token` et `meta_webhook_verify_token`, rejette les tokens inconnus.
+
 ## Iter38r-fix2 (2026-05-28) — Callbacks deposits/refunds + enrichissement MNO
 
 ### 🔔 1) Endpoints callback distincts deposits/refunds

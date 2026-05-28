@@ -19550,19 +19550,45 @@ async def me_contact_active_ticket(cid: str, user: dict = Depends(get_current_us
 #   • Cannot be unarchived (there is intentionally no /unarchive endpoint).
 # The archive is stored as a soft-delete: row remains in DB with
 # `archived_at` + `archived_by_*` so audit trails are preserved.
+class TicketArchivePayload(BaseModel):
+    # Iter38r-fix3 — When true, also clears `contact_id` on the ticket so the
+    # contact's chat window is fully released and a fresh ticket can be opened.
+    also_unlink: bool = False
+
+
 @api.post("/me/tickets/{tid}/archive", tags=["Portail Client"])
-async def me_archive_ticket(tid: str, user: dict = Depends(get_current_user)):
+async def me_archive_ticket(
+    tid: str,
+    payload: Optional[TicketArchivePayload] = None,
+    user: dict = Depends(get_current_user),
+):
     role = (user or {}).get("role")
     if role not in ("admin", "superviseur"):
         raise HTTPException(
             status_code=403,
             detail="Action réservée aux administrateurs et superviseurs.",
         )
+    also_unlink = bool(payload and payload.also_unlink)
     scope_filter = await _ticket_scope_for_user(user)
     ticket = await db.support_tickets.find_one({**scope_filter, "id": tid}, {"_id": 0})
     if not ticket:
         raise HTTPException(status_code=404, detail="Ticket introuvable.")
     if ticket.get("archived_at"):
+        # Already archived — but the user may still want to unlink the
+        # contact reference to fully release the chat window.
+        if also_unlink and ticket.get("contact_id"):
+            old_cid = ticket.get("contact_id")
+            await db.support_tickets.update_one(
+                {"id": tid},
+                {"$set": {
+                    "contact_id": None,
+                    "archived_contact_id": old_cid,
+                    "unlinked_at": _now(),
+                    "unlinked_by_id": user["id"],
+                    "updated_at": _now(),
+                }},
+            )
+            return {"ok": True, "id": tid, "already_archived": True, "unlinked": True}
         raise HTTPException(status_code=409, detail="Ticket déjà dans la corbeille.")
     now_iso = _now()
     update = {
@@ -19581,17 +19607,23 @@ async def me_archive_ticket(tid: str, user: dict = Depends(get_current_user)):
             "outcome": "archived_to_trash",
             "resolution_note": "Mis à la corbeille — toutes références supprimées.",
         })
+    if also_unlink and ticket.get("contact_id"):
+        # Move the original contact_id to an audit field and clear the live one
+        update["archived_contact_id"] = ticket.get("contact_id")
+        update["contact_id"] = None
+        update["unlinked_at"] = now_iso
+        update["unlinked_by_id"] = user["id"]
     await db.support_tickets.update_one({"id": tid}, {"$set": update})
     try:
         await _log_activity(
             client_id=ticket.get("client_id", ""),
             kind="ticket", action="archived",
-            label=f"{ticket.get('number', '?')} → corbeille",
+            label=f"{ticket.get('number', '?')} → corbeille" + (" (lien contact retiré)" if also_unlink else ""),
             actor=user, target_id=tid,
         )
     except Exception:
         pass
-    return {"ok": True, "id": tid, "archived_at": now_iso}
+    return {"ok": True, "id": tid, "archived_at": now_iso, "unlinked": also_unlink}
 
 
 # Iter38q — Trash listing — admin/superviseur only. Read-only (no restore).

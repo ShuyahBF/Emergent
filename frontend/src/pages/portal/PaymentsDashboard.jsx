@@ -15,7 +15,8 @@ import {
   Cross-source view : payment links + transactions + channel attribution.
 */
 const COLORS_STATUS = { completed: "#10b981", pending: "#f59e0b", failed: "#e11d48" };
-const COLORS_MNO = { ORANGE: "#FF7900", MOOV: "#0076BB", TELECEL: "#E2241A", OTHER: "#94a3b8" };
+const COLORS_MNO = { ORANGE: "#FF7900", MOOV: "#0076BB", TELECEL: "#E2241A", MTN: "#FFCC00", AIRTEL: "#E60012", OTHER: "#94a3b8" };
+const MNO_FULL_NAME = { ORANGE: "Orange Money", MOOV: "Moov Money", TELECEL: "Telecel Cash", MTN: "MTN Mobile Money", AIRTEL: "Airtel Money", OTHER: "Autres" };
 const COLORS_CHANNEL = { whatsapp: "#25D366", sms: "#f59e0b", direct: "#6366f1" };
 
 function fmtAmount(n, ccy = "XOF") {
@@ -60,6 +61,13 @@ export default function PaymentsDashboard() {
       .filter(([, v]) => v > 0)
       .map(([k, v]) => ({ name: k, value: v }));
   }, [data]);
+
+  // Iter38r-fix3 — Operator share donut (% breakdown) for visual negotiation.
+  const mnoTotal = useMemo(() => mnoBars.reduce((acc, b) => acc + b.value, 0), [mnoBars]);
+  const mnoShare = useMemo(() => mnoBars.map((b) => ({
+    ...b,
+    pct: mnoTotal > 0 ? Math.round((b.value / mnoTotal) * 100) : 0,
+  })), [mnoBars, mnoTotal]);
 
   const channelData = useMemo(() => {
     if (!data) return [];
@@ -145,18 +153,40 @@ export default function PaymentsDashboard() {
             </Section>
 
             <Section title="Répartition par opérateur Mobile Money" icon={Layers} testid="chart-mno" compact>
-              {mnoBars.length === 0 ? <Empty text="Aucun paiement encore." /> : (
-                <ResponsiveContainer width="100%" height={220}>
-                  <BarChart data={mnoBars}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="name" fontSize={11} stroke="#64748b" />
-                    <YAxis fontSize={11} stroke="#64748b" />
-                    <Tooltip />
-                    <Bar dataKey="value" radius={[6, 6, 0, 0]}>
-                      {mnoBars.map((b) => <Cell key={b.name} fill={COLORS_MNO[b.name] || "#94a3b8"} />)}
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
+              {mnoShare.length === 0 ? <Empty text="Aucun paiement encore." /> : (
+                <div className="flex flex-col">
+                  <ResponsiveContainer width="100%" height={180}>
+                    <PieChart>
+                      <Pie
+                        data={mnoShare}
+                        dataKey="value"
+                        nameKey="name"
+                        cx="50%" cy="50%"
+                        innerRadius={42}
+                        outerRadius={72}
+                        paddingAngle={3}
+                        label={({ pct }) => pct >= 8 ? `${pct}%` : ""}
+                        labelLine={false}
+                      >
+                        {mnoShare.map((b) => (
+                          <Cell key={b.name} fill={COLORS_MNO[b.name] || COLORS_MNO.OTHER} />
+                        ))}
+                      </Pie>
+                      <Tooltip formatter={(v, _n, p) => [`${v} transactions (${p.payload.pct}%)`, p.payload.name]} />
+                    </PieChart>
+                  </ResponsiveContainer>
+                  <ul className="space-y-1 px-2 mt-1" data-testid="mno-breakdown-legend">
+                    {mnoShare.map((b) => (
+                      <li key={b.name} className="flex items-center justify-between text-xs">
+                        <span className="inline-flex items-center gap-1.5">
+                          <span className="h-2.5 w-2.5 rounded-sm" style={{ background: COLORS_MNO[b.name] || COLORS_MNO.OTHER }} />
+                          <span className="font-semibold text-slate-700">{MNO_FULL_NAME[b.name] || b.name}</span>
+                        </span>
+                        <span className="font-mono text-slate-500">{b.value} · <span className="text-slate-900 font-semibold">{b.pct}%</span></span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               )}
             </Section>
 

@@ -1590,6 +1590,39 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [ticketClients, setTicketClients] = useState([]);
   const [ticketTemplates, setTicketTemplates] = useState([]);
   const [ticketSubmitting, setTicketSubmitting] = useState(false);
+  // Iter38r-fix3 — Archive (corbeille) confirmation modal with the
+  // "also unlink contact ↔ ticket" checkbox, replacing window.confirm.
+  const [archiveModal, setArchiveModal] = useState({ open: false, ticket: null, alsoUnlink: false, busy: false });
+
+  const submitArchive = async () => {
+    const tk = archiveModal.ticket;
+    if (!tk) return;
+    setArchiveModal((m) => ({ ...m, busy: true }));
+    try {
+      const r = await apiClient.post(`/me/tickets/${tk.id}/archive`, { also_unlink: archiveModal.alsoUnlink });
+      const unlinked = r.data?.unlinked;
+      toast.success(
+        `Ticket ${tk.number} mis à la corbeille` + (unlinked ? " (lien contact retiré)" : "")
+      );
+      setArchiveModal({ open: false, ticket: null, alsoUnlink: false, busy: false });
+      await loadActiveTicket();
+    } catch (err) {
+      const status = err?.response?.status;
+      const detail = err?.response?.data?.detail || "Erreur";
+      // 404 = ticket already gone (often the orphan case). If the user
+      // checked "also unlink", we still want the chat window unblocked,
+      // so we just close the modal and reload — the active-ticket lookup
+      // will return null and the "Generate ticket" CTA will reappear.
+      if (status === 404) {
+        toast.info(`Ticket déjà supprimé du système — fenêtre rafraîchie.`);
+        setArchiveModal({ open: false, ticket: null, alsoUnlink: false, busy: false });
+        await loadActiveTicket();
+      } else {
+        toast.error(detail);
+        setArchiveModal((m) => ({ ...m, busy: false }));
+      }
+    }
+  };
 
   const openTicket = async () => {
     // Reset + open modal, then load clients + templates in parallel
@@ -1722,24 +1755,13 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 Voir <ArrowUpRight className="h-3 w-3" />
               </Link>
               {/* Iter38q — Admin/Sup only: archive ticket to trash (irreversible) */}
+              {/* Iter38r-fix3 — Replaced window.confirm with a real modal carrying
+                  an "also unlink contact ↔ ticket" checkbox so admins can fully
+                  release a stuck/orphan ticket from the chat window. */}
               {(user?.role === "admin" || user?.role === "superviseur") && (
                 <button
                   type="button"
-                  onClick={async () => {
-                    const ok = window.confirm(
-                      `⚠️ Mettre le ticket ${activeTicket.number} à la corbeille ?\n\n` +
-                      "Toutes ses références seront supprimées des listes et conversations. " +
-                      "Cette action est IRRÉVERSIBLE — le ticket ne pourra plus être réactivé."
-                    );
-                    if (!ok) return;
-                    try {
-                      await apiClient.post(`/me/tickets/${activeTicket.id}/archive`);
-                      toast.success(`Ticket ${activeTicket.number} mis à la corbeille`);
-                      await loadActiveTicket();
-                    } catch (err) {
-                      toast.error(err?.response?.data?.detail || "Erreur");
-                    }
-                  }}
+                  onClick={() => setArchiveModal({ open: true, ticket: activeTicket, alsoUnlink: false, busy: false })}
                   className="text-rose-700 hover:bg-rose-100 rounded p-1"
                   data-testid="conversation-ticket-archive"
                   title="Mettre à la corbeille (irréversible) — supprime toutes les références"
@@ -1765,6 +1787,72 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           )}
         </div>
         {/* Iter36k — Modal: create a ticket with explicit "client lié" dropdown */}
+        {/* Iter38r-fix3 — Archive ticket confirmation modal with also_unlink checkbox */}
+        {archiveModal.open && archiveModal.ticket && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-black/50"
+            onClick={(e) => e.target === e.currentTarget && !archiveModal.busy && setArchiveModal({ open: false, ticket: null, alsoUnlink: false, busy: false })}
+            data-testid="archive-ticket-modal"
+          >
+            <div className="bg-white rounded-2xl shadow-xl max-w-md w-full p-5">
+              <div className="flex items-start justify-between mb-3">
+                <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+                  <Trash className="h-4 w-4 text-rose-600" /> Mettre à la corbeille
+                </h3>
+                <button
+                  onClick={() => !archiveModal.busy && setArchiveModal({ open: false, ticket: null, alsoUnlink: false, busy: false })}
+                  className="text-slate-400 hover:text-slate-700 p-1"
+                  data-testid="archive-modal-close"
+                  aria-label="Fermer"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-sm text-slate-700 mb-3">
+                Mettre le ticket <strong>{archiveModal.ticket.number}</strong> à la corbeille ?
+              </p>
+              <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs text-rose-900 mb-3 space-y-1">
+                <p>⚠️ Action <strong>irréversible</strong> — le ticket ne pourra plus être réactivé.</p>
+                <p>Toutes ses références seront retirées des listes et conversations.</p>
+              </div>
+              <label className="flex items-start gap-2 text-sm text-slate-700 cursor-pointer mb-4 rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 hover:bg-amber-100" data-testid="archive-also-unlink-label">
+                <input
+                  type="checkbox"
+                  checked={archiveModal.alsoUnlink}
+                  onChange={(e) => setArchiveModal((m) => ({ ...m, alsoUnlink: e.target.checked }))}
+                  className="mt-0.5"
+                  data-testid="archive-also-unlink-checkbox"
+                />
+                <span>
+                  <strong>Effacer aussi le lien contact ↔ ticket</strong>
+                  <span className="block text-xs text-amber-800/80 mt-0.5">
+                    Recommandé pour les tickets orphelins — permet de générer un nouveau ticket immédiatement pour ce contact, même si la fenêtre de conversation reste bloquée.
+                  </span>
+                </span>
+              </label>
+              <div className="flex gap-2 justify-end">
+                <button
+                  onClick={() => setArchiveModal({ open: false, ticket: null, alsoUnlink: false, busy: false })}
+                  disabled={archiveModal.busy}
+                  className="px-3 py-1.5 rounded-md ring-1 ring-slate-300 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                  data-testid="archive-modal-cancel"
+                >
+                  Annuler
+                </button>
+                <button
+                  onClick={submitArchive}
+                  disabled={archiveModal.busy}
+                  className="px-3 py-1.5 rounded-md bg-rose-600 text-white text-sm hover:bg-rose-700 disabled:opacity-50 inline-flex items-center gap-1"
+                  data-testid="archive-modal-confirm"
+                >
+                  <Trash className="h-3.5 w-3.5" />
+                  {archiveModal.busy ? "Suppression…" : "Mettre à la corbeille"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {ticketModalOpen && (
           <div
             className="fixed inset-0 z-[60] flex items-center justify-center p-4 bg-black/50"

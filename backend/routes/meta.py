@@ -548,25 +548,56 @@ def setup_meta_routes(
         hub_challenge: str = Query(None, alias="hub.challenge"),
         hub_verify_token: str = Query(None, alias="hub.verify_token"),
     ):
+        """Iter38r-fix3 — Accepts either `meta_webhook_verify_token`
+        (Messenger/Pages/Ads) OR `wa_verify_token` (WhatsApp Cloud) so the
+        same URL can be used for both subscriptions in a single Meta App."""
         ms = await _get_meta_settings()
-        if hub_mode == "subscribe" and hub_verify_token == ms["meta_webhook_verify_token"] and ms["meta_webhook_verify_token"]:
+        s_global = await db.settings.find_one({"_id": "global"}) or {}
+        wa_token = (s_global.get("wa_verify_token") or "").strip()
+        meta_token = (ms.get("meta_webhook_verify_token") or "").strip()
+        if hub_mode == "subscribe" and hub_verify_token and (
+            (meta_token and hub_verify_token == meta_token)
+            or (wa_token and hub_verify_token == wa_token)
+        ):
             return PlainTextResponse(content=hub_challenge or "")
         raise HTTPException(status_code=403, detail="Verification failed")
 
     @api.post("/meta/webhook", tags=["Meta Webhook"])
     async def meta_webhook_receive(request: Request):
+        """Iter38r-fix3 — Detects WhatsApp Cloud payloads
+        (`object='whatsapp_business_account'`) and forwards them to the
+        existing WhatsApp webhook handler. Pure Messenger/Pages payloads
+        keep the HMAC-verified flow."""
         ms = await _get_meta_settings()
         body_bytes = await request.body()
+        # Pre-parse to detect object type before deciding signature policy
+        try:
+            payload = json.loads(body_bytes)
+        except Exception:
+            payload = {}
+        if (payload.get("object") or "").lower() == "whatsapp_business_account":
+            # Delegate to the WhatsApp Cloud handler. We import lazily to avoid
+            # a circular dependency between server.py and routes/meta.py.
+            try:
+                from server import whatsapp_webhook_incoming  # type: ignore
+            except Exception:
+                whatsapp_webhook_incoming = None  # noqa: N816
+            if whatsapp_webhook_incoming is not None:
+                # The handler reads request.body() — body is already consumed,
+                # so we need to inject the bytes back. Wrap the request in a
+                # minimal proxy that returns our cached bytes.
+                async def _body():
+                    return body_bytes
+                request._body = body_bytes  # Starlette caches body internally
+                return await whatsapp_webhook_incoming(request)
+            return JSONResponse({"received": False, "reason": "wa_handler_missing"}, status_code=200)
+        # Non-WhatsApp (Messenger / Pages / Ads / Instagram) — keep HMAC check
         signature = request.headers.get("X-Hub-Signature-256", "")
         if not ms["meta_app_secret"]:
             return JSONResponse({"received": False, "reason": "no_secret_configured"}, status_code=200)
         expected = "sha256=" + hmac.new(ms["meta_app_secret"].encode(), body_bytes, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(expected, signature):
             return JSONResponse({"received": False, "reason": "bad_signature"}, status_code=200)
-        try:
-            payload = json.loads(body_bytes)
-        except Exception:
-            return JSONResponse({"received": False, "reason": "bad_json"}, status_code=200)
         # Iterate entries, route to tenant by page_id, persist message
         for entry in payload.get("entry", []):
             page_id = entry.get("id")

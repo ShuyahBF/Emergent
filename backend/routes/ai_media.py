@@ -79,18 +79,39 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         )
 
     async def _save_image_bytes(image_bytes: bytes, tenant_id: str, slug: str) -> Dict[str, str]:
-        tenant_dir = UPLOAD_ROOT / (tenant_id or "_global")
-        tenant_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.png"
-        target = tenant_dir / fname
-        target.write_bytes(image_bytes)
-        # Path served by FastAPI route /api/files/ai/{tenant}/{fname}
-        return {
-            "filename": fname,
-            "tenant_id": tenant_id,
-            "path": str(target),
-            "url": f"/api/files/ai/{tenant_id}/{fname}",
-        }
+        """Iter38r-fix8 — Persistent storage via Emergent Object Storage with
+        graceful fallback to local disk (only if storage isn't reachable).
+        Returns {"filename", "tenant_id", "path", "url"} so existing callers
+        stay compatible."""
+        try:
+            import object_storage  # local helper
+            res = await object_storage.save_and_log(
+                db, data=image_bytes, kind="ai_media",
+                tenant_id=tenant_id or "_global",
+                ext="png", content_type="image/png",
+                original_filename=f"{slug}.png",
+                user_id=None,
+                metadata={"slug": slug},
+            )
+            return {
+                "filename": res["path"].rsplit("/", 1)[-1],
+                "tenant_id": tenant_id,
+                "path": res["path"],
+                "url": res["url"],
+            }
+        except Exception as exc:
+            logger.warning("[ai-gen] object storage failed (%s), falling back to local disk", exc)
+            tenant_dir = UPLOAD_ROOT / (tenant_id or "_global")
+            tenant_dir.mkdir(parents=True, exist_ok=True)
+            fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.png"
+            target = tenant_dir / fname
+            target.write_bytes(image_bytes)
+            return {
+                "filename": fname,
+                "tenant_id": tenant_id,
+                "path": str(target),
+                "url": f"/api/files/ai/{tenant_id}/{fname}",
+            }
 
     async def _generate_via_gemini(prompt: str, *, reference_image_b64: Optional[str] = None) -> bytes:
         """Call Gemini Nano Banana and return the FIRST image bytes.

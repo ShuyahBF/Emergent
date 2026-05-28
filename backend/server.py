@@ -20343,6 +20343,42 @@ _setup_ai_quotas_routes(
 from routes.liluvine_pro import setup_liluvine_pro_routes as _setup_liluvine_pro_routes  # noqa: E402
 _setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user)
 
+# Iter38r-fix8 — Emergent Object Storage proxy.
+# Files persisted via object_storage.save_and_log() are served via this proxy
+# so the frontend can use a simple URL (DB stays the source of truth).
+import object_storage as _obj_storage  # noqa: E402
+
+@app.on_event("startup")
+async def _init_object_storage_on_startup():
+    try:
+        await _obj_storage.init_storage()
+    except Exception:
+        logger.exception("[object_storage] startup init failed")
+
+
+@api.get("/files/{file_path:path}", tags=["Files"])
+async def proxy_file_download(file_path: str, request: Request):
+    """Iter38r-fix8 — Proxy endpoint serving files from Emergent Object Storage.
+    Path matches the value `save_and_log()` returned. Public by default for
+    most assets (catalog images, avatars, AI media that are already accessible
+    by URL); private files would add an auth check here in the future."""
+    if not file_path or ".." in file_path:
+        raise HTTPException(status_code=400, detail="Chemin invalide")
+    # Look up the registered object to fetch its DB-recorded content_type
+    rec = await db.stored_objects.find_one(
+        {"storage_path": file_path, "is_deleted": False},
+        {"_id": 0, "content_type": 1, "kind": 1},
+    )
+    try:
+        data, ct = await _obj_storage.get_object(file_path)
+    except Exception as exc:
+        logger.warning("[object_storage] download failed for %s: %s", file_path, exc)
+        raise HTTPException(status_code=404, detail="Fichier introuvable") from exc
+    content_type = (rec or {}).get("content_type") or ct or "application/octet-stream"
+    return Response(content=data, media_type=content_type,
+                    headers={"Cache-Control": "public, max-age=3600"})
+
+
 app.include_router(api)
 
 

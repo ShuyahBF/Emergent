@@ -20254,6 +20254,7 @@ async def me_welcome_briefing(
         "since_last_visit": since_last_visit,
         "expense_reminder": expense_reminder,
         "notes_kpis": await _build_welcome_notes_kpis(user),
+        "liluvine_autoreply_today": await _build_liluvine_autoreply_stats(user),
         "server_now": _now(),
     }
 
@@ -20288,6 +20289,36 @@ async def _build_welcome_notes_kpis(user: dict) -> Dict[str, Any]:
     })
     tasks["overdue"] = int(overdue)
     return {"reports": rep, "suivis": sui, "notes": notes, "tasks": tasks}
+
+
+# Iter38r-fix9d — Welcome modal counter "Liluvine a répondu à X messages
+# WhatsApp aujourd'hui". Shows ROI of the auto-reply bot at every login.
+async def _build_liluvine_autoreply_stats(user: dict) -> Dict[str, Any]:
+    """Returns {today, yesterday, last_7d} counts of WA auto-replies sent."""
+    # Scope: admin/superviseur see the whole tenant; tracked users see their parent's tenant
+    if _is_elevated_creator(user):
+        tenant_id = user.get("id")
+    else:
+        # Tracked users inherit parent client_id
+        tu = await db.tracked_users.find_one({"email": user.get("email")}, {"_id": 0, "client_id": 1})
+        tenant_id = (tu or {}).get("client_id") or user.get("id")
+    today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    y_start = (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    y_end = today_start
+    w_start = (datetime.now(timezone.utc) - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    base = {"client_id": tenant_id, "role": "assistant", "external_source": "whatsapp_native"}
+    today_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": today_start}})
+    yest_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": y_start, "$lt": y_end}})
+    week_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": w_start}})
+    # Estimate time saved (1 minute per message handled manually)
+    minutes_saved_today = int(today_n)
+    return {
+        "today": int(today_n),
+        "yesterday": int(yest_n),
+        "last_7d": int(week_n),
+        "minutes_saved_today": minutes_saved_today,
+        "enabled": bool((await db.settings.find_one({"_id": "global"}) or {}).get("liluvine_wa_autoreply_enabled")),
+    }
 
 
 # =====================================================================

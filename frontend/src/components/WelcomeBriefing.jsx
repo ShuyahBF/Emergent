@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock, Banknote } from "lucide-react";
+import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock, Banknote, Bot } from "lucide-react";
 
 /*
   Iter35r → Iter36g — Welcome briefing modal.
@@ -59,8 +59,11 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   const notes = data?.recent_notes || [];
   const health = data?.daily_health || null;
   const sinceLast = data?.since_last_visit || null;
-  // Iter38d — Expense reminder for tracked users
+  // Iter38r-fix8d — Expense reminder for tracked users
   const expenseReminder = data?.expense_reminder || null;
+  // Iter38r-fix9d — Liluvine PRO auto-reply ROI counter
+  const liluAuto = data?.liluvine_autoreply_today || null;
+  const hasLiluAuto = !!liluAuto && (liluAuto.today > 0 || liluAuto.last_7d > 0);
   // Iter38r-fix8b — Quick KPIs (Rapports/Suivis/Notes/Tâches) so the briefing
   // is never empty for active users.
   const kpis = data?.notes_kpis || null;
@@ -76,7 +79,7 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
   const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -157,6 +160,46 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
                       </p>
                     </Link>
                   )}
+                </div>
+              </section>
+            )}
+
+            {/* Iter38r-fix9d — Liluvine PRO auto-reply ROI counter */}
+            {hasLiluAuto && (
+              <section className="rounded-lg ring-1 ring-fuchsia-200 bg-gradient-to-br from-fuchsia-50/70 via-white to-pink-50/40 p-3 relative overflow-hidden" data-testid="welcome-liluvine-autoreply">
+                <div className="absolute -right-4 -top-4 opacity-10">
+                  <Sparkles className="h-20 w-20 text-fuchsia-600" />
+                </div>
+                <div className="flex items-start gap-3 relative">
+                  <div className="rounded-full bg-fuchsia-100 ring-1 ring-fuchsia-200 p-2 flex-shrink-0">
+                    <Bot className="h-5 w-5 text-fuchsia-700" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-2xl font-display font-bold text-fuchsia-900 leading-none">
+                        {liluAuto.today}
+                      </span>
+                      <p className="text-sm text-fuchsia-900 font-medium">
+                        {liluAuto.today === 0
+                          ? "WhatsApp pris en charge aujourd'hui"
+                          : liluAuto.today === 1
+                          ? "WhatsApp pris en charge par Liluvine aujourd'hui 🎉"
+                          : "WhatsApp pris en charge par Liluvine aujourd'hui 🎉"}
+                      </p>
+                    </div>
+                    <div className="mt-1.5 flex items-center gap-3 flex-wrap text-[11px] text-fuchsia-800/80">
+                      {liluAuto.minutes_saved_today > 0 && (
+                        <span className="inline-flex items-center gap-1">
+                          <Clock className="h-3 w-3" />~{liluAuto.minutes_saved_today} min économisée{liluAuto.minutes_saved_today > 1 ? "s" : ""}
+                        </span>
+                      )}
+                      {liluAuto.yesterday > 0 && <span>Hier : {liluAuto.yesterday}</span>}
+                      {liluAuto.last_7d > 0 && <span>7 derniers jours : <strong>{liluAuto.last_7d}</strong></span>}
+                      {!liluAuto.enabled && (
+                        <span className="rounded-full bg-amber-100 ring-1 ring-amber-300 text-amber-800 px-1.5 py-0.5">⏸ Désactivé</span>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </section>
             )}

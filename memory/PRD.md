@@ -6,6 +6,12 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-29) — Iter38r-fix9d 🎉
+- ✅ **Mini-compteur ROI Liluvine PRO** dans la modale de bienvenue : *« X WhatsApp pris en charge par Liluvine aujourd'hui 🎉 »*. Affiche aussi les minutes économisées, le compteur d'hier, le total 7 jours, et un badge "⏸ Désactivé" si le toggle est off.
+- ✅ Section dédiée gradient fuchsia avec icône Bot. Apparaît dès qu'il y a au moins 1 message dans les 7 derniers jours.
+- ✅ Endpoint `/me/welcome-briefing` enrichi avec `liluvine_autoreply_today: {today, yesterday, last_7d, minutes_saved_today, enabled}`. Scope tenant (admin/superviseur voient leur tenant, tracked users héritent du parent).
+- ✅ **2 tests pytest** verts (structure + comptage par fenêtre temporelle).
+
 ## Recent (2026-05-29) — Iter38r-fix9a + fix9c 🤖📚
 
 ### fix9a — Auto-réponse WhatsApp NATIVE (sans n8n)

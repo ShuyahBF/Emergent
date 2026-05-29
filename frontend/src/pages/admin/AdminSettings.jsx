@@ -7,6 +7,8 @@ import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
+import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
+import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -357,6 +359,10 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />
+
+      <LiluvineWaAutoreplySection />
+
+      <LiluvineKnowledgeBaseSection />
       </Filterable>
 
       {/* Iter38c — Cashier expense justification deadline */}

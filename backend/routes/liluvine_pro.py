@@ -26,7 +26,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.liluvine_pro")
@@ -51,6 +51,18 @@ class ChatMessage(BaseModel):
 
 class RenameSession(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
+
+
+# Iter38r-fix9a — Auto-reply WhatsApp configuration payload
+class AutoreplyConfigPayload(BaseModel):
+    enabled: Optional[bool] = None
+    allow_phones: Optional[List[str]] = None
+    deny_phones: Optional[List[str]] = None
+    allow_mode: Optional[str] = Field(None, pattern="^(any|whitelist)$")
+    schedule: Optional[str] = Field(None, pattern="^(always|outside_hours|business_hours)$")
+    keywords: Optional[List[str]] = None
+    cooldown_seconds: Optional[int] = Field(None, ge=0, le=3600)
+    signature: Optional[str] = Field(None, max_length=200)
 
 
 # ============================================================
@@ -198,6 +210,80 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         return {"reply": reply or "", "tokens": tokens, "model": "claude-sonnet-4-6"}
 
     # ----------------------------------------------------------
+    # Iter38r-fix9a — Admin Auto-reply WhatsApp config
+    # ----------------------------------------------------------
+    AUTOREPLY_FIELDS = {
+        "enabled": "liluvine_wa_autoreply_enabled",
+        "allow_phones": "liluvine_wa_autoreply_allow_phones",
+        "deny_phones": "liluvine_wa_autoreply_deny_phones",
+        "allow_mode": "liluvine_wa_autoreply_allow_mode",
+        "schedule": "liluvine_wa_autoreply_schedule",
+        "keywords": "liluvine_wa_autoreply_keywords",
+        "cooldown_seconds": "liluvine_wa_autoreply_cooldown_seconds",
+        "signature": "liluvine_wa_autoreply_signature",
+    }
+
+    @api.get("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
+    async def admin_get_autoreply(user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {
+            "enabled": bool(s.get("liluvine_wa_autoreply_enabled")),
+            "allow_phones": s.get("liluvine_wa_autoreply_allow_phones") or [],
+            "deny_phones": s.get("liluvine_wa_autoreply_deny_phones") or [],
+            "allow_mode": s.get("liluvine_wa_autoreply_allow_mode") or "any",
+            "schedule": s.get("liluvine_wa_autoreply_schedule") or "always",
+            "keywords": s.get("liluvine_wa_autoreply_keywords") or [],
+            "cooldown_seconds": int(s.get("liluvine_wa_autoreply_cooldown_seconds") or 60),
+            "signature": s.get("liluvine_wa_autoreply_signature") or "— 🤖 Réponse automatique Liluvine PRO",
+        }
+
+    @api.put("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
+    async def admin_set_autoreply(payload: AutoreplyConfigPayload = Body(...), user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        update: Dict[str, Any] = {}
+        for k, dbkey in AUTOREPLY_FIELDS.items():
+            v = getattr(payload, k)
+            if v is not None:
+                if k in ("allow_phones", "deny_phones"):
+                    # Normalize to digits
+                    update[dbkey] = ["".join(ch for ch in str(x) if ch.isdigit()) for x in v if str(x).strip()]
+                elif k == "keywords":
+                    update[dbkey] = [str(x).strip().lower() for x in v if str(x).strip()]
+                else:
+                    update[dbkey] = v
+        if not update:
+            raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+        update["liluvine_wa_autoreply_updated_at"] = _now()
+        update["liluvine_wa_autoreply_updated_by"] = user.get("email")
+        await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+        return {"ok": True, "updated": list(update.keys())}
+
+    @api.get("/admin/liluvine-pro/wa-autoreply/history", tags=["Admin — Liluvine PRO"])
+    async def admin_autoreply_history(limit: int = 50, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        cursor = db.liluvine_pro_messages.find(
+            {"external_source": "whatsapp_native", "role": "assistant"},
+            {"_id": 0, "id": 1, "session_id": 1, "content": 1, "wa_message_id_out": 1,
+             "tokens": 1, "created_at": 1, "context_injected": 1},
+        ).sort("created_at", -1).limit(min(max(limit, 1), 200))
+        items = await cursor.to_list(min(max(limit, 1), 200))
+        # Enrich with the originating session label
+        sids = list({i.get("session_id") for i in items if i.get("session_id")})
+        sessions = await db.liluvine_pro_sessions.find(
+            {"id": {"$in": sids}}, {"_id": 0, "id": 1, "user_label": 1, "title": 1}
+        ).to_list(len(sids))
+        sess_by_id = {s["id"]: s for s in sessions}
+        for it in items:
+            sess = sess_by_id.get(it.get("session_id")) or {}
+            it["session_label"] = sess.get("user_label") or sess.get("title") or ""
+        return {"items": items, "count": len(items)}
+
+
+    # ----------------------------------------------------------
     # Public branding for Liluvine PRO (frontend uses this)
     # ----------------------------------------------------------
     @api.get("/me/liluvine-pro/branding", tags=["Portail Client — Liluvine PRO"])
@@ -260,7 +346,13 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         })
         # Fetch context + call LLM
         ctx = await _fetch_context_snippets(db, user_doc, text)
-        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "")
+        # Iter38r-fix9c — Inject the Knowledge Base content
+        try:
+            from routes.liluvine_kb import build_kb_context
+            kb = await build_kb_context(db)
+        except Exception:
+            kb = ""
+        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
         try:
             llm = await _llm_send(sid, system_text, text)
         except HTTPException:
@@ -387,7 +479,13 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         })
         # Fetch RAG context based on keywords in the user's text
         ctx = await _fetch_context_snippets(db, user, payload.text)
-        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "")
+        # Iter38r-fix9c — Inject the Knowledge Base content for the main chat too
+        try:
+            from routes.liluvine_kb import build_kb_context
+            kb = await build_kb_context(db)
+        except Exception:
+            kb = ""
+        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
         # Call the LLM (the LlmChat library handles multi-turn history via session_id
         # internally, but ours is keyed by sid which guarantees per-conversation memory)
         try:

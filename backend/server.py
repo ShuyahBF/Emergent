@@ -15157,6 +15157,29 @@ async def whatsapp_webhook_incoming(request: Request):
                             await _try_handle_liluvine_wa_command(from_num, text_body)
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("liluvine cmd parse failed: %s", exc)
+
+                    # Iter38r-fix9a — Liluvine PRO native WhatsApp auto-reply.
+                    # No n8n needed: when the toggle is on AND the message
+                    # passes the configured rules, Liluvine generates a reply
+                    # via Claude and ships it back through Meta Graph API.
+                    if mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                        try:
+                            from routes.liluvine_wa_autoreply import autoreply_to_inbound
+                            s_root = await db.settings.find_one({"_id": "global"}) or {}
+                            ar_result = await autoreply_to_inbound(
+                                db,
+                                inbound_doc=doc,
+                                contact=contact,
+                                settings_doc=s_root,
+                                wa_send_text=_wa_send_text,
+                            )
+                            if ar_result.get("ok"):
+                                logger.info("[wa_autoreply] sent for %s (msg_id=%s)",
+                                            digits_only, ar_result.get("wa_out_message_id"))
+                            else:
+                                logger.debug("[wa_autoreply] skipped (%s)", ar_result.get("reason"))
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("[wa_autoreply] handler crashed: %s", exc)
                 except Exception as exc:  # noqa: BLE001
                     err = f"inbound[{mtype if 'mtype' in locals() else '?'}]: {exc!r}"
                     errors.append(err[:250])
@@ -20438,6 +20461,10 @@ _setup_ai_quotas_routes(
 # Iter38r-fix6 — Liluvine PRO / Assistant SAWALI interne.
 from routes.liluvine_pro import setup_liluvine_pro_routes as _setup_liluvine_pro_routes  # noqa: E402
 _setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user)
+
+# Iter38r-fix9c — Liluvine PRO Knowledge Base
+from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
+_setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix8 — Emergent Object Storage proxy.
 # Files persisted via object_storage.save_and_log() are served via this proxy

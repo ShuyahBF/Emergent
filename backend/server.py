@@ -3522,6 +3522,11 @@ class ClientFeaturesUpdate(BaseModel):
     # Iter38o — AI media generation toggles
     ai_image_gen: Optional[bool] = None
     ai_video_gen: Optional[bool] = None
+    # Iter38r-fix8c — Liluvine PRO assistant interne (Claude Sonnet).
+    # Bug correctif : ce champ était absent du modèle Pydantic, du coup
+    # quand le toggle "Liluvine PRO" était activé dans SMART Communications,
+    # Pydantic le supprimait silencieusement avant l'enregistrement en base.
+    ai_liluvine_pro: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
     # Iter38r — Pre-fix MSISDN on PawaPay Payment Page (true) or let the
     # customer enter it themselves on the hosted page (false). When null,

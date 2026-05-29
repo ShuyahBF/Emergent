@@ -53,6 +53,14 @@ class RenameSession(BaseModel):
     title: str = Field(..., min_length=1, max_length=120)
 
 
+# Iter38r-fix9e — Branding payload (must be at module level for FastAPI)
+class BrandingPayload(BaseModel):
+    name: Optional[str] = Field(None, max_length=80)
+    avatar_url: Optional[str] = Field(None, max_length=2000)
+    color: Optional[str] = Field(None, pattern="^(fuchsia|violet|indigo|sky|emerald|amber|rose)$")
+    tagline: Optional[str] = Field(None, max_length=160)
+
+
 # Iter38r-fix9a — Auto-reply WhatsApp configuration payload
 class AutoreplyConfigPayload(BaseModel):
     enabled: Optional[bool] = None
@@ -282,6 +290,49 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             it["session_label"] = sess.get("user_label") or sess.get("title") or ""
         return {"items": items, "count": len(items)}
 
+    # Iter38r-fix9e — Recent auto-reply events for the live toast feed.
+    # Polled every 20s by the portal layout. Returns only events after `since`.
+    @api.get("/me/liluvine-pro/autoreply-feed", tags=["Portail Client — Liluvine PRO"])
+    async def autoreply_feed(since: Optional[str] = None, user: dict = Depends(get_current_user)):
+        # Scope to the user's tenant
+        tenant_id = user.get("id")
+        if user.get("role") not in ("admin", "superviseur"):
+            # Tracked users inherit parent tenant
+            tu = await db.tracked_users.find_one({"email": user.get("email")}, {"_id": 0, "client_id": 1})
+            tenant_id = (tu or {}).get("client_id") or user.get("id")
+        query = {
+            "client_id": tenant_id,
+            "external_source": "whatsapp_native",
+            "role": "assistant",
+        }
+        if since:
+            query["created_at"] = {"$gt": since}
+        cursor = db.liluvine_pro_messages.find(
+            query,
+            {"_id": 0, "id": 1, "session_id": 1, "content": 1, "created_at": 1, "tokens": 1},
+        ).sort("created_at", -1).limit(20)
+        items = await cursor.to_list(20)
+        sids = list({i.get("session_id") for i in items if i.get("session_id")})
+        sessions = await db.liluvine_pro_sessions.find(
+            {"id": {"$in": sids}},
+            {"_id": 0, "id": 1, "user_label": 1, "external_payload": 1},
+        ).to_list(len(sids))
+        sess_by_id = {s["id"]: s for s in sessions}
+        for it in items:
+            sess = sess_by_id.get(it.get("session_id")) or {}
+            it["contact_label"] = sess.get("user_label") or "Contact WhatsApp"
+            it["phone_digits"] = ((sess.get("external_payload") or {}).get("phone_digits")) or ""
+            # Truncate content for the toast bubble
+            if len(it.get("content") or "") > 140:
+                it["content_preview"] = it["content"][:140] + "…"
+            else:
+                it["content_preview"] = it["content"]
+        return {
+            "items": items,
+            "server_now": _now(),
+            "count": len(items),
+        }
+
 
     # ----------------------------------------------------------
     # Public branding for Liluvine PRO (frontend uses this)
@@ -293,7 +344,41 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             "name": s.get("liluvine_pro_name") or "Liluvine PRO",
             "avatar_url": s.get("liluvine_pro_avatar_url") or "",
             "color": s.get("liluvine_pro_color") or "fuchsia",
+            "tagline": s.get("liluvine_pro_tagline") or "Assistant IA SAWALI",
         }
+
+    # Iter38r-fix9e — Admin endpoints to manage Liluvine PRO branding
+    @api.get("/admin/liluvine-pro/branding", tags=["Admin — Liluvine PRO"])
+    async def admin_get_branding(user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        return {
+            "name": s.get("liluvine_pro_name") or "Liluvine PRO",
+            "avatar_url": s.get("liluvine_pro_avatar_url") or "",
+            "color": s.get("liluvine_pro_color") or "fuchsia",
+            "tagline": s.get("liluvine_pro_tagline") or "Assistant IA SAWALI",
+        }
+
+    @api.put("/admin/liluvine-pro/branding", tags=["Admin — Liluvine PRO"])
+    async def admin_set_branding(payload: BrandingPayload = Body(...), user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        update: Dict[str, Any] = {}
+        if payload.name is not None:
+            update["liluvine_pro_name"] = payload.name.strip() or "Liluvine PRO"
+        if payload.avatar_url is not None:
+            update["liluvine_pro_avatar_url"] = payload.avatar_url.strip()
+        if payload.color is not None:
+            update["liluvine_pro_color"] = payload.color
+        if payload.tagline is not None:
+            update["liluvine_pro_tagline"] = payload.tagline.strip()
+        if not update:
+            raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+        update["liluvine_pro_branding_updated_at"] = _now()
+        update["liluvine_pro_branding_updated_by"] = user.get("email")
+        await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+        return {"ok": True, "updated": list(update.keys())}
 
     # ----------------------------------------------------------
     # Inbound webhook — n8n, WhatsApp, Facebook can POST prompts.

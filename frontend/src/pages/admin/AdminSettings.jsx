@@ -9,6 +9,7 @@ import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSectio
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
+import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -361,6 +362,8 @@ export default function AdminSettings() {
         <MetaConfigSection />
 
       <LiluvineWaAutoreplySection />
+
+      <LiluvineBrandingSection />
 
       <LiluvineKnowledgeBaseSection />
       </Filterable>

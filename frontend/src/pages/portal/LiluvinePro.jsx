@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2 } from "lucide-react";
+import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 
 /*
   Iter38r-fix6 — Liluvine PRO / Assistant SAWALI
@@ -25,6 +26,14 @@ export default function LiluvinePro() {
   // Feature gate (ai_liluvine_pro must be enabled on parent admin)
   const [featureEnabled, setFeatureEnabled] = useState(true);
   const scrollRef = useRef(null);
+
+  // Iter38r-fix9f — Resizable sidebar (matches Direct Chat & WhatsApp panes)
+  const { leftWidth, dragHandlers, isCollapsed, toggleCollapsed } = useResizablePanel({
+    storageKey: "liluvine_pro_split",
+    initial: 280,
+    min: 220,
+    max: 480,
+  });
 
   const loadSessions = useCallback(async () => {
     try {
@@ -126,9 +135,13 @@ export default function LiluvinePro() {
   }, [messages]);
 
   return (
-    <div className="flex h-[calc(100vh-120px)] gap-3 px-4 py-4" data-testid="liluvine-pro-page">
+    <div className="flex h-[calc(100vh-120px)] gap-0 px-4 py-4" data-testid="liluvine-pro-page">
       {/* Sidebar */}
-      <aside className="w-64 shrink-0 rounded-2xl ring-1 ring-slate-200 bg-white flex flex-col">
+      {!isCollapsed && (
+        <aside
+          style={{ width: leftWidth }}
+          className="shrink-0 rounded-l-2xl ring-1 ring-slate-200 bg-white flex flex-col"
+        >
         <div className="p-3 border-b border-slate-100 flex items-center justify-between">
           <p className="text-xs uppercase tracking-wider font-semibold text-slate-500">Conversations</p>
           <button
@@ -181,9 +194,24 @@ export default function LiluvinePro() {
           })}
         </div>
       </aside>
+      )}
+
+      {/* Resize handle */}
+      {!isCollapsed && <DragHandle dragHandlers={dragHandlers} data-testid="liluvine-resize-handle" />}
+
+      {/* Mobile/Toggle button */}
+      <button
+        type="button"
+        onClick={toggleCollapsed}
+        className="hidden sm:inline-flex absolute top-6 left-2 z-10 h-7 w-7 items-center justify-center rounded-full bg-white ring-1 ring-slate-300 shadow text-slate-500 hover:text-fuchsia-600 hover:ring-fuchsia-300 transition"
+        title={isCollapsed ? "Afficher les conversations" : "Réduire le panneau"}
+        data-testid="liluvine-toggle-sidebar"
+      >
+        {isCollapsed ? "›" : "‹"}
+      </button>
 
       {/* Main chat */}
-      <main className="flex-1 flex flex-col rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
+      <main className="flex-1 flex flex-col rounded-r-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
         <header className="px-5 py-3 border-b border-slate-100 flex items-center gap-2">
           <div className={`h-9 w-9 rounded-xl bg-gradient-to-br from-${branding.color}-500 to-violet-600 flex items-center justify-center overflow-hidden`}>
             {branding.avatar_url ? (

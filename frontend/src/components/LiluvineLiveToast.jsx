@@ -9,7 +9,8 @@
 // =====================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
-import { Bot, Volume2, VolumeX } from "lucide-react";
+import { Bot, Volume2, VolumeX, MessageCircle } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 
 const STORAGE_KEY = "sawali.liluvine.live_toast_muted";
@@ -35,6 +36,7 @@ function playChirp() {
 }
 
 export default function LiluvineLiveToast() {
+  const navigate = useNavigate();
   const sinceRef = useRef(null);
   const seenRef = useRef(new Set());
   const timerRef = useRef(null);
@@ -61,14 +63,27 @@ export default function LiluvineLiveToast() {
             </p>
             <p className="text-xs font-medium text-slate-800 truncate">{contact}</p>
             <p className="text-[11px] text-slate-600 mt-1 line-clamp-2">{item.content_preview}</p>
+            {item.phone_digits && (
+              <button
+                type="button"
+                onClick={() => {
+                  toast.dismiss(t);
+                  navigate(`/portal/contacts?q=${encodeURIComponent(item.phone_digits)}`);
+                }}
+                className="mt-2 inline-flex items-center gap-1 text-[10px] font-medium text-fuchsia-700 hover:text-fuchsia-900 hover:underline"
+                data-testid={`liluvine-live-toast-view-${item.id}`}
+              >
+                <MessageCircle className="h-3 w-3" /> 👁 Voir la conversation
+              </button>
+            )}
           </div>
           <button onClick={() => toast.dismiss(t)} className="text-slate-400 hover:text-slate-700 text-sm">×</button>
         </div>
       ),
-      { duration: 7000, position: "bottom-right" },
+      { duration: 9000, position: "bottom-right" },
     );
     if (!mutedRef.current) playChirp();
-  }, []);
+  }, [navigate]);
 
   const tick = useCallback(async () => {
     try {

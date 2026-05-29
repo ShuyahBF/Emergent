@@ -8647,15 +8647,16 @@ async def me_list_notes(
     kind: str,
     author: Optional[str] = None,
     q: Optional[str] = None,
+    scope: Optional[str] = None,  # mine | shared | all (default: all I can see)
     user: dict = Depends(get_current_user),
 ):
     coll = _user_notes_collection(kind)
-    # Privacy scoping: an elevated user sees ALL notes of their scope, BUT
-    # private notes (is_private=True) authored by *other* users remain hidden
-    # unless the caller is admin/superviseur (those two see everything).
-    # Iter35m — Targeted visibility: a private note may also list explicit
-    # target_user_ids. Any of those targets can see the note in addition to
-    # the author and admin/superviseur.
+    # Iter38r-fix9f — Visibility model:
+    #  - owner_id == user.id           → always visible (full edit)
+    #  - target_user_ids contains me   → visible read-only
+    #  - is_private == False AND same tenant → visible read-only ("Public")
+    # admin/superviseur still see EVERYTHING.
+    my_tenant = user.get("parent_client_id") or user.get("client_id") or user["id"]
     if user.get("role") in ("admin", "superviseur"):
         base: Dict[str, Any] = {}
     elif _is_elevated_creator(user):
@@ -8667,13 +8668,24 @@ async def me_list_notes(
             ],
         }
     else:
+        # Tracked users (Consultation/Comptable/etc.) — see own + targeted + public-in-tenant
         base = {
             "$or": [
                 {"owner_id": user["id"]},
                 {"target_user_ids": user["id"]},
+                {"is_private": {"$ne": True}, "tenant_id": my_tenant},
             ]
         }
     query: Dict[str, Any] = dict(base)
+    # Optional scope filter (mine|shared|all) — applies on top of the visibility ACL
+    if scope == "mine":
+        query = {"owner_id": user["id"]}
+    elif scope == "shared":
+        # Anything I can see EXCEPT the items I authored
+        if "$or" in query:
+            query = {"$and": [query, {"owner_id": {"$ne": user["id"]}}]}
+        else:
+            query["owner_id"] = {"$ne": user["id"]}
     if author:
         query["owner_email"] = {"$regex": re.escape(author), "$options": "i"}
     if q:
@@ -8723,8 +8735,10 @@ async def me_create_note(
     user: dict = Depends(get_current_user),
 ):
     coll = _user_notes_collection(kind)
-    if not _is_elevated_creator(user):
-        raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer un enregistrement")
+    # Iter38r-fix9f — Tasks & Notes ouverts à tous les utilisateurs ; Reports
+    # et Suivis restent réservés aux profils élevés (documents formels).
+    if kind in ("reports", "suivis") and not _is_elevated_creator(user):
+        raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer un rapport/suivi")
     await _check_descent_window(action_label="enregistrement", user=user)
 
     title = (payload.title or "").strip()
@@ -8752,6 +8766,8 @@ async def me_create_note(
         "owner_email": user["email"],
         "owner_name": user.get("full_name"),
         "owner_role": user.get("tracked_role") or user.get("role"),
+        # Iter38r-fix9f — tenant scoping for public visibility within tenant
+        "tenant_id": user.get("parent_client_id") or user.get("client_id") or user["id"],
         "title": title,
         "content_html": payload.content_html or "",
         "tags": payload.tags or [],

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -152,6 +152,13 @@ export default function Contacts() {
   // Iter34p — Affiche société + client lié à côté du titre. Lecture via
   // /me/account-detail pour récupérer le parent canonique.
   const [accountInfo, setAccountInfo] = useState(null);
+  // Iter38r-fix9f — Honor ?q=... in URL (e.g., when navigated from Liluvine toast)
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const q = searchParams.get("q");
+    if (q) setFilter(q);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const load = async () => {
     setLoading(true);

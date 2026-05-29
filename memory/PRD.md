@@ -6,6 +6,26 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-29) — Iter38r-fix9f 🤝🪟👁
+
+### A — Notes/Tâches/Rapports/Suivis partagés
+- ✅ **Backend** : `me_list_notes` étendu → les **utilisateurs non-élevés** (Consultation, Comptable, etc.) voient désormais les éléments **publics du même tenant** (en plus des leurs et ceux où ils sont destinataires).
+- ✅ **Notes & Tâches ouvertes à tous** (Rapports/Suivis restent réservés aux profils élevés — documents formels).
+- ✅ Nouveau param `?scope=mine|shared|all` pour filtrer.
+- ✅ Champ `tenant_id` stampé à la création pour scoper correctement la visibilité publique.
+- ✅ **Frontend** (UserNotes.jsx) : onglets **Tous / Les miens / 📥 Partagés avec moi**. Badge "📥 partagé" + pictogramme **œil 👁** sur chaque carte non-éditable → ouvre une **modale lecture-seule** avec titre/numéro/auteur/contenu/images.
+
+### B — Chat Liluvine PRO redimensionnable
+- ✅ Sidebar des conversations redimensionnable (220-480 px, persistant en localStorage, comme Direct Chat & WhatsApp).
+- ✅ Bouton flottant ‹/› pour collapser/déplier le panneau.
+
+### C — Bouton "Voir conversation" dans le toast Liluvine
+- ✅ Le toast temps réel inclut désormais un bouton **👁 Voir la conversation** qui navigue vers `/portal/contacts?q=<phone_digits>` (filtrage automatique du contact via la nouvelle gestion `?q=...`).
+- ✅ Durée du toast augmentée à 9s pour laisser le temps de cliquer.
+
+✅ **6 tests pytest** (création non-élevée, scope filters, tenant_id stamping, visibilité publique/privée/ciblée).
+✅ **Total cumulé : 65/65 tests pytest verts**.
+
 ## Recent (2026-05-29) — Iter38r-fix9e 🎨🔔
 
 ### Branding Liluvine PRO

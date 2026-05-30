@@ -2,7 +2,7 @@
 // Iter38r-fix9c — Liluvine PRO : Base de connaissance (FAQ + PDF/TXT)
 // =====================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { Brain, Plus, FileText, Upload, Trash2, Pencil, Save, X, BookOpen, FileBox, ScanText } from "lucide-react";
+import { Brain, Plus, FileText, Upload, Trash2, Pencil, Save, X, BookOpen, FileBox, ScanText, Clipboard } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -13,6 +13,7 @@ export default function LiluvineKnowledgeBaseSection() {
   const [stats, setStats] = useState({ total: 0, enabled: 0, total_chars: 0, context_budget_chars: 6000 });
   const [editing, setEditing] = useState(null); // { id?, title, content, tags }
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -25,6 +26,29 @@ export default function LiluvineKnowledgeBaseSection() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+
+  // Iter38r-fix9k — Paste screenshot from clipboard (Ctrl+V) anywhere on the
+  // section triggers an OCR upload automatically.
+  useEffect(() => {
+    const handler = async (e) => {
+      const items = e.clipboardData?.items;
+      if (!items) return;
+      for (const it of items) {
+        if (it.type && it.type.startsWith("image/")) {
+          const blob = it.getAsFile();
+          if (!blob) continue;
+          const ext = (it.type.split("/")[1] || "png").replace("jpeg", "jpg");
+          const file = new File([blob], `clipboard-${Date.now()}.${ext}`, { type: it.type });
+          e.preventDefault();
+          await upload(file, { ocr: true, source: "clipboard" });
+          break;
+        }
+      }
+    };
+    window.addEventListener("paste", handler);
+    return () => window.removeEventListener("paste", handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const openCreate = () => setEditing({ title: "", content: "", tags: "" });
   const openEdit = (it) => setEditing({
@@ -79,14 +103,17 @@ export default function LiluvineKnowledgeBaseSection() {
     }
   };
 
-  const upload = async (file, { ocr = false } = {}) => {
+  const upload = async (file, { ocr = false, source = "file" } = {}) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Fichier trop volumineux (max 5 Mo)");
       return;
     }
     const baseTitle = (file.name || "Document").replace(/\.(pdf|txt|png|jpe?g|webp)$/i, "");
-    const title = window.prompt("Titre de l'entrée (sera affiché dans la base) :", baseTitle);
+    const isClipboard = source === "clipboard";
+    const title = isClipboard
+      ? (window.prompt("Titre de l'entrée (capture d'écran) :", `Capture ${new Date().toLocaleString("fr-FR")}`) || baseTitle)
+      : window.prompt("Titre de l'entrée (sera affiché dans la base) :", baseTitle);
     if (!title?.trim()) return;
     setUploading(true);
     try {
@@ -97,7 +124,7 @@ export default function LiluvineKnowledgeBaseSection() {
       const r = await apiClient.post("/admin/liluvine-pro/kb/upload", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success(`${r.data?.chunks || 0} entrée(s) créée(s) à partir du fichier${ocr ? " (OCR)" : ""}`);
+      toast.success(`${r.data?.chunks || 0} entrée(s) créée(s)${isClipboard ? " depuis le presse-papier" : ""}${ocr ? " (OCR)" : ""}`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur upload");
@@ -139,6 +166,9 @@ export default function LiluvineKnowledgeBaseSection() {
         Alimentez Liluvine PRO avec votre FAQ, vos procédures internes, et la documentation de vos logiciels SAWALI.
         Le contenu est injecté automatiquement dans chaque conversation (chat + WhatsApp auto-réponse). Limité à <strong>{stats.context_budget_chars.toLocaleString()} caractères</strong> par conversation.
       </p>
+      <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50/60 p-2.5 text-[11px] text-sky-900 inline-flex items-center gap-1.5" data-testid="liluvine-kb-clipboard-hint">
+        <Clipboard className="h-3.5 w-3.5" /> <strong>Astuce :</strong> faites <kbd className="rounded bg-white ring-1 ring-sky-300 px-1.5 py-0.5 text-[10px] font-mono">Ctrl+V</kbd> ici pour importer une capture d'écran directement avec OCR.
+      </div>
 
       {/* Stats / usage bar */}
       <div className="grid grid-cols-3 gap-3">

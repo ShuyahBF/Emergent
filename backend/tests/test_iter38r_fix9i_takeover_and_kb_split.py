@@ -142,13 +142,24 @@ def test_kb_upload_rejects_image_in_classic_mode(admin_h):
     assert "OCR" in (r.json().get("detail") or "")
 
 
-def test_kb_upload_rejects_pdf_in_ocr_mode(admin_h):
-    # Tiny placeholder PDF — content doesn't matter, just MIME + extension
-    pdf_bytes = b"%PDF-1.4\n%\xc7\xec\x8f\xa2\n1 0 obj<<>>endobj\nxref\n0 1\n0000000000 65535 f\ntrailer<<>>\nstartxref\n9\n%%EOF"
+def test_kb_upload_accepts_pdf_in_ocr_mode(admin_h):
+    """Iter38r-fix9k — PDF now supported in OCR mode (rasterized via PyMuPDF).
+    Was previously rejected (415) — see fix9i. The test only verifies the
+    endpoint no longer returns 415 (it may return 200, 422, or 502 depending
+    on LLM availability)."""
+    try:
+        import fitz
+    except Exception:
+        pytest.skip("PyMuPDF not installed")
+    doc = fitz.open()
+    page = doc.new_page()
+    page.insert_text((72, 72), "PDF in OCR mode now supported (fix9k).")
+    pdf_bytes = doc.tobytes()
+    doc.close()
     files = {"file": ("doc.pdf", pdf_bytes, "application/pdf")}
     data = {"title": "PDF in OCR mode", "force_ocr": "true"}
-    r = requests.post(f"{API}/admin/liluvine-pro/kb/upload", headers=admin_h, files=files, data=data, timeout=15)
-    assert r.status_code == 415, r.text
+    r = requests.post(f"{API}/admin/liluvine-pro/kb/upload", headers=admin_h, files=files, data=data, timeout=60)
+    assert r.status_code != 415, r.text
 
 
 def test_history_endpoint_search_filter_works(admin_h, wa_session):

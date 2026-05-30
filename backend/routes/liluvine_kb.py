@@ -140,6 +140,55 @@ async def _ocr_image_with_claude_vision(raw: bytes, mime: str) -> str:
     return text
 
 
+def _rasterize_pdf_to_images(raw: bytes, max_pages: int = 30, dpi: int = 150) -> List[bytes]:
+    """Iter38r-fix9k — Rasterize a PDF into PNG pages for Claude Vision OCR.
+    Capped at `max_pages` to control cost and runtime."""
+    try:
+        import fitz  # PyMuPDF
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"PyMuPDF indisponible : {exc}")
+    try:
+        doc = fitz.open(stream=raw, filetype="pdf")
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"PDF illisible pour OCR : {exc}")
+    pages: List[bytes] = []
+    page_count = min(doc.page_count, max_pages)
+    for i in range(page_count):
+        page = doc.load_page(i)
+        zoom = dpi / 72.0
+        pix = page.get_pixmap(matrix=fitz.Matrix(zoom, zoom), alpha=False)
+        pages.append(pix.tobytes("png"))
+    doc.close()
+    return pages
+
+
+async def _ocr_pdf_with_claude_vision(raw: bytes, settings_doc: Dict[str, Any]) -> tuple[str, int]:
+    """Rasterize the PDF then OCR every page via Claude Vision. Returns
+    (concatenated_text, pages_used). Page limit comes from settings."""
+    try:
+        max_pages = int(settings_doc.get("kb_ocr_pdf_max_pages") or 30)
+    except Exception:
+        max_pages = 30
+    pages = _rasterize_pdf_to_images(raw, max_pages=max_pages)
+    if not pages:
+        raise HTTPException(status_code=400, detail="PDF vide ou sans page lisible")
+    chunks: List[str] = []
+    used = 0
+    for idx, png in enumerate(pages):
+        try:
+            text = await _ocr_image_with_claude_vision(png, "image/png")
+        except HTTPException as exc:
+            if exc.status_code == 422:
+                # No text on this page → skip but continue
+                continue
+            raise
+        used += 1
+        chunks.append(f"--- Page {idx + 1} ---\n{text.strip()}")
+    if not chunks:
+        raise HTTPException(status_code=422, detail="Aucun texte détecté dans le PDF (OCR)")
+    return "\n\n".join(chunks), used
+
+
 async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET) -> str:
     """Aggregate enabled KB entries into a compact context string."""
     cur = db.liluvine_knowledge.find(
@@ -251,6 +300,29 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             raise HTTPException(status_code=404, detail="Entrée introuvable")
         return {"ok": True, "id": eid}
 
+    @api.get("/admin/liluvine-pro/kb/ocr-usage", tags=["Admin — Liluvine PRO"])
+    async def kb_ocr_usage(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+        """Iter38r-fix9k — Monthly OCR usage report (pages + XOF cost).
+        `month` = "YYYY-MM" (defaults to current month)."""
+        _ensure_admin(user)
+        ym = (month or datetime.now(timezone.utc).strftime("%Y-%m"))
+        cursor = db.ai_usage.find({"resource": "kb_ocr", "ym": ym}, {"_id": 0})
+        items = await cursor.to_list(2000)
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        cap_xof = int(s.get("kb_ocr_xof_monthly_cap") or 0)
+        per_page = int(s.get("kb_ocr_xof_per_page") or 0)
+        total_pages = sum(int(it.get("units") or 0) for it in items)
+        total_xof = sum(int(it.get("cost_xof") or 0) for it in items)
+        return {
+            "month": ym,
+            "pages": total_pages,
+            "cost_xof": total_xof,
+            "monthly_cap_xof": cap_xof,
+            "xof_per_page": per_page,
+            "remaining_xof": max(0, cap_xof - total_xof) if cap_xof > 0 else None,
+            "count_uploads": len(items),
+        }
+
     @api.post("/admin/liluvine-pro/kb/upload", tags=["Admin — Liluvine PRO"])
     async def kb_upload(
         file: UploadFile = File(...),
@@ -275,15 +347,63 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         is_img = name.endswith((".png", ".jpg", ".jpeg", ".webp")) or (file.content_type or "").startswith("image/")
 
         if ocr_mode:
-            # OCR strict: image obligatoire (PDF non rasterisable sans dépendance externe)
-            if not is_img:
+            # Iter38r-fix9k — Monthly cap enforcement before any LLM call
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            try:
+                cap_xof = int(s.get("kb_ocr_xof_monthly_cap") or 0)
+            except Exception:
+                cap_xof = 0
+            if cap_xof > 0:
+                ym = datetime.now(timezone.utc).strftime("%Y-%m")
+                spent_cursor = db.ai_usage.find(
+                    {"resource": "kb_ocr", "ym": ym},
+                    {"_id": 0, "cost_xof": 1},
+                )
+                spent_xof = 0
+                async for u in spent_cursor:
+                    spent_xof += int(u.get("cost_xof") or 0)
+                if spent_xof >= cap_xof:
+                    raise HTTPException(
+                        status_code=429,
+                        detail=f"Plafond OCR mensuel atteint ({cap_xof} XOF). Augmentez-le dans AdminSettings ou attendez le mois suivant.",
+                    )
+            # OCR strict: image OU PDF (rasterisation page-par-page)
+            if is_img:
+                mime = file.content_type or ("image/png" if name.endswith(".png") else "image/jpeg")
+                text = await _ocr_image_with_claude_vision(raw, mime)
+                kind = "image_ocr"
+                pages_used = 1
+            elif is_pdf:
+                # Iter38r-fix9k — PDF OCR : rasterize each page with PyMuPDF then Claude Vision
+                text, pages_used = await _ocr_pdf_with_claude_vision(raw, s)
+                kind = "pdf_ocr"
+            else:
                 raise HTTPException(
                     status_code=415,
-                    detail="Mode OCR : seules les images (PNG/JPG/WEBP) sont supportées. Pour un PDF, utilisez l'import classique.",
+                    detail="Mode OCR : seuls les images (PNG/JPG/WEBP) et PDF sont supportés.",
                 )
-            mime = file.content_type or ("image/png" if name.endswith(".png") else "image/jpeg")
-            text = await _ocr_image_with_claude_vision(raw, mime)
-            kind = "image_ocr"
+            # Track AI cost (XOF per page) into ai_usage for billing/quota visibility
+            try:
+                cost_xof_per_page = int(s.get("kb_ocr_xof_per_page") or 0)
+            except Exception:
+                cost_xof_per_page = 0
+            total_cost_xof = max(0, cost_xof_per_page * pages_used)
+            if total_cost_xof > 0:
+                try:
+                    await db.ai_usage.insert_one({
+                        "id": secrets.token_urlsafe(10),
+                        "resource": "kb_ocr",
+                        "model": "claude-sonnet-4-6-vision",
+                        "units": pages_used,  # pages
+                        "cost_xof": total_cost_xof,
+                        "kind": kind,
+                        "filename": file.filename,
+                        "user_email": user.get("email"),
+                        "created_at": _now_iso(),
+                        "ym": datetime.now(timezone.utc).strftime("%Y-%m"),
+                    })
+                except Exception:
+                    logger.warning("[kb_ocr] ai_usage insert failed", exc_info=True)
         else:
             # Import classique : PDF / TXT (pas d'OCR sur image)
             if is_pdf:

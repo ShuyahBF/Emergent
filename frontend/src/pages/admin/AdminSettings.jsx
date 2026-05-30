@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -373,6 +373,66 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">
         <LiluvineKnowledgeBaseSection />
+      </Filterable>
+
+      {/* Iter38r-fix9k — OCR cost controls for the Liluvine KB */}
+      <Filterable title="Liluvine PRO — Coût OCR (Claude Vision)" anchorId="s-liluvine-ocr-cost">
+        <Section icon={Brain} title="OCR Claude Vision — Coût & plafond mensuel">
+          <p className="text-xs text-slate-500 mb-3">
+            Suivi du coût de l'OCR Claude Vision (images et PDF rasterisés). Le compteur
+            <code className="mx-1 rounded bg-slate-100 px-1">ai_usage</code> stocke chaque page traitée
+            pour la facturation. <strong>0 dans un champ = désactivé</strong>.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Input
+              label="Coût par page OCR (XOF)"
+              type="number"
+              value={s.kb_ocr_xof_per_page ?? ""}
+              onChange={(v) => upd("kb_ocr_xof_per_page", parseInt(v) || 0)}
+              placeholder="50"
+              testid="kb-ocr-xof-per-page"
+            />
+            <Input
+              label="Plafond mensuel (XOF, 0 = illimité)"
+              type="number"
+              value={s.kb_ocr_xof_monthly_cap ?? ""}
+              onChange={(v) => upd("kb_ocr_xof_monthly_cap", parseInt(v) || 0)}
+              placeholder="10000"
+              testid="kb-ocr-xof-cap"
+            />
+            <Input
+              label="Pages max par PDF (sécurité)"
+              type="number"
+              value={s.kb_ocr_pdf_max_pages ?? ""}
+              onChange={(v) => upd("kb_ocr_pdf_max_pages", parseInt(v) || 0)}
+              placeholder="30"
+              testid="kb-ocr-pdf-max-pages"
+            />
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">
+            ⚠️ Lorsque le plafond mensuel est atteint, les uploads OCR retournent 429 jusqu'au mois suivant.
+            Consultez la consommation via <code className="rounded bg-slate-100 px-1">GET /admin/liluvine-pro/kb/ocr-usage</code>.
+          </p>
+        </Section>
+      </Filterable>
+
+      {/* Iter38r-fix9k — Notes / Tâches : mode strict checklist */}
+      <Filterable title="Notes & Tâches — Mode strict (liste à cocher uniquement)" anchorId="s-notes-mode">
+        <Section icon={ClipboardList} title="Mode d'édition des tâches">
+          <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100" data-testid="notes-strict-tasks-toggle-wrapper">
+            <input
+              type="checkbox"
+              checked={!!s.notes_strict_tasks_only}
+              onChange={(e) => upd("notes_strict_tasks_only", e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+              data-testid="notes-strict-tasks-toggle"
+            />
+            <span className="text-sm">
+              <strong>Mode strict</strong> — Sur la page <em>Tâches</em>, n'autoriser que la <strong>liste à cocher</strong> (style Google Keep). Le rédacteur HTML est masqué.<br/>
+              <span className="text-xs text-slate-500">Lorsque désactivé (mode mixte par défaut), l'utilisateur peut combiner liste à cocher + texte libre.</span>
+            </span>
+          </label>
+        </Section>
       </Filterable>
 
       {/* Iter38c — Cashier expense justification deadline */}

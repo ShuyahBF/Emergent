@@ -456,6 +456,12 @@ class SettingsUpdate(BaseModel):
     smtp_from_name: Optional[str] = None
     smtp_use_tls: Optional[bool] = None
 
+    # Iter38r-fix9k — KB OCR cost / cap config
+    kb_ocr_xof_per_page: Optional[int] = None
+    kb_ocr_xof_monthly_cap: Optional[int] = None
+    kb_ocr_pdf_max_pages: Optional[int] = None
+    notes_strict_tasks_only: Optional[bool] = None
+
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
     google_calendar_email: Optional[str] = None
@@ -725,6 +731,15 @@ class BlacklistedIPCreate(BaseModel):
 # REPORTS & SUIVIS — user-authored notes with rich text content
 # Stored per authenticated user (client / superviseur / admin / tracked-user via portal)
 # ====================================================================
+class TaskItem(BaseModel):
+    """Iter38r-fix9k — A single checklist item (Google Keep style)."""
+    id: Optional[str] = None  # client-side uuid, server generates if missing
+    text: str
+    done: bool = False
+    order: int = 0
+    done_at: Optional[str] = None
+
+
 class UserNoteCreate(BaseModel):
     title: str
     content_html: Optional[str] = ""
@@ -739,6 +754,8 @@ class UserNoteCreate(BaseModel):
     target_user_ids: Optional[List[str]] = None
     voice_note_url: Optional[str] = None  # iter34y — note vocale facultative
     voice_note_transcript: Optional[str] = None  # iter34z — transcription Whisper
+    # Iter38r-fix9k — Checklist items (Google Keep style) for kind=tasks
+    task_items: Optional[List[TaskItem]] = None
 
 
 class UserNoteUpdate(BaseModel):
@@ -752,6 +769,7 @@ class UserNoteUpdate(BaseModel):
     target_user_ids: Optional[List[str]] = None  # Iter35m
     voice_note_url: Optional[str] = None
     voice_note_transcript: Optional[str] = None
+    task_items: Optional[List[TaskItem]] = None  # Iter38r-fix9k
 
 
 class RatingCreate(BaseModel):

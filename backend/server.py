@@ -3621,15 +3621,21 @@ async def me_get_features(user: dict = Depends(get_current_user)):
     """Resolve the SMART Communications feature flags for the calling user.
     Admin & superviseur always have everything enabled. Tracked users inherit
     from their parent client. Plain client users read from their own doc."""
+    # Iter38r-fix9k — Global tenant settings exposed via /me/features
+    g = await db.settings.find_one({"_id": "global"}) or {}
+    extra_flags = {
+        "notes_strict_tasks_only": bool(g.get("notes_strict_tasks_only", False)),
+    }
     if user.get("role") in ("admin", "superviseur"):
         return {
-            "features": {k: True for k in DEFAULT_CLIENT_FEATURES},
+            "features": {**{k: True for k in DEFAULT_CLIENT_FEATURES}, **extra_flags},
             "pawapay_mnos": list(DEFAULT_CLIENT_PAWAPAY_MNOS),
             "inherited_from": None,
         }
     parent_id = user.get("parent_client_id") or user.get("client_id") or user["id"]
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
     feats = _normalize_features((parent or {}).get("features"))
+    feats.update(extra_flags)  # tenant-global override
     mnos = _normalize_pawapay_mnos((parent or {}).get("pawapay_mnos"))
     return {
         "features": feats,
@@ -5336,6 +5342,9 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     "meta_app_id", "meta_graph_version", "meta_redirect_uri",
     # SMTP (smtp_password is already in sensitive, add the rest)
     "smtp_host", "smtp_port", "smtp_user", "smtp_from_email", "smtp_from_name", "smtp_use_tls",
+    # Iter38r-fix9k — KB OCR cost controls
+    "kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages",
+    "notes_strict_tasks_only",
     # Google OAuth & calendar (non-secret IDs)
     "google_client_id", "google_calendar_email", "google_calendar_password_hint",
     # reCAPTCHA site key
@@ -8879,6 +8888,12 @@ async def me_create_note(
         # UserNoteCreate model since iter34y/34z, just need to persist them).
         "voice_note_url": payload.voice_note_url or None,
         "voice_note_transcript": payload.voice_note_transcript or None,
+        # Iter38r-fix9k — Checklist items for kind=tasks (Google Keep style)
+        "task_items": [
+            {**(it.model_dump() if hasattr(it, "model_dump") else dict(it)),
+             "id": (it.id if hasattr(it, "id") and it.id else _uuid())}
+            for it in (payload.task_items or [])
+        ] if kind == "tasks" else None,
         "ip": _client_ip_from_request(request),
         "user_agent": request.headers.get("user-agent"),
         "created_at": _now(),
@@ -8924,6 +8939,15 @@ async def me_update_note(
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     if "images" in update:
         update["images"] = _validate_images(update["images"], max_count=10)
+    # Iter38r-fix9k — Task items: ensure each item has an id, preserve order
+    if "task_items" in update and kind == "tasks":
+        normalized = []
+        for it in update["task_items"]:
+            it = dict(it)
+            if not it.get("id"):
+                it["id"] = _uuid()
+            normalized.append(it)
+        update["task_items"] = normalized
     update["updated_at"] = _now()
     await coll.update_one({"id": note_id}, {"$set": update})
     refreshed = await coll.find_one({"id": note_id}, {"_id": 0}) or {**existing, **update}

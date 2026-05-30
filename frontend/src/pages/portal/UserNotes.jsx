@@ -21,7 +21,7 @@ const KIND_META = {
   tasks: { label: "Tâches", singular: "tâche", icon: ClipboardList, accent: "#F59E0B" },
 };
 
-const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false, target_user_ids: [] };
+const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false, target_user_ids: [], task_items: [] };
 
 const ELEVATED_TRACKED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL_TRACKED = new Set(["Administrateur", "Superviseur"]);
@@ -73,6 +73,8 @@ export default function UserNotesPage() {
   });
   // Iter38r-fix9f — Read-only viewer modal (eye icon for items I can't edit)
   const [viewing, setViewing] = useState(null);
+  // Iter38r-fix9k — Strict mode for tasks (admin-configurable)
+  const [strictTasksOnly, setStrictTasksOnly] = useState(false);
 
   const load = () => apiClient.get(`/me/notes/${kind}`, {
     params: {
@@ -95,6 +97,11 @@ export default function UserNotesPage() {
     apiClient.get(`/me/notes/${kind}/authors`).then((r) => setAuthors(r.data)).catch(() => {});
     apiClient.get("/me/features").then((r) => setSmartFeatures(r.data?.features || {})).catch(() => {});
     apiClient.get("/me/notes-targets").then((r) => setTargets(r.data?.items || [])).catch(() => {});
+    // Iter38r-fix9k — Detect strict tasks mode (tenant-level setting via /me/features)
+    apiClient.get("/me/features").then((r) => {
+      const f = r.data?.features || {};
+      if (f.notes_strict_tasks_only !== undefined) setStrictTasksOnly(!!f.notes_strict_tasks_only);
+    }).catch(() => {});
     if (kind === "suivis") {
       apiClient.get("/me/clients").then((r) => setClients(r.data)).catch(() => {});
     }
@@ -111,6 +118,7 @@ export default function UserNotesPage() {
       tags: it.tags || [],
       images: it.images || [],
       target_user_ids: it.target_user_ids || [],
+      task_items: it.task_items || [],
       event_date: it.event_date ? it.event_date.slice(0, 16) : "",
     } : empty);
     setIsOpen(true);
@@ -135,6 +143,8 @@ export default function UserNotesPage() {
         // Iter35m — Only honored when is_private=true; allows the author to
         // restrict visibility to a specific subset of tracked users / admins.
         target_user_ids: form.is_private ? (form.target_user_ids || []) : [],
+        // Iter38r-fix9k — Checklist items for kind=tasks (Google Keep style)
+        ...(kind === "tasks" && form.task_items?.length > 0 ? { task_items: form.task_items } : {}),
         ...(kind === "suivis" ? { client_id: form.client_id, event_date: new Date(form.event_date).toISOString() } : {}),
       };
       if (editing?.id) await apiClient.put(`/me/notes/${kind}/${editing.id}`, payload);
@@ -319,8 +329,19 @@ export default function UserNotesPage() {
                 </div>
               )}
 
+              {/* Iter38r-fix9k — Checklist (Google Keep) for kind=tasks */}
+              {kind === "tasks" && (
+                <TaskChecklist
+                  items={form.task_items || []}
+                  onChange={(items) => setForm((f) => ({ ...f, task_items: items }))}
+                  accent={meta.accent}
+                />
+              )}
+
+              {/* Rich content editor — hidden when strict tasks mode is enabled */}
+              {!(kind === "tasks" && strictTasksOnly) && (
               <div>
-                <label className="block text-xs font-semibold mb-1">Contenu</label>
+                <label className="block text-xs font-semibold mb-1">{kind === "tasks" ? "Note libre (facultatif)" : "Contenu"}</label>
                 <p className="text-[11px] text-slate-500 mb-2 inline-flex items-center gap-1">
                   <Mic className="h-3 w-3" /> Astuce : cliquez sur l'icône <strong>micro</strong> en haut à droite de la barre d'outils pour dicter votre {meta.singular} (transcription Whisper).
                 </p>
@@ -331,6 +352,7 @@ export default function UserNotesPage() {
                   aiEnabled={smartFeatures.ai !== false}
                 />
               </div>
+              )}
 
               {/* WhatsApp picker — append selected messages to the body */}
               <WaMessagesPicker
@@ -522,6 +544,27 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onView, onD
         </div>
       )}
       <div className="mt-2 text-sm text-slate-600 prose-sawali line-clamp-4" dangerouslySetInnerHTML={{ __html: n.content_html || "<p class=\"text-slate-400 italic\">Aucun contenu</p>" }} />
+      {kind === "tasks" && Array.isArray(n.task_items) && n.task_items.length > 0 && (
+        <div className="mt-2 space-y-0.5" data-testid="task-checklist-preview">
+          {[...n.task_items].sort((a, b) => (a.order || 0) - (b.order || 0)).slice(0, 6).map((it) => (
+            <div key={it.id || it.text} className={`text-xs flex items-start gap-1.5 ${it.done ? "text-slate-400 line-through" : "text-slate-700"}`}>
+              <span className={`mt-0.5 inline-block h-3 w-3 rounded ring-1 ${it.done ? "bg-emerald-500 ring-emerald-600" : "ring-slate-300"} shrink-0`}>
+                {it.done && <span className="text-white text-[8px] leading-3">✓</span>}
+              </span>
+              <span className="truncate">{it.text}</span>
+            </div>
+          ))}
+          {n.task_items.length > 6 && (
+            <div className="text-[10px] text-slate-400 italic">+ {n.task_items.length - 6} autre(s)…</div>
+          )}
+          {(() => {
+            const done = n.task_items.filter((x) => x.done).length;
+            return done > 0 && (
+              <div className="text-[10px] text-emerald-700 font-medium">{done}/{n.task_items.length} réalisée(s)</div>
+            );
+          })()}
+        </div>
+      )}
       {n.images && n.images.length > 0 && (
         <div className="mt-3 flex flex-wrap gap-1">
           {n.images.slice(0, 6).map((im, i) => <AttachmentThumb key={i} im={im} onOpen={() => onImage(absoluteImg(im.url))} />)}
@@ -1091,6 +1134,120 @@ function WaMessagesPicker({ clientId = null, onAppend, accent = "#1E90FF" }) {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// =====================================================================
+// Iter38r-fix9k — TaskChecklist (Google Keep style)
+// =====================================================================
+// Editable list of {id, text, done, order, done_at}. Done items are
+// rendered at the bottom of the list, grayed-out and struck-through.
+// Reorder is automatic: undone items first (by order), done items at the
+// end (most recently done first).
+function TaskChecklist({ items, onChange, accent = "#F59E0B" }) {
+  const [draft, setDraft] = React.useState("");
+  const all = Array.isArray(items) ? items : [];
+  const sorted = React.useMemo(() => {
+    const undone = all.filter((x) => !x.done).sort((a, b) => (a.order || 0) - (b.order || 0));
+    const done = all.filter((x) => x.done).sort((a, b) => String(b.done_at || "").localeCompare(String(a.done_at || "")));
+    return [...undone, ...done];
+  }, [all]);
+
+  const addItem = () => {
+    const text = draft.trim();
+    if (!text) return;
+    const next = [...all, {
+      id: (window.crypto?.randomUUID?.() || `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`),
+      text,
+      done: false,
+      order: all.length,
+      done_at: null,
+    }];
+    onChange(next);
+    setDraft("");
+  };
+
+  const toggle = (id) => {
+    const next = all.map((x) => x.id === id ? { ...x, done: !x.done, done_at: !x.done ? new Date().toISOString() : null } : x);
+    onChange(next);
+  };
+
+  const updateText = (id, text) => onChange(all.map((x) => x.id === id ? { ...x, text } : x));
+  const remove = (id) => onChange(all.filter((x) => x.id !== id));
+
+  const undoneCount = all.filter((x) => !x.done).length;
+  const doneCount = all.length - undoneCount;
+
+  return (
+    <div className="rounded-xl ring-1 ring-slate-200 bg-white p-3 space-y-2" data-testid="task-checklist">
+      <div className="flex items-center justify-between text-xs">
+        <span className="font-display font-semibold text-slate-700 inline-flex items-center gap-1">
+          <ClipboardList className="h-3.5 w-3.5" style={{ color: accent }} /> Liste de tâches
+        </span>
+        <span className="text-slate-400">{doneCount} fait(s) / {all.length}</span>
+      </div>
+      {/* New item input */}
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addItem(); } }}
+          placeholder="+ Ajouter un élément (Entrée pour valider)"
+          className="flex-1 rounded-lg border border-slate-300 px-3 py-1.5 text-sm focus:ring-2 focus:ring-amber-300 outline-none"
+          data-testid="task-checklist-add-input"
+        />
+        <button
+          type="button"
+          onClick={addItem}
+          disabled={!draft.trim()}
+          className="rounded-lg px-3 py-1.5 text-sm font-medium text-white disabled:opacity-40"
+          style={{ background: accent }}
+          data-testid="task-checklist-add-btn"
+        >
+          Ajouter
+        </button>
+      </div>
+      {/* Items */}
+      <ul className="space-y-1">
+        {sorted.length === 0 && (
+          <li className="text-xs text-slate-400 italic py-2 text-center">Aucune tâche pour le moment.</li>
+        )}
+        {sorted.map((it) => (
+          <li
+            key={it.id}
+            className={`flex items-center gap-2 rounded-lg px-2 py-1 transition ${it.done ? "bg-slate-50" : "hover:bg-slate-50"}`}
+            data-testid={`task-checklist-item-${it.id}`}
+          >
+            <input
+              type="checkbox"
+              checked={!!it.done}
+              onChange={() => toggle(it.id)}
+              className="h-4 w-4 rounded border-slate-300 cursor-pointer"
+              style={{ accentColor: accent }}
+              data-testid={`task-checklist-toggle-${it.id}`}
+            />
+            <input
+              type="text"
+              value={it.text}
+              onChange={(e) => updateText(it.id, e.target.value)}
+              className={`flex-1 bg-transparent text-sm outline-none border-0 ${it.done ? "line-through text-slate-400" : "text-slate-800"}`}
+              data-testid={`task-checklist-text-${it.id}`}
+            />
+            <button
+              type="button"
+              onClick={() => remove(it.id)}
+              className="text-slate-300 hover:text-rose-500 transition"
+              title="Supprimer"
+              data-testid={`task-checklist-remove-${it.id}`}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }

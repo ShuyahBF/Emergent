@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
+import React from "react";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight, Sparkles, Loader2, X } from "lucide-react";
+import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight, Sparkles, Loader2, X, Download } from "lucide-react";
 
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
@@ -304,6 +305,9 @@ export default function MyAccount() {
             <p className="text-[10px] text-slate-400 mt-1 text-center">Les contacts visibles incluent ceux partagés par votre société.</p>
           </section>
 
+          {/* Iter38r-fix9l — RGPD: Export my data + WA Tasks digest opt-in */}
+          <BonusFeaturesSection />
+
           {/* Request modification */}
           <section className="rounded-xl ring-1 ring-indigo-200 bg-indigo-50/40 p-5" data-testid="account-request-section">
             <h2 className="font-display font-semibold text-sm text-indigo-800 mb-2 flex items-center gap-2">
@@ -352,3 +356,108 @@ export default function MyAccount() {
     </div>
   );
 }
+
+// =====================================================================
+// Iter38r-fix9l — BonusFeaturesSection
+// =====================================================================
+// (1) GDPR "Exporter mes données" — downloads a JSON of everything the
+//     server has about the current user.
+// (2) WhatsApp Tasks Digest opt-in — toggle + hour picker.
+function BonusFeaturesSection() {
+  const [wa, setWa] = React.useState({ enabled: false, hour: 7, loading: true });
+  const [exporting, setExporting] = React.useState(false);
+
+  React.useEffect(() => {
+    apiClient.get("/me/wa-tasks-digest")
+      .then((r) => setWa({ enabled: !!r.data?.enabled, hour: r.data?.hour ?? 7, loading: false }))
+      .catch(() => setWa((w) => ({ ...w, loading: false })));
+  }, []);
+
+  const saveWa = async (next) => {
+    setWa((w) => ({ ...w, ...next }));
+    try {
+      await apiClient.put("/me/wa-tasks-digest", next);
+      toast.success("Préférence enregistrée");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const exportData = async () => {
+    setExporting(true);
+    try {
+      const r = await apiClient.get("/me/gdpr/export");
+      const blob = new Blob([JSON.stringify(r.data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sawali-mes-donnees-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success("Export téléchargé");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur export");
+    } finally {
+      setExporting(false);
+    }
+  };
+
+  return (
+    <section className="rounded-xl ring-1 ring-emerald-200 bg-emerald-50/40 p-5 space-y-4" data-testid="account-bonus-section">
+      <h2 className="font-display font-semibold text-sm text-emerald-800 mb-2 flex items-center gap-2">
+        <Sparkles className="h-4 w-4" /> Préférences & RGPD
+      </h2>
+      {/* GDPR Export */}
+      <div className="rounded-lg ring-1 ring-emerald-200 bg-white p-3 space-y-2" data-testid="gdpr-export-row">
+        <div className="flex items-center justify-between gap-2 flex-wrap">
+          <div className="flex-1 min-w-0">
+            <div className="font-semibold text-sm text-slate-800 flex items-center gap-1.5"><Download className="h-3.5 w-3.5 text-emerald-600" /> Exporter mes données (RGPD)</div>
+            <p className="text-xs text-slate-500 mt-0.5">Téléchargez toutes les données vous concernant : profil, contacts, WhatsApp, SMS, tâches, notes, rapports, suivis (format JSON).</p>
+          </div>
+          <button
+            type="button"
+            onClick={exportData}
+            disabled={exporting}
+            className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            data-testid="gdpr-export-btn"
+          >
+            {exporting ? "Préparation…" : "Télécharger"}
+          </button>
+        </div>
+      </div>
+      {/* WA Tasks Digest opt-in */}
+      <div className="rounded-lg ring-1 ring-emerald-200 bg-white p-3 space-y-2" data-testid="wa-digest-row">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={wa.enabled}
+            onChange={(e) => saveWa({ enabled: e.target.checked, hour: wa.hour })}
+            disabled={wa.loading}
+            className="mt-0.5 h-4 w-4"
+            data-testid="wa-digest-toggle"
+          />
+          <div className="flex-1">
+            <div className="font-semibold text-sm text-slate-800">📱 Recevoir mes tâches par WhatsApp chaque jour</div>
+            <p className="text-xs text-slate-500 mt-0.5">L'admin doit avoir activé le service (côté tenant). Répondez `OK 1,3` ou `FAIT 2 5` pour cocher les tâches.</p>
+          </div>
+        </label>
+        {wa.enabled && (
+          <div className="flex items-center gap-2 pl-7">
+            <span className="text-xs text-slate-600">Heure d'envoi :</span>
+            <select
+              value={wa.hour}
+              onChange={(e) => saveWa({ enabled: true, hour: parseInt(e.target.value) })}
+              className="text-sm rounded-lg border border-slate-300 px-2 py-1"
+              data-testid="wa-digest-hour-select"
+            >
+              {[6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20].map((h) => (
+                <option key={h} value={h}>{h}h00 (Africa/Abidjan)</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+

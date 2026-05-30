@@ -435,6 +435,42 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
+      {/* Iter38r-fix9l — Bonus pack: WA digest + Liluvine weekly + GDPR */}
+      <Filterable title="Bonus — WhatsApp Tasks · Digest Liluvine · GDPR auto" anchorId="s-bonus-pack">
+        <Section icon={Sparkles} title="WhatsApp Tasks · Digest Liluvine · Anonymisation RGPD">
+          <p className="text-xs text-slate-500 mb-3">
+            Pack bonus : envoi quotidien des tâches par WhatsApp avec accusé de réception
+            (réponse `OK 1,3`), digest hebdo Liluvine PRO par email (Lundi 8h), et
+            anonymisation automatique des données anciennes (RGPD).
+          </p>
+          <div className="space-y-2">
+            <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100">
+              <input type="checkbox" checked={!!s.wa_tasks_digest_enabled} onChange={(e) => upd("wa_tasks_digest_enabled", e.target.checked)} className="mt-0.5 h-4 w-4" data-testid="wa-tasks-digest-toggle" />
+              <span className="text-sm"><strong>WhatsApp Tasks — Digest quotidien</strong><br/><span className="text-xs text-slate-500">Chaque utilisateur opt-in reçoit ses tâches non-faites par WA à l'heure de son choix. Réponse `OK 1,3` ou `FAIT 2 5` pour cocher.</span></span>
+            </label>
+            <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100">
+              <input type="checkbox" checked={!!s.liluvine_weekly_digest_enabled} onChange={(e) => upd("liluvine_weekly_digest_enabled", e.target.checked)} className="mt-0.5 h-4 w-4" data-testid="liluvine-weekly-digest-toggle" />
+              <span className="text-sm"><strong>Digest hebdo Liluvine PRO (Lundi 8h, email)</strong><br/><span className="text-xs text-slate-500">Top 5 contacts WhatsApp, ROI temps gagné, sessions reprises, CTA campagne ciblée.</span></span>
+            </label>
+            <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100">
+              <input type="checkbox" checked={!!s.gdpr_auto_anonymize_enabled} onChange={(e) => upd("gdpr_auto_anonymize_enabled", e.target.checked)} className="mt-0.5 h-4 w-4" data-testid="gdpr-auto-anonymize-toggle" />
+              <span className="text-sm"><strong>RGPD — Anonymisation automatique quotidienne</strong><br/><span className="text-xs text-slate-500">Daily 03:30. Supprime contacts inactifs (24m), anonymise WA/SMS (12m), purge logs (90j) — délais configurables ci-dessous.</span></span>
+            </label>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3 mt-3">
+            <Input label="Délai contacts inactifs (mois)" type="number" value={s.gdpr_contact_inactive_months ?? ""} onChange={(v) => upd("gdpr_contact_inactive_months", parseInt(v) || 24)} placeholder="24" testid="gdpr-contact-months" />
+            <Input label="Rétention messages (mois)" type="number" value={s.gdpr_msg_retention_months ?? ""} onChange={(v) => upd("gdpr_msg_retention_months", parseInt(v) || 12)} placeholder="12" testid="gdpr-msg-months" />
+            <Input label="Rétention logs (jours)" type="number" value={s.gdpr_log_retention_days ?? ""} onChange={(v) => upd("gdpr_log_retention_days", parseInt(v) || 90)} placeholder="90" testid="gdpr-log-days" />
+          </div>
+          <p className="text-[11px] text-slate-500 mt-2">
+            ⚙️ Les utilisateurs activent le digest WA depuis leur <strong>profil</strong> (heure configurable).
+            Lancement manuel : <code className="rounded bg-slate-100 px-1">POST /admin/wa-tasks-digest/run-now</code>,
+            <code className="rounded bg-slate-100 px-1">POST /admin/liluvine-weekly-digest/run-now</code>,
+            <code className="rounded bg-slate-100 px-1">POST /admin/gdpr/anonymize-now</code>.
+          </p>
+        </Section>
+      </Filterable>
+
       {/* Iter38c — Cashier expense justification deadline */}
       <Section icon={CreditCard} title="Caisse — Délai de justification des dépenses">
         <p className="text-xs text-slate-500 mb-3">

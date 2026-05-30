@@ -5345,6 +5345,14 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     # Iter38r-fix9k — KB OCR cost controls
     "kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages",
     "notes_strict_tasks_only",
+    # Iter38r-fix9l — Bonus pack settings (WA tasks, Liluvine digest, GDPR)
+    "wa_tasks_digest_enabled",
+    "liluvine_weekly_digest_enabled",
+    "gdpr_auto_anonymize_enabled",
+    "gdpr_contact_inactive_months",
+    "gdpr_msg_retention_months",
+    "gdpr_log_retention_days",
+    "public_base_url",
     # Google OAuth & calendar (non-secret IDs)
     "google_client_id", "google_calendar_email", "google_calendar_password_hint",
     # reCAPTCHA site key
@@ -15296,11 +15304,38 @@ async def whatsapp_webhook_incoming(request: Request):
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("liluvine cmd parse failed: %s", exc)
 
+                    # Iter38r-fix9l — WA Tasks bidirectional sync. Check if
+                    # this inbound is a task acknowledgement (OK 1,3 / FAIT 2)
+                    # by an opted-in user, BEFORE Liluvine auto-reply so it
+                    # doesn't double-process.
+                    skip_autoreply = False
+                    if mtype == "text" and text_body:
+                        indexes = _parse_task_ack(text_body)
+                        if indexes:
+                            try:
+                                # Find a user whose WA matches the sender
+                                u_match = await db.users.find_one(
+                                    {"$or": [{"whatsapp": {"$regex": digits_only + "$"}},
+                                             {"phone": {"$regex": digits_only + "$"}}]},
+                                    {"_id": 0, "id": 1, "email": 1},
+                                )
+                                if u_match:
+                                    ack = await _apply_task_ack_for_user(db, u_match["id"], indexes)
+                                    if ack.get("matched", 0) > 0:
+                                        confirmation = f"✅ {ack['matched']} tâche(s) marquée(s) comme faite(s). Bonne journée !"
+                                        try:
+                                            await _wa_send_text(from_num, confirmation)
+                                        except Exception:
+                                            pass
+                                        skip_autoreply = True
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[wa_task_ack] failed: %s", exc)
+
                     # Iter38r-fix9a — Liluvine PRO native WhatsApp auto-reply.
                     # No n8n needed: when the toggle is on AND the message
                     # passes the configured rules, Liluvine generates a reply
                     # via Claude and ships it back through Meta Graph API.
-                    if mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                    if not skip_autoreply and mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
                         try:
                             from routes.liluvine_wa_autoreply import autoreply_to_inbound
                             s_root = await db.settings.find_one({"_id": "global"}) or {}
@@ -18554,6 +18589,48 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=600,
             )
+
+            # Iter38r-fix9l — WA Tasks digest cron (every 5 min, gated by
+            # per-user wa_tasks_digest_hour) + Liluvine weekly digest (Monday
+            # 8h Africa/Abidjan) + GDPR daily anonymization (03:30).
+            async def _scheduled_wa_tasks_digest():
+                try:
+                    await _run_wa_tasks_digest(db, _send_wa_text_for_digest, _get_settings_async)
+                except Exception as exc:
+                    logger.warning("[scheduler:wa_tasks_digest] %s", exc)
+            _scheduler.add_job(
+                _scheduled_wa_tasks_digest,
+                CronTrigger(minute="*/5", timezone="Africa/Abidjan"),
+                id="wa_tasks_digest_5min",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+
+            async def _scheduled_liluvine_weekly_digest():
+                try:
+                    await _run_liluvine_weekly_digest(db, send_email, _get_settings_async)
+                except Exception as exc:
+                    logger.warning("[scheduler:liluvine_digest] %s", exc)
+            _scheduler.add_job(
+                _scheduled_liluvine_weekly_digest,
+                CronTrigger(day_of_week="mon", hour=8, minute=0, timezone="Africa/Abidjan"),
+                id="liluvine_weekly_digest_mon",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+
+            async def _scheduled_gdpr_anonymize():
+                try:
+                    await _run_gdpr_anonymization(db, _get_settings_async)
+                except Exception as exc:
+                    logger.warning("[scheduler:gdpr_anonymize] %s", exc)
+            _scheduler.add_job(
+                _scheduled_gdpr_anonymize,
+                CronTrigger(hour=3, minute=30, timezone="Africa/Abidjan"),
+                id="gdpr_auto_anonymize_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Weekly DB auto-snapshot — Sunday 03:00 (Africa/Abidjan), gated by
             # settings.auto_snapshot_enabled. Keeps the last N (settings
             # .auto_snapshot_keep, default 4) auto snapshots; manual ones
@@ -20660,6 +20737,35 @@ _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)
 # Iter38r-fix9j — PawaPay Payouts (v2) for BFA
 from routes.pawapay_payouts import setup_pawapay_payout_routes as _setup_pawapay_payout_routes  # noqa: E402
 _setup_pawapay_payout_routes(app=api, db=db, get_current_user=get_current_user)
+
+# Iter38r-fix9l — Bonus pack: WA tasks bidirectional sync, Liluvine weekly digest,
+# GDPR automated anonymization, "Export my data" endpoint.
+from routes.bonus_pack_9l import (  # noqa: E402
+    setup_bonus_pack_routes as _setup_bonus_pack_routes,
+    parse_task_ack as _parse_task_ack,
+    apply_task_ack_for_user as _apply_task_ack_for_user,
+    run_wa_tasks_digest as _run_wa_tasks_digest,
+    run_liluvine_weekly_digest as _run_liluvine_weekly_digest,
+    run_gdpr_anonymization as _run_gdpr_anonymization,
+)
+
+
+async def _send_wa_text_for_digest(to: str, text: str, scope_user: Optional[dict] = None) -> bool:
+    """Lightweight wrapper used by the WA tasks digest cron. Returns True if the
+    Cloud API accepted the message."""
+    try:
+        r = await _wa_send_text(to, text)
+        return bool(r.get("ok"))
+    except Exception:
+        logger.exception("[wa_digest] _wa_send_text failed")
+        return False
+
+
+async def _get_settings_async() -> Dict[str, Any]:
+    return await db.settings.find_one({"_id": "global"}) or {}
+
+
+_setup_bonus_pack_routes(app=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix8 — Emergent Object Storage proxy.
 # Files persisted via object_storage.save_and_log() are served via this proxy

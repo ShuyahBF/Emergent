@@ -462,6 +462,15 @@ class SettingsUpdate(BaseModel):
     kb_ocr_pdf_max_pages: Optional[int] = None
     notes_strict_tasks_only: Optional[bool] = None
 
+    # Iter38r-fix9l — Bonus pack settings
+    wa_tasks_digest_enabled: Optional[bool] = None
+    liluvine_weekly_digest_enabled: Optional[bool] = None
+    gdpr_auto_anonymize_enabled: Optional[bool] = None
+    gdpr_contact_inactive_months: Optional[int] = None
+    gdpr_msg_retention_months: Optional[int] = None
+    gdpr_log_retention_days: Optional[int] = None
+    public_base_url: Optional[str] = None
+
     google_client_id: Optional[str] = None
     google_client_secret: Optional[str] = None
     google_calendar_email: Optional[str] = None

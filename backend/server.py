@@ -6000,6 +6000,39 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
         g = groups.setdefault(key, {"company": (u.get("company") or "").strip(), "members": []})
         g["members"].append(u)
 
+    # Iter38r-fix9g — Also include tracked_users (mirror sub-users that share
+    # an admin's tenant). They inherit the admin's `company` via parent_client_id.
+    # Build an admin -> company index first, then join tracked_users by client_id.
+    admin_by_id: Dict[str, Dict[str, Any]] = {}
+    for g in groups.values():
+        for m in g["members"]:
+            if m.get("role") in ("admin", "superviseur"):
+                admin_by_id[m["id"]] = {
+                    "company_key": (m.get("company") or "").strip().lower(),
+                    "company": m.get("company"),
+                }
+    async for tu in db.users.find(
+        {"parent_client_id": {"$exists": True, "$nin": [None, ""]}, "tracked_role": {"$exists": True, "$nin": [None, ""]}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "role": 1, "tracked_role": 1,
+         "client_id": 1, "parent_client_id": 1, "account_status": 1},
+    ):
+        if tu.get("account_status") in ("disabled", "deleted", "blocked"):
+            continue
+        parent_admin = admin_by_id.get(tu.get("parent_client_id"))
+        if not parent_admin:
+            continue
+        # Attach the inherited company so the rest of the logic works seamlessly
+        tu["company"] = parent_admin["company"]
+        # Mark visually as tracked for the UI
+        tu["role"] = tu.get("role") or f"tracked:{tu.get('tracked_role')}"
+        key = parent_admin["company_key"]
+        if not key:
+            continue
+        g = groups.setdefault(key, {"company": parent_admin["company"], "members": []})
+        # Avoid duplicate insertion
+        if not any(m.get("id") == tu["id"] for m in g["members"]):
+            g["members"].append(tu)
+
     misaligned_groups: List[Dict[str, Any]] = []
     aligned_groups = 0
     total_misaligned_users = 0
@@ -6031,7 +6064,12 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
         # Compare each member's effective scope to the canonical
         misaligned: List[Dict[str, Any]] = []
         for m in members:
-            scope = m.get("client_id") or m["id"]
+            # Iter38r-fix9g — Tracked users' canonical scope is their parent_client_id;
+            # admins/superviseurs use their own id by convention. Fall back to client_id.
+            if str(m.get("role", "")).startswith("tracked:"):
+                scope = m.get("client_id") or m.get("parent_client_id") or m["id"]
+            else:
+                scope = m.get("client_id") or m["id"]
             if canonical and scope != canonical:
                 misaligned.append({
                     "id": m["id"],

@@ -535,7 +535,8 @@ function NoteCard({ n, kind, meta, user, canDelete, clients, onEdit, onView, onD
           </span>
         </span>
         <div className="flex gap-2 items-center">
-          {readOnly && (
+          {/* Iter38r-fix9g — Eye icon always visible on non-owned items (even for admin), for quick read-only preview */}
+          {!isOwner && (
             <button onClick={onView} className="text-slate-500 hover:text-sawali-blue" title="Consulter (lecture seule)" data-testid={`view-note-${n.id}`}><Eye className="h-3.5 w-3.5" /></button>
           )}
           {!readOnly && !locked && <button onClick={onEdit} className="text-slate-500 hover:text-sawali-blue" title="Modifier" data-testid={`edit-note-${n.id}`}><Edit className="h-3.5 w-3.5" /></button>}

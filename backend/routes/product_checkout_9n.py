@@ -26,6 +26,8 @@ from emergentintegrations.payments.stripe.checkout import (
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from routes._counters import gen_internal_id
+
 logger = logging.getLogger("sawali.product_checkout_9n")
 
 
@@ -107,8 +109,11 @@ def setup_product_checkout_routes(app, db, get_current_user, send_email_fn):
         amount_xof = coupon_info["final_xof"]
         # Build the order doc BEFORE the Stripe call (resilient against network errors)
         order_id = str(uuid.uuid4())
+        # Iter38r-fix9o — Internal sequential number for invoicing/reporting
+        internal_no = await gen_internal_id(db, "ORD")
         order_doc = {
             "id": order_id,
+            "internal_no": internal_no,
             "kind": "public_product",
             "product_id": product_id,
             "product_name": product.get("name"),

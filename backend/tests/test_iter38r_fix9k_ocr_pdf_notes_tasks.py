@@ -97,14 +97,21 @@ def test_kb_ocr_pdf_in_ocr_mode_now_supported(admin_h, db_sync):
 
 
 def test_kb_ocr_monthly_cap_blocks_at_429(admin_h, db_sync):
-    """When monthly cap is reached, OCR upload returns 429."""
+    """When monthly cap is reached, OCR upload returns 429.
+    Iter38r-fix9o (Item 2): cap is now per-tenant on user.features."""
     from datetime import datetime, timezone
     ym = datetime.now(timezone.utc).strftime("%Y-%m")
-    # Inject usage that reaches the cap
-    db_sync.settings.update_one(
-        {"_id": "global"},
-        {"$set": {"kb_ocr_xof_per_page": 100, "kb_ocr_xof_monthly_cap": 100}},
+    admin = db_sync.users.find_one({"email": ADMIN_EMAIL})
+    # Set tenant-level cap on the admin's user doc
+    db_sync.users.update_one(
+        {"id": admin["id"]},
+        {"$set": {
+            "features.kb_ocr_enabled": True,
+            "features.kb_ocr_xof_per_page": 100,
+            "features.kb_ocr_xof_monthly_cap": 100,
+        }},
     )
+    # Inject usage that reaches the cap (tagged with this tenant_id)
     db_sync.ai_usage.insert_one({
         "id": str(uuid.uuid4()),
         "resource": "kb_ocr",
@@ -113,6 +120,7 @@ def test_kb_ocr_monthly_cap_blocks_at_429(admin_h, db_sync):
         "cost_xof": 200,  # already over the cap
         "ym": ym,
         "kind": "image_ocr",
+        "tenant_id": admin["id"],
         "created_at": "2026-05-30T18:00:00+00:00",
     })
     png_1x1 = bytes.fromhex(
@@ -123,11 +131,11 @@ def test_kb_ocr_monthly_cap_blocks_at_429(admin_h, db_sync):
     data = {"title": "Should be blocked", "force_ocr": "true"}
     r = requests.post(f"{API}/admin/liluvine-pro/kb/upload", headers=admin_h, files=files, data=data, timeout=15)
     assert r.status_code == 429, r.text
-    # Cleanup so other tests don't get blocked
+    # Cleanup
     db_sync.ai_usage.delete_many({"resource": "kb_ocr", "ym": ym})
-    db_sync.settings.update_one(
-        {"_id": "global"},
-        {"$set": {"kb_ocr_xof_monthly_cap": 0}},
+    db_sync.users.update_one(
+        {"id": admin["id"]},
+        {"$set": {"features.kb_ocr_xof_monthly_cap": 0, "features.kb_ocr_xof_per_page": 0}},
     )
 
 

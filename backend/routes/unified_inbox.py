@@ -390,3 +390,79 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             res = await db.meta_messenger_messages.update_many(q, {"$set": {"read_by_us_at": now_iso}})
             return {"ok": True, "channel": "messenger", "marked": res.modified_count}
         raise HTTPException(status_code=400, detail="Canal inconnu.")
+
+
+    # ----------------------------------------------------------------
+    # Iter38r-fix9o — Item 3: import an inbox conversant as a contact
+    # ----------------------------------------------------------------
+    @api.post("/me/inbox/import-contact", tags=["Portail Client — Inbox"])
+    async def inbox_import_contact(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """Create a contact from an inbox thread that has no matching contact
+        yet. For WhatsApp channels, also try to pull the public profile (name,
+        profile picture URL) via Meta Graph API as a best-effort sync."""
+        import uuid
+        channel = (payload.get("channel") or "").lower()
+        identifier = (payload.get("identifier") or "").strip()
+        display_name = (payload.get("display_name") or "").strip()
+        if not channel or not identifier:
+            raise HTTPException(status_code=400, detail="channel et identifier requis")
+        tid = await _tenant_id(user)
+        phone_digits = "".join(ch for ch in identifier if ch.isdigit())
+        # Dedupe
+        or_clauses: List[Dict[str, Any]] = []
+        if phone_digits:
+            or_clauses.append({"phone_digits": phone_digits})
+        or_clauses.append({"whatsapp": identifier})
+        or_clauses.append({"facebook_sender_id": identifier})
+        existing = await db.contacts.find_one(
+            {"tenant_id": tid, "$or": or_clauses},
+            {"_id": 0, "id": 1},
+        )
+        if existing:
+            return {"ok": True, "already_exists": True, "id": existing["id"]}
+        now_iso = datetime.now(timezone.utc).isoformat()
+        contact_id = str(uuid.uuid4())
+        wa_profile: Dict[str, Any] = {}
+        tags = ["Importé Inbox"]
+        if channel == "whatsapp":
+            tags.append("Connecté WhatsApp")
+            try:
+                if meta_get_meta_settings:
+                    settings = await meta_get_meta_settings(tid)
+                    token = settings.get("whatsapp_access_token") if settings else None
+                    if token and phone_digits:
+                        import httpx
+                        async with httpx.AsyncClient(timeout=8.0) as client:
+                            r = await client.get(
+                                f"https://graph.facebook.com/v21.0/{phone_digits}",
+                                params={"fields": "profile{name,profile_pic}"},
+                                headers={"Authorization": f"Bearer {token}"},
+                            )
+                            if r.status_code == 200:
+                                wa_profile = r.json().get("profile", {})
+            except Exception:
+                pass
+        contact_doc = {
+            "id": contact_id,
+            "tenant_id": tid,
+            "client_id": tid,
+            "owner_id": user["id"],
+            "full_name": display_name or wa_profile.get("name") or (f"+{phone_digits}" if phone_digits else identifier),
+            "phone": f"+{phone_digits}" if phone_digits else None,
+            "phone_digits": phone_digits or None,
+            "whatsapp": f"+{phone_digits}" if phone_digits and channel == "whatsapp" else None,
+            "facebook_sender_id": identifier if channel == "messenger" else None,
+            "tags": tags,
+            "source": f"inbox_{channel}",
+            "wa_profile": wa_profile,
+            "wa_profile_pic_url": wa_profile.get("profile_pic"),
+            "created_at": now_iso,
+            "updated_at": now_iso,
+            "last_interaction_at": now_iso,
+        }
+        await db.contacts.insert_one(contact_doc.copy())
+        contact_doc.pop("_id", None)
+        return {"ok": True, "already_exists": False, "contact": contact_doc}

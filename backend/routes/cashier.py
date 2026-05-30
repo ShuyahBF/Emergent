@@ -599,9 +599,13 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
 
     @router.post("/admin/business-clients")
     async def create_business_client(payload: BusinessClientPayload, user: dict = Depends(get_current_supervisor)):
+        # Iter38r-fix9o — Generate immutable internal client_no (e.g. CLI-25-000123)
+        from routes._counters import gen_internal_id  # local import to avoid cycles
+        client_no = await gen_internal_id(db, "CLI")
         doc = payload.model_dump()
         doc.update({
             "id": str(uuid.uuid4()),
+            "client_no": client_no,
             "balance": 0.0,
             "created_at": _now_iso(),
             "created_by": user["id"],

@@ -12,6 +12,7 @@ import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
 import VersionStamp from "@/components/VersionStamp";
 import InternalChatPanel from "@/components/InternalChatPanel";
+import TicketsBubble from "@/components/TicketsBubble";
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
@@ -405,6 +406,7 @@ export default function PortalLayout({ admin = false }) {
       {showBriefing && <WelcomeBriefing onClose={() => setShowBriefing(false)} isComptaStrict={isComptaStrict} />}
       {/* Iter38r-fix7 — Comptable strict: hide the internal chat bubble entirely. */}
       {!isComptaStrict && <InternalChatPanel />}
+      <TicketsBubble />
       {/* Iter38r-fix9e — Live toast for Liluvine WhatsApp auto-replies (admins + superviseurs only). */}
       {isAdminOrSup && <LiluvineLiveToast />}
     </div>

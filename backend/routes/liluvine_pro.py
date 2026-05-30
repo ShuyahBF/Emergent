@@ -199,6 +199,89 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             model=model, pre_check=True,
         )
 
+    # Iter38r-fix9o (Item 1) — Tenant-configurable system prompt + escalation
+    ESCALATION_TOKEN = "[ESCALATION_HUMAINE]"
+    ESCALATION_KEYWORDS = (
+        "agent humain", "humain", "parler à quelqu'un", "parler a quelqu'un",
+        "vrai agent", "support humain", "un humain", "responsable",
+    )
+
+    async def _resolve_system_prompt(scope_uid: str) -> str:
+        """Tenant-level override (`liluvine_pro_system_prompt`) takes priority,
+        fallback to the global `SYSTEM_MESSAGE` constant. Always appends the
+        escalation rule so Liluvine knows to emit the marker when it can't
+        answer."""
+        tenant_doc = await db.users.find_one(
+            {"id": scope_uid},
+            {"_id": 0, "liluvine_pro_system_prompt": 1, "full_name": 1, "company": 1},
+        ) or {}
+        base = (tenant_doc.get("liluvine_pro_system_prompt") or "").strip() or SYSTEM_MESSAGE
+        escalation_rule = (
+            "\n\n[RÈGLE D'ESCALADE — IMPORTANT]\n"
+            "Si tu ne sais pas répondre, si la demande dépasse ton champ d'action, "
+            "si le contact insiste pour avoir un humain, ou si la situation requiert "
+            "un humain (litige, sensibilité, urgence), termine ta réponse par le "
+            f"marqueur exact `{ESCALATION_TOKEN}` (sans guillemets) suivi d'un message "
+            "rassurant et bref de transition vers l'humain (ex: « Je transmets votre "
+            "demande à un conseiller, il revient vers vous très vite. »)."
+        )
+        return base + escalation_rule
+
+    @api.put("/admin/liluvine-pro/system-prompt", tags=["Admin — Liluvine PRO"])
+    async def admin_set_system_prompt(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Admin/superviseur seulement")
+        prompt = (payload.get("system_prompt") or "").strip()
+        scope_uid = _client_scope(user)
+        await db.users.update_one({"id": scope_uid}, {"$set": {"liluvine_pro_system_prompt": prompt}})
+        return {"ok": True, "length": len(prompt)}
+
+    @api.get("/admin/liluvine-pro/system-prompt", tags=["Admin — Liluvine PRO"])
+    async def admin_get_system_prompt(user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Admin/superviseur seulement")
+        scope_uid = _client_scope(user)
+        u = await db.users.find_one({"id": scope_uid}, {"_id": 0, "liluvine_pro_system_prompt": 1}) or {}
+        return {"system_prompt": u.get("liluvine_pro_system_prompt") or "", "default": SYSTEM_MESSAGE}
+
+    async def _flag_escalation(session_id: str, scope_uid: str, source: str) -> None:
+        """Mark the session and emit a realtime broadcast for the toast."""
+        now = _now()
+        await db.liluvine_pro_sessions.update_one(
+            {"id": session_id},
+            {"$set": {
+                "human_assistance_requested": True,
+                "human_assistance_requested_at": now,
+                "human_assistance_source": source,
+            }},
+        )
+        # Best-effort email to admins of this tenant (defaults to disabled)
+        try:
+            sess = await db.liluvine_pro_sessions.find_one({"id": session_id}, {"_id": 0, "user_label": 1, "title": 1})
+            admins = db.users.find(
+                {"role": {"$in": ["admin", "superviseur", "moderateur"]},
+                 "$or": [{"id": scope_uid}, {"parent_client_id": scope_uid}, {"client_id": scope_uid}]},
+                {"_id": 0, "email": 1},
+            )
+            from server import send_email  # type: ignore
+            async for a in admins:
+                if a.get("email"):
+                    try:
+                        await send_email(
+                            to_email=a["email"],
+                            subject="🆘 SAWALI — Liluvine PRO demande un humain",
+                            html_body=(
+                                f"<p>Liluvine PRO a déclenché une <strong>demande d'assistance humaine</strong> "
+                                f"sur la conversation <code>{(sess or {}).get('user_label') or session_id}</code>.</p>"
+                                f"<p>Source: <code>{source}</code></p>"
+                            ),
+                            text_body=f"Escalation Liluvine — session {session_id} ({source})",
+                        )
+                    except Exception:
+                        pass
+        except Exception:
+            logger.warning("[liluvine] escalation email loop failed", exc_info=True)
+
     async def _llm_send(session_id: str, system_text: str, user_text: str) -> Dict[str, Any]:
         """Spin a fresh LlmChat instance, send the message, return reply + token estimate."""
         try:
@@ -437,7 +520,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             kb = await build_kb_context(db)
         except Exception:
             kb = ""
-        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        system_text = (await _resolve_system_prompt(client_id)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        # Iter38r-fix9o (Item 1) — Keyword pre-check for explicit human-handoff requests
+        _user_lower = text.lower()
+        _escalate_pre = any(k in _user_lower for k in ESCALATION_KEYWORDS)
         try:
             llm = await _llm_send(sid, system_text, text)
         except HTTPException:
@@ -445,14 +531,25 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         except Exception as exc:
             logger.exception("[liluvine-pro-inbound] LLM failure")
             raise HTTPException(status_code=502, detail=f"LLM indisponible : {str(exc)[:160]}") from exc
+        # Iter38r-fix9o (Item 1) — Strip the escalation marker from the visible
+        # reply, but capture the event for the admin notification toast/email.
+        reply_text = llm["reply"] or ""
+        _escalate_llm = ESCALATION_TOKEN in reply_text
+        if _escalate_llm:
+            reply_text = reply_text.replace(ESCALATION_TOKEN, "").strip()
+        escalated = _escalate_pre or _escalate_llm
         msg_id = secrets.token_urlsafe(12)
         await db.liluvine_pro_messages.insert_one({
             "id": msg_id, "session_id": sid, "client_id": client_id,
-            "user_id": user_doc["id"], "role": "assistant", "content": llm["reply"],
+            "user_id": user_doc["id"], "role": "assistant", "content": reply_text,
             "tokens": llm["tokens"], "model": llm["model"],
             "context_injected": bool(ctx), "external_source": source,
+            "escalation": bool(escalated),
             "created_at": _now(),
         })
+        if escalated:
+            await _flag_escalation(sid, client_id,
+                                   source="keyword" if _escalate_pre else "llm")
         await db.liluvine_pro_sessions.update_one(
             {"id": sid}, {"$inc": {"message_count": 2}, "$set": {"updated_at": _now()}},
         )
@@ -570,7 +667,9 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             kb = await build_kb_context(db)
         except Exception:
             kb = ""
-        system_text = SYSTEM_MESSAGE + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        # Iter38r-fix9o (Item 1) — Keyword pre-check
+        _escalate_pre = any(k in payload.text.lower() for k in ESCALATION_KEYWORDS)
         # Call the LLM (the LlmChat library handles multi-turn history via session_id
         # internally, but ours is keyed by sid which guarantees per-conversation memory)
         try:
@@ -580,6 +679,12 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         except Exception as exc:
             logger.exception("[liluvine-pro] LLM failure")
             raise HTTPException(status_code=502, detail=f"Liluvine indisponible : {str(exc)[:160]}") from exc
+        # Iter38r-fix9o (Item 1) — Strip the escalation marker before persisting
+        reply_text = llm["reply"] or ""
+        _escalate_llm = ESCALATION_TOKEN in reply_text
+        if _escalate_llm:
+            reply_text = reply_text.replace(ESCALATION_TOKEN, "").strip()
+        escalated = _escalate_pre or _escalate_llm
         # Persist the assistant reply
         msg_id = secrets.token_urlsafe(12)
         await db.liluvine_pro_messages.insert_one({
@@ -588,12 +693,16 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             "client_id": scope,
             "user_id": user["id"],
             "role": "assistant",
-            "content": llm["reply"],
+            "content": reply_text,
             "tokens": llm["tokens"],
             "model": llm["model"],
             "context_injected": bool(ctx),
+            "escalation": bool(escalated),
             "created_at": _now(),
         })
+        if escalated:
+            await _flag_escalation(sid, scope,
+                                   source="keyword" if _escalate_pre else "llm")
         # Bump session counter
         await db.liluvine_pro_sessions.update_one(
             {"id": sid},
@@ -609,10 +718,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             "ok": True,
             "session_id": sid,
             "message_id": msg_id,
-            "reply": llm["reply"],
+            "reply": reply_text,
             "tokens": llm["tokens"],
             "model": llm["model"],
             "context_injected": bool(ctx),
+            "escalation": bool(escalated),
             "warn": track_result.get("warn", False),
         }
 

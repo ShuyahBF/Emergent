@@ -1,0 +1,266 @@
+"""Iter38r-fix9o — Items 6 + 8 : Tickets bubble templates & WhatsApp OTP login.
+
+Endpoints:
+  POST /api/auth/wa-otp/request    — public: send OTP via WA template
+  POST /api/auth/wa-otp/verify     — public: verify OTP, create demo user, return JWT
+  GET  /api/admin/wa-demo/recent   — dashboard widget : last N WA demo users
+  POST /api/admin/contacts/{id}/mark-seen  — moderator marks WA-onboarded contact as seen
+"""
+from __future__ import annotations
+
+import logging
+import os
+import random
+import re
+import uuid
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, List, Optional
+
+import httpx
+from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
+
+from routes._counters import gen_internal_id
+
+logger = logging.getLogger("sawali.wa_otp_login_9o")
+
+DEMO_TENANT_EMAIL = "demo@sawalismartsystems.com"
+DEMO_TENANT_NAME = "DEMO SAWALI"
+DEMO_TRACKED_ROLE = "Admin (Limité)"
+
+# Features pack granted to WA-onboarded tracked users (Item 8.e).
+DEMO_FEATURES = {
+    "ai_media_generator": True,
+    "reports": True,
+    "suivis": True,
+    "tasks": True,
+    "formations": True,
+    "forms": True,         # capped at 2 (enforced at usage time)
+    "tickets": True,       # capped at 2 client-side
+    "interventions": True, # capped at 5 client-side
+    # Caps used in /me/features
+    "_caps": {"forms": 2, "tickets": 2, "interventions": 5},
+}
+
+
+def _digits(s: str) -> str:
+    return re.sub(r"\D", "", s or "")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_password):
+    api: APIRouter = app
+
+    async def _ensure_demo_tenant() -> Dict[str, Any]:
+        u = await db.users.find_one({"email": DEMO_TENANT_EMAIL}, {"_id": 0})
+        if u:
+            return u
+        tenant_id = str(uuid.uuid4())
+        doc = {
+            "id": tenant_id,
+            "email": DEMO_TENANT_EMAIL,
+            "full_name": DEMO_TENANT_NAME,
+            "company": DEMO_TENANT_NAME,
+            "role": "admin",
+            "is_primary_client": True,
+            "account_status": "active",
+            "password_hash": hash_password(uuid.uuid4().hex),  # unguessable
+            "created_at": _now_iso(),
+        }
+        await db.users.insert_one(doc.copy())
+        doc.pop("_id", None)
+        logger.info("[wa_otp] created DEMO SAWALI tenant %s", tenant_id)
+        return doc
+
+    @api.post("/auth/wa-otp/request", tags=["Auth — WhatsApp OTP"])
+    async def request_wa_otp(payload: Dict[str, Any] = Body(...), request: Request = None):
+        msisdn = _digits(payload.get("msisdn") or "")
+        if len(msisdn) < 8:
+            raise HTTPException(status_code=400, detail="Numéro invalide")
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        access_token = s.get("whatsapp_access_token") or ""
+        phone_number_id = s.get("whatsapp_phone_number_id") or ""
+        if not access_token or not phone_number_id:
+            raise HTTPException(status_code=503, detail="Configuration WhatsApp Cloud API manquante")
+        code = f"{random.randint(0, 999999):06d}"
+        # Persist
+        await db.wa_otp_requests.update_one(
+            {"msisdn": msisdn},
+            {"$set": {
+                "msisdn": msisdn,
+                "code": code,
+                "expires_at": (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat(),
+                "attempts": 0,
+                "created_at": _now_iso(),
+            }},
+            upsert=True,
+        )
+        # Try template first (24h fenêtre fermée), fallback à un message texte direct
+        template_name = (s.get("wa_otp_template") or "").strip()
+        async def _send_template():
+            url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+            body = {
+                "messaging_product": "whatsapp",
+                "to": msisdn,
+                "type": "template",
+                "template": {
+                    "name": template_name,
+                    "language": {"code": s.get("wa_otp_template_lang") or "fr"},
+                    "components": [{
+                        "type": "body",
+                        "parameters": [{"type": "text", "text": code}],
+                    }],
+                },
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                return await client.post(url, json=body, headers={"Authorization": f"Bearer {access_token}"})
+
+        async def _send_text():
+            url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+            body = {
+                "messaging_product": "whatsapp",
+                "to": msisdn,
+                "type": "text",
+                "text": {"body": f"SAWALI — Votre code de connexion est : {code}. Valable 10 min."},
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                return await client.post(url, json=body, headers={"Authorization": f"Bearer {access_token}"})
+
+        sent_via = "text"
+        try:
+            if template_name:
+                r = await _send_template()
+                if r.status_code == 200:
+                    sent_via = "template"
+                else:
+                    # 24h-window OK or template error → text fallback
+                    r2 = await _send_text()
+                    if r2.status_code != 200:
+                        raise HTTPException(status_code=502, detail=f"WhatsApp send failed: {r2.text[:200]}")
+            else:
+                r = await _send_text()
+                if r.status_code != 200:
+                    raise HTTPException(status_code=502, detail=f"WhatsApp send failed: {r.text[:200]}")
+        except HTTPException:
+            raise
+        except Exception as exc:
+            raise HTTPException(status_code=502, detail=f"WA error: {exc}")
+        return {"ok": True, "sent_via": sent_via, "expires_in_minutes": 10}
+
+    @api.post("/auth/wa-otp/verify", tags=["Auth — WhatsApp OTP"])
+    async def verify_wa_otp(payload: Dict[str, Any] = Body(...)):
+        msisdn = _digits(payload.get("msisdn") or "")
+        code = (payload.get("code") or "").strip()
+        if not msisdn or not code:
+            raise HTTPException(status_code=400, detail="msisdn et code requis")
+        req = await db.wa_otp_requests.find_one({"msisdn": msisdn}, {"_id": 0})
+        if not req:
+            raise HTTPException(status_code=404, detail="Aucune demande OTP en cours")
+        # Expiry
+        try:
+            exp = datetime.fromisoformat(str(req.get("expires_at")).replace("Z", "+00:00"))
+            if datetime.now(timezone.utc) > exp:
+                raise HTTPException(status_code=410, detail="Code expiré, redemandez-en un")
+        except (ValueError, TypeError):
+            pass
+        # Throttle
+        attempts = int(req.get("attempts") or 0)
+        if attempts >= 5:
+            raise HTTPException(status_code=429, detail="Trop de tentatives, redemandez un nouveau code")
+        if req.get("code") != code:
+            await db.wa_otp_requests.update_one({"msisdn": msisdn}, {"$inc": {"attempts": 1}})
+            raise HTTPException(status_code=401, detail="Code invalide")
+        await db.wa_otp_requests.delete_one({"msisdn": msisdn})
+        # Ensure demo tenant exists, then create user + tracked record + contact
+        tenant = await _ensure_demo_tenant()
+        existing_user = await db.users.find_one(
+            {"$or": [{"whatsapp": f"+{msisdn}"}, {"phone_digits": msisdn}]},
+            {"_id": 0},
+        )
+        if existing_user:
+            user = existing_user
+        else:
+            user_id = str(uuid.uuid4())
+            user_no = await gen_internal_id(db, "DEM")
+            user = {
+                "id": user_id,
+                "user_no": user_no,
+                "email": f"wa-{msisdn}@demo.sawalismartsystems.com",
+                "full_name": payload.get("display_name") or f"Démo WA +{msisdn}",
+                "phone": f"+{msisdn}",
+                "phone_digits": msisdn,
+                "whatsapp": f"+{msisdn}",
+                "role": "client",
+                "tracked_role": DEMO_TRACKED_ROLE,
+                "parent_client_id": tenant["id"],
+                "client_id": tenant["id"],
+                "features": DEMO_FEATURES,
+                "account_status": "active",
+                "source": "wa_otp_login",
+                "is_demo": True,
+                "password_hash": hash_password(uuid.uuid4().hex),
+                "created_at": _now_iso(),
+                "wa_onboarding_seen_by": None,
+            }
+            await db.users.insert_one(user.copy())
+            # Mirror as a contact under the DEMO tenant
+            await db.contacts.insert_one({
+                "id": str(uuid.uuid4()),
+                "tenant_id": tenant["id"],
+                "client_id": tenant["id"],
+                "owner_id": tenant["id"],
+                "full_name": user["full_name"],
+                "phone": f"+{msisdn}",
+                "phone_digits": msisdn,
+                "whatsapp": f"+{msisdn}",
+                "tags": ["Connecté WhatsApp", "DEMO SAWALI"],
+                "source": "wa_otp_login",
+                "linked_user_id": user_id,
+                "created_at": _now_iso(),
+                "last_interaction_at": _now_iso(),
+            })
+            user.pop("_id", None)
+        # Mint JWT
+        token = create_jwt_token(user)
+        return {
+            "ok": True,
+            "token": token,
+            "access_token": token,
+            "user": {
+                "id": user["id"], "full_name": user["full_name"],
+                "email": user["email"], "role": user["role"],
+                "tracked_role": user.get("tracked_role"),
+                "is_demo": True,
+            },
+        }
+
+    @api.get("/admin/wa-demo/recent", tags=["Admin — Bonus"])
+    async def admin_wa_demo_recent(limit: int = 5, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur", "moderateur"):
+            raise HTTPException(status_code=403, detail="Réservé aux admins/modérateurs")
+        cap = min(max(limit, 1), 50)
+        items = await db.users.find(
+            {"source": "wa_otp_login", "is_demo": True},
+            {"_id": 0, "password_hash": 0, "features": 0},
+        ).sort("created_at", -1).limit(cap).to_list(cap)
+        # KPI counts
+        total = await db.users.count_documents({"source": "wa_otp_login", "is_demo": True})
+        unseen = await db.users.count_documents({"source": "wa_otp_login", "is_demo": True, "wa_onboarding_seen_by": None})
+        return {"items": items, "total": total, "unseen": unseen}
+
+    @api.post("/admin/wa-demo/{user_id}/mark-seen", tags=["Admin — Bonus"])
+    async def mark_seen(user_id: str, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur", "moderateur"):
+            raise HTTPException(status_code=403, detail="Réservé aux admins/modérateurs")
+        r = await db.users.update_one(
+            {"id": user_id, "source": "wa_otp_login"},
+            {"$set": {"wa_onboarding_seen_by": user.get("email"), "wa_onboarding_seen_at": _now_iso()}},
+        )
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable")
+        return {"ok": True}
+
+    return api

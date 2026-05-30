@@ -3283,6 +3283,14 @@ DEFAULT_CLIENT_FEATURES = {
     "ai_video_gen": False,
     # Iter38r-fix7 — Liluvine PRO assistant interne (Claude Sonnet)
     "ai_liluvine_pro": False,
+    # Iter38r-fix9o (Item 2) — Per-client OCR control. Cost and monthly cap
+    # are also configurable per-tenant (defaults 0 = inherit global).
+    "kb_ocr_enabled": True,
+    "kb_ocr_xof_per_page": 0,
+    "kb_ocr_xof_monthly_cap": 0,
+    # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
+    # Visible only when ON (default OFF — admin opts in).
+    "tickets_bubble": False,
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -20774,6 +20782,17 @@ _setup_ai_media_routes(app=api, db=db, get_current_user=get_current_user)
 # Iter38r-fix9n — Public product checkout (Stripe) + coupons
 from routes.product_checkout_9n import setup_product_checkout_routes as _setup_product_checkout_routes  # noqa: E402
 _setup_product_checkout_routes(app=api, db=db, get_current_user=get_current_user, send_email_fn=send_email)
+
+# Iter38r-fix9o (Items 6 + 8) — WhatsApp OTP login + DEMO SAWALI tenant
+from routes.wa_otp_login_9o import setup_wa_otp_routes as _setup_wa_otp_routes  # noqa: E402
+def _create_jwt_token_wrapper(u: Dict[str, Any]) -> str:
+    return create_access_token(u["id"], u.get("role") or "client")
+
+_setup_wa_otp_routes(
+    app=api, db=db, get_current_user=get_current_user,
+    create_jwt_token=_create_jwt_token_wrapper,
+    hash_password=hash_password,
+)
 
 # Iter38r-fix8 — Emergent Object Storage proxy.
 # Files persisted via object_storage.save_and_log() are served via this proxy

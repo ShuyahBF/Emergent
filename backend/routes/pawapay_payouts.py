@@ -27,6 +27,8 @@ import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from routes._counters import gen_internal_id
+
 logger = logging.getLogger("sawali.pawapay_payouts")
 
 PAWAPAY_HOSTS = {
@@ -78,11 +80,12 @@ def setup_pawapay_payout_routes(app, db, get_current_user):
     api: APIRouter = app
 
     async def _ensure_can_pay(user: dict) -> Dict[str, Any]:
-        """admin/superviseur OK ; comptable OK ; sinon 403."""
+        """Iter38r-fix9o — admin/superviseur/comptable/caissier (from /portal/cash) OK."""
         role = (user.get("role") or "").lower()
         tracked = (user.get("tracked_role") or "").lower()
-        if role not in ("admin", "superviseur") and tracked not in ("admin", "superviseur", "comptable"):
-            raise HTTPException(status_code=403, detail="Réservé aux administrateurs / comptables")
+        allowed = {"admin", "superviseur", "comptable", "caissier"}
+        if role not in allowed and tracked not in allowed:
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs / comptables / caissiers")
         s = await db.settings.find_one({"_id": "global"}) or {}
         if not s.get("pawapay_enabled"):
             raise HTTPException(status_code=503, detail="PawaPay non activé dans les paramètres")
@@ -111,10 +114,13 @@ def setup_pawapay_payout_routes(app, db, get_current_user):
             raise HTTPException(status_code=400, detail="Opérateur (provider) requis")
 
         payout_id = str(uuid.uuid4())
+        # Iter38r-fix9o — Internal sequential number for accounting traceability
+        internal_no = await gen_internal_id(db, "PAY")
         scope_uid = user.get("client_id") or user["id"]
         doc = {
             "id": payout_id,
             "payout_id": payout_id,
+            "internal_no": internal_no,
             "client_id": scope_uid,
             "tenant_id": scope_uid,
             "created_by": user.get("email"),

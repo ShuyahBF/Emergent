@@ -347,16 +347,29 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         is_img = name.endswith((".png", ".jpg", ".jpeg", ".webp")) or (file.content_type or "").startswith("image/")
 
         if ocr_mode:
-            # Iter38r-fix9k — Monthly cap enforcement before any LLM call
-            s = await db.settings.find_one({"_id": "global"}) or {}
+            # Iter38r-fix9o (Item 2) — per-client OCR control. Resolve flags from
+            # the calling user's parent (tenant). Admins still respect overrides
+            # placed in global settings as a fallback. Per-tenant precedence:
+            #   client_features.kb_ocr_enabled (bool) — must be True
+            #   client_features.kb_ocr_xof_per_page (int)
+            #   client_features.kb_ocr_xof_monthly_cap (int)
+            tid = user.get("client_id") or user.get("parent_client_id") or user["id"]
+            tenant_doc = await db.users.find_one({"id": tid}, {"_id": 0, "features": 1, "company": 1}) or {}
+            tenant_feats = (tenant_doc.get("features") or {})
+            g = await db.settings.find_one({"_id": "global"}) or {}
+            # Effective flags (per-tenant overrides global)
+            ocr_enabled_for_client = bool(tenant_feats.get("kb_ocr_enabled", True))
+            if not ocr_enabled_for_client:
+                raise HTTPException(status_code=403, detail="OCR Claude Vision désactivé pour ce client (cf. fiche tenant)")
             try:
-                cap_xof = int(s.get("kb_ocr_xof_monthly_cap") or 0)
+                cap_xof = int(tenant_feats.get("kb_ocr_xof_monthly_cap") if tenant_feats.get("kb_ocr_xof_monthly_cap") is not None else (g.get("kb_ocr_xof_monthly_cap") or 0))
             except Exception:
                 cap_xof = 0
             if cap_xof > 0:
                 ym = datetime.now(timezone.utc).strftime("%Y-%m")
+                # Filter on tenant_id for accurate per-client accounting
                 spent_cursor = db.ai_usage.find(
-                    {"resource": "kb_ocr", "ym": ym},
+                    {"resource": "kb_ocr", "ym": ym, "tenant_id": tid},
                     {"_id": 0, "cost_xof": 1},
                 )
                 spent_xof = 0
@@ -365,7 +378,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
                 if spent_xof >= cap_xof:
                     raise HTTPException(
                         status_code=429,
-                        detail=f"Plafond OCR mensuel atteint ({cap_xof} XOF). Augmentez-le dans AdminSettings ou attendez le mois suivant.",
+                        detail=f"Plafond OCR mensuel atteint pour {tenant_doc.get('company') or 'ce client'} ({cap_xof} XOF). Augmentez-le sur la fiche tenant.",
                     )
             # OCR strict: image OU PDF (rasterisation page-par-page)
             if is_img:
@@ -375,16 +388,17 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
                 pages_used = 1
             elif is_pdf:
                 # Iter38r-fix9k — PDF OCR : rasterize each page with PyMuPDF then Claude Vision
-                text, pages_used = await _ocr_pdf_with_claude_vision(raw, s)
+                text, pages_used = await _ocr_pdf_with_claude_vision(raw, g)
                 kind = "pdf_ocr"
             else:
                 raise HTTPException(
                     status_code=415,
                     detail="Mode OCR : seuls les images (PNG/JPG/WEBP) et PDF sont supportés.",
                 )
-            # Track AI cost (XOF per page) into ai_usage for billing/quota visibility
+            # Track AI cost (XOF per page) into ai_usage for billing/quota visibility.
+            # Iter38r-fix9o (Item 2) — Per-client cost from tenant features, fallback global.
             try:
-                cost_xof_per_page = int(s.get("kb_ocr_xof_per_page") or 0)
+                cost_xof_per_page = int(tenant_feats.get("kb_ocr_xof_per_page") if tenant_feats.get("kb_ocr_xof_per_page") is not None else (g.get("kb_ocr_xof_per_page") or 0))
             except Exception:
                 cost_xof_per_page = 0
             total_cost_xof = max(0, cost_xof_per_page * pages_used)
@@ -399,6 +413,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
                         "kind": kind,
                         "filename": file.filename,
                         "user_email": user.get("email"),
+                        "tenant_id": tid,
                         "created_at": _now_iso(),
                         "ym": datetime.now(timezone.utc).strftime("%Y-%m"),
                     })

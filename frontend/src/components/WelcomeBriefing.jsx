@@ -67,6 +67,8 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   // Iter38r-fix8b — Quick KPIs (Rapports/Suivis/Notes/Tâches) so the briefing
   // is never empty for active users.
   const kpis = data?.notes_kpis || null;
+  const sharedRecent = kpis?.shared_recent || null;
+  const hasSharedRecent = !!sharedRecent && sharedRecent.total > 0;
   const totalKpis = kpis
     ? (kpis.reports?.count || 0) + (kpis.suivis?.count || 0) + (kpis.notes?.count || 0) + (kpis.tasks?.count || 0)
     : 0;
@@ -79,7 +81,7 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
   const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto && !hasSharedRecent;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -160,6 +162,47 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
                       </p>
                     </Link>
                   )}
+                </div>
+              </section>
+            )}
+
+            {/* Iter38r-fix9h — Shared with me this week */}
+            {hasSharedRecent && (
+              <section className="rounded-lg ring-1 ring-emerald-200 bg-gradient-to-br from-emerald-50/70 via-white to-teal-50/40 p-3" data-testid="welcome-shared-recent">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-emerald-100 ring-1 ring-emerald-200 p-2 flex-shrink-0">
+                    <Send className="h-5 w-5 text-emerald-700" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2">
+                      <span className="text-2xl font-display font-bold text-emerald-900 leading-none">{sharedRecent.total}</span>
+                      <p className="text-sm text-emerald-900 font-medium">
+                        nouveau{sharedRecent.total > 1 ? "x" : ""} partage{sharedRecent.total > 1 ? "s" : ""} cette semaine 📥
+                      </p>
+                    </div>
+                    <div className="mt-2 flex items-center gap-2 flex-wrap">
+                      {sharedRecent.by_kind.reports > 0 && (
+                        <Link to="/portal/notes/reports?scope=shared" onClick={dismiss} className="text-[10px] rounded-full bg-sky-50 ring-1 ring-sky-200 text-sky-800 px-2 py-0.5 hover:bg-sky-100">
+                          {sharedRecent.by_kind.reports} rapport{sharedRecent.by_kind.reports > 1 ? "s" : ""}
+                        </Link>
+                      )}
+                      {sharedRecent.by_kind.suivis > 0 && (
+                        <Link to="/portal/notes/suivis?scope=shared" onClick={dismiss} className="text-[10px] rounded-full bg-emerald-50 ring-1 ring-emerald-200 text-emerald-800 px-2 py-0.5 hover:bg-emerald-100">
+                          {sharedRecent.by_kind.suivis} suivi{sharedRecent.by_kind.suivis > 1 ? "s" : ""}
+                        </Link>
+                      )}
+                      {sharedRecent.by_kind.notes > 0 && (
+                        <Link to="/portal/notes/notes?scope=shared" onClick={dismiss} className="text-[10px] rounded-full bg-violet-50 ring-1 ring-violet-200 text-violet-800 px-2 py-0.5 hover:bg-violet-100">
+                          {sharedRecent.by_kind.notes} note{sharedRecent.by_kind.notes > 1 ? "s" : ""}
+                        </Link>
+                      )}
+                      {sharedRecent.by_kind.tasks > 0 && (
+                        <Link to="/portal/notes/tasks?scope=shared" onClick={dismiss} className="text-[10px] rounded-full bg-amber-50 ring-1 ring-amber-200 text-amber-800 px-2 py-0.5 hover:bg-amber-100">
+                          {sharedRecent.by_kind.tasks} tâche{sharedRecent.by_kind.tasks > 1 ? "s" : ""}
+                        </Link>
+                      )}
+                    </div>
+                  </div>
                 </div>
               </section>
             )}

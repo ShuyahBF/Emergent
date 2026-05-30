@@ -6,6 +6,32 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-30) — Iter38r-fix9h 🔥
+
+### P0 — OCR Claude Vision pour la KB Liluvine
+- ✅ **Upload d'images** (PNG/JPG/WEBP) dans la base de connaissance.
+- ✅ **Claude Sonnet 4.6 Vision** extrait automatiquement tout texte visible (via `emergentintegrations.LlmChat` + `ImageContent`) et le stocke comme entrée `kind: "image_ocr"`.
+- ✅ Détection "[AUCUN_TEXTE_DETECTE]" → erreur 422 propre.
+- ✅ UI mise à jour : libellé "Importer PDF / TXT / Image (OCR)" + icône bleue pour les entrées image-OCR.
+
+### P1 — Pack Liluvine PRO (a) + (d) — sidebar enrichie
+- ✅ **Onglets de filtrage par canal** : 💬 Toutes / 🌐 Web / 📱 WA / 📘 FB / 📩 SMS.
+- ✅ **Recherche** dans titre/contact.
+- ✅ **Badges riches** par session : canal coloré, `user_label`, "à l'instant / il y a X min / il y a X h / date courte", nombre de messages.
+
+### P1 — Encart "📥 Nouveaux partages cette semaine" dans la modale d'accueil
+- ✅ Nouveau bloc gradient vert dans WelcomeBriefing : compte les notes/tâches/rapports/suivis partagés (ciblés ou publics du tenant) reçus dans les 7 derniers jours.
+- ✅ Chips cliquables par type (rapports/suivis/notes/tâches) → deeplink vers `/portal/notes/<kind>?scope=shared`.
+- ✅ `UserNotes.jsx` honore désormais le paramètre `?scope=...` au chargement.
+- ✅ Endpoint `/me/welcome-briefing` enrichi avec `notes_kpis.shared_recent: {total, by_kind, window_days}`.
+
+### P1 — Bouton "Réaligner tout" sur le panoramique
+- ✅ Nouvel endpoint `POST /admin/clients-consistency/realign-all` (avec `confirm=true` requis et `dry_run` optionnel).
+- ✅ Bouton 🔧 "Tout réaligner" dans l'UI panoramique d'AdminSettings.
+
+✅ **4 tests pytest** (KB image accepté, realign-all confirm/dry-run, briefing shared_recent).
+✅ **Total cumulé : 71/71 verts** + lint OK.
+
 ## Recent (2026-05-29) — Iter38r-fix9g 🔧
 
 ### 3 bugs corrigés

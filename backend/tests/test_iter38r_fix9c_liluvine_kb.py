@@ -119,7 +119,8 @@ def test_kb_upload_rejects_oversized(admin_h):
 
 
 def test_kb_upload_rejects_unsupported(admin_h):
-    files = {"file": ("photo.jpg", b"\xff\xd8\xff" + b"\x00" * 100, "image/jpeg")}
+    # Now images ARE supported (fix9h). Test with an unsupported binary type.
+    files = {"file": ("blob.bin", b"\x00" * 100, "application/octet-stream")}
     r = requests.post(
         f"{API}/admin/liluvine-pro/kb/upload",
         headers=admin_h,

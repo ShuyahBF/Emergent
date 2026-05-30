@@ -1519,8 +1519,25 @@ const ClientsConsistencySection = () => {
         </div>
       ) : (
         <div className="space-y-3" data-testid="cc-status-found">
-          <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs text-rose-900">
-            <strong>⚠️ {total} utilisateur(s) désaligné(s)</strong> sur {data.misaligned_groups} entreprise(s) (sur {data.scanned_groups} scannées).
+          <div className="rounded-lg ring-1 ring-rose-200 bg-rose-50 p-3 text-xs text-rose-900 flex items-center justify-between gap-3">
+            <span><strong>⚠️ {total} utilisateur(s) désaligné(s)</strong> sur {data.misaligned_groups} entreprise(s) (sur {data.scanned_groups} scannées).</span>
+            <button
+              onClick={async () => {
+                if (!window.confirm(`Réaligner ${total} utilisateur(s) désaligné(s) ? Cette opération applique le diagnostic à chaque utilisateur en lot et peut prendre quelques secondes.`)) return;
+                try {
+                  const r = await apiClient.post("/admin/clients-consistency/realign-all", { confirm: true });
+                  const done = r.data?.users_realigned ?? 0;
+                  toast.success(`✅ ${done} utilisateur(s) réaligné(s) en lot`);
+                  load();
+                } catch (e) {
+                  toast.error(e?.response?.data?.detail || "Erreur lors du réalignement en lot");
+                }
+              }}
+              className="shrink-0 inline-flex items-center gap-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white px-3 py-1.5 text-[11px] font-medium shadow-sm"
+              data-testid="cc-realign-all"
+            >
+              <Wrench className="h-3.5 w-3.5" /> Tout réaligner
+            </button>
           </div>
           <div className="space-y-2">
             {data.groups.map((g) => (

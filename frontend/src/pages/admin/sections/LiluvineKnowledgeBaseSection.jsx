@@ -85,7 +85,7 @@ export default function LiluvineKnowledgeBaseSection() {
       toast.error("Fichier trop volumineux (max 5 Mo)");
       return;
     }
-    const baseTitle = (file.name || "Document").replace(/\.(pdf|txt)$/i, "");
+    const baseTitle = (file.name || "Document").replace(/\.(pdf|txt|png|jpe?g|webp)$/i, "");
     const title = window.prompt("Titre de l'entrée (sera affiché dans la base) :", baseTitle);
     if (!title?.trim()) return;
     setUploading(true);
@@ -117,8 +117,8 @@ export default function LiluvineKnowledgeBaseSection() {
         </h2>
         <div className="flex items-center gap-2">
           <label className="inline-flex items-center gap-1 cursor-pointer rounded-lg ring-1 ring-violet-300 hover:bg-violet-50 text-violet-700 px-2.5 py-1.5 text-xs font-medium" data-testid="liluvine-kb-upload">
-            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Importer PDF/TXT"}
-            <input type="file" accept=".pdf,.txt,application/pdf,text/plain" className="hidden"
+            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Importer PDF / TXT / Image (OCR)"}
+            <input type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/png,image/jpeg,image/webp" className="hidden"
               onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
           </label>
           <button type="button" onClick={openCreate}
@@ -171,6 +171,7 @@ export default function LiluvineKnowledgeBaseSection() {
                 <div className="flex items-center gap-2 flex-wrap">
                   {it.kind === "pdf" ? <FileBox className="h-4 w-4 text-rose-500" /> :
                    it.kind === "txt" ? <FileText className="h-4 w-4 text-slate-500" /> :
+                   it.kind === "image_ocr" ? <FileText className="h-4 w-4 text-sky-500" /> :
                                        <BookOpen className="h-4 w-4 text-violet-500" />}
                   <p className="text-sm font-semibold text-slate-800 truncate">{it.title}</p>
                   <span className="text-[10px] rounded-full bg-slate-100 ring-1 ring-slate-200 text-slate-600 px-1.5 py-0.5">{it.char_count || (it.content || "").length} car.</span>

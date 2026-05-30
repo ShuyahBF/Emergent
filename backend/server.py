@@ -6110,6 +6110,56 @@ async def admin_clients_consistency(_: dict = Depends(get_current_admin)):
     return await _scan_clients_consistency()
 
 
+# Iter38r-fix9h — Batch realign every misaligned user in one click.
+class _RealignAllPayload(BaseModel):
+    confirm: bool = False
+    dry_run: bool = False
+
+
+@api.post("/admin/clients-consistency/realign-all", tags=["Admin"])
+async def admin_realign_all(payload: _RealignAllPayload = Body(...), admin: dict = Depends(get_current_admin)):
+    """Iter38r-fix9h — Réaligne d'un seul clic tous les utilisateurs détectés
+    comme désalignés par `_scan_clients_consistency`. Nécessite `confirm=true`."""
+    if not payload.confirm:
+        raise HTTPException(status_code=400, detail="confirm=true requis pour exécuter l'opération en lot")
+    scan = await _scan_clients_consistency()
+    results: List[Dict[str, Any]] = []
+    users_done = 0
+    for grp in scan.get("groups", []):
+        for m in grp.get("misaligned", []):
+            email = m.get("email")
+            if not email:
+                continue
+            entry: Dict[str, Any] = {
+                "user_id": m.get("id"), "email": email,
+                "company": grp.get("company"),
+                "from_client_id": m.get("client_id"),
+                "to_client_id": grp.get("canonical_client_id"),
+                "applied": False, "actions": 0, "error": None,
+            }
+            try:
+                res = await admin_realign_user_to_client(
+                    payload={"email": email, "dry_run": payload.dry_run},
+                    _={"role": "admin"},
+                )
+                entry["applied"] = bool(res.get("applied"))
+                entry["actions"] = len(res.get("applied_actions", []) or [])
+                if payload.dry_run:
+                    entry["dry_run"] = True
+                users_done += int(entry["applied"])
+            except HTTPException as exc:
+                entry["error"] = exc.detail
+            except Exception as exc:
+                entry["error"] = str(exc)[:200]
+            results.append(entry)
+    return {
+        "ok": True, "dry_run": payload.dry_run,
+        "groups_scanned": scan.get("misaligned_groups", 0),
+        "users_realigned": users_done,
+        "results": results,
+    }
+
+
 # ============================================================
 # iter32 — Auto-suggest canonical client when admin types a company name
 # in the "create user" form. The frontend calls this endpoint on blur and
@@ -20342,7 +20392,29 @@ async def _build_welcome_notes_kpis(user: dict) -> Dict[str, Any]:
         "status": {"$nin": ["done", "completed", "closed"]},
     })
     tasks["overdue"] = int(overdue)
-    return {"reports": rep, "suivis": sui, "notes": notes, "tasks": tasks}
+    # Iter38r-fix9h — Recent shared items addressed to me this week
+    week_iso = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+    shared_counts = {"reports": 0, "suivis": 0, "notes": 0, "tasks": 0}
+    if not _is_elevated_creator(user):
+        my_tenant = user.get("parent_client_id") or user.get("client_id") or user["id"]
+        for kind_key, coll_name in (("reports", "user_reports"), ("suivis", "user_suivis"),
+                                     ("notes", "user_notes_personal"), ("tasks", "user_tasks_personal")):
+            coll = getattr(db, coll_name)
+            q = {
+                "owner_id": {"$ne": user["id"]},
+                "created_at": {"$gte": week_iso},
+                "$or": [
+                    {"target_user_ids": user["id"]},
+                    {"is_private": {"$ne": True}, "tenant_id": my_tenant},
+                ],
+            }
+            try:
+                shared_counts[kind_key] = await coll.count_documents(q)
+            except Exception:
+                pass
+    shared_total = sum(shared_counts.values())
+    return {"reports": rep, "suivis": sui, "notes": notes, "tasks": tasks,
+            "shared_recent": {"total": shared_total, "by_kind": shared_counts, "window_days": 7}}
 
 
 # Iter38r-fix9d — Welcome modal counter "Liluvine a répondu à X messages

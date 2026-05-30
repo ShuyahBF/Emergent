@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import secrets
 import time
 from datetime import datetime, timezone
@@ -97,6 +98,46 @@ def _parse_pdf(raw: bytes) -> str:
         return "\n\n".join(s.strip() for s in out if s and s.strip())
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"PDF illisible : {exc}")
+
+
+async def _ocr_image_with_claude_vision(raw: bytes, mime: str) -> str:
+    """Iter38r-fix9h — Send the image to Claude Sonnet 4.6 Vision and ask it
+    to OCR all text from it. Returns the extracted text (no description),
+    formatted as plain text for storage in the KB."""
+    import base64
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée")
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=f"emergentintegrations indisponible : {exc}")
+    b64 = base64.b64encode(raw).decode("ascii")
+    img = ImageContent(image_base64=b64)
+    chat = LlmChat(
+        api_key=api_key,
+        session_id=f"liluvine-kb-ocr-{secrets.token_urlsafe(6)}",
+        system_message=(
+            "Tu es un moteur OCR précis. L'utilisateur va te montrer une image "
+            "qui contient du texte. Extrait EXCLUSIVEMENT le texte visible dans "
+            "l'image, sans description, sans commentaire, sans annotation. "
+            "Préserve la mise en page (paragraphes, listes, tableaux). "
+            "Si aucun texte n'est lisible, réponds exactement : "
+            "[AUCUN_TEXTE_DETECTE]."
+        ),
+    ).with_model("anthropic", "claude-sonnet-4-6")
+    try:
+        result = await chat.send_message(UserMessage(
+            text="Extrais tout le texte visible dans cette image, en respectant la mise en page.",
+            file_contents=[img],
+        ))
+    except Exception as exc:
+        logger.exception("[kb_ocr] vision call failed")
+        raise HTTPException(status_code=502, detail=f"OCR Claude Vision échec : {str(exc)[:200]}")
+    text = (result or "").strip()
+    if not text or "[AUCUN_TEXTE_DETECTE]" in text.upper():
+        raise HTTPException(status_code=422, detail="Aucun texte détecté dans l'image")
+    return text
 
 
 async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET) -> str:
@@ -232,8 +273,16 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             except Exception:
                 text = raw.decode("latin-1", errors="ignore")
             kind = "txt"
+        elif (
+            name.endswith((".png", ".jpg", ".jpeg", ".webp"))
+            or (file.content_type or "").startswith("image/")
+        ):
+            # Iter38r-fix9h — Claude Vision OCR for images
+            mime = file.content_type or ("image/png" if name.endswith(".png") else "image/jpeg")
+            text = await _ocr_image_with_claude_vision(raw, mime)
+            kind = "image_ocr"
         else:
-            raise HTTPException(status_code=415, detail="Seuls les PDF et TXT sont supportés")
+            raise HTTPException(status_code=415, detail="Seuls les PDF, TXT et images (PNG/JPG/WEBP) sont supportés")
         text = (text or "").strip()
         if not text:
             raise HTTPException(status_code=400, detail="Aucun texte extrait du fichier")

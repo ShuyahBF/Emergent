@@ -64,8 +64,13 @@ export default function UserNotesPage() {
   const canDelete = canDeleteOrRate(user);
   // Iter38r-fix9f — Tasks/Notes ouverts à tous ; Rapports/Suivis seulement aux profils élevés.
   const canCreate = (kind === "notes" || kind === "tasks") || elevated;
-  // Iter38r-fix9f — Scope tabs : tous / mes / partagés
-  const [scope, setScope] = useState("all");
+  // Iter38r-fix9h — Honor ?scope=...  URL param so the welcome briefing can deep-link
+  const [scope, setScope] = useState(() => {
+    try {
+      const p = new URLSearchParams(window.location.search).get("scope");
+      return ["mine", "shared", "all"].includes(p) ? p : "all";
+    } catch { return "all"; }
+  });
   // Iter38r-fix9f — Read-only viewer modal (eye icon for items I can't edit)
   const [viewing, setViewing] = useState(null);
 

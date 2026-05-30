@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2 } from "lucide-react";
+import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 
 /*
@@ -26,6 +26,10 @@ export default function LiluvinePro() {
   // Feature gate (ai_liluvine_pro must be enabled on parent admin)
   const [featureEnabled, setFeatureEnabled] = useState(true);
   const scrollRef = useRef(null);
+
+  // Iter38r-fix9h — Channel filter (Pack Liluvine a+d)
+  const [channelFilter, setChannelFilter] = useState("all"); // all | web | whatsapp | facebook | sms
+  const [searchQ, setSearchQ] = useState("");
 
   // Iter38r-fix9f — Resizable sidebar (matches Direct Chat & WhatsApp panes)
   const { leftWidth, dragHandlers, isCollapsed, toggleCollapsed } = useResizablePanel({
@@ -152,46 +156,119 @@ export default function LiluvinePro() {
             <Plus className="h-3 w-3" /> Nouvelle
           </button>
         </div>
+        {/* Iter38r-fix9h — Channel filter tabs */}
+        <div className="px-2 pt-2 flex items-center gap-1 overflow-x-auto" data-testid="liluvine-channel-tabs">
+          {[
+            { id: "all", label: "💬 Toutes", icon: null },
+            { id: "web", label: "🌐 Web", icon: Globe },
+            { id: "whatsapp", label: "📱 WA", icon: Phone },
+            { id: "facebook", label: "📘 FB", icon: null },
+            { id: "sms", label: "📩 SMS", icon: null },
+          ].map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => setChannelFilter(t.id)}
+              className={`shrink-0 text-[10px] px-1.5 py-1 rounded-md transition ${channelFilter === t.id ? "bg-fuchsia-600 text-white font-medium" : "text-slate-600 hover:bg-slate-100"}`}
+              data-testid={`liluvine-channel-${t.id}`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+        <div className="px-2 pt-2 pb-1">
+          <div className="relative">
+            <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-slate-400" />
+            <input
+              type="text"
+              value={searchQ}
+              onChange={(e) => setSearchQ(e.target.value)}
+              placeholder="Rechercher…"
+              className="w-full pl-7 pr-2 py-1 text-xs rounded-md ring-1 ring-slate-200 focus:ring-fuchsia-400 outline-none"
+              data-testid="liluvine-search-input"
+            />
+          </div>
+        </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1" data-testid="liluvine-sessions-list">
-          {sessions.length === 0 ? (
-            <p className="text-[11px] text-slate-400 italic px-2 py-4 text-center">Aucune conversation encore.</p>
-          ) : sessions.map((s) => {
-            const active = s.id === activeId;
-            return (
-              <div
-                key={s.id}
-                className={`group rounded-lg px-2.5 py-2 transition cursor-pointer ${
-                  active ? "bg-fuchsia-50 ring-1 ring-fuchsia-400" : "hover:bg-slate-50"
-                }`}
-                onClick={() => loadSession(s.id)}
-                data-testid={`liluvine-session-${s.id}`}
-              >
-                <p className={`text-xs font-semibold truncate ${active ? "text-fuchsia-700" : "text-slate-700"}`}>
-                  {s.title || "Sans titre"}
-                </p>
-                <div className="flex items-center justify-between mt-0.5">
-                  <span className="text-[10px] text-slate-400">{s.message_count} msg · {new Date(s.updated_at).toLocaleDateString("fr-FR")}</span>
-                  <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 transition">
-                    <button
-                      onClick={(e) => { e.stopPropagation(); rename(s.id, s.title); }}
-                      className="text-slate-400 hover:text-sky-600 p-0.5"
-                      title="Renommer"
-                    >
-                      <Edit2 className="h-3 w-3" />
-                    </button>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); delSession(s.id); }}
-                      className="text-slate-400 hover:text-rose-600 p-0.5"
-                      title="Supprimer"
-                      data-testid={`liluvine-del-${s.id}`}
-                    >
-                      <Trash2 className="h-3 w-3" />
-                    </button>
+          {(() => {
+            const filtered = sessions.filter((s) => {
+              // Channel filter — sessions starting with wa:/fb:/sms: vs internal
+              const sid = s.id || "";
+              const src = s.external_source || "";
+              let channel = "web";
+              if (sid.startsWith("wa:") || src === "whatsapp_native" || src === "whatsapp") channel = "whatsapp";
+              else if (sid.startsWith("fb:") || src === "facebook") channel = "facebook";
+              else if (sid.startsWith("sms:") || src === "sms") channel = "sms";
+              if (channelFilter !== "all" && channel !== channelFilter) return false;
+              if (searchQ) {
+                const q = searchQ.toLowerCase();
+                return (s.title || "").toLowerCase().includes(q) || (s.user_label || "").toLowerCase().includes(q);
+              }
+              return true;
+            });
+            if (filtered.length === 0) {
+              return <p className="text-[11px] text-slate-400 italic px-2 py-4 text-center">Aucune conversation {channelFilter !== "all" ? "sur ce canal" : "encore"}.</p>;
+            }
+            return filtered.map((s) => {
+              const active = s.id === activeId;
+              const sid = s.id || "";
+              const src = s.external_source || "";
+              const isWa = sid.startsWith("wa:") || src === "whatsapp_native" || src === "whatsapp";
+              const isFb = sid.startsWith("fb:") || src === "facebook";
+              const isSms = sid.startsWith("sms:") || src === "sms";
+              const badge = isWa ? "📱 WA" : isFb ? "📘 FB" : isSms ? "📩 SMS" : "🌐 Web";
+              const badgeColor = isWa ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
+                : isFb ? "bg-blue-50 text-blue-700 ring-blue-200"
+                : isSms ? "bg-amber-50 text-amber-700 ring-amber-200"
+                : "bg-slate-50 text-slate-600 ring-slate-200";
+              const ageMin = s.updated_at ? Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 60000) : null;
+              const ageLabel = ageMin === null ? "" :
+                ageMin < 1 ? "à l'instant" :
+                ageMin < 60 ? `il y a ${ageMin} min` :
+                ageMin < 1440 ? `il y a ${Math.floor(ageMin / 60)} h` :
+                new Date(s.updated_at).toLocaleDateString("fr-FR");
+              return (
+                <div
+                  key={s.id}
+                  className={`group rounded-lg px-2.5 py-2 transition cursor-pointer ${
+                    active ? "bg-fuchsia-50 ring-1 ring-fuchsia-400" : "hover:bg-slate-50"
+                  }`}
+                  onClick={() => loadSession(s.id)}
+                  data-testid={`liluvine-session-${s.id}`}
+                >
+                  <div className="flex items-start justify-between gap-1">
+                    <p className={`text-xs font-semibold truncate flex-1 ${active ? "text-fuchsia-700" : "text-slate-700"}`}>
+                      {s.title || s.user_label || "Sans titre"}
+                    </p>
+                    <span className={`text-[8px] uppercase tracking-wider rounded ring-1 px-1 py-0.5 ${badgeColor}`} data-testid={`liluvine-session-badge-${s.id}`}>{badge}</span>
+                  </div>
+                  {s.user_label && s.user_label !== s.title && (
+                    <p className="text-[10px] text-slate-500 truncate">{s.user_label}</p>
+                  )}
+                  <div className="flex items-center justify-between mt-0.5">
+                    <span className="text-[10px] text-slate-400">{s.message_count} msg · {ageLabel}</span>
+                    <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 transition">
+                      <button
+                        onClick={(e) => { e.stopPropagation(); rename(s.id, s.title); }}
+                        className="text-slate-400 hover:text-sky-600 p-0.5"
+                        title="Renommer"
+                      >
+                        <Edit2 className="h-3 w-3" />
+                      </button>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); delSession(s.id); }}
+                        className="text-slate-400 hover:text-rose-600 p-0.5"
+                        title="Supprimer"
+                        data-testid={`liluvine-del-${s.id}`}
+                      >
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
+              );
+            });
+          })()}
         </div>
       </aside>
       )}

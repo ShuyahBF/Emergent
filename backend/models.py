@@ -389,6 +389,12 @@ class SettingsUpdate(BaseModel):
     # browser request is available. Editable from the Coffre-fort des secrets.
     public_base_url: Optional[str] = None
 
+    # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
+    # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
+    # Stored alongside other secrets in `settings.global`. Takes precedence
+    # over the `STRIPE_WEBHOOK_SECRET` env var when set.
+    stripe_webhook_secret: Optional[str] = None
+
     # --- Iter35x — Alexa Echo voice notifications via Voice Monkey ---
     # When enabled, a POST is sent to `alexa_webhook_url` whenever one of the
     # selected events fires (SMS inbound, WhatsApp inbound, appointment due,

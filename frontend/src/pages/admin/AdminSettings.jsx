@@ -11,6 +11,7 @@ import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutorep
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
+import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -366,6 +367,10 @@ export default function AdminSettings() {
 
       <Filterable title="Coupons de réduction (Stripe Checkout)" anchorId="s-coupons-stripe">
         <CouponsSection />
+      </Filterable>
+
+      <Filterable title="Webhook Stripe (confirmation paiement)" anchorId="s-stripe-webhook">
+        <StripeWebhookSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">

@@ -84,8 +84,62 @@ async def _apply_coupon(db, code: str, base_xof: int) -> Dict[str, Any]:
     return {"ok": True, "final_xof": final_xof, "discount_xof": discount_xof, "coupon_doc": coupon}
 
 
+async def mark_public_order_paid(db, send_email_fn, order: Dict[str, Any]) -> Dict[str, Any]:
+    """Idempotent module-level helper: mark a `public_orders` row as paid,
+    increment coupon usage and send the confirmation email exactly once.
+    Reused by both the polling endpoint and the Stripe webhook (which is
+    registered in `payments_stripe.py`)."""
+    if order.get("status") == "paid":
+        return order
+    order_id = order["id"]
+    await db.public_orders.update_one(
+        {"id": order_id, "status": {"$ne": "paid"}},
+        {"$set": {
+            "status": "paid",
+            "paid_at": _now_iso(),
+            "updated_at": _now_iso(),
+        }},
+    )
+    order["status"] = "paid"
+    # Increment coupon usage (best-effort)
+    if order.get("coupon_code"):
+        try:
+            await db.coupons.update_one(
+                {"code": order["coupon_code"]},
+                {"$inc": {"uses": 1}},
+            )
+        except Exception:
+            logger.warning("[checkout] coupon usage increment failed", exc_info=True)
+    # Confirmation email (only once)
+    if order.get("customer_email") and send_email_fn and not order.get("email_sent_at"):
+        try:
+            await send_email_fn(
+                to_email=order["customer_email"],
+                subject=f"SAWALI — Confirmation de commande {order_id[:8]}",
+                html_body=(
+                    f"<h2 style='color:#1e40af'>Merci pour votre commande !</h2>"
+                    f"<p>Produit : <strong>{order.get('product_name')}</strong> × {order.get('quantity')}</p>"
+                    f"<p>Montant payé : <strong>{order.get('amount_xof'):,} XOF</strong></p>"
+                    f"{('<p>Code promo appliqué : ' + str(order.get('coupon_code') or '') + ' (-' + str(order.get('discount_xof') or 0) + ' XOF)</p>') if order.get('coupon_code') else ''}"
+                    f"<p>Référence : <code>{order_id}</code></p>"
+                    f"<p style='color:#64748b;font-size:12px'>SAWALI SMART SYSTEMS</p>"
+                ),
+                text_body=f"Confirmation commande {order_id}. Montant: {order.get('amount_xof')} XOF.",
+            )
+            await db.public_orders.update_one(
+                {"id": order_id},
+                {"$set": {"email_sent_at": _now_iso()}},
+            )
+        except Exception:
+            logger.warning("[checkout] confirmation email failed")
+    return order
+
+
 def setup_product_checkout_routes(app, db, get_current_user, send_email_fn):
     api: APIRouter = app
+
+    async def _mark_order_paid(order: Dict[str, Any]) -> Dict[str, Any]:
+        return await mark_public_order_paid(db, send_email_fn, order)
 
     @api.post("/public/products/{product_id}/checkout", tags=["Public"])
     async def public_product_checkout(product_id: str, payload: CheckoutRequest, request: Request):
@@ -199,57 +253,39 @@ def setup_product_checkout_routes(app, db, get_current_user, send_email_fn):
         order = await db.public_orders.find_one({"id": order_id}, {"_id": 0})
         if not order:
             raise HTTPException(status_code=404, detail="Commande introuvable")
-        # If still pending and we have a Stripe session, refresh status
+        # If still pending and we have a Stripe session, refresh status.
+        # Iter38r-fix9o (P1) — Webhook is the primary trigger now; this poll
+        # path remains as a safety net for delayed/missed webhooks.
         if order.get("status") == "pending" and order.get("stripe_session_id"):
             try:
                 sc = StripeCheckout(api_key=_stripe_key(), webhook_url="")
                 status = await sc.get_checkout_status(order["stripe_session_id"])
                 if status.payment_status == "paid":
-                    await db.public_orders.update_one(
-                        {"id": order_id},
-                        {"$set": {
-                            "status": "paid",
-                            "paid_at": _now_iso(),
-                            "updated_at": _now_iso(),
-                        }},
-                    )
-                    order["status"] = "paid"
-                    # Increment coupon usage if any
-                    if order.get("coupon_code"):
-                        await db.coupons.update_one(
-                            {"code": order["coupon_code"]},
-                            {"$inc": {"uses": 1}},
-                        )
-                    # Confirmation email
-                    if order.get("customer_email") and send_email_fn:
-                        try:
-                            await send_email_fn(
-                                to_email=order["customer_email"],
-                                subject=f"SAWALI — Confirmation de commande {order_id[:8]}",
-                                html_body=(
-                                    f"<h2 style='color:#1e40af'>Merci pour votre commande !</h2>"
-                                    f"<p>Produit : <strong>{order.get('product_name')}</strong> × {order.get('quantity')}</p>"
-                                    f"<p>Montant payé : <strong>{order.get('amount_xof'):,} XOF</strong></p>"
-                                    f"{('<p>Code promo appliqué : ' + str(order.get('coupon_code') or '') + ' (-' + str(order.get('discount_xof') or 0) + ' XOF)</p>') if order.get('coupon_code') else ''}"
-                                    f"<p>Référence : <code>{order_id}</code></p>"
-                                    f"<p style='color:#64748b;font-size:12px'>SAWALI SMART SYSTEMS</p>"
-                                ),
-                                text_body=f"Confirmation commande {order_id}. Montant: {order.get('amount_xof')} XOF.",
-                            )
-                            await db.public_orders.update_one(
-                                {"id": order_id},
-                                {"$set": {"email_sent_at": _now_iso()}},
-                            )
-                        except Exception:
-                            logger.warning("[checkout] confirmation email failed")
+                    order = await _mark_order_paid(order)
             except Exception:
                 logger.warning("[checkout] stripe session retrieve failed", exc_info=True)
         return order
+
+    # ---------------- Stripe Webhook ----------------
+    # NOTE: The actual `/api/webhook/stripe` endpoint is registered by
+    # `routes/payments_stripe.py` (it predates this module and also handles
+    # Formations payments). That handler now calls `mark_public_order_paid`
+    # from this module to finalise catalogue orders. Idempotency + event
+    # logging are also implemented there.
 
     # ---------------- Coupons (admin only) ----------------
     async def _ensure_admin(user: dict):
         if user.get("role") not in ("admin", "superviseur"):
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+
+    @api.get("/admin/stripe/webhook-events", tags=["Admin — Stripe"])
+    async def list_webhook_events(limit: int = 20, user: dict = Depends(get_current_user)):
+        await _ensure_admin(user)
+        cap = min(max(int(limit), 1), 100)
+        items = await db.webhook_events_stripe.find(
+            {}, {"_id": 0, "raw_signature": 0},
+        ).sort("received_at", -1).limit(cap).to_list(cap)
+        return {"items": items, "count": len(items)}
 
     @api.post("/admin/coupons", tags=["Admin — Coupons"])
     async def create_coupon(payload: CouponCreate, user: dict = Depends(get_current_user)):

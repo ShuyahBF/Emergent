@@ -48,7 +48,7 @@ def _safe_amount(value: float) -> float:
         return 0.0
 
 
-def setup_stripe_routes(*, db, api, get_current_user):
+def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
     api_key = os.environ.get("STRIPE_API_KEY")
     if not api_key:
         logger.warning("[stripe] STRIPE_API_KEY missing — Stripe Checkout disabled")
@@ -61,6 +61,12 @@ def setup_stripe_routes(*, db, api, get_current_user):
     except ImportError as exc:
         logger.error("[stripe] emergentintegrations not installed: %s", exc)
         return
+
+    # Iter38r-fix9o (P1) — import lazy to avoid circular at module load
+    try:
+        from routes.product_checkout_9n import mark_public_order_paid as _mark_public_order_paid
+    except Exception:
+        _mark_public_order_paid = None
 
     class CheckoutPayload(BaseModel):
         origin_url: str = Field(..., min_length=8, max_length=500)
@@ -193,37 +199,90 @@ def setup_stripe_routes(*, db, api, get_current_user):
 
     @api.post("/webhook/stripe", tags=["Payments"])
     async def stripe_webhook(request: Request):
-        """Stripe webhook. Verifies signature + creates enrollment once."""
-        sig = request.headers.get("Stripe-Signature")
+        """Stripe webhook. Verifies signature, then finalises either a paid
+        formation enrollment OR a public catalogue order (idempotent)."""
+        sig = request.headers.get("Stripe-Signature") or request.headers.get("stripe-signature")
         body = await request.body()
+        # Iter38r-fix9o — Resolve webhook signing secret from env or settings
+        secret = os.environ.get("STRIPE_WEBHOOK_SECRET") or ""
+        if not secret:
+            try:
+                s = await db.settings.find_one(
+                    {"_id": "global"}, {"_id": 0, "stripe_webhook_secret": 1},
+                ) or {}
+                secret = (s.get("stripe_webhook_secret") or "").strip()
+            except Exception:
+                pass
         host_url = str(request.base_url).rstrip("/")
         webhook_url = f"{host_url}/api/webhook/stripe"
-        client = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+        client = StripeCheckout(
+            api_key=api_key, webhook_url=webhook_url,
+            webhook_secret=secret or None,
+        )
         try:
             event = await client.handle_webhook(body, sig)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[stripe] webhook verify failed: %s", exc)
+            try:
+                import uuid as _uuid
+                await db.webhook_events_stripe.insert_one({
+                    "id": str(_uuid.uuid4()),
+                    "received_at": _now_iso(),
+                    "error": str(exc)[:300],
+                    "raw_signature": (sig or "")[:200],
+                })
+            except Exception:
+                pass
             raise HTTPException(status_code=400, detail="Signature invalide")
+        # Idempotency : ignore duplicate event_id
+        ev_id = getattr(event, "event_id", None)
+        if ev_id:
+            existing = await db.webhook_events_stripe.find_one(
+                {"event_id": ev_id}, {"_id": 0, "event_id": 1},
+            )
+            if existing:
+                return {"ok": True, "idempotent": True, "event_id": ev_id}
+            try:
+                import uuid as _uuid
+                await db.webhook_events_stripe.insert_one({
+                    "id": str(_uuid.uuid4()),
+                    "event_id": ev_id,
+                    "event_type": getattr(event, "event_type", None),
+                    "session_id": getattr(event, "session_id", None),
+                    "payment_status": getattr(event, "payment_status", None),
+                    "metadata": getattr(event, "metadata", {}) or {},
+                    "received_at": _now_iso(),
+                })
+            except Exception:
+                pass
         session_id = getattr(event, "session_id", None)
         payment_status = getattr(event, "payment_status", None)
         if not session_id:
             return {"ok": True}
+        # 1) Formations payment path (legacy)
         tx = await db.payment_transactions.find_one(
             {"session_id": session_id}, {"_id": 0}
         )
-        if not tx:
-            return {"ok": True}  # webhook for an unknown session — ignore
-        upd: Dict[str, Any] = {
-            "payment_status": payment_status,
-            "status": getattr(event, "event_type", None),
-            "updated_at": _now_iso(),
-        }
-        if payment_status == "paid" and not tx.get("enrollment_created"):
-            await _create_enrollment_idempotent(db, tx, session_id)
-            upd["enrollment_created"] = True
-        await db.payment_transactions.update_one(
-            {"session_id": session_id}, {"$set": upd}
+        if tx:
+            upd: Dict[str, Any] = {
+                "payment_status": payment_status,
+                "status": getattr(event, "event_type", None),
+                "updated_at": _now_iso(),
+            }
+            if payment_status == "paid" and not tx.get("enrollment_created"):
+                await _create_enrollment_idempotent(db, tx, session_id)
+                upd["enrollment_created"] = True
+            await db.payment_transactions.update_one(
+                {"session_id": session_id}, {"$set": upd}
+            )
+            return {"ok": True, "kind": "formation"}
+        # 2) Public catalogue order path (Iter38r-fix9o)
+        public_order = await db.public_orders.find_one(
+            {"stripe_session_id": session_id}, {"_id": 0},
         )
+        if public_order and payment_status == "paid" and _mark_public_order_paid:
+            await _mark_public_order_paid(db, send_email_fn, public_order)
+            return {"ok": True, "kind": "public_order"}
         return {"ok": True}
 
 

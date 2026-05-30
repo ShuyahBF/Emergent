@@ -10685,7 +10685,8 @@ async def admin_get_settings(_: dict = Depends(get_current_admin)):
                 "sms_telecel_token", "sms_telecel_basic_pass", "sms_telecel_header_value", "sms_telecel_client_secret",
                 "sms_ovh_application_secret", "sms_ovh_consumer_key",
                 "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
-                "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret"):
+                "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
+                "stripe_webhook_secret"):
         if masked.get(k):
             masked[k] = "********"
     masked["google_calendar_connected"] = bool((await db.settings.find_one({"_id": "global"}) or {}).get("google_refresh_token"))
@@ -10711,6 +10712,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
         "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
         "support_load_webhook_secret", "liluvine_remote_secret",
+        "stripe_webhook_secret",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -20923,7 +20925,7 @@ _CATALOG_ANALYTICS = _setup_catalog_analytics(
 
 # Iter38o — Stripe Checkout for paid formations.
 from routes.payments_stripe import setup_stripe_routes as _setup_stripe_routes  # noqa: E402
-_setup_stripe_routes(db=db, api=api, get_current_user=get_current_user)
+_setup_stripe_routes(db=db, api=api, get_current_user=get_current_user, send_email_fn=send_email)
 
 # Iter38r-fix5 — AI Quotas & Usage Tracking per Client Lié.
 from routes.ai_quotas import setup_ai_quotas_routes as _setup_ai_quotas_routes, track_ai_usage as _track_ai_usage  # noqa: E402, F401

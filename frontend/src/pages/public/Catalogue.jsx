@@ -8,7 +8,7 @@
 import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight, Share2 } from "lucide-react";
+import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight, Share2, ShoppingCart, X, Tag, CheckCircle2 } from "lucide-react";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -50,6 +50,8 @@ export default function Catalogue() {
   const [brochures, setBrochures] = useState([]);
   const [query, setQuery] = useState("");
   const [activeCategory, setActiveCategory] = useState("Tous");
+  // Iter38r-fix9n — Stripe checkout modal
+  const [buyProduct, setBuyProduct] = useState(null);
 
   useEffect(() => {
     document.title = "Catalogue — SAWALI SMART SYSTEMS";
@@ -173,6 +175,14 @@ export default function Catalogue() {
                               <Sparkles className="h-4 w-4" /> Demander un devis
                               <ArrowRight className="h-4 w-4" />
                             </Link>
+                            <button
+                              type="button"
+                              onClick={() => { trackCatalogEvent("product_buy_click", p); setBuyProduct(p); }}
+                              className="mt-2 inline-flex items-center justify-center gap-2 rounded-lg ring-1 ring-emerald-400/40 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/20 px-4 py-2 text-sm font-semibold transition"
+                              data-testid={`catalog-buy-${p.id}`}
+                            >
+                              <ShoppingCart className="h-4 w-4" /> Acheter maintenant
+                            </button>
                             {/* Iter38g — Share with rich OG preview (WhatsApp / FB / LinkedIn) */}
                             <button
                               type="button"
@@ -241,6 +251,104 @@ export default function Catalogue() {
           )}
         </div>
       </div>
+      {/* Iter38r-fix9n — Stripe checkout modal */}
+      {buyProduct && <BuyModal product={buyProduct} onClose={() => setBuyProduct(null)} />}
     </section>
+  );
+}
+
+// =====================================================================
+// Iter38r-fix9n — BuyModal
+// =====================================================================
+function BuyModal({ product, onClose }) {
+  const [qty, setQty] = useState(1);
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [couponCode, setCouponCode] = useState("");
+  const [couponInfo, setCouponInfo] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  const unitTTC = Math.round((product.unit_price_ht || 0) * (1 + (product.tva_pct || 0) / 100));
+  const base = unitTTC * qty;
+  const final_xof = couponInfo?.ok ? couponInfo.final_xof : base;
+
+  const validateCoupon = async () => {
+    if (!couponCode.trim()) { setCouponInfo(null); return; }
+    try {
+      const r = await apiClient.get(`/public/coupons/${encodeURIComponent(couponCode.trim().toUpperCase())}/validate?amount=${base}`);
+      setCouponInfo(r.data);
+    } catch (err) {
+      setCouponInfo({ ok: false, error: err?.response?.data?.detail || "Code invalide" });
+    }
+  };
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSubmitting(true);
+    try {
+      const r = await apiClient.post(`/public/products/${product.id}/checkout`, {
+        quantity: qty,
+        coupon_code: couponCode.trim() || undefined,
+        customer_email: email || undefined,
+        customer_name: name || undefined,
+        return_url: window.location.origin,
+      });
+      // Redirect to Stripe Checkout
+      window.location.href = r.data.checkout_url;
+    } catch (err) {
+      // eslint-disable-next-line no-alert
+      alert(err?.response?.data?.detail || "Erreur lors de l'initialisation du paiement.");
+      setSubmitting(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 p-4" onClick={onClose} data-testid="buy-modal">
+      <div className="bg-sawali-navy-dark ring-1 ring-sawali-blue-light/30 rounded-2xl shadow-2xl max-w-md w-full overflow-hidden" onClick={(e) => e.stopPropagation()}>
+        <header className="px-5 py-3 border-b border-white/10 flex items-center justify-between">
+          <h3 className="font-display font-bold text-white inline-flex items-center gap-2">
+            <ShoppingCart className="h-4 w-4 text-emerald-400" /> Acheter — {product.name}
+          </h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-white" data-testid="buy-modal-close"><X className="h-4 w-4" /></button>
+        </header>
+        <form onSubmit={submit} className="p-5 space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-xs text-slate-300">
+              Quantité
+              <input type="number" min="1" max="100" value={qty} onChange={(e) => setQty(parseInt(e.target.value) || 1)} className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white" data-testid="buy-modal-qty" />
+            </label>
+            <label className="block text-xs text-slate-300">
+              Nom (facultatif)
+              <input type="text" value={name} onChange={(e) => setName(e.target.value)} className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white" data-testid="buy-modal-name" />
+            </label>
+          </div>
+          <label className="block text-xs text-slate-300">
+            Email (pour la confirmation)
+            <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="vous@exemple.com" required className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white" data-testid="buy-modal-email" />
+          </label>
+          <div className="flex gap-2">
+            <label className="flex-1 block text-xs text-slate-300">
+              Code promo
+              <input type="text" value={couponCode} onChange={(e) => setCouponCode(e.target.value.toUpperCase())} placeholder="SOLDES2026" className="mt-1 w-full bg-white/5 ring-1 ring-white/10 rounded-lg px-3 py-2 text-sm text-white font-mono uppercase" data-testid="buy-modal-coupon" />
+            </label>
+            <button type="button" onClick={validateCoupon} className="self-end h-[34px] px-3 rounded-lg bg-sawali-blue-light/20 ring-1 ring-sawali-blue-light/30 text-sawali-blue-light text-xs hover:bg-sawali-blue-light/30" data-testid="buy-modal-coupon-validate">
+              <Tag className="h-3 w-3 inline mr-1" /> Vérifier
+            </button>
+          </div>
+          {couponInfo?.ok && <div className="rounded-lg bg-emerald-500/10 ring-1 ring-emerald-400/30 p-2 text-emerald-300 text-xs inline-flex items-center gap-2"><CheckCircle2 className="h-3 w-3" /> -{couponInfo.discount_xof.toLocaleString("fr-FR")} XOF appliqués</div>}
+          <div className="rounded-lg bg-white/5 p-3 space-y-1 text-sm">
+            <div className="flex justify-between text-slate-300"><span>Sous-total</span><span>{base.toLocaleString("fr-FR")} XOF</span></div>
+            {couponInfo?.ok && couponInfo.discount_xof > 0 && (
+              <div className="flex justify-between text-emerald-300"><span>Réduction</span><span>-{couponInfo.discount_xof.toLocaleString("fr-FR")} XOF</span></div>
+            )}
+            <div className="flex justify-between text-white font-display font-bold pt-1 border-t border-white/10"><span>Total</span><span>{final_xof.toLocaleString("fr-FR")} XOF</span></div>
+          </div>
+          <button type="submit" disabled={submitting || !email} className="w-full rounded-lg bg-emerald-500 hover:bg-emerald-600 text-white px-4 py-2.5 text-sm font-semibold disabled:opacity-50 inline-flex items-center justify-center gap-2" data-testid="buy-modal-submit">
+            {submitting ? "Redirection vers Stripe…" : `Payer ${final_xof.toLocaleString("fr-FR")} XOF`} <ArrowRight className="h-4 w-4" />
+          </button>
+          <p className="text-[10px] text-slate-500 text-center">Paiement sécurisé par Stripe — CB / Apple Pay / Google Pay. SAWALI ne stocke pas vos données bancaires.</p>
+        </form>
+      </div>
+    </div>
   );
 }

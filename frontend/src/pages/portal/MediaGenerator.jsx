@@ -31,6 +31,8 @@ export default function MediaGenerator() {
   const [refFile, setRefFile] = useState(null);
   const refInputRef = useRef(null);
   // Video state
+  // Iter38r-fix9m — Image model selector (Nano Banana, GPT Image 1, Imagen 4)
+  const [imageModel, setImageModel] = useState("nano-banana");
   const [videoDuration, setVideoDuration] = useState(4);
   const [videoSize, setVideoSize] = useState("1280x720");
   const [videoModel, setVideoModel] = useState("sora-2");
@@ -65,11 +67,36 @@ export default function MediaGenerator() {
     try {
       let r;
       if (tab === "video") {
-        r = await apiClient.post("/me/ai/generate-video", {
-          prompt: prompt.trim(), duration: videoDuration, size: videoSize, model: videoModel,
-        }, { timeout: 900000 });
-        setCurrent({ url: r.data?.url, kind: "video" });
-        toast.success("Vidéo générée !");
+        if (videoModel === "veo-3.1") {
+          r = await apiClient.post("/me/ai/generate-video-veo", {
+            prompt: prompt.trim(), resolution: videoSize.split("x")[1] === "1080" ? "1080p" : "720p",
+          });
+          const jobId = r.data?.job_id;
+          toast.info("Veo 3.1 — vidéo en cours de génération (peut prendre 2-5 min)…");
+          // Poll every 10s up to 6 minutes
+          const start = Date.now();
+          let final = null;
+          while (Date.now() - start < 360000) {
+            await new Promise((res) => setTimeout(res, 10000));
+            const p = await apiClient.get(`/me/ai/generate-video-veo/${jobId}`);
+            if (p.data?.status === "completed" && p.data?.video_uri) {
+              final = p.data.video_uri;
+              break;
+            }
+            if (p.data?.status === "failed") {
+              throw new Error(p.data?.error || "Veo: échec");
+            }
+          }
+          if (!final) throw new Error("Timeout Veo (6 min)");
+          setCurrent({ url: final, kind: "video" });
+          toast.success("Vidéo Veo 3.1 générée !");
+        } else {
+          r = await apiClient.post("/me/ai/generate-video", {
+            prompt: prompt.trim(), duration: videoDuration, size: videoSize, model: videoModel,
+          }, { timeout: 900000 });
+          setCurrent({ url: r.data?.url, kind: "video" });
+          toast.success("Vidéo générée !");
+        }
       } else if (refFile) {
         const form = new FormData();
         form.append("prompt", prompt.trim());
@@ -78,11 +105,22 @@ export default function MediaGenerator() {
         setCurrent({ url: r.data?.url, kind: "image" });
         toast.success("Image générée !");
       } else {
-        r = await apiClient.post("/me/ai/generate-image", {
-          prompt: prompt.trim(), aspect, icon_mode: iconMode,
-        });
-        setCurrent({ url: r.data?.url, kind: "image" });
-        toast.success("Image générée !");
+        // Iter38r-fix9m — Image model branch: Imagen 4 vs Nano Banana
+        if (imageModel === "imagen-4") {
+          r = await apiClient.post("/me/ai/generate-image-imagen", {
+            prompt: prompt.trim(),
+            aspect_ratio: aspect === "1:1" ? "1:1" : aspect === "16:9" ? "16:9" : aspect === "9:16" ? "9:16" : "1:1",
+          });
+          const url = r.data?.images?.[0];
+          setCurrent({ url, kind: "image" });
+          toast.success("Image Imagen 4 générée !");
+        } else {
+          r = await apiClient.post("/me/ai/generate-image", {
+            prompt: prompt.trim(), aspect, icon_mode: iconMode,
+          });
+          setCurrent({ url: r.data?.url, kind: "image" });
+          toast.success("Image générée !");
+        }
       }
       loadHistory();
     } catch (err) {
@@ -190,8 +228,16 @@ export default function MediaGenerator() {
                   className="text-xs px-2 py-1.5 border border-slate-300 rounded-lg" data-testid="mediagen-video-model">
                   <option value="sora-2">Sora 2 (rapide)</option>
                   <option value="sora-2-pro">Sora 2 Pro (qualité)</option>
+                  <option value="veo-3.1">Veo 3.1 (Google · son natif)</option>
                 </select>
               </>
+            )}
+            {tab === "image" && (
+              <select value={imageModel} onChange={(e) => setImageModel(e.target.value)}
+                className="text-xs px-2 py-1.5 border border-slate-300 rounded-lg" data-testid="mediagen-image-model">
+                <option value="nano-banana">Nano Banana (Gemini)</option>
+                <option value="imagen-4">Imagen 4 (Google HD)</option>
+              </select>
             )}
           </div>
 

@@ -20767,6 +20767,14 @@ async def _get_settings_async() -> Dict[str, Any]:
 
 _setup_bonus_pack_routes(app=api, db=db, get_current_user=get_current_user)
 
+# Iter38r-fix9m — AI Media additional models (Veo 3, Imagen 4, ElevenLabs v3)
+from routes.ai_media_9m import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402
+_setup_ai_media_routes(app=api, db=db, get_current_user=get_current_user)
+
+# Iter38r-fix9n — Public product checkout (Stripe) + coupons
+from routes.product_checkout_9n import setup_product_checkout_routes as _setup_product_checkout_routes  # noqa: E402
+_setup_product_checkout_routes(app=api, db=db, get_current_user=get_current_user, send_email_fn=send_email)
+
 # Iter38r-fix8 — Emergent Object Storage proxy.
 # Files persisted via object_storage.save_and_log() are served via this proxy
 # so the frontend can use a simple URL (DB stays the source of truth).

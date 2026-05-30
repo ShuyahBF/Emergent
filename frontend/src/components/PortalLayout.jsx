@@ -51,6 +51,7 @@ const clientLinks = [
   { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
+  { to: "/portal/voice-studio", label: "Voice Studio (Clonage)", icon: Volume2 },
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)

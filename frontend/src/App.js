@@ -108,6 +108,8 @@ import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
 import PayoutsPage from "@/pages/portal/Payouts";
+import VoiceStudio from "@/pages/portal/VoiceStudio";
+import { CheckoutSuccess, CheckoutCancel } from "@/pages/public/CheckoutPages";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import WaBulk from "@/pages/portal/WaBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
@@ -157,6 +159,8 @@ export default function App() {
           <Route path="/missions" element={<PublicRoute><Missions /></PublicRoute>} />
           <Route path="/specialisations" element={<PublicRoute><Specialisations /></PublicRoute>} />
           <Route path="/catalogue" element={<PublicRoute><Catalogue /></PublicRoute>} />
+          <Route path="/checkout/success" element={<PublicRoute><CheckoutSuccess /></PublicRoute>} />
+          <Route path="/checkout/cancel" element={<PublicRoute><CheckoutCancel /></PublicRoute>} />
           <Route path="/contact" element={<PublicRoute><Contact /></PublicRoute>} />
           <Route path="/rdv" element={<PublicRoute><RDV /></PublicRoute>} />
           <Route path="/temoignages" element={<PublicRoute><Testimonials /></PublicRoute>} />
@@ -198,6 +202,7 @@ export default function App() {
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="payments" element={<MyPayments />} />
             <Route path="payouts" element={<PayoutsPage />} />
+            <Route path="voice-studio" element={<VoiceStudio />} />
             <Route path="sms" element={<SmsBulk />} />
             <Route path="whatsapp-bulk" element={<WaBulk />} />
             <Route path="my-account" element={<MyAccount />} />

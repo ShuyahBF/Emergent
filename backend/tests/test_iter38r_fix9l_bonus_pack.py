@@ -189,7 +189,7 @@ def test_apply_task_ack_marks_items_done(db_sync):
         }},
         upsert=True,
     )
-    result = asyncio.get_event_loop().run_until_complete(
+    result = asyncio.new_event_loop().run_until_complete(
         apply_task_ack_for_user(async_db, admin["id"], [1])
     )
     assert result["matched"] == 1

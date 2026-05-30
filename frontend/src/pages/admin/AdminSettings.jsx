@@ -10,6 +10,7 @@ import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
+import CouponsSection from "@/pages/admin/sections/CouponsSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -361,6 +362,10 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />
+      </Filterable>
+
+      <Filterable title="Coupons de réduction (Stripe Checkout)" anchorId="s-coupons-stripe">
+        <CouponsSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">

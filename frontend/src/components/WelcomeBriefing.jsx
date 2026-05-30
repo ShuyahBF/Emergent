@@ -64,6 +64,9 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   // Iter38r-fix9d — Liluvine PRO auto-reply ROI counter
   const liluAuto = data?.liluvine_autoreply_today || null;
   const hasLiluAuto = !!liluAuto && (liluAuto.today > 0 || liluAuto.last_7d > 0);
+  // Iter38r-fix9o (Item 8) — WhatsApp OTP demo signups widget (admins only)
+  const waDemo = data?.wa_demo_recent || null;
+  const hasWaDemo = !!waDemo && (waDemo.total || 0) > 0;
   // Iter38r-fix8b — Quick KPIs (Rapports/Suivis/Notes/Tâches) so the briefing
   // is never empty for active users.
   const kpis = data?.notes_kpis || null;
@@ -81,7 +84,7 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   );
   const hasSinceLast = !!sinceLast && (sinceLast.total_count || 0) > 0;
   const hasExpenseReminder = !!expenseReminder && expenseReminder.count > 0;
-  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto && !hasSharedRecent;
+  const isEmpty = !loading && tickets.length === 0 && unread.total === 0 && notes.length === 0 && !hasHealth && !hasSinceLast && !hasExpenseReminder && !hasKpis && !hasLiluAuto && !hasSharedRecent && !hasWaDemo;
 
   if (!loading && isEmpty) {
     // Mark as seen and close silently
@@ -206,6 +209,47 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
                 </div>
               </section>
             )}
+
+            {/* Iter38r-fix9o (Item 8) — WhatsApp OTP demo signups */}
+            {hasWaDemo && (
+              <section className="rounded-lg ring-1 ring-green-300 bg-gradient-to-br from-green-50/70 via-white to-emerald-50/40 p-3" data-testid="welcome-wa-demo">
+                <div className="flex items-start gap-3">
+                  <div className="rounded-full bg-green-100 ring-1 ring-green-200 p-2 flex-shrink-0">
+                    <MessageCircle className="h-5 w-5 text-green-700" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-baseline gap-2 flex-wrap">
+                      <span className="text-2xl font-display font-bold text-green-900 leading-none">{waDemo.total}</span>
+                      <p className="text-sm text-green-900 font-medium">
+                        connexion{waDemo.total > 1 ? "s" : ""} WhatsApp démo
+                      </p>
+                      {waDemo.unseen > 0 && (
+                        <span className="ml-1 text-[10px] rounded-full bg-rose-100 text-rose-800 ring-1 ring-rose-200 px-2 py-0.5 font-semibold" data-testid="welcome-wa-demo-unseen">
+                          {waDemo.unseen} non vu{waDemo.unseen > 1 ? "s" : ""}
+                        </span>
+                      )}
+                    </div>
+                    {(waDemo.items || []).length > 0 && (
+                      <ul className="mt-2 space-y-1">
+                        {(waDemo.items || []).slice(0, 5).map((it) => (
+                          <li key={it.id} className="text-xs text-green-900/90 flex items-center gap-2" data-testid="welcome-wa-demo-row">
+                            <span className="font-mono text-[10px] bg-white ring-1 ring-green-200 rounded px-1.5 py-0.5 text-green-700">{it.user_no || "DEM"}</span>
+                            <span className="font-medium truncate">{it.full_name}</span>
+                            <span className="font-mono text-[10px] text-green-700">{it.whatsapp || it.phone}</span>
+                            {!it.wa_onboarding_seen_by && <span className="ml-auto text-[9px] rounded-full bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-1.5 py-0.5">nouveau</span>}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    <Link to="/admin/tracked-users?source=wa_otp_login" onClick={dismiss} className="inline-block mt-2 text-[10px] rounded-full bg-green-50 ring-1 ring-green-300 text-green-800 px-2 py-0.5 hover:bg-green-100" data-testid="welcome-wa-demo-link">
+                      Voir tous les utilisateurs WA →
+                    </Link>
+                  </div>
+                </div>
+              </section>
+            )}
+
+
 
             {/* Iter38r-fix9d — Liluvine PRO auto-reply ROI counter */}
             {hasLiluAuto && (

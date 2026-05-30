@@ -3535,6 +3535,8 @@ class ClientFeaturesUpdate(BaseModel):
     # quand le toggle "Liluvine PRO" était activé dans SMART Communications,
     # Pydantic le supprimait silencieusement avant l'enregistrement en base.
     ai_liluvine_pro: Optional[bool] = None
+    # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
+    tickets_bubble: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
     # Iter38r — Pre-fix MSISDN on PawaPay Payment Page (true) or let the
     # customer enter it themselves on the hosted page (false). When null,
@@ -19315,6 +19317,183 @@ async def me_open_ticket(
     return {"ok": True, "ticket": ticket, "notification": notification}
 
 
+# Iter38r-fix9o (Item 6) — Quick-ticket creation from the floating bubble.
+# Difference vs `/me/contacts/{cid}/ticket`: no contact_id is required;
+# the optional `contact_phone` is auto-matched to an existing
+# `directory_contacts` row OR a lightweight contact is created on the fly.
+DEFAULT_INTERVENTION_REASONS: List[str] = [
+    "Logiciel bloqué",
+    "Erreur d'enregistrement",
+    "Demande de formation",
+    "Demande d'évolution",
+    "Problème d'impression",
+    "Problème réseau / connexion",
+    "Sauvegarde / restauration",
+    "Configuration matérielle",
+    "Autre (préciser)",
+]
+
+
+@api.get("/me/intervention-reasons", tags=["Portail Client"])
+async def me_intervention_reasons(user: dict = Depends(get_current_user)):
+    """Return the (admin-configurable) list of preset reasons used by the
+    floating TicketsBubble. Stored at `settings.global.intervention_reasons`.
+    Falls back to `DEFAULT_INTERVENTION_REASONS` when none configured."""
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "intervention_reasons": 1}) or {}
+    raw = s.get("intervention_reasons") or []
+    out: List[Dict[str, str]] = []
+    if isinstance(raw, list) and raw:
+        for idx, x in enumerate(raw):
+            label = (str(x) or "").strip() if not isinstance(x, dict) else (str(x.get("label") or "").strip())
+            if label:
+                out.append({"id": f"r{idx}", "label": label})
+    if not out:
+        out = [{"id": f"r{i}", "label": lab} for i, lab in enumerate(DEFAULT_INTERVENTION_REASONS)]
+    return {"items": out}
+
+
+class QuickTicketPayload(BaseModel):
+    client_id: str
+    reason: str
+    contact_name: Optional[str] = None
+    contact_phone: Optional[str] = None
+    incident_at: Optional[str] = None
+    software: Optional[str] = None
+    notes: Optional[str] = None
+    attach_wa_sms_history: Optional[bool] = False
+
+
+@api.post("/me/tickets", tags=["Portail Client"])
+async def me_create_ticket_quick(
+    payload: QuickTicketPayload,
+    user: dict = Depends(get_current_user),
+):
+    """Iter38r-fix9o — Quick-create a ticket from the floating bubble.
+    Behavior:
+      - Validates `client_id` is reachable by the caller.
+      - Generates a sequential ticket number for that tenant.
+      - Resolves or creates a lightweight contact (directory_contacts) from
+        `contact_phone` (or `contact_name`) when provided. No contact row
+        is created if neither is given.
+      - Sends the configured WA template (notify_on_ticket_open) when a
+        phone is present.
+      - Persists `software`, `incident_at` and `attach_wa_sms_history` flag
+        directly on the ticket doc (free-form fields).
+    """
+    reason = (payload.reason or "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Le motif est obligatoire.")
+    if len(reason) > 200:
+        raise HTTPException(status_code=400, detail="Le motif doit faire au maximum 200 caractères.")
+    requested_client_id = (payload.client_id or "").strip()
+    if not requested_client_id:
+        raise HTTPException(status_code=400, detail="Veuillez sélectionner le client lié.")
+
+    # Authorize the client_id (same rules as `/me/contacts/{cid}/ticket`)
+    if _is_elevated_creator(user):
+        owner = await db.users.find_one(
+            {"id": requested_client_id, "role": {"$in": ["client", "superviseur", "admin"]}},
+            {"_id": 0, "id": 1},
+        )
+    else:
+        effective_id = user.get("parent_client_id") or user["id"]
+        owner = {"id": effective_id} if requested_client_id == effective_id else None
+    if not owner:
+        raise HTTPException(status_code=403, detail="Client lié non autorisé pour cet utilisateur.")
+    client_id = requested_client_id
+
+    # Optional: resolve/create the contact (by phone preferred, then by name)
+    contact = None
+    cname = (payload.contact_name or "").strip() or None
+    cphone = (payload.contact_phone or "").strip() or None
+    phone_digits = "".join(ch for ch in (cphone or "") if ch.isdigit())
+    if phone_digits:
+        contact = await db.directory_contacts.find_one(
+            {"client_id": client_id, "phone_digits": phone_digits},
+            {"_id": 0},
+        )
+        if not contact:
+            new_cid = str(uuid.uuid4())
+            contact = {
+                "id": new_cid,
+                "client_id": client_id,
+                "owner_id": user["id"],
+                "owner_label": user.get("full_name") or user.get("email"),
+                "name": cname or f"+{phone_digits}",
+                "phone": cphone,
+                "whatsapp": cphone if cphone.startswith("+") else f"+{phone_digits}",
+                "phone_digits": phone_digits,
+                "tags": ["Ticket bubble"],
+                "shared": True,
+                "source": "tickets_bubble",
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+            await db.directory_contacts.insert_one(contact.copy())
+            contact.pop("_id", None)
+    elif cname:
+        # Name-only contact placeholder (no WA template will fire)
+        contact = {"id": None, "name": cname, "phone": None, "whatsapp": None}
+
+    number = await _next_ticket_number(client_id)
+    now_iso = _now()
+    ticket = {
+        "id": _uuid(),
+        "number": number,
+        "client_id": client_id,
+        "contact_id": (contact or {}).get("id"),
+        "contact_name": (contact or {}).get("name") or cname,
+        "contact_phone": (contact or {}).get("whatsapp") or (contact or {}).get("phone") or cphone,
+        "motif": reason,
+        "status": "open",
+        "notes": (payload.notes or "").strip() or None,
+        "software": (payload.software or "").strip() or None,
+        "incident_at": (payload.incident_at or "").strip() or None,
+        "attach_wa_sms_history": bool(payload.attach_wa_sms_history),
+        "source": "tickets_bubble",
+        "opened_at": now_iso,
+        "opened_by_id": user["id"],
+        "opened_by_label": user.get("full_name") or user.get("email"),
+        "closed_at": None,
+        "closed_by_id": None,
+        "closed_by_label": None,
+        "outcome": None,
+        "resolution_note": None,
+        "created_at": now_iso,
+        "updated_at": now_iso,
+    }
+    await db.support_tickets.insert_one(ticket.copy())
+    try:
+        await _log_activity(
+            client_id=client_id, kind="ticket", action="created",
+            label=f"{number} — {reason[:80]}", actor=user, target_id=ticket["id"],
+        )
+    except Exception:
+        pass
+
+    # WA template (best-effort)
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    notify = bool(s.get("notify_on_ticket_open", True))
+    tpl_name = (s.get("wa_template_ticket_open") or "").strip()
+    notification = {"sent": False, "error": None}
+    if notify and tpl_name and ticket["contact_phone"]:
+        comps = _ticket_components(number, motif=reason)
+        try:
+            wr = await _wa_send_template(
+                ticket["contact_phone"], tpl_name,
+                (s.get("wa_template_ticket_language") or "fr").strip() or "fr",
+                comps,
+            )
+            notification = {"sent": bool(wr.get("ok")), "error": wr.get("error")}
+        except Exception as exc:  # noqa: BLE001
+            notification = {"sent": False, "error": str(exc)[:200]}
+
+    ticket.pop("_id", None)
+    return {"ok": True, "id": ticket["id"], "ticket": ticket, "notification": notification}
+
+
+
+
 @api.get("/me/tickets", tags=["Portail Client"])
 async def me_list_tickets(
     status: Optional[str] = None,  # one of TICKET_ALL_STATUSES, or "open_all" for any non-closed
@@ -20478,6 +20657,7 @@ async def me_welcome_briefing(
         "expense_reminder": expense_reminder,
         "notes_kpis": await _build_welcome_notes_kpis(user),
         "liluvine_autoreply_today": await _build_liluvine_autoreply_stats(user),
+        "wa_demo_recent": await _build_wa_demo_recent_stats(user),
         "server_now": _now(),
     }
 
@@ -20534,6 +20714,25 @@ async def _build_welcome_notes_kpis(user: dict) -> Dict[str, Any]:
     shared_total = sum(shared_counts.values())
     return {"reports": rep, "suivis": sui, "notes": notes, "tasks": tasks,
             "shared_recent": {"total": shared_total, "by_kind": shared_counts, "window_days": 7}}
+
+
+# Iter38r-fix9o (Item 8) — Welcome modal widget: recent WA-OTP demo signups.
+# Admin/superviseur/moderateur only. Returns up to N items + unseen badge.
+async def _build_wa_demo_recent_stats(user: dict) -> Optional[Dict[str, Any]]:
+    if user.get("role") not in ("admin", "superviseur", "moderateur"):
+        return None
+    items = await db.users.find(
+        {"source": "wa_otp_login", "is_demo": True},
+        {"_id": 0, "id": 1, "full_name": 1, "phone": 1, "whatsapp": 1, "user_no": 1,
+         "created_at": 1, "wa_onboarding_seen_by": 1},
+    ).sort("created_at", -1).limit(5).to_list(5)
+    total = await db.users.count_documents({"source": "wa_otp_login", "is_demo": True})
+    unseen = await db.users.count_documents(
+        {"source": "wa_otp_login", "is_demo": True, "wa_onboarding_seen_by": None},
+    )
+    return {"items": items, "total": int(total), "unseen": int(unseen)}
+
+
 
 
 # Iter38r-fix9d — Welcome modal counter "Liluvine a répondu à X messages

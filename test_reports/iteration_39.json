@@ -1,0 +1,36 @@
+{
+  "summary": "Iter38r-fix9o (Items 6 + 8) — Tickets Bubble & WhatsApp OTP login backend validated. Ran /app/backend/tests/test_iter38r_fix9o_tickets_bubble.py: 14/14 tests PASSED in 0.68s. All 10 features-to-test from the review request are covered and green: (1) GET /api/me/intervention-reasons returns ≥5 defaults, (2) POST /api/me/tickets validates client_id (400/422) and reason (400 on whitespace), (3) creates ticket with source=tickets_bubble + persists software/incident_at/notes/attach_wa_sms_history, auto-creates directory_contact when contact_phone is given, (4) reuses an existing contact by phone_digits instead of duplicating, (5) PUT /api/admin/clients/{id}/features accepts tickets_bubble:true and /me/features echoes it back as True for admin, (6) POST /auth/wa-otp/request returns 400 for short msisdn and 503 when WA config missing, (7) POST /auth/wa-otp/verify returns 401 for bad code, 410 for expired, and on success creates DEMO SAWALI tenant + a user with source=wa_otp_login + is_demo=true + parent_client_id=tenant.id and returns a JWT, mirror contact persisted, (8) GET /api/admin/wa-demo/recent returns items + total + unseen counts, (9) POST /api/admin/wa-demo/{user_id}/mark-seen stamps wa_onboarding_seen_by + wa_onboarding_seen_at, (10) GET /api/me/welcome-briefing includes wa_demo_recent for admins. Cumulative regression: ran fix9a..fix9o suites (15 files) from /app/backend cwd → 106 passed, 1 skipped (RBAC denylist needing wabba creds, expected per agent context), 1 pre-existing failure in fix9c::test_build_kb_context_respects_budget (DB-state ordering issue, not a regression — same KB entries from fix9k were appended earlier so 'Entrée test' got truncated by budget). When ran from /app cwd, 6 fix9a + 1 fix9c tests error with ModuleNotFoundError because tests import `routes.*` directly — fix9o test file uses requests against the running server so it is cwd-agnostic and passes from any directory.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "tests/test_iter38r_fix9c_liluvine_kb.py::test_build_kb_context_respects_budget", "issue": "Pre-existing flaky failure (not a fix9o regression). The test inserts an isolated KB entry, but earlier fix9k OCR entries persist in the test DB and consume the 200-char budget before 'Entrée test' can fit. Either add a per-test KB collection wipe in the fixture or raise the budget. Independently confirmed by checking iteration_38 summary which already noted ‘100/101 currently passing’."},
+      {"endpoint": "tests/test_iter38r_fix9a_wa_autoreply.py / fix9c", "issue": "Unit tests import `routes.*` and `server` directly, so they MUST be run from cwd=/app/backend. Running from /app fails with ModuleNotFoundError. Suggest adding a conftest.py at /app/backend/tests/ that does sys.path.insert(0, '/app/backend') for portability."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter38r_fix9o_tickets_bubble.py",
+    "/app/test_reports/pytest/iter38r_fix9o.xml",
+    "/app/test_reports/pytest/iter38r_fix9_regression.xml"
+  ],
+  "action_items": [
+    "(Optional, non-blocking) Add /app/backend/tests/conftest.py that injects /app/backend on sys.path so unit-test files importing `routes.*` work from any cwd.",
+    "(Optional, non-blocking) Fix flaky test_build_kb_context_respects_budget in fix9c by wiping the kb collection in its fixture — pre-existing, not from this iteration."
+  ],
+  "critical_code_review_comments": [
+    "wa_otp_login_9o.py is well-isolated via setup_wa_otp_routes(); good separation from server.py.",
+    "QuickTicketPayload.reason validation strips whitespace before checking — handles the ‘  ’ case explicitly (test_quick_ticket_requires_reason).",
+    "POST /me/tickets reuses directory_contact by phone_digits — idempotent and avoids duplicates (verified by test_quick_ticket_reuses_existing_contact).",
+    "DEMO tenant lookup is by fixed email demo@sawalismartsystems.com — good for idempotency. New wa_otp_login users correctly get is_demo=True + parent_client_id=tenant.id.",
+    "wa-demo/recent and welcome-briefing share _build_wa_demo_recent_stats — DRY, good.",
+    "RBAC on /admin/wa-demo/* is admin/superviseur/moderateur — matches the spec."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (14/14 fix9o + 106/107 cumulative; 1 pre-existing kb-budget flake)", "frontend": "not tested (per request)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp from /api/auth/login response, internal domain)",
+  "seed_data_creation": "Each test in fix9o creates its own ephemeral users / wa_otp_requests / directory_contacts and cleans them up in finally blocks. No leftover state.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend testing for iter38r-fix9o is fully green (14/14). The only persistent ‘known’ issue across the wider fix9 suite is the fix9c kb-budget test which is a DB-state flake (fix9k OCR seed leaks into the 200-char KB window). Run fix9o test from any cwd; run other fix9* unit tests from cwd=/app/backend to satisfy `import routes.*`. WhatsApp OTP login flow: the dev path uses a code stored in wa_otp_requests collection with msisdn+code+expires_at — directly seedable for testing without needing real WhatsApp.",
+  "rca of the issue": "N/A — no new bugs found. fix9c::test_build_kb_context_respects_budget pre-existing flake RCA: KB context builder picks the most recent entries first up to a 200-char budget; fix9k seeds a multi-line PDF OCR entry that consumes the budget before the fix9c-seeded 'Entrée test' fits. Fix = wipe kb collection in the test's setup, or increase budget for this test only."
+}

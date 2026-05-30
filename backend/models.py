@@ -453,6 +453,7 @@ class SettingsUpdate(BaseModel):
     smtp_user: Optional[str] = None
     smtp_password: Optional[str] = None
     smtp_from_email: Optional[str] = None
+    smtp_from_name: Optional[str] = None
     smtp_use_tls: Optional[bool] = None
 
     google_client_id: Optional[str] = None

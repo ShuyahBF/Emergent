@@ -648,6 +648,33 @@ export function PayslipsTab({ employees }) {
                 <span className="text-2xl font-bold">{FCFA(data.net)} {data.employee.currency}</span>
               </div>
             </div>
+            {/* Iter38r-fix9j — Bouton "Payer via Mobile Money" (PawaPay Payouts) */}
+            {data.net > 0 && (
+              <button
+                type="button"
+                onClick={async () => {
+                  const phone = data.employee?.whatsapp || data.employee?.phone || "";
+                  if (!phone) {
+                    toast.error("Aucun numéro Mobile Money configuré pour cet employé");
+                    return;
+                  }
+                  if (!window.confirm(`Payer ${FCFA(data.net)} XOF à ${data.employee.full_name} (${phone}) via Mobile Money ?\n\nVous serez redirigé(e) vers la page Payouts pour confirmer le provider et envoyer.`)) return;
+                  // Pre-fill via URL params and navigate
+                  const params = new URLSearchParams({
+                    amount: String(Math.round(data.net)),
+                    msisdn: phone.replace(/\D/g, ""),
+                    message: `Paie ${month}`.slice(0, 22),
+                    related_kind: "payroll",
+                    related_id: `${employeeId}:${month}`,
+                  });
+                  window.location.href = `/portal/payouts?${params.toString()}`;
+                }}
+                className="mt-3 w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 text-sm font-medium"
+                data-testid="hr-payslip-pay-mobilemoney"
+              >
+                💸 Payer via Mobile Money
+              </button>
+            )}
           </div>
         </div>
       )}

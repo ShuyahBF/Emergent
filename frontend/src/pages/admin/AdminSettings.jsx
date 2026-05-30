@@ -257,6 +257,7 @@ export default function AdminSettings() {
           <Input label="Utilisateur" value={s.smtp_user || ""} onChange={(v) => upd("smtp_user", v)} testid="smtp-user" />
           <Input label="Mot de passe" type="password" value={s.smtp_password || ""} onChange={(v) => upd("smtp_password", v)} testid="smtp-password" placeholder={s.smtp_password === "********" ? "(déjà défini)" : ""} />
           <Input label="From email" value={s.smtp_from_email || ""} onChange={(v) => upd("smtp_from_email", v)} testid="smtp-from" />
+          <Input label="Nom expéditeur visible" value={s.smtp_from_name || ""} onChange={(v) => upd("smtp_from_name", v)} placeholder="SAWALI SMART SYSTEMS" testid="smtp-from-name" />
         </div>
         <Toggle label="Utiliser STARTTLS" value={s.smtp_use_tls !== false} onChange={(v) => upd("smtp_use_tls", v)} testid="smtp-tls" />
       </Section>

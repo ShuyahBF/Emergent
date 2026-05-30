@@ -5335,7 +5335,7 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     # Iter38h — Meta App config (non-secret keys)
     "meta_app_id", "meta_graph_version", "meta_redirect_uri",
     # SMTP (smtp_password is already in sensitive, add the rest)
-    "smtp_host", "smtp_port", "smtp_user", "smtp_from_email", "smtp_use_tls",
+    "smtp_host", "smtp_port", "smtp_user", "smtp_from_email", "smtp_from_name", "smtp_use_tls",
     # Google OAuth & calendar (non-secret IDs)
     "google_client_id", "google_calendar_email", "google_calendar_password_hint",
     # reCAPTCHA site key
@@ -20632,6 +20632,10 @@ _setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user)
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)
+
+# Iter38r-fix9j — PawaPay Payouts (v2) for BFA
+from routes.pawapay_payouts import setup_pawapay_payout_routes as _setup_pawapay_payout_routes  # noqa: E402
+_setup_pawapay_payout_routes(app=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix8 — Emergent Object Storage proxy.
 # Files persisted via object_storage.save_and_log() are served via this proxy

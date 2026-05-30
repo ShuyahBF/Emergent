@@ -42,6 +42,7 @@ const clientLinks = [
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
+  { to: "/portal/payouts", label: "Payer (Mobile Money)", icon: Banknote, cashOnly: true },
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at

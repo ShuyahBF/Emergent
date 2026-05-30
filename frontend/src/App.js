@@ -107,6 +107,7 @@ import Contacts from "@/pages/portal/Contacts";
 import MediaGenerator from "@/pages/portal/MediaGenerator";
 import MediaLibrary from "@/pages/portal/MediaLibrary";
 import MyPayments from "@/pages/portal/MyPayments";
+import PayoutsPage from "@/pages/portal/Payouts";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import WaBulk from "@/pages/portal/WaBulk";
 import ComingSoon from "@/pages/portal/ComingSoon";
@@ -196,6 +197,7 @@ export default function App() {
             <Route path="media-generator" element={<MediaGenerator />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="payments" element={<MyPayments />} />
+            <Route path="payouts" element={<PayoutsPage />} />
             <Route path="sms" element={<SmsBulk />} />
             <Route path="whatsapp-bulk" element={<WaBulk />} />
             <Route path="my-account" element={<MyAccount />} />

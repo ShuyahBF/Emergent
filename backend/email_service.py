@@ -18,6 +18,7 @@ async def get_smtp_settings() -> dict:
         "user": s.get("smtp_user"),
         "password": s.get("smtp_password"),
         "from_email": s.get("smtp_from_email") or s.get("smtp_user"),
+        "from_name": s.get("smtp_from_name") or "",
         "use_tls": s.get("smtp_use_tls", True),
     }
 
@@ -27,7 +28,13 @@ def _send_email_sync(cfg: dict, to_email: str, subject: str, html_body: str, tex
     `attachments` is a list of dicts {filename, content (bytes), mime_type}."""
     msg = EmailMessage()
     msg["Subject"] = subject
-    msg["From"] = cfg["from_email"]
+    # RFC 5322 "Name <email>" header when from_name configured
+    from_name = (cfg.get("from_name") or "").strip()
+    if from_name:
+        # email.message.EmailMessage handles encoding automatically
+        msg["From"] = f"{from_name} <{cfg['from_email']}>"
+    else:
+        msg["From"] = cfg["from_email"]
     msg["To"] = to_email
     msg.set_content(text_body or "Veuillez activer HTML pour voir ce message.")
     msg.add_alternative(html_body, subtype="html")

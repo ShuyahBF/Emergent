@@ -1840,7 +1840,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
               {/* Iter38r-fix3 — Replaced window.confirm with a real modal carrying
                   an "also unlink contact ↔ ticket" checkbox so admins can fully
                   release a stuck/orphan ticket from the chat window. */}
-              {(user?.role === "admin" || user?.role === "superviseur") && (
+              {/* Iter38r-fix9i — Bouton corbeille visible pour Admin, Superviseur ET Modération */}
+              {(user?.role === "admin" || user?.role === "superviseur" || user?.tracked_role === "Modération") && (
                 <button
                   type="button"
                   onClick={() => setArchiveModal({ open: true, ticket: activeTicket, alsoUnlink: false, busy: false })}

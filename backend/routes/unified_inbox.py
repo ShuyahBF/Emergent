@@ -77,18 +77,54 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
         wa_query: Dict[str, Any] = {"client_id": tid} if user.get("role") != "admin" else {}
         # Aggregate last 500 messages by phone
         wa_msgs = await db.whatsapp_messages.find(
-            wa_query, {"_id": 0, "to_number": 1, "from": 1, "direction": 1, "text": 1,
-                       "created_at": 1, "read_by_us_at": 1, "contact_name": 1, "name": 1},
+            wa_query, {"_id": 0, "to_number": 1, "to": 1, "from": 1, "direction": 1,
+                       "text": 1, "body": 1, "message_type": 1, "media_url": 1,
+                       "phone_digits": 1, "created_at": 1, "read_by_us_at": 1,
+                       "contact_name": 1, "name": 1, "ai_generated": 1},
         ).sort("created_at", -1).to_list(500)
+
+        # Iter38r-fix9i — Pre-fetch contacts and build a phone→contact index so
+        # we can hydrate peer_name/avatar/code for inbox threads.
+        contact_index: Dict[str, Dict[str, Any]] = {}
+        try:
+            async for c in db.directory_contacts.find(
+                {"owner_id": tid} if user.get("role") != "admin" else {},
+                {"_id": 0, "id": 1, "name": 1, "phone": 1, "phone_digits": 1,
+                 "code": 1, "photo_url": 1, "email": 1},
+            ):
+                digits = (c.get("phone_digits") or "").lstrip("+")
+                if not digits and c.get("phone"):
+                    digits = "".join(ch for ch in c["phone"] if ch.isdigit())
+                if digits:
+                    contact_index[digits] = c
+        except Exception:
+            pass
+
+        def _digits(s: Any) -> str:
+            return "".join(ch for ch in (str(s or "")) if ch.isdigit())
+
         wa_by_peer: Dict[str, Dict[str, Any]] = {}
         for m in wa_msgs:
-            peer = (m.get("from") if m.get("direction") == "inbound" else m.get("to_number")) or "unknown"
+            # Outbound messages use either `to` or `to_number`. Inbound uses `from`.
+            raw_peer = m.get("from") if m.get("direction") == "inbound" else (m.get("to") or m.get("to_number"))
+            peer = raw_peer or m.get("phone_digits") or "unknown"
+            digits = _digits(peer)
+            matched = contact_index.get(digits) or (digits and contact_index.get(digits.lstrip("0")))
             slot = wa_by_peer.setdefault(peer, {
-                "channel": "whatsapp", "peer_id": peer, "peer_name": m.get("contact_name") or m.get("name") or peer,
-                "preview": (m.get("text") or "")[:120], "last_at": _ts_to_iso(m.get("created_at")),
+                "channel": "whatsapp", "peer_id": peer,
+                "peer_name": (matched or {}).get("name") or m.get("contact_name") or m.get("name") or (f"+{digits}" if digits else peer),
+                "peer_phone": digits and f"+{digits}",
+                "peer_photo_url": (matched or {}).get("photo_url"),
+                "peer_code": (matched or {}).get("code"),
+                "contact_id": (matched or {}).get("id"),
+                "preview": (m.get("body") or m.get("text") or ("📎 média" if m.get("media_url") else ""))[:120],
+                "last_at": _ts_to_iso(m.get("created_at")),
                 "unread_count": 0, "total_count": 0,
+                "ai_replies_count": 0,
             })
             slot["total_count"] += 1
+            if m.get("ai_generated"):
+                slot["ai_replies_count"] += 1
             if m.get("direction") == "inbound" and not m.get("read_by_us_at"):
                 slot["unread_count"] += 1
         threads.extend(wa_by_peer.values())
@@ -170,25 +206,42 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
         """Return ordered messages of a single thread."""
         tid = await _tenant_id(user)
         if channel == "whatsapp":
+            # Iter38r-fix9i — Match peer by raw OR by digits-only form so it
+            # works for both formats (+22890XXXX vs 22890XXXX).
+            digits = "".join(ch for ch in thread_id if ch.isdigit())
+            phone_alt = f"+{digits}" if digits else thread_id
+            peer_clauses = [
+                {"to_number": thread_id}, {"to": thread_id}, {"from": thread_id},
+                {"to_number": phone_alt}, {"to": phone_alt}, {"from": phone_alt},
+                {"phone_digits": digits},
+            ]
             wa_query = {
                 "$and": [
                     {"client_id": tid} if user.get("role") != "admin" else {},
-                    {"$or": [{"to_number": thread_id}, {"from": thread_id}]},
+                    {"$or": peer_clauses},
                 ],
             }
             msgs = await db.whatsapp_messages.find(
                 wa_query,
-                {"_id": 0, "direction": 1, "text": 1, "created_at": 1, "to_number": 1,
-                 "from": 1, "wa_status": 1, "contact_name": 1, "name": 1, "media_url": 1},
+                {"_id": 0, "id": 1, "direction": 1, "text": 1, "body": 1,
+                 "created_at": 1, "to_number": 1, "to": 1, "from": 1,
+                 "wa_status": 1, "contact_name": 1, "name": 1, "media_url": 1,
+                 "message_type": 1, "ai_generated": 1, "ai_source": 1,
+                 "media_filename": 1, "media_content_type": 1},
             ).sort("created_at", 1).to_list(limit)
             return {"channel": "whatsapp", "thread_id": thread_id, "messages": [
                 {
                     "id": m.get("id", ""),
                     "direction": m.get("direction") or "outbound",
-                    "text": m.get("text") or "",
+                    "text": m.get("body") or m.get("text") or "",
                     "at": _ts_to_iso(m.get("created_at")),
                     "media_url": m.get("media_url"),
+                    "media_filename": m.get("media_filename"),
+                    "media_content_type": m.get("media_content_type"),
+                    "message_type": m.get("message_type") or ("media" if m.get("media_url") else "text"),
                     "status": m.get("wa_status"),
+                    "ai_generated": bool(m.get("ai_generated")),
+                    "ai_source": m.get("ai_source"),
                 } for m in msgs
             ]}
         if channel == "messenger":

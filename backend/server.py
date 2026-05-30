@@ -6064,13 +6064,17 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
         # Compare each member's effective scope to the canonical
         misaligned: List[Dict[str, Any]] = []
         for m in members:
-            # Iter38r-fix9g — Tracked users' canonical scope is their parent_client_id;
-            # admins/superviseurs use their own id by convention. Fall back to client_id.
-            if str(m.get("role", "")).startswith("tracked:"):
-                scope = m.get("client_id") or m.get("parent_client_id") or m["id"]
+            # Iter38r-fix9i — For tracked users, the per-user diagnostic uses
+            # their own `parent_client_id` as canonical (each tracked user is
+            # attached to a specific admin, not the whole company group).
+            # Mirror that here so the scan and the realign endpoint agree.
+            if str(m.get("role", "")).startswith("tracked:") and m.get("parent_client_id"):
+                target = m.get("parent_client_id")
+                scope = m.get("client_id") or target or m["id"]
             else:
+                target = canonical
                 scope = m.get("client_id") or m["id"]
-            if canonical and scope != canonical:
+            if target and scope != target:
                 misaligned.append({
                     "id": m["id"],
                     "email": m.get("email"),
@@ -6079,6 +6083,7 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
                     "client_id": m.get("client_id"),
                     "parent_client_id": m.get("parent_client_id"),
                     "effective_scope": scope,
+                    "canonical_for_user": target,
                 })
         if misaligned:
             misaligned_groups.append({
@@ -6143,10 +6148,15 @@ async def admin_realign_all(payload: _RealignAllPayload = Body(...), admin: dict
                     _={"role": "admin"},
                 )
                 entry["applied"] = bool(res.get("applied"))
-                entry["actions"] = len(res.get("applied_actions", []) or [])
+                # Iter38r-fix9i — count actual actions (response uses "actions" key)
+                entry["actions"] = len(res.get("actions", []) or [])
                 if payload.dry_run:
                     entry["dry_run"] = True
-                users_done += int(entry["applied"])
+                    # Mark as "would-apply" so the UI can show a real count in dry-run
+                    entry["would_apply"] = bool(((res.get("diagnostic") or {}).get("realign_plan") or {}).get("needed"))
+                if res.get("reason"):
+                    entry["reason"] = res.get("reason")
+                users_done += int(entry["applied"]) if not payload.dry_run else int(entry.get("would_apply", False))
             except HTTPException as exc:
                 entry["error"] = exc.detail
             except Exception as exc:

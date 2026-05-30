@@ -300,6 +300,35 @@ async def autoreply_to_inbound(
         upsert=True,
     )
 
+    # Iter38r-fix9i — Also mirror the outgoing message into `whatsapp_messages`
+    # so the conversation thread (Inbox Unifié, Centre de Messages, contact
+    # detail panel) shows Liluvine's auto-reply inline with human messages.
+    try:
+        wa_log = {
+            "id": secrets.token_urlsafe(12),
+            "client_id": scope_uid,
+            "tenant_id": scope_uid,
+            "direction": "outbound",
+            "from": "liluvine-pro",
+            "to": inbound_doc.get("from") or f"+{phone_digits}",
+            "phone_digits": phone_digits,
+            "message_type": "text",
+            "body": final_text,
+            "wa_message_id": send_res.get("message_id"),
+            "status": "sent",
+            "wa_status": "sent",
+            "sent_at": _now_iso(),
+            "created_at": _now_iso(),
+            "ai_generated": True,
+            "ai_source": "liluvine_pro_autoreply",
+            "ai_session_id": session_id,
+            "reply_to_wa_message_id": quote_mid,
+            "contact_id": (contact or {}).get("id"),
+        }
+        await db.whatsapp_messages.insert_one(wa_log.copy())
+    except Exception:  # noqa: BLE001
+        logger.warning("[wa_autoreply] mirror to whatsapp_messages failed", exc_info=True)
+
     return {
         "ok": True, "reason": "sent",
         "wa_out_message_id": send_res.get("message_id"),

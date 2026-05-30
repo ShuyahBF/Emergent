@@ -360,6 +360,7 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />
+      </Filterable>
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">
         <LiluvineWaAutoreplySection />
@@ -371,7 +372,6 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">
         <LiluvineKnowledgeBaseSection />
-      </Filterable>
       </Filterable>
 
       {/* Iter38c — Cashier expense justification deadline */}

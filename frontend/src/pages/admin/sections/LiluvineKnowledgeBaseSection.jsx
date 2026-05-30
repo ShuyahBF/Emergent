@@ -2,7 +2,7 @@
 // Iter38r-fix9c — Liluvine PRO : Base de connaissance (FAQ + PDF/TXT)
 // =====================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { Brain, Plus, FileText, Upload, Trash2, Pencil, Save, X, BookOpen, FileBox } from "lucide-react";
+import { Brain, Plus, FileText, Upload, Trash2, Pencil, Save, X, BookOpen, FileBox, ScanText } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -79,7 +79,7 @@ export default function LiluvineKnowledgeBaseSection() {
     }
   };
 
-  const upload = async (file) => {
+  const upload = async (file, { ocr = false } = {}) => {
     if (!file) return;
     if (file.size > 5 * 1024 * 1024) {
       toast.error("Fichier trop volumineux (max 5 Mo)");
@@ -93,10 +93,11 @@ export default function LiluvineKnowledgeBaseSection() {
       const fd = new FormData();
       fd.append("file", file);
       fd.append("title", title.trim());
+      if (ocr) fd.append("force_ocr", "true");
       const r = await apiClient.post("/admin/liluvine-pro/kb/upload", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
-      toast.success(`${r.data?.chunks || 0} entrée(s) créée(s) à partir du fichier`);
+      toast.success(`${r.data?.chunks || 0} entrée(s) créée(s) à partir du fichier${ocr ? " (OCR)" : ""}`);
       load();
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur upload");
@@ -115,11 +116,16 @@ export default function LiluvineKnowledgeBaseSection() {
         <h2 className="text-base font-display font-bold inline-flex items-center gap-2 text-violet-900">
           <Brain className="h-5 w-5 text-violet-600" /> Liluvine PRO — Base de connaissance
         </h2>
-        <div className="flex items-center gap-2">
-          <label className="inline-flex items-center gap-1 cursor-pointer rounded-lg ring-1 ring-violet-300 hover:bg-violet-50 text-violet-700 px-2.5 py-1.5 text-xs font-medium" data-testid="liluvine-kb-upload">
-            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Importer PDF / TXT / Image (OCR)"}
-            <input type="file" accept=".pdf,.txt,.png,.jpg,.jpeg,.webp,application/pdf,text/plain,image/png,image/jpeg,image/webp" className="hidden"
-              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); e.target.value = ""; }} />
+        <div className="flex items-center gap-2 flex-wrap">
+          <label className="inline-flex items-center gap-1 cursor-pointer rounded-lg ring-1 ring-violet-300 hover:bg-violet-50 text-violet-700 px-2.5 py-1.5 text-xs font-medium" data-testid="liluvine-kb-upload" title="PDF/TXT — extraction texte native, pas d'OCR">
+            <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Importer PDF / TXT"}
+            <input type="file" accept=".pdf,.txt,application/pdf,text/plain" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, { ocr: false }); e.target.value = ""; }} />
+          </label>
+          <label className="inline-flex items-center gap-1 cursor-pointer rounded-lg ring-1 ring-sky-300 hover:bg-sky-50 text-sky-700 px-2.5 py-1.5 text-xs font-medium" data-testid="liluvine-kb-upload-ocr" title="Image (PNG/JPG/WEBP) — OCR via Claude Vision">
+            <ScanText className="h-3.5 w-3.5" /> {uploading ? "OCR…" : "Importer Image (OCR)"}
+            <input type="file" accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp" className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f, { ocr: true }); e.target.value = ""; }} />
           </label>
           <button type="button" onClick={openCreate}
             className="inline-flex items-center gap-1 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-2.5 py-1.5 text-xs font-medium"

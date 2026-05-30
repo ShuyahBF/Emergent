@@ -96,6 +96,7 @@ import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
 import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
 import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
+import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -252,6 +253,7 @@ export default function App() {
             <Route path="whatsapp-templates" element={<AdminWaTemplates />} />
             <Route path="policies" element={<AdminPolicies />} />
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
+            <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
           </Route>

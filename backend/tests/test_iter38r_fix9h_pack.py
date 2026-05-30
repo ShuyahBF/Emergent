@@ -61,7 +61,8 @@ def test_kb_upload_unsupported_now_lists_images(admin_h):
     r = requests.post(
         f"{API}/admin/liluvine-pro/kb/upload",
         headers=admin_h, files=files,
-        data={"title": "test-blank-ocr"}, timeout=60,
+        # Iter38r-fix9i — image now requires force_ocr=true (new split: 1 button no-OCR, 1 button OCR)
+        data={"title": "test-blank-ocr", "force_ocr": "true"}, timeout=60,
     )
     # Should NOT be 415 anymore — should be 422 (no text detected) or 200
     assert r.status_code != 415, f"image should be accepted but got 415: {r.text}"

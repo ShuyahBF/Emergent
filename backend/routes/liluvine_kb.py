@@ -255,34 +255,53 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
     async def kb_upload(
         file: UploadFile = File(...),
         title: str = Form(...),
+        force_ocr: Optional[str] = Form(default=None),
         user: dict = Depends(get_current_user),
     ):
+        """Iter38r-fix9i — `force_ocr` (form, optional) :
+        - 'true'  → mode OCR (image obligatoire, Claude Vision)
+        - 'false' / absent → mode classique (PDF/TXT uniquement, pas d'OCR sur image)
+        """
         _ensure_admin(user)
         raw = await file.read()
         if not raw:
             raise HTTPException(status_code=400, detail="Fichier vide")
         if len(raw) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // 1024 // 1024} Mo)")
+        ocr_mode = str(force_ocr or "").strip().lower() in ("1", "true", "yes", "on")
         name = (file.filename or "kb").lower()
-        if name.endswith(".pdf") or (file.content_type or "").endswith("pdf"):
-            text = _parse_pdf(raw)
-            kind = "pdf"
-        elif name.endswith(".txt") or (file.content_type or "").startswith("text/"):
-            try:
-                text = raw.decode("utf-8", errors="ignore")
-            except Exception:
-                text = raw.decode("latin-1", errors="ignore")
-            kind = "txt"
-        elif (
-            name.endswith((".png", ".jpg", ".jpeg", ".webp"))
-            or (file.content_type or "").startswith("image/")
-        ):
-            # Iter38r-fix9h — Claude Vision OCR for images
+        is_pdf = name.endswith(".pdf") or (file.content_type or "").endswith("pdf")
+        is_txt = name.endswith(".txt") or (file.content_type or "").startswith("text/")
+        is_img = name.endswith((".png", ".jpg", ".jpeg", ".webp")) or (file.content_type or "").startswith("image/")
+
+        if ocr_mode:
+            # OCR strict: image obligatoire (PDF non rasterisable sans dépendance externe)
+            if not is_img:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Mode OCR : seules les images (PNG/JPG/WEBP) sont supportées. Pour un PDF, utilisez l'import classique.",
+                )
             mime = file.content_type or ("image/png" if name.endswith(".png") else "image/jpeg")
             text = await _ocr_image_with_claude_vision(raw, mime)
             kind = "image_ocr"
         else:
-            raise HTTPException(status_code=415, detail="Seuls les PDF, TXT et images (PNG/JPG/WEBP) sont supportés")
+            # Import classique : PDF / TXT (pas d'OCR sur image)
+            if is_pdf:
+                text = _parse_pdf(raw)
+                kind = "pdf"
+            elif is_txt:
+                try:
+                    text = raw.decode("utf-8", errors="ignore")
+                except Exception:
+                    text = raw.decode("latin-1", errors="ignore")
+                kind = "txt"
+            elif is_img:
+                raise HTTPException(
+                    status_code=415,
+                    detail="Les images ne sont acceptées qu'en mode OCR. Utilisez le bouton « Importer avec OCR ».",
+                )
+            else:
+                raise HTTPException(status_code=415, detail="Seuls les PDF et TXT sont supportés en mode classique")
         text = (text or "").strip()
         if not text:
             raise HTTPException(status_code=400, detail="Aucun texte extrait du fichier")

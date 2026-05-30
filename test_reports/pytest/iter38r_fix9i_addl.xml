@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?><testsuites name="pytest tests"><testsuite name="pytest" errors="0" failures="1" skipped="1" tests="3" time="0.427" timestamp="2026-05-30T17:09:30.865758+00:00" hostname="agent-env-fe9c72a9-12c7-48bd-96d7-9b73e074fc25"><testcase classname="tests.test_iter38r_fix9i_addl_rbac_autoreply" name="test_takeover_requires_elevated_role" time="0.247"><skipped type="pytest.skip" message="Cannot create tracked user via /admin/users: 404 {&quot;detail&quot;:&quot;Not Found&quot;}">/app/backend/tests/test_iter38r_fix9i_addl_rbac_autoreply.py:85: Cannot create tracked user via /admin/users: 404 {"detail":"Not Found"}</skipped></testcase><testcase classname="tests.test_iter38r_fix9i_addl_rbac_autoreply" name="test_wa_autoreply_skips_on_human_takeover" time="0.004"><failure message="AssertionError: Wrong reason: {'ok': False, 'reason': 'disabled'}&#10;assert 'disabled' == 'human_takeover_active'&#10;  &#10;  - human_takeover_active&#10;  + disabled">tests/test_iter38r_fix9i_addl_rbac_autoreply.py:161: in test_wa_autoreply_skips_on_human_takeover
+    assert result.get("reason") == "human_takeover_active", f"Wrong reason: {result}"
+E   AssertionError: Wrong reason: {'ok': False, 'reason': 'disabled'}
+E   assert 'disabled' == 'human_takeover_active'
+E     
+E     - human_takeover_active
+E     + disabled</failure></testcase><testcase classname="tests.test_iter38r_fix9i_addl_rbac_autoreply" name="test_sessions_history_date_range_filter" time="0.010" /></testsuite></testsuites>

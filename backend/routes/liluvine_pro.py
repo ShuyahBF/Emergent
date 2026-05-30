@@ -681,3 +681,147 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         await db.liluvine_pro_sessions.delete_one({"id": sid})
         await db.liluvine_pro_messages.delete_many({"session_id": sid})
         return {"ok": True, "id": sid}
+
+    # ----------------------------------------------------------
+    # Iter38r-fix9i — "Reprendre la conversation" : human takeover
+    # ----------------------------------------------------------
+    # Allowed to: admin / superviseur / moderateur (and tracked users with
+    # an elevated "tracked_role"). Marks a Liluvine session as "owned by a
+    # human now" so the WhatsApp auto-reply skips it. Auto-expires after
+    # `duration_minutes` (default 120).
+    _TAKEOVER_ROLES = {"admin", "superviseur", "moderateur"}
+
+    def _can_takeover(u: Dict[str, Any]) -> bool:
+        if (u.get("role") or "") in _TAKEOVER_ROLES:
+            return True
+        # Tracked users may inherit an elevated tracked_role
+        if (u.get("tracked_role") or "").lower() in _TAKEOVER_ROLES:
+            return True
+        return False
+
+    @api.post("/admin/liluvine-pro/sessions/{sid}/takeover", tags=["Admin — Liluvine PRO"])
+    async def takeover_session(sid: str, payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé aux rôles administrateur / superviseur / modération")
+        scope = _client_scope(user)
+        session = await db.liluvine_pro_sessions.find_one({"id": sid, "client_id": scope}, {"_id": 0})
+        if not session:
+            raise HTTPException(status_code=404, detail="Conversation introuvable")
+        try:
+            duration_minutes = max(5, min(int(payload.get("duration_minutes") or 120), 7 * 24 * 60))
+        except Exception:
+            duration_minutes = 120
+        from datetime import timedelta
+        until = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
+        await db.liluvine_pro_sessions.update_one(
+            {"id": sid},
+            {"$set": {
+                "human_takeover": True,
+                "human_takeover_by": user.get("email"),
+                "human_takeover_at": _now(),
+                "human_takeover_until": until.isoformat(),
+                "human_takeover_minutes": duration_minutes,
+                "updated_at": _now(),
+            }},
+        )
+        # Extract the phone_digits for the redirect
+        phone_digits = ((session.get("external_payload") or {}).get("phone_digits")) or ""
+        return {
+            "ok": True, "id": sid,
+            "human_takeover_until": until.isoformat(),
+            "phone_digits": phone_digits,
+            "contact_id": ((session.get("external_payload") or {}).get("contact_id")),
+            "duration_minutes": duration_minutes,
+        }
+
+    @api.post("/admin/liluvine-pro/sessions/{sid}/release", tags=["Admin — Liluvine PRO"])
+    async def release_session(sid: str, user: dict = Depends(get_current_user)):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé aux rôles administrateur / superviseur / modération")
+        scope = _client_scope(user)
+        session = await db.liluvine_pro_sessions.find_one({"id": sid, "client_id": scope}, {"_id": 0})
+        if not session:
+            raise HTTPException(status_code=404, detail="Conversation introuvable")
+        await db.liluvine_pro_sessions.update_one(
+            {"id": sid},
+            {"$set": {
+                "human_takeover": False,
+                "human_takeover_released_by": user.get("email"),
+                "human_takeover_released_at": _now(),
+                "updated_at": _now(),
+            }},
+        )
+        return {"ok": True, "id": sid}
+
+    # Iter38r-fix9i — Aggregated history for the dedicated admin page
+    # `/admin/liluvine-history`. Returns sessions enriched with last message
+    # snippet, message_count, channel, takeover status. Server-side filters
+    # by channel / date range / search keyword.
+    @api.get("/admin/liluvine-pro/sessions-history", tags=["Admin — Liluvine PRO"])
+    async def admin_sessions_history(
+        channel: Optional[str] = None,
+        date_range: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = 100,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé aux rôles administrateur / superviseur / modération")
+        scope = _client_scope(user)
+        query: Dict[str, Any] = {"client_id": scope}
+        if channel and channel != "all":
+            if channel == "web":
+                # web sessions have no external_source flag and don't start with wa:/fb:/sms:
+                query["$and"] = [
+                    {"$or": [{"external_source": {"$exists": False}}, {"external_source": None}, {"external_source": "web"}]},
+                ]
+            elif channel == "whatsapp":
+                query["$or"] = [{"external_source": "whatsapp_native"}, {"external_source": "whatsapp"}]
+            elif channel == "facebook":
+                query["external_source"] = "facebook"
+            elif channel == "sms":
+                query["external_source"] = "sms"
+        if date_range and date_range != "all":
+            from datetime import timedelta
+            windows = {"today": 1, "7d": 7, "30d": 30, "90d": 90}
+            days = windows.get(date_range)
+            if days:
+                cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+                query["updated_at"] = {"$gte": cutoff.isoformat()}
+        if q:
+            rgx = {"$regex": re.escape(q), "$options": "i"}
+            query["$or"] = (query.get("$or") or []) + [
+                {"title": rgx}, {"user_label": rgx},
+            ]
+        cap = min(max(limit, 1), 500)
+        items = await db.liluvine_pro_sessions.find(query, {"_id": 0}).sort("updated_at", -1).to_list(cap)
+        # Enrich with last message preview
+        sids = [it["id"] for it in items if it.get("id")]
+        last_msgs: Dict[str, Dict[str, Any]] = {}
+        if sids:
+            cursor = db.liluvine_pro_messages.find(
+                {"session_id": {"$in": sids}},
+                {"_id": 0, "session_id": 1, "content": 1, "role": 1, "created_at": 1},
+            ).sort("created_at", -1)
+            async for m in cursor:
+                sid = m.get("session_id")
+                if sid and sid not in last_msgs:
+                    last_msgs[sid] = m
+        for it in items:
+            sid = it.get("id") or ""
+            src = (it.get("external_source") or "").lower()
+            if sid.startswith("wa:") or src in ("whatsapp_native", "whatsapp"):
+                it["channel"] = "whatsapp"
+            elif sid.startswith("fb:") or src == "facebook":
+                it["channel"] = "facebook"
+            elif sid.startswith("sms:") or src == "sms":
+                it["channel"] = "sms"
+            else:
+                it["channel"] = "web"
+            lm = last_msgs.get(it.get("id"))
+            if lm:
+                preview = (lm.get("content") or "").replace("\n", " ").strip()
+                it["last_message_preview"] = preview[:160] + ("…" if len(preview) > 160 else "")
+                it["last_message_role"] = lm.get("role")
+                it["last_message_at"] = lm.get("created_at")
+        return {"items": items, "count": len(items)}

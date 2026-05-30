@@ -67,6 +67,7 @@ const adminLinks = [
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
+  { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
   { to: "/admin/policies", label: "Politiques publiques", icon: Shield },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },

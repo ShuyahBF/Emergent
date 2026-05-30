@@ -158,6 +158,30 @@ async def autoreply_to_inbound(
     if not decision["ok"]:
         return decision
 
+    # Iter38r-fix9i — "Reprendre la conversation" : if a human has taken
+    # over this WA session, skip auto-reply until the takeover expires (or
+    # is manually released).
+    scope_uid_pre = inbound_doc.get("client_id")
+    if scope_uid_pre:
+        session_id_pre = f"wa:{scope_uid_pre}:{phone_digits}"
+        existing = await db.liluvine_pro_sessions.find_one(
+            {"id": session_id_pre},
+            {"_id": 0, "human_takeover": 1, "human_takeover_until": 1},
+        )
+        if existing and existing.get("human_takeover"):
+            until = existing.get("human_takeover_until")
+            still_active = True
+            if until:
+                try:
+                    until_dt = datetime.fromisoformat(str(until).replace("Z", "+00:00"))
+                    if until_dt.tzinfo is None:
+                        until_dt = until_dt.replace(tzinfo=timezone.utc)
+                    still_active = datetime.now(timezone.utc) < until_dt
+                except Exception:
+                    still_active = True
+            if still_active:
+                return {"ok": False, "reason": "human_takeover_active"}
+
     # Tenant feature gate — only if Liluvine PRO is enabled on the parent admin
     scope_uid = inbound_doc.get("client_id")
     if scope_uid:

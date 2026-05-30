@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search } from "lucide-react";
+import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
+import { useAuth } from "@/contexts/AuthContext";
 
 /*
   Iter38r-fix6 — Liluvine PRO / Assistant SAWALI
@@ -15,6 +16,11 @@ import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
    - Tokens tracked through the AI Quotas module
 */
 export default function LiluvinePro() {
+  const { user: authUser } = useAuth() || {};
+  const userRole = (authUser?.role || "").toLowerCase();
+  const trackedRole = (authUser?.tracked_role || "").toLowerCase();
+  const canTakeover = ["admin", "superviseur", "moderateur"].includes(userRole)
+    || ["admin", "superviseur", "moderateur"].includes(trackedRole);
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -127,6 +133,33 @@ export default function LiluvinePro() {
     if (!next || next === current) return;
     try {
       await apiClient.patch(`/me/liluvine-pro/sessions/${sid}`, { title: next });
+      await loadSessions();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  // Iter38r-fix9i — Reprendre / libérer la conversation (admin/superviseur/modération)
+  const takeover = async (s) => {
+    if (!canTakeover) return;
+    if (!window.confirm(`Reprendre la conversation avec ${s.user_label || s.title} ?\n\nLiluvine PRO arrêtera de répondre automatiquement pendant 2 heures.`)) return;
+    try {
+      const r = await apiClient.post(`/admin/liluvine-pro/sessions/${s.id}/takeover`, { duration_minutes: 120 });
+      toast.success("Conversation reprise — Liluvine se tait 👋");
+      await loadSessions();
+      // Redirect to contacts (WA) for manual reply
+      const phone = r.data?.phone_digits;
+      const sid = s.id || "";
+      if ((sid.startsWith("wa:") || s.external_source === "whatsapp_native" || s.external_source === "whatsapp") && phone) {
+        window.location.href = `/portal/contacts?q=${encodeURIComponent(phone)}`;
+      }
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  const releaseTakeover = async (s) => {
+    if (!canTakeover) return;
+    if (!window.confirm("Libérer la conversation ? Liluvine PRO reprendra ses réponses automatiques.")) return;
+    try {
+      await apiClient.post(`/admin/liluvine-pro/sessions/${s.id}/release`);
+      toast.success("Conversation libérée — Liluvine reprend la main");
       await loadSessions();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
   };
@@ -248,6 +281,26 @@ export default function LiluvinePro() {
                   <div className="flex items-center justify-between mt-0.5">
                     <span className="text-[10px] text-slate-400">{s.message_count} msg · {ageLabel}</span>
                     <div className="opacity-0 group-hover:opacity-100 flex gap-0.5 transition">
+                      {canTakeover && isWa && !s.human_takeover && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); takeover(s); }}
+                          className="text-amber-500 hover:text-amber-700 p-0.5"
+                          title="Reprendre la conversation (suspend Liluvine 2 h)"
+                          data-testid={`liluvine-takeover-${s.id}`}
+                        >
+                          <Hand className="h-3 w-3" />
+                        </button>
+                      )}
+                      {canTakeover && isWa && s.human_takeover && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); releaseTakeover(s); }}
+                          className="text-emerald-500 hover:text-emerald-700 p-0.5"
+                          title="Libérer — Liluvine reprend"
+                          data-testid={`liluvine-release-${s.id}`}
+                        >
+                          <ArrowRightCircle className="h-3 w-3" />
+                        </button>
+                      )}
                       <button
                         onClick={(e) => { e.stopPropagation(); rename(s.id, s.title); }}
                         className="text-slate-400 hover:text-sky-600 p-0.5"
@@ -265,6 +318,11 @@ export default function LiluvinePro() {
                       </button>
                     </div>
                   </div>
+                  {s.human_takeover && (
+                    <div className="mt-1 inline-flex items-center gap-1 text-[9px] rounded-full bg-amber-50 text-amber-800 ring-1 ring-amber-200 px-1.5 py-0.5">
+                      <Hand className="h-2.5 w-2.5" /> Reprise par humain
+                    </div>
+                  )}
                 </div>
               );
             });

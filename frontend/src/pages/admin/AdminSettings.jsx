@@ -2397,6 +2397,7 @@ const RoadmapTrackerSection = () => {
   const [data, setData] = useState({ items: [], totals: null });
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("all");  // all | done | pending
+  const [dateRange, setDateRange] = useState("all");  // today | 7d | 30d | 90d | all
   const [editing, setEditing] = useState(null);  // {code, observations}
   const [creating, setCreating] = useState(false);
   const [newForm, setNewForm] = useState({ title: "", backlog_ref: "", details: "", duration_h: 0 });
@@ -2519,9 +2520,21 @@ const RoadmapTrackerSection = () => {
 
   const items = (data.items || []).filter((r) => {
     const status = r.status || (r.done ? "done" : "todo");
-    if (filter === "done") return status === "done";
-    if (filter === "in_progress") return status === "in_progress";
-    if (filter === "pending") return status === "todo";
+    if (filter === "done" && status !== "done") return false;
+    if (filter === "in_progress" && status !== "in_progress") return false;
+    if (filter === "pending" && status !== "todo") return false;
+    if (dateRange !== "all") {
+      const windowDays = { today: 1, "7d": 7, "30d": 30, "90d": 90 }[dateRange] || 0;
+      if (windowDays > 0) {
+        // Reference date: done_at if available, else created_at
+        const ref = r.done_at || r.created_at;
+        if (!ref) return false;
+        const t = Date.parse(ref);
+        if (Number.isNaN(t)) return false;
+        const cutoff = Date.now() - windowDays * 24 * 3600 * 1000;
+        if (t < cutoff) return false;
+      }
+    }
     return true;
   });
   const totals = data.totals || {};
@@ -2648,6 +2661,24 @@ const RoadmapTrackerSection = () => {
               onClick={() => setFilter(v)}
               className={`px-3 py-1 text-[11px] rounded ${filter === v ? "bg-indigo-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
               data-testid={`roadmap-filter-${v}`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+        <div className="inline-flex rounded ring-1 ring-emerald-200 bg-white p-0.5" data-testid="roadmap-date-range-filter" title="Filtrer par date de réalisation/création">
+          {[
+            ["today", "Aujourd'hui"],
+            ["7d", "7 j"],
+            ["30d", "30 j"],
+            ["90d", "90 j"],
+            ["all", "Toujours"],
+          ].map(([v, l]) => (
+            <button
+              key={v}
+              onClick={() => setDateRange(v)}
+              className={`px-3 py-1 text-[11px] rounded ${dateRange === v ? "bg-emerald-600 text-white" : "text-slate-600 hover:bg-emerald-50"}`}
+              data-testid={`roadmap-date-${v}`}
             >
               {l}
             </button>

@@ -1729,6 +1729,12 @@ export default function CashBilling({ defaultTab = "receipts" }) {
   const isAdmin = ["admin", "superviseur"].includes(user?.role);
   const isComptable = (user?.tracked_role || "") === "Comptable";
   const canExpense = isAdmin || !!user?.can_cash || isComptable;
+  // Iter38r-fix9o — "Payer (Mobile Money)" deeplink visible only when the
+  // user is Cashier AND (Admin OR Superviseur). Replaces the sidebar link.
+  const trackedRole = (user?.tracked_role || "").toLowerCase();
+  const isCashier = !!user?.can_cash || trackedRole === "caissier";
+  const isAdminOrSup = isAdmin || trackedRole === "admin" || trackedRole === "superviseur";
+  const canPayout = isCashier && isAdminOrSup;
 
   const tabs = [
     { key: "receipts", label: "Caisse", icon: Banknote, color: "text-emerald-600" },
@@ -1803,6 +1809,19 @@ export default function CashBilling({ defaultTab = "receipts" }) {
             </button>
           );
         })}
+        {/* Iter38r-fix9o — Mobile Money payout shortcut for cashiers who are
+            also Admin or Superviseur. Replaces the sidebar entry. */}
+        {canPayout && (
+          <Link
+            to="/portal/payouts"
+            className="ml-auto inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition self-center"
+            data-testid="cash-payout-link"
+            title="Décaisser un salaire ou une avance via Mobile Money"
+          >
+            <Banknote className="h-3.5 w-3.5" />
+            Payer (Mobile Money)
+          </Link>
+        )}
       </div>
 
       {tab === "receipts" && <ReceiptsTab businessClients={businessClients} paymentMethods={paymentMethods} refreshClients={refresh} />}

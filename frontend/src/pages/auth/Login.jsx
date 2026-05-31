@@ -119,7 +119,7 @@ export default function Login() {
               <p className="text-[10px] uppercase tracking-[0.3em] text-sawali-blue-light">Software Engineering</p>
             </div>
           </Link>
-          <h2 className="text-4xl font-display font-bold leading-tight max-w-md">Bienvenue dans votre espace client sécurisé.</h2>
+          <h2 className="text-4xl font-display font-bold leading-tight max-w-md">Bienvenue dans votre Espace Loois sécurisé.</h2>
           <p className="mt-4 text-slate-300 max-w-md">
             Suivez vos rendez-vous, accédez à la documentation de vos logiciels et consultez l'historique de nos interventions.
           </p>
@@ -140,7 +140,7 @@ export default function Login() {
               <span className="text-xs uppercase tracking-[0.25em] font-semibold">{step === "credentials" ? "Connexion" : "Vérification 2FA"}</span>
             </div>
             <h1 className="mt-3 text-2xl font-display font-bold text-slate-900">
-              {step === "credentials" ? "Espace client" : "Code de vérification"}
+              {step === "credentials" ? "Espace Loois" : "Code de vérification"}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
               {step === "credentials"

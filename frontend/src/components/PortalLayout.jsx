@@ -43,7 +43,9 @@ const clientLinks = [
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
   { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
-  { to: "/portal/payouts", label: "Payer (Mobile Money)", icon: Banknote, cashOnly: true },
+  // Iter38r-fix9o — The "Payer (Mobile Money)" link was moved INSIDE the
+  // Caisse/Facturation page; visible only to (cashier OR admin/superviseur)
+  // tracked-roles via a dedicated button. Avoids cluttering the sidebar.
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
@@ -214,7 +216,7 @@ export default function PortalLayout({ admin = false }) {
   const useClientLogo = !admin && branding?.logo_url;
   const displayedLogo = useClientLogo ? absoluteUrl(branding.logo_url) : LOGO_URL;
   const displayedName = useClientLogo ? (branding.company || user.company || user.full_name) : "SAWALI";
-  const displayedSubtitle = admin ? "Admin Console" : (useClientLogo ? "Espace Client" : "Espace Client");
+  const displayedSubtitle = admin ? "Admin Console" : (useClientLogo ? "Espace Loois" : "Espace Loois");
 
   const SidebarContent = (
     <>
@@ -392,7 +394,7 @@ export default function PortalLayout({ admin = false }) {
           </button>
           <div className="flex items-center gap-2">
             {admin ? <ShieldCheck className="h-4 w-4 text-sawali-blue" /> : <Mail className="h-4 w-4 text-sawali-blue" />}
-            <span className="font-display font-semibold text-sm">{admin ? "Admin SAWALI" : "Espace Client SAWALI"}</span>
+            <span className="font-display font-semibold text-sm">{admin ? "Admin SAWALI" : "Espace Loois"}</span>
           </div>
           <div className="w-5" />
         </header>

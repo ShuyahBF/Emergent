@@ -70,7 +70,7 @@ export default function Home() {
                 Découvrir nos spécialisations
               </Link>
               <Link to="/login" className="inline-flex items-center gap-2 rounded-lg border border-sawali-blue-light/40 px-5 py-3 text-sawali-blue-light hover:bg-sawali-blue/10 transition" data-testid="hero-cta-login">
-                <ShieldCheck className="h-4 w-4" /> Espace Client
+                <ShieldCheck className="h-4 w-4" /> Espace Loois
               </Link>
             </div>
           </div>

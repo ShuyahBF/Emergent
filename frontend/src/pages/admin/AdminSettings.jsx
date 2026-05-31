@@ -2504,7 +2504,7 @@ const RoadmapTrackerSection = () => {
   const [data, setData] = useState({ items: [], totals: null });
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("all");  // all | done | pending
-  const [dateRange, setDateRange] = useState("all");  // today | 7d | 30d | 90d | all
+  const [dateRange, setDateRange] = useState("today");  // today | 7d | 30d | 90d | all  (Iter38r-fix9o : défaut "Aujourd'hui")
   const [editing, setEditing] = useState(null);  // {code, observations}
   const [creating, setCreating] = useState(false);
   const [newForm, setNewForm] = useState({ title: "", backlog_ref: "", details: "", duration_h: 0 });

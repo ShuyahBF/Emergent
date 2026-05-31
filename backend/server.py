@@ -19359,6 +19359,7 @@ class QuickTicketPayload(BaseModel):
     reason: str
     contact_name: Optional[str] = None
     contact_phone: Optional[str] = None
+    contact_whatsapp: Optional[str] = None
     incident_at: Optional[str] = None
     software: Optional[str] = None
     notes: Optional[str] = None
@@ -19408,6 +19409,10 @@ async def me_create_ticket_quick(
     contact = None
     cname = (payload.contact_name or "").strip() or None
     cphone = (payload.contact_phone or "").strip() or None
+    cwhatsapp = (payload.contact_whatsapp or "").strip() or None
+    # If only WhatsApp was provided, treat it as the lookup phone too
+    if not cphone and cwhatsapp:
+        cphone = cwhatsapp
     phone_digits = "".join(ch for ch in (cphone or "") if ch.isdigit())
     if phone_digits:
         contact = await db.directory_contacts.find_one(
@@ -19423,7 +19428,7 @@ async def me_create_ticket_quick(
                 "owner_label": user.get("full_name") or user.get("email"),
                 "name": cname or f"+{phone_digits}",
                 "phone": cphone,
-                "whatsapp": cphone if cphone.startswith("+") else f"+{phone_digits}",
+                "whatsapp": cwhatsapp or (cphone if cphone.startswith("+") else f"+{phone_digits}"),
                 "phone_digits": phone_digits,
                 "tags": ["Ticket bubble"],
                 "shared": True,

@@ -25,7 +25,7 @@ export default function MarketingNav() {
   const navigate = useNavigate();
 
   const portalHref = user ? (user.role === "admin" ? "/admin" : "/portal") : "/login";
-  const portalLabel = user ? "Mon espace" : "Espace Client";
+  const portalLabel = user ? "Mon espace" : "Espace Loois";
 
   return (
     <header className="glass-nav sticky top-0 z-50 backdrop-blur-md bg-[#081226]/85 border-b border-white/5" data-testid="marketing-navbar">

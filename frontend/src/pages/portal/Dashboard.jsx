@@ -68,7 +68,7 @@ export default function ClientDashboard() {
     <div className="space-y-8" data-testid="client-dashboard">
       <div className="flex items-end justify-between flex-wrap gap-4">
         <div>
-          <p className="text-xs uppercase tracking-[0.2em] text-sawali-blue">Espace Client</p>
+          <p className="text-xs uppercase tracking-[0.2em] text-sawali-blue">Espace Loois</p>
           <h1 className="text-3xl font-display font-bold">Bonjour, {data.user.full_name.split(" ")[0]}</h1>
           <p className="text-sm text-slate-500 mt-1">Voici l'état de votre compte aujourd'hui.</p>
         </div>

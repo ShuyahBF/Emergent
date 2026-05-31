@@ -1,4 +1,7 @@
 // Iter38r-fix9n — Checkout success/cancel landing pages
+// Iter38r-fix9o — Polling removed: the Stripe webhook is now the primary
+// confirmation channel (server-side, signed). One lightweight fetch is
+// enough to display the order status.
 import React, { useEffect, useState } from "react";
 import { useSearchParams, Link } from "react-router-dom";
 import { CheckCircle2, XCircle, Loader2, ArrowLeft } from "lucide-react";
@@ -9,30 +12,15 @@ export function CheckoutSuccess() {
   const orderId = params.get("order_id");
   const [order, setOrder] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [attempts, setAttempts] = useState(0);
 
   useEffect(() => {
     if (!orderId) { setLoading(false); return; }
-    let cancelled = false;
-    const poll = async () => {
-      try {
-        const r = await apiClient.get(`/public/orders/${orderId}`);
-        if (cancelled) return;
-        setOrder(r.data);
-        if (r.data?.status === "paid" || attempts >= 6) {
-          setLoading(false);
-        } else {
-          setAttempts((a) => a + 1);
-          setTimeout(poll, 2000);
-        }
-      } catch {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    poll();
-    return () => { cancelled = true; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderId, attempts]);
+    apiClient.get(`/public/orders/${orderId}`)
+      .then((r) => setOrder(r.data))
+      .catch(() => setOrder(null))
+      .finally(() => setLoading(false));
+  }, [orderId]);
+
 
   return (
     <section className="min-h-screen bg-sawali-navy flex items-center justify-center p-6" data-testid="checkout-success-page">

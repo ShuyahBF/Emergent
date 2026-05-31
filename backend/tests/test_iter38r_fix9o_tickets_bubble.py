@@ -89,6 +89,8 @@ def test_quick_ticket_creates_contact_and_ticket(admin_h, admin_id, db_sync):
         "reason": "Demande de formation",
         "contact_name": "Test Bubble",
         "contact_phone": phone,
+        "contact_whatsapp": phone,
+        "incident_at": datetime.now(timezone.utc).isoformat(),
         "software": "SAWALI Caisse",
         "notes": "Créé via la bulle",
         "attach_wa_sms_history": True,
@@ -107,6 +109,24 @@ def test_quick_ticket_creates_contact_and_ticket(admin_h, admin_id, db_sync):
     assert c is not None
     assert c["client_id"] == admin_id
     assert "Ticket bubble" in (c.get("tags") or [])
+    # Cleanup
+    db_sync.support_tickets.delete_one({"id": body["id"]})
+    db_sync.directory_contacts.delete_many({"phone_digits": digits})
+
+
+def test_quick_ticket_accepts_whatsapp_only(admin_h, admin_id, db_sync):
+    """Iter38r-fix9o v2: WhatsApp without a phone is enough — backend
+    treats WA as the phone for the contact lookup/creation."""
+    wa = f"+2267{uuid.uuid4().int % 10000000:07d}"
+    digits = wa.lstrip("+")
+    db_sync.directory_contacts.delete_many({"phone_digits": digits})
+    r = requests.post(f"{API}/me/tickets", headers=admin_h, json={
+        "client_id": admin_id, "reason": "Test WA only",
+        "contact_name": "WA Only",
+        "contact_whatsapp": wa,
+    }, timeout=15)
+    assert r.status_code == 200, r.text
+    body = r.json()
     # Cleanup
     db_sync.support_tickets.delete_one({"id": body["id"]})
     db_sync.directory_contacts.delete_many({"phone_digits": digits})

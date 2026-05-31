@@ -6,6 +6,35 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9o v2 🎟️🏷️⚡
+
+### 🎟️ TicketsBubble v2 — Refonte des champs requis
+- ✅ **Bug fix** : `/me/clients` retournait du `full_name`/`company` au lieu de `name`/`company_name` que la bulle attendait → la liste paraissait vide. Corrigé.
+- ✅ **Rapporteur** : datalist auto-rempli avec les contacts du client sélectionné (`/me/contacts` filtré par `client_id`). Auto-fill du téléphone/WA quand un contact existant est choisi.
+- ✅ **Validations obligatoires** : Client lié + Motif + Rapporteur + Date incident + AU MOINS UN des deux numéros (Téléphone OU WhatsApp).
+- ✅ Deux champs séparés Téléphone / WhatsApp. Si seul WA fourni, le backend l'utilise comme `contact_phone` pour la création du contact.
+- ✅ **Position bubble** : déplacée bottom-right (`bottom-36 right-4` / `sm:bottom-44 sm:right-6`) — empilée au-dessus de l'InternalChat + Liluvine VirtualAssistant pour grouper les bulles flottantes.
+
+### 🏷️ Rebranding "Espace Loois"
+- ✅ "Espace Client" / "Espace client" → "Espace Loois" dans Login, Home publique, Dashboard portail, PortalLayout (subtitle + header mobile), MarketingNav.
+- ✅ Marque interne "SAWALI SMART SYSTEMS" et logo conservés.
+
+### ⚡ CheckoutSuccess — Polling supprimé
+- ✅ `/checkout/success` ne fait plus 7×2s de polling. Une seule requête `/public/orders/{id}` suffit grâce au webhook Stripe (Iter38r-fix9o P1) qui confirme en temps réel côté serveur.
+
+### 💸 Mobile Money — Migration sidebar → bouton dans Caisse
+- ✅ Retrait de l'entrée sidebar `/portal/payouts`.
+- ✅ Nouveau bouton **"💸 Payer (Mobile Money)"** dans `/portal/cash` (header tabs, aligné à droite), visible UNIQUEMENT si l'utilisateur est Caissier ET Admin/Superviseur.
+
+### 📅 AdminSettings — Filtre par défaut "Aujourd'hui"
+- ✅ Section "Suivi des actions (historique du travail)" : `dateRange` initial passé de `"all"` à `"today"`.
+
+### Tests & qualité
+- ✅ **22 tests pytest verts** (14 tickets bubble dont +1 nouveau "WA only" + 7 stripe webhook + 1 nouveau "incident_at"). Cumulatif fix9 : **114 verts**.
+- ✅ Lint JS clean.
+
+
+
 ## Recent (2026-05-30) — Iter38r-fix9o P1 ⚡ (Webhook Stripe)
 
 ### ⚡ Webhook Stripe — confirmation paiement sans polling

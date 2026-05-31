@@ -10,6 +10,7 @@ import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
+import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 
@@ -375,6 +376,10 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">
         <LiluvineWaAutoreplySection />
+      </Filterable>
+
+      <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">
+        <LiluvineSystemPromptSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Personnalisation visuelle (Branding)" anchorId="s-liluvine-branding">

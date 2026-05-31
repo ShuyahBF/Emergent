@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail } from "lucide-react";
+import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone } from "lucide-react";
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -11,7 +11,7 @@ import VersionStamp from "@/components/VersionStamp";
 export default function Login() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState("credentials"); // credentials | otp
+  const [step, setStep] = useState("credentials"); // credentials | otp | wa_phone | wa_otp
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
@@ -20,6 +20,10 @@ export default function Login() {
   const [otp, setOtp] = useState("");
   const [devOtp, setDevOtp] = useState(null);
   const [loading, setLoading] = useState(false);
+  // Iter38r-fix9o (Item 8) — WhatsApp OTP login state
+  const [waPhone, setWaPhone] = useState("");
+  const [waName, setWaName] = useState("");
+  const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
 
   useEffect(() => {
@@ -103,6 +107,37 @@ export default function Login() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
   };
 
+  // Iter38r-fix9o (Item 8) — WhatsApp OTP login flow
+  const requestWaOtp = async (e) => {
+    e.preventDefault();
+    const digits = waPhone.replace(/\D/g, "");
+    if (digits.length < 8) { toast.error("Numéro WhatsApp invalide"); return; }
+    setLoading(true);
+    try {
+      const r = await apiClient.post("/auth/wa-otp/request", { msisdn: digits });
+      toast.success(`Code envoyé sur WhatsApp (${r.data.sent_via === "template" ? "modèle officiel" : "message direct"}). Valable 10 min.`);
+      setStep("wa_otp");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Impossible d'envoyer le code WhatsApp");
+    } finally { setLoading(false); }
+  };
+
+  const verifyWaOtp = async (e) => {
+    e.preventDefault();
+    const digits = waPhone.replace(/\D/g, "");
+    setLoading(true);
+    try {
+      const r = await apiClient.post("/auth/wa-otp/verify", {
+        msisdn: digits, code: waOtp, display_name: waName || undefined,
+      });
+      login(r.data.access_token || r.data.token, r.data.user);
+      toast.success("Connexion WhatsApp réussie — bienvenue dans la démo !");
+      navigate("/portal");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Code invalide");
+    } finally { setLoading(false); }
+  };
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2" data-testid="login-page">
       {/* Left: brand */}
@@ -140,52 +175,72 @@ export default function Login() {
               <span className="text-xs uppercase tracking-[0.25em] font-semibold">{step === "credentials" ? "Connexion" : "Vérification 2FA"}</span>
             </div>
             <h1 className="mt-3 text-2xl font-display font-bold text-slate-900">
-              {step === "credentials" ? "Espace Loois" : "Code de vérification"}
+              {step === "credentials" ? "Espace Loois"
+                : step === "otp" ? "Code de vérification"
+                : step === "wa_phone" ? "Connexion par WhatsApp"
+                : "Code reçu par WhatsApp"}
             </h1>
             <p className="mt-1 text-sm text-slate-500">
-              {step === "credentials"
-                ? "Saisissez vos identifiants. Un code à usage unique vous sera envoyé."
-                : "Saisissez le code à 6 chiffres reçu par email."}
+              {step === "credentials" ? "Saisissez vos identifiants. Un code à usage unique vous sera envoyé."
+                : step === "otp" ? "Saisissez le code à 6 chiffres reçu par email."
+                : step === "wa_phone" ? "Recevez un code à 6 chiffres directement sur WhatsApp pour accéder à la démo."
+                : "Saisissez le code à 6 chiffres reçu sur WhatsApp."}
             </p>
 
             {step === "credentials" ? (
-              <form onSubmit={submitCreds} className="mt-6 space-y-4" data-testid="login-credentials-form">
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Email</label>
-                  <div className="relative">
-                    <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
-                    <input
-                      required type="email" value={email} onChange={(e) => setEmail(e.target.value)}
-                      className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
-                      placeholder="vous@entreprise.com"
-                      data-testid="login-email"
+              <>
+                <form onSubmit={submitCreds} className="mt-6 space-y-4" data-testid="login-credentials-form">
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Email</label>
+                    <div className="relative">
+                      <Mail className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                      <input
+                        required type="email" value={email} onChange={(e) => setEmail(e.target.value)}
+                        className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
+                        placeholder="vous@entreprise.com"
+                        data-testid="login-email"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-slate-700 mb-1">Mot de passe</label>
+                    <PasswordInput
+                      required
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
+                      placeholder="••••••••"
+                      icon={<KeyRound className="h-4 w-4" />}
+                      testid="login-password"
                     />
                   </div>
+                  {captchaCfg.enabled && captchaCfg.site_key && (
+                    <div ref={captchaRef} data-testid="recaptcha-widget" />
+                  )}
+                  <button type="submit" disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition" data-testid="login-submit-button">
+                    {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
+                    Se connecter
+                  </button>
+                </form>
+                {/* Iter38r-fix9o (Item 8) — Alternative: WhatsApp OTP login */}
+                <div className="my-5 flex items-center gap-3">
+                  <div className="flex-1 h-px bg-slate-200" />
+                  <span className="text-[10px] uppercase tracking-wider text-slate-400">ou</span>
+                  <div className="flex-1 h-px bg-slate-200" />
                 </div>
-                <div>
-                  <label className="block text-xs font-semibold text-slate-700 mb-1">Mot de passe</label>
-                  <PasswordInput
-                    required
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    className="w-full rounded-lg border border-slate-300 py-2.5 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20"
-                    placeholder="••••••••"
-                    icon={<KeyRound className="h-4 w-4" />}
-                    testid="login-password"
-                  />
-                </div>
-                {captchaCfg.enabled && captchaCfg.site_key && (
-                  <div ref={captchaRef} data-testid="recaptcha-widget" />
-                )}
-                <button type="submit" disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition" data-testid="login-submit-button">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
-                  Se connecter
+                <button
+                  type="button"
+                  onClick={() => setStep("wa_phone")}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-medium transition"
+                  data-testid="login-wa-otp-button"
+                >
+                  <MessageCircle className="h-4 w-4" /> Se connecter via WhatsApp (essai démo)
                 </button>
-                <p className="text-xs text-slate-500 text-center mt-2">
+                <p className="text-xs text-slate-500 text-center mt-3">
                   Pas encore de compte ? <Link to="/contact" className="text-sawali-blue underline">Demander un accès</Link>
                 </p>
-              </form>
-            ) : (
+              </>
+            ) : step === "otp" ? (
               <form onSubmit={submitOtp} className="mt-6 space-y-4" data-testid="login-otp-form">
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 mb-1">Code à 6 chiffres</label>
@@ -217,6 +272,61 @@ export default function Login() {
                 <div className="flex items-center justify-between text-xs">
                   <button type="button" onClick={resend} className="text-sawali-blue underline" data-testid="login-resend-otp">Renvoyer le code</button>
                   <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline">Modifier l'email</button>
+                </div>
+              </form>
+            ) : step === "wa_phone" ? (
+              <form onSubmit={requestWaOtp} className="mt-6 space-y-4" data-testid="login-wa-phone-form">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Votre numéro WhatsApp</label>
+                  <div className="relative">
+                    <Phone className="absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                    <input
+                      required type="tel" value={waPhone}
+                      onChange={(e) => setWaPhone(e.target.value)}
+                      className="w-full rounded-lg border border-slate-300 pl-9 pr-3 py-2.5 text-sm font-mono focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+                      placeholder="+22670000000"
+                      data-testid="login-wa-phone-input"
+                    />
+                  </div>
+                  <p className="text-[11px] text-slate-500 mt-1">Format international (avec indicatif pays).</p>
+                </div>
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Votre nom (optionnel)</label>
+                  <input
+                    type="text" value={waName}
+                    onChange={(e) => setWaName(e.target.value)}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2.5 text-sm focus:outline-none focus:border-emerald-600 focus:ring-2 focus:ring-emerald-200"
+                    placeholder="Prénom Nom"
+                    data-testid="login-wa-name-input"
+                  />
+                </div>
+                <button type="submit" disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-medium transition disabled:opacity-50" data-testid="login-wa-request-button">
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <MessageCircle className="h-4 w-4" />} Recevoir le code par WhatsApp
+                </button>
+                <button type="button" onClick={() => setStep("credentials")} className="w-full text-xs text-slate-500 underline" data-testid="login-wa-back">
+                  ← Retour à la connexion classique
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={verifyWaOtp} className="mt-6 space-y-4" data-testid="login-wa-otp-form">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 mb-1">Code reçu sur WhatsApp</label>
+                  <input
+                    required value={waOtp}
+                    onChange={(e) => setWaOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-3 text-center font-mono text-2xl tracking-[0.5em] focus:outline-none focus:border-emerald-600"
+                    placeholder="••••••"
+                    maxLength={6}
+                    data-testid="login-wa-otp-input"
+                  />
+                  <p className="text-[11px] text-slate-500 mt-1 text-center">Code envoyé sur <span className="font-mono">{waPhone}</span></p>
+                </div>
+                <button type="submit" disabled={loading || waOtp.length !== 6} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-medium transition disabled:opacity-50" data-testid="login-wa-verify-button">
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Valider et entrer dans la démo
+                </button>
+                <div className="flex items-center justify-between text-xs">
+                  <button type="button" onClick={() => setStep("wa_phone")} className="text-emerald-700 underline">← Changer de numéro</button>
+                  <button type="button" onClick={() => setStep("credentials")} className="text-slate-500 underline">Annuler</button>
                 </div>
               </form>
             )}

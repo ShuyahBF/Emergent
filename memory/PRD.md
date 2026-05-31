@@ -6,6 +6,21 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9o v3 🧩 (UI manquantes)
+
+### 🤖 Liluvine PRO — Prompt système (UI)
+- ✅ Nouvelle section `LiluvineSystemPromptSection.jsx` dans AdminSettings (anchor `s-liluvine-system-prompt`).
+- ✅ Affiche le prompt personnalisé du tenant + bouton "Afficher prompt par défaut" + bouton "Réinitialiser" + bouton "Enregistrer".
+- ✅ Branchée sur les endpoints `GET/PUT /admin/liluvine-pro/system-prompt` (qui existaient déjà mais étaient invisibles côté UI).
+
+### 📱 WhatsApp OTP Login (UI sur page Login)
+- ✅ Bouton vert **"Se connecter via WhatsApp (essai démo)"** ajouté en bas du formulaire de connexion classique.
+- ✅ Flow en 2 étapes : (1) saisie numéro + nom optionnel → `POST /auth/wa-otp/request`. (2) saisie code 6 chiffres → `POST /auth/wa-otp/verify` → JWT + redirection `/portal`.
+- ✅ Liens "Retour à la connexion classique" et "Changer de numéro" pour navigation fluide.
+- ✅ Branché sur les endpoints `wa_otp_login_9o.py` existants. Smoke screenshot validé.
+
+
+
 ## Recent (2026-05-31) — Iter38r-fix9o v2 🎟️🏷️⚡
 
 ### 🎟️ TicketsBubble v2 — Refonte des champs requis

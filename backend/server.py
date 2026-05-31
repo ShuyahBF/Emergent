@@ -21118,6 +21118,10 @@ async def proxy_file_download(file_path: str, request: Request):
                     headers={"Cache-Control": "public, max-age=3600"})
 
 
+# Iter38r-fix9p — Public docs (3 PDFs) registered BEFORE include_router
+from routes.public_docs import setup_docs_routes as _setup_docs_routes  # noqa: E402
+_setup_docs_routes(api=api)
+
 app.include_router(api)
 
 

@@ -198,12 +198,39 @@ const FEATURE_META = [
     color: "text-fuchsia-600",
     bg: "bg-fuchsia-50",
   },
+  // Iter38r-fix9p — Voice generation (ElevenLabs cloning + TTS)
+  {
+    key: "ai_voice_gen",
+    label: "Génération de Voix / Son (ElevenLabs)",
+    description: "Active la génération vocale (clonage de voix + synthèse vocale TTS) via ElevenLabs dans le Studio Voix. Quand désactivé, l'onglet voix du Media Generator est masqué et les appels API retournent 403.",
+    icon: Sparkles,
+    color: "text-amber-600",
+    bg: "bg-amber-50",
+  },
+  // Iter38r-fix9p — OCR enabling for Liluvine KB
+  {
+    key: "kb_ocr_enabled",
+    label: "OCR (PDF / Images) dans la base de connaissance",
+    description: "Active l'extraction de texte par OCR sur les PDFs scannés et images ajoutés à la base de connaissance Liluvine. Coût configurable globalement (XOF/page). Quand désactivé, seul le texte natif des PDFs est lu.",
+    icon: ImageIcon,
+    color: "text-orange-600",
+    bg: "bg-orange-50",
+  },
+  // Iter38r-fix9o — Floating "Open intervention ticket" bubble
+  {
+    key: "tickets_bubble",
+    label: "Bulle « Nouveau ticket » (flottante)",
+    description: "Active le bouton flottant noir en bas à droite de toutes les pages du portail pour créer rapidement un ticket d'intervention (motif, contact, date, logiciel). Visible uniquement pour admin/superviseur/modérateur.",
+    icon: Sparkles,
+    color: "text-slate-700",
+    bg: "bg-slate-100",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   const [loading, setLoading] = useState(true);

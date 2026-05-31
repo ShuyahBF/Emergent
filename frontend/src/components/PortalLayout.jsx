@@ -42,10 +42,9 @@ const clientLinks = [
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
-  { to: "/portal/payments", label: "Mes paiements", icon: Wallet, module: "payments" },
-  // Iter38r-fix9o — The "Payer (Mobile Money)" link was moved INSIDE the
-  // Caisse/Facturation page; visible only to (cashier OR admin/superviseur)
-  // tracked-roles via a dedicated button. Avoids cluttering the sidebar.
+  // Iter38r-fix9p — Sidebar entry "Mes paiements" retirée (page accessible
+  // via /portal/cash → onglet Reçus + bouton Mobile Money). La route reste
+  // active pour les liens directs (emails de confirmation, etc.).
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at

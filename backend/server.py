@@ -3535,6 +3535,10 @@ class ClientFeaturesUpdate(BaseModel):
     # quand le toggle "Liluvine PRO" était activé dans SMART Communications,
     # Pydantic le supprimait silencieusement avant l'enregistrement en base.
     ai_liluvine_pro: Optional[bool] = None
+    # Iter38r-fix9p — Voice generation (ElevenLabs cloning + TTS) toggle
+    ai_voice_gen: Optional[bool] = None
+    # Iter38r-fix9p — OCR (PDF/image) toggle in Liluvine KB
+    kb_ocr_enabled: Optional[bool] = None
     # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
     tickets_bubble: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL

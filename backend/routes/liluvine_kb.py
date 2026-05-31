@@ -39,6 +39,11 @@ MAX_CHUNK_CHARS = 1500
 MAX_UPLOAD_BYTES = 5 * 1024 * 1024  # 5 MB
 DEFAULT_CONTEXT_BUDGET = 6000
 
+# Iter38r-fix9t — In-memory cache for build_kb_context (per-process)
+# Key = max_chars, Value = (timestamp, rendered_context)
+_KB_CONTEXT_CACHE: Dict[int, tuple] = {}
+_KB_CONTEXT_TTL = 60.0  # seconds
+
 
 class KbEntryCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -190,13 +195,24 @@ async def _ocr_pdf_with_claude_vision(raw: bytes, settings_doc: Dict[str, Any]) 
 
 
 async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET) -> str:
-    """Aggregate enabled KB entries into a compact context string."""
+    """Aggregate enabled KB entries into a compact context string.
+
+    Iter38r-fix9t — In-memory cache (TTL 60 s, per-process). The KB rarely
+    changes (admin-only writes) so caching saves a Mongo round-trip on every
+    Liluvine chat message (~1 s on large KBs).
+    """
+    # Cache lookup
+    now = time.time()
+    cached = _KB_CONTEXT_CACHE.get(max_chars)
+    if cached and (now - cached[0] < _KB_CONTEXT_TTL):
+        return cached[1]
     cur = db.liluvine_knowledge.find(
         {"enabled": True, "is_deleted": {"$ne": True}},
         {"_id": 0, "title": 1, "content": 1, "kind": 1, "tags": 1},
     ).sort([("priority", -1), ("updated_at", -1)])
     items = await cur.to_list(50)
     if not items:
+        _KB_CONTEXT_CACHE[max_chars] = (now, "")
         return ""
     parts: List[str] = ["[Base de connaissance SAWALI — Liluvine PRO]"]
     used = len(parts[0])
@@ -215,7 +231,14 @@ async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET) -> st
             break
         parts.append(block)
         used += len(block)
-    return "".join(parts)
+    result = "".join(parts)
+    _KB_CONTEXT_CACHE[max_chars] = (now, result)
+    return result
+
+
+def invalidate_kb_cache() -> None:
+    """Iter38r-fix9t — Called after any KB mutation (upload/update/delete/toggle)."""
+    _KB_CONTEXT_CACHE.clear()
 
 
 def setup_liluvine_kb_routes(app, db, get_current_user):
@@ -265,6 +288,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             "created_by": user.get("email"),
         }
         await db.liluvine_knowledge.insert_one(doc.copy())
+        invalidate_kb_cache()
         return {"ok": True, "id": eid, "entry": doc}
 
     @api.put("/admin/liluvine-pro/kb/{eid}", tags=["Admin — Liluvine PRO"])
@@ -287,6 +311,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         res = await db.liluvine_knowledge.update_one({"id": eid, "is_deleted": {"$ne": True}}, {"$set": update})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Entrée introuvable")
+        invalidate_kb_cache()
         return {"ok": True, "id": eid}
 
     @api.delete("/admin/liluvine-pro/kb/{eid}", tags=["Admin — Liluvine PRO"])
@@ -298,6 +323,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         )
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Entrée introuvable")
+        invalidate_kb_cache()
         return {"ok": True, "id": eid}
 
     @api.get("/admin/liluvine-pro/kb/ocr-usage", tags=["Admin — Liluvine PRO"])
@@ -488,6 +514,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             }
             await db.liluvine_knowledge.insert_one(doc.copy())
             ids.append(eid)
+        invalidate_kb_cache()
         return {"ok": True, "ids": ids, "chunks": len(chunks), "kind": kind, "batch": upload_batch}
 
     return api

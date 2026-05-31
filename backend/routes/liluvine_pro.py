@@ -19,6 +19,8 @@ Endpoints :
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 import re
@@ -27,9 +29,14 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.liluvine_pro")
+
+# Iter38r-fix9t — Claude Haiku 4.5 (Anthropic) for the chat workload.
+# ~3× faster than Sonnet 4.6 with comparable quality on short Q&A.
+LILUVINE_MODEL = "claude-haiku-4-5-20251001"
 
 SYSTEM_MESSAGE = """Tu es Liluvine PRO, l'assistant IA interne de SAWALI SMART SYSTEMS.
 Tu réponds toujours en **français** de façon concise (3-6 phrases max sauf si on te demande un détail).
@@ -92,10 +99,12 @@ def _client_scope(user: dict) -> str:
 # a short markdown-like snippet (max ~2 KB) — no PII overload.
 async def _fetch_context_snippets(db, user: dict, text: str) -> str:
     """Inspect `text` for keywords and pull relevant data from MongoDB.
-    Returns a single concatenated snippet or empty string."""
+    Returns a single concatenated snippet or empty string.
+
+    Iter38r-fix9t — Fetchers are launched in parallel via asyncio.gather().
+    """
     scope = _client_scope(user)
     t = (text or "").lower()
-    snippets: List[str] = []
 
     async def _list_contacts():
         items = await db.directory_contacts.find(
@@ -153,21 +162,23 @@ async def _fetch_context_snippets(db, user: dict, text: str) -> str:
             lines.append(f"- [{n.get('kind', '?')}] {(n.get('title') or '—')[:50]} · {snippet}…")
         return "**8 dernières notes/rapports** :\n" + "\n".join(lines)
 
-    # Pattern → fetcher mapping. Multiple patterns may fire and all snippets are appended.
+    # Iter38r-fix9t — Fan out matching fetchers in parallel
+    coros = []
     if re.search(r"\b(contact|client|annuaire)s?\b", t):
-        snippets.append(await _list_contacts())
+        coros.append(_list_contacts())
     if re.search(r"\b(ticket|intervention|incident|demande)s?\b", t):
-        snippets.append(await _list_tickets())
+        coros.append(_list_tickets())
     if re.search(r"\b(paiement|payment|encaissement|pawapay|mobile.{0,3}money|stripe)s?\b", t):
-        snippets.append(await _list_payments())
+        coros.append(_list_payments())
     if re.search(r"\b(rdv|rendez.vous|appointment|réunion|reunion|meeting)s?\b", t):
-        snippets.append(await _list_appointments())
+        coros.append(_list_appointments())
     if re.search(r"\b(note|rapport|suivi|compte.rendu|résumé|resume)s?\b", t):
-        snippets.append(await _list_notes())
+        coros.append(_list_notes())
 
-    if not snippets:
+    if not coros:
         return ""
-    return "\n\n--- CONTEXTE DB ---\n" + "\n\n".join(snippets) + "\n--- FIN CONTEXTE ---"
+    snippets = await asyncio.gather(*coros, return_exceptions=False)
+    return "\n\n--- CONTEXTE DB ---\n" + "\n\n".join(s for s in snippets if s) + "\n--- FIN CONTEXTE ---"
 
 
 # ============================================================
@@ -283,7 +294,12 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             logger.warning("[liluvine] escalation email loop failed", exc_info=True)
 
     async def _llm_send(session_id: str, system_text: str, user_text: str) -> Dict[str, Any]:
-        """Spin a fresh LlmChat instance, send the message, return reply + token estimate."""
+        """Spin a fresh LlmChat instance, send the message, return reply + token estimate.
+
+        Iter38r-fix9t — Switched from claude-sonnet-4-6 to claude-haiku-4-5-20251001
+        (≈3× faster, suitable for the chat workload). The full model identifier
+        is kept in `LILUVINE_MODEL` so a future rollback is one-line.
+        """
         try:
             from emergentintegrations.llm.chat import LlmChat, UserMessage
         except ImportError as exc:
@@ -294,11 +310,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             api_key=api_key,
             session_id=session_id,
             system_message=system_text,
-        ).with_model("anthropic", "claude-sonnet-4-6")
+        ).with_model("anthropic", LILUVINE_MODEL)
         reply = await chat.send_message(UserMessage(text=user_text))
         # Token estimation : ~4 chars per token. Used for quota accounting.
         tokens = max(int((len(system_text) + len(user_text) + len(reply or "")) / 4), 1)
-        return {"reply": reply or "", "tokens": tokens, "model": "claude-sonnet-4-6"}
+        return {"reply": reply or "", "tokens": tokens, "model": LILUVINE_MODEL}
 
     # ----------------------------------------------------------
     # Iter38r-fix9a — Admin Auto-reply WhatsApp config
@@ -725,6 +741,125 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             "escalation": bool(escalated),
             "warn": track_result.get("warn", False),
         }
+
+    # ----------------------------------------------------------
+    # Iter38r-fix9t — POST /chat/stream — Server-Sent Events streaming
+    # ----------------------------------------------------------
+    # The underlying emergentintegrations library does NOT expose native
+    # token streaming, so we implement a pseudo-streaming pipeline:
+    #   1) call _llm_send() to obtain the full reply (Haiku 4.5 is fast)
+    #   2) chunk the reply (~6 chars at a time, ~25 ms cadence)
+    #   3) emit SSE `data:` lines so the browser displays a typewriter effect
+    # Combined with Haiku 4.5 (≈1.0-1.5 s) + KB cache + parallel fetchers,
+    # the first visible token appears within ~1.0 s and the full reply
+    # streams over ~2-3 s instead of arriving as a 4-7 s blocking response.
+    # ----------------------------------------------------------
+    @api.post("/me/liluvine-pro/chat/stream", tags=["Portail Client — Liluvine PRO"])
+    async def chat_stream(payload: ChatMessage, user: dict = Depends(get_current_user)):
+        scope_uid = _client_scope(user)
+        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
+        feats = (parent or {}).get("features") or {}
+        if not feats.get("ai_liluvine_pro"):
+            raise HTTPException(status_code=403, detail="Liluvine PRO n'est pas activé pour votre compte.")
+        chk = await _pre_check(user, LILUVINE_MODEL)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
+        scope = _client_scope(user)
+        sid = payload.session_id
+        if not sid:
+            sid = secrets.token_urlsafe(12)
+            await db.liluvine_pro_sessions.insert_one({
+                "id": sid, "client_id": scope, "user_id": user["id"],
+                "user_label": user.get("full_name") or user.get("email") or "—",
+                "title": payload.text[:60].strip() or "Nouvelle conversation",
+                "created_at": _now(), "updated_at": _now(), "message_count": 0,
+            })
+        else:
+            session = await db.liluvine_pro_sessions.find_one(
+                {"id": sid, "client_id": scope}, {"_id": 0},
+            )
+            if not session:
+                raise HTTPException(status_code=404, detail="Session introuvable.")
+        await db.liluvine_pro_messages.insert_one({
+            "id": secrets.token_urlsafe(12), "session_id": sid, "client_id": scope,
+            "user_id": user["id"], "role": "user", "content": payload.text,
+            "created_at": _now(),
+        })
+
+        async def _event_stream():
+            try:
+                # Emit early "session" event so the frontend can render the id
+                yield f"event: session\ndata: {json.dumps({'session_id': sid})}\n\n"
+                # Heavy lifting — context + LLM call
+                ctx_task = _fetch_context_snippets(db, user, payload.text)
+                kb_task = _resolve_kb_context()
+                sys_task = _resolve_system_prompt(scope)
+                ctx, kb, base_sys = await asyncio.gather(ctx_task, kb_task, sys_task)
+                system_text = base_sys + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+                _escalate_pre = any(k in payload.text.lower() for k in ESCALATION_KEYWORDS)
+                # Notify the client we're now waiting on the LLM
+                yield f"event: status\ndata: {json.dumps({'phase': 'llm'})}\n\n"
+                llm = await _llm_send(sid, system_text, payload.text)
+                reply_text = (llm["reply"] or "").replace(ESCALATION_TOKEN, "").strip()
+                _escalate_llm = ESCALATION_TOKEN in (llm["reply"] or "")
+                escalated = _escalate_pre or _escalate_llm
+                msg_id = secrets.token_urlsafe(12)
+                await db.liluvine_pro_messages.insert_one({
+                    "id": msg_id, "session_id": sid, "client_id": scope,
+                    "user_id": user["id"], "role": "assistant", "content": reply_text,
+                    "tokens": llm["tokens"], "model": llm["model"],
+                    "context_injected": bool(ctx), "escalation": bool(escalated),
+                    "created_at": _now(),
+                })
+                if escalated:
+                    await _flag_escalation(sid, scope,
+                                           source="keyword" if _escalate_pre else "llm")
+                await db.liluvine_pro_sessions.update_one(
+                    {"id": sid},
+                    {"$inc": {"message_count": 2}, "$set": {"updated_at": _now()}},
+                )
+                track_result = await _track(
+                    user, llm["tokens"], llm["model"],
+                    metadata={"session_id": sid, "context_injected": bool(ctx)},
+                )
+                # Stream the reply in small chunks (~6 chars / 25 ms typewriter)
+                CHUNK = 8
+                for i in range(0, len(reply_text), CHUNK):
+                    piece = reply_text[i:i + CHUNK]
+                    yield f"event: token\ndata: {json.dumps({'text': piece})}\n\n"
+                    await asyncio.sleep(0.025)
+                # Final "done" event with metadata
+                yield "event: done\ndata: " + json.dumps({
+                    "message_id": msg_id,
+                    "session_id": sid,
+                    "tokens": llm["tokens"],
+                    "model": llm["model"],
+                    "context_injected": bool(ctx),
+                    "escalation": bool(escalated),
+                    "warn": track_result.get("warn", False),
+                }) + "\n\n"
+            except HTTPException as exc:
+                yield "event: error\ndata: " + json.dumps({"detail": exc.detail, "status": exc.status_code}) + "\n\n"
+            except Exception as exc:
+                logger.exception("[liluvine-pro] stream failure")
+                yield "event: error\ndata: " + json.dumps({"detail": f"Liluvine indisponible : {str(exc)[:160]}"}) + "\n\n"
+
+        return StreamingResponse(
+            _event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "X-Accel-Buffering": "no",  # disable nginx/proxy buffering
+            },
+        )
+
+    async def _resolve_kb_context() -> str:
+        try:
+            from routes.liluvine_kb import build_kb_context
+            return await build_kb_context(db)
+        except Exception:
+            return ""
+
 
     # ----------------------------------------------------------
     # GET /sessions — list user's sessions

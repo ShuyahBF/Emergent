@@ -83,36 +83,89 @@ export default function LiluvinePro() {
     const text = input.trim();
     if (!text || sending) return;
     setSending(true);
-    setMessages((m) => [...m, { id: `tmp-${Date.now()}`, role: "user", content: text, _pending: true }]);
+    const tmpUserId = `u-${Date.now()}`;
+    const tmpAsstId = `a-${Date.now()}`;
+    // Optimistic UI: user bubble + empty assistant bubble (will fill via stream)
+    setMessages((m) => [
+      ...m,
+      { id: tmpUserId, role: "user", content: text },
+      { id: tmpAsstId, role: "assistant", content: "", _streaming: true },
+    ]);
     setInput("");
     try {
-      const r = await apiClient.post("/me/liluvine-pro/chat", {
-        text, session_id: activeId,
+      // Iter38r-fix9t — SSE pseudo-streaming (Haiku 4.5 + chunked typewriter)
+      const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+      const token = localStorage.getItem("sawali_token") || "";
+      const resp = await fetch(`${apiBase}/api/me/liluvine-pro/chat/stream`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text, session_id: activeId }),
       });
-      setActiveId(r.data.session_id);
-      setMessages((m) => [
-        ...m.filter((x) => !x._pending),
-        { id: `u-${r.data.message_id}`, role: "user", content: text },
-        { id: r.data.message_id, role: "assistant", content: r.data.reply,
-          tokens: r.data.tokens, model: r.data.model,
-          context_injected: r.data.context_injected },
-      ]);
-      if (r.data.warn) {
-        toast.warning("⚠️ Vous approchez de votre quota IA mensuel (80% atteint).");
+      if (!resp.ok) {
+        let detail = "Erreur";
+        try { const j = await resp.json(); detail = j.detail || detail; } catch { /* ignore */ }
+        // Remove the placeholder assistant bubble
+        setMessages((m) => m.filter((x) => x.id !== tmpAsstId));
+        if (resp.status === 429) toast.error(`Quota IA atteint : ${detail}`);
+        else if (resp.status === 403) { setFeatureEnabled(false); toast.error(detail); }
+        else toast.error(detail);
+        return;
+      }
+      const reader = resp.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let assistantText = "";
+      let finalMeta = null;
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        // SSE events are separated by blank lines (\n\n)
+        const blocks = buffer.split("\n\n");
+        buffer = blocks.pop() || "";
+        for (const block of blocks) {
+          const lines = block.split("\n");
+          let event = "message";
+          let data = "";
+          for (const line of lines) {
+            if (line.startsWith("event:")) event = line.slice(6).trim();
+            else if (line.startsWith("data:")) data += line.slice(5).trim();
+          }
+          if (!data) continue;
+          let payload;
+          try { payload = JSON.parse(data); } catch { continue; }
+          if (event === "session") {
+            if (payload.session_id) setActiveId(payload.session_id);
+          } else if (event === "token") {
+            assistantText += payload.text || "";
+            setMessages((m) => m.map((x) => x.id === tmpAsstId ? { ...x, content: assistantText } : x));
+          } else if (event === "done") {
+            finalMeta = payload;
+          } else if (event === "error") {
+            setMessages((m) => m.filter((x) => x.id !== tmpAsstId));
+            toast.error(payload.detail || "Erreur");
+            return;
+          }
+        }
+      }
+      if (finalMeta) {
+        setMessages((m) => m.map((x) => x.id === tmpAsstId ? {
+          id: finalMeta.message_id,
+          role: "assistant",
+          content: assistantText,
+          tokens: finalMeta.tokens,
+          model: finalMeta.model,
+          context_injected: finalMeta.context_injected,
+        } : x));
+        if (finalMeta.warn) toast.warning("⚠️ Vous approchez de votre quota IA mensuel (80% atteint).");
       }
       await loadSessions();
     } catch (err) {
-      setMessages((m) => m.filter((x) => !x._pending));
-      const status = err?.response?.status;
-      const detail = err?.response?.data?.detail || "Erreur";
-      if (status === 429) {
-        toast.error(`Quota IA atteint : ${detail}`);
-      } else if (status === 403) {
-        setFeatureEnabled(false);
-        toast.error("Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.");
-      } else {
-        toast.error(detail);
-      }
+      setMessages((m) => m.filter((x) => x.id !== tmpAsstId));
+      toast.error(err?.message || "Erreur réseau");
     } finally { setSending(false); }
   };
 

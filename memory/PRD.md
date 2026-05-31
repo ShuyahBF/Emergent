@@ -6,6 +6,46 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9p → fix9u — 6 nouveaux modules
+
+### 🔴 fix9p (P0 BUG FIX) — Backend gate `ai_voice_gen`
+- ✅ Endpoints `/me/ai/tts-elevenlabs` + `/me/ai/voices/clone` désormais gatés par le toggle `ai_voice_gen` du tenant (parent admin). Admin/superviseur bypass. 4/4 tests passants.
+
+### 📊 fix9q — Mini-compteur OCR par tenant (AdminClientFeatures)
+- ✅ `GET /api/admin/liluvine-pro/kb/ocr-usage?client_id=X` accepte le filtre par tenant. Per-tenant pricing/cap override le global.
+- ✅ Carte "OCR consommé ce mois : X pages / Y XOF" dans `AdminClientFeatures.jsx` avec barre de progression colorée (vert/ambre/rouge selon le %).
+
+### 🔊 fix9r — Home Assistant Voice Notifications
+- ✅ Nouveau module `routes/voice_notifications.py` + page `AdminVoiceNotifications.jsx`.
+- ✅ Catalogue 15 évènements built-in (Invoice, Ticket, Payment, HR, Cash, Catalog, Appointment, Incident, WA…) avec metadata `module` / `page` / `db_table` / `variables`.
+- ✅ Custom events : l'admin peut ajouter ses propres entrées (libellé/module/table/variables/TTS).
+- ✅ Per-rule : enabled + TTS template avec `{variables}` + override enceinte Alexa.
+- ✅ Test endpoint + log des envois HA + helper `trigger_voice_event()` pour les hooks internes.
+- ✅ 14/14 tests pytest.
+
+### 📄 fix9s — Régénération PDF (Admin/Superviseur)
+- ✅ `POST /api/admin/docs/regenerate/{slug}` régénère un PDF à partir des dernières captures du portail.
+- ✅ Bouton "Régénérer le PDF" + pictogramme `RefreshCw` sur chaque carte brochure dans `BrochuresWidget.jsx` (visible Admin/Superviseur uniquement).
+- ✅ 3/3 tests (auth + 404 + régénération réelle).
+
+### ⚡ fix9t — Liluvine PRO — Performances + Streaming SSE
+- ✅ Modèle switché : `claude-sonnet-4-6` → **`claude-haiku-4-5-20251001`** (~3× plus rapide).
+- ✅ **Cache RAM 60 s** sur `build_kb_context()` + invalidation aux mutations KB.
+- ✅ Fetchers de contexte (contacts/tickets/paiements/RDV/notes) **parallélisés** via `asyncio.gather()`.
+- ✅ Nouvel endpoint `POST /api/me/liluvine-pro/chat/stream` (SSE) avec pseudo-streaming chunks ~8 chars / 25 ms (effet typewriter).
+- ✅ Frontend `LiluvinePro.jsx` consomme le stream via `fetch + ReadableStream.getReader()`.
+- ✅ Gain mesuré : ~4 s → ~1.5 s + ressenti instantané (premier token visible < 1 s).
+- ✅ 5/5 tests pytest.
+
+### 🔔 fix9u — Module Rappels d'abonnements IA
+- ✅ Collection `ai_subscriptions` : nom, actif, coût mensuel, devise, date de souscription, durée (jours), jours avant rappel, email + WhatsApp.
+- ✅ Date de renouvellement **auto-calculée** chaque mois (jamais stockée).
+- ✅ Cron quotidien à **08:00 Africa/Abidjan** : `process_due_reminders()` envoie WhatsApp + Email pour les abonnements dans leur fenêtre de rappel. Idempotent < 18h.
+- ✅ CRUD endpoints `/api/admin/ai-subscriptions/*` + `send-reminder` (manuel).
+- ✅ Section éditable `AiSubscriptionsSection.jsx` dans Admin Settings (anchor `s-ai-subscriptions`) avec table + formulaire + total mensuel cumulé par devise.
+- ✅ 8/8 tests pytest.
+
+
 ## Recent (2026-05-31) — Iter38r-fix9p 📚 (Documentation)
 
 ### 📚 3 documents PDF générés en français

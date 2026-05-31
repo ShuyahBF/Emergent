@@ -18791,6 +18791,28 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+
+            # Iter38r-fix9u — Daily AI subscription renewal reminders
+            # (08:00 Africa/Abidjan). Calls process_due_reminders() which
+            # scans active subs and dispatches WA + Email reminders for those
+            # within their reminder window. Idempotent per 18 h.
+            async def _scheduled_ai_subs_reminders():
+                try:
+                    from routes.ai_subscriptions import process_due_reminders as _proc
+                    async def _email_adapter(*, to: str, subject: str, body_text: str):
+                        return await send_email(to, subject, body_text, body_text)
+                    async def _wa_adapter(*, to: str, body: str):
+                        return await _wa_send_text(to, body)
+                    await _proc(db, send_email_fn=_email_adapter, send_whatsapp_fn=_wa_adapter)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("AI subscriptions reminders cron failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_ai_subs_reminders,
+                CronTrigger(hour=8, minute=0, timezone="Africa/Abidjan"),
+                id="ai_subscriptions_reminders_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001
@@ -21156,6 +21178,17 @@ _setup_docs_routes(api=api, get_current_user=get_current_user)
 # Iter38r-fix9r — Home Assistant voice notifications
 from routes.voice_notifications import setup_voice_notifications_routes as _setup_voice_notif_routes  # noqa: E402
 _setup_voice_notif_routes(app=api, db=db, get_current_user=get_current_user)
+
+# Iter38r-fix9u — AI subscription renewal reminders (WhatsApp + Email)
+from routes.ai_subscriptions import setup_ai_subscriptions_routes as _setup_ai_subs_routes  # noqa: E402
+async def _email_adapter(*, to: str, subject: str, body_text: str):
+    return await send_email(to, subject, body_text, body_text)
+async def _wa_adapter(*, to: str, body: str):
+    return await _wa_send_text(to, body)
+_setup_ai_subs_routes(
+    app=api, db=db, get_current_user=get_current_user,
+    send_email_fn=_email_adapter, send_whatsapp_fn=_wa_adapter,
+)
 
 app.include_router(api)
 

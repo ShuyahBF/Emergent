@@ -856,6 +856,44 @@ export default function AdminSettings() {
           placeholder="fr"
           testid="wa-tpl-ticket-language"
         />
+
+        {/* Iter38r-fix9o (Item 8) — Template OTP login WhatsApp.
+            Réutilise la même config WA (access_token + phone_number_id) que
+            ci-dessus ; il suffit de créer un template Meta avec UN paramètre
+            de type texte (le code à 6 chiffres) et coller son nom ici. */}
+        <div className="mt-4 pt-4 border-t border-slate-200">
+          <h4 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-2">
+            <MessageCircle className="h-4 w-4 text-emerald-600" />
+            Template WhatsApp — Connexion par OTP (page de login)
+          </h4>
+          <p className="text-xs text-slate-500 mt-1">
+            Ce template doit être approuvé par Meta. Variable unique <code className="rounded bg-slate-100 px-1">{"{{1}}"}</code> = code à 6 chiffres.
+            Si vide, le code est envoyé en <strong>message texte direct</strong> (fonctionne uniquement dans la fenêtre de 24h après le premier message du client).
+          </p>
+          <div className="mt-3 grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Nom du template (ex. wa_envoiotp_fr)"
+              value={s.wa_otp_template || ""}
+              onChange={(v) => upd("wa_otp_template", v)}
+              placeholder="wa_envoiotp_fr"
+              testid="wa-otp-template"
+            />
+            <Input
+              label="Langue du template OTP"
+              value={s.wa_otp_template_lang || ""}
+              onChange={(v) => upd("wa_otp_template_lang", v)}
+              placeholder="fr"
+              testid="wa-otp-template-lang"
+            />
+          </div>
+          <div className="mt-3 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-3 text-xs text-emerald-900">
+            <strong className="block mb-1">📝 Exemple de contenu de template à créer côté Meta :</strong>
+            <pre className="font-mono text-[11px] whitespace-pre-wrap leading-relaxed">SAWALI — Votre code de connexion est : {"{{1}}"}.{"\n"}Valable 10 minutes. Ne le partagez avec personne.</pre>
+            <p className="text-[10px] mt-2 text-emerald-800">
+              Catégorie : Authentication ou Utility · 1 paramètre body uniquement.
+            </p>
+          </div>
+        </div>
       </Section>
 
       <Section icon={Upload} title="Médias WhatsApp (réception, envoi, filigrane)">

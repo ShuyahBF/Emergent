@@ -594,6 +594,13 @@ class SettingsUpdate(BaseModel):
     notify_on_ticket_open: Optional[bool] = None  # default True
     notify_on_ticket_close: Optional[bool] = None  # default True
 
+    # Iter38r-fix9o (Item 8) — WhatsApp OTP login template (reuses the same
+    # whatsapp_access_token + whatsapp_phone_number_id as the ticket flows).
+    # If empty → fallback to a plain text message (works only inside the
+    # 24h WA session window).
+    wa_otp_template: Optional[str] = None  # ex. wa_envoiotp_fr — 1 body var = code
+    wa_otp_template_lang: Optional[str] = None  # default "fr"
+
     # Iter35r — Welcome modal at login (briefing)
     welcome_modal_notes_days: Optional[int] = None  # default 3 — fetch notes created within N days
     health_webhook_url: Optional[str] = None

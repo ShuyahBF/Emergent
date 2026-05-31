@@ -4,6 +4,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
 import { computeBannerStyles } from "@/lib/bannerStyle";
+import AdBannersLivePanel from "./AdBannersLivePanel";
 import {
   ArrowLeft,
   Plus,
@@ -67,6 +68,7 @@ const DEFAULT_DRAFT = {
   advertiser_email: "",
   advertiser_phone: "",
   reminder_email_enabled: true,
+  reminder_wa_enabled: false,
   reminder_days_before: 3,
 };
 
@@ -150,6 +152,7 @@ export default function AdminAdBanners() {
       advertiser_email: it.advertiser_email || "",
       advertiser_phone: it.advertiser_phone || "",
       reminder_email_enabled: it.reminder_email_enabled !== false,
+      reminder_wa_enabled: !!it.reminder_wa_enabled,
       reminder_days_before: it.reminder_days_before ?? 3,
     });
     setShowForm(true);
@@ -269,6 +272,9 @@ export default function AdminAdBanners() {
       </div>
 
       {showForm && <BannerForm draft={draft} setDraft={setDraft} onSave={save} onCancel={() => { setShowForm(false); setEditing(null); }} editing={editing} />}
+
+      {/* Iter38r-fix9z7 — Live impressions/clicks panel (WebSocket) */}
+      <AdBannersLivePanel />
 
       {/* Iter38r-fix9z5 — Renewal requests inbox (from public ad reports) */}
       {renewals.filter((r) => r.status === "new").length > 0 && (
@@ -1066,7 +1072,19 @@ function BannerContactReminderBlock({ draft, setDraft }) {
             className="h-4 w-4 accent-emerald-600"
             data-testid="ad-reminder-enable"
           />
-          <span className="font-semibold">Envoyer un rappel par email avant l'expiration</span>
+          <Mail className="h-3.5 w-3.5 text-emerald-700" />
+          <span className="font-semibold">Rappel par email</span>
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!draft.reminder_wa_enabled}
+            onChange={(e) => setDraft({ ...draft, reminder_wa_enabled: e.target.checked })}
+            className="h-4 w-4 accent-green-600"
+            data-testid="ad-reminder-wa-enable"
+          />
+          <Send className="h-3.5 w-3.5 text-green-700" />
+          <span className="font-semibold">Rappel par WhatsApp</span>
         </label>
         <label className="inline-flex items-center gap-2 text-xs">
           <span className="text-slate-500">Délai :</span>
@@ -1074,7 +1092,7 @@ function BannerContactReminderBlock({ draft, setDraft }) {
             type="number" min="1" max="30"
             value={draft.reminder_days_before}
             onChange={(e) => setDraft({ ...draft, reminder_days_before: parseInt(e.target.value, 10) || 3 })}
-            disabled={!draft.reminder_email_enabled}
+            disabled={!draft.reminder_email_enabled && !draft.reminder_wa_enabled}
             className="w-16 text-xs rounded ring-1 ring-slate-300 px-2 py-1 bg-white font-mono disabled:opacity-50"
             data-testid="ad-reminder-days"
           />
@@ -1082,7 +1100,7 @@ function BannerContactReminderBlock({ draft, setDraft }) {
         </label>
       </div>
       <p className="text-[10px] text-slate-500 italic">
-        Si activé et qu'une date d'expiration + un email annonceur sont renseignés, un email automatique est envoyé chaque matin (09h30 Abidjan) avec le bilan de la campagne et un lien direct pour la renouveler.
+        Si activé et qu'une date d'expiration + un contact annonceur (email/téléphone) sont renseignés, un rappel automatique est envoyé chaque matin (09h30 Abidjan) avec le bilan de la campagne et un lien direct pour la renouveler.
       </p>
     </div>
   );

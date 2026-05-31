@@ -20,6 +20,10 @@ import {
   RotateCw,
   Send,
   X as IconX,
+  CreditCard,
+  Upload as UploadIcon,
+  Image as ImageIcon,
+  Edit3,
 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
@@ -199,6 +203,23 @@ export default function PublicAdReport() {
           currentBudget={budget.amount || 0}
           remainingBudget={budget.remaining || 0}
           isCurrentlyActive={report.is_currently_active}
+        />
+
+        {/* Iter38r-fix9z8 — Self-service: online payment + media update */}
+        <OnlineRenewalCheckout
+          slug={slug}
+          token={token}
+          apiBase={apiBase}
+          currency={report.currency}
+          currentBudget={budget.amount || 0}
+        />
+        <SelfServiceMediaUpdate
+          slug={slug}
+          token={token}
+          apiBase={apiBase}
+          currentImageUrl={report.image_url}
+          currentMediaKind={report.media_kind}
+          currentTargetUrl={report.target_url}
         />
 
         {/* Daily history */}
@@ -516,3 +537,350 @@ function RenewCampaignWidget({ slug, token, apiBase, currency, currentBudget, re
     </section>
   );
 }
+
+// Iter38r-fix9z8 — Online payment widget. Calls /api/public/ads-report/{slug}/checkout
+// to create a Stripe Checkout Session, redirects there, and polls
+// /payment-status/{session_id} on return (URL ?session_id=…&renew=ok).
+function OnlineRenewalCheckout({ slug, token, apiBase, currency, currentBudget }) {
+  const [open, setOpen] = useState(false);
+  const [amount, setAmount] = useState(Math.max(10000, Math.round((currentBudget || 50000))));
+  const [duration, setDuration] = useState(30);
+  const [contactEmail, setContactEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [postPayStatus, setPostPayStatus] = useState(null); // {payment_status, renewal_applied}
+  const [params, setParams] = useSearchParams();
+
+  // After Stripe redirect, poll status
+  useEffect(() => {
+    const sid = params.get("session_id");
+    const renew = params.get("renew");
+    if (renew === "ok" && sid) {
+      let cancelled = false;
+      let attempts = 0;
+      const poll = async () => {
+        attempts += 1;
+        try {
+          const r = await fetch(
+            `${apiBase}/api/public/ads-report/${encodeURIComponent(slug)}/payment-status/${encodeURIComponent(sid)}?token=${encodeURIComponent(token)}`
+          );
+          const data = await r.json();
+          if (cancelled) return;
+          setPostPayStatus(data);
+          if (data.payment_status === "paid" || attempts > 6) {
+            // Clean URL
+            params.delete("session_id");
+            params.delete("renew");
+            setParams(params, { replace: true });
+            return;
+          }
+          setTimeout(poll, 2500);
+        } catch {
+          if (attempts < 6) setTimeout(poll, 2500);
+        }
+      };
+      poll();
+      return () => { cancelled = true; };
+    }
+  }, [params, slug, token, apiBase, setParams]);
+
+  const handleCheckout = async () => {
+    setBusy(true); setErrorMsg(null);
+    try {
+      const origin = window.location.origin;
+      const r = await fetch(
+        `${apiBase}/api/public/ads-report/${encodeURIComponent(slug)}/checkout?token=${encodeURIComponent(token)}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            amount_xof: parseFloat(amount) || 0,
+            duration_days: parseInt(duration, 10) || 30,
+            origin_url: origin,
+            contact_email: contactEmail.trim(),
+          }),
+        },
+      );
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.detail || `Erreur ${r.status}`);
+      }
+      const data = await r.json();
+      if (data.url) {
+        window.location.href = data.url;
+      } else {
+        setErrorMsg("Aucune URL de paiement renvoyée");
+      }
+    } catch (err) {
+      setErrorMsg(err.message || "Erreur réseau");
+      setBusy(false);
+    }
+  };
+
+  // Post-payment success banner takes priority
+  if (postPayStatus?.payment_status === "paid" && postPayStatus?.renewal_applied) {
+    return (
+      <section className="rounded-2xl ring-1 ring-emerald-200 bg-emerald-50 p-5 text-center" data-testid="ads-report-pay-success">
+        <CheckCircle2 className="h-10 w-10 text-emerald-600 mx-auto mb-2" />
+        <h2 className="font-display font-bold text-emerald-900">Paiement reçu — campagne renouvelée !</h2>
+        <p className="text-sm text-emerald-800 mt-1">
+          Budget crédité : <strong>{(postPayStatus.amount_xof || 0).toLocaleString("fr-FR")} {currency}</strong> ·
+          Prolongation : <strong>{postPayStatus.duration_days} jours</strong>
+        </p>
+      </section>
+    );
+  }
+
+  if (!open) {
+    return (
+      <section className="rounded-2xl ring-1 ring-sky-200 bg-gradient-to-br from-sky-50 to-cyan-50 p-5" data-testid="ads-report-pay-cta">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3 max-w-xl">
+            <div className="rounded-lg bg-white p-2 ring-1 ring-sky-200 hidden sm:block">
+              <CreditCard className="h-5 w-5 text-sky-600" />
+            </div>
+            <div>
+              <h2 className="font-display font-bold text-slate-900">Payer en ligne · renouvellement instantané</h2>
+              <p className="text-sm text-slate-700 mt-1">
+                Réglez votre budget par carte bancaire (Stripe sécurisé). Dès paiement validé, la campagne est automatiquement prolongée — aucune intervention manuelle requise.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={() => setOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 text-white px-4 py-2 text-sm font-semibold shadow-sm"
+            data-testid="ads-report-pay-open"
+          >
+            <CreditCard className="h-4 w-4" /> Payer en ligne
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl ring-1 ring-sky-300 bg-white p-5 space-y-3" data-testid="ads-report-pay-form">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display font-bold text-slate-900 inline-flex items-center gap-2">
+          <CreditCard className="h-4 w-4 text-sky-600" /> Paiement en ligne
+        </h2>
+        <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600" data-testid="ads-report-pay-close">
+          <IconX className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-[11px] uppercase font-semibold text-slate-500">Montant ({currency})</span>
+          <input
+            type="number" min="500" step="500"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 font-mono bg-white"
+            data-testid="ads-report-pay-amount"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] uppercase font-semibold text-slate-500">Durée (jours)</span>
+          <input
+            type="number" min="1" max="730"
+            value={duration}
+            onChange={(e) => setDuration(e.target.value)}
+            className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 font-mono bg-white"
+            data-testid="ads-report-pay-duration"
+          />
+        </label>
+        <label className="block sm:col-span-2">
+          <span className="text-[11px] uppercase font-semibold text-slate-500">Email pour le reçu</span>
+          <input
+            type="email"
+            value={contactEmail}
+            onChange={(e) => setContactEmail(e.target.value)}
+            placeholder="vous@entreprise.com"
+            className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
+            data-testid="ads-report-pay-email"
+          />
+        </label>
+      </div>
+      {errorMsg && <p className="text-xs text-rose-600" data-testid="ads-report-pay-error">{errorMsg}</p>}
+      <p className="text-[10px] text-slate-500">
+        Vous serez redirigé vers la page de paiement sécurisée Stripe. Conversion XOF → EUR au cours fixe (655,957). À la fin du paiement, vous reviendrez automatiquement ici.
+      </p>
+      <div className="flex justify-end">
+        <button
+          onClick={handleCheckout} disabled={busy || !amount}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 hover:bg-sky-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold"
+          data-testid="ads-report-pay-submit"
+        >
+          <CreditCard className="h-3.5 w-3.5" /> {busy ? "Redirection…" : `Payer ${Number(amount || 0).toLocaleString("fr-FR")} ${currency}`}
+        </button>
+      </div>
+    </section>
+  );
+}
+
+
+// Iter38r-fix9z8 — Self-service media update.
+// Lets the advertiser swap the campaign's image/video + target URL without
+// going through admin. Uses the same /api/admin/upload endpoint with no auth
+// (admin/upload accepts anonymous uploads for public catalogue purposes;
+// see backend). Storage is shared with the rest of the platform.
+function SelfServiceMediaUpdate({ slug, token, apiBase, currentImageUrl, currentMediaKind, currentTargetUrl }) {
+  const [open, setOpen] = useState(false);
+  const [newImage, setNewImage] = useState("");
+  const [newMediaKind, setNewMediaKind] = useState(currentMediaKind || "image");
+  const [newTarget, setNewTarget] = useState(currentTargetUrl || "");
+  const [uploading, setUploading] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [errorMsg, setErrorMsg] = useState(null);
+  const [savedAt, setSavedAt] = useState(null);
+
+  const handleUpload = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 20 * 1024 * 1024) {
+      setErrorMsg("Fichier trop volumineux (max 20 Mo)");
+      return;
+    }
+    setErrorMsg(null);
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await fetch(`${apiBase}/api/admin/upload`, { method: "POST", body: form });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.detail || `Upload échoué (${r.status})`);
+      }
+      const data = await r.json();
+      const rel = (data.url || "").startsWith("/") ? data.url : `/${data.url || ""}`;
+      setNewImage(rel);
+      setNewMediaKind(file.type.startsWith("video/") ? "video" : "image");
+    } catch (err) {
+      setErrorMsg(err.message || "Erreur upload");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleSave = async () => {
+    if (!newImage && !newTarget) {
+      setErrorMsg("Choisissez un nouveau média ou modifiez l'URL cible");
+      return;
+    }
+    setSaving(true); setErrorMsg(null);
+    try {
+      const body = {};
+      if (newImage) { body.image_url = newImage; body.media_kind = newMediaKind; }
+      if (newTarget && newTarget !== currentTargetUrl) body.target_url = newTarget;
+      const r = await fetch(
+        `${apiBase}/api/public/ads-report/${encodeURIComponent(slug)}/media?token=${encodeURIComponent(token)}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(body),
+        },
+      );
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        throw new Error(d.detail || `Erreur ${r.status}`);
+      }
+      setSavedAt(new Date());
+      setNewImage("");
+    } catch (err) {
+      setErrorMsg(err.message || "Erreur réseau");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const resolveSrc = (u) => {
+    if (!u) return "";
+    if (u.startsWith("http://") || u.startsWith("https://")) return u;
+    if (u.startsWith("/")) return `${apiBase}${u}`;
+    return u;
+  };
+
+  if (!open) {
+    return (
+      <section className="rounded-2xl ring-1 ring-amber-200 bg-amber-50/60 p-4 flex items-center justify-between gap-3 flex-wrap" data-testid="ads-report-media-cta">
+        <div className="flex items-start gap-2.5">
+          <Edit3 className="h-5 w-5 text-amber-600 mt-0.5" />
+          <div>
+            <p className="font-display font-semibold text-slate-900 text-sm">Mettre à jour mon visuel</p>
+            <p className="text-xs text-slate-600">Remplacez votre image / vidéo ou modifiez l'URL de destination sans contacter l'équipe.</p>
+          </div>
+        </div>
+        <button onClick={() => setOpen(true)} className="text-xs rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 font-semibold" data-testid="ads-report-media-open">
+          Modifier
+        </button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl ring-1 ring-amber-300 bg-white p-5 space-y-3" data-testid="ads-report-media-form">
+      <div className="flex items-center justify-between">
+        <h2 className="font-display font-bold text-slate-900 inline-flex items-center gap-2">
+          <Edit3 className="h-4 w-4 text-amber-600" /> Mise à jour libre-service du visuel
+        </h2>
+        <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-600" data-testid="ads-report-media-close">
+          <IconX className="h-4 w-4" />
+        </button>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div>
+          <p className="text-[11px] uppercase font-semibold text-slate-500 mb-1">Média actuel</p>
+          <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 h-24 overflow-hidden flex items-center justify-center">
+            {currentImageUrl ? (
+              currentMediaKind === "video" ? (
+                <video src={resolveSrc(currentImageUrl)} className="w-full h-full object-contain" muted autoPlay loop playsInline />
+              ) : (
+                <img src={resolveSrc(currentImageUrl)} alt="" className="w-full h-full object-contain" />
+              )
+            ) : (<ImageIcon className="h-6 w-6 text-slate-300" />)}
+          </div>
+        </div>
+        <div>
+          <p className="text-[11px] uppercase font-semibold text-slate-500 mb-1">Nouveau média</p>
+          <div className="rounded-lg ring-1 ring-amber-300 bg-amber-50/40 h-24 overflow-hidden flex items-center justify-center">
+            {newImage ? (
+              newMediaKind === "video" ? (
+                <video src={resolveSrc(newImage)} className="w-full h-full object-contain" muted autoPlay loop playsInline />
+              ) : (
+                <img src={resolveSrc(newImage)} alt="" className="w-full h-full object-contain" />
+              )
+            ) : (<span className="text-[10px] text-slate-400 italic">Aucun fichier choisi</span>)}
+          </div>
+        </div>
+      </div>
+      <input
+        type="file" accept="image/*,video/*"
+        onChange={handleUpload}
+        disabled={uploading || saving}
+        className="w-full text-xs file:mr-2 file:py-1.5 file:px-3 file:rounded file:border-0 file:text-xs file:bg-amber-100 file:text-amber-700 hover:file:bg-amber-200"
+        data-testid="ads-report-media-upload"
+      />
+      <label className="block">
+        <span className="text-[11px] uppercase font-semibold text-slate-500">URL de destination</span>
+        <input
+          type="url" value={newTarget}
+          onChange={(e) => setNewTarget(e.target.value)}
+          className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
+          data-testid="ads-report-media-target"
+        />
+      </label>
+      {errorMsg && <p className="text-xs text-rose-600" data-testid="ads-report-media-error">{errorMsg}</p>}
+      {savedAt && <p className="text-xs text-emerald-700 inline-flex items-center gap-1" data-testid="ads-report-media-saved"><CheckCircle2 className="h-3 w-3" /> Mise à jour enregistrée à {savedAt.toLocaleTimeString("fr-FR")}</p>}
+      <div className="flex justify-end gap-2">
+        <button
+          onClick={handleSave} disabled={saving || uploading || (!newImage && newTarget === currentTargetUrl)}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 disabled:opacity-50 text-white px-4 py-2 text-sm font-semibold"
+          data-testid="ads-report-media-save"
+        >
+          <UploadIcon className="h-3.5 w-3.5" /> {saving ? "Enregistrement…" : "Enregistrer"}
+        </button>
+      </div>
+    </section>
+  );
+}
+

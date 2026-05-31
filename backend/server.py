@@ -18951,6 +18951,7 @@ async def on_startup():
                         db,
                         send_email_fn=send_email,
                         public_base_url=public_base,
+                        send_whatsapp_fn=_wa_send_text,
                     )
                     if res.get("sent"):
                         logger.info("Ad banner reminders sent: %s", len(res["sent"]))
@@ -21385,7 +21386,7 @@ _setup_ai_subs_routes(
 
 # Iter38r-fix9w — Ad Banners monetization
 from routes.ad_banners import setup_ad_banners_routes as _setup_ad_banners_routes  # noqa: E402
-_setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user)
+_setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user, wa_send_text=_wa_send_text)
 
 app.include_router(api)
 

@@ -220,7 +220,8 @@ async def test_expiration_reminder_sends_within_window_idempotent():
             public_base_url="https://example.com",
         )
         assert len(res["sent"]) == 1, res
-        assert res["sent"][0]["to"] == "win@x.com"
+        assert res["sent"][0]["to_email"] == "win@x.com"
+        assert "email" in res["sent"][0]["channels"]
         assert len(captured) == 1
         assert "Win" in captured[0]["subject"]
 

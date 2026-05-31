@@ -49,6 +49,7 @@ GET    /api/admin/ad-banners/{id}/stats
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import random
@@ -56,10 +57,10 @@ import re
 import secrets
 import unicodedata
 import uuid
-from datetime import datetime, date, timezone
+from datetime import datetime, date, timezone, timedelta
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.ad_banners")
@@ -196,8 +197,10 @@ async def process_expiration_reminders(
     send_email_fn,
     public_base_url: str = "",
     today_iso: Optional[str] = None,
+    send_whatsapp_fn=None,
 ) -> Dict[str, Any]:
-    """Dispatch reminder emails for campaigns nearing expiration.
+    """Dispatch reminder emails (and optionally WhatsApp messages) for
+    campaigns nearing expiration.
 
     Parameters
     ----------
@@ -205,16 +208,22 @@ async def process_expiration_reminders(
     send_email_fn : async callable(to: str, subject: str, html: str, text: str) -> bool
     public_base_url : Base URL for building the share link (e.g. https://sawalismartsystems.com)
     today_iso : Override today for tests (YYYY-MM-DD)
+    send_whatsapp_fn : Optional async callable(to: str, text: str) -> dict | bool
+        When provided AND a banner has `reminder_wa_enabled=True` AND a valid
+        `advertiser_phone`, a WhatsApp message is sent in addition to the email.
     """
     if today_iso:
         today = date.fromisoformat(today_iso)
     else:
         today = datetime.now(timezone.utc).date()
 
+    # Iter38r-fix9z7 — Include WA-only-enabled banners (no email required if WA is on)
     cursor = db.ad_banners.find(
         {
-            "reminder_email_enabled": True,
-            "advertiser_email": {"$nin": [None, ""]},
+            "$or": [
+                {"reminder_email_enabled": True},
+                {"reminder_wa_enabled": True},
+            ],
             "expiration_date": {"$nin": [None, ""]},
         },
         {"_id": 0},
@@ -280,21 +289,61 @@ async def process_expiration_reminders(
           <p style="color:#94a3b8;font-size:11px;margin-top:18px">SAWALI Smart Systems · Régie publicitaire</p>
         </div>
         """.replace("{:,}", "{}")
-        try:
-            ok = await send_email_fn(b.get("advertiser_email"), subject, html, text)
-            if ok:
-                await db.ad_banners.update_one(
-                    {"id": b.get("id")},
-                    {"$set": {
-                        "reminder_last_sent_for": marker,
-                        "reminder_last_sent_at": _now_iso(),
-                    }},
-                )
-                sent.append({"id": b.get("id"), "to": b.get("advertiser_email"), "days_until": days_until})
-            else:
-                errored.append({"id": b.get("id"), "reason": "send_email_returned_false"})
-        except Exception as exc:  # noqa: BLE001
-            errored.append({"id": b.get("id"), "reason": str(exc)})
+        # Iter38r-fix9z7 — Track per-channel delivery (email + WhatsApp).
+        delivered_channels: List[str] = []
+        email_to = (b.get("advertiser_email") or "").strip()
+        wa_to = (b.get("advertiser_phone") or "").strip()
+
+        # Send email if enabled + recipient available
+        if b.get("reminder_email_enabled") and email_to:
+            try:
+                ok = await send_email_fn(email_to, subject, html, text)
+                if ok:
+                    delivered_channels.append("email")
+                else:
+                    errored.append({"id": b.get("id"), "channel": "email", "reason": "send_email_returned_false"})
+            except Exception as exc:  # noqa: BLE001
+                errored.append({"id": b.get("id"), "channel": "email", "reason": str(exc)})
+
+        # Send WhatsApp if enabled + sender function provided + phone available
+        if b.get("reminder_wa_enabled") and send_whatsapp_fn is not None and wa_to:
+            wa_text = (
+                f"📊 SAWALI — Votre campagne « {b.get('name')} » "
+                + ("expire aujourd'hui" if days_until == 0 else f"expire dans {days_until} jour(s)")
+                + f" (le {b.get('expiration_date')}).\n\n"
+                f"Bilan en cours :\n"
+                f"• Affichages : {imp}\n"
+                f"• Clics : {clicks}\n"
+                f"• CTR : {ctr}%\n"
+                f"• Budget restant : {int(remaining)} {currency}\n\n"
+                f"Consultez votre rapport et demandez un renouvellement en 1 clic :\n{share_link}"
+            )
+            try:
+                wa_res = await send_whatsapp_fn(wa_to, wa_text)
+                # Accept both bool and dict returns (consistent with _wa_send_text)
+                if wa_res:
+                    delivered_channels.append("wa")
+                else:
+                    errored.append({"id": b.get("id"), "channel": "wa", "reason": "send_wa_returned_falsy"})
+            except Exception as exc:  # noqa: BLE001
+                errored.append({"id": b.get("id"), "channel": "wa", "reason": str(exc)})
+
+        if delivered_channels:
+            await db.ad_banners.update_one(
+                {"id": b.get("id")},
+                {"$set": {
+                    "reminder_last_sent_for": marker,
+                    "reminder_last_sent_at": _now_iso(),
+                    "reminder_last_channels": delivered_channels,
+                }},
+            )
+            sent.append({
+                "id": b.get("id"),
+                "to_email": email_to if "email" in delivered_channels else None,
+                "to_wa": wa_to if "wa" in delivered_channels else None,
+                "channels": delivered_channels,
+                "days_until": days_until,
+            })
 
     return {"sent": sent, "skipped": skipped, "errored": errored, "ran_at": _now_iso()}
 
@@ -340,6 +389,8 @@ class AdBannerPayload(BaseModel):
     advertiser_email: str = Field("", max_length=200)
     advertiser_phone: str = Field("", max_length=40)
     reminder_email_enabled: bool = True
+    # Iter38r-fix9z7 — WhatsApp reminder (in addition to email)
+    reminder_wa_enabled: bool = False
     reminder_days_before: int = Field(3, ge=1, le=30)
 
 
@@ -376,6 +427,7 @@ class AdBannerUpdate(BaseModel):
     advertiser_email: Optional[str] = None
     advertiser_phone: Optional[str] = None
     reminder_email_enabled: Optional[bool] = None
+    reminder_wa_enabled: Optional[bool] = None
     reminder_days_before: Optional[int] = Field(None, ge=1, le=30)
 
 
@@ -388,6 +440,25 @@ class RenewRequestPayload(BaseModel):
     new_budget: float = Field(0, ge=0)
     target_duration_days: int = Field(0, ge=0, le=730)
     message: str = Field("", max_length=2000)
+
+
+# Iter38r-fix9z8 — Self-service advertiser portal payloads (module scope so
+# FastAPI body inference works correctly).
+class CheckoutPayload(BaseModel):
+    amount_xof: float = Field(..., gt=0)
+    duration_days: int = Field(30, ge=1, le=730)
+    origin_url: str = Field(..., min_length=8, max_length=500)
+    contact_email: str = Field("", max_length=200)
+    contact_name: str = Field("", max_length=120)
+
+
+class MediaUpdatePayload(BaseModel):
+    image_url: Optional[str] = Field(None, max_length=600)
+    media_kind: Optional[str] = Field(None, pattern="^(image|video)$")
+    target_url: Optional[str] = Field(None, max_length=600)
+    variant_b_image_url: Optional[str] = Field(None, max_length=600)
+    variant_b_media_kind: Optional[str] = Field(None, pattern="^(image|video)$")
+    variant_b_target_url: Optional[str] = Field(None, max_length=600)
 
 
 async def _bump_daily_stat(db, banner_id: str, field: str, amount: float = 1.0) -> None:
@@ -407,12 +478,64 @@ async def _bump_daily_stat(db, banner_id: str, field: str, amount: float = 1.0) 
         )
 
 
-def setup_ad_banners_routes(app, db, get_current_user):
+def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
     api: APIRouter = app
 
     def _ensure_admin(user: dict) -> None:
         if (user or {}).get("role") not in ("admin", "superviseur"):
             raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+
+    # =====================================================================
+    # Iter38r-fix9z7 — Live admin dashboard hub: broadcasts every impression
+    # and click to all connected admin WebSocket clients in real time.
+    # =====================================================================
+    class AdLiveHub:
+        def __init__(self):
+            self._conns: List[WebSocket] = []
+            self._lock = asyncio.Lock()
+
+        async def connect(self, ws: WebSocket) -> None:
+            async with self._lock:
+                self._conns.append(ws)
+
+        async def disconnect(self, ws: WebSocket) -> None:
+            async with self._lock:
+                try:
+                    self._conns.remove(ws)
+                except ValueError:
+                    pass
+
+        async def broadcast(self, payload: dict) -> None:
+            dead = []
+            for ws in list(self._conns):
+                try:
+                    await ws.send_json(payload)
+                except Exception:  # noqa: BLE001
+                    dead.append(ws)
+            for ws in dead:
+                await self.disconnect(ws)
+
+    live_hub = AdLiveHub()
+
+    async def _broadcast_event(event: str, banner_id: str, variant: str, banner: Dict[str, Any]):
+        try:
+            await live_hub.broadcast({
+                "event": event,
+                "banner_id": banner_id,
+                "name": banner.get("name"),
+                "advertiser_name": banner.get("advertiser_name") or "",
+                "variant": variant,
+                "total_impressions": int(banner.get("total_impressions") or 0),
+                "total_clicks": int(banner.get("total_clicks") or 0),
+                "total_impressions_a": int(banner.get("total_impressions_a") or 0),
+                "total_impressions_b": int(banner.get("total_impressions_b") or 0),
+                "total_clicks_a": int(banner.get("total_clicks_a") or 0),
+                "total_clicks_b": int(banner.get("total_clicks_b") or 0),
+                "amount_spent": float(banner.get("amount_spent") or 0),
+                "ts": _now_iso(),
+            })
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ad live broadcast failed: %s", exc)
 
     # =====================================================================
     # PUBLIC — banner rotation + tracking
@@ -472,6 +595,9 @@ def setup_ad_banners_routes(app, db, get_current_user):
                 {"$set": {"active": False, "auto_paused_at": _now_iso(),
                           "auto_paused_reason": "budget_exhausted"}},
             )
+        # Iter38r-fix9z7 — Broadcast to live admin dashboard
+        if fresh:
+            await _broadcast_event("impression", banner_id, variant, fresh)
         return {"ok": True}
 
     @api.post("/public/ad-banners/{banner_id}/click", tags=["Public — Ad Banners"])
@@ -502,6 +628,9 @@ def setup_ad_banners_routes(app, db, get_current_user):
             target = b.get("variant_b_target_url")
         else:
             target = b.get("target_url") or ""
+        # Iter38r-fix9z7 — Broadcast to live admin dashboard
+        if fresh:
+            await _broadcast_event("click", banner_id, variant, fresh)
         return {"ok": True, "target_url": target}
 
     # =====================================================================
@@ -563,6 +692,7 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "advertiser_email": (payload.advertiser_email or "").strip(),
             "advertiser_phone": (payload.advertiser_phone or "").strip(),
             "reminder_email_enabled": bool(payload.reminder_email_enabled),
+            "reminder_wa_enabled": bool(payload.reminder_wa_enabled),
             "reminder_days_before": int(payload.reminder_days_before),
             "reminder_last_sent_for": None,  # tracks (expiration_date, days_before) couple sent
             # Iter38r-fix9y — Public stats share fields
@@ -830,7 +960,272 @@ def setup_ad_banners_routes(app, db, get_current_user):
             db,
             send_email_fn=_send_email,
             public_base_url=public_base,
+            send_whatsapp_fn=wa_send_text,
         )
         return res
+
+    # =====================================================================
+    # Iter38r-fix9z8 — Self-service advertiser portal
+    # Public endpoints (slug + share_token authenticated) that let the
+    # advertiser:
+    #   • Pay online for a campaign renewal via Stripe Checkout
+    #   • Update their media (image/video) + target URL
+    # Both endpoints validate slug+token like the public report endpoint.
+    # =====================================================================
+    XOF_TO_EUR = 655.957  # CFA franc — fixed parity
+
+    @api.post("/public/ads-report/{slug}/checkout", tags=["Public — Ad Banners"])
+    async def public_create_checkout(slug: str, payload: CheckoutPayload, token: str = Query(..., min_length=1)):
+        """Create a Stripe Checkout Session for renewing the campaign.
+
+        Idempotent w.r.t. session_id (returned to the caller). On success
+        webhook/poll-status will extend the banner expiration_date by
+        `duration_days` and top up `budget_amount` by `amount_xof`.
+        """
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        try:
+            from emergentintegrations.payments.stripe.checkout import (
+                StripeCheckout,
+                CheckoutSessionRequest,
+            )
+        except ImportError as exc:
+            logger.error("[ads] emergentintegrations not installed: %s", exc)
+            raise HTTPException(status_code=500, detail="Module paiement indisponible") from exc
+
+        # Resolve Stripe API key from env (same source as payments_stripe.py)
+        api_key = (
+            os.environ.get("STRIPE_API_KEY")
+            or os.environ.get("STRIPE_SECRET_KEY")
+            or ""
+        )
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Stripe non configuré")
+
+        # XOF → EUR for Stripe (XOF is not a supported currency on Stripe)
+        amount_eur = round(payload.amount_xof / XOF_TO_EUR, 2)
+        if amount_eur < 0.50:
+            amount_eur = 0.50
+
+        origin = payload.origin_url.rstrip("/")
+        success_url = f"{origin}/ads/{slug}?token={token}&session_id={{CHECKOUT_SESSION_ID}}&renew=ok"
+        cancel_url = f"{origin}/ads/{slug}?token={token}&renew=canceled"
+        webhook_url = f"{origin}/api/webhook/stripe"
+        client = StripeCheckout(api_key=api_key, webhook_url=webhook_url)
+
+        metadata = {
+            "kind": "ad_renewal",
+            "banner_id": b.get("id"),
+            "slug": slug,
+            "amount_xof": str(payload.amount_xof),
+            "duration_days": str(payload.duration_days),
+            "contact_email": payload.contact_email,
+        }
+        req = CheckoutSessionRequest(
+            amount=amount_eur, currency="eur",
+            success_url=success_url, cancel_url=cancel_url,
+            metadata=metadata,
+        )
+        try:
+            session = await client.create_checkout_session(req)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[ads] create_checkout_session failed")
+            raise HTTPException(status_code=502, detail=f"Erreur Stripe : {exc}") from exc
+
+        await db.ad_renewals.insert_one({
+            "id": str(uuid.uuid4()),
+            "banner_id": b.get("id"),
+            "slug": slug,
+            "session_id": session.session_id,
+            "amount_xof": float(payload.amount_xof),
+            "amount_eur": amount_eur,
+            "duration_days": int(payload.duration_days),
+            "contact_email": payload.contact_email.strip(),
+            "contact_name": payload.contact_name.strip(),
+            "currency": "eur",
+            "payment_status": "initiated",
+            "renewal_applied": False,
+            "metadata": metadata,
+            "created_at": _now_iso(),
+        })
+        return {"url": session.url, "session_id": session.session_id}
+
+    @api.get("/public/ads-report/{slug}/payment-status/{session_id}", tags=["Public — Ad Banners"])
+    async def public_payment_status(slug: str, session_id: str, token: str = Query(..., min_length=1)):
+        """Poll endpoint. Confirms the Stripe session and, on first paid
+        observation, atomically extends the campaign's expiration + budget."""
+        renewal = await db.ad_renewals.find_one({"slug": slug, "session_id": session_id}, {"_id": 0})
+        if not renewal:
+            raise HTTPException(status_code=404, detail="Transaction introuvable")
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b or (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        # Already finalised → return cached
+        if renewal.get("payment_status") == "paid":
+            return {
+                "payment_status": "paid",
+                "renewal_applied": bool(renewal.get("renewal_applied")),
+                "amount_xof": renewal.get("amount_xof"),
+                "duration_days": renewal.get("duration_days"),
+            }
+        try:
+            from emergentintegrations.payments.stripe.checkout import StripeCheckout
+        except ImportError as exc:
+            raise HTTPException(status_code=500, detail="Module paiement indisponible") from exc
+        api_key = os.environ.get("STRIPE_API_KEY") or os.environ.get("STRIPE_SECRET_KEY") or ""
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Stripe non configuré")
+        client = StripeCheckout(api_key=api_key, webhook_url="")
+        try:
+            status = await client.get_checkout_status(session_id)
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[ads] get_checkout_status failed")
+            raise HTTPException(status_code=502, detail=f"Erreur Stripe : {exc}") from exc
+        upd = {
+            "payment_status": status.payment_status,
+            "stripe_status": status.status,
+            "updated_at": _now_iso(),
+        }
+        applied = renewal.get("renewal_applied", False)
+        if status.payment_status == "paid" and not applied:
+            # Atomic CAS — only the first observer flips renewal_applied
+            cas = await db.ad_renewals.update_one(
+                {"session_id": session_id, "renewal_applied": {"$ne": True}},
+                {"$set": {"renewal_applied": True, "applied_at": _now_iso(), **upd}},
+            )
+            if cas.modified_count == 1:
+                # Extend the banner: budget top-up + expiration date extension
+                duration = int(renewal.get("duration_days") or 30)
+                amount_xof = float(renewal.get("amount_xof") or 0)
+                today_d = datetime.now(timezone.utc).date()
+                try:
+                    current_exp = date.fromisoformat((b.get("expiration_date") or "")[:10])
+                except (ValueError, TypeError):
+                    current_exp = today_d
+                base = current_exp if current_exp >= today_d else today_d
+                new_exp = (base + timedelta(days=duration)).isoformat()
+                await db.ad_banners.update_one(
+                    {"id": b["id"]},
+                    {
+                        "$inc": {"budget_amount": amount_xof},
+                        "$set": {
+                            "expiration_date": new_exp,
+                            "active": True,
+                            "auto_paused_at": None,
+                            "auto_paused_reason": None,
+                            "reminder_last_sent_for": None,  # reset so a new reminder can fire
+                            "updated_at": _now_iso(),
+                        },
+                    },
+                )
+                applied = True
+            else:
+                applied = True  # someone else won the race; we still report applied
+        else:
+            await db.ad_renewals.update_one(
+                {"session_id": session_id},
+                {"$set": upd},
+            )
+        return {
+            "payment_status": status.payment_status,
+            "renewal_applied": applied,
+            "amount_xof": renewal.get("amount_xof"),
+            "duration_days": renewal.get("duration_days"),
+        }
+
+    @api.put("/public/ads-report/{slug}/media", tags=["Public — Ad Banners"])
+    async def public_update_media(slug: str, payload: MediaUpdatePayload, token: str = Query(..., min_length=1)):
+        """Self-service media update. The advertiser uploads via the admin
+        public-upload endpoint then PUTs the resulting `/api/files/{id}` URL
+        here. Only `image_url`, `media_kind`, `target_url`, plus the variant_b
+        equivalents can be changed — nothing else (preserves admin-set budget,
+        placement, sizing, etc.)."""
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        update_doc: Dict[str, Any] = {}
+        for field in ("image_url", "media_kind", "target_url",
+                      "variant_b_image_url", "variant_b_media_kind", "variant_b_target_url"):
+            val = getattr(payload, field)
+            if val is not None:
+                update_doc[field] = val.strip() if isinstance(val, str) else val
+        if not update_doc:
+            raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+        update_doc["updated_at"] = _now_iso()
+        update_doc["last_self_service_update_at"] = _now_iso()
+        await db.ad_banners.update_one({"id": b["id"]}, {"$set": update_doc})
+        # Log to a lightweight audit collection for the admin
+        await db.ad_self_service_updates.insert_one({
+            "id": str(uuid.uuid4()),
+            "banner_id": b["id"],
+            "slug": slug,
+            "fields": list(update_doc.keys()),
+            "at": _now_iso(),
+        })
+        return {"ok": True, "updated_fields": list(update_doc.keys())}
+
+    # =====================================================================
+    # Iter38r-fix9z7 — Live WebSocket endpoint for the admin dashboard.
+    # Auth via ?token=<JWT> (same pattern as /api/ws/chat). The endpoint:
+    #   • Sends an initial "snapshot" with every active banner's totals
+    #   • Pushes "impression" / "click" events as they happen
+    # Clients can ignore events for banners they're not tracking.
+    # =====================================================================
+    @api.websocket("/ws/ad-banners-live")
+    async def ws_ad_banners_live(websocket: WebSocket, token: str = Query(..., min_length=1)):
+        try:
+            from auth import decode_token as _decode  # type: ignore
+            payload = _decode(token)
+            uid = (payload or {}).get("sub")
+            user = await db.users.find_one({"id": uid}, {"_id": 0, "id": 1, "role": 1, "account_status": 1})
+            if not user or user.get("role") not in ("admin", "superviseur") or user.get("account_status") != "active":
+                await websocket.close(code=4401)
+                return
+        except Exception:  # noqa: BLE001
+            await websocket.close(code=4401)
+            return
+        await websocket.accept()
+        await live_hub.connect(websocket)
+        try:
+            # Initial snapshot — all active banners with current totals
+            cursor = db.ad_banners.find({}, {"_id": 0})
+            items = []
+            async for b in cursor:
+                if not b.get("active"):
+                    continue
+                items.append({
+                    "id": b.get("id"),
+                    "name": b.get("name"),
+                    "advertiser_name": b.get("advertiser_name") or "",
+                    "placement": b.get("placement"),
+                    "media_kind": b.get("media_kind") or "image",
+                    "image_url": b.get("image_url"),
+                    "ab_enabled": bool(b.get("ab_enabled")),
+                    "total_impressions": int(b.get("total_impressions") or 0),
+                    "total_clicks": int(b.get("total_clicks") or 0),
+                    "total_impressions_a": int(b.get("total_impressions_a") or 0),
+                    "total_impressions_b": int(b.get("total_impressions_b") or 0),
+                    "total_clicks_a": int(b.get("total_clicks_a") or 0),
+                    "total_clicks_b": int(b.get("total_clicks_b") or 0),
+                    "amount_spent": float(b.get("amount_spent") or 0),
+                    "budget_amount": float(b.get("budget_amount") or 0),
+                })
+            await websocket.send_json({"event": "snapshot", "items": items, "ts": _now_iso()})
+            # Keep alive — read & discard pings until disconnect
+            while True:
+                msg = await websocket.receive_text()
+                if msg == "ping":
+                    await websocket.send_json({"event": "pong", "ts": _now_iso()})
+        except WebSocketDisconnect:
+            pass
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("ad-banners-live socket error: %s", exc)
+        finally:
+            await live_hub.disconnect(websocket)
 
     return api

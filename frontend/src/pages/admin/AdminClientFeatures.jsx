@@ -233,6 +233,8 @@ export default function AdminClientFeatures() {
   const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
+  // Iter38r-fix9p — OCR pricing & quota per tenant
+  const [ocrPricing, setOcrPricing] = useState({ per_page: null, monthly_cap: null, pdf_max_pages: null });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -244,6 +246,13 @@ export default function AdminClientFeatures() {
       setData(r.data);
       setFeatures(r.data?.features || {});
       setPawapayFixMsisdn(r.data?.pawapay_fix_msisdn);
+      // Iter38r-fix9p — Hydrate per-tenant OCR pricing
+      const f = r.data?.features || {};
+      setOcrPricing({
+        per_page: f.kb_ocr_xof_per_page ?? null,
+        monthly_cap: f.kb_ocr_xof_monthly_cap ?? null,
+        pdf_max_pages: f.kb_ocr_pdf_max_pages ?? null,
+      });
       setDirty(false);
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
@@ -264,6 +273,10 @@ export default function AdminClientFeatures() {
       await apiClient.put(`/admin/clients/${id}/features`, {
         ...features,
         pawapay_fix_msisdn: pawapayFixMsisdn,
+        // Iter38r-fix9p — Persist per-tenant OCR pricing
+        kb_ocr_xof_per_page: ocrPricing.per_page,
+        kb_ocr_xof_monthly_cap: ocrPricing.monthly_cap,
+        kb_ocr_pdf_max_pages: ocrPricing.pdf_max_pages,
       });
       toast.success("Fonctionnalités enregistrées");
       setDirty(false);
@@ -354,7 +367,61 @@ export default function AdminClientFeatures() {
         })}
       </div>
 
-      {/* Iter38r — PawaPay MSISDN policy (true/false/null=global default) */}
+      {/* Iter38r-fix9p — OCR pricing & quota per tenant (replaces global config) */}
+      {features.kb_ocr_enabled && (
+        <div className="rounded-2xl ring-1 ring-orange-200 bg-orange-50/40 p-5 space-y-3" data-testid="kb-ocr-pricing-section">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-xl bg-orange-100 flex items-center justify-center">
+              <ImageIcon className="h-5 w-5 text-orange-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-display font-semibold text-slate-900">Tarifs OCR (par tenant)</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Coût refacturé à ce client pour l'OCR de PDFs/images dans la base de connaissance Liluvine. Laisser à 0 pour gratuit.
+                Si laissé vide, applique le réglage global d'AdminSettings.
+              </p>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Coût par page (XOF)</span>
+              <input
+                type="number" min="0" step="1"
+                value={ocrPricing.per_page ?? ""}
+                onChange={(e) => { setOcrPricing(p => ({ ...p, per_page: e.target.value === "" ? null : parseInt(e.target.value) || 0 })); setDirty(true); }}
+                placeholder="ex. 50"
+                className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white"
+                data-testid="kb-ocr-xof-per-page"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Plafond mensuel (XOF)</span>
+              <input
+                type="number" min="0" step="100"
+                value={ocrPricing.monthly_cap ?? ""}
+                onChange={(e) => { setOcrPricing(p => ({ ...p, monthly_cap: e.target.value === "" ? null : parseInt(e.target.value) || 0 })); setDirty(true); }}
+                placeholder="ex. 50000"
+                className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white"
+                data-testid="kb-ocr-xof-monthly-cap"
+              />
+            </label>
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Max pages par PDF</span>
+              <input
+                type="number" min="1" step="1"
+                value={ocrPricing.pdf_max_pages ?? ""}
+                onChange={(e) => { setOcrPricing(p => ({ ...p, pdf_max_pages: e.target.value === "" ? null : parseInt(e.target.value) || 0 })); setDirty(true); }}
+                placeholder="ex. 30"
+                className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white"
+                data-testid="kb-ocr-pdf-max-pages"
+              />
+            </label>
+          </div>
+          <p className="text-[10px] text-slate-500">
+            ⚙️ Sans coût défini → OCR gratuit pour ce client. Le plafond mensuel bloque les nouveaux OCRs une fois atteint. Consultez la consommation via <code className="bg-slate-100 px-1 rounded">GET /api/admin/liluvine-pro/kb/ocr-usage</code>.
+          </p>
+        </div>
+      )}
       <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5 space-y-3" data-testid="pawapay-msisdn-policy-section">
         <div className="flex items-start gap-3">
           <div className="h-10 w-10 rounded-xl bg-sky-50 flex items-center justify-center">

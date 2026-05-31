@@ -91,6 +91,8 @@ const adminLinks = [
   { to: "/admin/contacts", label: "Messages reçus", icon: Inbox, module: "admin_contacts" },
   { to: "/admin/testimonials", label: "Témoignages NPS", icon: Star, module: "admin_testimonials" },
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },
+  // Iter38r-fix9p — Direct link to the 3 generated brochures (PDFs)
+  { to: "/admin/brochures", label: "Brochures & Guide", icon: FileText },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

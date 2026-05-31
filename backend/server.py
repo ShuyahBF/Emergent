@@ -3288,6 +3288,9 @@ DEFAULT_CLIENT_FEATURES = {
     "kb_ocr_enabled": True,
     "kb_ocr_xof_per_page": 0,
     "kb_ocr_xof_monthly_cap": 0,
+    "kb_ocr_pdf_max_pages": 0,
+    # Iter38r-fix9p — Voice generation (ElevenLabs)
+    "ai_voice_gen": False,
     # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
     # Visible only when ON (default OFF — admin opts in).
     "tickets_bubble": False,
@@ -3309,11 +3312,21 @@ def _normalize_pawapay_mnos(raw: Optional[Any]) -> List[str]:
     return out
 
 
-def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, bool]:
+def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     out = dict(DEFAULT_CLIENT_FEATURES)
+    # Iter38r-fix9p — Numeric/typed fields that must NOT be coerced to bool.
+    NUMERIC_FIELDS = {"kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages"}
     if isinstance(raw, dict):
-        for k in DEFAULT_CLIENT_FEATURES:
-            out[k] = bool(raw.get(k, DEFAULT_CLIENT_FEATURES[k]))
+        for k, default in DEFAULT_CLIENT_FEATURES.items():
+            v = raw.get(k, default)
+            if k in NUMERIC_FIELDS:
+                # Keep int (None preserved → fallback to global later)
+                try:
+                    out[k] = int(v) if v not in (None, "", False) else default
+                except (TypeError, ValueError):
+                    out[k] = default
+            else:
+                out[k] = bool(v)
     return out
 
 
@@ -3539,6 +3552,11 @@ class ClientFeaturesUpdate(BaseModel):
     ai_voice_gen: Optional[bool] = None
     # Iter38r-fix9p — OCR (PDF/image) toggle in Liluvine KB
     kb_ocr_enabled: Optional[bool] = None
+    # Iter38r-fix9p (correction) — OCR pricing & quotas per tenant.
+    # Read by routes/liluvine_kb.py with fallback on settings.global.
+    kb_ocr_xof_per_page: Optional[int] = None
+    kb_ocr_xof_monthly_cap: Optional[int] = None
+    kb_ocr_pdf_max_pages: Optional[int] = None
     # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
     tickets_bubble: Optional[bool] = None
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
@@ -3570,7 +3588,16 @@ async def admin_update_client_features(client_id: str, payload: ClientFeaturesUp
     update_dict = payload.model_dump(exclude_none=True)
     mnos = update_dict.pop("pawapay_mnos", None)
     fix_msisdn = update_dict.pop("pawapay_fix_msisdn", None)
-    current.update({k: bool(v) for k, v in update_dict.items()})
+    # Iter38r-fix9p — Preserve numeric OCR pricing fields (don't coerce to bool)
+    NUMERIC_FIELDS = {"kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages"}
+    for k, v in update_dict.items():
+        if k in NUMERIC_FIELDS:
+            try:
+                current[k] = int(v) if v not in (None, "") else 0
+            except (TypeError, ValueError):
+                current[k] = 0
+        else:
+            current[k] = bool(v)
     set_doc: Dict[str, Any] = {"features": current, "features_updated_at": _now()}
     if mnos is not None:
         set_doc["pawapay_mnos"] = _normalize_pawapay_mnos(mnos)

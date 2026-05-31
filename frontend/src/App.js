@@ -95,6 +95,7 @@ import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
 import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
 import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
 import AdminUsage from "@/pages/admin/AdminUsage";
+import AdminBrochures from "@/pages/admin/AdminBrochures";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
 import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
 import Launch from "@/pages/public/Launch";
@@ -236,6 +237,7 @@ export default function App() {
             <Route path="contents" element={<AdminContents />} />
             <Route path="contacts" element={<AdminContacts />} />
             <Route path="tracked-users" element={<AdminTrackedUsers />} />
+            <Route path="brochures" element={<AdminBrochures />} />
             <Route path="testimonials" element={<AdminTestimonials />} />
             <Route path="case-studies" element={<AdminCaseStudies />} />
             <Route path="blog" element={<AdminBlog />} />

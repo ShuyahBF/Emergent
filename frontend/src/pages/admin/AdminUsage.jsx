@@ -5,6 +5,7 @@ import { Link } from "react-router-dom";
 import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins, Users, Eye, Building2, Trash2 } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
 import SmsProvidersBlock from "@/components/SmsProvidersBlock";
+import VelocityChart from "@/components/VelocityChart";
 
 /*
   Admin → Usage Dashboard
@@ -237,6 +238,9 @@ export default function AdminUsage() {
 
       {/* Per-provider breakdown (Iter38r-fix9p — enriched with latency, cost, last fail) */}
       <SmsProvidersBlock days={data.period_days || days} />
+
+      {/* Iter38r-fix9p — Velocity chart (sawali-portal owner only) */}
+      <VelocityChart />
 
       {/* Chart */}
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">

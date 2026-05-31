@@ -7854,11 +7854,38 @@ async def serve_file(request: Request, file_id: str):
                 "Accept-Ranges": "bytes",
             },
         )
-    response = FileResponse(
-        path,
-        media_type=meta.get("content_type") or "application/octet-stream",
-        filename=meta.get("filename"),
+    # Iter38r-fix9z2 — Inline serving for images / videos / audio / PDFs.
+    # FileResponse(filename=…) forces Content-Disposition: attachment which
+    # makes browsers download instead of rendering. For media types we serve
+    # them inline so <img>, <video> and <audio> work natively, including
+    # byte-range streaming (Accept-Ranges).
+    content_type = meta.get("content_type") or "application/octet-stream"
+    # Fallback: legacy files saved as octet-stream — sniff from extension
+    if content_type == "application/octet-stream":
+        import mimetypes
+        guessed, _ = mimetypes.guess_type(meta.get("filename") or meta.get("stored_name") or "")
+        if guessed:
+            content_type = guessed
+    is_inline_media = (
+        content_type.startswith(("image/", "video/", "audio/"))
+        or content_type == "application/pdf"
     )
+    if is_inline_media:
+        response = FileResponse(path, media_type=content_type)
+        # Override the default attachment disposition added by Starlette
+        safe_name = (meta.get("filename") or "").replace('"', "")
+        if safe_name:
+            response.headers["Content-Disposition"] = f'inline; filename="{safe_name}"'
+        else:
+            response.headers["Content-Disposition"] = "inline"
+    else:
+        response = FileResponse(
+            path,
+            media_type=content_type,
+            filename=meta.get("filename"),
+        )
+    # Explicit byte-range support — required by Safari / iOS for <video>
+    response.headers["Accept-Ranges"] = "bytes"
     # Fire-and-forget log of the download (duration is approximate as we log before streaming)
     async def _log_download():
         try:
@@ -21206,6 +21233,33 @@ async def _init_object_storage_on_startup():
         await _obj_storage.init_storage()
     except Exception:
         logger.exception("[object_storage] startup init failed")
+
+
+@app.on_event("startup")
+async def _migrate_ad_banner_absolute_urls():
+    """Iter38r-fix9z — One-shot cleanup of legacy absolute URLs saved in the
+    `ad_banners` collection. Converts any "https?://host/api/files/X" to the
+    relative "/api/files/X" so the same row works in preview AND production.
+    Safe to run on every boot — no-op once cleaned."""
+    try:
+        import re as _re
+        fixed = 0
+        cursor = db.ad_banners.find({}, {"_id": 0, "id": 1, "image_url": 1, "target_url": 1})
+        rows = await cursor.to_list(5000)
+        for r in rows:
+            patch = {}
+            for field in ("image_url", "target_url"):
+                v = r.get(field) or ""
+                m = _re.match(r"^https?://[^/]+(/api/files/.+)$", v)
+                if m:
+                    patch[field] = m.group(1)
+            if patch:
+                await db.ad_banners.update_one({"id": r["id"]}, {"$set": patch})
+                fixed += 1
+        if fixed:
+            logger.info("[ad_banners] migrated %s rows with absolute origins → relative", fixed)
+    except Exception:
+        logger.exception("[ad_banners] startup migration failed")
 
 
 @api.get("/files/{file_path:path}", tags=["Files"])

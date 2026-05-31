@@ -388,6 +388,30 @@ def setup_ad_banners_routes(app, db, get_current_user):
             raise HTTPException(status_code=404, detail="Bannière introuvable")
         return {"ok": True, "share_token": new_token}
 
+    # Iter38r-fix9z — One-shot migration: strip any saved absolute origin from
+    # image_url / target_url so that the same DB row works in both preview and
+    # production. Detects URLs starting with http(s):// and ending with the
+    # backend's served path "/api/files/...".
+    @api.post("/admin/ad-banners/fix-urls", tags=["Admin — Ad Banners"])
+    async def fix_absolute_urls(user: dict = Depends(get_current_user)):
+        _ensure_admin(user)
+        fixed = 0
+        cursor = db.ad_banners.find({}, {"_id": 0, "id": 1, "image_url": 1, "target_url": 1})
+        rows = await cursor.to_list(2000)
+        for r in rows:
+            patch = {}
+            for field in ("image_url", "target_url"):
+                v = (r.get(field) or "")
+                # Match: protocol://host/api/files/XXX  →  /api/files/XXX
+                m = re.match(r"^https?://[^/]+(/api/files/.+)$", v)
+                if m:
+                    patch[field] = m.group(1)
+            if patch:
+                patch["updated_at"] = _now_iso()
+                await db.ad_banners.update_one({"id": r["id"]}, {"$set": patch})
+                fixed += 1
+        return {"ok": True, "fixed_banners": fixed, "scanned": len(rows)}
+
     @api.delete("/admin/ad-banners/{banner_id}", tags=["Admin — Ad Banners"])
     async def delete_banner(banner_id: str, user: dict = Depends(get_current_user)):
         _ensure_admin(user)

@@ -375,12 +375,17 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
         throw new Error(err.detail || "Échec de l'upload");
       }
       const data = await resp.json();
-      const absoluteUrl = `${apiBase}${data.url}`;
-      // Auto-fill image_url AND target_url (per user choice "a": click opens the file)
+      // Iter38r-fix9z — Store the relative path (e.g. "/api/files/abc"). The
+      // browser resolves it against window.location.origin at render time,
+      // so the same DB row works in BOTH preview and production. Storing the
+      // preview origin here was the cause of the broken-links incident.
+      const relativeUrl = (data.url || "").startsWith("/")
+        ? data.url
+        : `/${data.url || ""}`;
       setDraft((d) => ({
         ...d,
-        image_url: absoluteUrl,
-        target_url: d.target_url ? d.target_url : absoluteUrl,
+        image_url: relativeUrl,
+        target_url: d.target_url ? d.target_url : relativeUrl,
       }));
       toast.success(`Fichier chargé (${Math.round(file.size / 1024)} Ko)`);
     } catch (err) {

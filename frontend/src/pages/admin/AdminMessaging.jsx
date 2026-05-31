@@ -25,6 +25,8 @@ export default function AdminMessaging() {
 
   const [tab, setTab] = useState("clients");
   const [query, setQuery] = useState("");
+  // Iter38r-fix9v — Sort contacts: alpha / created_at / last_message_at
+  const [contactsSort, setContactsSort] = useState("default");
   const [selected, setSelected] = useState({}); // `${kind}:${id}` → true
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("fr");
@@ -97,6 +99,20 @@ export default function AdminMessaging() {
       (r.client_label || "").toLowerCase().includes(q)
     );
   });
+  // Iter38r-fix9v — Apply contact sort (alpha / created_at / last_message_at)
+  const sortedFiltered = useMemo(() => {
+    const arr = [...filtered];
+    if (contactsSort === "alpha") {
+      arr.sort((a, b) => (a.full_name || a.email || "").localeCompare(b.full_name || b.email || "", "fr", { sensitivity: "base" }));
+    } else if (contactsSort === "created_desc") {
+      arr.sort((a, b) => String(b.created_at || "").localeCompare(String(a.created_at || "")));
+    } else if (contactsSort === "created_asc") {
+      arr.sort((a, b) => String(a.created_at || "").localeCompare(String(b.created_at || "")));
+    } else if (contactsSort === "last_message_desc") {
+      arr.sort((a, b) => String(b.last_message_at || b.last_interaction_at || "").localeCompare(String(a.last_message_at || a.last_interaction_at || "")));
+    }
+    return arr;
+  }, [filtered, contactsSort]);
 
   const toggle = (kind, id) => {
     const key = `${kind}:${id}`;
@@ -104,7 +120,7 @@ export default function AdminMessaging() {
   };
 
   const toggleAllVisible = () => {
-    const withPhone = filtered.filter((r) => r.has_phone);
+    const withPhone = sortedFiltered.filter((r) => r.has_phone);
     const allOn = withPhone.every((r) => selected[`${r.kind}:${r.id}`]);
     const patch = {};
     withPhone.forEach((r) => { patch[`${r.kind}:${r.id}`] = !allOn; });
@@ -789,6 +805,20 @@ export default function AdminMessaging() {
               data-testid="messaging-search"
             />
           </div>
+          {/* Iter38r-fix9v — Sort contacts (alpha / created / last message) */}
+          <select
+            value={contactsSort}
+            onChange={(e) => setContactsSort(e.target.value)}
+            className="text-xs rounded-lg border border-slate-300 bg-white px-2 py-1.5"
+            data-testid="messaging-sort-select"
+            title="Trier la liste"
+          >
+            <option value="default">Tri par défaut</option>
+            <option value="alpha">Alphabétique (A-Z)</option>
+            <option value="created_desc">Création récente d'abord</option>
+            <option value="created_asc">Création ancienne d'abord</option>
+            <option value="last_message_desc">Dernier message récent</option>
+          </select>
           <button
             onClick={toggleAllVisible}
             className="text-xs rounded-md border border-slate-300 px-2 py-1 hover:bg-slate-50"
@@ -800,7 +830,7 @@ export default function AdminMessaging() {
 
         {loading ? (
           <div className="text-center text-slate-500 py-10">Chargement…</div>
-        ) : filtered.length === 0 ? (
+        ) : sortedFiltered.length === 0 ? (
           <div className="text-center text-slate-400 py-10 italic text-sm">Aucun destinataire.</div>
         ) : (
           <div className="max-h-[480px] overflow-y-auto">
@@ -816,7 +846,7 @@ export default function AdminMessaging() {
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((r) => {
+                {sortedFiltered.map((r) => {
                   const key = `${r.kind}:${r.id}`;
                   const on = !!selected[key];
                   return (

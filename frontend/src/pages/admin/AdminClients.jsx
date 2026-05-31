@@ -12,6 +12,11 @@ export default function AdminClients() {
   // Iter34q — Active role filter for the quick-filter pills above the table.
   // "all" shows every group; a specific role narrows down to that group only.
   const [roleFilter, setRoleFilter] = useState("all");
+  // Iter38r-fix9v — Source filter (e.g. "wa_otp_login" for WA-onboarded users)
+  // + sort by created_at / last_login_at / full_name
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [sortBy, setSortBy] = useState("");      // "" | created_at | last_login_at | full_name
+  const [sortOrder, setSortOrder] = useState("desc");
   const [categories, setCategories] = useState([]);
   const [isOpen, setIsOpen] = useState(false);
   const [editing, setEditing] = useState(null);
@@ -41,12 +46,18 @@ export default function AdminClients() {
     } catch { setCompanyHint(null); } finally { setHintLoading(false); }
   };
 
-  const load = () => apiClient.get("/admin/clients").then((r) => setItems(r.data));
+  const load = () => {
+    const params = {};
+    if (sourceFilter && sourceFilter !== "all") params.source = sourceFilter;
+    if (sortBy) { params.sort_by = sortBy; params.sort_order = sortOrder; }
+    return apiClient.get("/admin/clients", { params }).then((r) => setItems(r.data));
+  };
   const loadCats = () => apiClient.get("/admin/client-categories").then((r) => setCategories(r.data));
   useEffect(() => {
     load().catch(() => {});
     loadCats().catch(() => {});
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sourceFilter, sortBy, sortOrder]);
 
   const catOf = (slug) => categories.find((c) => c.slug === slug);
 
@@ -204,6 +215,43 @@ export default function AdminClients() {
             Autres
             <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] tabular-nums">{roleCounts.other}</span>
           </button>
+        )}
+      </div>
+
+      {/* Iter38r-fix9v — Source filter + sort order */}
+      <div className="flex flex-wrap items-center gap-2 -mt-2 mb-2">
+        <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Source :</span>
+        <button
+          onClick={() => setSourceFilter("all")}
+          className={`inline-flex items-center rounded-full px-3 py-1 text-xs ring-1 ${sourceFilter === "all" ? "bg-slate-900 text-white ring-slate-900" : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"}`}
+          data-testid="source-filter-all"
+        >Toutes</button>
+        <button
+          onClick={() => setSourceFilter("wa_otp_login")}
+          className={`inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs ring-1 ${sourceFilter === "wa_otp_login" ? "bg-emerald-600 text-white ring-emerald-600" : "bg-white text-emerald-700 ring-emerald-300 hover:bg-emerald-50"}`}
+          data-testid="source-filter-wa"
+          title="Filtrer les comptes créés via login WhatsApp OTP"
+        >📱 WhatsApp OTP</button>
+
+        <span className="ml-4 text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Trier :</span>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="text-xs rounded-full ring-1 ring-slate-200 bg-white px-3 py-1"
+          data-testid="sort-by-select"
+        >
+          <option value="">Par défaut</option>
+          <option value="created_at">Date de création</option>
+          <option value="last_login_at">Dernière connexion</option>
+          <option value="full_name">Nom (alphabétique)</option>
+        </select>
+        {sortBy && (
+          <button
+            onClick={() => setSortOrder((o) => o === "asc" ? "desc" : "asc")}
+            className="text-xs rounded-full ring-1 ring-slate-200 bg-white px-3 py-1 hover:bg-slate-50"
+            data-testid="sort-order-toggle"
+            title="Inverser l'ordre"
+          >{sortOrder === "asc" ? "↑ Asc" : "↓ Desc"}</button>
         )}
       </div>
 

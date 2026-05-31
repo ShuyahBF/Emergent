@@ -3132,6 +3132,9 @@ async def supervisor_update_admin_client(
 @api.get("/admin/clients", tags=["Admin"])
 async def admin_list_clients(
     include_roles: Optional[str] = None,
+    source: Optional[str] = None,
+    sort_by: Optional[str] = None,
+    sort_order: Optional[str] = None,
     _: dict = Depends(get_current_admin),
 ):
     """List all users that should be visible in the Admin → Clients module.
@@ -3141,20 +3144,29 @@ async def admin_list_clients(
     SAWALI super-admin (admin@sawalismartsystems.com) is always excluded
     because the platform itself owns this row.
 
-    Optional query param `include_roles` (comma-separated) overrides the
-    default scope. Example: ``?include_roles=client,superviseur``.
+    Optional query params:
+      - ``include_roles`` (csv) — override the default scope
+      - ``source`` (str)         — filter by users.source (e.g. ``wa_otp_login``)
+      - ``sort_by`` (str)        — ``created_at`` | ``last_login_at`` | ``full_name``
+      - ``sort_order`` (str)     — ``asc`` (default) | ``desc``
     """
     if include_roles:
         roles = [r.strip() for r in include_roles.split(",") if r.strip()]
     else:
         roles = ["client", "superviseur", "admin", "moderateur"]
-    users = await db.users.find(
-        {
-            "role": {"$in": roles},
-            "email": {"$nin": ["admin@sawalismartsystems.com"]},
-        },
-        {"_id": 0, "password_hash": 0},
-    ).to_list(2000)
+    query: Dict[str, Any] = {
+        "role": {"$in": roles},
+        "email": {"$nin": ["admin@sawalismartsystems.com"]},
+    }
+    if source:
+        query["source"] = source
+    cursor = db.users.find(query, {"_id": 0, "password_hash": 0})
+    # Iter38r-fix9v — Sorting (whitelist to prevent injection)
+    sort_field = sort_by if sort_by in ("created_at", "last_login_at", "full_name") else None
+    if sort_field:
+        direction = -1 if (sort_order or "").lower() == "desc" else 1
+        cursor = cursor.sort(sort_field, direction)
+    users = await cursor.to_list(2000)
     return users
 
 

@@ -227,15 +227,23 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
             await db.wa_otp_requests.update_one({"msisdn": msisdn}, {"$inc": {"attempts": 1}})
             raise HTTPException(status_code=401, detail="Code invalide")
         await db.wa_otp_requests.delete_one({"msisdn": msisdn})
-        # Ensure demo tenant exists, then create user + tracked record + contact
-        tenant = await _ensure_demo_tenant()
+        # Iter38r-fix9v — Deduplication: a phone number may already belong to
+        # an existing tenant (admin) or tracked user. In that case we reuse
+        # the account (no demo created) and skip the heavy "ensure tenant" call.
         existing_user = await db.users.find_one(
             {"$or": [{"whatsapp": f"+{msisdn}"}, {"phone_digits": msisdn}]},
             {"_id": 0},
         )
         if existing_user:
             user = existing_user
+            # Bump last_login_at for traceability on the Clients page
+            await db.users.update_one(
+                {"id": user["id"]},
+                {"$set": {"last_login_at": _now_iso(), "last_wa_login_at": _now_iso()}},
+            )
         else:
+            # First time on this number — ensure the demo tenant + create the user
+            tenant = await _ensure_demo_tenant()
             user_id = str(uuid.uuid4())
             user_no = await gen_internal_id(db, "DEM")
             user = {
@@ -256,6 +264,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
                 "is_demo": True,
                 "password_hash": hash_password(uuid.uuid4().hex),
                 "created_at": _now_iso(),
+                "last_login_at": _now_iso(),
+                "last_wa_login_at": _now_iso(),
                 "wa_onboarding_seen_by": None,
             }
             await db.users.insert_one(user.copy())
@@ -286,7 +296,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
                 "id": user["id"], "full_name": user["full_name"],
                 "email": user["email"], "role": user["role"],
                 "tracked_role": user.get("tracked_role"),
-                "is_demo": True,
+                "is_demo": bool(user.get("is_demo")),
+                "source": user.get("source"),
             },
         }
 

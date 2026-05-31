@@ -6,6 +6,31 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9z6 — 🧪 A/B Testing + Email automatique d'expiration
+
+### ✅ P5 — A/B Testing sur Régie publicitaire
+- Schéma `ad_banners` enrichi : `ab_enabled`, `variant_b_image_url`, `variant_b_media_kind`, `variant_b_target_url`, compteurs séparés `total_impressions_a/b` + `total_clicks_a/b`
+- Rotation 50/50 via `random.random() < 0.5` dans `_public_view`, retour `active_variant: 'a'|'b'` au frontend
+- Endpoints `/impression?variant=a|b` + `/click?variant=a|b` qui bumpent les bons compteurs et renvoient la target URL adaptée
+- Stats enrichies : objet `ab` avec `variant_a`, `variant_b`, `winner` (best CTR avec ≥30 affichages par variante)
+- UI Admin : composant `BannerABBlock` (toggle + uploader variante B + URL cible côte à côte) + `ABBreakdown` dans la stats modal (badge 🏆 GAGNANTE sur la variante au CTR le plus élevé)
+- `handleFileChange(e, variant)` factorisé pour réutiliser le même uploader pour A et B
+
+### ✅ Email automatique d'expiration
+- Champs `advertiser_email`, `advertiser_phone`, `reminder_email_enabled` (défaut true), `reminder_days_before` (1–30, défaut 3) ajoutés
+- Fonction `process_expiration_reminders(db, send_email_fn, public_base_url, today_iso)` au niveau module
+- Logique idempotente via `reminder_last_sent_for = "{expiration_date}|{days_before}"` — re-runs ne renvoient pas
+- Email HTML+text : bilan campagne (affichages, clics, CTR, budget restant) + lien direct vers `/ads/{slug}?token=…` pour renouveler en 1 clic
+- Cron quotidien APScheduler `_scheduled_ad_banner_reminders` à 09:30 Africa/Abidjan
+- Endpoint manuel `POST /api/admin/ad-banners/run-reminder-cron` pour déclenchement immédiat
+- UI Admin : composant `BannerContactReminderBlock` (email + téléphone + toggle + nombre de jours)
+
+### Tests : 27/27 passés
+- 8 nouveaux tests backend (`test_iter38r_fix9z6_ab_reminder.py`) — A/B persistence, variant tracking, winner detection, cron idempotence
+- 19 tests de régression (fix9z5 + fix9w) verts
+- 6 flows frontend validés par `testing_agent_v3_fork` (form A/B toggle, side-by-side preview, contact/reminder toggle, stats modal A/B breakdown)
+- 0 régression, 0 bug trouvé
+
 ## Recent (2026-05-31) — Iter38r-fix9z5 — 🎨 4 améliorations livrées en un shot
 
 ### ✅ Dimensions d'affichage paramétrables (Régie publicitaire)

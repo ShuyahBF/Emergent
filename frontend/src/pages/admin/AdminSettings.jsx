@@ -11,6 +11,7 @@ import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutorep
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
+import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 
@@ -847,6 +848,9 @@ export default function AdminSettings() {
               Catégorie : <strong>Authentication</strong> ou <strong>Utility</strong> · 1 paramètre body uniquement.
             </p>
           </div>
+
+          {/* Iter38r-fix9o — Test send button to validate template config */}
+          <WaOtpTester />
         </div>
       </Section>
 

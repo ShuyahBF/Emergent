@@ -3830,6 +3830,88 @@ async def admin_usage_summary(days: int = 30, _: dict = Depends(get_current_admi
     }
 
 
+# Iter38r-fix9p (P1) — SMS providers detail: latency + last failure + cost.
+# Complements `sms_by_provider` from /admin/usage/summary which only carries
+# the counts. This adds a slow-path read on the last failure record and an
+# aggregation for the average send latency.
+@api.get("/admin/usage/sms-providers", tags=["Admin"])
+async def admin_usage_sms_providers(days: int = 30, _: dict = Depends(get_current_admin)):
+    days = max(1, min(days, 365))
+    since = datetime.now(timezone.utc) - timedelta(days=days)
+    since_iso = since.isoformat()
+
+    # Per-provider counts + average latency (ms between created_at and sent_at)
+    pipeline = [
+        {"$match": {"created_at": {"$gte": since_iso}}},
+        {"$group": {
+            "_id": {"$toUpper": {"$ifNull": ["$provider", "?"]}},
+            "sent_ok": {"$sum": {"$cond": [{"$eq": ["$status", "sent"]}, 1, 0]}},
+            "sent_ko": {"$sum": {"$cond": [{"$or": [{"$eq": ["$status", "failed"]}, {"$eq": ["$status", "error"]}]}, 1, 0]}},
+            "total": {"$sum": 1},
+            # Latency only on successfully sent messages with both timestamps
+            "latency_samples": {"$push": {
+                "$cond": [
+                    {"$and": [{"$eq": ["$status", "sent"]}, {"$ne": ["$sent_at", None]}, {"$ne": ["$created_at", None]}]},
+                    {"$subtract": [
+                        {"$dateFromString": {"dateString": "$sent_at", "onError": None}},
+                        {"$dateFromString": {"dateString": "$created_at", "onError": None}},
+                    ]},
+                    None,
+                ],
+            }},
+        }},
+    ]
+    items: List[Dict[str, Any]] = []
+    async for doc in db.sms_messages.aggregate(pipeline):
+        prov = doc.get("_id") or "?"
+        samples = [s for s in (doc.get("latency_samples") or []) if isinstance(s, (int, float))]
+        avg_ms = round(sum(samples) / len(samples)) if samples else None
+        # Last failure (separate query — bounded by 1)
+        # Avoid regex (provider may contain `?` placeholder which breaks $regex).
+        prov_clauses: List[Dict[str, Any]] = [
+            {"provider": prov},
+            {"provider": prov.lower()},
+            {"provider": prov.capitalize()},
+        ]
+        last_fail = await db.sms_messages.find_one(
+            {"$or": prov_clauses,
+             "status": {"$in": ["failed", "error"]},
+             "created_at": {"$gte": since_iso}},
+            {"_id": 0, "created_at": 1, "error_message": 1, "to": 1},
+            sort=[("created_at", -1)],
+        )
+        # Cost from global unit_cost setting per provider
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        unit_cost_key = f"sms_unit_cost_{prov.lower()}"
+        unit_cost = float(s.get(unit_cost_key) or 0.0)
+        sent_ok = int(doc.get("sent_ok", 0))
+        items.append({
+            "provider": prov,
+            "sent_ok": sent_ok,
+            "sent_ko": int(doc.get("sent_ko", 0)),
+            "total": int(doc.get("total", 0)),
+            "avg_latency_ms": avg_ms,
+            "avg_latency_human": _human_latency(avg_ms) if avg_ms is not None else None,
+            "unit_cost": unit_cost,
+            "estimated_cost": round(sent_ok * unit_cost, 2),
+            "last_failure": last_fail,
+        })
+    items.sort(key=lambda x: x["total"], reverse=True)
+    return {"period_days": days, "items": items, "generated_at": _now()}
+
+
+def _human_latency(ms: Optional[int]) -> Optional[str]:
+    if ms is None:
+        return None
+    if ms < 1000:
+        return f"{int(ms)} ms"
+    s = ms / 1000.0
+    if s < 60:
+        return f"{s:.1f} s"
+    m = s / 60
+    return f"{m:.1f} min"
+
+
 @api.get("/admin/clients/{client_id}/whatsapp-stats", tags=["Admin"])
 async def admin_client_whatsapp_stats(client_id: str, _: dict = Depends(get_current_admin)):
     """WhatsApp consumption summary for a client: messages sent OK/KO,

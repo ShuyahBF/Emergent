@@ -6,7 +6,35 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
-## Recent (2026-05-31) — Iter38r-fix9o v4 🎯 (Polish WA Login)
+## Recent (2026-05-31) — Iter38r-fix9p 🛠️ (Batch Next Action Items)
+
+### 📱 WA OTP Template — Multi-stratégie + bouton "Tester l'envoi"
+- ✅ `wa_otp_login_9o.py` enrichi : tente d'abord la structure **Authentication** (body + button OTP code) puis fallback **Utility** (body only) puis fallback **texte direct**. Met en cache la catégorie qui fonctionne (`wa_otp_template_category`).
+- ✅ **Erreurs Meta exposées** dans la réponse 502 (toutes les tentatives concaténées) — fini les "WA error 400" opaques.
+- ✅ Nouveau endpoint `POST /api/admin/wa-otp/test` (admin only) + composant `WaOtpTester.jsx` dans AdminSettings : bouton "Tester l'envoi" qui envoie un vrai OTP + détail Meta dans `<details>` collapsible.
+
+### 🛡️ ErrorBoundary global (P2) — DÉJÀ FAIT
+- ℹ️ Déjà présent dans `PortalLayout.jsx` (line 402) avec `resetKey={location.pathname}` — couvre /portal/* ET /admin/*. ✅
+
+### 🐛 Hydration warning PortalLayout (P2) — DÉJÀ RÉSOLU
+- ℹ️ Aucun `<option>` / `<select>` actuel dans PortalLayout (refactor antérieur a remplacé le mobile-select par un drawer). ✅
+
+### 🍪 Bandeau RGPD cookies (P2)
+- ✅ Composant `CookieBanner.jsx` ajouté à `MarketingLayout.jsx` (toutes les pages publiques).
+- ✅ Choix granulaires : Nécessaires (toujours actifs) / Préférences / Analytics / Marketing.
+- ✅ Boutons "Tout accepter" / "Refuser optionnels" / "Personnaliser". Persistance dans `localStorage.sawali_cookie_consent_v1`. Helper `getConsent()` exporté pour conditionner les scripts analytics côté frontend.
+
+### 📊 P1 — Stats SMS par fournisseur enrichies dans `/admin/usage`
+- ✅ Nouveau endpoint `GET /api/admin/usage/sms-providers?days=N` retournant pour chaque provider : `sent_ok`, `sent_ko`, `total`, `avg_latency_ms` + `avg_latency_human`, `unit_cost`, `estimated_cost`, `last_failure` (timestamp + error_message + to).
+- ✅ Coût configurable via `settings.global.sms_unit_cost_<provider>` (ex. `sms_unit_cost_orange = 25.0` XOF/SMS).
+- ✅ Composant `SmsProvidersBlock.jsx` remplace l'ancien grid simple : cartes colorées par fournisseur (ORANGE, MOOV, TELECEL, OVH), badge taux % couleur conditionnelle, details Dernier échec collapsible, hint config coût.
+
+### Tests & qualité
+- ✅ **8 nouveaux tests pytest** (`test_iter38r_fix9p_sms_providers_wa_test.py`). Cumulatif fix9 : **115 verts** / 1 flake pré-existant.
+- ✅ Lint Python + JS clean.
+- ✅ Smoke screenshot validé (bloc affiché dans /admin/usage).
+
+
 
 ### 🎯 Suppression du terme "démo" + CTA conversion
 - ✅ Bouton Login : "Se connecter via WhatsApp (essai démo)" → "Se connecter via WhatsApp".

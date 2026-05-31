@@ -100,26 +100,45 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         )
         # Try template first (24h fenêtre fermée), fallback à un message texte direct
         template_name = (s.get("wa_otp_template") or "").strip()
-        async def _send_template():
-            url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+        lang = (s.get("wa_otp_template_lang") or "fr").strip() or "fr"
+        url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        async def _send_template_authentication():
+            """Authentication category — body + URL/copy-code button both required."""
             body = {
                 "messaging_product": "whatsapp",
                 "to": msisdn,
                 "type": "template",
                 "template": {
                     "name": template_name,
-                    "language": {"code": s.get("wa_otp_template_lang") or "fr"},
-                    "components": [{
-                        "type": "body",
-                        "parameters": [{"type": "text", "text": code}],
-                    }],
+                    "language": {"code": lang},
+                    "components": [
+                        {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                        {"type": "button", "sub_type": "url", "index": "0",
+                         "parameters": [{"type": "text", "text": code}]},
+                    ],
                 },
             }
             async with httpx.AsyncClient(timeout=10.0) as client:
-                return await client.post(url, json=body, headers={"Authorization": f"Bearer {access_token}"})
+                return await client.post(url, json=body, headers=headers)
+
+        async def _send_template_utility():
+            """Utility/Marketing category — body parameter only."""
+            body = {
+                "messaging_product": "whatsapp",
+                "to": msisdn,
+                "type": "template",
+                "template": {
+                    "name": template_name,
+                    "language": {"code": lang},
+                    "components": [{"type": "body", "parameters": [{"type": "text", "text": code}]}],
+                },
+            }
+            async with httpx.AsyncClient(timeout=10.0) as client:
+                return await client.post(url, json=body, headers=headers)
 
         async def _send_text():
-            url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
             body = {
                 "messaging_product": "whatsapp",
                 "to": msisdn,
@@ -127,23 +146,57 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
                 "text": {"body": f"SAWALI — Votre code de connexion est : {code}. Valable 10 min."},
             }
             async with httpx.AsyncClient(timeout=10.0) as client:
-                return await client.post(url, json=body, headers={"Authorization": f"Bearer {access_token}"})
+                return await client.post(url, json=body, headers=headers)
 
+        # Resolve the cached category for this template (admin/healthcheck stores it)
+        cached_cat = (s.get("wa_otp_template_category") or "").upper()
         sent_via = "text"
+        meta_errors: List[str] = []
         try:
             if template_name:
-                r = await _send_template()
-                if r.status_code == 200:
-                    sent_via = "template"
+                # Strategy: try cached category first; if unknown, try Authentication first
+                # (most OTP templates), then Utility/Marketing.
+                attempts = []
+                if cached_cat == "AUTHENTICATION":
+                    attempts = [("authentication", _send_template_authentication),
+                                ("utility", _send_template_utility)]
+                elif cached_cat in ("UTILITY", "MARKETING"):
+                    attempts = [("utility", _send_template_utility),
+                                ("authentication", _send_template_authentication)]
                 else:
-                    # 24h-window OK or template error → text fallback
+                    attempts = [("authentication", _send_template_authentication),
+                                ("utility", _send_template_utility)]
+                template_succeeded = False
+                for label, fn in attempts:
+                    r = await fn()
+                    if r.status_code == 200:
+                        sent_via = f"template_{label}"
+                        template_succeeded = True
+                        # Cache the working category for next runs
+                        await db.settings.update_one(
+                            {"_id": "global"},
+                            {"$set": {"wa_otp_template_category": label.upper()}},
+                            upsert=True,
+                        )
+                        break
+                    else:
+                        meta_errors.append(f"[{label}] HTTP {r.status_code}: {r.text[:300]}")
+                        logger.warning("[wa_otp] template send failed (%s): %s", label, r.text[:300])
+                if not template_succeeded:
+                    # Final fallback: plain text (works only within 24h session window)
                     r2 = await _send_text()
                     if r2.status_code != 200:
-                        raise HTTPException(status_code=502, detail=f"WhatsApp send failed: {r2.text[:200]}")
+                        meta_errors.append(f"[text] HTTP {r2.status_code}: {r2.text[:300]}")
+                        # Surface ALL collected errors so the admin can debug
+                        raise HTTPException(
+                            status_code=502,
+                            detail="WhatsApp template + text fallback failed. " + " | ".join(meta_errors),
+                        )
+                    sent_via = "text"
             else:
                 r = await _send_text()
                 if r.status_code != 200:
-                    raise HTTPException(status_code=502, detail=f"WhatsApp send failed: {r.text[:200]}")
+                    raise HTTPException(status_code=502, detail=f"WhatsApp send failed: {r.text[:300]}")
         except HTTPException:
             raise
         except Exception as exc:
@@ -262,5 +315,71 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable")
         return {"ok": True}
+
+    # Iter38r-fix9o (Item 8 — debug) — Admin endpoint to test the OTP template
+    # without needing to log out. Sends a real OTP to the provided number and
+    # returns the Meta API response (or detailed error) for debugging.
+    @api.post("/admin/wa-otp/test", tags=["Admin — WhatsApp OTP"])
+    async def admin_test_wa_otp(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        msisdn = _digits(payload.get("msisdn") or "")
+        if len(msisdn) < 8:
+            raise HTTPException(status_code=400, detail="Numéro invalide")
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        access_token = s.get("whatsapp_access_token") or ""
+        phone_number_id = s.get("whatsapp_phone_number_id") or ""
+        template_name = (s.get("wa_otp_template") or "").strip()
+        lang = (s.get("wa_otp_template_lang") or "fr").strip() or "fr"
+        if not access_token or not phone_number_id:
+            raise HTTPException(status_code=503, detail="Configuration WhatsApp Cloud API manquante")
+        if not template_name:
+            raise HTTPException(status_code=400, detail="Aucun template OTP configuré dans Admin Settings")
+        code = f"{random.randint(0, 999999):06d}"
+        url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+        headers = {"Authorization": f"Bearer {access_token}"}
+        results: List[Dict[str, Any]] = []
+        # Try Authentication first (with button)
+        for label, components in [
+            ("authentication", [
+                {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                {"type": "button", "sub_type": "url", "index": "0",
+                 "parameters": [{"type": "text", "text": code}]},
+            ]),
+            ("utility", [
+                {"type": "body", "parameters": [{"type": "text", "text": code}]},
+            ]),
+        ]:
+            body = {
+                "messaging_product": "whatsapp", "to": msisdn, "type": "template",
+                "template": {"name": template_name, "language": {"code": lang}, "components": components},
+            }
+            try:
+                async with httpx.AsyncClient(timeout=10.0) as client:
+                    r = await client.post(url, json=body, headers=headers)
+                results.append({
+                    "category_tried": label,
+                    "http_status": r.status_code,
+                    "meta_response": r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text[:500],
+                    "ok": r.status_code == 200,
+                })
+                if r.status_code == 200:
+                    # Cache the working category
+                    await db.settings.update_one(
+                        {"_id": "global"},
+                        {"$set": {"wa_otp_template_category": label.upper()}},
+                        upsert=True,
+                    )
+                    return {
+                        "ok": True,
+                        "sent_via": f"template_{label}",
+                        "test_code": code,
+                        "attempts": results,
+                    }
+            except Exception as exc:
+                results.append({"category_tried": label, "exception": str(exc)[:300], "ok": False})
+        return {"ok": False, "test_code": code, "attempts": results, "hint": "Vérifiez : (1) le nom du template, (2) la langue (code BCP-47), (3) l'approbation Meta, (4) la catégorie (Authentication vs Utility)."}
+
+
 
     return api

@@ -4,6 +4,7 @@ import { toast } from "sonner";
 import { Link } from "react-router-dom";
 import { RefreshCw, BarChart3, MessageCircle, Sparkles, CreditCard, Download, Activity, AlertTriangle, Send, Zap, ArrowRightLeft, Coins, Users, Eye, Building2, Trash2 } from "lucide-react";
 import { BarChart, Bar, CartesianGrid, XAxis, YAxis, Tooltip, ResponsiveContainer, Legend } from "recharts";
+import SmsProvidersBlock from "@/components/SmsProvidersBlock";
 
 /*
   Admin → Usage Dashboard
@@ -234,29 +235,8 @@ export default function AdminUsage() {
         </div>
       )}
 
-      {/* Per-provider breakdown */}
-      {data.sms_by_provider && Object.keys(data.sms_by_provider).length > 0 && (
-        <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4" data-testid="sms-by-provider">
-          <h2 className="text-sm font-semibold text-slate-700 inline-flex items-center gap-1.5 mb-3">
-            <Send className="h-4 w-4 text-indigo-500" /> Répartition SMS par fournisseur
-          </h2>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-            {Object.entries(data.sms_by_provider).map(([prov, stats]) => {
-              const total = stats.total || 0;
-              const ok = stats.sent_ok || 0;
-              const ratio = total > 0 ? Math.round((ok / total) * 100) : 0;
-              return (
-                <div key={prov} className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3" data-testid={`sms-prov-${prov}`}>
-                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-bold">{prov}</p>
-                  <p className="text-2xl font-display font-bold text-slate-900 tabular-nums">{ok}</p>
-                  <p className="text-[11px] text-slate-500">/ {total} total — {ratio}% succès</p>
-                  {stats.sent_ko > 0 && <p className="text-[10px] text-rose-600 mt-0.5">{stats.sent_ko} échec(s)</p>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+      {/* Per-provider breakdown (Iter38r-fix9p — enriched with latency, cost, last fail) */}
+      <SmsProvidersBlock days={data.period_days || days} />
 
       {/* Chart */}
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">

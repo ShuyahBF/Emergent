@@ -4,6 +4,7 @@ import MarketingFooter from "@/components/MarketingFooter";
 import StatusPill from "@/components/StatusPill";
 import IncidentBanner from "@/components/IncidentBanner";
 import VersionStamp from "@/components/VersionStamp";
+import CookieBanner from "@/components/CookieBanner";
 
 export default function MarketingLayout({ children }) {
   return (
@@ -14,6 +15,7 @@ export default function MarketingLayout({ children }) {
       <MarketingFooter />
       <StatusPill />
       <VersionStamp tone="light" />
+      <CookieBanner />
     </div>
   );
 }

@@ -179,11 +179,11 @@ def test_wa_otp_request_needs_wa_config(db_sync):
     """When WA config keys are missing → 503."""
     # Wipe WA config snapshot before, then restore
     s = db_sync.settings.find_one({"_id": "global"}) or {}
-    saved_at = s.get("whatsapp_access_token")
-    saved_pn = s.get("whatsapp_phone_number_id")
+    saved_at = s.get("wa_access_token")
+    saved_pn = s.get("wa_phone_number_id")
     db_sync.settings.update_one(
         {"_id": "global"},
-        {"$set": {"whatsapp_access_token": "", "whatsapp_phone_number_id": ""}},
+        {"$set": {"wa_access_token": "", "wa_phone_number_id": ""}},
         upsert=True,
     )
     try:
@@ -193,8 +193,8 @@ def test_wa_otp_request_needs_wa_config(db_sync):
         db_sync.settings.update_one(
             {"_id": "global"},
             {"$set": {
-                "whatsapp_access_token": saved_at or "",
-                "whatsapp_phone_number_id": saved_pn or "",
+                "wa_access_token": saved_at or "",
+                "wa_phone_number_id": saved_pn or "",
             }},
         )
 

@@ -81,8 +81,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         if len(msisdn) < 8:
             raise HTTPException(status_code=400, detail="Numéro invalide")
         s = await db.settings.find_one({"_id": "global"}) or {}
-        access_token = s.get("whatsapp_access_token") or ""
-        phone_number_id = s.get("whatsapp_phone_number_id") or ""
+        access_token = s.get("wa_access_token") or ""
+        phone_number_id = s.get("wa_phone_number_id") or ""
         if not access_token or not phone_number_id:
             raise HTTPException(status_code=503, detail="Configuration WhatsApp Cloud API manquante")
         code = f"{random.randint(0, 999999):06d}"
@@ -327,8 +327,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
         if len(msisdn) < 8:
             raise HTTPException(status_code=400, detail="Numéro invalide")
         s = await db.settings.find_one({"_id": "global"}) or {}
-        access_token = s.get("whatsapp_access_token") or ""
-        phone_number_id = s.get("whatsapp_phone_number_id") or ""
+        access_token = s.get("wa_access_token") or ""
+        phone_number_id = s.get("wa_phone_number_id") or ""
         template_name = (s.get("wa_otp_template") or "").strip()
         lang = (s.get("wa_otp_template_lang") or "fr").strip() or "fr"
         if not access_token or not phone_number_id:

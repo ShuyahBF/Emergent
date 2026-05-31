@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare, CreditCard, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import BrochuresWidget from "@/components/BrochuresWidget";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -150,6 +151,8 @@ export default function ClientDashboard() {
       <UnjustifiedExpensesCard />
       {/* Iter35m — Synthèse des médias WhatsApp reçus */}
       {smartFeatures.whatsapp && <WaMediaSummaryCard />}
+      {/* Iter38r-fix9p — Brochures PDF (admin/superviseur uniquement) */}
+      <BrochuresWidget />
       {showAi && <AiSummaryModal onClose={() => setShowAi(false)} />}
     </div>
   );

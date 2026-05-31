@@ -6,6 +6,31 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9z5 — 🎨 4 améliorations livrées en un shot
+
+### ✅ Dimensions d'affichage paramétrables (Régie publicitaire)
+- Champs `display_mode` (auto / ratio / percentage / fixed), `aspect_ratio`, `width_pct`, `height_px`, `width_px`, `object_fit` ajoutés à `ad_banners`
+- Composant React `BannerSizingBlock` dans AdminAdBanners avec aperçu en direct + 4 modes + slider largeur + select ratios courants (16:9, 21:9, 4:1, 3:1, 2:1, 1:1, 4:5, 9:16, custom)
+- Helper `/lib/bannerStyle.js` calcule les styles CSS depuis les champs DB
+- AdBannerSlot consomme les nouveaux champs et applique width/aspectRatio/height/object-fit en inline-style
+
+### ✅ Rapport public — Onglet Conversion + Renouvellement
+- Nouveau composant `ConversionTrend` (SVG sparkline 2-courbes : affichages + clics sur 30 jours) avec totaux + CTR moyen + dépensé
+- Nouveau widget `RenewCampaignWidget` (formulaire : nom, email, téléphone, budget souhaité, durée, message)
+- Endpoint `POST /api/public/ads-report/{slug}/renew?token=…` créant une ligne dans `ad_renewal_requests`
+- Inbox renouvellements dans AdminAdBanners avec bouton "Marquer traitée" (`POST /admin/ad-renewal-requests/{id}/mark-handled`)
+
+### ✅ Graphique coût IA mensuel (Dashboard Admin)
+- Endpoint `GET /api/admin/ai-costs/monthly?months=N` agrège `ai_usage_monthly` cross-tenant, zero-fill sur la période
+- Composant `AdminAICostChart` avec barres 12 mois + 4 préréglages (3/6/12/24 mois) + cartes total période / moyenne mensuelle / mois en cours
+- Intégré au bas du Dashboard Admin
+
+### ✅ Hook centralisé `useAssetUrl` (P3 refactor)
+- `/lib/useAssetUrl.js` : `resolveAssetUrl(u)` + `useAssetUrl()` React hook
+- Adopté par PublicAdReport, AdBannerSlot, AdminAdBanners (tableau et aperçu)
+
+**Tests : 22/22 passés** (9 unit + 7 e2e + 6 byte-range regression). 4 flows UI validés par testing_agent_v3_fork. 0 régression.
+
 ## Recent (2026-05-31) — Iter38r-fix9z4 — 🎥 P0 BUG FIX : Lecture vidéo dans Ad Banners
 - 🔴 **Root cause** : `FileResponse` annonçait `Accept-Ranges: bytes` mais ignorait l'en-tête `Range` envoyé par le navigateur, retournant HTTP 200 + body complet au lieu de 206 Partial Content. Chromium/Safari rejetaient alors la lecture avec `MEDIA_ERR_SRC_NOT_SUPPORTED`.
 - ✅ **Fix** : `serve_file` (`server.py` ~ligne 7869) gère maintenant correctement les requêtes Range — 206 + Content-Range + Content-Length pour les sous-plages, 416 pour les ranges invalides, 200 + Content-Length pour les GET sans Range.

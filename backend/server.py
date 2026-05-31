@@ -43,7 +43,7 @@ from fastapi import (
     Query,
     Request,
 )
-from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse, HTMLResponse
+from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse, HTMLResponse, StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 from pydantic import BaseModel, EmailStr, Field
@@ -7870,22 +7870,70 @@ async def serve_file(request: Request, file_id: str):
         content_type.startswith(("image/", "video/", "audio/"))
         or content_type == "application/pdf"
     )
+    # Iter38r-fix9z4 — Proper HTTP byte-range handling for <video>/<audio>.
+    # FileResponse advertises Accept-Ranges but ignores the Range request
+    # header (always returns 200 + full body). Chromium/Safari then reject
+    # the playback with MEDIA_ERR_SRC_NOT_SUPPORTED. We honour ranges by
+    # streaming the requested slice with HTTP 206 + Content-Range.
+    file_size = path.stat().st_size
+    range_header = request.headers.get("range") or request.headers.get("Range")
+    safe_name = (meta.get("filename") or "").replace('"', "")
+    inline_disposition = (
+        f'inline; filename="{safe_name}"' if safe_name else "inline"
+    )
+    common_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Type": content_type,
+    }
     if is_inline_media:
-        response = FileResponse(path, media_type=content_type)
-        # Override the default attachment disposition added by Starlette
-        safe_name = (meta.get("filename") or "").replace('"', "")
-        if safe_name:
-            response.headers["Content-Disposition"] = f'inline; filename="{safe_name}"'
-        else:
-            response.headers["Content-Disposition"] = "inline"
-    else:
-        response = FileResponse(
-            path,
+        common_headers["Content-Disposition"] = inline_disposition
+    elif safe_name:
+        common_headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
+
+    if range_header and range_header.startswith("bytes="):
+        try:
+            spec = range_header[len("bytes="):].split(",", 1)[0].strip()
+            start_s, _, end_s = spec.partition("-")
+            start = int(start_s) if start_s else 0
+            end = int(end_s) if end_s else file_size - 1
+            if start < 0 or start >= file_size:
+                raise ValueError("range out of bounds")
+            end = min(end, file_size - 1)
+            length = end - start + 1
+        except (ValueError, TypeError):
+            response = Response(
+                status_code=416,
+                headers={"Content-Range": f"bytes */{file_size}"},
+            )
+            return response
+
+        async def _iter_range(p, s, l, chunk=64 * 1024):
+            remaining = l
+            with open(p, "rb") as f:
+                f.seek(s)
+                while remaining > 0:
+                    data = f.read(min(chunk, remaining))
+                    if not data:
+                        break
+                    remaining -= len(data)
+                    yield data
+
+        headers = {
+            **common_headers,
+            "Content-Range": f"bytes {start}-{end}/{file_size}",
+            "Content-Length": str(length),
+        }
+        response = StreamingResponse(
+            _iter_range(path, start, length),
+            status_code=206,
             media_type=content_type,
-            filename=meta.get("filename"),
+            headers=headers,
         )
-    # Explicit byte-range support — required by Safari / iOS for <video>
-    response.headers["Accept-Ranges"] = "bytes"
+    else:
+        response = FileResponse(path, media_type=content_type)
+        for k, v in common_headers.items():
+            response.headers[k] = v
+        response.headers["Content-Length"] = str(file_size)
     # Fire-and-forget log of the download (duration is approximate as we log before streaming)
     async def _log_download():
         try:

@@ -6,6 +6,13 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9z4 — 🎥 P0 BUG FIX : Lecture vidéo dans Ad Banners
+- 🔴 **Root cause** : `FileResponse` annonçait `Accept-Ranges: bytes` mais ignorait l'en-tête `Range` envoyé par le navigateur, retournant HTTP 200 + body complet au lieu de 206 Partial Content. Chromium/Safari rejetaient alors la lecture avec `MEDIA_ERR_SRC_NOT_SUPPORTED`.
+- ✅ **Fix** : `serve_file` (`server.py` ~ligne 7869) gère maintenant correctement les requêtes Range — 206 + Content-Range + Content-Length pour les sous-plages, 416 pour les ranges invalides, 200 + Content-Length pour les GET sans Range.
+- ✅ **Tests** : 6 nouveaux tests pytest dans `test_iter38r_fix9z4_byte_range.py` (range spécifique, range ouvert `bytes=0-`, range médian, hors limites, disposition inline préservée). 11/11 tests passent (avec test_iter38r_fix9z2).
+- ✅ **Validation E2E** : Image PNG de bannière s'affiche correctement en haut de la home publique (capture confirmée). Vidéo MP4 confirmée via fetch + 206 Content-Range correct dans le DevTools réseau (codec H.264 non testable dans HeadlessChrome mais OK dans Chrome/Safari/Firefox standards).
+- 📦 **Import ajouté** : `StreamingResponse` depuis `fastapi.responses`.
+
 ## Recent (2026-05-31) — Iter38r-fix9p → fix9w — 8 modules livrés en session
 
 ### 🔴 fix9p (P0 BUG FIX) — Backend gate `ai_voice_gen`

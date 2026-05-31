@@ -7,6 +7,7 @@ import DeploymentsMap from "@/components/DeploymentsMap";
 import HeroVideoSection from "@/components/HeroVideoSection";
 import HomeStatsTicker from "@/components/HomeStatsTicker";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
+import AdBannerSlot from "@/components/AdBannerSlot";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -33,6 +34,8 @@ export default function Home() {
 
   return (
     <>
+      {/* Iter38r-fix9w — Monetized ad banner */}
+      <AdBannerSlot placement="public" />
       {/* HERO */}
       <section
         className="relative min-h-[88vh] flex items-center overflow-hidden"

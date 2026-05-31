@@ -6,44 +6,50 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
-## Recent (2026-05-31) — Iter38r-fix9p → fix9u — 6 nouveaux modules
+## Recent (2026-05-31) — Iter38r-fix9p → fix9w — 8 modules livrés en session
 
 ### 🔴 fix9p (P0 BUG FIX) — Backend gate `ai_voice_gen`
-- ✅ Endpoints `/me/ai/tts-elevenlabs` + `/me/ai/voices/clone` désormais gatés par le toggle `ai_voice_gen` du tenant (parent admin). Admin/superviseur bypass. 4/4 tests passants.
+- ✅ Endpoints `/me/ai/tts-elevenlabs` + `/me/ai/voices/clone` désormais gatés par le toggle `ai_voice_gen` du tenant. Admin/superviseur bypass. 4/4 tests.
 
 ### 📊 fix9q — Mini-compteur OCR par tenant (AdminClientFeatures)
-- ✅ `GET /api/admin/liluvine-pro/kb/ocr-usage?client_id=X` accepte le filtre par tenant. Per-tenant pricing/cap override le global.
-- ✅ Carte "OCR consommé ce mois : X pages / Y XOF" dans `AdminClientFeatures.jsx` avec barre de progression colorée (vert/ambre/rouge selon le %).
+- ✅ `GET /api/admin/liluvine-pro/kb/ocr-usage?client_id=X` filtre par tenant.
+- ✅ Carte avec barre de progression colorée (vert/ambre/rouge selon le %).
 
 ### 🔊 fix9r — Home Assistant Voice Notifications
-- ✅ Nouveau module `routes/voice_notifications.py` + page `AdminVoiceNotifications.jsx`.
-- ✅ Catalogue 15 évènements built-in (Invoice, Ticket, Payment, HR, Cash, Catalog, Appointment, Incident, WA…) avec metadata `module` / `page` / `db_table` / `variables`.
-- ✅ Custom events : l'admin peut ajouter ses propres entrées (libellé/module/table/variables/TTS).
-- ✅ Per-rule : enabled + TTS template avec `{variables}` + override enceinte Alexa.
-- ✅ Test endpoint + log des envois HA + helper `trigger_voice_event()` pour les hooks internes.
+- ✅ Module complet (15 évènements built-in, custom events, log, test pipeline).
 - ✅ 14/14 tests pytest.
 
 ### 📄 fix9s — Régénération PDF (Admin/Superviseur)
-- ✅ `POST /api/admin/docs/regenerate/{slug}` régénère un PDF à partir des dernières captures du portail.
-- ✅ Bouton "Régénérer le PDF" + pictogramme `RefreshCw` sur chaque carte brochure dans `BrochuresWidget.jsx` (visible Admin/Superviseur uniquement).
-- ✅ 3/3 tests (auth + 404 + régénération réelle).
+- ✅ Pictogramme `RefreshCw` + libellé sur chaque carte brochure. 3/3 tests.
 
-### ⚡ fix9t — Liluvine PRO — Performances + Streaming SSE
-- ✅ Modèle switché : `claude-sonnet-4-6` → **`claude-haiku-4-5-20251001`** (~3× plus rapide).
-- ✅ **Cache RAM 60 s** sur `build_kb_context()` + invalidation aux mutations KB.
-- ✅ Fetchers de contexte (contacts/tickets/paiements/RDV/notes) **parallélisés** via `asyncio.gather()`.
-- ✅ Nouvel endpoint `POST /api/me/liluvine-pro/chat/stream` (SSE) avec pseudo-streaming chunks ~8 chars / 25 ms (effet typewriter).
-- ✅ Frontend `LiluvinePro.jsx` consomme le stream via `fetch + ReadableStream.getReader()`.
-- ✅ Gain mesuré : ~4 s → ~1.5 s + ressenti instantané (premier token visible < 1 s).
-- ✅ 5/5 tests pytest.
+### ⚡ fix9t — Liluvine PRO — Streaming SSE + Optimisations
+- ✅ **Claude Haiku 4.5** (~3× plus rapide) + cache RAM KB 60s + fetchers parallèles + endpoint SSE `/me/liluvine-pro/chat/stream` avec effet typewriter. Gain ~4s → ~1.5s. 5/5 tests.
 
 ### 🔔 fix9u — Module Rappels d'abonnements IA
-- ✅ Collection `ai_subscriptions` : nom, actif, coût mensuel, devise, date de souscription, durée (jours), jours avant rappel, email + WhatsApp.
-- ✅ Date de renouvellement **auto-calculée** chaque mois (jamais stockée).
-- ✅ Cron quotidien à **08:00 Africa/Abidjan** : `process_due_reminders()` envoie WhatsApp + Email pour les abonnements dans leur fenêtre de rappel. Idempotent < 18h.
-- ✅ CRUD endpoints `/api/admin/ai-subscriptions/*` + `send-reminder` (manuel).
-- ✅ Section éditable `AiSubscriptionsSection.jsx` dans Admin Settings (anchor `s-ai-subscriptions`) avec table + formulaire + total mensuel cumulé par devise.
-- ✅ 8/8 tests pytest.
+- ✅ Collection `ai_subscriptions`, table éditable, date de renouvellement auto-calculée, cron 08:00 Africa/Abidjan WhatsApp + Email. 8/8 tests.
+
+### 🆔 fix9v — Clients filter + WA login dedup
+- ✅ `GET /admin/clients?source=wa_otp_login&sort_by=created_at&sort_order=desc`.
+- ✅ Page Clients : filtre Source + tri par création / dernière connexion / nom (alpha).
+- ✅ Centre messagerie : tri alpha / création / dernier message.
+- ✅ WA login : si numéro déjà existant (admin ou tracked), réutilise le compte ; `last_wa_login_at` mis à jour ; pas de doublon. 4/4 tests.
+
+### 🔊 fix9w (étape B + C) — Voice hooks + Régie publicitaire monétisée
+- ✅ **Étape B** — Hooks `_voice_notify()` ajoutés aux endpoints critiques :
+  - `ticket_created` (2 endpoints tickets)
+  - `payment_pawapay_received` (webhook completed)
+  - `payment_stripe_received` (webhook completed)
+  - `new_client_signup` (admin/clients POST)
+- ✅ **Étape C** — Module Régie publicitaire complet :
+  - Collection `ad_banners` + CRUD admin + page `AdminAdBanners.jsx`
+  - Catalogue : nom, annonceur, image_url, target_url, placement (public/portal/both), budget, CPI, CPC, animated, paid, dates, expiration
+  - Rotation pondérée par budget restant + auto-pause sur expiration/budget atteint
+  - Tracking `impression` + `click` avec `daily_stats` (suivi par jour)
+  - Composant `AdBannerSlot.jsx` intégré en haut de Home (public) + PortalLayout (Espace Loois)
+  - Modal statistiques détaillées par bannière (CTR, dépensé, historique 30j)
+  - 10/10 tests.
+
+**Total : 50/50 tests pytest** sur les 8 modules, 0 régression.
 
 
 ## Recent (2026-05-31) — Iter38r-fix9p 📚 (Documentation)

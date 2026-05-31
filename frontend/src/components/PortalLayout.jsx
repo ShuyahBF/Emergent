@@ -2,11 +2,12 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
+import AdBannerSlot from "@/components/AdBannerSlot";
 import { toast } from "sonner";
 import IncidentBanner from "@/components/IncidentBanner";
 import DemoBanner from "@/components/DemoBanner";
@@ -95,6 +96,8 @@ const adminLinks = [
   { to: "/admin/brochures", label: "Brochures & Guide", icon: FileText },
   // Iter38r-fix9r — Home Assistant voice notifications
   { to: "/admin/voice-notifications", label: "Notifications vocales (HA)", icon: Volume2 },
+  // Iter38r-fix9w — Ad banner monetization
+  { to: "/admin/ad-banners", label: "Régie publicitaire", icon: Megaphone },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 
@@ -401,6 +404,8 @@ export default function PortalLayout({ admin = false }) {
           </div>
           <div className="w-5" />
         </header>
+        {/* Iter38r-fix9w — Monetized ad banner slot at the top of the portal */}
+        <AdBannerSlot placement="portal" />
         <main className="flex-1 p-3 sm:p-6 lg:p-10 min-w-0 max-w-full">
           <ErrorBoundary name={`portal:${location.pathname}`} resetKey={location.pathname}>
             <Outlet />

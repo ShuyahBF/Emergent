@@ -2418,6 +2418,19 @@ async def _pawapay_webhook_apply(payload: Dict[str, Any], op_type: str) -> Dict[
     if extracted_phone:
         set_doc["msisdn_from_webhook"] = extracted_phone
     await db.payments.update_one({"deposit_id": deposit_id}, {"$set": set_doc})
+    # Iter38r-fix9w — Voice notification on completed PawaPay deposit
+    if new_status == "completed":
+        try:
+            payment = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+            if payment and payment.get("client_id"):
+                await _voice_notify(payment["client_id"], "payment_pawapay_received", {
+                    "amount": payment.get("amount") or 0,
+                    "client_name": payment.get("payer_name") or payment.get("description") or "—",
+                    "provider": extracted_mno or "Mobile Money",
+                    "msisdn": extracted_phone or payment.get("msisdn") or "",
+                })
+        except Exception:
+            pass
     return {"ok": True, "deposit_id": deposit_id, "status": new_status, "op": op_type}
 
 
@@ -3233,6 +3246,13 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         }))
     except Exception:
         pass
+    # Iter38r-fix9w — Voice notification (the rule lives under the parent tenant)
+    parent_tenant = parent_client_id or doc["id"]
+    await _voice_notify(parent_tenant, "new_client_signup", {
+        "full_name": doc.get("full_name") or "",
+        "company": doc.get("company") or "",
+        "email": doc.get("email") or "",
+    })
     return doc
 
 
@@ -11928,6 +11948,18 @@ async def _log_activity(*, client_id: str, kind: str, action: str, label: str, a
         pass
 
 
+# Iter38r-fix9w — Fire-and-forget hook to the Home Assistant voice
+# notifications pipeline. The tenant must (a) have the gateway enabled and
+# (b) have a rule.enabled=True for the given event_key. trigger_voice_event
+# never raises, so this helper is safe to call after critical mutations.
+async def _voice_notify(tenant_id: str, event_key: str, context: Dict[str, Any]) -> None:
+    try:
+        from routes.voice_notifications import trigger_voice_event
+        await trigger_voice_event(db, tenant_id, event_key, context)
+    except Exception:
+        pass
+
+
 @api.get("/me/recent-activity", tags=["Portail Client"])
 async def me_recent_activity(
     since: Optional[str] = None,
@@ -19445,6 +19477,14 @@ async def me_open_ticket(
     except Exception:
         pass
 
+    # Iter38r-fix9w — Home Assistant voice notification
+    await _voice_notify(client_id, "ticket_created", {
+        "ticket_code": number,
+        "subject": motif,
+        "client_name": contact.get("name") or "",
+        "priority": ticket.get("priority") or "normal",
+    })
+
     # Optional WhatsApp notification (template) — best-effort, never blocks
     s = await db.settings.find_one({"_id": "global"}) or {}
     notify = bool(s.get("notify_on_ticket_open", True))
@@ -19624,6 +19664,14 @@ async def me_create_ticket_quick(
         )
     except Exception:
         pass
+
+    # Iter38r-fix9w — Home Assistant voice notification (tickets bubble path)
+    await _voice_notify(client_id, "ticket_created", {
+        "ticket_code": number,
+        "subject": reason,
+        "client_name": ticket.get("contact_name") or "",
+        "priority": ticket.get("priority") or "normal",
+    })
 
     # WA template (best-effort)
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -21201,6 +21249,10 @@ _setup_ai_subs_routes(
     app=api, db=db, get_current_user=get_current_user,
     send_email_fn=_email_adapter, send_whatsapp_fn=_wa_adapter,
 )
+
+# Iter38r-fix9w — Ad Banners monetization
+from routes.ad_banners import setup_ad_banners_routes as _setup_ad_banners_routes  # noqa: E402
+_setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user)
 
 app.include_router(api)
 

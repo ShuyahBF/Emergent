@@ -275,6 +275,18 @@ def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
             await db.payment_transactions.update_one(
                 {"session_id": session_id}, {"$set": upd}
             )
+            # Iter38r-fix9w — Voice notification (paid formation)
+            if payment_status == "paid":
+                try:
+                    from routes.voice_notifications import trigger_voice_event
+                    await trigger_voice_event(db, tx.get("user_id") or "", "payment_stripe_received", {
+                        "amount": (tx.get("amount") or 0) / 100,
+                        "currency": (tx.get("currency") or "EUR").upper(),
+                        "client_name": tx.get("buyer_name") or tx.get("user_email") or "—",
+                        "product_name": tx.get("formation_title") or "Formation",
+                    })
+                except Exception:
+                    pass
             return {"ok": True, "kind": "formation"}
         # 2) Public catalogue order path (Iter38r-fix9o)
         public_order = await db.public_orders.find_one(

@@ -93,6 +93,8 @@ const adminLinks = [
   { to: "/admin/tracked-users", label: "Utilisateurs suivis", icon: Boxes },
   // Iter38r-fix9p — Direct link to the 3 generated brochures (PDFs)
   { to: "/admin/brochures", label: "Brochures & Guide", icon: FileText },
+  // Iter38r-fix9r — Home Assistant voice notifications
+  { to: "/admin/voice-notifications", label: "Notifications vocales (HA)", icon: Volume2 },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

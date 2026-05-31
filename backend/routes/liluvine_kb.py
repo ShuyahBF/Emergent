@@ -301,20 +301,43 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         return {"ok": True, "id": eid}
 
     @api.get("/admin/liluvine-pro/kb/ocr-usage", tags=["Admin — Liluvine PRO"])
-    async def kb_ocr_usage(month: Optional[str] = None, user: dict = Depends(get_current_user)):
+    async def kb_ocr_usage(
+        month: Optional[str] = None,
+        client_id: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
         """Iter38r-fix9k — Monthly OCR usage report (pages + XOF cost).
-        `month` = "YYYY-MM" (defaults to current month)."""
+        `month` = "YYYY-MM" (defaults to current month).
+        Iter38r-fix9q — `client_id` (optional) scopes the result to a single
+        tenant; per-tenant pricing/cap from the client's features doc override
+        the global settings when present.
+        """
         _ensure_admin(user)
         ym = (month or datetime.now(timezone.utc).strftime("%Y-%m"))
-        cursor = db.ai_usage.find({"resource": "kb_ocr", "ym": ym}, {"_id": 0})
+        query = {"resource": "kb_ocr", "ym": ym}
+        if client_id:
+            query["tenant_id"] = client_id
+        cursor = db.ai_usage.find(query, {"_id": 0})
         items = await cursor.to_list(2000)
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        cap_xof = int(s.get("kb_ocr_xof_monthly_cap") or 0)
-        per_page = int(s.get("kb_ocr_xof_per_page") or 0)
+        g = await db.settings.find_one({"_id": "global"}) or {}
+        cap_xof = int(g.get("kb_ocr_xof_monthly_cap") or 0)
+        per_page = int(g.get("kb_ocr_xof_per_page") or 0)
+        # Per-tenant override
+        if client_id:
+            tenant_doc = await db.users.find_one({"id": client_id}, {"_id": 0, "features": 1}) or {}
+            tfeats = (tenant_doc.get("features") or {})
+            try:
+                if tfeats.get("kb_ocr_xof_monthly_cap") not in (None, 0):
+                    cap_xof = int(tfeats["kb_ocr_xof_monthly_cap"])
+                if tfeats.get("kb_ocr_xof_per_page") not in (None, 0):
+                    per_page = int(tfeats["kb_ocr_xof_per_page"])
+            except (TypeError, ValueError):
+                pass
         total_pages = sum(int(it.get("units") or 0) for it in items)
         total_xof = sum(int(it.get("cost_xof") or 0) for it in items)
         return {
             "month": ym,
+            "client_id": client_id,
             "pages": total_pages,
             "cost_xof": total_xof,
             "monthly_cap_xof": cap_xof,

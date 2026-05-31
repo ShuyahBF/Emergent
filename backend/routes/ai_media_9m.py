@@ -51,11 +51,35 @@ def setup_ai_media_routes(app, db, get_current_user):
             raise HTTPException(status_code=503, detail="ELEVENLABS_API_KEY non configurée")
         return k
 
+    async def _ensure_feature_enabled(user: dict, feature_key: str, label: str) -> None:
+        """Iter38r-fix9p — Block this AI endpoint when the tenant feature is OFF.
+
+        Admins / superviseurs bypass the check. Features are stored on the
+        owning client doc under the embedded `features` dict. We resolve the
+        tenant via parent_client_id, then client_id, then the user himself.
+        """
+        role = (user or {}).get("role")
+        if role in ("admin", "superviseur"):
+            return
+        client_id = user.get("parent_client_id") or user.get("client_id") or user.get("id")
+        if not client_id:
+            return
+        client = await db.users.find_one(
+            {"id": client_id}, {"_id": 0, "features": 1}
+        ) or {}
+        feats = (client.get("features") or {}) if isinstance(client.get("features"), dict) else {}
+        if not bool(feats.get(feature_key, False)):
+            raise HTTPException(
+                status_code=403,
+                detail=f"Fonctionnalité « {label} » désactivée pour ce client. Contactez votre administrateur.",
+            )
+
     # ------------------------------------------------------------------
     # Veo 3.1 — Text-to-video with native audio
     # ------------------------------------------------------------------
     @api.post("/me/ai/generate-video-veo", tags=["Portail Client — AI Media (fix9m)"])
     async def generate_video_veo(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_video_gen", "Génération Vidéo IA")
         prompt = (payload.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(status_code=400, detail="Prompt requis")
@@ -143,6 +167,7 @@ def setup_ai_media_routes(app, db, get_current_user):
     # ------------------------------------------------------------------
     @api.post("/me/ai/generate-image-imagen", tags=["Portail Client — AI Media (fix9m)"])
     async def generate_image_imagen(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_image_gen", "Génération Image IA")
         prompt = (payload.get("prompt") or "").strip()
         if not prompt:
             raise HTTPException(status_code=400, detail="Prompt requis")
@@ -211,6 +236,7 @@ def setup_ai_media_routes(app, db, get_current_user):
         audio_file: UploadFile = File(...),
         user: dict = Depends(get_current_user),
     ):
+        await _ensure_feature_enabled(user, "ai_voice_gen", "Génération Vocale IA")
         key = _elevenlabs_key()
         raw = await audio_file.read()
         if not raw:
@@ -275,6 +301,7 @@ def setup_ai_media_routes(app, db, get_current_user):
 
     @api.post("/me/ai/tts-elevenlabs", tags=["Portail Client — AI Media (fix9m)"])
     async def tts_elevenlabs(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        await _ensure_feature_enabled(user, "ai_voice_gen", "Génération Vocale IA")
         voice_id = (payload.get("voice_id") or "").strip()
         text = (payload.get("text") or "").strip()
         model_id = payload.get("model_id") or "eleven_multilingual_v2"

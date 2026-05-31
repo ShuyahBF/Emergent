@@ -21151,7 +21151,11 @@ async def proxy_file_download(file_path: str, request: Request):
 
 # Iter38r-fix9p — Public docs (3 PDFs) registered BEFORE include_router
 from routes.public_docs import setup_docs_routes as _setup_docs_routes  # noqa: E402
-_setup_docs_routes(api=api)
+_setup_docs_routes(api=api, get_current_user=get_current_user)
+
+# Iter38r-fix9r — Home Assistant voice notifications
+from routes.voice_notifications import setup_voice_notifications_routes as _setup_voice_notif_routes  # noqa: E402
+_setup_voice_notif_routes(app=api, db=db, get_current_user=get_current_user)
 
 app.include_router(api)
 

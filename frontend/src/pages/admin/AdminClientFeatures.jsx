@@ -235,6 +235,8 @@ export default function AdminClientFeatures() {
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   // Iter38r-fix9p — OCR pricing & quota per tenant
   const [ocrPricing, setOcrPricing] = useState({ per_page: null, monthly_cap: null, pdf_max_pages: null });
+  // Iter38r-fix9q — OCR consumption mini-counter (per tenant, current month)
+  const [ocrUsage, setOcrUsage] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -261,6 +263,20 @@ export default function AdminClientFeatures() {
     }
   };
   useEffect(() => { load(); /* eslint-disable-next-line */ }, [id]);
+
+  // Iter38r-fix9q — Fetch OCR consumption (current month) for this tenant
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const r = await apiClient.get(`/admin/liluvine-pro/kb/ocr-usage`, { params: { client_id: id } });
+        if (!cancelled) setOcrUsage(r.data || null);
+      } catch {
+        if (!cancelled) setOcrUsage(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [id]);
 
   const toggle = (key) => {
     setFeatures((f) => ({ ...f, [key]: !f[key] }));
@@ -420,6 +436,60 @@ export default function AdminClientFeatures() {
           <p className="text-[10px] text-slate-500">
             ⚙️ Sans coût défini → OCR gratuit pour ce client. Le plafond mensuel bloque les nouveaux OCRs une fois atteint. Consultez la consommation via <code className="bg-slate-100 px-1 rounded">GET /api/admin/liluvine-pro/kb/ocr-usage</code>.
           </p>
+
+          {/* Iter38r-fix9q — Mini compteur de consommation OCR (mois courant) */}
+          {ocrUsage && (
+            <div
+              className="mt-3 rounded-xl ring-1 ring-orange-300 bg-white px-4 py-3 flex items-center justify-between gap-3 flex-wrap"
+              data-testid="kb-ocr-usage-counter"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-9 w-9 rounded-lg bg-orange-100 flex items-center justify-center">
+                  <Gauge className="h-4 w-4 text-orange-600" />
+                </div>
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 font-semibold">
+                    OCR consommé — {ocrUsage.month}
+                  </p>
+                  <p className="text-sm text-slate-900 font-semibold tabular-nums">
+                    <span data-testid="kb-ocr-usage-pages">{(ocrUsage.pages || 0).toLocaleString("fr-FR")}</span> pages
+                    {" / "}
+                    <span data-testid="kb-ocr-usage-cost">{(ocrUsage.cost_xof || 0).toLocaleString("fr-FR")}</span> XOF
+                    {ocrUsage.monthly_cap_xof > 0 && (
+                      <span className="text-slate-500 font-normal">
+                        {" "}sur {ocrUsage.monthly_cap_xof.toLocaleString("fr-FR")} XOF
+                      </span>
+                    )}
+                  </p>
+                </div>
+              </div>
+              {ocrUsage.monthly_cap_xof > 0 && (
+                <div className="flex flex-col items-end min-w-[160px]">
+                  {(() => {
+                    const pct = Math.min(100, Math.round((ocrUsage.cost_xof / ocrUsage.monthly_cap_xof) * 100));
+                    const colorBar = pct >= 100 ? "bg-rose-600" : pct >= 80 ? "bg-amber-500" : "bg-emerald-500";
+                    return (
+                      <>
+                        <div className="w-40 h-2 rounded-full bg-slate-200 overflow-hidden">
+                          <div className={`h-full ${colorBar}`} style={{ width: `${pct}%` }} />
+                        </div>
+                        <p
+                          className="text-[10px] text-slate-500 mt-1 tabular-nums"
+                          data-testid="kb-ocr-usage-pct"
+                        >
+                          {pct}% utilisé · reste {(ocrUsage.remaining_xof || 0).toLocaleString("fr-FR")} XOF
+                        </p>
+                      </>
+                    );
+                  })()}
+                </div>
+              )}
+              <p className="text-[10px] text-slate-400 w-full">
+                {ocrUsage.count_uploads || 0} upload(s) OCR ce mois · tarif effectif&nbsp;:&nbsp;
+                <strong>{(ocrUsage.xof_per_page || 0).toLocaleString("fr-FR")} XOF/page</strong>
+              </p>
+            </div>
+          )}
         </div>
       )}
       <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5 space-y-3" data-testid="pawapay-msisdn-policy-section">

@@ -93,6 +93,7 @@ import AdminAutomations from "@/pages/admin/AdminAutomations";
 import AdminWaTemplates from "@/pages/admin/AdminWaTemplates";
 import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
 import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
+import AdminVoiceNotifications from "@/pages/admin/AdminVoiceNotifications";
 import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
 import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminBrochures from "@/pages/admin/AdminBrochures";
@@ -265,6 +266,7 @@ export default function App() {
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
+            <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

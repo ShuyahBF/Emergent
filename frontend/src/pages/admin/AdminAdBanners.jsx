@@ -24,6 +24,12 @@ import {
   Share2,
   RefreshCw,
   Ruler,
+  Beaker,
+  Mail,
+  Phone,
+  Bell,
+  Trophy,
+  Send,
 } from "lucide-react";
 
 // Iter38r-fix9w — Admin page to manage paid advertising banners.
@@ -53,6 +59,15 @@ const DEFAULT_DRAFT = {
   height_px: 80,
   width_px: 728,
   object_fit: "cover",
+  // Iter38r-fix9z6 — A/B testing + contact + reminders
+  ab_enabled: false,
+  variant_b_image_url: "",
+  variant_b_media_kind: "image",
+  variant_b_target_url: "",
+  advertiser_email: "",
+  advertiser_phone: "",
+  reminder_email_enabled: true,
+  reminder_days_before: 3,
 };
 
 export default function AdminAdBanners() {
@@ -127,6 +142,15 @@ export default function AdminAdBanners() {
       height_px: it.height_px ?? 80,
       width_px: it.width_px ?? 728,
       object_fit: it.object_fit || "cover",
+      // Iter38r-fix9z6 — A/B + contact + reminder
+      ab_enabled: !!it.ab_enabled,
+      variant_b_image_url: it.variant_b_image_url || "",
+      variant_b_media_kind: it.variant_b_media_kind || "image",
+      variant_b_target_url: it.variant_b_target_url || "",
+      advertiser_email: it.advertiser_email || "",
+      advertiser_phone: it.advertiser_phone || "",
+      reminder_email_enabled: it.reminder_email_enabled !== false,
+      reminder_days_before: it.reminder_days_before ?? 3,
     });
     setShowForm(true);
   };
@@ -422,7 +446,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
   const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
 
   // Iter38r-fix9x — Upload an image/video file and auto-fill image_url + target_url
-  const handleFileChange = async (e) => {
+  const handleFileChange = async (e, variant = "a") => {
     const file = e.target.files?.[0];
     if (!file) return;
     if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
@@ -460,12 +484,21 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       // use <img> or <video>. Without this, /api/files/{id} URLs (extension-less)
       // were mis-rendered as <img> for video files → broken-image icon.
       const mediaKind = file.type.startsWith("video/") ? "video" : "image";
-      setDraft((d) => ({
-        ...d,
-        image_url: relativeUrl,
-        media_kind: mediaKind,
-        target_url: d.target_url ? d.target_url : relativeUrl,
-      }));
+      if (variant === "b") {
+        setDraft((d) => ({
+          ...d,
+          variant_b_image_url: relativeUrl,
+          variant_b_media_kind: mediaKind,
+          variant_b_target_url: d.variant_b_target_url ? d.variant_b_target_url : (d.target_url || relativeUrl),
+        }));
+      } else {
+        setDraft((d) => ({
+          ...d,
+          image_url: relativeUrl,
+          media_kind: mediaKind,
+          target_url: d.target_url ? d.target_url : relativeUrl,
+        }));
+      }
       toast.success(`Fichier chargé (${Math.round(file.size / 1024)} Ko)`);
     } catch (err) {
       toast.error(err.message || "Erreur d'upload");
@@ -575,6 +608,10 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
         <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Contrat, contact annonceur…" className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
       </Field>
 
+      {/* Iter38r-fix9z6 — A/B testing + advertiser contact + reminder */}
+      <BannerABBlock draft={draft} setDraft={setDraft} handleFileChange={handleFileChange} uploading={uploading} />
+      <BannerContactReminderBlock draft={draft} setDraft={setDraft} />
+
       {/* Iter38r-fix9z5 — Sizing controls */}
       <BannerSizingBlock draft={draft} setDraft={setDraft} />
 
@@ -624,6 +661,10 @@ function StatsModal({ stats, onClose }) {
               </span>
             </p>
           </div>
+
+          {/* Iter38r-fix9z6 — A/B breakdown */}
+          {stats.ab?.enabled && <ABBreakdown ab={stats.ab} />}
+
           {stats.daily.length > 0 && (
             <div>
               <h4 className="text-xs uppercase font-semibold text-slate-500 mb-2">Historique quotidien</h4>
@@ -864,3 +905,186 @@ function BannerSizingBlock({ draft, setDraft }) {
     </div>
   );
 }
+
+// Iter38r-fix9z6 — Per-variant CTR comparison + winner badge.
+function ABBreakdown({ ab }) {
+  const a = ab.variant_a || {};
+  const b = ab.variant_b || {};
+  const winner = ab.winner; // "a" | "b" | null
+  const tile = (label, st, isWinner) => (
+    <div className={`rounded-xl p-3 ring-1 ${isWinner ? "ring-amber-400 bg-amber-50" : "ring-slate-200 bg-white"}`} data-testid={`ad-stats-variant-${label.toLowerCase()}`}>
+      <div className="flex items-center justify-between mb-1">
+        <p className="text-[11px] uppercase font-bold tracking-wider text-slate-600">Variante {label}</p>
+        {isWinner && (
+          <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-700 bg-amber-100 px-2 py-0.5 rounded">
+            <Trophy className="h-3 w-3" /> GAGNANTE
+          </span>
+        )}
+      </div>
+      <div className="grid grid-cols-3 gap-2 text-center">
+        <div>
+          <p className="text-[9px] uppercase text-slate-400">Vues</p>
+          <p className="font-display font-bold tabular-nums">{(st.impressions || 0).toLocaleString("fr-FR")}</p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase text-slate-400">Clics</p>
+          <p className="font-display font-bold tabular-nums">{(st.clicks || 0).toLocaleString("fr-FR")}</p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase text-slate-400">CTR</p>
+          <p className={`font-display font-bold tabular-nums ${isWinner ? "text-amber-700" : "text-slate-700"}`}>{(st.ctr_pct || 0)}%</p>
+        </div>
+      </div>
+    </div>
+  );
+  return (
+    <div className="rounded-xl ring-1 ring-violet-200 bg-violet-50/30 p-3 space-y-2" data-testid="ad-stats-ab-breakdown">
+      <p className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1.5">
+        <Beaker className="h-3.5 w-3.5" /> Test A/B — comparatif par variante
+        {!winner && (a.impressions < 30 || b.impressions < 30) && (
+          <span className="ml-2 text-[10px] text-slate-500 italic font-normal">En attente · min. 30 affichages par variante</span>
+        )}
+      </p>
+      <div className="grid sm:grid-cols-2 gap-2">
+        {tile("A", a, winner === "a")}
+        {tile("B", b, winner === "b")}
+      </div>
+    </div>
+  );
+}
+
+
+// Iter38r-fix9z6 — A/B testing block: upload variant B + target URL +
+// preview side-by-side with variant A.
+function BannerABBlock({ draft, setDraft, handleFileChange, uploading }) {
+  return (
+    <div className="rounded-xl ring-1 ring-violet-200 bg-violet-50/40 p-4 space-y-3" data-testid="ad-banner-ab-block">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <h4 className="inline-flex items-center gap-2 text-sm font-display font-semibold text-violet-900">
+          <Beaker className="h-4 w-4" /> Test A/B — 2 variantes alternées 50/50
+        </h4>
+        <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!draft.ab_enabled}
+            onChange={(e) => setDraft({ ...draft, ab_enabled: e.target.checked })}
+            className="h-4 w-4 accent-violet-600"
+            data-testid="ad-ab-enable"
+          />
+          <span className="font-semibold">Activer le mode A/B</span>
+        </label>
+      </div>
+      {draft.ab_enabled && (
+        <>
+          <p className="text-[11px] text-violet-700">
+            Chaque visiteur voit aléatoirement la variante A ou la variante B (50/50). Les statistiques distinguent les performances pour identifier la version gagnante (mini 30 affichages par variante requis).
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <div className="rounded-lg bg-white ring-1 ring-slate-200 p-3">
+              <p className="text-[10px] uppercase font-semibold text-slate-500 mb-2">Variante A (par défaut)</p>
+              {draft.image_url ? (
+                draft.media_kind === "video" ? (
+                  <video src={resolveAssetUrl(draft.image_url)} className="w-full h-20 object-cover rounded ring-1 ring-slate-200" muted autoPlay loop playsInline />
+                ) : (
+                  <img src={resolveAssetUrl(draft.image_url)} alt="Variante A" className="w-full h-20 object-cover rounded ring-1 ring-slate-200" />
+                )
+              ) : (
+                <div className="h-20 rounded bg-slate-100 flex items-center justify-center text-[10px] text-slate-400 italic">Aucun média</div>
+              )}
+              <p className="text-[10px] text-slate-500 mt-1.5 truncate font-mono">{draft.target_url || "—"}</p>
+            </div>
+            <div className="rounded-lg bg-white ring-1 ring-violet-300 p-3">
+              <p className="text-[10px] uppercase font-semibold text-violet-700 mb-2">Variante B</p>
+              {draft.variant_b_image_url ? (
+                draft.variant_b_media_kind === "video" ? (
+                  <video src={resolveAssetUrl(draft.variant_b_image_url)} className="w-full h-20 object-cover rounded ring-1 ring-violet-200" muted autoPlay loop playsInline />
+                ) : (
+                  <img src={resolveAssetUrl(draft.variant_b_image_url)} alt="Variante B" className="w-full h-20 object-cover rounded ring-1 ring-violet-200" />
+                )
+              ) : (
+                <div className="h-20 rounded bg-slate-50 flex items-center justify-center text-[10px] text-slate-400 italic">Aucun média</div>
+              )}
+              <input
+                type="file"
+                accept="image/*,video/*"
+                disabled={uploading}
+                onChange={(e) => handleFileChange(e, "b")}
+                className="w-full text-[10px] mt-2 file:mr-2 file:py-1 file:px-2 file:rounded file:border-0 file:text-[10px] file:bg-violet-100 file:text-violet-700 hover:file:bg-violet-200"
+                data-testid="ad-ab-variant-b-upload"
+              />
+              <input
+                type="url"
+                value={draft.variant_b_target_url}
+                onChange={(e) => setDraft({ ...draft, variant_b_target_url: e.target.value })}
+                placeholder="URL cible variante B"
+                className="w-full text-xs rounded ring-1 ring-violet-200 px-2 py-1.5 mt-2 bg-white"
+                data-testid="ad-ab-variant-b-target"
+              />
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+// Iter38r-fix9z6 — Advertiser contact info + reminder email toggle.
+function BannerContactReminderBlock({ draft, setDraft }) {
+  return (
+    <div className="rounded-xl ring-1 ring-emerald-200 bg-emerald-50/40 p-4 space-y-3" data-testid="ad-banner-contact-block">
+      <h4 className="inline-flex items-center gap-2 text-sm font-display font-semibold text-emerald-900">
+        <Bell className="h-4 w-4" /> Contact annonceur + rappel de renouvellement
+      </h4>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <label className="block">
+          <span className="text-[11px] uppercase font-semibold text-slate-500 inline-flex items-center gap-1"><Mail className="h-3 w-3" /> Email annonceur</span>
+          <input
+            type="email" value={draft.advertiser_email}
+            onChange={(e) => setDraft({ ...draft, advertiser_email: e.target.value })}
+            placeholder="contact@entreprise.com"
+            className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white"
+            data-testid="ad-contact-email"
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] uppercase font-semibold text-slate-500 inline-flex items-center gap-1"><Phone className="h-3 w-3" /> Téléphone / WhatsApp</span>
+          <input
+            type="tel" value={draft.advertiser_phone}
+            onChange={(e) => setDraft({ ...draft, advertiser_phone: e.target.value })}
+            placeholder="+225 …"
+            className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 mt-1 bg-white font-mono"
+            data-testid="ad-contact-phone"
+          />
+        </label>
+      </div>
+      <div className="flex items-center justify-between gap-3 flex-wrap rounded-lg bg-white ring-1 ring-emerald-200 px-3 py-2">
+        <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!draft.reminder_email_enabled}
+            onChange={(e) => setDraft({ ...draft, reminder_email_enabled: e.target.checked })}
+            className="h-4 w-4 accent-emerald-600"
+            data-testid="ad-reminder-enable"
+          />
+          <span className="font-semibold">Envoyer un rappel par email avant l'expiration</span>
+        </label>
+        <label className="inline-flex items-center gap-2 text-xs">
+          <span className="text-slate-500">Délai :</span>
+          <input
+            type="number" min="1" max="30"
+            value={draft.reminder_days_before}
+            onChange={(e) => setDraft({ ...draft, reminder_days_before: parseInt(e.target.value, 10) || 3 })}
+            disabled={!draft.reminder_email_enabled}
+            className="w-16 text-xs rounded ring-1 ring-slate-300 px-2 py-1 bg-white font-mono disabled:opacity-50"
+            data-testid="ad-reminder-days"
+          />
+          <span className="text-slate-500">jours avant</span>
+        </label>
+      </div>
+      <p className="text-[10px] text-slate-500 italic">
+        Si activé et qu'une date d'expiration + un email annonceur sont renseignés, un email automatique est envoyé chaque matin (09h30 Abidjan) avec le bilan de la campagne et un lien direct pour la renouveler.
+      </p>
+    </div>
+  );
+}
+

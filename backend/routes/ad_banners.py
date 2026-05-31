@@ -50,6 +50,7 @@ GET    /api/admin/ad-banners/{id}/stats
 from __future__ import annotations
 
 import logging
+import os
 import random
 import re
 import secrets
@@ -127,17 +128,33 @@ def _is_started(b: Dict[str, Any]) -> bool:
 
 
 def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
-    """Whitelist of fields safely exposed to anonymous visitors."""
+    """Whitelist of fields safely exposed to anonymous visitors.
+
+    Iter38r-fix9z6 — When A/B testing is enabled, randomly pick variant
+    A or B with 50/50 weighting and return its `image_url`+`target_url`+
+    `media_kind`. The chosen variant is echoed back as `active_variant`
+    so the frontend can attribute the impression/click to the right side.
+    """
+    active_variant = "a"
+    image_url = b.get("image_url")
+    target_url = b.get("target_url")
+    media_kind = b.get("media_kind") or "image"
+    if b.get("ab_enabled") and (b.get("variant_b_image_url") or "").strip():
+        if random.random() < 0.5:
+            active_variant = "b"
+            image_url = b.get("variant_b_image_url")
+            target_url = b.get("variant_b_target_url") or b.get("target_url")
+            media_kind = b.get("variant_b_media_kind") or "image"
     return {
         "id": b.get("id"),
         "name": b.get("name"),
-        "image_url": b.get("image_url"),
-        "target_url": b.get("target_url"),
+        "image_url": image_url,
+        "target_url": target_url,
         "advertiser_name": b.get("advertiser_name"),
         "animated": bool(b.get("animated", False)),
         "placement": b.get("placement"),
         # Iter38r-fix9z3 — Tells the frontend whether to render <img> or <video>
-        "media_kind": b.get("media_kind") or "image",
+        "media_kind": media_kind,
         # Iter38r-fix9z5 — Display sizing
         "display_mode": b.get("display_mode") or "auto",
         "aspect_ratio": b.get("aspect_ratio") or "16:9",
@@ -145,6 +162,9 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
         "height_px": int(b.get("height_px") or 80),
         "width_px": int(b.get("width_px") or 728),
         "object_fit": b.get("object_fit") or "cover",
+        # Iter38r-fix9z6 — A/B
+        "active_variant": active_variant,
+        "ab_enabled": bool(b.get("ab_enabled")),
     }
 
 
@@ -164,6 +184,119 @@ def _admin_view(b: Dict[str, Any]) -> Dict[str, Any]:
     else:
         b["share_path"] = None
     return b
+
+
+# Iter38r-fix9z6 — Expiration reminder cron.
+# Scans every banner with `reminder_email_enabled=True` and an `expiration_date`
+# falling within the next `reminder_days_before` days (default 3). Sends ONE
+# email per (banner, expiration_date, days_before) tuple — tracked via the
+# `reminder_last_sent_for` field to ensure idempotency.
+async def process_expiration_reminders(
+    db,
+    send_email_fn,
+    public_base_url: str = "",
+    today_iso: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Dispatch reminder emails for campaigns nearing expiration.
+
+    Parameters
+    ----------
+    db : AsyncIOMotorDatabase
+    send_email_fn : async callable(to: str, subject: str, html: str, text: str) -> bool
+    public_base_url : Base URL for building the share link (e.g. https://sawalismartsystems.com)
+    today_iso : Override today for tests (YYYY-MM-DD)
+    """
+    if today_iso:
+        today = date.fromisoformat(today_iso)
+    else:
+        today = datetime.now(timezone.utc).date()
+
+    cursor = db.ad_banners.find(
+        {
+            "reminder_email_enabled": True,
+            "advertiser_email": {"$nin": [None, ""]},
+            "expiration_date": {"$nin": [None, ""]},
+        },
+        {"_id": 0},
+    )
+    sent: List[Dict[str, Any]] = []
+    skipped: List[Dict[str, Any]] = []
+    errored: List[Dict[str, Any]] = []
+    async for b in cursor:
+        try:
+            exp = date.fromisoformat((b.get("expiration_date") or "").strip()[:10])
+        except (ValueError, TypeError):
+            continue
+        days_until = (exp - today).days
+        threshold = int(b.get("reminder_days_before") or 3)
+        # Only fire when the expiration is within [0, threshold] days from today
+        # (covers the day-of-expiration too).
+        if days_until < 0 or days_until > threshold:
+            continue
+        marker = f"{b.get('expiration_date')}|{threshold}"
+        if (b.get("reminder_last_sent_for") or "") == marker:
+            skipped.append({"id": b.get("id"), "reason": "already_sent", "marker": marker})
+            continue
+        # Build email content
+        share_path = "/ads/{}?token={}".format(b.get("slug") or "", b.get("share_token") or "")
+        share_link = f"{public_base_url.rstrip('/')}{share_path}" if public_base_url else share_path
+        currency = b.get("currency") or "XOF"
+        budget = float(b.get("budget_amount") or 0)
+        spent = float(b.get("amount_spent") or 0)
+        remaining = max(0.0, budget - spent)
+        imp = int(b.get("total_impressions") or 0)
+        clicks = int(b.get("total_clicks") or 0)
+        ctr = round((clicks / imp) * 100, 2) if imp else 0.0
+        subject = (
+            f"Votre campagne « {b.get('name')} » expire "
+            + ("aujourd'hui" if days_until == 0 else f"dans {days_until} jour{'s' if days_until > 1 else ''}")
+        )
+        adv = (b.get("advertiser_name") or "").strip() or "Cher annonceur"
+        text = (
+            f"Bonjour {adv},\n\n"
+            f"Votre campagne publicitaire « {b.get('name')} » sur SAWALI "
+            f"{'expire aujourd''hui' if days_until == 0 else f'expire dans {days_until} jour(s)'} "
+            f"(le {b.get('expiration_date')}).\n\n"
+            f"Bilan en cours :\n"
+            f"  • Affichages : {imp:,}\n"
+            f"  • Clics : {clicks:,}\n"
+            f"  • CTR : {ctr}%\n"
+            f"  • Budget : {int(budget):,} {currency} (restant : {int(remaining):,} {currency})\n\n"
+            f"Vous pouvez consulter les statistiques détaillées et demander un renouvellement "
+            f"en un clic ici :\n{share_link}\n\n"
+            f"À très bientôt,\nL'équipe SAWALI Smart Systems"
+        ).replace(",", " ")  # FR thousand separator
+        html = f"""
+        <div style="font-family:system-ui,sans-serif;max-width:600px;margin:auto;padding:24px;background:#fff;border-radius:14px;border:1px solid #e2e8f0">
+          <h1 style="font-size:18px;color:#0f172a;margin:0 0 6px">Votre campagne expire bientôt</h1>
+          <p style="color:#475569;margin:0 0 16px">Bonjour {adv}, votre campagne <strong>{b.get('name')}</strong> sur SAWALI {'expire aujourd&#39;hui' if days_until == 0 else f'expire dans <strong>{days_until} jour(s)</strong>'} (le {b.get('expiration_date')}).</p>
+          <table style="width:100%;font-size:13px;border-collapse:collapse;margin-bottom:16px">
+            <tr><td style="padding:6px 0;color:#64748b">Affichages</td><td style="text-align:right;font-variant-numeric:tabular-nums"><strong>{imp:,}</strong></td></tr>
+            <tr><td style="padding:6px 0;color:#64748b">Clics</td><td style="text-align:right;font-variant-numeric:tabular-nums"><strong>{clicks:,}</strong></td></tr>
+            <tr><td style="padding:6px 0;color:#64748b">CTR</td><td style="text-align:right"><strong>{ctr}%</strong></td></tr>
+            <tr><td style="padding:6px 0;color:#64748b">Budget restant</td><td style="text-align:right;font-variant-numeric:tabular-nums"><strong>{int(remaining):,} {currency}</strong></td></tr>
+          </table>
+          <a href="{share_link}" style="display:inline-block;background:#c026d3;color:#fff;padding:11px 18px;border-radius:10px;text-decoration:none;font-weight:600">Voir les statistiques + Renouveler</a>
+          <p style="color:#94a3b8;font-size:11px;margin-top:18px">SAWALI Smart Systems · Régie publicitaire</p>
+        </div>
+        """.replace("{:,}", "{}")
+        try:
+            ok = await send_email_fn(b.get("advertiser_email"), subject, html, text)
+            if ok:
+                await db.ad_banners.update_one(
+                    {"id": b.get("id")},
+                    {"$set": {
+                        "reminder_last_sent_for": marker,
+                        "reminder_last_sent_at": _now_iso(),
+                    }},
+                )
+                sent.append({"id": b.get("id"), "to": b.get("advertiser_email"), "days_until": days_until})
+            else:
+                errored.append({"id": b.get("id"), "reason": "send_email_returned_false"})
+        except Exception as exc:  # noqa: BLE001
+            errored.append({"id": b.get("id"), "reason": str(exc)})
+
+    return {"sent": sent, "skipped": skipped, "errored": errored, "ran_at": _now_iso()}
 
 
 class AdBannerPayload(BaseModel):
@@ -194,6 +327,20 @@ class AdBannerPayload(BaseModel):
     height_px: int = Field(80, ge=20, le=1200)         # used in percentage / fixed modes
     width_px: int = Field(728, ge=50, le=2400)         # used in fixed mode
     object_fit: str = Field("cover", pattern="^(cover|contain|fill)$")
+    # Iter38r-fix9z6 — A/B testing (2-variant rotation). When ab_enabled,
+    # the rotation picks variant_a (image_url/target_url) or variant_b
+    # (variant_b_*) with 50/50 weighting. Per-variant counters live in
+    # total_impressions_a/b + total_clicks_a/b.
+    ab_enabled: bool = False
+    variant_b_image_url: str = Field("", max_length=600)
+    variant_b_media_kind: str = Field("image", pattern="^(image|video)$")
+    variant_b_target_url: str = Field("", max_length=600)
+    # Iter38r-fix9z6 — Optional advertiser contact (used by the renewal
+    # reminder email cron) + reminder toggle.
+    advertiser_email: str = Field("", max_length=200)
+    advertiser_phone: str = Field("", max_length=40)
+    reminder_email_enabled: bool = True
+    reminder_days_before: int = Field(3, ge=1, le=30)
 
 
 class AdBannerUpdate(BaseModel):
@@ -221,6 +368,15 @@ class AdBannerUpdate(BaseModel):
     height_px: Optional[int] = Field(None, ge=20, le=1200)
     width_px: Optional[int] = Field(None, ge=50, le=2400)
     object_fit: Optional[str] = Field(None, pattern="^(cover|contain|fill)$")
+    # Iter38r-fix9z6 — A/B testing + advertiser contact + reminder
+    ab_enabled: Optional[bool] = None
+    variant_b_image_url: Optional[str] = None
+    variant_b_media_kind: Optional[str] = Field(None, pattern="^(image|video)$")
+    variant_b_target_url: Optional[str] = None
+    advertiser_email: Optional[str] = None
+    advertiser_phone: Optional[str] = None
+    reminder_email_enabled: Optional[bool] = None
+    reminder_days_before: Optional[int] = Field(None, ge=1, le=30)
 
 
 # Iter38r-fix9z5 — Renewal request payload (must be at module scope so
@@ -289,7 +445,7 @@ def setup_ad_banners_routes(app, db, get_current_user):
         return {"banner": _public_view(chosen)}
 
     @api.post("/public/ad-banners/{banner_id}/impression", tags=["Public — Ad Banners"])
-    async def public_impression(banner_id: str):
+    async def public_impression(banner_id: str, variant: str = Query("a", pattern="^(a|b)$")):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
@@ -298,12 +454,14 @@ def setup_ad_banners_routes(app, db, get_current_user):
         if _is_expired(b) or _budget_exhausted(b) or not _is_started(b):
             return {"ok": False, "reason": "not_currently_active"}
         cpi = float(b.get("cost_per_impression") or 0)
+        # Iter38r-fix9z6 — Bump per-variant + global counters
+        inc = {"total_impressions": 1, "amount_spent": cpi, f"total_impressions_{variant}": 1}
         await db.ad_banners.update_one(
             {"id": banner_id},
-            {"$inc": {"total_impressions": 1, "amount_spent": cpi},
-             "$set": {"updated_at": _now_iso()}},
+            {"$inc": inc, "$set": {"updated_at": _now_iso()}},
         )
         await _bump_daily_stat(db, banner_id, "impressions", 1)
+        await _bump_daily_stat(db, banner_id, f"impressions_{variant}", 1)
         if cpi:
             await _bump_daily_stat(db, banner_id, "spent", cpi)
         # Auto-pause if budget now exhausted
@@ -317,17 +475,18 @@ def setup_ad_banners_routes(app, db, get_current_user):
         return {"ok": True}
 
     @api.post("/public/ad-banners/{banner_id}/click", tags=["Public — Ad Banners"])
-    async def public_click(banner_id: str):
+    async def public_click(banner_id: str, variant: str = Query("a", pattern="^(a|b)$")):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
         cpc = float(b.get("cost_per_click") or 0)
+        inc = {"total_clicks": 1, "amount_spent": cpc, f"total_clicks_{variant}": 1}
         await db.ad_banners.update_one(
             {"id": banner_id},
-            {"$inc": {"total_clicks": 1, "amount_spent": cpc},
-             "$set": {"updated_at": _now_iso()}},
+            {"$inc": inc, "$set": {"updated_at": _now_iso()}},
         )
         await _bump_daily_stat(db, banner_id, "clicks", 1)
+        await _bump_daily_stat(db, banner_id, f"clicks_{variant}", 1)
         if cpc:
             await _bump_daily_stat(db, banner_id, "spent", cpc)
         # Auto-pause if budget exhausted after this click
@@ -338,7 +497,12 @@ def setup_ad_banners_routes(app, db, get_current_user):
                 {"$set": {"active": False, "auto_paused_at": _now_iso(),
                           "auto_paused_reason": "budget_exhausted"}},
             )
-        return {"ok": True, "target_url": (b.get("target_url") or "")}
+        # Iter38r-fix9z6 — Return the proper target url for the variant
+        if variant == "b" and (b.get("variant_b_target_url") or "").strip():
+            target = b.get("variant_b_target_url")
+        else:
+            target = b.get("target_url") or ""
+        return {"ok": True, "target_url": target}
 
     # =====================================================================
     # ADMIN — CRUD
@@ -387,6 +551,20 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "height_px": int(payload.height_px),
             "width_px": int(payload.width_px),
             "object_fit": payload.object_fit,
+            # Iter38r-fix9z6 — A/B + reminders
+            "ab_enabled": bool(payload.ab_enabled),
+            "variant_b_image_url": (payload.variant_b_image_url or "").strip(),
+            "variant_b_media_kind": payload.variant_b_media_kind,
+            "variant_b_target_url": (payload.variant_b_target_url or "").strip(),
+            "total_impressions_a": 0,
+            "total_clicks_a": 0,
+            "total_impressions_b": 0,
+            "total_clicks_b": 0,
+            "advertiser_email": (payload.advertiser_email or "").strip(),
+            "advertiser_phone": (payload.advertiser_phone or "").strip(),
+            "reminder_email_enabled": bool(payload.reminder_email_enabled),
+            "reminder_days_before": int(payload.reminder_days_before),
+            "reminder_last_sent_for": None,  # tracks (expiration_date, days_before) couple sent
             # Iter38r-fix9y — Public stats share fields
             "slug": slug,
             "share_token": secrets.token_urlsafe(16),
@@ -494,6 +672,16 @@ def setup_ad_banners_routes(app, db, get_current_user):
         clicks = int(b.get("total_clicks") or 0)
         if imp > 0:
             ctr = round((clicks / imp) * 100, 2)
+        # Iter38r-fix9z6 — A/B breakdown + winner detection (best CTR with ≥30 impressions)
+        imp_a = int(b.get("total_impressions_a") or 0)
+        imp_b = int(b.get("total_impressions_b") or 0)
+        clk_a = int(b.get("total_clicks_a") or 0)
+        clk_b = int(b.get("total_clicks_b") or 0)
+        ctr_a = round((clk_a / imp_a) * 100, 2) if imp_a else 0.0
+        ctr_b = round((clk_b / imp_b) * 100, 2) if imp_b else 0.0
+        winner = None
+        if imp_a >= 30 and imp_b >= 30 and ctr_a != ctr_b:
+            winner = "a" if ctr_a > ctr_b else "b"
         return {
             "id": banner_id,
             "totals": {
@@ -501,6 +689,12 @@ def setup_ad_banners_routes(app, db, get_current_user):
                 "clicks": clicks,
                 "amount_spent": float(b.get("amount_spent") or 0),
                 "ctr_pct": ctr,
+            },
+            "ab": {
+                "enabled": bool(b.get("ab_enabled")),
+                "variant_a": {"impressions": imp_a, "clicks": clk_a, "ctr_pct": ctr_a},
+                "variant_b": {"impressions": imp_b, "clicks": clk_b, "ctr_pct": ctr_b},
+                "winner": winner,
             },
             "daily": daily,
             "budget_amount": float(b.get("budget_amount") or 0),
@@ -612,5 +806,31 @@ def setup_ad_banners_routes(app, db, get_current_user):
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Demande introuvable")
         return {"ok": True}
+
+    # Iter38r-fix9z6 — Manual trigger for the expiration-reminder cron.
+    # Lets admins fire reminders on-demand (handy for first deploy or testing).
+    @api.post("/admin/ad-banners/run-reminder-cron", tags=["Admin — Ad Banners"])
+    async def run_reminder_cron_now(
+        send_email_fn=Body(None),  # noqa: B008 — injected via app.state
+        user: dict = Depends(get_current_user),
+    ):
+        _ensure_admin(user)
+        # Import inside the request to avoid circular import at startup
+        try:
+            from email_service import send_email as _send_email
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Module email indisponible : {exc}")
+        public_base = (
+            (await db.settings.find_one({"id": "global"}, {"_id": 0}) or {}).get("public_base_url")
+            or os.environ.get("PUBLIC_BASE_URL")
+            or os.environ.get("REACT_APP_BACKEND_URL")
+            or ""
+        )
+        res = await process_expiration_reminders(
+            db,
+            send_email_fn=_send_email,
+            public_base_url=public_base,
+        )
+        return res
 
     return api

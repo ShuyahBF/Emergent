@@ -1,0 +1,28 @@
+{
+  "summary": "Iter38r-fix9z6 (A/B testing for ad banners + expiration reminder cron) — FULL backend + frontend validation PASSED. Re-ran /app/backend/tests/test_iter38r_fix9z6_ab_reminder.py → 8/8 PASS, including: A/B persistence + variant_b_* fields + zero-init counters, /impression?variant=b bumps only _b counter, /click?variant=b returns variant_b_target_url, invalid variant=z rejected (422), stats endpoint returns ab.{variant_a,variant_b,winner} with correct winner selection (A=12.5% CTR vs B=5% with 40 imps each → winner=a), manual cron POST /admin/ad-banners/run-reminder-cron returns {sent, skipped, errored, ran_at}, process_expiration_reminders sends 1 mail within window + is idempotent on second run (already_sent skip reason). Regression: test_iter38r_fix9z5_sizing_renewal_chart (9/9) + test_iter38r_fix9w_ad_banners (10/10) → 19/19 PASS. FRONTEND Playwright on preview URL: (1) /admin/ad-banners loads after token+user injection, (2) clicking 'Nouvelle bannière' opens form with FORM:True, AB:True, CONTACT:True, SIZING:True, (3) new violet 'Test A/B — 2 variantes alternées 50/50' section visible with toggle 'Activer le mode A/B', toggling reveals side-by-side Variante A (preview) + Variante B (uploader [data-testid=ad-ab-variant-b-upload] + URL field [data-testid=ad-ab-variant-b-target]), (4) new emerald 'Contact annonceur + rappel de renouvellement' section visible with email + phone + 'Envoyer un rappel par email avant l'expiration' checkbox + 'Délai : N jours avant' number input (default 3, range 1–30) that toggles disabled state correctly when reminder checkbox is flipped, (5) created an A/B banner via API, hit 40+40 imps and 5+2 clicks, opened stats modal → new violet 'Test A/B — comparatif par variante' panel ([data-testid=ad-stats-ab-breakdown]) renders Variante A (Vues 40 / Clics 5 / CTR 12.5%) with 'GAGNANTE' badge and Variante B (Vues 40 / Clics 2 / CTR 5%) side-by-side. (6) Existing sizing block [data-testid=ad-banner-sizing-block] still renders inside the same form. All review-request items 1–13 verified.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter38r_fix9z6_ab_reminder.py",
+    "/app/test_reports/pytest/iter38r_fix9z6_ab_reminder.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Good: routes/ad_banners.py validates the variant query param as Literal['a','b'] → invalid values rejected with 422 by FastAPI without leaking into DB.",
+    "Good: process_expiration_reminders accepts send_email_fn as a parameter (DI), making it trivially unit-testable with a stub; idempotency is enforced via a flag/timestamp on the banner so re-runs don't double-send.",
+    "Good: Stats endpoint's `ab.winner` is null until BOTH variants have ≥30 impressions — prevents premature winner declaration on noisy small samples.",
+    "Good: Frontend BannerABBlock conditionally renders Variant B uploader + target URL only when ab_enabled toggle is on — no orphan form state submitted.",
+    "Good: ABBreakdown in stats modal carries data-testid attributes (ad-stats-ab-breakdown, ad-stats-variant-a, ad-stats-variant-b) and visually highlights the winner with an amber ring + 'GAGNANTE' badge.",
+    "Good: handleFileChange now accepts a 'variant' param to route uploads into either image_url (A) or variant_b_image_url (B) — same uploader logic reused, DRY.",
+    "Good: AdBannerSlot impression/click calls now include ?variant=${banner.active_variant} so the public widget correctly reports which variant was shown.",
+    "Minor (not blocking): The manual cron POST /admin/ad-banners/run-reminder-cron uses the real send_email which may silently no-op if SMTP is not configured — expected per spec, but consider returning a 'mail_transport_status' field in the response so admins know whether mails were actually dispatched vs queued."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (8/8 fix9z6 + 19/19 regression = 27/27)", "frontend": "100% (all 6 fix9z6 UI flows + sizing-block regression verified)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp on /api/auth/login, internal SAWALI domain)",
+  "seed_data_creation": "1 'AB UI Test ...' banner created via API for the stats-modal UI test then deleted in the same script (cleanup_delete=200). Pytest fixtures auto-clean their 'AB <uuid>' and 'fz6_' rows.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "fix9z6 is GA-ready. Playwright auth on the preview URL requires BOTH localStorage keys 'sawali_token' (JWT from /api/auth/verify-otp .access_token) AND 'sawali_user' (the .user object as JSON); also set sessionStorage 'sawali_welcome_briefing_seen'='1' to skip the modal. Use page.add_init_script BEFORE the first navigation — otherwise React boots, finds no token, and redirects to /login. Per-variant tracking endpoints: POST /api/public/ad-banners/{id}/impression?variant={a|b} and /click?variant={a|b}; the stats endpoint nests A/B figures under response.ab.{variant_a,variant_b,winner}. Reminder cron Africa/Abidjan @09:30 daily; manual trigger POST /api/admin/ad-banners/run-reminder-cron returns {sent:[{to,banner_id}], skipped:[{banner_id,reason}], errored:[], ran_at}.",
+  "rca of the issue": "No issues found — A/B testing + reminder cron features behave per spec across all 6 review-request bullets and the 7th regression bullet."
+}

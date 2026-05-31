@@ -18932,6 +18932,37 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+
+            # Iter38r-fix9z6 — Daily ad-banner expiration reminders
+            # (09:30 Africa/Abidjan). Emails advertisers with a renewal link
+            # when their campaign expiration falls within `reminder_days_before`.
+            async def _scheduled_ad_banner_reminders():
+                try:
+                    from routes.ad_banners import process_expiration_reminders as _proc
+                    # Pull public base URL from settings if available, otherwise from env
+                    settings = await db.settings.find_one({"id": "global"}, {"_id": 0}) or {}
+                    public_base = (
+                        settings.get("public_base_url")
+                        or os.environ.get("PUBLIC_BASE_URL")
+                        or os.environ.get("REACT_APP_BACKEND_URL")
+                        or ""
+                    )
+                    res = await _proc(
+                        db,
+                        send_email_fn=send_email,
+                        public_base_url=public_base,
+                    )
+                    if res.get("sent"):
+                        logger.info("Ad banner reminders sent: %s", len(res["sent"]))
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("Ad banner reminders cron failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_ad_banner_reminders,
+                CronTrigger(hour=9, minute=30, timezone="Africa/Abidjan"),
+                id="ad_banner_expiration_reminders_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             _scheduler.start()
             logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001

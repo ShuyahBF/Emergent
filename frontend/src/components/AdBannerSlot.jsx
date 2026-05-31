@@ -30,7 +30,8 @@ export default function AdBannerSlot({ placement = "public" }) {
     if (!banner || impressionFired.current) return;
     impressionFired.current = true;
     try {
-      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/impression`, {
+      const variant = banner.active_variant === "b" ? "b" : "a";
+      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/impression?variant=${variant}`, {
         method: "POST",
         keepalive: true,
       }).catch(() => {});
@@ -41,7 +42,8 @@ export default function AdBannerSlot({ placement = "public" }) {
     if (!banner?.target_url) return;
     e.preventDefault();
     try {
-      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/click`, {
+      const variant = banner.active_variant === "b" ? "b" : "a";
+      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/click?variant=${variant}`, {
         method: "POST",
         keepalive: true,
       }).catch(() => {});

@@ -95,6 +95,7 @@ import AdminClientTimeline from "@/pages/admin/AdminClientTimeline";
 import AdminClientFeatures from "@/pages/admin/AdminClientFeatures";
 import AdminVoiceNotifications from "@/pages/admin/AdminVoiceNotifications";
 import AdminAdBanners from "@/pages/admin/AdminAdBanners";
+import PublicAdReport from "@/pages/public/PublicAdReport";
 import AdminRgpdPreview from "@/pages/admin/AdminRgpdPreview";
 import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminBrochures from "@/pages/admin/AdminBrochures";
@@ -171,6 +172,8 @@ export default function App() {
           <Route path="/etudes-de-cas/:slug" element={<PublicRoute><CaseStudyDetail /></PublicRoute>} />
           <Route path="/blog" element={<PublicRoute><Blog /></PublicRoute>} />
           <Route path="/blog/:slug" element={<PublicRoute><BlogPost /></PublicRoute>} />
+          {/* Iter38r-fix9y — Public live report for advertisers */}
+          <Route path="/ads/:slug" element={<PublicAdReport />} />
           <Route path="/subscriptions" element={<PublicRoute><Subscriptions /></PublicRoute>} />
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/uptime" element={<StatusPage />} />

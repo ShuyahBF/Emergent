@@ -19,6 +19,8 @@ import {
   Megaphone,
   Sparkles,
   Calendar,
+  Share2,
+  RefreshCw,
 } from "lucide-react";
 
 // Iter38r-fix9w — Admin page to manage paid advertising banners.
@@ -145,6 +147,35 @@ export default function AdminAdBanners() {
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); setStatsId(null); }
   };
 
+  // Iter38r-fix9y — Copy the public share URL to clipboard
+  const copyShareUrl = async (it) => {
+    if (!it.share_path) {
+      toast.error("Cette bannière n'a pas encore de lien public — enregistrez-la d'abord.");
+      return;
+    }
+    const origin = window.location.origin;
+    const url = `${origin}${it.share_path}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Lien public copié dans le presse-papier", {
+        description: url,
+        duration: 6000,
+      });
+    } catch {
+      // Fallback: prompt
+      window.prompt("Copiez ce lien public pour l'annonceur :", url);
+    }
+  };
+
+  const rotateToken = async (it) => {
+    if (!window.confirm(`Régénérer le lien public ? L'ancien lien partagé à l'annonceur cessera de fonctionner.`)) return;
+    try {
+      await apiClient.post(`/admin/ad-banners/${it.id}/rotate-token`);
+      toast.success("Nouveau lien généré");
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
   return (
     <div className="space-y-6 p-6 max-w-7xl" data-testid="admin-ad-banners-page">
       <div>
@@ -260,6 +291,13 @@ export default function AdminAdBanners() {
                         <div className="flex justify-center gap-1">
                           <button onClick={() => openStats(it.id)} className="rounded p-1 ring-1 ring-sky-300 bg-sky-50 hover:bg-sky-100 text-sky-700" title="Statistiques" data-testid={`ad-banner-stats-${it.id}`}>
                             <TrendingUp className="h-3 w-3" />
+                          </button>
+                          {/* Iter38r-fix9y — Copy public share URL */}
+                          <button onClick={() => copyShareUrl(it)} className="rounded p-1 ring-1 ring-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700" title="Copier le lien public pour l'annonceur" data-testid={`ad-banner-share-${it.id}`}>
+                            <Share2 className="h-3 w-3" />
+                          </button>
+                          <button onClick={() => rotateToken(it)} className="rounded p-1 ring-1 ring-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-700" title="Régénérer le lien public (invalide l'ancien)" data-testid={`ad-banner-rotate-${it.id}`}>
+                            <RefreshCw className="h-3 w-3" />
                           </button>
                           <button onClick={() => startEdit(it)} className="rounded p-1 ring-1 ring-slate-300 bg-slate-50 hover:bg-slate-100 text-slate-700" title="Modifier" data-testid={`ad-banner-edit-${it.id}`}>
                             <Edit3 className="h-3 w-3" />

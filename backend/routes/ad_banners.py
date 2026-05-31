@@ -51,6 +51,9 @@ from __future__ import annotations
 
 import logging
 import random
+import re
+import secrets
+import unicodedata
 import uuid
 from datetime import datetime, date, timezone
 from typing import Any, Dict, List, Optional
@@ -67,6 +70,34 @@ def _now_iso() -> str:
 
 def _today_iso() -> str:
     return date.today().isoformat()
+
+
+# Iter38r-fix9y — Slug + share-token helpers for public stats pages
+def _slugify(value: str) -> str:
+    """Lowercase + strip accents + replace non-alnum with hyphens. Truncated to 50 chars."""
+    if not value:
+        return "banner"
+    # Strip accents: é → e, à → a, etc.
+    normalized = unicodedata.normalize("NFKD", value)
+    ascii_only = "".join(c for c in normalized if not unicodedata.combining(c))
+    s = re.sub(r"[^a-zA-Z0-9]+", "-", ascii_only).strip("-").lower()
+    return s[:50] or "banner"
+
+
+async def _ensure_unique_slug(db, base: str, banner_id: str) -> str:
+    """Append `-2`, `-3`, … until the slug is unique across `ad_banners`."""
+    slug = _slugify(base)
+    candidate = slug
+    i = 2
+    while True:
+        existing = await db.ad_banners.find_one(
+            {"slug": candidate, "id": {"$ne": banner_id}},
+            {"_id": 0, "id": 1},
+        )
+        if not existing:
+            return candidate
+        candidate = f"{slug}-{i}"
+        i += 1
 
 
 def _is_expired(b: Dict[str, Any]) -> bool:
@@ -118,6 +149,11 @@ def _admin_view(b: Dict[str, Any]) -> Dict[str, Any]:
     b["is_currently_active"] = bool(
         b.get("active") and _is_started(b) and not _is_expired(b) and not _budget_exhausted(b)
     )
+    # Iter38r-fix9y — Public stats share URL (relative path; frontend prefixes its origin)
+    if b.get("slug") and b.get("share_token"):
+        b["share_path"] = f"/ads/{b['slug']}?token={b['share_token']}"
+    else:
+        b["share_path"] = None
     return b
 
 
@@ -279,8 +315,10 @@ def setup_ad_banners_routes(app, db, get_current_user):
     async def create_banner(payload: AdBannerPayload, user: dict = Depends(get_current_user)):
         _ensure_admin(user)
         tid = user.get("client_id") or user.get("parent_client_id") or user["id"]
+        banner_id = str(uuid.uuid4())
+        slug = await _ensure_unique_slug(db, payload.name, banner_id)
         doc = {
-            "id": str(uuid.uuid4()),
+            "id": banner_id,
             "tenant_id": tid,
             "name": payload.name.strip(),
             "advertiser_name": (payload.advertiser_name or "").strip(),
@@ -302,6 +340,9 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "start_date": payload.start_date,
             "daily_stats": [],
             "notes": (payload.notes or "").strip(),
+            # Iter38r-fix9y — Public stats share fields
+            "slug": slug,
+            "share_token": secrets.token_urlsafe(16),
             "created_by": user.get("email"),
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
@@ -318,11 +359,34 @@ def setup_ad_banners_routes(app, db, get_current_user):
             if isinstance(v, str):
                 v = v.strip()
             update[k] = v
+        # Iter38r-fix9y — If the name changes, regenerate a unique slug
+        if "name" in update and update["name"]:
+            update["slug"] = await _ensure_unique_slug(db, update["name"], banner_id)
         res = await db.ad_banners.update_one({"id": banner_id}, {"$set": update})
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
+        # Iter38r-fix9y — Backfill share_token on legacy rows that lack one
         fresh = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
+        if fresh and not fresh.get("share_token"):
+            await db.ad_banners.update_one(
+                {"id": banner_id},
+                {"$set": {"share_token": secrets.token_urlsafe(16)}},
+            )
+            fresh = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         return {"ok": True, "item": _admin_view(fresh)}
+
+    @api.post("/admin/ad-banners/{banner_id}/rotate-token", tags=["Admin — Ad Banners"])
+    async def rotate_share_token(banner_id: str, user: dict = Depends(get_current_user)):
+        """Regenerate the share_token (invalidates previously shared URLs)."""
+        _ensure_admin(user)
+        new_token = secrets.token_urlsafe(16)
+        res = await db.ad_banners.update_one(
+            {"id": banner_id},
+            {"$set": {"share_token": new_token, "updated_at": _now_iso()}},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        return {"ok": True, "share_token": new_token}
 
     @api.delete("/admin/ad-banners/{banner_id}", tags=["Admin — Ad Banners"])
     async def delete_banner(banner_id: str, user: dict = Depends(get_current_user)):
@@ -371,6 +435,50 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "budget_amount": float(b.get("budget_amount") or 0),
             "remaining_budget": max(0.0, float(b.get("budget_amount") or 0) - float(b.get("amount_spent") or 0)),
             "is_currently_active": _admin_view(b)["is_currently_active"],
+        }
+
+    @api.get("/public/ads-report/{slug}", tags=["Public — Ad Banners"])
+    async def public_ads_report(slug: str, token: str = Query(..., min_length=1)):
+        """Iter38r-fix9y — Public live report for an advertiser. Requires the
+        slug + share_token couple (set when the banner is created and
+        invalidatable via /admin/ad-banners/{id}/rotate-token). Returns only
+        the fields safe to share with the advertiser (no costs the admin paid,
+        no internal IDs)."""
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        budget = float(b.get("budget_amount") or 0)
+        spent = float(b.get("amount_spent") or 0)
+        imp = int(b.get("total_impressions") or 0)
+        clicks = int(b.get("total_clicks") or 0)
+        ctr = round((clicks / imp) * 100, 2) if imp else 0.0
+        daily = sorted((b.get("daily_stats") or []), key=lambda r: r.get("date") or "")
+        return {
+            "name": b.get("name"),
+            "advertiser_name": b.get("advertiser_name") or "",
+            "image_url": b.get("image_url"),
+            "target_url": b.get("target_url"),
+            "animated": bool(b.get("animated")),
+            "placement": b.get("placement"),
+            "currency": b.get("currency") or "XOF",
+            "start_date": b.get("start_date"),
+            "expiration_date": b.get("expiration_date"),
+            "is_currently_active": _admin_view(b)["is_currently_active"],
+            "totals": {
+                "impressions": imp,
+                "clicks": clicks,
+                "ctr_pct": ctr,
+                "amount_spent": spent,
+            },
+            "budget": {
+                "amount": budget,
+                "remaining": max(0.0, budget - spent),
+                "progress_pct": round((spent / budget) * 100, 1) if budget else 0.0,
+            },
+            "daily": daily[-90:],  # last 90 days
+            "generated_at": _now_iso(),
         }
 
     return api

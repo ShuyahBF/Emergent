@@ -6,7 +6,15 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
-## Recent (2026-05-31) — Iter38r-fix9o v3 🧩 (UI manquantes)
+## Recent (2026-05-31) — Iter38r-fix9o v4 🎯 (Polish WA Login)
+
+### 🎯 Suppression du terme "démo" + CTA conversion
+- ✅ Bouton Login : "Se connecter via WhatsApp (essai démo)" → "Se connecter via WhatsApp".
+- ✅ Messages WA flow nettoyés ("Recevez un code pour accéder à votre espace" au lieu de "à la démo"; "Bienvenue !" au lieu de "Bienvenue dans la démo !"; "Valider et accéder à mon espace").
+- ✅ Auto-ouverture du formulaire WA via `/login?wa=1` (query param).
+- ✅ **Nouveau CTA hero homepage** : bouton vert "Découvrir en 30s via WhatsApp" → pointe vers `/login?wa=1`. Animation hover (translateY + slide arrow), shadow-lg vert, data-testid `hero-cta-whatsapp`.
+
+
 
 ### 🤖 Liluvine PRO — Prompt système (UI)
 - ✅ Nouvelle section `LiluvineSystemPromptSection.jsx` dans AdminSettings (anchor `s-liluvine-system-prompt`).

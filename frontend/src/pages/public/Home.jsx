@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote, Star, MapPin, User as UserIcon } from "lucide-react";
+import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote, Star, MapPin, User as UserIcon, MessageCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 import DeploymentsMap from "@/components/DeploymentsMap";
@@ -71,6 +71,16 @@ export default function Home() {
               </Link>
               <Link to="/login" className="inline-flex items-center gap-2 rounded-lg border border-sawali-blue-light/40 px-5 py-3 text-sawali-blue-light hover:bg-sawali-blue/10 transition" data-testid="hero-cta-login">
                 <ShieldCheck className="h-4 w-4" /> Espace Loois
+              </Link>
+              {/* Iter38r-fix9o — Conversion CTA: WhatsApp express access */}
+              <Link
+                to="/login?wa=1"
+                className="group inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 px-5 py-3 text-white font-medium shadow-lg shadow-emerald-900/40 transition transform hover:-translate-y-0.5"
+                data-testid="hero-cta-whatsapp"
+              >
+                <MessageCircle className="h-4 w-4" />
+                <span>Découvrir en 30s via WhatsApp</span>
+                <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
             </div>
           </div>

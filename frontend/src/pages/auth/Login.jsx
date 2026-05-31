@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { ShieldCheck, Loader2, ArrowRight, KeyRound, Mail, MessageCircle, Phone } from "lucide-react";
 import { LOGO_URL, AUTH_BG } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
@@ -11,7 +11,8 @@ import VersionStamp from "@/components/VersionStamp";
 export default function Login() {
   const { login, user } = useAuth();
   const navigate = useNavigate();
-  const [step, setStep] = useState("credentials"); // credentials | otp | wa_phone | wa_otp
+  const [searchParams] = useSearchParams();
+  const [step, setStep] = useState(searchParams.get("wa") === "1" ? "wa_phone" : "credentials"); // credentials | otp | wa_phone | wa_otp
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [captchaToken, setCaptchaToken] = useState(null);
@@ -131,7 +132,7 @@ export default function Login() {
         msisdn: digits, code: waOtp, display_name: waName || undefined,
       });
       login(r.data.access_token || r.data.token, r.data.user);
-      toast.success("Connexion WhatsApp réussie — bienvenue dans la démo !");
+      toast.success("Connexion WhatsApp réussie — bienvenue !");
       navigate("/portal");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Code invalide");
@@ -183,7 +184,7 @@ export default function Login() {
             <p className="mt-1 text-sm text-slate-500">
               {step === "credentials" ? "Saisissez vos identifiants. Un code à usage unique vous sera envoyé."
                 : step === "otp" ? "Saisissez le code à 6 chiffres reçu par email."
-                : step === "wa_phone" ? "Recevez un code à 6 chiffres directement sur WhatsApp pour accéder à la démo."
+                : step === "wa_phone" ? "Recevez un code à 6 chiffres directement sur WhatsApp pour accéder à votre espace."
                 : "Saisissez le code à 6 chiffres reçu sur WhatsApp."}
             </p>
 
@@ -234,7 +235,7 @@ export default function Login() {
                   className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-medium transition"
                   data-testid="login-wa-otp-button"
                 >
-                  <MessageCircle className="h-4 w-4" /> Se connecter via WhatsApp (essai démo)
+                  <MessageCircle className="h-4 w-4" /> Se connecter via WhatsApp
                 </button>
                 <p className="text-xs text-slate-500 text-center mt-3">
                   Pas encore de compte ? <Link to="/contact" className="text-sawali-blue underline">Demander un accès</Link>
@@ -322,7 +323,7 @@ export default function Login() {
                   <p className="text-[11px] text-slate-500 mt-1 text-center">Code envoyé sur <span className="font-mono">{waPhone}</span></p>
                 </div>
                 <button type="submit" disabled={loading || waOtp.length !== 6} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2.5 text-sm font-medium transition disabled:opacity-50" data-testid="login-wa-verify-button">
-                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Valider et entrer dans la démo
+                  {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />} Valider et accéder à mon espace
                 </button>
                 <div className="flex items-center justify-between text-xs">
                   <button type="button" onClick={() => setStep("wa_phone")} className="text-emerald-700 underline">← Changer de numéro</button>

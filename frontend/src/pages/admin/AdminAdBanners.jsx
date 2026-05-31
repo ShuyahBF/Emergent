@@ -305,12 +305,97 @@ function Stat({ icon: Icon, label, value, accent }) {
 }
 
 function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
+  const [uploading, setUploading] = React.useState(false);
+  const fileInputRef = React.useRef(null);
+  const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+
+  // Iter38r-fix9x — Upload an image/video file and auto-fill image_url + target_url
+  const handleFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/") && !file.type.startsWith("video/")) {
+      toast.error("Veuillez choisir une image ou une vidéo");
+      return;
+    }
+    // 20 MB max
+    if (file.size > 20 * 1024 * 1024) {
+      toast.error("Fichier trop volumineux (max 20 Mo)");
+      return;
+    }
+    setUploading(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const token = localStorage.getItem("sawali_token") || "";
+      const resp = await fetch(`${apiBase}/api/admin/upload`, {
+        method: "POST",
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: form,
+      });
+      if (!resp.ok) {
+        const err = await resp.json().catch(() => ({}));
+        throw new Error(err.detail || "Échec de l'upload");
+      }
+      const data = await resp.json();
+      const absoluteUrl = `${apiBase}${data.url}`;
+      // Auto-fill image_url AND target_url (per user choice "a": click opens the file)
+      setDraft((d) => ({
+        ...d,
+        image_url: absoluteUrl,
+        target_url: d.target_url ? d.target_url : absoluteUrl,
+      }));
+      toast.success(`Fichier chargé (${Math.round(file.size / 1024)} Ko)`);
+    } catch (err) {
+      toast.error(err.message || "Erreur d'upload");
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   return (
     <div className="rounded-2xl ring-1 ring-fuchsia-300 bg-fuchsia-50/30 p-5 space-y-3" data-testid="ad-banner-form">
       <div className="flex justify-between items-center">
         <h3 className="font-display font-semibold">{editing ? "Modifier la bannière" : "Nouvelle bannière publicitaire"}</h3>
         <button onClick={onCancel} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
       </div>
+
+      {/* Iter38r-fix9x — Direct file upload */}
+      <div className="rounded-xl ring-1 ring-fuchsia-200 bg-white p-3 flex items-center gap-3 flex-wrap" data-testid="ad-banner-upload-block">
+        <ImageIcon className="h-5 w-5 text-fuchsia-600" />
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-slate-800">Charger une image ou une vidéo</p>
+          <p className="text-[10px] text-slate-500">Le fichier sera hébergé sur le site. URL image + URL cible (au clic) seront générées automatiquement. Max 20 Mo.</p>
+        </div>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*,video/mp4,video/webm"
+          onChange={handleFileChange}
+          className="hidden"
+          data-testid="ad-banner-file-input"
+        />
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="inline-flex items-center gap-1.5 rounded-lg bg-fuchsia-600 text-white px-3 py-1.5 text-xs hover:bg-fuchsia-700 disabled:opacity-50"
+          data-testid="ad-banner-upload-btn"
+        >
+          {uploading ? "Chargement…" : "Choisir un fichier"}
+        </button>
+      </div>
+      {draft.image_url && (
+        <div className="flex items-center gap-3 rounded-lg ring-1 ring-slate-200 bg-white p-2" data-testid="ad-banner-preview">
+          {/\.(mp4|webm)$/i.test(draft.image_url) ? (
+            <video src={draft.image_url} className="h-14 w-28 object-cover rounded" muted autoPlay loop playsInline />
+          ) : (
+            <img src={draft.image_url} alt="aperçu" className="h-14 w-28 object-cover rounded" />
+          )}
+          <p className="text-[10px] text-slate-500 truncate flex-1">{draft.image_url}</p>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 gap-3">
         <Field label="Nom (campagne)" required testid="ad-form-name">
           <input type="text" value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />

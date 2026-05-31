@@ -246,6 +246,11 @@ async def trigger_voice_event(
 ) -> Dict[str, Any]:
     """Internal hook called by feature code (invoice creation, ticket etc.).
     Returns a small report; never raises (best-effort by design).
+
+    Iter38r-fix9x — Supports two providers:
+      • home_assistant : POST to {ha_url}/api/services/notify/{notify_service}
+      • voice_monkey   : POST to the saved Voice Monkey webhook URL
+        (announcement param replaced with the rendered TTS template).
     """
     context = context or {}
     try:
@@ -261,41 +266,62 @@ async def trigger_voice_event(
         message = _render_template(rule.get("tts_template") or "", context).strip()
         if not message:
             return {"ok": False, "reason": "empty_message"}
+        provider = (cfg.get("provider") or "home_assistant").strip().lower()
         speaker = rule.get("speaker_override") or cfg.get("ha_speaker") or ""
-        ha_url = (cfg.get("ha_url") or "").rstrip("/")
-        ha_token = cfg.get("ha_token") or ""
-        notify_service = cfg.get("notify_service") or "alexa_media"
-        if not ha_url or not ha_token:
-            return {"ok": False, "reason": "ha_not_configured"}
-        # POST to Home Assistant REST API: /api/services/notify/{service}
-        endpoint = f"{ha_url}/api/services/notify/{notify_service}"
-        payload = {"message": message}
-        if speaker:
-            # alexa_media_player expects target = entity_id (e.g. "media_player.echo_bureau")
-            payload["target"] = speaker
-        headers = {
-            "Authorization": f"Bearer {ha_token}",
-            "Content-Type": "application/json",
-        }
         status_code = 0
         response_text = ""
-        try:
-            async with httpx.AsyncClient(timeout=8.0) as client:
-                r = await client.post(endpoint, headers=headers, json=payload)
-                status_code = r.status_code
-                response_text = (r.text or "")[:500]
-        except httpx.HTTPError as exc:
-            response_text = f"HTTPError: {exc}"[:500]
+
+        if provider == "voice_monkey":
+            url = (cfg.get("voice_monkey_url") or "").strip()
+            if not url:
+                return {"ok": False, "reason": "voice_monkey_url_missing"}
+            # Voice Monkey accepts `announcement` either as a query string param
+            # or in a JSON body. We POST a JSON payload — the webhook already
+            # carries the token + device in the URL.
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    r = await client.post(url, json={
+                        "announcement": message,
+                        "event": event_key,
+                        "source": "sawali-portal",
+                    })
+                    status_code = r.status_code
+                    response_text = (r.text or "")[:500]
+            except httpx.HTTPError as exc:
+                response_text = f"HTTPError: {exc}"[:500]
+        else:
+            ha_url = (cfg.get("ha_url") or "").rstrip("/")
+            ha_token = cfg.get("ha_token") or ""
+            notify_service = cfg.get("notify_service") or "alexa_media"
+            if not ha_url or not ha_token:
+                return {"ok": False, "reason": "ha_not_configured"}
+            endpoint = f"{ha_url}/api/services/notify/{notify_service}"
+            payload = {"message": message}
+            if speaker:
+                payload["target"] = speaker
+            headers = {
+                "Authorization": f"Bearer {ha_token}",
+                "Content-Type": "application/json",
+            }
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    r = await client.post(endpoint, headers=headers, json=payload)
+                    status_code = r.status_code
+                    response_text = (r.text or "")[:500]
+            except httpx.HTTPError as exc:
+                response_text = f"HTTPError: {exc}"[:500]
+
         await db.voice_notifications_log.insert_one({
             "tenant_id": tenant_id,
             "event_key": event_key,
+            "provider": provider,
             "message": message,
             "speaker": speaker,
             "ha_status": status_code,
             "ha_response": response_text,
             "created_at": _now_iso(),
         })
-        return {"ok": 200 <= status_code < 300, "ha_status": status_code, "message": message}
+        return {"ok": 200 <= status_code < 300, "provider": provider, "ha_status": status_code, "message": message}
     except Exception as exc:
         logger.exception("[voice-notif] trigger failed")
         return {"ok": False, "reason": f"exception:{str(exc)[:80]}"}
@@ -359,13 +385,25 @@ def setup_voice_notifications_routes(app, db, get_current_user):
         if cfg.get("ha_token"):
             tk = str(cfg["ha_token"])
             masked_token = f"{tk[:4]}…{tk[-4:]}" if len(tk) > 10 else "****"
+        # Iter38r-fix9x — Mask the Voice Monkey webhook URL too (contains token)
+        vm_url = cfg.get("voice_monkey_url") or ""
+        vm_masked = ""
+        if vm_url:
+            try:
+                # Show only the first 30 chars + the device param
+                vm_masked = vm_url[:30] + "…" + vm_url[-12:] if len(vm_url) > 50 else vm_url
+            except Exception:
+                vm_masked = "****"
         return {
             "enabled": bool(cfg.get("enabled")),
+            "provider": cfg.get("provider") or "home_assistant",
             "ha_url": cfg.get("ha_url", ""),
             "ha_token_set": bool(cfg.get("ha_token")),
             "ha_token_masked": masked_token,
             "ha_speaker": cfg.get("ha_speaker", ""),
             "notify_service": cfg.get("notify_service", "alexa_media"),
+            "voice_monkey_url_set": bool(vm_url),
+            "voice_monkey_url_masked": vm_masked,
             "updated_at": cfg.get("updated_at"),
         }
 
@@ -376,6 +414,11 @@ def setup_voice_notifications_routes(app, db, get_current_user):
         update: Dict[str, Any] = {"updated_at": _now_iso()}
         if "enabled" in payload:
             update["enabled"] = bool(payload["enabled"])
+        if "provider" in payload:
+            prov = (payload.get("provider") or "home_assistant").strip().lower()
+            if prov not in ("home_assistant", "voice_monkey"):
+                raise HTTPException(status_code=400, detail="provider doit être 'home_assistant' ou 'voice_monkey'")
+            update["provider"] = prov
         if "ha_url" in payload:
             url = (payload.get("ha_url") or "").strip()
             if url and not (url.startswith("http://") or url.startswith("https://")):
@@ -389,6 +432,12 @@ def setup_voice_notifications_routes(app, db, get_current_user):
             update["ha_speaker"] = (payload.get("ha_speaker") or "").strip()
         if "notify_service" in payload:
             update["notify_service"] = (payload.get("notify_service") or "alexa_media").strip()
+        if "voice_monkey_url" in payload:
+            vm = (payload.get("voice_monkey_url") or "").strip()
+            if vm and not (vm.startswith("http://") or vm.startswith("https://")):
+                raise HTTPException(status_code=400, detail="L'URL Voice Monkey doit commencer par http:// ou https://")
+            if vm:  # only update on non-empty
+                update["voice_monkey_url"] = vm
         await db.voice_notifications_config.update_one(
             {"_id": tid}, {"$set": update}, upsert=True,
         )
@@ -470,9 +519,34 @@ def setup_voice_notifications_routes(app, db, get_current_user):
     async def test_voice(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
         _ensure_admin(user)
         tid = _tenant_id(user)
-        message = (payload.get("message") or "Test SAWALI : la passerelle vocale Home Assistant fonctionne.").strip()
+        message = (payload.get("message") or "Test SAWALI : la passerelle vocale fonctionne.").strip()
         speaker = (payload.get("speaker") or "").strip()
         cfg = await db.voice_notifications_config.find_one({"_id": tid}, {"_id": 0}) or {}
+        provider = (cfg.get("provider") or "home_assistant").strip().lower()
+
+        if provider == "voice_monkey":
+            vm_url = (cfg.get("voice_monkey_url") or "").strip()
+            if not vm_url:
+                raise HTTPException(status_code=400, detail="URL Voice Monkey manquante.")
+            try:
+                async with httpx.AsyncClient(timeout=8.0) as client:
+                    r = await client.post(vm_url, json={
+                        "announcement": message,
+                        "event": "__test__",
+                        "source": "sawali-portal",
+                    })
+            except httpx.HTTPError as exc:
+                raise HTTPException(status_code=502, detail=f"Voice Monkey injoignable : {exc}")
+            ok = 200 <= r.status_code < 300
+            await db.voice_notifications_log.insert_one({
+                "tenant_id": tid, "event_key": "__test__", "provider": "voice_monkey",
+                "message": message, "speaker": None, "ha_status": r.status_code,
+                "ha_response": (r.text or "")[:500], "created_at": _now_iso(),
+            })
+            return {"ok": ok, "provider": "voice_monkey", "ha_status": r.status_code,
+                    "ha_response": (r.text or "")[:500], "message": message}
+
+        # Default: Home Assistant
         if not cfg.get("ha_url") or not cfg.get("ha_token"):
             raise HTTPException(status_code=400, detail="Configuration Home Assistant incomplète (URL + Token requis).")
         ha_url = cfg["ha_url"].rstrip("/")
@@ -494,21 +568,12 @@ def setup_voice_notifications_routes(app, db, get_current_user):
             raise HTTPException(status_code=502, detail=f"Home Assistant injoignable : {exc}")
         ok = 200 <= r.status_code < 300
         await db.voice_notifications_log.insert_one({
-            "tenant_id": tid,
-            "event_key": "__test__",
-            "message": message,
-            "speaker": target,
-            "ha_status": r.status_code,
-            "ha_response": (r.text or "")[:500],
-            "created_at": _now_iso(),
+            "tenant_id": tid, "event_key": "__test__", "provider": "home_assistant",
+            "message": message, "speaker": target, "ha_status": r.status_code,
+            "ha_response": (r.text or "")[:500], "created_at": _now_iso(),
         })
-        return {
-            "ok": ok,
-            "ha_status": r.status_code,
-            "ha_response": (r.text or "")[:500],
-            "message": message,
-            "target": target,
-        }
+        return {"ok": ok, "provider": "home_assistant", "ha_status": r.status_code,
+                "ha_response": (r.text or "")[:500], "message": message, "target": target}
 
     @api.get("/admin/voice-notifications/log", tags=["Admin — Voice Notifications"])
     async def get_log(limit: int = 50, user: dict = Depends(get_current_user)):

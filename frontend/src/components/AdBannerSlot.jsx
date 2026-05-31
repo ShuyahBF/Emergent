@@ -54,6 +54,9 @@ export default function AdBannerSlot({ placement = "public" }) {
 
   if (dismissed || !banner) return null;
 
+  // Iter38r-fix9x — Render <video> when the asset is mp4/webm, otherwise <img>
+  const isVideo = /\.(mp4|webm|mov)$/i.test(banner.image_url || "");
+
   return (
     <div
       className="relative w-full bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-200/20"
@@ -65,12 +68,20 @@ export default function AdBannerSlot({ placement = "public" }) {
         aria-label={`Bannière publicitaire : ${banner.name}`}
         data-testid={`ad-banner-click-${banner.id}`}
       >
-        <img
-          src={banner.image_url}
-          alt={banner.advertiser_name || banner.name}
-          className={`w-full h-16 sm:h-20 object-cover object-center cursor-pointer ${banner.animated ? "animate-pulse-soft" : ""}`}
-          loading="lazy"
-        />
+        {isVideo ? (
+          <video
+            src={banner.image_url}
+            className="w-full h-16 sm:h-20 object-cover object-center cursor-pointer"
+            muted autoPlay loop playsInline
+          />
+        ) : (
+          <img
+            src={banner.image_url}
+            alt={banner.advertiser_name || banner.name}
+            className={`w-full h-16 sm:h-20 object-cover object-center cursor-pointer ${banner.animated ? "animate-pulse-soft" : ""}`}
+            loading="lazy"
+          />
+        )}
       </button>
       <div className="absolute top-1 right-1 flex items-center gap-1">
         <span className="hidden sm:inline-block bg-black/40 backdrop-blur-sm text-white/70 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded">

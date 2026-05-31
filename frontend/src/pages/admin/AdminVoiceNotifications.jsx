@@ -43,8 +43,9 @@ const CATEGORY_BADGES = {
 };
 
 export default function AdminVoiceNotifications() {
-  const [config, setConfig] = useState({ enabled: false, ha_url: "", ha_token_set: false, ha_token_masked: "", ha_speaker: "", notify_service: "alexa_media" });
+  const [config, setConfig] = useState({ enabled: false, provider: "home_assistant", ha_url: "", ha_token_set: false, ha_token_masked: "", ha_speaker: "", notify_service: "alexa_media", voice_monkey_url_set: false, voice_monkey_url_masked: "" });
   const [haTokenInput, setHaTokenInput] = useState("");
+  const [vmUrlInput, setVmUrlInput] = useState("");
   const [catalog, setCatalog] = useState({ builtin: [], custom: [] });
   const [rules, setRules] = useState({});  // map event_key -> rule
   const [selectedKey, setSelectedKey] = useState(null);
@@ -100,14 +101,17 @@ export default function AdminVoiceNotifications() {
     try {
       const payload = {
         enabled: config.enabled,
+        provider: config.provider || "home_assistant",
         ha_url: config.ha_url,
         ha_speaker: config.ha_speaker,
         notify_service: config.notify_service || "alexa_media",
       };
       if (haTokenInput.trim()) payload.ha_token = haTokenInput.trim();
+      if (vmUrlInput.trim()) payload.voice_monkey_url = vmUrlInput.trim();
       await apiClient.put("/admin/voice-notifications/config", payload);
-      toast.success("Configuration Home Assistant enregistrée");
+      toast.success("Configuration enregistrée");
       setHaTokenInput("");
+      setVmUrlInput("");
       await loadAll();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -192,7 +196,7 @@ export default function AdminVoiceNotifications() {
             <Volume2 className="h-6 w-6 text-sawali-blue" /> Notifications vocales — Home Assistant
           </h1>
           <p className="text-sm text-slate-500 mt-1">
-            Diffusez vocalement les évènements clés du CRM sur vos enceintes Amazon Echo / Alexa via votre serveur Home Assistant (intégration <code className="bg-slate-100 px-1 rounded text-[11px]">alexa_media_player</code>).
+            Diffusez vocalement les évènements clés du CRM sur vos enceintes Amazon Echo / Alexa. Deux fournisseurs supportés : <strong>Voice Monkey</strong> (plus simple, 1 URL webhook) ou <strong>Home Assistant</strong> (intégration <code className="bg-slate-100 px-1 rounded text-[11px]">alexa_media_player</code>, multi-enceintes).
           </p>
         </div>
       </div>
@@ -204,9 +208,9 @@ export default function AdminVoiceNotifications() {
             <SettingsIcon className="h-5 w-5 text-sky-600" />
           </div>
           <div className="flex-1">
-            <h2 className="font-display font-semibold text-slate-900">Configuration Home Assistant</h2>
+            <h2 className="font-display font-semibold text-slate-900">Configuration de la passerelle vocale</h2>
             <p className="text-xs text-slate-500 mt-0.5">
-              Renseignez l'URL de votre instance + un Token Long-Lived (Profil → Sécurité → Créer un jeton).
+              Choisissez le fournisseur qui diffusera les annonces sur vos enceintes Echo.
             </p>
           </div>
           <label className="inline-flex items-center gap-2 cursor-pointer">
@@ -220,7 +224,60 @@ export default function AdminVoiceNotifications() {
             <span className="text-sm font-semibold text-slate-700">Passerelle activée</span>
           </label>
         </div>
-        <div className="grid sm:grid-cols-2 gap-3">
+
+        {/* Iter38r-fix9x — Provider switch */}
+        <div className="rounded-xl ring-1 ring-slate-200 bg-slate-50 p-3 flex items-center gap-3 flex-wrap">
+          <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Fournisseur :</span>
+          <label className="inline-flex items-center gap-1.5 cursor-pointer">
+            <input
+              type="radio" name="voice-provider" value="voice_monkey"
+              checked={config.provider === "voice_monkey"}
+              onChange={() => setConfig((c) => ({ ...c, provider: "voice_monkey" }))}
+              data-testid="voice-provider-vm"
+            />
+            <span className="text-sm font-semibold text-slate-700">Voice Monkey</span>
+            <span className="text-[10px] text-slate-500">(simple, 1 URL)</span>
+          </label>
+          <label className="inline-flex items-center gap-1.5 cursor-pointer ml-4">
+            <input
+              type="radio" name="voice-provider" value="home_assistant"
+              checked={config.provider === "home_assistant"}
+              onChange={() => setConfig((c) => ({ ...c, provider: "home_assistant" }))}
+              data-testid="voice-provider-ha"
+            />
+            <span className="text-sm font-semibold text-slate-700">Home Assistant</span>
+            <span className="text-[10px] text-slate-500">(multi-enceintes, avancé)</span>
+          </label>
+        </div>
+
+        {/* Voice Monkey fields */}
+        {config.provider === "voice_monkey" && (
+          <div className="grid gap-3" data-testid="voice-vm-fields">
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold flex items-center gap-1">
+                <KeySquare className="h-3 w-3" /> URL webhook Voice Monkey
+                {config.voice_monkey_url_set && (
+                  <span className="text-[10px] text-emerald-600 ml-1">(actuelle : {config.voice_monkey_url_masked})</span>
+                )}
+              </span>
+              <input
+                type="password"
+                value={vmUrlInput}
+                onChange={(e) => setVmUrlInput(e.target.value)}
+                placeholder={config.voice_monkey_url_set ? "Laisser vide pour conserver" : "https://api-v2.voicemonkey.io/announcement?token=…&device=…"}
+                className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white font-mono"
+                data-testid="voice-config-vm-url"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Profil Voice Monkey → Devices → cliquez sur le bouton « Get Announcement URL ». L'URL contient déjà le token et le nom de l'enceinte cible.
+              </p>
+            </label>
+          </div>
+        )}
+
+        {/* Home Assistant fields */}
+        {config.provider === "home_assistant" && (
+        <div className="grid sm:grid-cols-2 gap-3" data-testid="voice-ha-fields">
           <label className="block">
             <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">URL Home Assistant</span>
             <input
@@ -271,6 +328,7 @@ export default function AdminVoiceNotifications() {
             />
           </label>
         </div>
+        )}
         <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={saveConfig}
@@ -291,10 +349,10 @@ export default function AdminVoiceNotifications() {
             />
             <button
               onClick={runTest}
-              disabled={testing || !config.ha_token_set}
+              disabled={testing || (config.provider === "home_assistant" && !config.ha_token_set) || (config.provider === "voice_monkey" && !config.voice_monkey_url_set)}
               className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm hover:bg-emerald-700 disabled:opacity-50"
               data-testid="voice-test-btn"
-              title={!config.ha_token_set ? "Enregistrez d'abord la configuration" : "Tester la passerelle"}
+              title="Tester la passerelle"
             >
               <Send className="h-4 w-4" /> {testing ? "Envoi…" : "Tester"}
             </button>

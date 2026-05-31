@@ -6,6 +6,26 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9z7 + fix9z8 — 📱 WhatsApp + Live WS + Portail libre-service
+
+### ✅ fix9z7 — WhatsApp reminders + Live admin dashboard
+- Champ `reminder_wa_enabled` (toggle indépendant de l'email) + cron 09:30 envoie WA via `_wa_send_text` réutilisé
+- `process_expiration_reminders` accepte `send_email_fn` ET `send_whatsapp_fn` (DI propre, idempotence par marker `expiration_date|days_before`)
+- WebSocket admin `/api/ws/ad-banners-live?token=<adminJWT>` : snapshot initial + broadcast `{event:'impression'|'click', banner_id, variant, total_impressions_a/b, total_clicks_a/b, ...}` à chaque hit public
+- Composant `AdBannersLivePanel` (en-tête de `/admin/ad-banners`) : status Connecté/Hors-ligne, liste live des bannières avec flash animation à chaque event + feed des 5 derniers événements
+
+### ✅ fix9z8 — Portail libre-service annonceur (sans login)
+- `POST /api/public/ads-report/{slug}/checkout?token=X` — crée une session Stripe Checkout (conversion XOF→EUR à 655,957), persiste `ad_renewals` avec `renewal_applied=False`
+- `GET /api/public/ads-report/{slug}/payment-status/{session_id}` — poll endpoint qui, sur 'paid' Stripe, **atomiquement** (CAS) étend `expiration_date` de `duration_days` + crédite `budget_amount` de `amount_xof` + remet à zéro l'auto-pause + reset `reminder_last_sent_for`
+- `PUT /api/public/ads-report/{slug}/media?token=X` — met à jour `image_url`/`media_kind`/`target_url` (et variant_b équivalents); whitelist stricte (les champs admin comme budget/placement sont silencieusement ignorés); audit row dans `ad_self_service_updates`
+- UI `PublicAdReport` : 2 nouvelles sections — `OnlineRenewalCheckout` (formulaire montant/durée/email + redirection Stripe + polling auto au retour `?session_id=...&renew=ok`) + `SelfServiceMediaUpdate` (uploader média + URL cible + save)
+
+### Tests : 41/41 backend + 9/9 frontend = 50/50 passés
+- fix9z7 : 6 tests (WA stub + WS snapshot/broadcast + auth)
+- fix9z8 : 8 tests (media update whitelist + audit + checkout validation + payment-status CAS)
+- fix9z6 + fix9z5 + fix9z4 régression : 33/33 verts
+- Aucun bug trouvé. Code review reviewer : 6 « Good » + 1 minor (cache webpack dev — résolu par restart frontend, sans incidence en prod)
+
 ## Recent (2026-05-31) — Iter38r-fix9z6 — 🧪 A/B Testing + Email automatique d'expiration
 
 ### ✅ P5 — A/B Testing sur Régie publicitaire

@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { Users, Calendar, FileText, Wrench, Inbox, ClipboardList, ArrowRight } from "lucide-react";
+import AdminAICostChart from "./AdminAICostChart";
 
 const Card = ({ icon: Icon, label, value, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -84,6 +85,9 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
+
+      {/* Iter38r-fix9z5 — AI monthly cost chart */}
+      <AdminAICostChart />
     </div>
   );
 }

@@ -1,8 +1,12 @@
 // Iter38r-fix9w — Ad Banner Slot (top of public + portal layouts).
 // Fetches one active banner for the requested placement, fires impression
 // tracking on mount, and a click tracker on banner click.
+//
+// Iter38r-fix9z5 — Display sizing parametrable: auto / ratio / percentage / fixed.
 import React, { useEffect, useState, useRef } from "react";
 import { X } from "lucide-react";
+import { resolveAssetUrl } from "@/lib/useAssetUrl";
+import { computeBannerStyles } from "@/lib/bannerStyle";
 
 export default function AdBannerSlot({ placement = "public" }) {
   const [banner, setBanner] = useState(null);
@@ -22,7 +26,6 @@ export default function AdBannerSlot({ placement = "public" }) {
     return () => { cancelled = true; };
   }, [apiBase, placement, dismissed]);
 
-  // Fire impression once per banner load
   useEffect(() => {
     if (!banner || impressionFired.current) return;
     impressionFired.current = true;
@@ -54,48 +57,49 @@ export default function AdBannerSlot({ placement = "public" }) {
 
   if (dismissed || !banner) return null;
 
-  // Iter38r-fix9z3 — Determine video vs image from explicit media_kind first
-  // (set on upload), then fall back to URL-extension sniffing for legacy rows.
   const isVideo = banner.media_kind === "video"
     || /\.(mp4|webm|mov)$/i.test(banner.image_url || "");
+  const mediaSrc = resolveAssetUrl(banner.image_url);
+  const styles = computeBannerStyles(banner);
 
-  // Iter38r-fix9z3 — Resolve relative paths (/api/files/...) against the
-  // backend URL so the asset is fetched from the right environment in both
-  // preview and production (mirrors the pattern used by HeroVideoSection).
-  const resolveUrl = (u) => {
-    if (!u) return "";
-    if (u.startsWith("http://") || u.startsWith("https://")) return u;
-    if (u.startsWith("/")) return `${apiBase}${u}`;
-    return u;
-  };
-  const mediaSrc = resolveUrl(banner.image_url);
+  // In "auto" mode, keep the original 64/80 responsive height classes.
+  // In any explicit mode, drop the height/width Tailwind utilities so the
+  // inline style fully controls the dimensions.
+  const isAuto = styles.mode === "auto";
+  const mediaClass = isAuto
+    ? `w-full h-16 sm:h-20 object-cover object-center cursor-pointer ${banner.animated && !isVideo ? "animate-pulse-soft" : ""}`
+    : `cursor-pointer block ${banner.animated && !isVideo ? "animate-pulse-soft" : ""}`;
 
   return (
     <div
       className="relative w-full bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 border-b border-slate-200/20"
       data-testid={`ad-banner-${placement}`}
     >
-      <button
-        onClick={handleClick}
-        className="block w-full max-w-7xl mx-auto"
-        aria-label={`Bannière publicitaire : ${banner.name}`}
-        data-testid={`ad-banner-click-${banner.id}`}
-      >
-        {isVideo ? (
-          <video
-            src={mediaSrc}
-            className="w-full h-16 sm:h-20 object-cover object-center cursor-pointer"
-            muted autoPlay loop playsInline preload="metadata"
-          />
-        ) : (
-          <img
-            src={mediaSrc}
-            alt={banner.advertiser_name || banner.name}
-            className={`w-full h-16 sm:h-20 object-cover object-center cursor-pointer ${banner.animated ? "animate-pulse-soft" : ""}`}
-            loading="lazy"
-          />
-        )}
-      </button>
+      <div className="mx-auto" style={styles.outer}>
+        <button
+          onClick={handleClick}
+          className="block w-full h-full max-w-7xl mx-auto"
+          aria-label={`Bannière publicitaire : ${banner.name}`}
+          data-testid={`ad-banner-click-${banner.id}`}
+        >
+          {isVideo ? (
+            <video
+              src={mediaSrc}
+              className={mediaClass}
+              style={isAuto ? undefined : styles.inner}
+              muted autoPlay loop playsInline preload="metadata"
+            />
+          ) : (
+            <img
+              src={mediaSrc}
+              alt={banner.advertiser_name || banner.name}
+              className={mediaClass}
+              style={isAuto ? undefined : styles.inner}
+              loading="lazy"
+            />
+          )}
+        </button>
+      </div>
       <div className="absolute top-1 right-1 flex items-center gap-1">
         <span className="hidden sm:inline-block bg-black/40 backdrop-blur-sm text-white/70 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded">
           Publicité

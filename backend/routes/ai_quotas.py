@@ -510,3 +510,72 @@ def setup_ai_quotas_routes(*, db, api, get_current_user, get_current_admin):
         client_id = await _resolve_tracked_admin(db, user)
         status = await _quota_status(db, client_id)
         return {"status": status, "client_id": client_id}
+
+    # ----------------------------------------------------------
+    # Iter38r-fix9z5 — Admin Dashboard: cross-tenant monthly cost chart
+    # Returns the last N months of TOTAL AI spend across all tenants
+    # (sum of `total_xof` in `ai_usage_monthly`).
+    # ----------------------------------------------------------
+    @api.get("/admin/ai-costs/monthly", tags=["Admin — IA Quotas"])
+    async def ai_costs_monthly(
+        months: int = Query(12, ge=1, le=36),
+        _: dict = Depends(get_current_admin),
+    ):
+        # Build the list of year_months to include (newest first → oldest last in chart)
+        from datetime import datetime as _dt
+        now = _dt.now(timezone.utc)
+        wanted = []
+        y, m = now.year, now.month
+        for _i in range(months):
+            wanted.append(f"{y:04d}-{m:02d}")
+            m -= 1
+            if m == 0:
+                m = 12
+                y -= 1
+        wanted_set = set(wanted)
+
+        pipeline = [
+            {"$match": {"year_month": {"$in": list(wanted_set)}}},
+            {"$group": {
+                "_id": "$year_month",
+                "total_xof": {"$sum": "$total_xof"},
+                "images": {"$sum": "$images"},
+                "videos": {"$sum": "$videos"},
+                "transcription_minutes": {"$sum": "$transcription_minutes"},
+                "chat_tokens": {"$sum": "$chat_tokens"},
+                "tenant_count": {"$addToSet": "$client_id"},
+            }},
+        ]
+        cursor = db.ai_usage_monthly.aggregate(pipeline)
+        rows: Dict[str, Dict[str, Any]] = {}
+        async for r in cursor:
+            ym = r["_id"]
+            rows[ym] = {
+                "year_month": ym,
+                "total_xof": float(r.get("total_xof") or 0),
+                "images": int(r.get("images") or 0),
+                "videos": int(r.get("videos") or 0),
+                "transcription_minutes": float(r.get("transcription_minutes") or 0),
+                "chat_tokens": int(r.get("chat_tokens") or 0),
+                "tenant_count": len(r.get("tenant_count") or []),
+            }
+        # Build the full series in chronological order (oldest → newest), zero-filled
+        series = []
+        for ym in reversed(wanted):
+            series.append(rows.get(ym, {
+                "year_month": ym, "total_xof": 0.0,
+                "images": 0, "videos": 0,
+                "transcription_minutes": 0.0, "chat_tokens": 0,
+                "tenant_count": 0,
+            }))
+        total_period = sum(r["total_xof"] for r in series)
+        avg_monthly = total_period / max(len(series), 1)
+        return {
+            "months_requested": months,
+            "series": series,
+            "totals": {
+                "period_xof": total_period,
+                "average_monthly_xof": avg_monthly,
+            },
+            "currency": "XOF",
+        }

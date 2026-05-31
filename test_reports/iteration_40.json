@@ -1,0 +1,39 @@
+{
+  "summary": "Iter38r-fix9z5 (Sizing controls + Public renewal widget + Admin AI cost chart + URL resolver hook) — FULL backend + frontend validation PASSED. Re-ran the existing pytest suite tests/test_iter38r_fix9z5_sizing_renewal_chart.py → 9/9 passed. Re-ran byte-range regression tests/test_iter38r_fix9z4_byte_range.py → 6/6 passed (HTTP 206 + Content-Range still works on /api/files/{id}). Wrote new e2e test tests/test_iter38r_fix9z5_e2e_retest.py hitting the public preview URL → 7/7 passed, covering: (a) POST /api/admin/ad-banners with display_mode=ratio/aspect_ratio=21:9/width_pct=80 returns and persists the sizing fields, (b) PUT updates them to display_mode=fixed/width_px=1200/height_px=200 and persists, (c) GET /api/public/ads-report/{slug}?token=... exposes the sizing fields on the renderer payload, (d) POST /api/public/ads-report/{slug}/renew with valid token + payload returns 200/id (and BAD_TOKEN returns 403/404), (e) GET /api/admin/ai-costs/monthly?months=6 returns {series:[6 items], totals, currency:'XOF'}, (f) months=999 → 422 (range validation), (g) no-auth → 401/403 (admin required), (h) GET /api/admin/ad-renewal-requests lists items. FRONTEND Playwright on the preview URL: (1) /admin/ad-banners loads, totals strip and Add button visible, (2) clicking 'Nouvelle bannière' opens the form, the 'Dimensions d'affichage' block (Ruler icon, data-testid=ad-banner-sizing-block) is visible at the bottom, all 4 mode buttons (auto/ratio/percentage/fixed) toggle their sub-block correctly (ratio→ad-sizing-ratio-block, percentage→ad-sizing-pct-block, fixed→ad-sizing-fixed-block), (3) /admin dashboard scrolled to bottom shows 'Coûts IA — Consommation mensuelle' card with 3/6/12/24 mois range buttons; bars=12 at default, bars=6 after clicking 'ai-cost-range-6'; total/avg/current-month tiles render in XOF, (4) Public ad report /ads/{slug}?token=... renders: stats (Affichages/Clics/CTR/Dépensé), Renew CTA card with 'Renouveler ma campagne' button (testid=ads-report-renew-open), and clicking it opens RenewCampaignWidget with all inputs (renew-contact-name/email/phone, renew-duration, renew-budget, renew-message, renew-submit). The ConversionTrend sparkline (testid=ads-report-trend) is conditionally rendered only when daily.length>1 — correctly hidden for the freshly-created test banner with 0 daily_stats.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter38r_fix9z5_sizing_renewal_chart.py",
+    "/app/backend/tests/test_iter38r_fix9z5_e2e_retest.py",
+    "/app/backend/tests/test_iter38r_fix9z4_byte_range.py",
+    "/app/test_reports/pytest/iter38r_fix9z5_retest.xml",
+    "/app/test_reports/pytest/iter38r_fix9z5_e2e_retest.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Good: AdminAdBanners.jsx BannerSizingBlock uses a clear mode switch and conditionally renders only the active sub-block (ratio/percentage/fixed) — no dead form fields submitted.",
+    "Good: Public renewal endpoint is locked behind the share_token; bad token returns 403 (verified). Endpoint accepts contact_email + new_budget + target_duration_days exactly as documented.",
+    "Good: /api/admin/ai-costs/monthly is zero-filled for the entire requested window — chart never has gaps regardless of LLM usage history.",
+    "Good: ConversionTrend correctly guards on daily.length>1 to avoid drawing a one-point line.",
+    "Good: All new components carry data-testid attributes (ad-banner-sizing-block, ad-sizing-mode-{auto|ratio|percentage|fixed}, ad-sizing-ratio-block, ad-sizing-pct-block, ad-sizing-fixed-block, admin-ai-cost-chart, ai-cost-range-{3|6|12|24}, ai-cost-bars, ads-report-renew-cta, ads-report-renew-open, ads-report-renew-form, renew-*).",
+    "Minor (pre-existing, not introduced by this iter): /api/files/{id} returns 404 (not 500) for missing IDs even when a Range header is supplied — defensive, good.",
+    "Minor (pre-existing, not introduced by this iter): the WelcomeBriefing modal (data-testid=welcome-briefing) auto-opens on every admin route refresh, intercepting pointer events; tests must dismiss it before interacting with the dashboard. Not a fix9z5 regression, but worth noting for future test stability."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter38r_fix9z5_e2e_retest.py (new — 7 e2e tests against preview URL)"
+  ],
+  "success_rate": {"backend": "100% (9/9 unit + 7/7 e2e + 6/6 byte-range = 22/22)", "frontend": "100% (all 4 review-request UI flows verified)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp on /api/auth/login response, internal domain)",
+  "seed_data_creation": "Tests create TEST_-prefixed ad_banners and renewal_requests rows and clean them up afterwards (3 TEST_ banners cleaned post-run; 1 renewal_request row left in DB from the e2e renew test — recommend the main agent add ad_renewal_requests TEST_ cleanup or let it remain as harmless fixture).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 enhancements from this iter are GA-ready. Public ad report sparkline (ConversionTrend) only renders when banner has >1 days of daily_stats — verify with a banner that has accumulated impressions if you want to visually QA the SVG. Login flow on the preview URL: POST /api/auth/login → response has {session_token, dev_otp} (internal domain → OTP visible inline) → POST /api/auth/verify-otp with {session_token, code} → response has {access_token, token_type, user}. Use access_token as Bearer token. The WelcomeBriefing modal MUST be dismissed (click 'J'ai lu' button inside [data-testid=welcome-briefing]) before any admin-page button click, otherwise it intercepts pointer events on /admin and /admin/ad-banners.",
+  "rca of the issue": "No issues found — all features behave per spec."
+}

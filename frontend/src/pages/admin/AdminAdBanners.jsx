@@ -2,6 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
+import { resolveAssetUrl } from "@/lib/useAssetUrl";
+import { computeBannerStyles } from "@/lib/bannerStyle";
 import {
   ArrowLeft,
   Plus,
@@ -21,6 +23,7 @@ import {
   Calendar,
   Share2,
   RefreshCw,
+  Ruler,
 } from "lucide-react";
 
 // Iter38r-fix9w — Admin page to manage paid advertising banners.
@@ -43,6 +46,13 @@ const DEFAULT_DRAFT = {
   expiration_date: "",
   start_date: "",
   notes: "",
+  // Iter38r-fix9z5 — Display sizing controls
+  display_mode: "auto",
+  aspect_ratio: "16:9",
+  width_pct: 100,
+  height_px: 80,
+  width_px: 728,
+  object_fit: "cover",
 };
 
 export default function AdminAdBanners() {
@@ -53,6 +63,7 @@ export default function AdminAdBanners() {
   const [showForm, setShowForm] = useState(false);
   const [statsId, setStatsId] = useState(null);
   const [stats, setStats] = useState(null);
+  const [renewals, setRenewals] = useState([]);
 
   const load = async () => {
     setLoading(true);
@@ -62,6 +73,19 @@ export default function AdminAdBanners() {
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally { setLoading(false); }
+    // Iter38r-fix9z5 — Load renewal requests (best-effort, silent on failure)
+    try {
+      const r2 = await apiClient.get("/admin/ad-renewal-requests");
+      setRenewals(r2.data?.items || []);
+    } catch { /* ignore */ }
+  };
+
+  const markRenewalHandled = async (id) => {
+    try {
+      await apiClient.post(`/admin/ad-renewal-requests/${id}/mark-handled`);
+      toast.success("Demande marquée comme traitée");
+      await load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
   };
 
   useEffect(() => { load(); }, []);
@@ -96,6 +120,13 @@ export default function AdminAdBanners() {
       expiration_date: it.expiration_date || "",
       start_date: it.start_date || "",
       notes: it.notes || "",
+      // Iter38r-fix9z5 — Display sizing
+      display_mode: it.display_mode || "auto",
+      aspect_ratio: it.aspect_ratio || "16:9",
+      width_pct: it.width_pct ?? 100,
+      height_px: it.height_px ?? 80,
+      width_px: it.width_px ?? 728,
+      object_fit: it.object_fit || "cover",
     });
     setShowForm(true);
   };
@@ -215,6 +246,43 @@ export default function AdminAdBanners() {
 
       {showForm && <BannerForm draft={draft} setDraft={setDraft} onSave={save} onCancel={() => { setShowForm(false); setEditing(null); }} editing={editing} />}
 
+      {/* Iter38r-fix9z5 — Renewal requests inbox (from public ad reports) */}
+      {renewals.filter((r) => r.status === "new").length > 0 && (
+        <section className="rounded-2xl ring-1 ring-fuchsia-200 bg-fuchsia-50/40 p-4 space-y-2" data-testid="ad-renewal-inbox">
+          <h2 className="font-display font-semibold text-fuchsia-900 inline-flex items-center gap-2">
+            <RefreshCw className="h-4 w-4" /> Demandes de renouvellement · {renewals.filter((r) => r.status === "new").length}
+          </h2>
+          <div className="space-y-2">
+            {renewals.filter((r) => r.status === "new").map((r) => (
+              <div key={r.id} className="rounded-xl bg-white ring-1 ring-fuchsia-200 p-3 flex items-start gap-3 flex-wrap" data-testid={`ad-renewal-${r.id}`}>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-slate-800">{r.banner_name} · {r.advertiser_name || "—"}</p>
+                  <p className="text-xs text-slate-600">
+                    {r.contact_name && <span>{r.contact_name} · </span>}
+                    {r.contact_email && <span className="text-sky-700">{r.contact_email}</span>}
+                    {r.contact_email && r.contact_phone && <span> · </span>}
+                    {r.contact_phone && <span className="font-mono text-emerald-700">{r.contact_phone}</span>}
+                  </p>
+                  <p className="text-xs text-slate-700 mt-1">
+                    Nouveau budget : <strong>{(r.new_budget || 0).toLocaleString("fr-FR")} {r.currency}</strong>
+                    {" · "}Durée : <strong>{r.target_duration_days} jours</strong>
+                  </p>
+                  {r.message && <p className="text-[11px] text-slate-500 mt-1 italic">« {r.message} »</p>}
+                  <p className="text-[10px] text-slate-400 mt-0.5">{new Date(r.created_at).toLocaleString("fr-FR")}</p>
+                </div>
+                <button
+                  onClick={() => markRenewalHandled(r.id)}
+                  className="inline-flex items-center gap-1 rounded-lg bg-emerald-600 text-white px-3 py-1.5 text-xs hover:bg-emerald-700"
+                  data-testid={`ad-renewal-handle-${r.id}`}
+                >
+                  <CheckCircle2 className="h-3.5 w-3.5" /> Marquer traitée
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Table */}
       <section className="rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden">
         {loading ? (
@@ -247,9 +315,9 @@ export default function AdminAdBanners() {
                         <div className="flex items-center gap-2">
                           {it.image_url && (
                             it.media_kind === "video" ? (
-                              <video src={it.image_url} className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" muted autoPlay loop playsInline />
+                              <video src={resolveAssetUrl(it.image_url)} className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" muted autoPlay loop playsInline />
                             ) : (
-                              <img src={it.image_url} alt="" className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" />
+                              <img src={resolveAssetUrl(it.image_url)} alt="" className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" />
                             )
                           )}
                           <div className="min-w-0">
@@ -442,9 +510,9 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       {draft.image_url && (
         <div className="flex items-center gap-3 rounded-lg ring-1 ring-slate-200 bg-white p-2" data-testid="ad-banner-preview">
           {draft.media_kind === "video" ? (
-            <video src={draft.image_url} className="h-14 w-28 object-cover rounded" muted autoPlay loop playsInline controls />
+            <video src={resolveAssetUrl(draft.image_url)} className="h-14 w-28 object-cover rounded" muted autoPlay loop playsInline controls />
           ) : (
-            <img src={draft.image_url} alt="aperçu" className="h-14 w-28 object-cover rounded" />
+            <img src={resolveAssetUrl(draft.image_url)} alt="aperçu" className="h-14 w-28 object-cover rounded" />
           )}
           <p className="text-[10px] text-slate-500 truncate flex-1">{draft.image_url}</p>
         </div>
@@ -506,6 +574,10 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       <Field label="Notes (optionnel)" testid="ad-form-notes">
         <textarea rows={2} value={draft.notes} onChange={(e) => setDraft({ ...draft, notes: e.target.value })} placeholder="Contrat, contact annonceur…" className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
       </Field>
+
+      {/* Iter38r-fix9z5 — Sizing controls */}
+      <BannerSizingBlock draft={draft} setDraft={setDraft} />
+
       <div className="flex justify-end gap-2">
         <button onClick={onCancel} className="text-xs text-slate-600 hover:underline">Annuler</button>
         <button onClick={onSave} className="inline-flex items-center gap-1 rounded-lg bg-fuchsia-600 text-white px-4 py-2 text-sm hover:bg-fuchsia-700" data-testid="ad-form-save">
@@ -576,6 +648,216 @@ function StatsModal({ stats, onClose }) {
                 </tbody>
               </table>
             </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// Iter38r-fix9z5 — Sizing controls for the banner display.
+// Lets the admin pick between four modes:
+//   • auto        — current responsive default (64/80px tall, full width)
+//   • ratio       — % width × aspect ratio (16:9, 21:9, 4:1, custom)
+//   • percentage  — % width with a fixed height in pixels
+//   • fixed       — exact pixel width × height
+const COMMON_RATIOS = ["16:9", "21:9", "4:1", "3:1", "2:1", "1:1", "4:5", "9:16"];
+
+function BannerSizingBlock({ draft, setDraft }) {
+  const mode = draft.display_mode || "auto";
+  const update = (patch) => setDraft({ ...draft, ...patch });
+  const aspectIsCustom = !COMMON_RATIOS.includes(draft.aspect_ratio);
+
+  // Live preview style
+  const previewStyles = computeBannerStyles(draft);
+
+  return (
+    <div className="rounded-xl ring-1 ring-sky-200 bg-sky-50/40 p-4 space-y-3" data-testid="ad-banner-sizing-block">
+      <h4 className="inline-flex items-center gap-2 text-sm font-display font-semibold text-sky-900">
+        <Ruler className="h-4 w-4" /> Dimensions d'affichage
+      </h4>
+      <p className="text-[10px] text-slate-500 -mt-1">
+        Contrôlez comment la bannière s'affiche sur les pages publiques / le portail. Les valeurs respectent la largeur maximale du conteneur (1280px).
+      </p>
+
+      <div className="flex flex-wrap gap-2 text-xs" data-testid="ad-sizing-mode">
+        {[
+          { v: "auto", label: "Auto (responsive)", hint: "Défaut — 64/80px de haut" },
+          { v: "ratio", label: "Ratio", hint: "% largeur × aspect-ratio" },
+          { v: "percentage", label: "Pourcentage", hint: "% largeur + hauteur fixe" },
+          { v: "fixed", label: "Fixe (px)", hint: "Dimensions exactes" },
+        ].map((opt) => (
+          <button
+            key={opt.v}
+            type="button"
+            onClick={() => update({ display_mode: opt.v })}
+            className={`px-3 py-1.5 rounded-lg ring-1 transition-all ${
+              mode === opt.v
+                ? "bg-sky-600 text-white ring-sky-700 shadow-sm"
+                : "bg-white text-slate-700 ring-slate-300 hover:ring-sky-400"
+            }`}
+            data-testid={`ad-sizing-mode-${opt.v}`}
+            title={opt.hint}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+
+      {mode === "ratio" && (
+        <div className="grid sm:grid-cols-2 gap-3" data-testid="ad-sizing-ratio-block">
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Aspect ratio (L:H)</span>
+            <div className="flex gap-2 mt-1">
+              <select
+                value={aspectIsCustom ? "__custom" : draft.aspect_ratio}
+                onChange={(e) => {
+                  if (e.target.value === "__custom") {
+                    update({ aspect_ratio: "10:3" });
+                  } else {
+                    update({ aspect_ratio: e.target.value });
+                  }
+                }}
+                className="text-sm rounded-lg ring-1 ring-slate-300 px-2 py-2 bg-white flex-1"
+                data-testid="ad-sizing-aspect-select"
+              >
+                {COMMON_RATIOS.map((r) => <option key={r} value={r}>{r}</option>)}
+                <option value="__custom">Personnalisé…</option>
+              </select>
+              {aspectIsCustom && (
+                <input
+                  type="text"
+                  value={draft.aspect_ratio}
+                  onChange={(e) => update({ aspect_ratio: e.target.value })}
+                  placeholder="ex: 10:3"
+                  pattern="\d{1,4}:\d{1,4}"
+                  className="w-24 text-sm rounded-lg ring-1 ring-slate-300 px-2 py-2 bg-white font-mono"
+                  data-testid="ad-sizing-aspect-custom"
+                />
+              )}
+            </div>
+          </label>
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Largeur (% du conteneur)</span>
+            <div className="flex items-center gap-3 mt-1">
+              <input
+                type="range" min="10" max="100" step="5"
+                value={draft.width_pct}
+                onChange={(e) => update({ width_pct: parseInt(e.target.value, 10) })}
+                className="flex-1"
+                data-testid="ad-sizing-width-pct-slider"
+              />
+              <span className="font-mono text-xs w-12 text-right tabular-nums">{draft.width_pct}%</span>
+            </div>
+          </label>
+        </div>
+      )}
+
+      {mode === "percentage" && (
+        <div className="grid sm:grid-cols-2 gap-3" data-testid="ad-sizing-pct-block">
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Largeur (% du conteneur)</span>
+            <div className="flex items-center gap-3 mt-1">
+              <input
+                type="range" min="10" max="100" step="5"
+                value={draft.width_pct}
+                onChange={(e) => update({ width_pct: parseInt(e.target.value, 10) })}
+                className="flex-1"
+                data-testid="ad-sizing-width-pct-slider"
+              />
+              <span className="font-mono text-xs w-12 text-right tabular-nums">{draft.width_pct}%</span>
+            </div>
+          </label>
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Hauteur (px)</span>
+            <input
+              type="number" min="20" max="1200" step="10"
+              value={draft.height_px}
+              onChange={(e) => update({ height_px: parseInt(e.target.value, 10) || 80 })}
+              className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white mt-1"
+              data-testid="ad-sizing-height-px"
+            />
+          </label>
+        </div>
+      )}
+
+      {mode === "fixed" && (
+        <div className="grid sm:grid-cols-2 gap-3" data-testid="ad-sizing-fixed-block">
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Largeur (px)</span>
+            <input
+              type="number" min="50" max="2400" step="10"
+              value={draft.width_px}
+              onChange={(e) => update({ width_px: parseInt(e.target.value, 10) || 728 })}
+              className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white mt-1 font-mono"
+              data-testid="ad-sizing-width-px"
+            />
+          </label>
+          <label className="block">
+            <span className="text-[11px] uppercase font-semibold text-slate-500">Hauteur (px)</span>
+            <input
+              type="number" min="20" max="1200" step="10"
+              value={draft.height_px}
+              onChange={(e) => update({ height_px: parseInt(e.target.value, 10) || 90 })}
+              className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white mt-1 font-mono"
+              data-testid="ad-sizing-height-px"
+            />
+          </label>
+        </div>
+      )}
+
+      {mode !== "auto" && (
+        <label className="block">
+          <span className="text-[11px] uppercase font-semibold text-slate-500">Adaptation du média (object-fit)</span>
+          <div className="flex gap-2 mt-1 text-xs">
+            {[
+              { v: "cover", label: "Cover (remplit, peut rogner)" },
+              { v: "contain", label: "Contain (visible intégralement, peut avoir des bandes)" },
+              { v: "fill", label: "Fill (étire)" },
+            ].map((opt) => (
+              <button
+                key={opt.v}
+                type="button"
+                onClick={() => update({ object_fit: opt.v })}
+                className={`px-3 py-1.5 rounded-lg ring-1 transition-all ${
+                  draft.object_fit === opt.v
+                    ? "bg-slate-800 text-white ring-slate-900"
+                    : "bg-white text-slate-700 ring-slate-300 hover:ring-slate-500"
+                }`}
+                data-testid={`ad-sizing-fit-${opt.v}`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+        </label>
+      )}
+
+      {/* Live preview */}
+      <div className="border-t border-sky-200 pt-3 mt-1">
+        <p className="text-[10px] uppercase font-semibold text-slate-500 mb-1.5">Aperçu en direct</p>
+        <div className="bg-slate-900 rounded-lg p-1 overflow-hidden ring-1 ring-slate-700" data-testid="ad-sizing-preview">
+          {draft.image_url ? (
+            <div style={previewStyles.outer} className="mx-auto bg-slate-800">
+              {draft.media_kind === "video" ? (
+                <video
+                  src={resolveAssetUrl(draft.image_url)}
+                  className={previewStyles.mode === "auto" ? "w-full h-16 sm:h-20 object-cover" : ""}
+                  style={previewStyles.mode === "auto" ? undefined : previewStyles.inner}
+                  muted autoPlay loop playsInline
+                />
+              ) : (
+                <img
+                  src={resolveAssetUrl(draft.image_url)}
+                  alt="aperçu"
+                  className={previewStyles.mode === "auto" ? "w-full h-16 sm:h-20 object-cover" : ""}
+                  style={previewStyles.mode === "auto" ? undefined : previewStyles.inner}
+                />
+              )}
+            </div>
+          ) : (
+            <p className="text-center text-[11px] text-slate-400 italic py-6">Chargez une image ou une vidéo pour voir l'aperçu</p>
           )}
         </div>
       </div>

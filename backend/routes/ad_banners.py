@@ -138,6 +138,13 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
         "placement": b.get("placement"),
         # Iter38r-fix9z3 — Tells the frontend whether to render <img> or <video>
         "media_kind": b.get("media_kind") or "image",
+        # Iter38r-fix9z5 — Display sizing
+        "display_mode": b.get("display_mode") or "auto",
+        "aspect_ratio": b.get("aspect_ratio") or "16:9",
+        "width_pct": int(b.get("width_pct") or 100),
+        "height_px": int(b.get("height_px") or 80),
+        "width_px": int(b.get("width_px") or 728),
+        "object_fit": b.get("object_fit") or "cover",
     }
 
 
@@ -179,6 +186,14 @@ class AdBannerPayload(BaseModel):
     expiration_date: Optional[str] = None
     start_date: Optional[str] = None
     notes: Optional[str] = Field("", max_length=500)
+    # Iter38r-fix9z5 — Display sizing controls.
+    # display_mode: auto (responsive 64/80px), ratio (% width × aspect), percentage (% width + fixed height), fixed (fixed px)
+    display_mode: str = Field("auto", pattern="^(auto|ratio|percentage|fixed)$")
+    aspect_ratio: str = Field("16:9", max_length=12)  # only used when display_mode=ratio. Format "W:H"
+    width_pct: int = Field(100, ge=10, le=100)         # used in percentage / ratio modes
+    height_px: int = Field(80, ge=20, le=1200)         # used in percentage / fixed modes
+    width_px: int = Field(728, ge=50, le=2400)         # used in fixed mode
+    object_fit: str = Field("cover", pattern="^(cover|contain|fill)$")
 
 
 class AdBannerUpdate(BaseModel):
@@ -199,6 +214,24 @@ class AdBannerUpdate(BaseModel):
     expiration_date: Optional[str] = None
     start_date: Optional[str] = None
     notes: Optional[str] = None
+    # Iter38r-fix9z5 — Display sizing controls (all optional on update)
+    display_mode: Optional[str] = Field(None, pattern="^(auto|ratio|percentage|fixed)$")
+    aspect_ratio: Optional[str] = Field(None, max_length=12)
+    width_pct: Optional[int] = Field(None, ge=10, le=100)
+    height_px: Optional[int] = Field(None, ge=20, le=1200)
+    width_px: Optional[int] = Field(None, ge=50, le=2400)
+    object_fit: Optional[str] = Field(None, pattern="^(cover|contain|fill)$")
+
+
+# Iter38r-fix9z5 — Renewal request payload (must be at module scope so
+# FastAPI recognises it as a request body, not a query parameter).
+class RenewRequestPayload(BaseModel):
+    contact_name: str = Field("", max_length=120)
+    contact_email: str = Field("", max_length=200)
+    contact_phone: str = Field("", max_length=40)
+    new_budget: float = Field(0, ge=0)
+    target_duration_days: int = Field(0, ge=0, le=730)
+    message: str = Field("", max_length=2000)
 
 
 async def _bump_daily_stat(db, banner_id: str, field: str, amount: float = 1.0) -> None:
@@ -347,6 +380,13 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "start_date": payload.start_date,
             "daily_stats": [],
             "notes": (payload.notes or "").strip(),
+            # Iter38r-fix9z5 — Display sizing
+            "display_mode": payload.display_mode,
+            "aspect_ratio": payload.aspect_ratio.strip() or "16:9",
+            "width_pct": int(payload.width_pct),
+            "height_px": int(payload.height_px),
+            "width_px": int(payload.width_px),
+            "object_fit": payload.object_fit,
             # Iter38r-fix9y — Public stats share fields
             "slug": slug,
             "share_token": secrets.token_urlsafe(16),
@@ -498,6 +538,14 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "start_date": b.get("start_date"),
             "expiration_date": b.get("expiration_date"),
             "is_currently_active": _admin_view(b)["is_currently_active"],
+            # Iter38r-fix9z5 — Sizing controls echoed back so the preview in
+            # the public report matches the live banner.
+            "display_mode": b.get("display_mode") or "auto",
+            "aspect_ratio": b.get("aspect_ratio") or "16:9",
+            "width_pct": int(b.get("width_pct") or 100),
+            "height_px": int(b.get("height_px") or 80),
+            "width_px": int(b.get("width_px") or 728),
+            "object_fit": b.get("object_fit") or "cover",
             "totals": {
                 "impressions": imp,
                 "clicks": clicks,
@@ -512,5 +560,57 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "daily": daily[-90:],  # last 90 days
             "generated_at": _now_iso(),
         }
+
+    # Iter38r-fix9z5 — "Renew campaign" endpoint. Lets the advertiser
+    # request a renewal of their campaign from the public report page,
+    # validated via slug+share_token. Creates a row in `ad_renewal_requests`
+    # so the admin sees it in their inbox without exposing internal IDs.
+    @api.post("/public/ads-report/{slug}/renew", tags=["Public — Ad Banners"])
+    async def public_renew_campaign(slug: str, payload: RenewRequestPayload, token: str = Query(..., min_length=1)):
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        if not (payload.contact_email or payload.contact_phone):
+            raise HTTPException(status_code=400, detail="Email ou téléphone requis")
+        doc = {
+            "id": str(uuid.uuid4()),
+            "banner_id": b.get("id"),
+            "banner_name": b.get("name"),
+            "advertiser_name": b.get("advertiser_name") or "",
+            "contact_name": payload.contact_name.strip(),
+            "contact_email": payload.contact_email.strip(),
+            "contact_phone": payload.contact_phone.strip(),
+            "current_budget": float(b.get("budget_amount") or 0),
+            "current_spent": float(b.get("amount_spent") or 0),
+            "new_budget": float(payload.new_budget),
+            "target_duration_days": int(payload.target_duration_days),
+            "message": payload.message.strip(),
+            "currency": b.get("currency") or "XOF",
+            "tenant_id": b.get("tenant_id"),
+            "status": "new",
+            "created_at": _now_iso(),
+        }
+        await db.ad_renewal_requests.insert_one(doc.copy())
+        return {"ok": True, "id": doc["id"]}
+
+    @api.get("/admin/ad-renewal-requests", tags=["Admin — Ad Banners"])
+    async def list_renewal_requests(user: dict = Depends(get_current_user)):
+        _ensure_admin(user)
+        cursor = db.ad_renewal_requests.find({}, {"_id": 0}).sort("created_at", -1)
+        items = await cursor.to_list(500)
+        return {"items": items, "count": len(items)}
+
+    @api.post("/admin/ad-renewal-requests/{req_id}/mark-handled", tags=["Admin — Ad Banners"])
+    async def mark_renewal_handled(req_id: str, user: dict = Depends(get_current_user)):
+        _ensure_admin(user)
+        res = await db.ad_renewal_requests.update_one(
+            {"id": req_id},
+            {"$set": {"status": "handled", "handled_by": user.get("email"), "handled_at": _now_iso()}},
+        )
+        if res.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Demande introuvable")
+        return {"ok": True}
 
     return api

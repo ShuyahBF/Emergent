@@ -6,6 +6,25 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-05-31) — Iter38r-fix9z9 — 🤖 Plan de campagne IA + 📚 Documentation actualisée
+
+### ✅ Plan de campagne IA (Claude Haiku 4.5)
+- Endpoint `POST /api/public/ads-report/{slug}/ai-plan?token=X` validé par slug + share_token
+- Prompt structuré envoie : nom, annonceur, impressions/clics/CTR, budget alloué/dépensé, comparaison A/B si activé
+- Réponse JSON parsée avec 4 champs : `visual_hint` (description prête pour Gemini Nano Banana), `slogans` (liste de 3 CTA), `recommended_budget_xof` (nombre), `budget_justification` (texte court)
+- Heuristique implicite dans le prompt : CTR < 0.5% → visuel ; 0.5–2% → slogans ; > 2% → augmenter budget
+- **Cache 6h** sur le doc bannière (`ai_plan` + `ai_plan_updated_at`) pour maîtriser les coûts IA — le 2e appel renvoie `cached:true`
+- UI `AICampaignPlan` dans PublicAdReport : 3 cartes (fuchsia visuel + sky slogans + emerald budget), boutons Copier sur chaque suggestion, badge CACHE quand cache hit, bouton Régénérer
+
+### ✅ Documentation PDF actualisée
+- 2 nouvelles sections ajoutées à `generate_pdfs.py > SECTIONS` :
+  1. **Régie publicitaire (Ad Banners) — Complète** — 12 champs décrits avec rôle et impact : Liste & cartes, Bouton Nouvelle bannière, Champs basiques, Champs budget, Dates, Dimensions d'affichage (fix9z5), Test A/B (fix9z6), Contact annonceur + rappels (fix9z6+7), Boutons par ligne, Modale Statistiques, Inbox renouvellements, Dashboard temps-réel (fix9z7)
+  2. **Rapport public annonceur — /ads/{slug}?token=…** — 9 sections décrites : En-tête, Cartes KPI, Section Budget, Graphique tendance 30j (fix9z5), Demande renouvellement (fix9z5), Paiement en ligne (fix9z8), MAJ libre-service visuel (fix9z8), Plan de campagne IA (fix9z9), Historique journalier
+- 2 nouvelles captures d'écran intégrées : `11_ad_banners.jpeg` (panel live + form sizing/AB) + `12_ad_report_public.jpeg` (rapport complet avec widgets self-service)
+- 3 PDFs régénérés (Guide Utilisateur 1.07 MB + Brochure Présentation 1.06 MB + Brochure Grandes Fonctionnalités 1.62 MB)
+
+### Tests : 41/41 cumulés (fix9z4 → fix9z9) — 0 régression
+
 ## Recent (2026-05-31) — Iter38r-fix9z7 + fix9z8 — 📱 WhatsApp + Live WS + Portail libre-service
 
 ### ✅ fix9z7 — WhatsApp reminders + Live admin dashboard

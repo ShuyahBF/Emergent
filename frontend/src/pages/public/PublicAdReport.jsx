@@ -24,6 +24,10 @@ import {
   Upload as UploadIcon,
   Image as ImageIcon,
   Edit3,
+  Sparkles,
+  Lightbulb,
+  MessageSquare,
+  TrendingDown,
 } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
@@ -221,6 +225,9 @@ export default function PublicAdReport() {
           currentMediaKind={report.media_kind}
           currentTargetUrl={report.target_url}
         />
+
+        {/* Iter38r-fix9z9 — AI campaign plan */}
+        <AICampaignPlan slug={slug} token={token} apiBase={apiBase} currency={report.currency} />
 
         {/* Daily history */}
         {daily.length > 0 && (
@@ -880,6 +887,167 @@ function SelfServiceMediaUpdate({ slug, token, apiBase, currentImageUrl, current
           <UploadIcon className="h-3.5 w-3.5" /> {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
       </div>
+    </section>
+  );
+}
+
+
+// Iter38r-fix9z9 — AI Campaign Plan widget.
+// Calls POST /api/public/ads-report/{slug}/ai-plan and renders the 4
+// recommendations (visual hint, slogans, recommended budget, justification).
+// Cached 6h server-side — second click is instant.
+function AICampaignPlan({ slug, token, apiBase, currency }) {
+  const [plan, setPlan] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [err, setErr] = useState(null);
+  const [copied, setCopied] = useState(null);
+
+  const run = async () => {
+    setLoading(true); setErr(null);
+    try {
+      const r = await fetch(
+        `${apiBase}/api/public/ads-report/${encodeURIComponent(slug)}/ai-plan?token=${encodeURIComponent(token)}`,
+        { method: "POST" },
+      );
+      if (!r.ok) {
+        const data = await r.json().catch(() => ({}));
+        throw new Error(data.detail || `Erreur ${r.status}`);
+      }
+      const data = await r.json();
+      setPlan(data);
+    } catch (e) {
+      setErr(e.message || "Erreur réseau");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const copyToClipboard = async (text, key) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    } catch { /* ignore */ }
+  };
+
+  if (!plan && !loading && !err) {
+    return (
+      <section className="rounded-2xl ring-1 ring-violet-200 bg-gradient-to-br from-violet-50 to-fuchsia-50 p-5" data-testid="ads-report-ai-cta">
+        <div className="flex items-center justify-between gap-3 flex-wrap">
+          <div className="flex items-start gap-3 max-w-xl">
+            <div className="rounded-lg bg-white p-2 ring-1 ring-violet-200 hidden sm:block">
+              <Sparkles className="h-5 w-5 text-violet-600" />
+            </div>
+            <div>
+              <h2 className="font-display font-bold text-slate-900 inline-flex items-center gap-1.5">
+                Plan de campagne IA
+                <span className="text-[10px] uppercase tracking-wider font-bold bg-violet-600 text-white px-1.5 py-0.5 rounded">Premium</span>
+              </h2>
+              <p className="text-sm text-slate-700 mt-1">
+                Claude Haiku 4.5 analyse vos statistiques (affichages, clics, CTR, A/B) et propose 3 axes d'optimisation : visuel, slogan, budget. Résultat en 5 secondes.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={run}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 text-sm font-semibold shadow-sm"
+            data-testid="ads-report-ai-run"
+          >
+            <Sparkles className="h-4 w-4" /> Générer mon plan IA
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl ring-1 ring-violet-300 bg-white p-5 space-y-4" data-testid="ads-report-ai-result">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <h2 className="font-display font-bold text-slate-900 inline-flex items-center gap-2">
+          <Sparkles className="h-5 w-5 text-violet-600" /> Plan de campagne IA
+          {plan?.cached && (
+            <span className="text-[10px] uppercase font-bold bg-emerald-100 text-emerald-700 px-1.5 py-0.5 rounded" title="Résultat mis en cache 6h pour éviter la sur-consommation IA">CACHE</span>
+          )}
+        </h2>
+        <button
+          onClick={run}
+          disabled={loading}
+          className="text-xs inline-flex items-center gap-1 rounded-md ring-1 ring-violet-300 text-violet-700 hover:bg-violet-50 px-2 py-1 disabled:opacity-50"
+          data-testid="ads-report-ai-refresh"
+        >
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> {loading ? "Analyse…" : "Régénérer"}
+        </button>
+      </div>
+
+      {loading && (
+        <div className="text-sm text-slate-600 italic py-6 text-center">Claude analyse votre campagne…</div>
+      )}
+
+      {err && (
+        <p className="text-sm text-rose-600 inline-flex items-center gap-1.5" data-testid="ads-report-ai-error">
+          <AlertTriangle className="h-4 w-4" /> {err}
+        </p>
+      )}
+
+      {plan && !loading && (
+        <div className="space-y-3">
+          {/* Visual hint */}
+          <div className="rounded-xl ring-1 ring-fuchsia-200 bg-fuchsia-50/40 p-4" data-testid="ads-report-ai-visual">
+            <p className="text-[11px] uppercase font-bold tracking-wider text-fuchsia-700 inline-flex items-center gap-1 mb-1">
+              <ImageIcon className="h-3 w-3" /> Idée de visuel
+            </p>
+            <p className="text-sm text-slate-800">{plan.visual_hint}</p>
+            <button
+              onClick={() => copyToClipboard(plan.visual_hint, "visual")}
+              className="mt-2 text-[11px] text-fuchsia-700 hover:underline"
+              data-testid="ads-report-ai-copy-visual"
+            >
+              {copied === "visual" ? "✓ Copié" : "Copier la description"}
+            </button>
+          </div>
+
+          {/* Slogans */}
+          <div className="rounded-xl ring-1 ring-sky-200 bg-sky-50/40 p-4" data-testid="ads-report-ai-slogans">
+            <p className="text-[11px] uppercase font-bold tracking-wider text-sky-700 inline-flex items-center gap-1 mb-1">
+              <MessageSquare className="h-3 w-3" /> Slogans / Appels à l'action
+            </p>
+            <ul className="space-y-1.5 mt-1">
+              {(plan.slogans || []).map((s, i) => (
+                <li key={i} className="flex items-start justify-between gap-2 group">
+                  <span className="text-sm text-slate-800 flex-1">
+                    <span className="text-sky-500 font-bold mr-1.5">{i + 1}.</span>{s}
+                  </span>
+                  <button
+                    onClick={() => copyToClipboard(s, `slogan-${i}`)}
+                    className="text-[10px] text-sky-600 hover:underline opacity-0 group-hover:opacity-100 transition-opacity"
+                    data-testid={`ads-report-ai-copy-slogan-${i}`}
+                  >
+                    {copied === `slogan-${i}` ? "✓" : "copier"}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          {/* Budget */}
+          <div className="rounded-xl ring-1 ring-emerald-200 bg-emerald-50/40 p-4" data-testid="ads-report-ai-budget">
+            <p className="text-[11px] uppercase font-bold tracking-wider text-emerald-700 inline-flex items-center gap-1 mb-1">
+              <Wallet className="h-3 w-3" /> Budget mensuel recommandé
+            </p>
+            <p className="font-display font-bold text-3xl text-emerald-700 tabular-nums">
+              {Math.round(plan.recommended_budget_xof || 0).toLocaleString("fr-FR")} <span className="text-base font-normal text-slate-600">{currency}</span>
+            </p>
+            <p className="text-xs text-slate-700 mt-1.5">{plan.budget_justification}</p>
+          </div>
+
+          {plan.based_on && (
+            <p className="text-[10px] text-slate-500 italic">
+              Analyse basée sur : {plan.based_on.impressions} affichages · {plan.based_on.clicks} clics · CTR {plan.based_on.ctr_pct}% · budget actuel {Math.round(plan.based_on.current_budget).toLocaleString("fr-FR")} {currency}{plan.based_on.ab_enabled ? " · A/B actif" : ""}.
+              {plan.generated_at && ` Généré le ${new Date(plan.generated_at).toLocaleString("fr-FR")}.`}
+            </p>
+          )}
+        </div>
+      )}
     </section>
   );
 }

@@ -1170,6 +1170,137 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         return {"ok": True, "updated_fields": list(update_doc.keys())}
 
     # =====================================================================
+    # Iter38r-fix9z9 — AI Campaign Plan
+    # Public endpoint validated by slug+share_token. Asks Claude Haiku 4.5
+    # to analyse the campaign's current performance (impressions, clicks,
+    # CTR, A/B variant comparison, budget pacing) and produce 3 concrete
+    # recommendations:
+    #   1. Visual improvement hint (description text — the user can then
+    #      use the existing AI Media Generator to actually create the image)
+    #   2. 3 alternative slogans / CTAs
+    #   3. Optimal budget recommendation with justification
+    # Cached for 6 hours per banner to control LLM cost.
+    # =====================================================================
+    @api.post("/public/ads-report/{slug}/ai-plan", tags=["Public — Ad Banners"])
+    async def public_ai_campaign_plan(slug: str, token: str = Query(..., min_length=1)):
+        b = await db.ad_banners.find_one({"slug": slug}, {"_id": 0})
+        if not b:
+            raise HTTPException(status_code=404, detail="Bannière introuvable")
+        if (b.get("share_token") or "") != token:
+            raise HTTPException(status_code=403, detail="Lien invalide ou expiré")
+        # Cache check (6h)
+        cached = b.get("ai_plan") or {}
+        cache_age_ok = False
+        if cached.get("generated_at"):
+            try:
+                age = (datetime.now(timezone.utc) - datetime.fromisoformat(cached["generated_at"])).total_seconds()
+                cache_age_ok = age < 6 * 3600
+            except (ValueError, TypeError):
+                cache_age_ok = False
+        if cache_age_ok:
+            return {**cached, "cached": True}
+
+        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        if not api_key:
+            raise HTTPException(status_code=500, detail="Module IA non configuré")
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"emergentintegrations indisponible : {exc}") from exc
+
+        imp = int(b.get("total_impressions") or 0)
+        clicks = int(b.get("total_clicks") or 0)
+        ctr = round((clicks / imp) * 100, 2) if imp else 0.0
+        budget = float(b.get("budget_amount") or 0)
+        spent = float(b.get("amount_spent") or 0)
+        currency = b.get("currency") or "XOF"
+        ab_block = ""
+        if b.get("ab_enabled"):
+            imp_a = int(b.get("total_impressions_a") or 0)
+            imp_b = int(b.get("total_impressions_b") or 0)
+            clk_a = int(b.get("total_clicks_a") or 0)
+            clk_b = int(b.get("total_clicks_b") or 0)
+            ctr_a = round((clk_a / imp_a) * 100, 2) if imp_a else 0.0
+            ctr_b = round((clk_b / imp_b) * 100, 2) if imp_b else 0.0
+            ab_block = (
+                f"Test A/B ACTIF :\n"
+                f"  • Variante A : {imp_a} affichages, {clk_a} clics, CTR {ctr_a}%\n"
+                f"  • Variante B : {imp_b} affichages, {clk_b} clics, CTR {ctr_b}%\n"
+            )
+        prompt = (
+            f"Tu es un expert en marketing digital et régie publicitaire. Analyse les performances "
+            f"de la campagne SAWALI suivante et fournis un plan d'optimisation concret, en français.\n\n"
+            f"=== DONNÉES CAMPAGNE ===\n"
+            f"Nom : {b.get('name')}\n"
+            f"Annonceur : {b.get('advertiser_name') or 'Non renseigné'}\n"
+            f"Type de média : {b.get('media_kind') or 'image'}\n"
+            f"URL cible : {b.get('target_url')}\n"
+            f"Placement : {b.get('placement')}\n"
+            f"Affichages totaux : {imp}\n"
+            f"Clics totaux : {clicks}\n"
+            f"CTR : {ctr}%\n"
+            f"Budget alloué : {int(budget)} {currency} (dépensé : {int(spent)} {currency})\n"
+            f"{ab_block}"
+            f"\nRéponds STRICTEMENT au format JSON suivant (sans markdown, sans ```), "
+            f"avec ces 4 clés exactes :\n"
+            "{\n"
+            '  "visual_hint": "Une suggestion concrète de visuel à essayer (1-2 phrases, descriptif pour Gemini Nano Banana)",\n'
+            '  "slogans": ["3 slogans/CTA alternatifs en français, courts et accrocheurs"],\n'
+            '  "recommended_budget_xof": un nombre (budget mensuel optimal en XOF),\n'
+            '  "budget_justification": "1-2 phrases expliquant pourquoi ce budget"\n'
+            "}\n"
+            "Si le CTR est <0.5%, recommande surtout un changement de visuel. "
+            "Si CTR >2%, recommande surtout d'augmenter le budget. Entre les deux, recommande de tester des slogans alternatifs."
+        )
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"ad-plan-{b.get('id')}-{uuid.uuid4().hex[:6]}",
+            system_message="Tu es un expert marketing senior. Tu réponds toujours en JSON valide, sans markdown.",
+        ).with_model("anthropic", "claude-haiku-4-5-20251001")
+        try:
+            raw = await chat.send_message(UserMessage(text=prompt))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[ads] ai-plan llm call failed")
+            raise HTTPException(status_code=502, detail=f"Erreur IA : {str(exc)[:200]}") from exc
+        import json as _json
+        parsed: Dict[str, Any] = {}
+        try:
+            # Strip optional markdown fences if model returned them
+            text = (raw or "").strip()
+            if text.startswith("```"):
+                text = text.strip("`").lstrip("json").strip()
+            parsed = _json.loads(text)
+        except Exception:  # noqa: BLE001
+            # Try to extract a JSON object from anywhere in the text
+            import re
+            m = re.search(r"\{.*\}", raw or "", re.S)
+            if m:
+                try:
+                    parsed = _json.loads(m.group(0))
+                except Exception:  # noqa: BLE001
+                    parsed = {}
+        if not parsed:
+            raise HTTPException(status_code=502, detail="Réponse IA non parsable")
+
+        result = {
+            "visual_hint": (parsed.get("visual_hint") or "").strip(),
+            "slogans": [s.strip() for s in (parsed.get("slogans") or []) if isinstance(s, str)][:5],
+            "recommended_budget_xof": float(parsed.get("recommended_budget_xof") or 0),
+            "budget_justification": (parsed.get("budget_justification") or "").strip(),
+            "generated_at": _now_iso(),
+            "based_on": {
+                "impressions": imp, "clicks": clicks, "ctr_pct": ctr,
+                "current_budget": budget, "ab_enabled": bool(b.get("ab_enabled")),
+            },
+        }
+        # Cache on the banner doc
+        await db.ad_banners.update_one(
+            {"id": b["id"]},
+            {"$set": {"ai_plan": result, "ai_plan_updated_at": _now_iso()}},
+        )
+        return {**result, "cached": False}
+
+    # =====================================================================
     # Iter38r-fix9z7 — Live WebSocket endpoint for the admin dashboard.
     # Auth via ?token=<JWT> (same pattern as /api/ws/chat). The endpoint:
     #   • Sends an initial "snapshot" with every active banner's totals

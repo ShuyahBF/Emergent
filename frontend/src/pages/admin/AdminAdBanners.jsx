@@ -29,6 +29,7 @@ const DEFAULT_DRAFT = {
   name: "",
   advertiser_name: "",
   image_url: "",
+  media_kind: "image",
   target_url: "",
   placement: "both",
   animated: false,
@@ -81,6 +82,7 @@ export default function AdminAdBanners() {
       name: it.name || "",
       advertiser_name: it.advertiser_name || "",
       image_url: it.image_url || "",
+      media_kind: it.media_kind || (/\.(mp4|webm|mov)$/i.test(it.image_url || "") ? "video" : "image"),
       target_url: it.target_url || "",
       placement: it.placement || "both",
       animated: !!it.animated,
@@ -244,7 +246,11 @@ export default function AdminAdBanners() {
                       <td className="px-3 py-2 max-w-[260px]">
                         <div className="flex items-center gap-2">
                           {it.image_url && (
-                            <img src={it.image_url} alt="" className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" />
+                            it.media_kind === "video" ? (
+                              <video src={it.image_url} className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" muted autoPlay loop playsInline />
+                            ) : (
+                              <img src={it.image_url} alt="" className="h-8 w-16 object-cover rounded ring-1 ring-slate-200" />
+                            )
                           )}
                           <div className="min-w-0">
                             <p className="font-semibold text-slate-800 truncate">{it.name}</p>
@@ -382,9 +388,14 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       const relativeUrl = (data.url || "").startsWith("/")
         ? data.url
         : `/${data.url || ""}`;
+      // Iter38r-fix9z3 — Save the media kind so the renderer knows whether to
+      // use <img> or <video>. Without this, /api/files/{id} URLs (extension-less)
+      // were mis-rendered as <img> for video files → broken-image icon.
+      const mediaKind = file.type.startsWith("video/") ? "video" : "image";
       setDraft((d) => ({
         ...d,
         image_url: relativeUrl,
+        media_kind: mediaKind,
         target_url: d.target_url ? d.target_url : relativeUrl,
       }));
       toast.success(`Fichier chargé (${Math.round(file.size / 1024)} Ko)`);
@@ -430,8 +441,8 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
       </div>
       {draft.image_url && (
         <div className="flex items-center gap-3 rounded-lg ring-1 ring-slate-200 bg-white p-2" data-testid="ad-banner-preview">
-          {/\.(mp4|webm)$/i.test(draft.image_url) ? (
-            <video src={draft.image_url} className="h-14 w-28 object-cover rounded" muted autoPlay loop playsInline />
+          {draft.media_kind === "video" ? (
+            <video src={draft.image_url} className="h-14 w-28 object-cover rounded" muted autoPlay loop playsInline controls />
           ) : (
             <img src={draft.image_url} alt="aperçu" className="h-14 w-28 object-cover rounded" />
           )}

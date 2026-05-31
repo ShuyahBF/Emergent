@@ -136,6 +136,8 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
         "advertiser_name": b.get("advertiser_name"),
         "animated": bool(b.get("animated", False)),
         "placement": b.get("placement"),
+        # Iter38r-fix9z3 — Tells the frontend whether to render <img> or <video>
+        "media_kind": b.get("media_kind") or "image",
     }
 
 
@@ -161,6 +163,9 @@ class AdBannerPayload(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
     advertiser_name: str = Field("", max_length=120)
     image_url: str = Field(..., min_length=4, max_length=600)
+    # Iter38r-fix9z3 — Explicit media kind so /api/files/{id} URLs (no extension)
+    # are correctly rendered as <img> or <video> on the frontend.
+    media_kind: str = Field("image", pattern="^(image|video)$")
     target_url: str = Field(..., min_length=4, max_length=600)
     placement: str = Field("both", pattern="^(public|portal|both)$")
     animated: bool = False
@@ -180,6 +185,7 @@ class AdBannerUpdate(BaseModel):
     name: Optional[str] = None
     advertiser_name: Optional[str] = None
     image_url: Optional[str] = None
+    media_kind: Optional[str] = Field(None, pattern="^(image|video)$")
     target_url: Optional[str] = None
     placement: Optional[str] = None
     animated: Optional[bool] = None
@@ -323,6 +329,7 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "name": payload.name.strip(),
             "advertiser_name": (payload.advertiser_name or "").strip(),
             "image_url": payload.image_url.strip(),
+            "media_kind": payload.media_kind,
             "target_url": payload.target_url.strip(),
             "placement": payload.placement,
             "animated": payload.animated,
@@ -484,6 +491,7 @@ def setup_ad_banners_routes(app, db, get_current_user):
             "advertiser_name": b.get("advertiser_name") or "",
             "image_url": b.get("image_url"),
             "target_url": b.get("target_url"),
+            "media_kind": b.get("media_kind") or "image",
             "animated": bool(b.get("animated")),
             "placement": b.get("placement"),
             "currency": b.get("currency") or "XOF",

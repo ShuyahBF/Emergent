@@ -54,8 +54,21 @@ export default function AdBannerSlot({ placement = "public" }) {
 
   if (dismissed || !banner) return null;
 
-  // Iter38r-fix9x — Render <video> when the asset is mp4/webm, otherwise <img>
-  const isVideo = /\.(mp4|webm|mov)$/i.test(banner.image_url || "");
+  // Iter38r-fix9z3 — Determine video vs image from explicit media_kind first
+  // (set on upload), then fall back to URL-extension sniffing for legacy rows.
+  const isVideo = banner.media_kind === "video"
+    || /\.(mp4|webm|mov)$/i.test(banner.image_url || "");
+
+  // Iter38r-fix9z3 — Resolve relative paths (/api/files/...) against the
+  // backend URL so the asset is fetched from the right environment in both
+  // preview and production (mirrors the pattern used by HeroVideoSection).
+  const resolveUrl = (u) => {
+    if (!u) return "";
+    if (u.startsWith("http://") || u.startsWith("https://")) return u;
+    if (u.startsWith("/")) return `${apiBase}${u}`;
+    return u;
+  };
+  const mediaSrc = resolveUrl(banner.image_url);
 
   return (
     <div
@@ -70,13 +83,13 @@ export default function AdBannerSlot({ placement = "public" }) {
       >
         {isVideo ? (
           <video
-            src={banner.image_url}
+            src={mediaSrc}
             className="w-full h-16 sm:h-20 object-cover object-center cursor-pointer"
-            muted autoPlay loop playsInline
+            muted autoPlay loop playsInline preload="metadata"
           />
         ) : (
           <img
-            src={banner.image_url}
+            src={mediaSrc}
             alt={banner.advertiser_name || banner.name}
             className={`w-full h-16 sm:h-20 object-cover object-center cursor-pointer ${banner.animated ? "animate-pulse-soft" : ""}`}
             loading="lazy"

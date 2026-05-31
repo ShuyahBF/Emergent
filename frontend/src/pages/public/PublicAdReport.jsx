@@ -88,7 +88,15 @@ export default function PublicAdReport() {
     );
   }
 
-  const isVideo = /\.(mp4|webm|mov)$/i.test(report.image_url || "");
+  const isVideo = report.media_kind === "video"
+    || /\.(mp4|webm|mov)$/i.test(report.image_url || "");
+  const resolveUrl = (u) => {
+    if (!u) return "";
+    if (u.startsWith("http://") || u.startsWith("https://")) return u;
+    if (u.startsWith("/")) return `${apiBase}${u}`;
+    return u;
+  };
+  const mediaSrc = resolveUrl(report.image_url);
   const ctr = report.totals?.ctr_pct ?? 0;
   const budget = report.budget || {};
   const daily = report.daily || [];
@@ -115,9 +123,9 @@ export default function PublicAdReport() {
         <section className="rounded-2xl ring-1 ring-slate-200 bg-white overflow-hidden shadow-sm" data-testid="ads-report-banner">
           <div className="bg-gradient-to-r from-slate-900 via-slate-800 to-slate-900 flex items-center justify-center">
             {isVideo ? (
-              <video src={report.image_url} className="w-full max-h-32 object-contain" muted autoPlay loop playsInline />
+              <video src={mediaSrc} className="w-full max-h-32 object-contain" muted autoPlay loop playsInline controls preload="metadata" />
             ) : (
-              <img src={report.image_url} alt="aperçu bannière" className="w-full max-h-32 object-contain" />
+              <img src={mediaSrc} alt="aperçu bannière" className="w-full max-h-32 object-contain" />
             )}
           </div>
           <div className="p-5 flex items-start justify-between flex-wrap gap-3">

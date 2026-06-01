@@ -6,6 +6,28 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39a — 👁️ Carte Liluvine pour Modérateurs + ✏️ Édition « Client lié »
+
+### ✅ S010 — Carte « WhatsApp pris en charge par Liluvine » visible pour les modérateurs
+- `_build_liluvine_autoreply_stats` (`backend/server.py`) utilise désormais `_resolve_visible_client_ids(user)` au lieu de `user.get("id")`. Les tracked-users avec `tracked_role="Moderation"` voient enfin les compteurs Liluvine sur l'écran de bienvenue (auparavant toujours 0 car le tenant_id résolu était l'UUID du tracked-user, pas le `parent_client_id`).
+- Test ajouté : `test_siter39a_moderator_liluvine_and_link.py::test_liluvine_counter_visible_for_tracked_moderator`.
+
+### ✅ S011 — Édition de « Client lié canonique » depuis la fiche d'un tenant
+- Nouveau champ `link_to_client_id: Optional[str]` ajouté à `UserUpdateAdmin` (`backend/models.py`).
+- `admin_update_client` (`backend/server.py` ~ligne 6934) :
+  - utilise `payload.model_fields_set` pour distinguer « non fourni » de « explicitement vide »
+  - chaîne vide → unlink (`parent_client_id=None`, `client_id=None`)
+  - UUID valide d'un admin/superviseur/moderateur/client → set `parent_client_id` + `client_id`
+  - self-link → 400 / id inconnu → 404
+  - dépendance changée de `get_current_admin` à `get_admin_or_supervisor` (l'utilisateur a explicitement demandé Admin+Superviseur)
+- UI `AdminClients.jsx` : nouvelle section violette « Client lié canonique » (`[data-testid=link-to-client-section]`) avec dropdown (`[data-testid=client-link-to-client-select]`), visible uniquement en mode édition, pré-remplie via `it.parent_client_id`. Self exclu de la liste, options affichées avec rôle.
+- La modification se propage automatiquement à toutes les UI consommatrices (Centre Messagerie, Contacts, briefing, RGPD, facturation WA) car elles lisent toutes `parent_client_id` via `_resolve_visible_client_ids`.
+- Test ajouté : `test_siter39a_moderator_liluvine_and_link.py::test_admin_can_relink_tenant_to_canonical_client` (4 sous-scénarios : attach, 404, self-link, detach).
+
+### Tests : 4/4 nouveaux + 2/2 régression fix9d = 6/6 verts (`iteration_43.json`)
+- Frontend Playwright : OTP login + dropdown rendu + auto-logout chips validés (3/3).
+- Suggestions tracker mis à jour : S010 + S011 ajoutées dans `/app/memory/SUGGESTIONS.md`.
+
 ## Recent (2026-05-31) — Iter38r-fix9z9 — 🤖 Plan de campagne IA + 📚 Documentation actualisée
 
 ### ✅ Plan de campagne IA (Claude Haiku 4.5)

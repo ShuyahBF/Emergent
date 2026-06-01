@@ -33,6 +33,7 @@ if (typeof window !== "undefined" && !window.__sawali_err_handler__) {
 }
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import AutoLogoutGate from "@/components/AutoLogoutGate";
 import MarketingLayout from "@/components/MarketingLayout";
 import PortalLayout from "@/components/PortalLayout";
 
@@ -157,6 +158,7 @@ export default function App() {
         <Toaster richColors position="top-right" />
         <WebhookResultModal />
         <RouteTracker />
+        <AutoLogoutGate />
         <Routes>
           {/* Public marketing */}
           <Route path="/" element={<PublicRoute><Home /></PublicRoute>} />

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -524,6 +524,46 @@ export default function AdminSettings() {
       <FileStorageSection />
       <SecretsVaultSection />
       <RoadmapTrackerSection />
+      {/* Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity */}
+      <Section icon={Clock} title="Sécurité — Déconnexion automatique par inactivité">
+        <p className="text-xs text-slate-500">
+          Force la déconnexion d'un utilisateur après <strong>N minutes</strong> sans activité (souris, clavier, scroll, touch).
+          Une fenêtre d'avertissement apparaît <strong>30 secondes avant</strong> avec un bouton « Rester connecté ».
+          Empêche les sessions oubliées en fin de journée. <strong>Mettre 0 pour désactiver.</strong>
+        </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {[0, 5, 10, 15, 30, 60].map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => upd("auto_logout_minutes", m)}
+              className={`px-3 py-1.5 rounded-lg ring-1 transition ${
+                Number(s.auto_logout_minutes ?? 0) === m
+                  ? "bg-rose-600 text-white ring-rose-700 shadow-sm"
+                  : "bg-white text-slate-700 ring-slate-300 hover:ring-rose-400"
+              }`}
+              data-testid={`auto-logout-preset-${m}`}
+            >
+              {m === 0 ? "Désactivé" : `${m} min`}
+            </button>
+          ))}
+          <div className="inline-flex items-center gap-2 ml-2">
+            <span className="text-slate-500">Personnalisé :</span>
+            <input
+              type="number" min="0" max="120"
+              value={s.auto_logout_minutes ?? 0}
+              onChange={(e) => upd("auto_logout_minutes", parseInt(e.target.value, 10) || 0)}
+              className="w-20 text-xs rounded ring-1 ring-slate-300 px-2 py-1 bg-white font-mono"
+              data-testid="auto-logout-custom"
+            />
+            <span className="text-slate-500">min</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-500 italic">
+          S'applique à TOUS les utilisateurs (admin, superviseur, client, équipe). Le paramètre est rechargé à la prochaine connexion.
+          Référence : <code>/app/memory/SUGGESTIONS.md → S009</code>.
+        </p>
+      </Section>
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />

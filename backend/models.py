@@ -389,6 +389,12 @@ class SettingsUpdate(BaseModel):
     # browser request is available. Editable from the Coffre-fort des secrets.
     public_base_url: Optional[str] = None
 
+    # --- Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity ---
+    # Idle delay in minutes after which a logged-in user is automatically
+    # signed out. A warning modal opens 30 seconds before the timeout.
+    # When set to 0, auto-logout is disabled. Range: 0-120 minutes.
+    auto_logout_minutes: Optional[int] = None
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

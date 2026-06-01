@@ -1643,6 +1643,19 @@ async def create_public_appointment(payload: PublicAppointmentRequest):
 # ====================================================================
 # CLIENT PORTAL
 # ====================================================================
+# Iter38r-fix9z10 — Suggestion S009 — Auto-logout config readable by any
+# authenticated user. Returns idle minutes (0 = disabled). Frontend uses this
+# to schedule the idle timer + warning modal.
+@api.get("/me/idle-config", tags=["Portail Client"])
+async def me_idle_config(user: dict = Depends(get_current_user)):
+    settings = await db.settings.find_one({"_id": "global"}, {"_id": 0, "auto_logout_minutes": 1}) or {}
+    return {
+        "auto_logout_minutes": int(settings.get("auto_logout_minutes") or 0),
+        "warning_seconds": 30,
+    }
+
+
+
 @api.get("/me/account", tags=["Portail Client"])
 async def me_account(user: dict = Depends(get_current_user)):
     appts = await db.appointments.find({"client_id": user["id"]}, {"_id": 0}).to_list(500)
@@ -10943,6 +10956,15 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if mode not in ("bounded", "lifetime"):
             raise HTTPException(status_code=400, detail="welcome_unread_mode doit être 'bounded' ou 'lifetime'")
         update["welcome_unread_mode"] = mode
+    # Iter38r-fix9z10 — Suggestion S009 — Validate auto_logout_minutes (0-120, 0 = disabled)
+    if "auto_logout_minutes" in update:
+        try:
+            v = int(update["auto_logout_minutes"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="auto_logout_minutes doit être un entier") from exc
+        if v < 0 or v > 120:
+            raise HTTPException(status_code=400, detail="auto_logout_minutes doit être entre 0 et 120")
+        update["auto_logout_minutes"] = v
     if not update:
         return {"ok": True}
     # Iter35x — Snapshot previous values BEFORE the update for audit comparison

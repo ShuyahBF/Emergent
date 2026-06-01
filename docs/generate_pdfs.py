@@ -187,6 +187,18 @@ SECTIONS = [
          ("Plan de campagne IA (fix9z9)", "Section violette 'Plan de campagne IA · Premium'. Bouton 'Générer mon plan IA' → POST /api/public/ads-report/{slug}/ai-plan. Claude Haiku 4.5 analyse les performances et renvoie 4 recommandations : (1) Idée de visuel (description prête à utiliser pour Gemini Nano Banana), (2) 3 slogans/CTA alternatifs, (3) Budget mensuel optimal en XOF, (4) Justification (selon CTR : <0.5% privilégie le visuel, 0.5-2% les slogans, >2% l'augmentation budget). Cache serveur 6h pour maîtriser les coûts IA. Boutons 'Copier' sur chaque suggestion."),
          ("Historique journalier", "Tableau date + impressions + clics + spent à droite de la page (les 30 derniers jours par défaut)."),
      ]),
+    ("Sécurité — Déconnexion automatique par inactivité (S009 / fix9z10)",
+     "13_idle_logout.jpeg",
+     "Mécanisme de sécurité qui déconnecte automatiquement tout utilisateur (admin, superviseur, client, équipe) après N minutes d'inactivité (souris, clavier, scroll, tactile). Empêche les sessions ouvertes oubliées en fin de journée. Configurable dans Admin → Paramètres → Sécurité.",
+     [
+         ("Préréglages rapides", "Boutons : Désactivé, 5 min, 10 min, 15 min, 30 min, 1 h. Cliquer applique immédiatement après sauvegarde."),
+         ("Valeur personnalisée", "Champ numérique 0-120 minutes (0 = désactivé). Le paramètre est lu à la connexion via GET /api/me/idle-config."),
+         ("Modal de prévenance", "30 secondes avant l'expiration, une fenêtre modale rouge s'ouvre avec compte à rebours visible, bouton « Rester connecté(e) » (réarme le timer) et « Se déconnecter maintenant » (logout immédiat)."),
+         ("Déconnexion effective", "À expiration : suppression du token côté navigateur, redirection vers /login, toast d'information « Session expirée par inactivité »."),
+         ("Activité détectée", "mousemove, mousedown, keydown, scroll, touchstart, click — chaque événement réarme le timer."),
+         ("Périmètre", "S'applique à toutes les sessions actives du système. Le changement de valeur dans /admin/settings prend effet à la prochaine connexion de chaque utilisateur."),
+     ]),
+
     ("Site public — sawalismartsystems.com",
      "10_home_public.jpeg",
      "Vitrine marketing du portail. Sections principales : Missions, Spécialisations, Catalogue produits, Études de cas, Abonnements, Témoignages, Demande RDV, Contact, Politiques de confidentialité.",

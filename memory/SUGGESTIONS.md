@@ -1,0 +1,103 @@
+# Registre des suggestions — SAWALI Smart Systems CRM
+
+Toutes les suggestions d'amélioration proposées par l'assistant IA durant la vie du projet, avec numérotation unique persistante (S001, S002, …).
+Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut.
+
+## Légende des statuts
+- 🟢 **IMPLÉMENTÉE** — feature livrée, testée et en production / preview
+- 🟡 **ACCEPTÉE** — validée par l'utilisateur, en cours de développement
+- 🔵 **PROPOSÉE** — suggestion formulée, en attente de décision
+- ⚪ **DIFFÉRÉE** — acceptée mais reportée
+- 🔴 **REFUSÉE** — explicitement écartée par l'utilisateur
+
+## Convention de numérotation
+- ID immuable : `S` + 3 chiffres (S001, S002, … S999)
+- Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
+- Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
+
+---
+
+## S001 — Onglet « Conversion en ligne » sur le rapport public + widget Renouveler la campagne
+- **Proposée le** : 2026-05-31 (après fix9z4)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z5
+- **Détail** : Graphique 30j d'impressions vs clics + widget « Renouveler la campagne » pré-rempli, accessible depuis `/ads/{slug}?token=…`
+- **Bénéfice** : boucle le funnel publicitaire — l'annonceur peut renouveler en 1 clic
+- **Fichiers** : `PublicAdReport.jsx` (`ConversionTrend` + `RenewCampaignWidget`), `ad_banners.py` (endpoint `/renew`)
+
+## S002 — Test A/B sur les bannières
+- **Proposée le** : 2026-05-31 (après fix9z5, suggestion P5 du backlog)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z6
+- **Détail** : 2 variantes par bannière (média + URL cible distincts), rotation 50/50 à chaque affichage, stats séparées, badge GAGNANTE automatique au-delà de 30 affichages par variante
+- **Bénéfice** : justifie un prix premium par campagne (optimisation continue) — vend à plus cher
+- **Fichiers** : `ad_banners.py` (champs `ab_enabled`/`variant_b_*`, endpoints variant=a/b), `AdminAdBanners.jsx` (`BannerABBlock` + `ABBreakdown`)
+
+## S003 — Email automatique de rappel d'expiration de campagne
+- **Proposée le** : 2026-05-31 (après fix9z5)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z6
+- **Détail** : Cron 09h30 Africa/Abidjan envoie un email N jours avant l'expiration (1-30, défaut 3) avec bilan campagne + lien renouvellement
+- **Bénéfice** : best practice régies pub — 30-40% des fins de campagne transformées en renouvellements
+- **Fichiers** : `ad_banners.py` (`process_expiration_reminders`), `server.py` (cron `_scheduled_ad_banner_reminders`)
+
+## S004 — Notification WhatsApp en plus de l'email pour le rappel
+- **Proposée le** : 2026-05-31 (backlog après fix9z6)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z7
+- **Détail** : Réutilise `_wa_send_text` ; toggle indépendant de l'email ; un annonceur peut activer email seul, WA seul, ou les deux
+- **Bénéfice** : touche les annonceurs qui ne lisent pas leurs emails — taux d'ouverture WA bien supérieur en Afrique
+- **Fichiers** : `ad_banners.py` (`send_whatsapp_fn` injecté), `AdminAdBanners.jsx` (toggle `reminder_wa_enabled`)
+
+## S005 — Dashboard temps-réel des bannières actives (WebSocket)
+- **Proposée le** : 2026-05-31 (backlog après fix9z6)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z7
+- **Détail** : WebSocket `/api/ws/ad-banners-live` diffuse snapshot initial + events impression/click à chaque hit public ; panel live en haut de `/admin/ad-banners` avec compteurs animés et feed des 5 derniers événements
+- **Bénéfice** : feedback instantané pour l'admin lors de campagnes intensives (events, lancements produit)
+- **Fichiers** : `ad_banners.py` (`AdLiveHub` + endpoint WS), `AdBannersLivePanel.jsx`
+
+## S006 — Portail libre-service annonceur (paiement Stripe + maj média sans login)
+- **Proposée le** : 2026-05-31 (après fix9z6)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z8
+- **Détail** : 3 endpoints publics validés par slug+token — paiement Stripe (extension auto expiration + crédit budget atomique) + mise à jour média (whitelist stricte) + status polling
+- **Bénéfice** : transforme la régie pub en SaaS auto-service — libère le temps admin
+- **Fichiers** : `ad_banners.py` (`/checkout`, `/payment-status`, `/media`), `PublicAdReport.jsx` (`OnlineRenewalCheckout` + `SelfServiceMediaUpdate`)
+
+## S007 — Plan de campagne IA (Claude Haiku 4.5)
+- **Proposée le** : 2026-05-31 (après fix9z8)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : fix9z9
+- **Détail** : Endpoint analyse les stats (CTR, A/B, budget) et renvoie 4 recommandations (visuel, slogans, budget optimal, justification). Cache 6h.
+- **Bénéfice** : option premium facturable (+30% du coût campagne) — l'annonceur reçoit un audit marketing instantané
+- **Fichiers** : `ad_banners.py` (endpoint `/ai-plan`), `PublicAdReport.jsx` (`AICampaignPlan`)
+
+## S008 — Bouton « Appliquer le plan IA » en 1 clic
+- **Proposée le** : 2026-05-31 (après fix9z9)
+- **Statut** : 🔵 PROPOSÉE
+- **Détail** : Combiner les 3 étapes du plan IA en 1 action : (1) génération visuel via Gemini Nano Banana → upload → maj `image_url` ; (2) maj `target_url` avec slogan choisi ; (3) checkout Stripe pré-rempli avec budget recommandé
+- **Bénéfice** : 20 min → 30 sec — taux de conversion renouvellement nettement supérieur
+- **Dépendances** : génération directe Gemini depuis le client public (anonyme) — pose une question de coût IA à protéger
+
+## S009 — Auto-déconnexion par inactivité
+- **Demande directe utilisateur** : 2026-05-31
+- **Statut** : 🟡 ACCEPTÉE (en cours d'implémentation)
+- **Fix associé** : fix9z10
+- **Détail** : Délai configurable 5-10-15-30 min via `/admin/settings`. Modal de warning 30s avant la déconnexion avec bouton « Rester connecté ». À expiration → logout auto + toast « Session expirée par inactivité ».
+- **Bénéfice** : sécurité — empêche les sessions ouvertes oubliées en fin de journée
+- **Fichiers** : `useIdleTimer.js` (frontend hook), `AuthContext.jsx` (intégration), `AdminSettings.jsx` (paramètre)
+
+---
+
+## Comment référencer une suggestion
+- **Dans le code** : `// Suggestion S007 — Plan IA (Claude Haiku 4.5)` ou `# Suggestion S007 — Plan IA`
+- **Dans une PR/commit** : `S007: implement AI campaign plan`
+- **Dans une demande utilisateur** : « j'aimerais qu'on revoie la suggestion S008 » ou « pour S007 j'aimerais aussi… »
+
+## Comment ajouter une nouvelle suggestion
+Lorsque l'assistant propose une nouvelle suggestion, il doit :
+1. Incrémenter le compteur (S010, S011, …)
+2. Ajouter une nouvelle section ici avec : date, statut (PROPOSÉE), détail, bénéfice, dépendances éventuelles
+3. Référencer ce numéro dans la suggestion (ex : « Voici la suggestion S010 : … »)
+4. Au moment de l'implémentation, basculer le statut à IMPLÉMENTÉE et noter le fix associé

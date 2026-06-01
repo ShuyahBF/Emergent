@@ -6,6 +6,23 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39d — 🔗 8 améliorations en cascade (7/8 livrées)
+
+### Items livrés (1, 2, 3, 4, 5, 7, 8) — Item 6 reporté en S025
+
+- **S018 (item 1) — Signataires + Participants PV via dropdowns** : nouvel endpoint `GET /api/me/tenant-users` (users + tracked du tenant), 2 multi-select dropdowns dans l'éditeur (ligne 1 signataires obligatoires, ligne 2 autres participants, disjoints). Sign check : si liste signataires non vide, seul un signer déclaré peut signer (sinon 403). PDF affiche les deux listes résolues en noms lisibles.
+- **S019 (item 2) — Liluvine PRO Historique pour modérateurs** : route `/portal/liluvine-history` accessible aux modérateurs (gate `moderationOnly`) ; mirroir de `/admin/liluvine-history`. RBAC frontend étendu à `moderation`/`administrateur`.
+- **S020 (item 3) — Bug fix idle-logout + Welcome briefing** : bascule sur `window.location.assign("/login")` au lieu de `navigate()` pour démontage propre des modales persistantes.
+- **S021 (item 4) — Visualiseur registre SUGGESTIONS.md** : page `/admin/suggestions` (admin/sup uniquement) + endpoint `GET /api/admin/suggestions-registry`. Rendu markdown basique + boutons Copier/Rafraîchir.
+- **S022 (item 5) — Centre Messagerie tri par défaut « dernier contact WA/SMS »** : enrichi `last_message_at` côté backend (`admin_messaging_audience`) avec fuzzy match sur 10 digits de téléphone vs `wa_messages` + `sms_messages`. Sélecteur de tri reposionné en tête.
+- **S023 (item 7) — Jauge circulaire de chargement global** : nouveau `<GlobalRouteLoader>` monté à la racine. Activé au changement de route + axios interceptors. Courbe asymptotique 0→90→100 %. Anti-flicker.
+- **S024 (item 8) — Toggle son sur les bannières vidéo publiques** : nouveau bouton volume (data-testid `ad-banner-sound-toggle-{id}`). Demarre muté (autoplay browser-policy) → 1 clic active le son et la préférence est mémorisée en `sessionStorage`.
+- **🟡 S025 (item 6) — REPORTÉ** : workflow d'approbation pour téléchargement (jauge + WA template + magic links + collection `download_approvals`). Nécessite décision utilisateur sur template Meta officiel vs magic links texte avant scope.
+
+### Tests S-iter39d : 4/4 nouveaux backend + régression complète siter39 = **11/11 verts**
+- `test_siter39d_eight_features.py` : tenant-users, signers persistence + sign check, suggestions registry, audience last_message_at
+- `test_siter39c_sign_meeting.py` + `test_siter39b_*` + `test_siter39a_*` : régression OK
+
 ## Recent (2026-02 post-handoff) — S-iter39c — 🔏 Signature électronique du PV
 
 ### ✅ S017 — Signature électronique avec verrou de modification

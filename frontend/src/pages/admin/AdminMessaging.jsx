@@ -26,7 +26,9 @@ export default function AdminMessaging() {
   const [tab, setTab] = useState("clients");
   const [query, setQuery] = useState("");
   // Iter38r-fix9v — Sort contacts: alpha / created_at / last_message_at
-  const [contactsSort, setContactsSort] = useState("default");
+  // S-iter39d (fix #5) — Tri par défaut : dernier contact WA/SMS desc, pour
+  // que les contacts récemment touchés ou importés remontent en haut.
+  const [contactsSort, setContactsSort] = useState("last_message_desc");
   const [selected, setSelected] = useState({}); // `${kind}:${id}` → true
   const [template, setTemplate] = useState("");
   const [language, setLanguage] = useState("fr");
@@ -813,11 +815,11 @@ export default function AdminMessaging() {
             data-testid="messaging-sort-select"
             title="Trier la liste"
           >
-            <option value="default">Tri par défaut</option>
+            <option value="last_message_desc">Dernier contact récent (par défaut)</option>
+            <option value="default">Tri par défaut (ordre serveur)</option>
             <option value="alpha">Alphabétique (A-Z)</option>
             <option value="created_desc">Création récente d'abord</option>
             <option value="created_asc">Création ancienne d'abord</option>
-            <option value="last_message_desc">Dernier message récent</option>
           </select>
           <button
             onClick={toggleAllVisible}

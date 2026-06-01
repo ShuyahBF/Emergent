@@ -153,6 +153,69 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/meetings.py` (POST `/sign` + `/unsign` + verrou PUT/DELETE + bloc PDF signature), `frontend/src/pages/portal/MeetingMinutes.jsx` (badge SIGNÉ, boutons sign/unsign, masquage des actions verrouillées)
 - **Tests** : `backend/tests/test_siter39c_sign_meeting.py` (cycle sign/lock/unsign + idempotence + modérateur refusé + PDF — 2/2 verts)
 
+## S018 — Signataires obligatoires (ligne 1) + Participants (ligne 2) via dropdowns d'utilisateurs du tenant
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 1 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : 2 nouveaux multi-select dropdowns dans l'éditeur PV — alimentés par le nouvel endpoint `GET /api/me/tenant-users` (users + tracked du tenant). Ligne 1 = signataires obligatoires (signature requise). Ligne 2 = autres participants (sans signature). Les listes sont disjointes : un id ajouté en ligne 1 est retiré automatiquement de la ligne 2. Signature : si la liste de signataires est non vide, seul un user présent dans cette liste peut signer (sinon 403). PDF montre les 2 lignes en clair avec résolution id → nom (full_name / email).
+- **Bénéfice** : PV formels avec signataires identifiés (président, secrétaire, …)
+- **Fichiers** : `backend/routes/meetings.py` (MeetingCreate/Update + sign check), `backend/server.py` (`GET /api/me/tenant-users`), `frontend/src/pages/portal/MeetingMinutes.jsx` (composant `MultiUserPicker` réutilisable)
+- **Tests** : `backend/tests/test_siter39d_eight_features.py::test_pv_signers_persistence_and_sign_check`
+
+## S019 — Liluvine PRO Historique accessible aux modérateurs
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 2 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Nouvelle route `/portal/liluvine-history` (miroir de `/admin/liluvine-history`) accessible aux modérateurs (gate `moderationOnly`). RBAC élargi : `TAKEOVER_ROLES` côté frontend de la page Historique inclut désormais `moderation`/`administrateur`.
+- **Fichiers** : `frontend/src/App.js`, `frontend/src/components/PortalLayout.jsx`, `frontend/src/pages/admin/AdminLiluvineHistory.jsx`
+
+## S020 — Bug fix : modal Bienvenue + auto-déconnexion ne ferme pas la page
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 3 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Quand la modal WelcomeBriefing était ouverte et l'idle timer expirait, `navigate("/login")` ne démontait pas correctement les modales persistantes (Welcome briefing rendu dans PortalLayout). Bascule sur `window.location.assign("/login")` qui force le démontage complet de l'arbre.
+- **Fichiers** : `frontend/src/components/AutoLogoutGate.jsx`
+
+## S021 — Registre des suggestions consultable depuis l'UI admin
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 4 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Nouvelle page `/admin/suggestions` (lecture seule) qui rend `/app/memory/SUGGESTIONS.md` avec rendu markdown basique (titres, listes, gras, code inline). Endpoint backend `GET /api/admin/suggestions-registry` retourne le markdown brut + taille + mtime. Bouton Copier (clipboard) + Rafraîchir.
+- **Fichiers** : `backend/server.py` (endpoint), `frontend/src/pages/admin/AdminSuggestionsRegistry.jsx`, lien sidebar dans `PortalLayout.jsx`
+- **Tests** : `backend/tests/test_siter39d_eight_features.py::test_suggestions_registry`
+
+## S022 — Centre de Messagerie trié par dernier contact WA/SMS (par défaut)
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 5 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Le sélecteur de tri par défaut bascule sur « Dernier contact récent » au lieu de « Tri par défaut ». Le endpoint backend `/admin/messaging/audience` est enrichi avec `last_message_at` calculé sur les collections `wa_messages` + `sms_messages` (best-effort, fuzzy match sur les 10 derniers digits du téléphone).
+- **Bénéfice** : les contacts récemment importés ou contactés remontent automatiquement en tête de liste
+- **Fichiers** : `backend/server.py:admin_messaging_audience`, `frontend/src/pages/admin/AdminMessaging.jsx`
+- **Tests** : `backend/tests/test_siter39d_eight_features.py::test_messaging_audience_has_last_message_at`
+
+## S023 — Jauge circulaire animée entre chaque chargement de page
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 7 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Nouveau composant `<GlobalRouteLoader>` monté à la racine. S'affiche au changement de route (`useLocation`) ET dès qu'une requête backend est en vol (axios interceptors sur `apiClient`). Courbe de progression asymptotique vers 90 % puis 100 % à la réponse. Anti-flicker (MIN_VISIBLE_MS = 350 ms).
+- **Bénéfice** : feedback visuel constant sur connexions lentes
+- **Fichiers** : `frontend/src/components/GlobalRouteLoader.jsx`, monté dans `frontend/src/App.js`
+
+## S024 — Vidéos/bannières publiques : toggle son activable/désactivable
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE (item 8 du paquet S-iter39d)
+- **Fix associé** : siter39d
+- **Détail** : Bouton volume sur les bannières vidéo (data-testid `ad-banner-sound-toggle-{id}`). Démarre muet (contrainte autoplay navigateur) mais un seul clic active le son et l'état est mémorisé en `sessionStorage`. Sur les chargements suivants la vidéo respecte la préférence utilisateur.
+- **Note** : Les navigateurs (Chrome/Safari/Firefox) bloquent l'autoplay non-muté. On démarre muté pour respecter cette contrainte, l'utilisateur unmute en 1 clic.
+- **Fichiers** : `frontend/src/components/AdBannerSlot.jsx`
+
+## S025 — Workflow d'approbation pour télécharger des documents (REPORTÉ — à scoper)
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟡 REPORTÉE — scope à valider
+- **Détail demandé** : Documents non-publics → jauge « En attente d'approbation… », WhatsApp template avec 2 boutons (Autoriser/Refuser) au numéro paramétré, réponse débloque ou annule le téléchargement.
+- **Pourquoi reporter** : nécessite (a) un template Meta WhatsApp approuvé pour boutons quick-reply (délai de validation Meta), OU (b) un fallback via magic links texte WA. Touche à plusieurs intégrations (settings, WA send, webhook réception, collection `download_approvals`, frontend gate sur BrochuresWidget + PdfViewer + MeetingPDF). À chiffrer/scoper avec l'utilisateur (template Meta vs liens, durée d'expiration, audit log, multi-approbateurs ?).
+- **Action attendue** : décision utilisateur entre template Meta officiel (officiel mais bloquant) ou magic links (rapide et fonctionnel sans validation Meta).
+
 ---
 
 ## Comment référencer une suggestion

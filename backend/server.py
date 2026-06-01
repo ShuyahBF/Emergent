@@ -8624,6 +8624,60 @@ async def admin_tracked(client_id: Optional[str] = None, _: dict = Depends(get_c
     return items
 
 
+# S-iter39d (fix #1) — Public-ish helper for any authed user in the tenant.
+# Returns the full list of people in the same tenant scope (admin/sup/moderation
+# users + tracked users) so the PV editor dropdowns can be populated without
+# requiring admin role. Includes a stable `value` key (user id) and a
+# `label` ready for display.
+@api.get("/me/tenant-users", tags=["Portail Client"])
+async def me_tenant_users(user: dict = Depends(get_current_user)):
+    scope_ids = await _resolve_visible_client_ids(user)
+    if not scope_ids:
+        return {"items": []}
+    # Canonical tenant id = the broadest scope (admin/sup/client owner)
+    # parent_client_id of the current user, or the user's own id.
+    tenant_id = user.get("parent_client_id") or user.get("client_id") or user.get("id")
+    rows: List[Dict[str, Any]] = []
+    seen_ids: set = set()
+    # Canonical users (admin/sup/moderateur/client) whose id == tenant_id
+    # OR who have parent_client_id == tenant_id
+    canonical = await db.users.find(
+        {"$or": [{"id": tenant_id}, {"parent_client_id": tenant_id}, {"id": {"$in": scope_ids}}]},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1, "company": 1, "tracked_role": 1},
+    ).to_list(2000)
+    for u in canonical:
+        if u["id"] in seen_ids:
+            continue
+        seen_ids.add(u["id"])
+        rows.append({
+            "value": u["id"],
+            "label": u.get("full_name") or u.get("email") or "—",
+            "email": u.get("email"),
+            "role": u.get("tracked_role") or u.get("role") or "—",
+            "kind": "user",
+        })
+    # Tracked users in this tenant
+    tracked = await db.tracked_users.find(
+        {"client_id": {"$in": scope_ids}},
+        {"_id": 0, "id": 1, "name": 1, "full_name": 1, "email": 1, "role": 1, "user_id": 1},
+    ).to_list(5000)
+    for t in tracked:
+        # Skip if already in the canonical users list (their user_id was matched above)
+        if t.get("user_id") and t.get("user_id") in seen_ids:
+            continue
+        seen_ids.add(t["id"])
+        rows.append({
+            "value": t.get("user_id") or t["id"],
+            "label": t.get("full_name") or t.get("name") or t.get("email") or "—",
+            "email": t.get("email"),
+            "role": t.get("role") or "—",
+            "kind": "tracked",
+        })
+    # Sort by label, FR locale-aware (simple .lower() fallback)
+    rows.sort(key=lambda r: (r.get("label") or "").lower())
+    return {"items": rows}
+
+
 @api.post("/admin/tracked-users", tags=["Admin"])
 async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get_current_admin)):
     if payload.role and payload.role not in TRACKED_USER_ROLES:
@@ -16206,7 +16260,13 @@ async def admin_test_wa_config(_: dict = Depends(get_current_admin)):
 # ====================================================================
 @api.get("/admin/messaging/audience", tags=["Admin"])
 async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
-    """Return all contactable recipients (clients with phone/whatsapp + tracked users with phone)."""
+    """Return all contactable recipients (clients with phone/whatsapp + tracked users with phone).
+
+    S-iter39d (fix #5) — Each row is enriched with `last_message_at`, the
+    timestamp of the most recent inbound or outbound WhatsApp/SMS message
+    associated with the row's phone digits. The Messaging Center frontend
+    sorts on this field so that recently-touched contacts surface first.
+    """
     users = await db.users.find(
         {"role": {"$in": ["client", "superviseur"]}},
         {"_id": 0, "id": 1, "full_name": 1, "email": 1, "company": 1,
@@ -16219,12 +16279,61 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
     # Build client lookup for tracked-users labels
     client_map = {u["id"]: (u.get("company") or u.get("full_name") or u.get("email")) for u in users}
 
+    # S-iter39d (fix #5) — Pre-compute last message timestamp per phone-digits.
+    # Strips non-digits and keeps the last 10 digits for fuzzy matching across
+    # international prefixes.
+    import re as _re
+
+    def _digits10(s: Optional[str]) -> str:
+        d = _re.sub(r"\D", "", s or "")
+        return d[-10:] if len(d) >= 10 else d
+
+    all_phones = set()
+    for u in users:
+        all_phones.add(_digits10(u.get("whatsapp_number") or u.get("phone")))
+    for t in tracked:
+        all_phones.add(_digits10(t.get("whatsapp_number") or t.get("phone")))
+    all_phones.discard("")
+    last_by_phone: Dict[str, str] = {}
+    if all_phones:
+        # WhatsApp messages — collection wa_messages, fields: from/to/timestamp
+        try:
+            async for msg in db.wa_messages.find(
+                {}, {"_id": 0, "from": 1, "to": 1, "timestamp": 1, "created_at": 1},
+            ).sort("timestamp", -1).limit(20000):
+                ts = msg.get("timestamp") or msg.get("created_at")
+                if not ts:
+                    continue
+                for k in ("from", "to"):
+                    d10 = _digits10(msg.get(k))
+                    if d10 in all_phones:
+                        if d10 not in last_by_phone or str(ts) > last_by_phone[d10]:
+                            last_by_phone[d10] = str(ts)
+        except Exception:
+            pass
+        # SMS messages (best-effort)
+        try:
+            async for msg in db.sms_messages.find(
+                {}, {"_id": 0, "to": 1, "from": 1, "sent_at": 1, "created_at": 1, "received_at": 1},
+            ).sort("created_at", -1).limit(20000):
+                ts = msg.get("sent_at") or msg.get("received_at") or msg.get("created_at")
+                if not ts:
+                    continue
+                for k in ("from", "to"):
+                    d10 = _digits10(msg.get(k))
+                    if d10 in all_phones:
+                        if d10 not in last_by_phone or str(ts) > last_by_phone[d10]:
+                            last_by_phone[d10] = str(ts)
+        except Exception:
+            pass
+
     clients_rows = []
     for u in users:
         # Prefer the dedicated WhatsApp number; fall back to the regular phone field
         wa = (u.get("whatsapp_number") or "").strip()
         phone_only = (u.get("phone") or "").strip()
         phone = wa or phone_only
+        d10 = _digits10(phone)
         clients_rows.append({
             "kind": "client",
             "id": u["id"],
@@ -16238,6 +16347,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
             "city": u.get("city"),
             "account_status": u.get("account_status"),
             "has_phone": bool(phone),
+            "last_message_at": last_by_phone.get(d10),
         })
 
     tracked_rows = []
@@ -16245,6 +16355,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
         wa = (t.get("whatsapp_number") or "").strip()
         phone_only = (t.get("phone") or "").strip()
         phone = wa or phone_only
+        d10 = _digits10(phone)
         tracked_rows.append({
             "kind": "tracked",
             "id": t["id"],
@@ -16257,6 +16368,7 @@ async def admin_messaging_audience(_: dict = Depends(get_current_admin)):
             "role": t.get("role"),
             "status": t.get("status"),
             "has_phone": bool(phone),
+            "last_message_at": last_by_phone.get(d10),
         })
     return {"clients": clients_rows, "tracked_users": tracked_rows}
 
@@ -21436,6 +21548,31 @@ _setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user, wa_s
 # S-iter39b — PV de réunions internes (Meeting Minutes)
 from routes.meetings import make_router as _make_meetings_router  # noqa: E402
 api.include_router(_make_meetings_router(db=db, get_current_user=get_current_user))
+
+
+# S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).
+# Permet à l'admin de consulter SUGGESTIONS.md directement depuis l'UI sans
+# accéder au serveur de fichiers. Lecture seule, taille bornée à 256 KB.
+@api.get("/admin/suggestions-registry", tags=["Admin"])
+async def get_suggestions_registry(_: dict = Depends(get_admin_or_supervisor)):
+    from pathlib import Path
+    p = Path("/app/memory/SUGGESTIONS.md")
+    if not p.exists():
+        raise HTTPException(status_code=404, detail="Registre des suggestions introuvable")
+    try:
+        size = p.stat().st_size
+        if size > 256 * 1024:
+            raise HTTPException(status_code=413, detail="Fichier trop volumineux (256KB max)")
+        return {
+            "markdown": p.read_text(encoding="utf-8", errors="replace"),
+            "size_bytes": size,
+            "updated_at": datetime.fromtimestamp(p.stat().st_mtime, tz=timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=500, detail=f"Erreur lecture: {exc!s}") from exc
+
 
 app.include_router(api)
 

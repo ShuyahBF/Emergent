@@ -37,6 +37,8 @@ const EMPTY = {
   title: "",
   attendees: "",
   body_html: "",
+  signers: [],
+  participants: [],
 };
 
 export default function MeetingMinutes() {
@@ -53,6 +55,8 @@ export default function MeetingMinutes() {
   const [viewing, setViewing] = useState(null);  // doc for read-only view
   const [pdfDoc, setPdfDoc] = useState(null);
   const [aiEnabled, setAiEnabled] = useState(true);
+  // S-iter39d (fix #1) — Tenant users (for signers + participants dropdowns)
+  const [tenantUsers, setTenantUsers] = useState([]);
 
   const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
   const elevatedTracked = ["Administrateur", "Superviseur", "Moderation"].includes(user?.tracked_role || "");
@@ -80,6 +84,19 @@ export default function MeetingMinutes() {
     }).catch(() => setAiEnabled(true));
   }, [isAdminOrSup]);
 
+  // S-iter39d (fix #1) — Pull tenant users for signer/participant dropdowns
+  useEffect(() => {
+    apiClient.get("/me/tenant-users")
+      .then((r) => setTenantUsers(r.data?.items || []))
+      .catch(() => setTenantUsers([]));
+  }, []);
+
+  // Cached id → label resolver for view + card display
+  const userLabel = (id) => {
+    const u = tenantUsers.find((x) => x.value === id);
+    return u ? u.label : id;
+  };
+
   // Deep-link /portal/meetings/:id → open view
   useEffect(() => {
     if (!id) return;
@@ -102,6 +119,8 @@ export default function MeetingMinutes() {
         title: r.data.title || "",
         attendees: r.data.attendees || "",
         body_html: r.data.body_html || "",
+        signers: r.data.signers || [],
+        participants: r.data.participants || [],
       });
       setEditorOpen(true);
     } catch (e) {
@@ -129,6 +148,8 @@ export default function MeetingMinutes() {
           title: form.title.trim(),
           attendees: form.attendees,
           body_html: form.body_html,
+          signers: form.signers,
+          participants: form.participants,
         });
         toast.success(`PV ${r.data.numero || ""} mis à jour`);
       } else {
@@ -138,6 +159,8 @@ export default function MeetingMinutes() {
           title: form.title.trim(),
           attendees: form.attendees,
           body_html: form.body_html,
+          signers: form.signers,
+          participants: form.participants,
         });
         toast.success(`PV ${r.data.numero} créé (heure de fin enregistrée : ${fmtTime(r.data.ended_at)})`);
       }
@@ -219,7 +242,20 @@ export default function MeetingMinutes() {
                 {" "}· par <strong>{viewing.author_name || viewing.author_email}</strong>
               </p>
               {viewing.attendees && (
-                <p className="text-xs text-slate-600 mt-1"><strong>Participants :</strong> {viewing.attendees}</p>
+                <p className="text-xs text-slate-600 mt-1"><strong>Participants (libre) :</strong> {viewing.attendees}</p>
+              )}
+              {/* S-iter39d (fix #1) — Listes structurées des signataires + participants */}
+              {Array.isArray(viewing.signers) && viewing.signers.length > 0 && (
+                <p className="text-xs text-slate-600 mt-1" data-testid="meeting-view-signers">
+                  <strong>Signataires obligatoires :</strong>{" "}
+                  {viewing.signers.map(userLabel).join(", ")}
+                </p>
+              )}
+              {Array.isArray(viewing.participants) && viewing.participants.length > 0 && (
+                <p className="text-xs text-slate-600 mt-1" data-testid="meeting-view-participants">
+                  <strong>Autres participants :</strong>{" "}
+                  {viewing.participants.map(userLabel).join(", ")}
+                </p>
               )}
               {/* S017 — Signature badge in the view modal header */}
               {viewing.signed_at && (
@@ -411,9 +447,33 @@ export default function MeetingMinutes() {
               <input
                 value={form.attendees}
                 onChange={(e) => setForm({ ...form, attendees: e.target.value })}
-                placeholder="Participants (libre) — ex : Jean D., Marie L., Yves K."
+                placeholder="Participants (libre, optionnel) — ex : Jean D., Marie L."
                 className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
                 data-testid="meeting-form-attendees"
+              />
+              {/* S-iter39d (fix #1) — Signers (ligne 1) + Other participants (ligne 2) */}
+              <MultiUserPicker
+                label="Signataires obligatoires (ligne 1) — signature requise"
+                accent="emerald"
+                options={tenantUsers}
+                value={form.signers}
+                onChange={(arr) => {
+                  // Remove from participants if added to signers
+                  setForm((f) => ({
+                    ...f,
+                    signers: arr,
+                    participants: (f.participants || []).filter((id) => !arr.includes(id)),
+                  }));
+                }}
+                testIdPrefix="meeting-signers"
+              />
+              <MultiUserPicker
+                label="Autres participants (ligne 2) — sans signature"
+                accent="slate"
+                options={tenantUsers.filter((u) => !(form.signers || []).includes(u.value))}
+                value={form.participants}
+                onChange={(arr) => setForm((f) => ({ ...f, participants: arr }))}
+                testIdPrefix="meeting-participants"
               />
               <RichEditor
                 value={form.body_html}
@@ -438,6 +498,82 @@ export default function MeetingMinutes() {
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// S-iter39d (fix #1) — Reusable multi-select picker for tenant users.
+// Renders a search input + clickable chip list for selected items + a
+// suggestions popover. Compact (suitable for embedded inline use).
+function MultiUserPicker({ label, options, value, onChange, accent = "slate", testIdPrefix }) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState("");
+  const accentMap = {
+    emerald: { ring: "ring-emerald-300", bg: "bg-emerald-50", txt: "text-emerald-900", chip: "bg-emerald-100 text-emerald-800 ring-emerald-300" },
+    slate: { ring: "ring-slate-300", bg: "bg-slate-50", txt: "text-slate-700", chip: "bg-slate-100 text-slate-700 ring-slate-300" },
+  };
+  const c = accentMap[accent] || accentMap.slate;
+  const valueIds = value || [];
+  const selected = options.filter((o) => valueIds.includes(o.value));
+  const filtered = options.filter((o) => {
+    if (valueIds.includes(o.value)) return false;
+    if (!q) return true;
+    const s = q.toLowerCase();
+    return (o.label || "").toLowerCase().includes(s)
+      || (o.email || "").toLowerCase().includes(s)
+      || (o.role || "").toLowerCase().includes(s);
+  }).slice(0, 50);
+
+  const add = (id) => {
+    onChange([...(valueIds), id]);
+    setQ("");
+  };
+  const remove = (id) => onChange(valueIds.filter((x) => x !== id));
+
+  return (
+    <div className={`rounded-lg ring-1 ${c.ring} ${c.bg} p-2.5 space-y-2`} data-testid={testIdPrefix}>
+      <label className={`text-[11px] font-semibold ${c.txt}`}>{label}</label>
+      {selected.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" data-testid={`${testIdPrefix}-chips`}>
+          {selected.map((u) => (
+            <span key={u.value} className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ring-1 ${c.chip}`} data-testid={`${testIdPrefix}-chip-${u.value}`}>
+              {u.label}
+              <span className="text-[9px] opacity-60">({u.role})</span>
+              <button type="button" onClick={() => remove(u.value)} className="hover:bg-black/10 rounded-full p-0.5" aria-label={`Retirer ${u.label}`}>
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="relative">
+        <input
+          type="text"
+          value={q}
+          onFocus={() => setOpen(true)}
+          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="Rechercher un utilisateur…"
+          className="w-full text-xs rounded-md ring-1 ring-slate-300 px-2 py-1.5 bg-white"
+          data-testid={`${testIdPrefix}-input`}
+        />
+        {open && filtered.length > 0 && (
+          <div className="absolute z-30 left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto bg-white rounded-md shadow-lg ring-1 ring-slate-200" data-testid={`${testIdPrefix}-suggestions`}>
+            {filtered.map((u) => (
+              <button
+                key={u.value}
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); add(u.value); }}
+                className="w-full text-left text-xs px-2.5 py-1.5 hover:bg-slate-50 flex items-center justify-between"
+                data-testid={`${testIdPrefix}-option-${u.value}`}
+              >
+                <span>{u.label}</span>
+                <span className="text-[10px] text-slate-400">{u.role}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

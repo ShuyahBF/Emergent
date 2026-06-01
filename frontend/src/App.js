@@ -34,6 +34,7 @@ if (typeof window !== "undefined" && !window.__sawali_err_handler__) {
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
+import GlobalRouteLoader from "@/components/GlobalRouteLoader";
 import MarketingLayout from "@/components/MarketingLayout";
 import PortalLayout from "@/components/PortalLayout";
 
@@ -102,6 +103,7 @@ import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminBrochures from "@/pages/admin/AdminBrochures";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
 import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
+import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -160,6 +162,7 @@ export default function App() {
         <Toaster richColors position="top-right" />
         <WebhookResultModal />
         <RouteTracker />
+        <GlobalRouteLoader />
         <AutoLogoutGate />
         <Routes>
           {/* Public marketing */}
@@ -234,6 +237,8 @@ export default function App() {
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />
             <Route path="meetings/:id" element={<MeetingMinutes />} />
+            {/* S-iter39d (fix #2) — Liluvine PRO history accessible aux modérateurs */}
+            <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
           </Route>
 
           {/* Admin */}
@@ -276,6 +281,7 @@ export default function App() {
             <Route path="policies" element={<AdminPolicies />} />
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
+            <Route path="suggestions" element={<AdminSuggestionsRegistry />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />

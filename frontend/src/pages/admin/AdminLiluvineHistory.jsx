@@ -29,7 +29,10 @@ const DATE_RANGES = [
   ["all", "Toujours"],
 ];
 
-const TAKEOVER_ROLES = new Set(["admin", "superviseur", "moderateur"]);
+// S-iter39d (fix #2) — Include the stored values used in the DB:
+// tracked_role can be "Moderation" or "Administrateur" (lowercase becomes
+// "moderation" / "administrateur"), not "moderateur".
+const TAKEOVER_ROLES = new Set(["admin", "superviseur", "moderateur", "moderation", "administrateur"]);
 
 export default function AdminLiluvineHistory() {
   const { user } = useAuth() || {};

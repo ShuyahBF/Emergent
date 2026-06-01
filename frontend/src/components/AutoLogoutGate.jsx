@@ -34,7 +34,15 @@ export default function AutoLogoutGate() {
       duration: 6000,
       id: "idle-logout-toast",
     });
-    navigate("/login", { replace: true });
+    // S-iter39d (fix #3) — Hard navigation guarantees every lingering modal
+    // (Welcome briefing, dialogs, sticky toasts) is unmounted. The previous
+    // react-router navigate() could leave the Welcome briefing visible
+    // because PortalLayout state survived the auth context update.
+    try {
+      window.location.assign("/login");
+    } catch {
+      navigate("/login", { replace: true });
+    }
   };
 
   const { warningCountdown, stayConnected } = useIdleTimer({

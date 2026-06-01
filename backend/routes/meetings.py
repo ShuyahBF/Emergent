@@ -39,6 +39,22 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _norm_id_list(items, *, exclude: Optional[set] = None) -> List[str]:
+    """De-duplicate, strip and exclude conflicts from a user-supplied id list."""
+    if not items:
+        return []
+    out: List[str] = []
+    seen = set()
+    excl = exclude or set()
+    for raw in items:
+        s = (str(raw) if raw is not None else "").strip()
+        if not s or s in seen or s in excl:
+            continue
+        seen.add(s)
+        out.append(s)
+    return out
+
+
 def _is_admin_or_sup(user: dict) -> bool:
     return (user.get("role") or "") in ("admin", "superviseur")
 
@@ -63,6 +79,10 @@ class MeetingCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=240)
     body_html: str = Field("", max_length=200_000)
     attendees: Optional[str] = Field(None, max_length=2000)
+    # S-iter39d (fix #1) — Signataires (signature obligatoire) + participants
+    # simples. Liste de user_ids (kind=user) ou tracked_user ids (kind=tracked).
+    signers: Optional[List[str]] = Field(default_factory=list)
+    participants: Optional[List[str]] = Field(default_factory=list)
 
 
 class MeetingUpdate(BaseModel):
@@ -72,6 +92,8 @@ class MeetingUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=240)
     body_html: Optional[str] = Field(None, max_length=200_000)
     attendees: Optional[str] = Field(None, max_length=2000)
+    signers: Optional[List[str]] = None
+    participants: Optional[List[str]] = None
 
 
 def make_router(*, db, get_current_user):
@@ -125,6 +147,10 @@ def make_router(*, db, get_current_user):
             "title": payload.title.strip(),
             "body_html": payload.body_html or "",
             "attendees": (payload.attendees or "").strip() or None,
+            # S-iter39d (fix #1) — Liste des signataires (signature obligatoire)
+            # + liste des autres participants. Dédupliquée et nettoyée.
+            "signers": _norm_id_list(payload.signers),
+            "participants": _norm_id_list(payload.participants, exclude=set(_norm_id_list(payload.signers))),
             "author_id": user["id"],
             "author_name": user.get("full_name") or user.get("email") or "—",
             "author_email": user.get("email"),
@@ -159,6 +185,12 @@ def make_router(*, db, get_current_user):
                 detail="Ce PV est signé et verrouillé. Annulez la signature avant de modifier.",
             )
         update: Dict[str, Any] = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
+        # S-iter39d (fix #1) — Normalize signer/participant lists when provided.
+        if "signers" in update:
+            update["signers"] = _norm_id_list(update["signers"])
+        if "participants" in update:
+            excl = set(update.get("signers") or doc.get("signers") or [])
+            update["participants"] = _norm_id_list(update["participants"], exclude=excl)
         if not update:
             return doc
         update["updated_at"] = _now()
@@ -194,6 +226,14 @@ def make_router(*, db, get_current_user):
             raise HTTPException(status_code=404, detail="PV introuvable")
         if doc.get("signed_at"):
             return doc  # idempotent: already signed
+        # S-iter39d (fix #1) — If signers list is non-empty, the signing user
+        # MUST be one of the declared signataires.
+        signers = doc.get("signers") or []
+        if signers and user["id"] not in signers:
+            raise HTTPException(
+                status_code=403,
+                detail="Vous n'êtes pas dans la liste des signataires obligatoires du PV.",
+            )
         signature = {
             "signed_at": _now(),
             "signed_by_id": user["id"],
@@ -232,7 +272,20 @@ def make_router(*, db, get_current_user):
         doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="PV introuvable")
-        pdf_bytes = _render_pdf(doc)
+        # S-iter39d (fix #1) — Resolve signers/participants ids → display names
+        # so the PDF shows readable strings instead of UUIDs.
+        all_ids = list(set((doc.get("signers") or []) + (doc.get("participants") or [])))
+        names: Dict[str, str] = {}
+        if all_ids:
+            async for u in db.users.find({"id": {"$in": all_ids}}, {"_id": 0, "id": 1, "full_name": 1, "email": 1}):
+                names[u["id"]] = u.get("full_name") or u.get("email") or "—"
+            async for t in db.tracked_users.find({"id": {"$in": all_ids}}, {"_id": 0, "id": 1, "user_id": 1, "name": 1, "full_name": 1, "email": 1}):
+                key = t.get("user_id") or t["id"]
+                if key not in names:
+                    names[key] = t.get("full_name") or t.get("name") or t.get("email") or "—"
+        signers_names = [names.get(i, i) for i in (doc.get("signers") or [])]
+        participants_names = [names.get(i, i) for i in (doc.get("participants") or [])]
+        pdf_bytes = _render_pdf({**doc, "_signers_names": signers_names, "_participants_names": participants_names})
         filename = f"{doc.get('numero', 'PV')}.pdf"
         return Response(
             content=pdf_bytes,
@@ -292,7 +345,14 @@ def _render_pdf(doc: dict) -> bytes:
         ["Auteur du PV", doc.get("author_name") or doc.get("author_email") or "—"],
     ]
     if doc.get("attendees"):
-        rows.append(["Participants", doc["attendees"]])
+        rows.append(["Participants (libre)", doc["attendees"]])
+    # S-iter39d (fix #1) — Show structured signers/participants lists if any
+    sg_names = doc.get("_signers_names") or []
+    pt_names = doc.get("_participants_names") or []
+    if sg_names:
+        rows.append(["Signataires (obligatoire)", ", ".join(sg_names)])
+    if pt_names:
+        rows.append(["Autres participants", ", ".join(pt_names)])
     table = Table(rows, colWidths=[4.5 * cm, 12 * cm])
     table.setStyle(TableStyle([
         ("FONT", (0, 0), (-1, -1), "Helvetica", 10),

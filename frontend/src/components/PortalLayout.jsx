@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -61,6 +61,9 @@ const clientLinks = [
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, featureGate: "ai_liluvine_pro" },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
+  // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs
+  // (et aux admin/sup pour cohérence avec la sidebar admin)
+  { to: "/portal/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot, moderationOnly: true },
   // S-iter39b — Brochures & Guides accessible aux modérateurs (lecture en
   // ligne via la visionneuse PDF interne ; téléchargement réservé admin/sup).
   { to: "/portal/brochures", label: "Brochures & Guides", icon: FileText, moderationOnly: true },
@@ -78,6 +81,7 @@ const adminLinks = [
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
   { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
+  { to: "/admin/suggestions", label: "Suggestions (registre S###)", icon: ScrollText },
   { to: "/admin/policies", label: "Politiques publiques", icon: Shield },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },

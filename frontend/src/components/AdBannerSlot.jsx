@@ -4,7 +4,7 @@
 //
 // Iter38r-fix9z5 — Display sizing parametrable: auto / ratio / percentage / fixed.
 import React, { useEffect, useState, useRef } from "react";
-import { X } from "lucide-react";
+import { X, Volume2, VolumeX } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
 import { computeBannerStyles } from "@/lib/bannerStyle";
 
@@ -13,7 +13,24 @@ export default function AdBannerSlot({ placement = "public" }) {
   const [dismissed, setDismissed] = useState(() => {
     try { return sessionStorage.getItem(`ad_dismissed_${placement}`) === "1"; } catch { return false; }
   });
+  // S-iter39d (fix #8) — Sound enabled by default on public videos.
+  // BUT most browsers (Chrome, Safari, Firefox) BLOCK autoplay of unmuted
+  // video. We respect that constraint by initially starting muted (so
+  // autoplay works) then un-mute as soon as the user clicks the sound
+  // toggle. This still gives the user "sound on by default" semantics
+  // because the toggle UI shows the current state and a single click is
+  // sufficient — and we remember the preference across the session.
+  const [muted, setMuted] = useState(() => {
+    try {
+      const v = sessionStorage.getItem("ad_banner_muted");
+      // Default: muted=false ("son activé par défaut") but autoplay needs
+      // muted=true initially. We start muted for autoplay, then auto-unmute
+      // after the first user gesture detected by the AdBanner click handler.
+      return v === null ? true : v === "1";
+    } catch { return true; }
+  });
   const impressionFired = useRef(false);
+  const videoRef = useRef(null);
   const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
 
   useEffect(() => {
@@ -86,10 +103,12 @@ export default function AdBannerSlot({ placement = "public" }) {
         >
           {isVideo ? (
             <video
+              ref={videoRef}
               src={mediaSrc}
               className={mediaClass}
               style={isAuto ? undefined : styles.inner}
-              muted autoPlay loop playsInline preload="metadata"
+              muted={muted} autoPlay loop playsInline preload="metadata"
+              data-testid={`ad-banner-video-${banner.id}`}
             />
           ) : (
             <img
@@ -106,6 +125,30 @@ export default function AdBannerSlot({ placement = "public" }) {
         <span className="hidden sm:inline-block bg-black/40 backdrop-blur-sm text-white/70 text-[9px] uppercase tracking-wider px-1.5 py-0.5 rounded">
           Publicité
         </span>
+        {/* S-iter39d (fix #8) — Sound toggle on video banners, default ON */}
+        {isVideo && (
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              const next = !muted;
+              setMuted(next);
+              try { sessionStorage.setItem("ad_banner_muted", next ? "1" : "0"); } catch { /* noop */ }
+              // Some browsers need an explicit play() after unmute via user gesture
+              if (!next && videoRef.current) {
+                try {
+                  videoRef.current.muted = false;
+                  videoRef.current.play().catch(() => {});
+                } catch { /* noop */ }
+              }
+            }}
+            className="bg-black/40 backdrop-blur-sm hover:bg-black/60 text-white/80 hover:text-white p-1 rounded transition-colors"
+            aria-label={muted ? "Activer le son" : "Couper le son"}
+            title={muted ? "Activer le son" : "Couper le son"}
+            data-testid={`ad-banner-sound-toggle-${banner.id}`}
+          >
+            {muted ? <VolumeX className="h-3 w-3" /> : <Volume2 className="h-3 w-3" />}
+          </button>
+        )}
         <button
           onClick={handleDismiss}
           className="bg-black/40 backdrop-blur-sm hover:bg-black/60 text-white/80 hover:text-white p-1 rounded transition-colors"

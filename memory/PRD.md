@@ -6,6 +6,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39b — 📋 PV de réunions + 📖 Visionneuse PDF + 🕒 Liluvine 3 dernières
+
+### ✅ S012 — Bug fix : modal de consultation de tâche affichait vide
+- Tâches migrées au format `task_items[]` (Google-Keep) restaient invisibles dans le viewer (qui ne lisait que `content_html`). Ajout du rendu de la checklist avec compteur fait/total.
+
+### ✅ S013 — Brochures & Guides visibles aux modérateurs
+- Nouvelle entrée sidebar `Brochures & Guides` avec gate `moderationOnly` dans `PortalLayout.jsx`. `BrochuresWidget.canSee` étendu à `tracked_role="Moderation"`. Téléchargement reste réservé Admin/Superviseur ; à la place les modérateurs ouvrent une visionneuse PDF interne.
+
+### ✅ S014 — Visionneuse PDF interne (`<PdfViewer>`)
+- Basée sur **react-pdf 9** + **pdf.js 4** (worker chargé via CDN unpkg).
+- Sommaire cliquable (extrait via `pdf.getOutline()`), recherche plein-texte avec aperçu (jusqu'à 200 occurrences), zoom +/-, navigation page.
+- **Téléchargement gated par rôle** : bouton visible uniquement si admin/superviseur ; sinon bandeau « Lecture en ligne uniquement » + désactivation menu contextuel et Ctrl+S.
+- Utilisée par `/portal/brochures` et `/portal/meetings`.
+
+### ✅ S015 — PV de réunions internes (autonumérotés)
+- Backend `routes/meetings.py` (CRUD + export PDF reportlab + soft-delete).
+- Numérotation atomique `PV-YYYY-NNN` par tenant et par année via `_counters.next_seq`.
+- Schéma `meeting_minutes` : `id, tenant_id, numero, meeting_date, started_at, ended_at, title, body_html, attendees, author_*, created_at, updated_at, deleted_at`.
+- Éditeur riche (réutilise `RichEditor` de UserNotes — bouton **Dicter** Whisper inclus).
+- `ended_at` fixé automatiquement au clic « Enregistrer ».
+- Édition autorisée à l'auteur + admin/superviseur + tracked Administrateur/Superviseur.
+- PDF avec table récap (Titre, Date, Heure début/fin, Auteur, Participants) + corps HTML nettoyé.
+- Tests : `backend/tests/test_siter39b_meetings.py` (CRUD + PDF + autonumérotation + soft-delete + auth — 2/2 verts).
+
+### ✅ S016 — Liluvine PRO : 3 dernières + Reprendre pour modérateurs
+- Nouveau toggle « 🕒 3 dernières conversations » dans la sidebar Liluvine PRO (toujours visible).
+- Fix RBAC : `_TAKEOVER_ROLES` côté backend ET `canTakeover` côté frontend incluent désormais `moderation` et `administrateur` (valeurs réellement stockées) → modérateurs peuvent **Reprendre** une conversation.
+- Tests : `backend/tests/test_siter39b_takeover_moderator.py` (1/1 vert).
+
+### ✅ #1 — Convention badge « NOUVEAU » dans la dropdown des Paramètres
+- `NEW_SECTIONS` enrichi avec `"Nouveaux modules — PV de réunions / Visionneuse PDF / Filtre Liluvine": "2026-02-01"`. Nouveau bloc `<Filterable>` ajouté en haut de AdminSettings avec 3 cartes (PV / Visionneuse / Liluvine 3 dernières) + liens directs vers les modules.
+- Convention rappelée pour les itérations futures : chaque nouveau module créé/maintenu DOIT être enregistré dans `NEW_SECTIONS` ET avoir un `Filterable` titré identique pour apparaître dans la dropdown.
+
+### Tests S-iter39b : 3/3 backend + 5/5 frontend = 8/8 verts (`iteration_44.json`)
+
 ## Recent (2026-02 post-handoff) — S-iter39a — 👁️ Carte Liluvine pour Modérateurs + ✏️ Édition « Client lié »
 
 ### ✅ S010 — Carte « WhatsApp pris en charge par Liluvine » visible pour les modérateurs

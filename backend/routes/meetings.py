@@ -152,6 +152,12 @@ def make_router(*, db, get_current_user):
             raise HTTPException(status_code=404, detail="PV introuvable")
         if not _can_edit(user, doc):
             raise HTTPException(status_code=403, detail="Modification réservée à l'auteur, admin ou superviseur")
+        # S017 — Signed PVs are locked. Only an admin/sup can unsign first.
+        if doc.get("signed_at"):
+            raise HTTPException(
+                status_code=423,  # Locked
+                detail="Ce PV est signé et verrouillé. Annulez la signature avant de modifier.",
+            )
         update: Dict[str, Any] = {k: v for k, v in payload.model_dump(exclude_unset=True).items() if v is not None}
         if not update:
             return doc
@@ -165,11 +171,60 @@ def make_router(*, db, get_current_user):
         if not _can_delete(user):
             raise HTTPException(status_code=403, detail="Suppression réservée à admin/superviseur")
         scope = await _list_query(user)
-        doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0, "id": 1})
+        doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0, "id": 1, "signed_at": 1})
         if not doc:
             raise HTTPException(status_code=404, detail="PV introuvable")
+        if doc.get("signed_at"):
+            raise HTTPException(status_code=423, detail="Ce PV est signé. Annulez la signature avant de supprimer.")
         await db.meeting_minutes.update_one({"id": mid}, {"$set": {"deleted_at": _now()}})
         return {"ok": True}
+
+    # ----------------------------------------------------------------
+    # S017 — Electronic signature workflow (admin/superviseur only).
+    # Signing stamps the PV with author/date and locks it (PUT/DELETE
+    # refuse with 423 LOCKED). Unsigning reverts to an editable state.
+    # ----------------------------------------------------------------
+    @router.post("/{mid}/sign")
+    async def sign_meeting(mid: str, user: dict = Depends(get_current_user)):
+        if not _can_delete(user):  # admin/sup or elevated tracked
+            raise HTTPException(status_code=403, detail="Signature réservée à admin/superviseur")
+        scope = await _list_query(user)
+        doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="PV introuvable")
+        if doc.get("signed_at"):
+            return doc  # idempotent: already signed
+        signature = {
+            "signed_at": _now(),
+            "signed_by_id": user["id"],
+            "signed_by_name": user.get("full_name") or user.get("email") or "—",
+            "signed_by_email": user.get("email"),
+            "updated_at": _now(),
+        }
+        await db.meeting_minutes.update_one({"id": mid}, {"$set": signature})
+        doc.update(signature)
+        return doc
+
+    @router.post("/{mid}/unsign")
+    async def unsign_meeting(mid: str, user: dict = Depends(get_current_user)):
+        if not _can_delete(user):
+            raise HTTPException(status_code=403, detail="Annulation de signature réservée à admin/superviseur")
+        scope = await _list_query(user)
+        doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="PV introuvable")
+        if not doc.get("signed_at"):
+            return doc  # idempotent
+        await db.meeting_minutes.update_one({"id": mid}, {"$set": {
+            "signed_at": None,
+            "signed_by_id": None,
+            "signed_by_name": None,
+            "signed_by_email": None,
+            "updated_at": _now(),
+        }})
+        for k in ("signed_at", "signed_by_id", "signed_by_name", "signed_by_email"):
+            doc[k] = None
+        return doc
 
     @router.get("/{mid}/pdf")
     async def export_pdf(mid: str, user: dict = Depends(get_current_user)):
@@ -279,6 +334,38 @@ def _render_pdf(doc: dict) -> bytes:
                 plain = re.sub(r"<[^>]+>", "", chunk)
                 if plain.strip():
                     story.append(Paragraph(plain, body_style))
+
+    # S017 — Signature block at the bottom (only if signed).
+    if doc.get("signed_at"):
+        story.append(Spacer(1, 24))
+        try:
+            sig_dt = datetime.fromisoformat(doc["signed_at"].replace("Z", "+00:00"))
+            sig_str = sig_dt.strftime("%d/%m/%Y à %H:%M UTC")
+        except (ValueError, TypeError):
+            sig_str = doc["signed_at"]
+        sig_style = ParagraphStyle(
+            "sig", parent=styles["Normal"], fontSize=10, leading=14,
+            textColor=colors.HexColor("#065F46"),
+        )
+        sig_box = Table(
+            [[Paragraph(
+                f"<b>✓ PV signé électroniquement</b><br/>"
+                f"par <b>{doc.get('signed_by_name') or doc.get('signed_by_email') or '—'}</b><br/>"
+                f"le <b>{sig_str}</b><br/>"
+                f"<font size='8' color='#475569'>Document verrouillé — toute modification ultérieure annule la signature.</font>",
+                sig_style,
+            )]],
+            colWidths=[16.5 * cm],
+        )
+        sig_box.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#ECFDF5")),
+            ("BOX", (0, 0), (-1, -1), 1, colors.HexColor("#10B981")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 10),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 10),
+            ("TOPPADDING", (0, 0), (-1, -1), 8),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
+        ]))
+        story.append(sig_box)
 
     pdf.build(story)
     buf.seek(0)

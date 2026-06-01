@@ -144,6 +144,15 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `frontend/src/pages/portal/LiluvinePro.jsx`, `backend/routes/liluvine_pro.py:_TAKEOVER_ROLES`
 - **Tests** : `backend/tests/test_siter39b_takeover_moderator.py`
 
+## S017 — Signature électronique du PV (verrouillage post-signature)
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39c
+- **Détail** : Bouton « Valider et signer » (admin/superviseur uniquement) sur la fiche d'un PV. À la signature : `signed_at` / `signed_by_id|name|email` sont persistés, le PUT et le DELETE renvoient **HTTP 423 LOCKED**, l'édition est masquée côté UI, et un bandeau emerald « PV signé électroniquement par … le … » apparaît dans le PDF généré ainsi qu'un badge SIGNÉ sur la carte. Annulation possible (admin/sup) via « Annuler la signature » → le PV redevient modifiable. Rejet 403 pour les modérateurs non-admins. Signature idempotente.
+- **Bénéfice** : valeur légale (PV opposable, anti-falsification), traçabilité
+- **Fichiers** : `backend/routes/meetings.py` (POST `/sign` + `/unsign` + verrou PUT/DELETE + bloc PDF signature), `frontend/src/pages/portal/MeetingMinutes.jsx` (badge SIGNÉ, boutons sign/unsign, masquage des actions verrouillées)
+- **Tests** : `backend/tests/test_siter39c_sign_meeting.py` (cycle sign/lock/unsign + idempotence + modérateur refusé + PDF — 2/2 verts)
+
 ---
 
 ## Comment référencer une suggestion

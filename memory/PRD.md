@@ -6,6 +6,18 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39c — 🔏 Signature électronique du PV
+
+### ✅ S017 — Signature électronique avec verrou de modification
+- Nouveau bouton « Valider et signer » (admin/superviseur uniquement) côté UI : sur la carte d'un PV ET dans le viewer plein écran.
+- Backend `POST /api/me/meetings/{id}/sign` et `/unsign` :
+  - persistance `signed_at`, `signed_by_id`, `signed_by_name`, `signed_by_email`
+  - PUT et DELETE sur PV signé → **HTTP 423 LOCKED**
+  - signature idempotente, annulation autorisée admin/sup
+  - PDF inclut un bloc emerald « ✓ PV signé électroniquement par … le … — Document verrouillé »
+- UI : badge « SIGNÉ » sur la carte, ring emerald, masquage des boutons Modifier/Supprimer/Signer quand verrouillé, bouton « Annuler la signature » à la place.
+- Tests : `backend/tests/test_siter39c_sign_meeting.py` (cycle sign/lock/unsign + idempotence + modérateur refusé + PDF — 2/2 verts).
+
 ## Recent (2026-02 post-handoff) — S-iter39b — 📋 PV de réunions + 📖 Visionneuse PDF + 🕒 Liluvine 3 dernières
 
 ### ✅ S012 — Bug fix : modal de consultation de tâche affichait vide

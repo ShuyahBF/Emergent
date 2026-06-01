@@ -5,7 +5,7 @@ import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
-  ClipboardList, Plus, Edit, Trash2, X, Search, FileText, Printer, Eye, Save, Loader2, Clock,
+  ClipboardList, Plus, Edit, Trash2, X, Search, FileText, Printer, Eye, Save, Loader2, Clock, ShieldCheck, Lock, Undo2,
 } from "lucide-react";
 import { RichEditor } from "@/pages/portal/UserNotes";
 import { useNavigate, useParams } from "react-router-dom";
@@ -161,6 +161,30 @@ export default function MeetingMinutes() {
     }
   };
 
+  // S017 — Signature électronique du PV (admin/superviseur uniquement)
+  const sign = async (m) => {
+    if (!window.confirm(`Signer le PV « ${m.numero} » ?\n\nLe document sera verrouillé : aucune modification ne sera plus possible tant que la signature n'est pas annulée.`)) return;
+    try {
+      const r = await apiClient.post(`/me/meetings/${m.id}/sign`);
+      toast.success(`PV signé par ${r.data?.signed_by_name || "vous"}`);
+      if (viewing?.id === m.id) setViewing(r.data);
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    }
+  };
+  const unsign = async (m) => {
+    if (!window.confirm(`Annuler la signature du PV « ${m.numero} » ?\n\nLe document redeviendra modifiable.`)) return;
+    try {
+      const r = await apiClient.post(`/me/meetings/${m.id}/unsign`);
+      toast.success("Signature annulée — PV à nouveau modifiable");
+      if (viewing?.id === m.id) setViewing(r.data);
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    }
+  };
+
   const openPdf = async (m) => {
     const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
     setPdfDoc({
@@ -197,11 +221,30 @@ export default function MeetingMinutes() {
               {viewing.attendees && (
                 <p className="text-xs text-slate-600 mt-1"><strong>Participants :</strong> {viewing.attendees}</p>
               )}
+              {/* S017 — Signature badge in the view modal header */}
+              {viewing.signed_at && (
+                <p className="mt-2 text-xs inline-flex items-center gap-1 bg-emerald-50 ring-1 ring-emerald-300 text-emerald-800 rounded-full px-2 py-0.5" data-testid="meeting-signed-badge">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  Signé par <strong>{viewing.signed_by_name || viewing.signed_by_email}</strong> le {new Date(viewing.signed_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}
+                  <Lock className="h-3 w-3 ml-0.5" />
+                </p>
+              )}
             </div>
             <div className="flex items-center gap-1">
-              {(isAdminOrSup || elevatedTracked || viewing.author_id === user?.id) && (
+              {(isAdminOrSup || elevatedTracked || viewing.author_id === user?.id) && !viewing.signed_at && (
                 <button onClick={() => openEdit(viewing)} className="px-3 py-1.5 rounded ring-1 ring-slate-200 hover:bg-slate-50 text-xs inline-flex items-center gap-1" data-testid="meeting-edit-from-view">
                   <Edit className="h-3.5 w-3.5" /> Modifier
+                </button>
+              )}
+              {/* S017 — Sign / Unsign (admin/sup only) */}
+              {canDelete && !viewing.signed_at && (
+                <button onClick={() => sign(viewing)} className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-xs inline-flex items-center gap-1" data-testid="meeting-sign-from-view">
+                  <ShieldCheck className="h-3.5 w-3.5" /> Valider et signer
+                </button>
+              )}
+              {canDelete && viewing.signed_at && (
+                <button onClick={() => unsign(viewing)} className="px-3 py-1.5 rounded ring-1 ring-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-800 text-xs inline-flex items-center gap-1" data-testid="meeting-unsign-from-view" title="Annuler la signature pour pouvoir modifier le PV">
+                  <Undo2 className="h-3.5 w-3.5" /> Annuler la signature
                 </button>
               )}
               <button onClick={() => printDoc(viewing)} className="px-3 py-1.5 rounded ring-1 ring-slate-200 hover:bg-slate-50 text-xs inline-flex items-center gap-1" data-testid="meeting-print">
@@ -262,8 +305,15 @@ export default function MeetingMinutes() {
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4" data-testid="meeting-list">
           {items.map((m) => (
-            <article key={m.id} className="rounded-xl ring-1 ring-slate-200 bg-white p-4 hover:ring-2 hover:ring-fuchsia-300 transition" data-testid={`meeting-card-${m.id}`}>
-              <p className="text-[10px] uppercase tracking-widest font-mono text-fuchsia-700">{m.numero}</p>
+            <article key={m.id} className={`rounded-xl ring-1 bg-white p-4 transition ${m.signed_at ? "ring-emerald-300 hover:ring-2 hover:ring-emerald-400" : "ring-slate-200 hover:ring-2 hover:ring-fuchsia-300"}`} data-testid={`meeting-card-${m.id}`}>
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[10px] uppercase tracking-widest font-mono text-fuchsia-700">{m.numero}</p>
+                {m.signed_at && (
+                  <span className="text-[9px] inline-flex items-center gap-0.5 bg-emerald-100 text-emerald-800 ring-1 ring-emerald-300 rounded-full px-1.5 py-0.5 font-semibold" data-testid={`meeting-signed-badge-${m.id}`} title={`Signé par ${m.signed_by_name || m.signed_by_email} le ${new Date(m.signed_at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}`}>
+                    <ShieldCheck className="h-2.5 w-2.5" /> SIGNÉ
+                  </span>
+                )}
+              </div>
               <h3 className="text-sm font-display font-semibold text-slate-900 mt-1 line-clamp-2" title={m.title}>{m.title}</h3>
               <p className="text-xs text-slate-500 mt-2 inline-flex items-center gap-1">
                 <Clock className="h-3 w-3" />
@@ -275,15 +325,26 @@ export default function MeetingMinutes() {
                 <button onClick={() => navigate(`/portal/meetings/${m.id}`)} className="text-slate-500 hover:text-sawali-blue p-1.5 rounded hover:bg-slate-50" title="Consulter" data-testid={`meeting-view-${m.id}`}>
                   <Eye className="h-3.5 w-3.5" />
                 </button>
-                {(isAdminOrSup || elevatedTracked || m.author_id === user?.id) && (
+                {(isAdminOrSup || elevatedTracked || m.author_id === user?.id) && !m.signed_at && (
                   <button onClick={() => openEdit(m)} className="text-slate-500 hover:text-sawali-blue p-1.5 rounded hover:bg-slate-50" title="Modifier" data-testid={`meeting-edit-${m.id}`}>
                     <Edit className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {/* S017 — Sign button on list card (admin/sup only, when not yet signed) */}
+                {canDelete && !m.signed_at && (
+                  <button onClick={() => sign(m)} className="text-emerald-600 hover:text-emerald-800 p-1.5 rounded hover:bg-emerald-50" title="Valider et signer ce PV (verrouille toute modification)" data-testid={`meeting-sign-${m.id}`}>
+                    <ShieldCheck className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                {canDelete && m.signed_at && (
+                  <button onClick={() => unsign(m)} className="text-amber-600 hover:text-amber-800 p-1.5 rounded hover:bg-amber-50" title="Annuler la signature pour pouvoir modifier" data-testid={`meeting-unsign-${m.id}`}>
+                    <Undo2 className="h-3.5 w-3.5" />
                   </button>
                 )}
                 <button onClick={() => openPdf(m)} className="text-slate-500 hover:text-emerald-600 p-1.5 rounded hover:bg-slate-50" title="Voir le PDF" data-testid={`meeting-pdf-${m.id}`}>
                   <FileText className="h-3.5 w-3.5" />
                 </button>
-                {canDelete && (
+                {canDelete && !m.signed_at && (
                   <button onClick={() => del(m)} className="text-slate-500 hover:text-rose-600 p-1.5 rounded hover:bg-slate-50" title="Supprimer" data-testid={`meeting-delete-${m.id}`}>
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>

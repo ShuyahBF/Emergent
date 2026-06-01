@@ -256,6 +256,15 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : son effectivement activé dès que le visiteur interagit, sans frustrer l'expérience par un autoplay sonore intrusif (qui serait bloqué par le navigateur).
 - **Fichiers** : `frontend/src/components/AdBannerSlot.jsx`
 
+## S029 — Journal d'audit des demandes de téléchargement
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39f
+- **Détail** : Nouvelle page admin `/admin/download-audit` qui liste TOUTES les demandes d'approbation de téléchargement (S025). Pour chaque demande : date, demandeur, document, status final, date de décision, canal (bouton template Meta / lien magique / override admin), numéro de l'approbateur, statut d'envoi WhatsApp. Filtre par status (5 KPI cards cliquables + bouton « Tout »), recherche plein-texte sur demandeur/document. Backend endpoint `GET /api/me/download-requests/admin/audit` (admin/sup uniquement, 403 sinon, 500 lignes max).
+- **Bénéfice** : traçabilité opposable des accès aux documents confidentiels, audit de conformité
+- **Fichiers** : `backend/routes/download_approvals.py` (endpoint `admin_audit`), `frontend/src/pages/admin/AdminDownloadAudit.jsx` (nouveau), entrée sidebar admin dans `PortalLayout.jsx`, route dans `App.js`
+- **Tests** : `backend/tests/test_siter39f_audit.py` (counters + filtres status/q + 400 status invalide + 403 modérateur — 2/2 verts)
+
 ---
 
 ## Comment référencer une suggestion

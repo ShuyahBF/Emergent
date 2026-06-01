@@ -233,6 +233,41 @@ def make_router(*, db, get_current_user, wa_send_text, wa_send_template=None, re
         doc["status"] = "cancelled"
         return doc
 
+    # ----------------------------------------------------------------
+    # S029 — Audit journal (admin/superviseur only). Returns the full
+    # history of download-approval requests with optional filters.
+    # ----------------------------------------------------------------
+    @router.get("/admin/audit", tags=["Téléchargements protégés", "Admin"])
+    async def admin_audit(
+        status: Optional[str] = None,
+        q: Optional[str] = None,
+        limit: int = 200,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Accès réservé à admin/superviseur")
+        limit = max(1, min(int(limit or 200), 1000))
+        query: Dict[str, Any] = {}
+        if status and status not in ("all", ""):
+            valid = {"pending", "approved", "denied", "expired", "cancelled"}
+            if status not in valid:
+                raise HTTPException(status_code=400, detail=f"status doit être l'un de {sorted(valid | {'all'})}")
+            query["status"] = status
+        if q:
+            qr = q.strip()
+            query["$or"] = [
+                {"requester_email": {"$regex": qr, "$options": "i"}},
+                {"requester_name": {"$regex": qr, "$options": "i"}},
+                {"resource_label": {"$regex": qr, "$options": "i"}},
+            ]
+        cursor = db.download_approvals.find(query, {"_id": 0}).sort("created_at", -1).limit(limit)
+        items = [doc async for doc in cursor]
+        # Counters (independent of filter — for the dashboard cards)
+        counters = {}
+        for k in ("pending", "approved", "denied", "expired", "cancelled"):
+            counters[k] = await db.download_approvals.count_documents({"status": k})
+        return {"items": items, "count": len(items), "counters": counters}
+
     return router
 
 

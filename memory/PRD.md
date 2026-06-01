@@ -6,6 +6,16 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39f — 📊 Journal d'audit des téléchargements
+
+### ✅ S029 — Journal d'audit consultable des demandes de téléchargement
+- Nouvelle page admin `/admin/download-audit` (Admin/Superviseur uniquement).
+- 5 KPI cards cliquables (Pending / Approved / Denied / Expired / Cancelled) avec compteurs en temps réel.
+- Tableau complet : date, demandeur, document, status, date de décision, canal de décision (🔘 Bouton template / 🔗 Lien magique / ⚡ Admin), numéro de l'approbateur, statut d'envoi WhatsApp.
+- Filtres par status (clic sur KPI) + recherche plein-texte (demandeur/document).
+- Backend `GET /api/me/download-requests/admin/audit` : 500 lignes max, 403 pour non-admin, 400 pour status invalide.
+- Tests : 2/2 verts (counters + filtres + RBAC blocking).
+
 ## Recent (2026-02 post-handoff) — S-iter39e — 🛡️ Approval téléchargements + 📋 Signataires PV + 📖 Doc AdminSettings
 
 ### ✅ S025 — Workflow d'approbation WhatsApp pour téléchargements

@@ -104,6 +104,7 @@ import AdminBrochures from "@/pages/admin/AdminBrochures";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
 import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
 import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
+import AdminDownloadAudit from "@/pages/admin/AdminDownloadAudit";
 import Launch from "@/pages/public/Launch";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
@@ -282,6 +283,7 @@ export default function App() {
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
             <Route path="suggestions" element={<AdminSuggestionsRegistry />} />
+            <Route path="download-audit" element={<AdminDownloadAudit />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />

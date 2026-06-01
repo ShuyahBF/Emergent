@@ -82,6 +82,7 @@ const adminLinks = [
   { to: "/admin/automations", label: "Automations", icon: Zap },
   { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
   { to: "/admin/suggestions", label: "Suggestions (registre S###)", icon: ScrollText },
+  { to: "/admin/download-audit", label: "Téléchargements — Audit (S029)", icon: History },
   { to: "/admin/policies", label: "Politiques publiques", icon: Shield },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },

@@ -2,7 +2,7 @@
 // Visible only to admin/superviseur roles. Lists the 3 generated PDFs
 // (Guide utilisateur, brochures de présentation et fonctionnalités).
 import React, { useEffect, useState } from "react";
-import { FileText, Download, ExternalLink, RefreshCw } from "lucide-react";
+import { FileText, Download, ExternalLink, RefreshCw, Eye } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
@@ -29,8 +29,12 @@ export default function BrochuresWidget() {
   const { user } = useAuth() || {};
   const role = (user?.role || "").toLowerCase();
   const tracked = (user?.tracked_role || "").toLowerCase();
-  const canSee = ["admin", "superviseur"].includes(role) || ["admin", "superviseur"].includes(tracked);
-  const canRegenerate = canSee;  // same audience: Admin/Superviseur
+  const canSee = ["admin", "superviseur"].includes(role) || ["admin", "superviseur", "moderation"].includes(tracked);
+  // S-iter39b — Téléchargement restreint à admin/superviseur (rôle réel ou
+  // tracked). Les modérateurs voient les brochures EN LIGNE via la visionneuse
+  // PDF interne mais ne peuvent pas les télécharger localement.
+  const canDownload = ["admin", "superviseur"].includes(role) || ["admin", "superviseur"].includes(tracked);
+  const canRegenerate = canDownload;  // same audience: Admin/Superviseur
   const [docs, setDocs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [regenSlug, setRegenSlug] = useState(null);
@@ -114,15 +118,19 @@ export default function BrochuresWidget() {
                   )}
 
                   <a
-                    href={downloadUrl}
-                    target="_blank"
+                    href={canDownload ? downloadUrl : `/portal/pdf-viewer?src=${encodeURIComponent(downloadUrl)}&title=${encodeURIComponent(meta.title)}`}
+                    target={canDownload ? "_blank" : "_self"}
                     rel="noopener noreferrer"
                     className="flex items-center justify-between mt-2 pt-2 border-t border-slate-100"
-                    data-testid={`brochure-download-${d.slug}`}
+                    data-testid={`brochure-${canDownload ? "download" : "view"}-${d.slug}`}
                   >
                     <span className="text-[10px] text-slate-500">{d.size_kb} KB · PDF</span>
                     <span className="text-xs font-medium text-sawali-blue inline-flex items-center gap-1 group-hover:gap-2 transition-all">
-                      <Download className="h-3 w-3" /> Télécharger <ExternalLink className="h-3 w-3" />
+                      {canDownload ? (
+                        <><Download className="h-3 w-3" /> Télécharger <ExternalLink className="h-3 w-3" /></>
+                      ) : (
+                        <><Eye className="h-3 w-3" /> Consulter en ligne</>
+                      )}
                     </span>
                   </a>
                 </div>

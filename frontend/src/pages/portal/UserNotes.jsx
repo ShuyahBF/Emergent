@@ -468,6 +468,24 @@ export default function UserNotesPage() {
                 </div>
               )}
               <div className="prose prose-sm prose-sawali max-w-none" dangerouslySetInnerHTML={{ __html: viewing.content_html || "<p class=\"text-slate-400 italic\">Aucun contenu</p>" }} />
+              {/* S-iter39b — Render task_items when viewing a 'tasks' note
+                  (legacy text content_html was empty, the items lived in
+                  viewing.task_items[]) so the eye-icon modal is no longer blank. */}
+              {Array.isArray(viewing.task_items) && viewing.task_items.length > 0 && (
+                <div className="mt-3 space-y-1.5 rounded-lg ring-1 ring-amber-200 bg-amber-50/40 p-3" data-testid="view-note-task-items">
+                  <p className="text-[11px] uppercase tracking-widest font-semibold text-amber-800 mb-1">
+                    Checklist ({viewing.task_items.filter((x) => x.done).length}/{viewing.task_items.length} faite{viewing.task_items.length > 1 ? "s" : ""})
+                  </p>
+                  {[...viewing.task_items].sort((a, b) => (a.order || 0) - (b.order || 0)).map((it) => (
+                    <div key={it.id || it.text} className={`text-sm flex items-start gap-2 ${it.done ? "text-slate-400 line-through" : "text-slate-800"}`}>
+                      <span className={`mt-0.5 inline-flex items-center justify-center h-4 w-4 rounded ring-1 ${it.done ? "bg-emerald-500 ring-emerald-600 text-white" : "ring-slate-300 bg-white"} shrink-0`}>
+                        {it.done && <span className="text-[10px] leading-3">✓</span>}
+                      </span>
+                      <span className="flex-1">{it.text}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
               {viewing.images?.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {viewing.images.map((im, i) => (
@@ -838,7 +856,8 @@ function ImageUploader({ images = [], onChange, accent = "#1E90FF" }) {
 const TEXT_COLORS = ["#0F172A", "#1E90FF", "#10B981", "#F59E0B", "#EF4444", "#8B5CF6", "#0EA5E9"];
 const HIGHLIGHTS = ["transparent", "#FEF3C7", "#DBEAFE", "#DCFCE7", "#FEE2E2", "#EDE9FE"];
 
-function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = true }) {
+// S-iter39b — Exported for reuse in MeetingMinutes (PV de réunions)
+export function RichEditor({ value, onChange, accent = "#1E90FF", aiEnabled = true }) {
   const ref = useRef(null);
   const [showColors, setShowColors] = useState(false);
   const [showHighlights, setShowHighlights] = useState(false);

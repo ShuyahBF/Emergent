@@ -126,6 +126,8 @@ import UnifiedInbox from "@/pages/portal/UnifiedInbox";
 import CatalogStats from "@/pages/portal/CatalogStats";
 import PaymentReturn from "@/pages/portal/PaymentReturn";
 import LiluvinePro from "@/pages/portal/LiluvinePro";
+import PortalBrochures from "@/pages/portal/PortalBrochures";
+import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
 import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
@@ -228,6 +230,10 @@ export default function App() {
             <Route path="tickets" element={<Tickets />} />
             {/* Iter38r-fix6 — Liluvine PRO assistant interne */}
             <Route path="liluvine" element={<LiluvinePro />} />
+            {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
+            <Route path="brochures" element={<PortalBrochures />} />
+            <Route path="meetings" element={<MeetingMinutes />} />
+            <Route path="meetings/:id" element={<MeetingMinutes />} />
           </Route>
 
           {/* Admin */}

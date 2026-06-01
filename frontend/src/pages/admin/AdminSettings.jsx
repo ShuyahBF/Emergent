@@ -28,6 +28,8 @@ import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSectio
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // S-iter39b (2026-02 post-handoff) — Nouveaux modules
+  "Nouveaux modules — PV de réunions / Visionneuse PDF / Filtre Liluvine": "2026-02-01",
   // Iter38o (2026-05-27)
   "Intégration Meta (Facebook / Messenger / Ads)": "2026-05-26",
   "Webhooks Paie (n8n)": "2026-05-24",
@@ -361,6 +363,43 @@ export default function AdminSettings() {
       </Section>
 
       <CountryPrefixSection />
+
+      {/* S-iter39b — Récap des nouveaux modules livrés.
+           Inscrit dans NEW_SECTIONS pour afficher le badge "NOUVEAU" dans la
+           dropdown "Aller à un paramètre…" pendant 21 jours, dismissable. */}
+      <Filterable title="Nouveaux modules — PV de réunions / Visionneuse PDF / Filtre Liluvine" anchorId="s-new-modules-39b">
+        <Section icon={Sparkles} title="Nouveaux modules — Février 2026">
+          <div className="space-y-3">
+            <p className="text-xs text-slate-600">
+              Trois modules ajoutés ce mois-ci, accessibles depuis la sidebar du portail :
+            </p>
+            <ul className="space-y-2 text-sm">
+              <li className="rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50/60 p-3" data-testid="new-module-meetings">
+                <p className="font-semibold text-fuchsia-900">📋 PV de réunions internes</p>
+                <p className="text-xs text-fuchsia-800 mt-0.5">
+                  Procès-verbaux autonumérotés (PV-YYYY-NNN), éditeur riche avec Dicter, impression et export PDF. Heure de fin = clic sur Enregistrer.
+                </p>
+                <Link to="/portal/meetings" className="text-xs text-fuchsia-700 underline mt-1 inline-block" data-testid="new-module-meetings-link">Ouvrir le module →</Link>
+              </li>
+              <li className="rounded-lg ring-1 ring-sky-200 bg-sky-50/60 p-3" data-testid="new-module-pdf-viewer">
+                <p className="font-semibold text-sky-900">📖 Visionneuse PDF interne</p>
+                <p className="text-xs text-sky-800 mt-0.5">
+                  Lecture en ligne des Brochures & Guides avec sommaire cliquable + recherche plein-texte. Téléchargement réservé Admin/Superviseur.
+                </p>
+                <Link to="/portal/brochures" className="text-xs text-sky-700 underline mt-1 inline-block" data-testid="new-module-pdf-link">Consulter les brochures →</Link>
+              </li>
+              <li className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/60 p-3" data-testid="new-module-liluvine-recent">
+                <p className="font-semibold text-emerald-900">🕒 Liluvine PRO — Filtre 3 dernières conversations</p>
+                <p className="text-xs text-emerald-800 mt-0.5">
+                  Bascule rapide pour ne voir que les 3 dernières conversations. Les modérateurs peuvent désormais cliquer sur « Reprendre » pour suspendre Liluvine pendant 2 h.
+                </p>
+                <Link to="/portal/liluvine" className="text-xs text-emerald-700 underline mt-1 inline-block" data-testid="new-module-liluvine-link">Aller à Liluvine PRO →</Link>
+              </li>
+            </ul>
+          </div>
+        </Section>
+      </Filterable>
+
       <Filterable title="Webhooks Paie (n8n)" anchorId="s-webhooks-paie-n8n">
         <PayrollWebhooksSection />
       </Filterable>

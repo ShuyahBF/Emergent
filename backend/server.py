@@ -21433,6 +21433,10 @@ _setup_ai_subs_routes(
 from routes.ad_banners import setup_ad_banners_routes as _setup_ad_banners_routes  # noqa: E402
 _setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user, wa_send_text=_wa_send_text)
 
+# S-iter39b — PV de réunions internes (Meeting Minutes)
+from routes.meetings import make_router as _make_meetings_router  # noqa: E402
+api.include_router(_make_meetings_router(db=db, get_current_user=get_current_user))
+
 app.include_router(api)
 
 

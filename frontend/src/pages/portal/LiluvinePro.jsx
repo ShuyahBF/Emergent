@@ -19,8 +19,10 @@ export default function LiluvinePro() {
   const { user: authUser } = useAuth() || {};
   const userRole = (authUser?.role || "").toLowerCase();
   const trackedRole = (authUser?.tracked_role || "").toLowerCase();
+  // S-iter39b — Fix: tracked_role value stored as "Moderation" (not "moderateur").
+  // Includes both legacy and current spelling so moderators get the Reprendre button.
   const canTakeover = ["admin", "superviseur", "moderateur"].includes(userRole)
-    || ["admin", "superviseur", "moderateur"].includes(trackedRole);
+    || ["admin", "superviseur", "moderateur", "moderation", "administrateur"].includes(trackedRole);
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [messages, setMessages] = useState([]);
@@ -36,6 +38,9 @@ export default function LiluvinePro() {
   // Iter38r-fix9h — Channel filter (Pack Liluvine a+d)
   const [channelFilter, setChannelFilter] = useState("all"); // all | web | whatsapp | facebook | sms
   const [searchQ, setSearchQ] = useState("");
+  // S-iter39b — "3 dernières conversations" quick toggle, always visible.
+  // Sorts by updated_at desc and caps the list to the top 3.
+  const [recentOnly, setRecentOnly] = useState(false);
 
   // Iter38r-fix9f — Resizable sidebar (matches Direct Chat & WhatsApp panes)
   const { leftWidth, dragHandlers, isCollapsed, toggleCollapsed } = useResizablePanel({
@@ -274,10 +279,24 @@ export default function LiluvinePro() {
               data-testid="liluvine-search-input"
             />
           </div>
+          {/* S-iter39b — "3 dernières conversations" toggle, always visible */}
+          <button
+            type="button"
+            onClick={() => setRecentOnly((v) => !v)}
+            className={`mt-2 w-full text-[10px] inline-flex items-center justify-center gap-1 px-2 py-1 rounded-md ring-1 transition ${
+              recentOnly
+                ? "bg-fuchsia-600 text-white ring-fuchsia-700 font-semibold"
+                : "bg-white text-slate-600 ring-slate-200 hover:bg-slate-50"
+            }`}
+            title="Afficher uniquement les 3 dernières conversations"
+            data-testid="liluvine-recent-only-toggle"
+          >
+            🕒 3 dernières conversations {recentOnly ? "(actif)" : ""}
+          </button>
         </div>
         <div className="flex-1 overflow-y-auto p-2 space-y-1" data-testid="liluvine-sessions-list">
           {(() => {
-            const filtered = sessions.filter((s) => {
+            let filtered = sessions.filter((s) => {
               // Channel filter — sessions starting with wa:/fb:/sms: vs internal
               const sid = s.id || "";
               const src = s.external_source || "";
@@ -292,6 +311,12 @@ export default function LiluvinePro() {
               }
               return true;
             });
+            // S-iter39b — Cap to 3 most recent when the user enabled "3 dernières"
+            if (recentOnly) {
+              filtered = [...filtered]
+                .sort((a, b) => new Date(b.updated_at || 0) - new Date(a.updated_at || 0))
+                .slice(0, 3);
+            }
             if (filtered.length === 0) {
               return <p className="text-[11px] text-slate-400 italic px-2 py-4 text-center">Aucune conversation {channelFilter !== "all" ? "sur ce canal" : "encore"}.</p>;
             }

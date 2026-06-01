@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -59,6 +59,11 @@ const clientLinks = [
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, featureGate: "ai_liluvine_pro" },
+  // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
+  { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
+  // S-iter39b — Brochures & Guides accessible aux modérateurs (lecture en
+  // ligne via la visionneuse PDF interne ; téléchargement réservé admin/sup).
+  { to: "/portal/brochures", label: "Brochures & Guides", icon: FileText, moderationOnly: true },
 ];
 
 const adminLinks = [
@@ -131,6 +136,8 @@ export default function PortalLayout({ admin = false }) {
   // Iter38r-fix4 — Comptables (non-admin) ne voient QUE Caisse/Facturation
   // + GRH. Toutes les autres options du menu sont masquées (demande user).
   const isComptaStrict = isComptable && !isAdminOrSup;
+  // S-iter39b — Modérateurs (tracked_role="Moderation") accèdent à Brochures
+  const isModerator = (user?.tracked_role || "") === "Moderation";
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const links = (admin ? adminLinks : clientLinks)
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
@@ -140,6 +147,7 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.hrOnly || canHR)
     .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup)
+    .filter((l) => !l.moderationOnly || isModerator || isAdminOrSup)
     // Iter38n — Catalog stats visible to admin/sup/tracked users
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked);
 

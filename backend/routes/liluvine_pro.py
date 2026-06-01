@@ -934,7 +934,9 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
     # an elevated "tracked_role"). Marks a Liluvine session as "owned by a
     # human now" so the WhatsApp auto-reply skips it. Auto-expires after
     # `duration_minutes` (default 120).
-    _TAKEOVER_ROLES = {"admin", "superviseur", "moderateur"}
+    # S-iter39b — Include "moderation" (tracked_role value stored in DB) and
+    # "administrateur" so tracked-Moderation/Administrateur users can take over.
+    _TAKEOVER_ROLES = {"admin", "superviseur", "moderateur", "moderation", "administrateur"}
 
     def _can_takeover(u: Dict[str, Any]) -> bool:
         if (u.get("role") or "") in _TAKEOVER_ROLES:

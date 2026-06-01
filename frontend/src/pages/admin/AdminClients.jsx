@@ -98,7 +98,9 @@ export default function AdminClients() {
 
   const open = (it = null) => {
     setEditing(it);
-    setForm(it ? { ...empty, ...it, password: "" } : empty);
+    // S-iter39a — Pre-fill link_to_client_id from existing parent_client_id so
+    // the "Client lié" dropdown shows the current value when editing.
+    setForm(it ? { ...empty, ...it, password: "", link_to_client_id: it.parent_client_id || "" } : empty);
     setCompanyHint(null);
     setIsOpen(true);
   };
@@ -447,6 +449,45 @@ export default function AdminClients() {
               <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }, { v: "demo", l: "Démo (limité)" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
             </div>
+
+            {/* S-iter39a — Client lié canonique (modifiable depuis la fiche).
+                 Permet à un Admin/Superviseur de rattacher ou détacher ce compte
+                 d'un client canonique parent. Le pointeur parent_client_id est
+                 utilisé partout (Centre Messagerie, Contacts, Briefing, RGPD,
+                 facturation, etc.) donc la modification se propage automatiquement. */}
+            {editing?.id && (
+              <div className="rounded-lg border-2 border-violet-200 bg-violet-50/40 p-3 space-y-2" data-testid="link-to-client-section">
+                <div className="flex items-center gap-2">
+                  <Link2 className="h-4 w-4 text-violet-700" />
+                  <span className="text-sm font-display font-bold text-violet-900">Client lié canonique</span>
+                </div>
+                <p className="text-[11px] text-violet-800">
+                  Définit la <strong>société mère</strong> à laquelle ce compte est rattaché.
+                  Ce choix se répercute partout où l'information « Client lié » apparaît (Centre Messagerie, Contacts, Briefing, RGPD, facturation WhatsApp…).
+                  Laissez vide pour faire de ce compte un <strong>tenant indépendant</strong>.
+                </p>
+                <select
+                  value={form.link_to_client_id || ""}
+                  onChange={(e) => setForm({ ...form, link_to_client_id: e.target.value })}
+                  className="w-full rounded-lg border border-violet-300 bg-white px-3 py-2 text-sm"
+                  data-testid="client-link-to-client-select"
+                >
+                  <option value="">— Aucun (tenant indépendant) —</option>
+                  {items
+                    .filter((u) => u.id !== editing.id && ["admin", "superviseur", "moderateur", "client"].includes(u.role))
+                    .map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.full_name}{u.company ? ` — ${u.company}` : ""} ({u.role})
+                      </option>
+                    ))}
+                </select>
+                {form.link_to_client_id && (
+                  <p className="text-[10px] text-violet-700 italic">
+                    En enregistrant, <code>parent_client_id</code> et <code>client_id</code> seront alignés sur ce client canonique.
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* WhatsApp billing — set unit cost so the consumption page can valorise messages sent. */}
             <div className="rounded-lg border border-emerald-200 bg-emerald-50/40 p-3 space-y-2">

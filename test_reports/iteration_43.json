@@ -1,0 +1,35 @@
+{
+  "summary": "S-iter39a (S010 Moderator-visible Liluvine counter + S011 link_to_client_id editable from AdminClients edit modal) + S009 idle-logout smoke — FULLY VALIDATED on the preview URL. Backend pytest from /app/backend dir: 4/4 PASS = test_siter39a_moderator_liluvine_and_link.py (2/2: test_liluvine_counter_visible_for_tracked_moderator + test_admin_can_relink_tenant_to_canonical_client) and the requested regression test_iter38r_fix9d_welcome_liluvine_counter.py (2/2: test_welcome_briefing_exposes_liluvine_autoreply + test_welcome_briefing_counts_today_messages). Note: pytest MUST be run from /app/backend (so 'auth' module on sys.path resolves) — running from /app fails with ModuleNotFoundError: 'auth'. Frontend Playwright via the public REACT_APP_BACKEND_URL: (a) admin OTP login flow works — dev_otp is rendered inside the OTP screen as 'Plateforme Interne · Code OTP : XXXXXX' and Playwright extracts+enters it, redirect to /admin succeeds; (b) /admin/clients — first row Briefing welcome modal dismissed with 'J'ai lu', then edit pencil button (svg.lucide-square-pen) on the DEMO SAWALI row opens the 'Modifier le client' modal — new section [data-testid=link-to-client-section] 'Client lié canonique' is rendered at the bottom with violet styling, dropdown [data-testid=client-link-to-client-select] is present with 40 options ('— Aucun (tenant indépendant) —' + the 39 other admin/superviseur/client/moderateur users) — the help-text 'Définit la société mère à laquelle ce compte est rattaché…' is displayed correctly; (c) /admin/settings — section 'Sécurité — Déconnexion automatique par inactivité' renders the preset chips 0/5/10/15/30/60 and a custom-minutes input; [data-testid=auto-logout-preset-15] click correctly sets [data-testid=auto-logout-custom] input value to '15' (state-sync verified live).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "AdminSettings", "issues": ["Console warning: '<span> cannot be a child of <option>' (React hydration warning on AdminSettings.jsx ~line 162 — the 'Aller à un paramètre…' Select wraps option content in a <span> with style display:contents which React flags. Not breaking, but worth cleaning to silence hydration warnings.)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_siter39a_moderator_liluvine_and_link.py",
+    "/app/backend/tests/test_iter38r_fix9d_welcome_liluvine_counter.py",
+    "/app/test_reports/pytest/iter43.xml"
+  ],
+  "action_items": [
+    "Optional: in AdminSettings.jsx around line 162, remove the <span style={{display:'contents'}}> wrapper inside <option> tags to silence the 'span cannot be a child of option' React hydration warning."
+  ],
+  "critical_code_review_comments": [
+    "Good: AdminClients.jsx renders [data-testid=link-to-client-section] conditionally on editing?.id so the section never appears on the 'Nouveau client' modal where it would have no meaning — correct UX.",
+    "Good: The dropdown filters out the row being edited (u.id !== editing.id), preventing the user from picking themselves as their own parent in the UI (defence-in-depth — backend also rejects self-link with 400).",
+    "Good: backend payload uses model_fields_set so 'link_to_client_id' is only acted on when explicitly present in the request body; missing key leaves parent_client_id/client_id untouched. Empty string clears, UUID links, unknown returns 404 — exactly the contract verified by the new pytest.",
+    "Good: _build_liluvine_autoreply_stats now resolves the parent tenant (parent_client_id || client_id) so tracked-role 'Moderation' users see the same counter their tenant sees — covered by test_liluvine_counter_visible_for_tracked_moderator.",
+    "Good: idle-logout setting persists via the same upd() pipeline as the rest of AdminSettings — preset buttons and the custom input share state via s.auto_logout_minutes and stay in sync.",
+    "Minor (non-blocking): tests/test_siter39a_moderator_liluvine_and_link.py does `from auth import hash_password` which requires CWD=/app/backend. Adding a conftest.py-level sys.path tweak or using `from backend.auth import hash_password` (with proper package init) would let the file pass from anywhere. Not blocking — pytest's natural rootdir is /app/backend for this repo anyway."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (4/4 — 2 new + 2 regression)", "frontend": "100% (3/3 flows: OTP login, AdminClients edit-modal link section, AdminSettings idle-logout preset)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp surfaced in /api/auth/login response AND visibly rendered inside the OTP UI as 'Plateforme Interne · Code OTP : NNNNNN' — Playwright extracts via regex and submits).",
+  "seed_data_creation": "Pytest fixtures create+cleanup their own ephemeral tenants/moderator users/messages — no residual data.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "When running the new siter39a test file, ALWAYS `cd /app/backend && python -m pytest tests/test_siter39a_moderator_liluvine_and_link.py` — running from /app fails with ModuleNotFoundError: 'auth' because the test imports `from auth import hash_password`. The /admin/clients page shows a global Briefing welcome modal on first load — must be dismissed with the 'J'ai lu' button before any row interaction. Edit pencil button uses svg.lucide-square-pen (not lucide-pencil/lucide-edit) — selector should match /pen|edit/i on the svg class. OTP code is auto-printed inside the OTP screen as 'Plateforme Interne · Code OTP : XXXXXX' which is easier to extract than scraping the /api/auth/login response from the browser side.",
+  "rca of the issue": "No bugs to RCA. Initial Playwright auth attempt via Python urllib hit a 403 (likely Cloudflare bot filtering on internal IPs) — switched to UI-driven OTP entry via regex-extraction of the on-screen 'Code OTP : NNNNNN' badge, which works reliably."
+}

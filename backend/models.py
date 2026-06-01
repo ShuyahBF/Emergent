@@ -84,6 +84,10 @@ class UserUpdateAdmin(BaseModel):
     flat_rate: Optional[float] = None  # Forfait fixe par intervention (prioritaire si > 0)
     # Iter37d — Cashier role flag (Caisse/Facturation module access)
     can_cash: Optional[bool] = None
+    # S-iter39a — Allow admin/superviseur to re-attach a tenant account to a
+    # different canonical "client lié" via dropdown. Empty string clears the
+    # link; a UUID points to an existing admin/superviseur/moderateur user.
+    link_to_client_id: Optional[str] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

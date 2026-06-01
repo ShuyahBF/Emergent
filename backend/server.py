@@ -6933,11 +6933,33 @@ async def _task_reminder_cron():
 
 @api.put("/admin/clients/{client_id}", tags=["Admin"])
 async def admin_update_client(
-    client_id: str, payload: UserUpdateAdmin, _: dict = Depends(get_current_admin)
+    client_id: str, payload: UserUpdateAdmin, _: dict = Depends(get_admin_or_supervisor)
 ):
     update = {k: v for k, v in payload.model_dump().items() if v is not None and k != "password"}
     if "client_code" in update:
         update["client_code"] = (update["client_code"] or "").strip().upper() or None
+    # S-iter39a — Handle "client lié" (parent_client_id) update via dropdown.
+    # Must run BEFORE the company-auto-realign block so an explicit admin
+    # choice takes precedence. We use model_fields_set to distinguish
+    # "not provided" from "explicitly cleared (empty string)".
+    if "link_to_client_id" in payload.model_fields_set:
+        raw_link = (payload.link_to_client_id or "").strip()
+        update.pop("link_to_client_id", None)
+        if raw_link:
+            if raw_link == client_id:
+                raise HTTPException(status_code=400, detail="Un compte ne peut pas être lié à lui-même")
+            canon = await db.users.find_one(
+                {"id": raw_link, "role": {"$in": ["admin", "superviseur", "moderateur", "client"]}},
+                {"_id": 0, "id": 1},
+            )
+            if not canon:
+                raise HTTPException(status_code=404, detail="Client canonique introuvable")
+            update["parent_client_id"] = canon["id"]
+            update["client_id"] = canon["id"]
+        else:
+            # Empty string → unlink (back to standalone tenant)
+            update["parent_client_id"] = None
+            update["client_id"] = None
     # Iter35f — handle email updates safely (normalize + uniqueness check).
     # Prior to iter35f, the `email` field was missing from UserUpdateAdmin
     # so the admin UI silently dropped any change. Now we normalize to
@@ -21069,19 +21091,20 @@ async def _build_wa_demo_recent_stats(user: dict) -> Optional[Dict[str, Any]]:
 # Iter38r-fix9d — Welcome modal counter "Liluvine a répondu à X messages
 # WhatsApp aujourd'hui". Shows ROI of the auto-reply bot at every login.
 async def _build_liluvine_autoreply_stats(user: dict) -> Dict[str, Any]:
-    """Returns {today, yesterday, last_7d} counts of WA auto-replies sent."""
-    # Scope: admin/superviseur see the whole tenant; tracked users see their parent's tenant
-    if _is_elevated_creator(user):
-        tenant_id = user.get("id")
-    else:
-        # Tracked users inherit parent client_id
-        tu = await db.tracked_users.find_one({"email": user.get("email")}, {"_id": 0, "client_id": 1})
-        tenant_id = (tu or {}).get("client_id") or user.get("id")
+    """Returns {today, yesterday, last_7d} counts of WA auto-replies sent.
+
+    S-iter39a — Use _resolve_visible_client_ids so the card is shown to ALL
+    privileged viewers of the tenant (admin/superviseur AND tracked-role
+    "Moderation"/"Administrateur"/"Superviseur"), regardless of whether
+    they live in db.users or db.tracked_users. Previously a tracked
+    moderator got user.id (their own UUID) and the counts were always 0.
+    """
+    visible_scope = await _resolve_visible_client_ids(user)
     today_start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     y_start = (datetime.now(timezone.utc) - timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     y_end = today_start
     w_start = (datetime.now(timezone.utc) - timedelta(days=7)).replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
-    base = {"client_id": tenant_id, "role": "assistant", "external_source": "whatsapp_native"}
+    base = {"client_id": {"$in": visible_scope}, "role": "assistant", "external_source": "whatsapp_native"}
     today_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": today_start}})
     yest_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": y_start, "$lt": y_end}})
     week_n = await db.liluvine_pro_messages.count_documents({**base, "created_at": {"$gte": w_start}})

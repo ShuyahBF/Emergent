@@ -88,6 +88,22 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : sécurité — empêche les sessions ouvertes oubliées en fin de journée
 - **Fichiers** : `useIdleTimer.js` (frontend hook), `AuthContext.jsx` (intégration), `AdminSettings.jsx` (paramètre)
 
+## S010 — Carte Liluvine visible par les modérateurs sur l'écran de bienvenue
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39a
+- **Détail** : Le compteur « WhatsApp pris en charge par Liluvine aujourd'hui » s'affichait à 0 pour les utilisateurs avec `tracked_role="Moderation"` car le calcul utilisait `user.id` (UUID du tracked-user) au lieu du `parent_client_id` du tenant. Bascule sur `_resolve_visible_client_ids(user)` pour couvrir admin/superviseur/moderateur/clients suivis.
+- **Bénéfice** : les modérateurs voient enfin le ROI de Liluvine PRO sur leur écran d'accueil
+- **Fichiers** : `backend/server.py:_build_liluvine_autoreply_stats`, test `test_siter39a_moderator_liluvine_and_link.py`
+
+## S011 — Édition du « Client lié canonique » depuis la fiche d'un tenant
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39a
+- **Détail** : Nouveau menu déroulant « Client lié canonique » dans la fiche d'édition d'un compte (Admin → Clients). Permet à Admin/Superviseur de rattacher/détacher un compte d'un client parent. Met à jour `parent_client_id` + `client_id` côté backend ; la nouvelle valeur se propage automatiquement à toutes les UI (Centre Messagerie header, Contacts, briefing, RGPD, facturation WhatsApp…). Validations : refus self-link, 404 si canonique introuvable, chaîne vide = détacher.
+- **Bénéfice** : corrige rapidement les anciens rattachements erronés sans recréer le compte
+- **Fichiers** : `backend/models.py:UserUpdateAdmin`, `backend/server.py:admin_update_client`, `frontend/src/pages/admin/AdminClients.jsx` (dropdown `link-to-client-section`)
+
 ---
 
 ## Comment référencer une suggestion

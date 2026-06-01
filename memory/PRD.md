@@ -6,6 +6,33 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39e — 🛡️ Approval téléchargements + 📋 Signataires PV + 📖 Doc AdminSettings
+
+### ✅ S025 — Workflow d'approbation WhatsApp pour téléchargements
+- Non-admin → `POST /me/download-requests` → WA envoyé à l'approbateur (template Meta avec 2 boutons quick-reply OU fallback texte avec magic links).
+- Frontend `<DownloadGate>` + hook `useDownloadGate()` : jauge circulaire animée, polling toutes 2 s, statuts terminaux approved/denied/expired/cancelled.
+- Public endpoint `/api/wa-action/{token}/{approve|deny}` (HTML confirmation) + webhook hook pour les payloads `download_(approve|deny)_{token}`.
+- 6 nouveaux paramètres dans AdminSettings (enabled, phone, pending_message, template_name, template_lang, text_body).
+- Wired sur PortalBrochures (bouton « Demander le téléchargement »).
+- Tests : 4/4 (admin bypass, magic-link approve/deny/cancel, validation settings).
+
+### ✅ S026 — Notification automatique des signataires de PV (Email + WA + paramétrable)
+- À la création d'un PV avec signataires non vides, chaque signataire reçoit une notification via le canal choisi (`none | email | wa | both`).
+- Contenu : numéro PV, titre, date, auteur, lien direct vers `/portal/meetings/{id}`.
+- Configuration : 4 boutons radio dans AdminSettings (anchor `s-meeting-signers-notify`).
+- Échecs d'envoi silencieux (n'interrompent jamais la création).
+
+### ✅ S027 — Référence technique PDF des paramètres AdminSettings
+- Nouveau PDF `D_Documentation_Technique_AdminSettings.pdf` (26 KB).
+- 24 sections documentées avec nom du paramètre, type (string/secret/bool/int/E.164/enum/URL), description courte. Valeurs intentionnellement omises.
+- Téléchargeable via `/api/public/docs/admin-settings-reference`, visible dans BrochuresWidget + PortalBrochures.
+
+### ✅ S028 — Vidéos publiques : auto-unmute au premier geste utilisateur
+- Démarre muté pour autoplay → re-active automatiquement le son au 1er click/touch/keydown.
+- Préférence utilisateur (clic explicite sur volume off) mémorisée en `sessionStorage`.
+
+### Tests S-iter39e : 4/4 nouveaux + régression complète siter39a/b/c/d = **15/15 verts**
+
 ## Recent (2026-02 post-handoff) — S-iter39d — 🔗 8 améliorations en cascade (7/8 livrées)
 
 ### Items livrés (1, 2, 3, 4, 5, 7, 8) — Item 6 reporté en S025

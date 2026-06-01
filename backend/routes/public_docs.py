@@ -20,6 +20,8 @@ DOCS = {
     "guide-utilisateur": "A_Guide_Utilisateur_SAWALI_Loois.pdf",
     "brochure-presentation": "B_Brochure_Presentation_SAWALI_Loois.pdf",
     "brochure-fonctionnalites": "C_Brochure_Grandes_Fonctionnalites.pdf",
+    # S-iter39e — Référence technique AdminSettings (sans valeurs)
+    "admin-settings-reference": "D_Documentation_Technique_AdminSettings.pdf",
 }
 
 # Iter38r-fix9s — Map each slug to its generator function (declared in generate_pdfs.py)
@@ -27,6 +29,7 @@ BUILDERS: Dict[str, str] = {
     "guide-utilisateur": "build_user_guide",
     "brochure-presentation": "build_presentation_brochure",
     "brochure-fonctionnalites": "build_features_brochure",
+    "admin-settings-reference": "build_admin_settings_doc",
 }
 
 
@@ -80,10 +83,12 @@ def setup_docs_routes(*, api: APIRouter, get_current_user: Optional[Callable] = 
                     build_presentation_brochure,
                     build_features_brochure,
                 )
+                from generate_admin_settings_doc import build_admin_settings_doc  # noqa: WPS433
                 builders = {
                     "build_user_guide": build_user_guide,
                     "build_presentation_brochure": build_presentation_brochure,
                     "build_features_brochure": build_features_brochure,
+                    "build_admin_settings_doc": build_admin_settings_doc,
                 }
                 builder = builders[builder_name]
                 result_path: Path = await asyncio.to_thread(builder)

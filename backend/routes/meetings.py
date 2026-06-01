@@ -96,7 +96,7 @@ class MeetingUpdate(BaseModel):
     participants: Optional[List[str]] = None
 
 
-def make_router(*, db, get_current_user):
+def make_router(*, db, get_current_user, signers_notifier=None):
     router = APIRouter(prefix="/me/meetings", tags=["PV de réunions"])
 
     async def _resolve_tenant_id(user: dict) -> str:
@@ -160,6 +160,13 @@ def make_router(*, db, get_current_user):
         }
         await db.meeting_minutes.insert_one(doc.copy())
         doc.pop("_id", None)
+        # S026 — Notify signataires (email / WA / both / none) based on admin setting
+        try:
+            if signers_notifier and doc.get("signers"):
+                await signers_notifier(doc)
+        except Exception:  # noqa: BLE001
+            # Notification failure must never block PV creation
+            pass
         return doc
 
     @router.get("/{mid}")

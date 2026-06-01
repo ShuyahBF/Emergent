@@ -399,6 +399,26 @@ class SettingsUpdate(BaseModel):
     # When set to 0, auto-logout is disabled. Range: 0-120 minutes.
     auto_logout_minutes: Optional[int] = None
 
+    # --- S025 — Download approval workflow (S-iter39e) ---
+    # When enabled, non-admin users requesting a private document download
+    # trigger a WhatsApp approval flow: a message is sent to the configured
+    # approver number with two quick-reply buttons (Autoriser / Refuser).
+    # Until the approver clicks, the requester sees a circular gauge with
+    # `download_pending_message` (default "En attente d'approbation pour le
+    # téléchargement..."). On refusal the requester sees "Désolé,
+    # l'opération n'a pas été confirmée".
+    download_approval_enabled: Optional[bool] = None
+    download_approval_whatsapp: Optional[str] = None  # E.164 approver phone
+    download_pending_message: Optional[str] = None  # text in the waiting gauge
+    download_approval_template_name: Optional[str] = None  # Meta-approved interactive template
+    download_approval_template_lang: Optional[str] = None  # default "fr"
+    download_approval_text_body: Optional[str] = None  # fallback text body (used when no template name configured)
+
+    # --- S026 — PV signers notification channel (S-iter39e) ---
+    # When a PV (Procès-Verbal) is created with declared signers, notify
+    # them via email, WhatsApp, both or none. Default: none.
+    meeting_signers_notify_channel: Optional[str] = None  # "none" | "email" | "wa" | "both"
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

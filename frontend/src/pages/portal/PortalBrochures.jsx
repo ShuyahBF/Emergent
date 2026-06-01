@@ -6,11 +6,14 @@ import { apiClient } from "@/lib/api";
 import { FileText, BookOpen, ChevronLeft } from "lucide-react";
 import PdfViewer from "@/components/PdfViewer";
 import { useAuth } from "@/contexts/AuthContext";
+import DownloadGate, { useDownloadGate } from "@/components/DownloadGate";
 
 const META = {
   "guide-utilisateur": { title: "Guide Utilisateur", color: "from-sky-500 to-blue-600" },
   "brochure-presentation": { title: "Brochure de présentation", color: "from-fuchsia-500 to-pink-600" },
   "brochure-fonctionnalites": { title: "Grandes fonctionnalités", color: "from-emerald-500 to-teal-600" },
+  // S-iter39e — Référence technique AdminSettings
+  "admin-settings-reference": { title: "Référence technique — AdminSettings", color: "from-violet-500 to-indigo-600" },
 };
 
 export default function PortalBrochures() {
@@ -25,6 +28,9 @@ export default function PortalBrochures() {
   const tracked = (user?.tracked_role || "").toLowerCase();
   const canDownload =
     ["admin", "superviseur"].includes(role) || ["admin", "superviseur"].includes(tracked);
+  // S025 — download approval gate (used only when canDownload is false but
+  // the user explicitly asks for an external download)
+  const { requestDownload, close, state: gateState } = useDownloadGate();
 
   useEffect(() => {
     if (src) return;  // viewer mode, skip list fetch
@@ -45,10 +51,21 @@ export default function PortalBrochures() {
           >
             <ChevronLeft className="h-3.5 w-3.5" /> Retour à la liste
           </button>
+          {!canDownload && (
+            <button
+              onClick={() => requestDownload({ url: src, label: title })}
+              className="ml-auto text-xs inline-flex items-center gap-1 px-3 py-1 rounded bg-sawali-blue text-white hover:opacity-90"
+              data-testid="brochure-request-download"
+              title="Demander une autorisation de téléchargement (approbation par WhatsApp)"
+            >
+              📥 Demander le téléchargement
+            </button>
+          )}
         </div>
         <div className="flex-1 min-h-0">
           <PdfViewer src={src} title={title} allowDownload={canDownload} />
         </div>
+        <DownloadGate state={gateState} onClose={close} />
       </div>
     );
   }

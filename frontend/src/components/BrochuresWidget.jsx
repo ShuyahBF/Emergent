@@ -23,6 +23,12 @@ const META = {
     desc: "Vue ultra-visuelle : 1 page par module avec capture sans sidebar.",
     color: "from-emerald-500 to-teal-600",
   },
+  // S-iter39e — Référence technique AdminSettings (sans valeurs)
+  "admin-settings-reference": {
+    title: "Référence technique — AdminSettings",
+    desc: "Liste exhaustive des sections et paramètres de Admin → Paramètres (sans valeurs). Auto-remplissage à votre rythme.",
+    color: "from-violet-500 to-indigo-600",
+  },
 };
 
 export default function BrochuresWidget() {

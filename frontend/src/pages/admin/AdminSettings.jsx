@@ -28,6 +28,9 @@ import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSectio
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // S-iter39e (2026-02 post-handoff) — Approval workflow + signers notify
+  "Sécurité — Approbation WhatsApp pour téléchargements (S025)": "2026-02-02",
+  "PV de réunions — Notification automatique des signataires (S026)": "2026-02-02",
   // S-iter39b (2026-02 post-handoff) — Nouveaux modules
   "Nouveaux modules — PV de réunions / Visionneuse PDF / Filtre Liluvine": "2026-02-01",
   // Iter38o (2026-05-27)
@@ -603,6 +606,119 @@ export default function AdminSettings() {
           Référence : <code>/app/memory/SUGGESTIONS.md → S009</code>.
         </p>
       </Section>
+      {/* S025 — Approbation de téléchargement par WhatsApp */}
+      <Filterable title="Sécurité — Approbation WhatsApp pour téléchargements (S025)" anchorId="s-download-approval">
+        <Section icon={ShieldCheck} title="Approbation WhatsApp des téléchargements">
+          <p className="text-xs text-slate-500">
+            Lorsqu'activé, un utilisateur non-admin qui demande à télécharger un PDF/document
+            interne déclenche l'envoi d'un message WhatsApp à l'approbateur configuré
+            (template Meta avec 2 boutons « Autoriser » / « Refuser ») ou, à défaut de template,
+            un texte simple avec 2 liens magiques.
+            En attendant la réponse, l'utilisateur voit une jauge circulaire avec le message
+            personnalisable ci-dessous. La demande expire automatiquement après 24 h.
+          </p>
+          <label className="inline-flex items-center gap-2 text-sm cursor-pointer mt-2">
+            <input
+              type="checkbox"
+              checked={!!s.download_approval_enabled}
+              onChange={(e) => upd("download_approval_enabled", e.target.checked)}
+              data-testid="dl-approval-enabled"
+            />
+            <span>Activer le workflow d'approbation par WhatsApp</span>
+          </label>
+          <div className="grid sm:grid-cols-2 gap-3 mt-2">
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600">Numéro WhatsApp de l'approbateur (E.164)</label>
+              <input
+                type="text"
+                value={s.download_approval_whatsapp || ""}
+                onChange={(e) => upd("download_approval_whatsapp", e.target.value)}
+                placeholder="225XXXXXXXXXX"
+                className="w-full mt-0.5 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+                data-testid="dl-approval-whatsapp"
+              />
+            </div>
+            <div>
+              <label className="text-[11px] font-semibold text-slate-600">Nom du template Meta (optionnel)</label>
+              <input
+                type="text"
+                value={s.download_approval_template_name || ""}
+                onChange={(e) => upd("download_approval_template_name", e.target.value)}
+                placeholder="ex: download_approval_buttons"
+                className="w-full mt-0.5 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+                data-testid="dl-approval-template-name"
+              />
+              <p className="text-[10px] text-slate-400 mt-0.5">Doit déclarer 2 boutons QUICK_REPLY (vide ⇒ fallback texte)</p>
+            </div>
+          </div>
+          <div className="mt-2">
+            <label className="text-[11px] font-semibold text-slate-600">Langue du template (par défaut fr)</label>
+            <input
+              type="text"
+              value={s.download_approval_template_lang || ""}
+              onChange={(e) => upd("download_approval_template_lang", e.target.value)}
+              placeholder="fr"
+              className="w-32 mt-0.5 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="dl-approval-template-lang"
+            />
+          </div>
+          <div className="mt-2">
+            <label className="text-[11px] font-semibold text-slate-600">Message affiché dans la jauge d'attente</label>
+            <input
+              type="text"
+              value={s.download_pending_message || ""}
+              onChange={(e) => upd("download_pending_message", e.target.value)}
+              placeholder="En attente d'approbation pour le téléchargement..."
+              className="w-full mt-0.5 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="dl-pending-message"
+            />
+          </div>
+          <div className="mt-2">
+            <label className="text-[11px] font-semibold text-slate-600">Corps du message texte (fallback hors template) — variables : {`{requester}`}, {`{label}`}, {`{approve}`}, {`{deny}`}</label>
+            <textarea
+              value={s.download_approval_text_body || ""}
+              onChange={(e) => upd("download_approval_text_body", e.target.value)}
+              rows={5}
+              className="w-full mt-0.5 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+              data-testid="dl-approval-text-body"
+              placeholder="Demande reçue : {requester} souhaite télécharger {label}.\nAUTORISER : {approve}\nREFUSER : {deny}"
+            />
+          </div>
+        </Section>
+      </Filterable>
+
+      {/* S026 — Notification des signataires de PV */}
+      <Filterable title="PV de réunions — Notification automatique des signataires (S026)" anchorId="s-meeting-signers-notify">
+        <Section icon={Bell} title="Notification des signataires d'un PV">
+          <p className="text-xs text-slate-500">
+            À la création d'un PV avec des signataires obligatoires déclarés (ligne 1 du
+            formulaire), les signataires reçoivent automatiquement une notification leur
+            demandant de consulter et signer le document. Choisissez le canal :
+          </p>
+          <div className="grid sm:grid-cols-4 gap-2 mt-2">
+            {[
+              { v: "none", l: "Aucun (désactivé)" },
+              { v: "email", l: "📧 Email seul" },
+              { v: "wa", l: "💬 WhatsApp seul" },
+              { v: "both", l: "📧 + 💬 Les deux" },
+            ].map((opt) => (
+              <button
+                key={opt.v}
+                onClick={() => upd("meeting_signers_notify_channel", opt.v)}
+                className={`text-xs px-3 py-2 rounded-lg ring-1 transition ${
+                  (s.meeting_signers_notify_channel || "none") === opt.v
+                    ? "bg-fuchsia-600 text-white ring-fuchsia-700 font-semibold"
+                    : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50"
+                }`}
+                data-testid={`signers-notify-${opt.v}`}
+              >
+                {opt.l}
+              </button>
+            ))}
+          </div>
+        </Section>
+      </Filterable>
+
       <OrphanDataSection />
       <ClientsConsistencySection />
       <ClientDataDiagnosticSection />

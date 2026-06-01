@@ -11041,6 +11041,17 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if v < 0 or v > 120:
             raise HTTPException(status_code=400, detail="auto_logout_minutes doit être entre 0 et 120")
         update["auto_logout_minutes"] = v
+    # S026 — Validate meeting_signers_notify_channel against allowed set
+    if "meeting_signers_notify_channel" in update:
+        allowed = {"none", "email", "wa", "both"}
+        ch = (update["meeting_signers_notify_channel"] or "none").strip().lower()
+        if ch not in allowed:
+            raise HTTPException(status_code=400, detail=f"meeting_signers_notify_channel doit être l'un de {sorted(allowed)}")
+        update["meeting_signers_notify_channel"] = ch
+    # S025 — Strip whitespace on approval phone (E.164 expected)
+    if "download_approval_whatsapp" in update:
+        v = (update["download_approval_whatsapp"] or "").strip()
+        update["download_approval_whatsapp"] = v
     if not update:
         return {"ok": True}
     # Iter35x — Snapshot previous values BEFORE the update for audit comparison
@@ -15514,10 +15525,22 @@ async def whatsapp_webhook_incoming(request: Request):
                         # the visible label, `button.payload` the data.
                         btn = msg.get("button") or {}
                         text_body = btn.get("text") or btn.get("payload")
+                        # S025 — Intercept download-approval button payloads
+                        try:
+                            if await _dl_handle_button_payload(db=db, payload=btn.get("payload") or "", from_phone=digits_only):
+                                continue  # don't store this as a regular message
+                        except Exception:  # noqa: BLE001
+                            pass
                     elif mtype == "interactive":
                         interactive = msg.get("interactive") or {}
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
                         text_body = reply.get("title") or reply.get("id")
+                        # S025 — Intercept button_reply id (carries the payload)
+                        try:
+                            if await _dl_handle_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            pass
                     elif mtype == "reaction":
                         text_body = f"[réaction {((msg.get('reaction') or {}).get('emoji') or '')}]"
                     elif mtype == "location":
@@ -21547,7 +21570,125 @@ _setup_ad_banners_routes(app=api, db=db, get_current_user=get_current_user, wa_s
 
 # S-iter39b — PV de réunions internes (Meeting Minutes)
 from routes.meetings import make_router as _make_meetings_router  # noqa: E402
-api.include_router(_make_meetings_router(db=db, get_current_user=get_current_user))
+
+# S026 — Signers notifier: emails + WhatsApp to declared signataires
+async def _meeting_signers_notifier(pv_doc: dict) -> None:
+    """Notify each declared signataire about a new PV awaiting their signature.
+
+    Channel selection comes from settings.meeting_signers_notify_channel:
+      "none" → no-op
+      "email" → email only
+      "wa"   → WhatsApp text only
+      "both" → both channels
+    """
+    settings = await db.settings.find_one(
+        {"_id": "global"},
+        {"_id": 0, "meeting_signers_notify_channel": 1, "public_base_url": 1},
+    ) or {}
+    channel = (settings.get("meeting_signers_notify_channel") or "none").lower()
+    if channel == "none":
+        return
+    signer_ids = pv_doc.get("signers") or []
+    if not signer_ids:
+        return
+    # Resolve each id → {email, phone, name}
+    contacts: List[Dict[str, Any]] = []
+    seen = set()
+    async for u in db.users.find(
+        {"id": {"$in": signer_ids}},
+        {"_id": 0, "id": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
+    ):
+        contacts.append({
+            "id": u["id"],
+            "name": u.get("full_name") or u.get("email") or "—",
+            "email": u.get("email"),
+            "phone": (u.get("whatsapp_number") or u.get("phone") or "").strip() or None,
+        })
+        seen.add(u["id"])
+    # Also resolve tracked users whose user_id is in signers
+    async for t in db.tracked_users.find(
+        {"$or": [{"id": {"$in": signer_ids}}, {"user_id": {"$in": signer_ids}}]},
+        {"_id": 0, "id": 1, "user_id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
+    ):
+        key = t.get("user_id") or t["id"]
+        if key in seen:
+            continue
+        contacts.append({
+            "id": key,
+            "name": t.get("full_name") or t.get("name") or t.get("email") or "—",
+            "email": t.get("email"),
+            "phone": (t.get("whatsapp_number") or t.get("phone") or "").strip() or None,
+        })
+        seen.add(key)
+    base_url = (settings.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+    pv_link = f"{base_url}/portal/meetings/{pv_doc['id']}" if base_url else "le portail Loois"
+    subject = f"[Loois] Vous êtes signataire du PV {pv_doc.get('numero', '')} — {pv_doc.get('title', '')}"
+    body_text = (
+        f"Bonjour,\n\n"
+        f"Vous avez été désigné(e) signataire obligatoire d'un nouveau procès-verbal :\n\n"
+        f"• Numéro : {pv_doc.get('numero', '—')}\n"
+        f"• Titre : {pv_doc.get('title', '—')}\n"
+        f"• Date de réunion : {pv_doc.get('meeting_date', '—')}\n"
+        f"• Auteur du PV : {pv_doc.get('author_name', '—')}\n\n"
+        f"Merci de consulter le PV et de signer électroniquement :\n{pv_link}\n\n"
+        f"— SAWALI Smart Systems"
+    )
+    wa_text = (
+        f"📋 Nouveau PV — Signature requise\n\n"
+        f"N° {pv_doc.get('numero', '—')}\n"
+        f"« {pv_doc.get('title', '—')} »\n\n"
+        f"Vous êtes désigné(e) signataire obligatoire.\n"
+        f"Consulter et signer : {pv_link}"
+    )
+    for c in contacts:
+        if channel in ("email", "both") and c.get("email"):
+            try:
+                await send_email(
+                    to_email=c["email"],
+                    subject=subject,
+                    html_body=body_text.replace("\n", "<br>"),
+                    text_body=body_text,
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        if channel in ("wa", "both") and c.get("phone"):
+            try:
+                await _wa_send_text(c["phone"], wa_text)
+            except Exception:  # noqa: BLE001
+                pass
+
+
+api.include_router(_make_meetings_router(db=db, get_current_user=get_current_user, signers_notifier=_meeting_signers_notifier))
+
+
+# S025 — Download approval workflow (WhatsApp template + magic links fallback)
+async def _wa_send_template_for_approval(*, to_e164: str, template_name: str, language: str = "fr",
+                                          body_params: list = None, button_params: list = None) -> dict:
+    """Build a Meta `components` array from positional body/button params then
+    delegate to the existing _wa_send_template helper. Used by the download
+    approval router and exposed only via that integration."""
+    components = []
+    if body_params:
+        components.append({"type": "body", "parameters": [
+            {"type": "text", "text": str(p)} for p in body_params
+        ]})
+    if button_params:
+        components.extend([{"type": "button", **bp} for bp in button_params])
+    return await _wa_send_template(to_e164, template_name, language, components or None)
+
+
+from routes.download_approvals import (  # noqa: E402
+    make_router as _make_dl_router,
+    make_public_router as _make_dl_public_router,
+    handle_button_payload as _dl_handle_button_payload,
+)
+api.include_router(_make_dl_router(
+    db=db,
+    get_current_user=get_current_user,
+    wa_send_text=_wa_send_text,
+    wa_send_template=_wa_send_template_for_approval,
+))
+api.include_router(_make_dl_public_router(db=db))
 
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).

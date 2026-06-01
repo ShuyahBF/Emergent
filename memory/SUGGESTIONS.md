@@ -209,12 +209,52 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Note** : Les navigateurs (Chrome/Safari/Firefox) bloquent l'autoplay non-muté. On démarre muté pour respecter cette contrainte, l'utilisateur unmute en 1 clic.
 - **Fichiers** : `frontend/src/components/AdBannerSlot.jsx`
 
-## S025 — Workflow d'approbation pour télécharger des documents (REPORTÉ — à scoper)
+## S025 — Workflow d'approbation pour télécharger des documents (✅ IMPLÉMENTÉE)
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — option (a) template Meta privilégiée
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39e
+- **Détail** :
+  - Admin/Superviseur → bypass direct (téléchargement immédiat).
+  - Non-admin → `POST /me/download-requests` crée une approbation en `pending`, envoie WA :
+    - **Si template Meta configuré** (`download_approval_template_name`) → message interactif avec 2 boutons `QUICK_REPLY` ; payloads `download_approve_{token}` et `download_deny_{token}` interceptés par le webhook Meta.
+    - **Sinon** → fallback texte avec 2 magic links cliquables (variables `{requester}`, `{label}`, `{approve}`, `{deny}`).
+  - Frontend `<DownloadGate>` + hook `useDownloadGate()` : jauge circulaire animée (gradient bleu→fuchsia) + polling toutes 2 s.
+  - Statuts terminaux : `approved` (téléchargement déclenché), `denied` (toast « Désolé, l'opération n'a pas été confirmée »), `expired` (24 h sans réponse), `cancelled` (annulé par le demandeur).
+  - Public endpoint `GET /api/wa-action/{token}/{approve|deny}` (HTML page de confirmation) pour le fallback magic links.
+- **Configuration** : nouvelle section `Sécurité — Approbation WhatsApp pour téléchargements (S025)` dans `/admin/settings` (anchor `s-download-approval`).
+- **Fichiers** : `backend/routes/download_approvals.py` (nouveau), `backend/models.py:SettingsUpdate` (6 nouveaux champs), `backend/server.py` (webhook hook + notifier + router mounting), `frontend/src/components/DownloadGate.jsx` (nouveau), `frontend/src/pages/portal/PortalBrochures.jsx` (wire to gate), `frontend/src/pages/admin/AdminSettings.jsx` (config UI).
+- **Tests** : `backend/tests/test_siter39e_approval_signers_docs.py::test_*` (admin bypass + magic-link approve/deny/cancel + settings validation — 4/4 verts).
+
+## S026 — Notification automatique des signataires de PV (Email + WhatsApp)
 - **Demande directe utilisateur** : 2026-02 (post-handoff)
-- **Statut** : 🟡 REPORTÉE — scope à valider
-- **Détail demandé** : Documents non-publics → jauge « En attente d'approbation… », WhatsApp template avec 2 boutons (Autoriser/Refuser) au numéro paramétré, réponse débloque ou annule le téléchargement.
-- **Pourquoi reporter** : nécessite (a) un template Meta WhatsApp approuvé pour boutons quick-reply (délai de validation Meta), OU (b) un fallback via magic links texte WA. Touche à plusieurs intégrations (settings, WA send, webhook réception, collection `download_approvals`, frontend gate sur BrochuresWidget + PdfViewer + MeetingPDF). À chiffrer/scoper avec l'utilisateur (template Meta vs liens, durée d'expiration, audit log, multi-approbateurs ?).
-- **Action attendue** : décision utilisateur entre template Meta officiel (officiel mais bloquant) ou magic links (rapide et fonctionnel sans validation Meta).
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39e
+- **Détail** : À la création d'un PV avec signataires obligatoires déclarés (ligne 1 du formulaire), chaque signataire reçoit une notification l'invitant à consulter et signer le document. **Canal paramétrable globalement par l'admin** :
+  - `none` (par défaut) — aucune notification
+  - `email` — uniquement par email
+  - `wa` — uniquement par WhatsApp
+  - `both` — email + WhatsApp
+- Le contenu inclut : numéro du PV, titre, date de réunion, auteur, lien vers `/portal/meetings/{id}`.
+- Échecs d'envoi (SMTP/WA indisponibles) n'interrompent jamais la création du PV.
+- **Configuration** : nouvelle section `PV de réunions — Notification automatique des signataires (S026)` dans `/admin/settings` (4 boutons : Aucun / Email / WhatsApp / Les deux).
+- **Fichiers** : `backend/routes/meetings.py` (signers_notifier dependency), `backend/server.py` (`_meeting_signers_notifier`), `backend/models.py:SettingsUpdate.meeting_signers_notify_channel`, `frontend/src/pages/admin/AdminSettings.jsx`.
+
+## S027 — Référence technique PDF des paramètres AdminSettings
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39e
+- **Détail** : Nouveau PDF généré `D_Documentation_Technique_AdminSettings.pdf` (26 KB) liste **toutes les sections** de la page Admin → Paramètres et tous les **paramètres** exposés (nom, type, description courte) **SANS les valeurs** — sert de guide d'auto-remplissage. Téléchargeable via `/api/public/docs/admin-settings-reference`, visible dans BrochuresWidget et PortalBrochures (carte violet/indigo).
+- **Sections documentées** : Identité, URL publique, S025 Approbation, S026 Signataires PV, Briefing bienvenue, Caisse, Caissier RBAC, PawaPay, Stripe, SMTP, WhatsApp Cloud, SMS, Liluvine PRO, Régie publicitaire, Object Storage, Voice Notifications, Audit sécurité, RGPD, Webhooks, OpenAI/Gemini/Claude, Quotas IA, Voice Studio, Meta, Google, Suggestions, Diagnostics (24 sections).
+- **Fichiers** : `docs/generate_admin_settings_doc.py` (nouveau), `backend/routes/public_docs.py` (slug `admin-settings-reference`), `frontend/src/components/BrochuresWidget.jsx` + `frontend/src/pages/portal/PortalBrochures.jsx` (META).
+- **Régénération** : bouton dédié dans Admin → Paramètres / depuis Brochures, ou commande `python /app/docs/generate_admin_settings_doc.py`.
+
+## S028 — Vidéos publiques : son activé au démarrage (auto-unmute au 1er geste)
+- **Demande directe utilisateur** : 2026-02 (post-handoff)
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39e
+- **Détail** : Les bannières vidéo démarrent mutées (contrainte autoplay des navigateurs Chrome/Safari/Firefox) puis sont **automatiquement réactivées dès le premier geste de l'utilisateur sur la page** (click / touchstart / keydown) via des event listeners passifs avec `{ once: true }`. Si l'utilisateur clique explicitement sur l'icône volume pour muter, sa préférence est mémorisée en `sessionStorage` et l'auto-unmute n'a plus lieu.
+- **Bénéfice** : son effectivement activé dès que le visiteur interagit, sans frustrer l'expérience par un autoplay sonore intrusif (qui serait bloqué par le navigateur).
+- **Fichiers** : `frontend/src/components/AdBannerSlot.jsx`
 
 ---
 

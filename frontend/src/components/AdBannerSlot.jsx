@@ -14,24 +14,49 @@ export default function AdBannerSlot({ placement = "public" }) {
     try { return sessionStorage.getItem(`ad_dismissed_${placement}`) === "1"; } catch { return false; }
   });
   // S-iter39d (fix #8) — Sound enabled by default on public videos.
-  // BUT most browsers (Chrome, Safari, Firefox) BLOCK autoplay of unmuted
-  // video. We respect that constraint by initially starting muted (so
-  // autoplay works) then un-mute as soon as the user clicks the sound
-  // toggle. This still gives the user "sound on by default" semantics
-  // because the toggle UI shows the current state and a single click is
-  // sufficient — and we remember the preference across the session.
+  // Browsers (Chrome/Safari/Firefox) BLOCK autoplay of unmuted videos
+  // before any user gesture. We START muted to satisfy autoplay policy,
+  // then on the FIRST user interaction anywhere on the page we unmute
+  // automatically — giving the "son activé par défaut" semantics while
+  // respecting browser policies. User can still manually mute via the
+  // toggle button, and that explicit choice is persisted.
   const [muted, setMuted] = useState(() => {
     try {
       const v = sessionStorage.getItem("ad_banner_muted");
-      // Default: muted=false ("son activé par défaut") but autoplay needs
-      // muted=true initially. We start muted for autoplay, then auto-unmute
-      // after the first user gesture detected by the AdBanner click handler.
       return v === null ? true : v === "1";
     } catch { return true; }
+  });
+  const [userMutePrefSet, setUserMutePrefSet] = useState(() => {
+    try { return sessionStorage.getItem("ad_banner_muted") !== null; } catch { return false; }
   });
   const impressionFired = useRef(false);
   const videoRef = useRef(null);
   const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+
+  // S-iter39e (fix #3) — Auto-unmute on first user gesture (anywhere on the
+  // page) so videos effectively start with sound on as soon as the visitor
+  // does ANY interaction. Pure-passive page loads still respect browser
+  // autoplay policy (start muted). Skipped if the user explicitly muted.
+  useEffect(() => {
+    if (userMutePrefSet) return;
+    const unmute = () => {
+      if (!videoRef.current) return;
+      try {
+        videoRef.current.muted = false;
+        videoRef.current.play().catch(() => {});
+        setMuted(false);
+      } catch { /* noop */ }
+    };
+    const opts = { once: true, passive: true };
+    window.addEventListener("click", unmute, opts);
+    window.addEventListener("touchstart", unmute, opts);
+    window.addEventListener("keydown", unmute, opts);
+    return () => {
+      window.removeEventListener("click", unmute);
+      window.removeEventListener("touchstart", unmute);
+      window.removeEventListener("keydown", unmute);
+    };
+  }, [userMutePrefSet]);
 
   useEffect(() => {
     if (dismissed) return;
@@ -132,6 +157,7 @@ export default function AdBannerSlot({ placement = "public" }) {
               e.stopPropagation();
               const next = !muted;
               setMuted(next);
+              setUserMutePrefSet(true);
               try { sessionStorage.setItem("ad_banner_muted", next ? "1" : "0"); } catch { /* noop */ }
               // Some browsers need an explicit play() after unmute via user gesture
               if (!next && videoRef.current) {

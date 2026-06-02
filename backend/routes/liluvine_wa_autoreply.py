@@ -240,7 +240,7 @@ async def autoreply_to_inbound(
     try:
         chat = LlmChat(
             api_key=api_key, session_id=session_id, system_message=sys_text,
-        ).with_model("anthropic", "claude-sonnet-4-6")
+        ).with_model("anthropic", "claude-haiku-4-5-20251001")
         reply = await chat.send_message(UserMessage(text=text))
     except Exception as exc:
         logger.exception("[wa_autoreply] LLM error")
@@ -267,7 +267,7 @@ async def autoreply_to_inbound(
         from routes.ai_quotas import track_ai_usage
         await track_ai_usage(
             db, user=user_doc, resource="chat", units=tokens,
-            model="claude-sonnet-4-6",
+            model="claude-haiku-4-5-20251001",
             metadata={"source": "whatsapp_native", "phone_digits": phone_digits},
         )
     except Exception:
@@ -303,7 +303,7 @@ async def autoreply_to_inbound(
         "id": out_msg_id,
         "session_id": session_id, "client_id": scope_uid,
         "user_id": user_doc["id"], "role": "assistant", "content": final_text,
-        "tokens": tokens, "model": "claude-sonnet-4-6",
+        "tokens": tokens, "model": "claude-haiku-4-5-20251001",
         "context_injected": bool(ctx),
         "external_source": "whatsapp_native",
         "wa_message_id_out": send_res.get("message_id"),

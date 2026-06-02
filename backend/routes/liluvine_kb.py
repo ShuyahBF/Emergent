@@ -130,7 +130,7 @@ async def _ocr_image_with_claude_vision(raw: bytes, mime: str) -> str:
             "Si aucun texte n'est lisible, réponds exactement : "
             "[AUCUN_TEXTE_DETECTE]."
         ),
-    ).with_model("anthropic", "claude-sonnet-4-6")
+    ).with_model("anthropic", "claude-haiku-4-5-20251001")
     try:
         result = await chat.send_message(UserMessage(
             text="Extrais tout le texte visible dans cette image, en respectant la mise en page.",
@@ -456,7 +456,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
                     await db.ai_usage.insert_one({
                         "id": secrets.token_urlsafe(10),
                         "resource": "kb_ocr",
-                        "model": "claude-sonnet-4-6-vision",
+                        "model": "claude-haiku-4-5-20251001-vision",
                         "units": pages_used,  # pages
                         "cost_xof": total_cost_xof,
                         "kind": kind,

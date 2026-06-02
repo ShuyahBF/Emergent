@@ -641,7 +641,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
                 status_code=403,
                 detail="Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
             )
-        chk = await _pre_check(user, "claude-sonnet-4-6")
+        chk = await _pre_check(user, "claude-haiku-4-5-20251001")
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
         scope = _client_scope(user)

@@ -310,6 +310,21 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/llm_health.py` (`build_budget_summary_text`, `handle_wa_budget_query`, endpoint `/test-summary`), `backend/server.py` (hook webhook WA inbound type=text + validation keyword), `backend/models.py:SettingsUpdate` (2 nouveaux champs), `frontend/src/components/LlmBudgetTestButton.jsx` (nouveau composant), `frontend/src/pages/admin/AdminSettings.jsx` (intégration section S032).
 - **Tests** : `backend/tests/test_siter39i_budget_test_button.py` (6/6 verts) — endpoint `/test-summary` admin/non-admin + handler WA authorized/disabled/unauthorized phone + normalisation uppercase et validation longueur du keyword.
 
+## S034 — Cockpit WhatsApp Admin (mini-menu de commandes mobiles)
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — « ok implémente S034 »
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39j
+- **Détail** : Étend le déclencheur WhatsApp S033 en un véritable « cockpit mobile » pour l'admin. Le numéro autorisé peut envoyer l'un des mots-clés suivants (case-insensitive) au bot WhatsApp et reçoit instantanément un résumé formaté :
+  - **`SOLDE` / `BUDGET`** → Consommation Universal Key (délégué à S032/S033 via `build_budget_summary_text`)
+  - **`STATS` / `KPI`** → KPI temps réel sur 24h : WhatsApp reçus, WhatsApp envoyés, SMS envoyés, RDV du jour, tickets ouverts, contacts en base
+  - **`INCIDENTS` / `TICKETS`** → Top 5 tickets ouverts (priorité 🔴/🟠/🟡/🔵 + numéro + titre + contact + date d'ouverture). Affiche un message rassurant « Aucun ticket ouvert » quand la liste est vide
+  - **`AIDE` / `HELP` / `MENU`** → Menu listant toutes les commandes disponibles
+  - L'authentification réutilise les mêmes garde-fous que S033 : (a) toggle master `llm_budget_wa_query_enabled` actif (b) numéro émetteur match sur les 10 derniers chiffres avec `llm_budget_notify_wa_phone`.
+  - Les messages déclencheurs ne sont **ni stockés ni transmis à Liluvine PRO** (le webhook fait un `continue` immédiat).
+- **Bénéfice** : véritable cockpit de supervision mobile — l'admin peut consulter l'état critique du système depuis n'importe où sans ouvrir un navigateur. Particulièrement utile lors de déplacements ou hors heures de bureau.
+- **Fichiers** : `backend/routes/wa_admin_cockpit.py` (nouveau — dispatcher + builders STATS/INCIDENTS/HELP), `backend/server.py` (hook webhook remplace S033 par le dispatcher S034), `frontend/src/pages/admin/AdminSettings.jsx` (UI section S032 listant les 4 commandes + alias).
+- **Tests** : `backend/tests/test_siter39j_wa_admin_cockpit.py` (8/8 verts) — HELP/STATS/INCIDENTS/BALANCE delegation + unknown keyword + master toggle off + unauthorized phone + tous les alias (BUDGET/KPI/TICKETS/HELP/MENU).
+
 ---
 
 ## Comment référencer une suggestion

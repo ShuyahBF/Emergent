@@ -15539,16 +15539,25 @@ async def whatsapp_webhook_incoming(request: Request):
                     media_caption: Optional[str] = None
                     if mtype == "text":
                         text_body = (msg.get("text") or {}).get("body")
-                        # S033 — Intercept the budget-query keyword. If the
-                        # text matches the configured trigger AND comes from
-                        # the authorized phone, reply with the summary and
-                        # skip persisting + auto-reply.
+                        # S034 — Intercept WhatsApp Admin Cockpit commands
+                        # (SOLDE / STATS / INCIDENTS / AIDE). If the message
+                        # matches an authorized command, reply immediately
+                        # and skip persisting + auto-reply.
                         try:
-                            from routes.llm_health import handle_wa_budget_query
-                            if await handle_wa_budget_query(db, text=text_body or "", from_digits=digits_only, send_wa=_wa_send_text):
+                            from routes.wa_admin_cockpit import handle_wa_admin_command
+                            from routes.llm_health import build_budget_summary_text
+                            async def _balance():
+                                return await build_budget_summary_text(db)
+                            if await handle_wa_admin_command(
+                                db,
+                                text=text_body or "",
+                                from_digits=digits_only,
+                                send_wa=_wa_send_text,
+                                build_balance_text=_balance,
+                            ):
                                 continue
                         except Exception:  # noqa: BLE001
-                            logger.warning("[llm_health] WA budget query hook failed", exc_info=True)
+                            logger.warning("[wa_admin_cockpit] hook failed", exc_info=True)
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
                         # Iter35l — Try to download the binary from Meta Graph
                         # (URL expires ~5min) and persist it locally so the chat

@@ -797,23 +797,31 @@ export default function AdminSettings() {
             </div>
             <div className="grid sm:grid-cols-2 gap-3">
               <Toggle
-                label="💬 Activer la requête WhatsApp par mot-clé"
+                label="💬 Activer le cockpit WhatsApp (SOLDE / STATS / INCIDENTS / AIDE)"
                 value={!!s.llm_budget_wa_query_enabled}
                 onChange={(v) => upd("llm_budget_wa_query_enabled", v)}
                 testid="toggle-llm-budget-wa-query"
               />
               <Input
-                label="Mot-clé déclencheur (en MAJUSCULES)"
+                label="Mot-clé principal (compatibilité — défaut SOLDE)"
                 value={s.llm_budget_wa_query_keyword || "SOLDE"}
                 onChange={(v) => upd("llm_budget_wa_query_keyword", v)}
                 placeholder="SOLDE"
                 testid="llm-budget-wa-query-keyword"
               />
             </div>
+            <div className="text-[11px] text-slate-600 bg-indigo-50/60 ring-1 ring-indigo-200 rounded-lg px-3 py-2 leading-relaxed" data-testid="cockpit-commands-help">
+              <strong className="text-indigo-700">Commandes du cockpit (S034) :</strong>
+              <ul className="mt-1 space-y-0.5 ml-3 list-disc">
+                <li><code className="bg-white px-1 rounded">SOLDE</code> ou <code className="bg-white px-1 rounded">BUDGET</code> — consommation Universal Key</li>
+                <li><code className="bg-white px-1 rounded">STATS</code> ou <code className="bg-white px-1 rounded">KPI</code> — WA / SMS / RDV / tickets / contacts (24h)</li>
+                <li><code className="bg-white px-1 rounded">INCIDENTS</code> ou <code className="bg-white px-1 rounded">TICKETS</code> — top 5 tickets ouverts</li>
+                <li><code className="bg-white px-1 rounded">AIDE</code>, <code className="bg-white px-1 rounded">HELP</code> ou <code className="bg-white px-1 rounded">MENU</code> — afficher le menu</li>
+              </ul>
+            </div>
             <p className="text-[11px] text-slate-500">
-              Quand activé, le numéro <em>autorisé</em> (celui des alertes ci-dessus) peut envoyer le
-              mot-clé par WhatsApp et recevra automatiquement le résumé du solde.
-              Le message déclencheur n'est ni stocké ni transmis à Liluvine PRO.
+              Le numéro <em>autorisé</em> (celui des alertes ci-dessus) peut envoyer ces mots-clés au bot
+              pour recevoir un résumé instantané. Les messages déclencheurs ne sont ni stockés ni transmis à Liluvine PRO.
             </p>
           </div>
         </Section>

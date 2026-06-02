@@ -11080,6 +11080,12 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         raise HTTPException(status_code=400, detail="llm_budget_warning_pct doit être strictement inférieur à llm_budget_critical_pct")
     if "llm_budget_notify_wa_phone" in update:
         update["llm_budget_notify_wa_phone"] = (update["llm_budget_notify_wa_phone"] or "").strip()
+    # S033 — Normalize WA query keyword (uppercase, max 32 chars)
+    if "llm_budget_wa_query_keyword" in update:
+        kw = (update["llm_budget_wa_query_keyword"] or "SOLDE").strip().upper()
+        if len(kw) > 32:
+            raise HTTPException(status_code=400, detail="llm_budget_wa_query_keyword doit faire au plus 32 caractères")
+        update["llm_budget_wa_query_keyword"] = kw or "SOLDE"
     # S025 — Strip whitespace on approval phone (E.164 expected)
     if "download_approval_whatsapp" in update:
         v = (update["download_approval_whatsapp"] or "").strip()
@@ -15533,6 +15539,16 @@ async def whatsapp_webhook_incoming(request: Request):
                     media_caption: Optional[str] = None
                     if mtype == "text":
                         text_body = (msg.get("text") or {}).get("body")
+                        # S033 — Intercept the budget-query keyword. If the
+                        # text matches the configured trigger AND comes from
+                        # the authorized phone, reply with the summary and
+                        # skip persisting + auto-reply.
+                        try:
+                            from routes.llm_health import handle_wa_budget_query
+                            if await handle_wa_budget_query(db, text=text_body or "", from_digits=digits_only, send_wa=_wa_send_text):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[llm_health] WA budget query hook failed", exc_info=True)
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
                         # Iter35l — Try to download the binary from Meta Graph
                         # (URL expires ~5min) and persist it locally so the chat

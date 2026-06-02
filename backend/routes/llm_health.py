@@ -275,6 +275,21 @@ def make_router(*, db, get_current_user, send_email):
         await ping_emergent_llm(db)
         return await _build_response(user)
 
+    @router.post("/test-summary")
+    async def test_summary(user: dict = Depends(get_current_user)):
+        """S033 — Manual budget test: forces a health probe AND returns the
+        formatted human-readable summary (same text used by the WhatsApp
+        keyword trigger). Used by the "Tester maintenant" button in
+        /admin/settings.
+        """
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        await ping_emergent_llm(db)
+        summary_text = await build_budget_summary_text(db)
+        resp = await _build_response(user)
+        resp["summary_text"] = summary_text
+        return resp
+
     return router
 
 
@@ -435,6 +450,106 @@ __all__ = [
     "compute_metrics",
     "maybe_send_budget_alert_email",
     "maybe_send_budget_warning_alerts",
+    "build_budget_summary_text",
+    "handle_wa_budget_query",
     "SUPER_ADMIN_EMAIL",
     "LLM_COST_ESTIMATES",
 ]
+
+
+async def build_budget_summary_text(db) -> str:
+    """S033 — Format a human-readable WhatsApp/email summary of the current
+    Universal Key state (used by the admin "Test maintenant" button and the
+    inbound WA keyword trigger)."""
+    metrics = await compute_metrics(db)
+    state = await db.llm_health_state.find_one({"_id": "current"}, {"_id": 0}) or {}
+
+    level = metrics.get("status_level", "ok")
+    emoji = {
+        "ok": "🟢",
+        "warning": "🟡",
+        "critical": "🟠",
+        "exhausted": "🔴",
+        "error": "⚠️",
+    }.get(level, "❔")
+    label = {
+        "ok": "OK",
+        "warning": "Avertissement",
+        "critical": "CRITIQUE",
+        "exhausted": "ÉPUISÉE",
+        "error": "Erreur IA",
+    }.get(level, level)
+
+    proj_days = metrics.get("projected_days_left")
+    if isinstance(proj_days, (int, float)):
+        if proj_days < 1:
+            proj_label = f"~{max(1, int(round(proj_days * 24)))}h"
+        elif proj_days < 30:
+            proj_label = f"~{proj_days:.1f} jours"
+        else:
+            proj_label = "30+ jours"
+    else:
+        proj_label = "indéterminée"
+
+    src = "Emergent (vérité terrain)" if metrics.get("cost_source") == "emergent_error" else "Estimation locale"
+    raw_status = state.get("status", "unknown")
+    last_check = state.get("last_checked_at") or "—"
+
+    return (
+        f"{emoji} *Universal Key Emergent — {label}*\n"
+        f"\n"
+        f"💰 Consommation : *{metrics['current_cost_usd']:.2f} / {metrics['max_budget_usd']:.2f} USD* "
+        f"({metrics['pct_used']:.1f}%)\n"
+        f"📈 Vitesse 24h : ~{metrics['burn_rate_24h_usd']:.4f} USD "
+        f"({metrics.get('calls_24h', 0)} appels)\n"
+        f"⏱️ Vitesse 1h : ~{metrics['burn_rate_1h_usd']:.4f} USD\n"
+        f"📅 Épuisement projeté : *{proj_label}*\n"
+        f"🎯 Seuils : warn {metrics['warning_pct']}% / crit {metrics['critical_pct']}%\n"
+        f"\n"
+        f"_Source coût : {src}_\n"
+        f"_Statut brut : {raw_status} — dernier check : {last_check}_\n"
+        f"\n"
+        f"➡️ Recharge : Emergent → Profile → Universal Key → Add Balance"
+    )
+
+
+async def handle_wa_budget_query(db, *, text: str, from_digits: str, send_wa) -> bool:
+    """S033 — If the inbound WhatsApp message matches the configured keyword
+    AND comes from the authorized number, send back the budget summary and
+    return True (caller must skip persisting the message + skip auto-reply).
+
+    Otherwise return False.
+
+    Args:
+        db: motor async db
+        text: inbound text body (free-form)
+        from_digits: digits-only sender phone (as stored by the webhook)
+        send_wa: async callable (to_e164, text) → dict
+    """
+    if not text or not from_digits:
+        return False
+    settings = await db.settings.find_one(
+        {"_id": "global"},
+        {"_id": 0, "llm_budget_wa_query_enabled": 1, "llm_budget_wa_query_keyword": 1, "llm_budget_notify_wa_phone": 1},
+    ) or {}
+    if not settings.get("llm_budget_wa_query_enabled"):
+        return False
+    keyword = (settings.get("llm_budget_wa_query_keyword") or "SOLDE").strip().upper()
+    if not keyword:
+        return False
+    if text.strip().upper() != keyword:
+        return False
+    # Authorize either the dedicated notify phone or super admin (best effort
+    # match on the last 10 digits to tolerate +/leading zeros differences).
+    authorized = (settings.get("llm_budget_notify_wa_phone") or "").strip()
+    auth_digits = "".join(ch for ch in authorized if ch.isdigit())
+    if auth_digits:
+        if from_digits[-10:] != auth_digits[-10:]:
+            logger.info("[llm_health] WA budget query from %s ignored (not authorized %s)", from_digits, auth_digits)
+            return False
+    summary = await build_budget_summary_text(db)
+    try:
+        await send_wa("+" + from_digits, summary)
+    except Exception:  # noqa: BLE001
+        logger.exception("[llm_health] WA budget query reply failed")
+    return True

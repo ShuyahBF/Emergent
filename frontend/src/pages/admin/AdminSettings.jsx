@@ -15,6 +15,7 @@ import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
+import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -784,6 +785,37 @@ export default function AdminSettings() {
             ⚠️ L'envoi WhatsApp libre exige que ce numéro ait écrit au bot dans les dernières 24 h
             (fenêtre de service client Meta). Sinon, seul l'email sera reçu.
           </p>
+
+          {/* S033 — Bouton test manuel + déclencheur WA par mot-clé */}
+          <div className="mt-4 pt-4 border-t border-slate-200 space-y-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-700 mb-1">🧪 Tester maintenant (S033)</p>
+              <p className="text-[11px] text-slate-500 mb-2">
+                Force un ping immédiat de la Universal Key et affiche le résumé (consommation, vitesse, projection).
+              </p>
+              <LlmBudgetTestButton />
+            </div>
+            <div className="grid sm:grid-cols-2 gap-3">
+              <Toggle
+                label="💬 Activer la requête WhatsApp par mot-clé"
+                value={!!s.llm_budget_wa_query_enabled}
+                onChange={(v) => upd("llm_budget_wa_query_enabled", v)}
+                testid="toggle-llm-budget-wa-query"
+              />
+              <Input
+                label="Mot-clé déclencheur (en MAJUSCULES)"
+                value={s.llm_budget_wa_query_keyword || "SOLDE"}
+                onChange={(v) => upd("llm_budget_wa_query_keyword", v)}
+                placeholder="SOLDE"
+                testid="llm-budget-wa-query-keyword"
+              />
+            </div>
+            <p className="text-[11px] text-slate-500">
+              Quand activé, le numéro <em>autorisé</em> (celui des alertes ci-dessus) peut envoyer le
+              mot-clé par WhatsApp et recevra automatiquement le résumé du solde.
+              Le message déclencheur n'est ni stocké ni transmis à Liluvine PRO.
+            </p>
+          </div>
         </Section>
       </Filterable>
 

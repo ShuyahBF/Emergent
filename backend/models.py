@@ -440,6 +440,15 @@ class SettingsUpdate(BaseModel):
     llm_budget_notify_wa: Optional[bool] = None  # default true
     llm_budget_notify_wa_phone: Optional[str] = None  # E.164
 
+    # --- S033 — WhatsApp keyword to query the budget on demand ---
+    # When `llm_budget_wa_query_enabled` is true, any WhatsApp message whose
+    # body equals (case-insensitive) `llm_budget_wa_query_keyword` (default
+    # "SOLDE") sent FROM `llm_budget_notify_wa_phone` triggers an automatic
+    # reply with the current budget summary. The number must have written to
+    # the bot in the last 24 h (Meta customer-service window).
+    llm_budget_wa_query_enabled: Optional[bool] = None  # default false
+    llm_budget_wa_query_keyword: Optional[str] = None  # default "SOLDE"
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

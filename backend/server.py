@@ -11048,6 +11048,38 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if ch not in allowed:
             raise HTTPException(status_code=400, detail=f"meeting_signers_notify_channel doit être l'un de {sorted(allowed)}")
         update["meeting_signers_notify_channel"] = ch
+    # S032 — Validate LLM budget thresholds (50-99 / 60-99 / >0 / E.164 phone)
+    if "llm_budget_warning_pct" in update and update["llm_budget_warning_pct"] is not None:
+        try:
+            v = int(update["llm_budget_warning_pct"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="llm_budget_warning_pct doit être un entier") from exc
+        if v < 50 or v > 99:
+            raise HTTPException(status_code=400, detail="llm_budget_warning_pct doit être entre 50 et 99")
+        update["llm_budget_warning_pct"] = v
+    if "llm_budget_critical_pct" in update and update["llm_budget_critical_pct"] is not None:
+        try:
+            v = int(update["llm_budget_critical_pct"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="llm_budget_critical_pct doit être un entier") from exc
+        if v < 60 or v > 99:
+            raise HTTPException(status_code=400, detail="llm_budget_critical_pct doit être entre 60 et 99")
+        update["llm_budget_critical_pct"] = v
+    if "llm_budget_max_usd" in update and update["llm_budget_max_usd"] is not None:
+        try:
+            v = float(update["llm_budget_max_usd"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="llm_budget_max_usd doit être un nombre") from exc
+        if v <= 0:
+            raise HTTPException(status_code=400, detail="llm_budget_max_usd doit être strictement positif")
+        update["llm_budget_max_usd"] = v
+    # Coherence check: warning < critical
+    _w = update.get("llm_budget_warning_pct")
+    _c = update.get("llm_budget_critical_pct")
+    if _w is not None and _c is not None and _w >= _c:
+        raise HTTPException(status_code=400, detail="llm_budget_warning_pct doit être strictement inférieur à llm_budget_critical_pct")
+    if "llm_budget_notify_wa_phone" in update:
+        update["llm_budget_notify_wa_phone"] = (update["llm_budget_notify_wa_phone"] or "").strip()
     # S025 — Strip whitespace on approval phone (E.164 expected)
     if "download_approval_whatsapp" in update:
         v = (update["download_approval_whatsapp"] or "").strip()
@@ -19057,11 +19089,18 @@ async def on_startup():
 
             # S031 — Universal Key health probe (every 15 min) + daily admin
             # alert email while the key is exhausted.
-            from routes.llm_health import ping_emergent_llm as _llm_ping, maybe_send_budget_alert_email as _llm_alert
+            # S032 — Also send proactive warning/critical alerts (email + WA)
+            # before the budget is fully exhausted.
+            from routes.llm_health import (
+                ping_emergent_llm as _llm_ping,
+                maybe_send_budget_alert_email as _llm_alert,
+                maybe_send_budget_warning_alerts as _llm_warning_alerts,
+            )
             async def _scheduled_llm_health_ping():
                 try:
                     await _llm_ping(db)
                     await _llm_alert(db, send_email)
+                    await _llm_warning_alerts(db, send_email, _wa_send_text)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[scheduler:llm_health] %s", exc)
             _scheduler.add_job(

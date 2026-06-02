@@ -419,6 +419,27 @@ class SettingsUpdate(BaseModel):
     # them via email, WhatsApp, both or none. Default: none.
     meeting_signers_notify_channel: Optional[str] = None  # "none" | "email" | "wa" | "both"
 
+    # --- S032 — Universal Key Emergent — burn-rate thresholds & alerts ---
+    # Warning/critical thresholds (% of monthly budget consumed) used by the
+    # `LlmHealthBanner` and the daily proactive alerts (Email + WhatsApp).
+    # When the cumulative monthly consumption reaches `llm_budget_warning_pct`
+    # (default 80) → status_level becomes "warning" and an email + WhatsApp
+    # alert are sent to the super-admin (max once per 23h).
+    # When it reaches `llm_budget_critical_pct` (default 95) → status_level
+    # becomes "critical" with its own throttled alert series.
+    # `llm_budget_max_usd` is the configured monthly cap of the Universal Key
+    # used as fallback when Emergent has never returned a ground-truth value
+    # (typically $3.00 by default). Override here if your plan differs.
+    # `llm_budget_notify_wa_phone` is the E.164 number to receive the
+    # WhatsApp alerts (defaults to the WA conversation window — must be a
+    # number that wrote to the bot within 24h).
+    llm_budget_warning_pct: Optional[int] = None  # 50-99, default 80
+    llm_budget_critical_pct: Optional[int] = None  # 60-99, default 95
+    llm_budget_max_usd: Optional[float] = None  # default 3.0 USD
+    llm_budget_notify_email: Optional[bool] = None  # default true
+    llm_budget_notify_wa: Optional[bool] = None  # default true
+    llm_budget_notify_wa_phone: Optional[str] = None  # E.164
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

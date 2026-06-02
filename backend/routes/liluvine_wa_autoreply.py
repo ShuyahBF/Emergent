@@ -231,7 +231,7 @@ async def autoreply_to_inbound(
     if not api_key:
         try:
             from routes.llm_health import record_llm_outcome
-            await record_llm_outcome(db, ok=False, error="EMERGENT_LLM_KEY missing")
+            await record_llm_outcome(db, ok=False, error="EMERGENT_LLM_KEY missing", context="liluvine_wa_autoreply")
         except Exception:  # noqa: BLE001
             pass
         return {"ok": False, "reason": "EMERGENT_LLM_KEY missing"}
@@ -249,14 +249,14 @@ async def autoreply_to_inbound(
         reply = await chat.send_message(UserMessage(text=text))
         try:
             from routes.llm_health import record_llm_outcome
-            await record_llm_outcome(db, ok=True)
+            await record_llm_outcome(db, ok=True, context="liluvine_wa_autoreply")
         except Exception:  # noqa: BLE001
             pass
     except Exception as exc:
         logger.exception("[wa_autoreply] LLM error")
         try:
             from routes.llm_health import record_llm_outcome
-            await record_llm_outcome(db, ok=False, error=str(exc))
+            await record_llm_outcome(db, ok=False, error=str(exc), context="liluvine_wa_autoreply")
         except Exception:  # noqa: BLE001
             pass
         return {"ok": False, "reason": f"llm_error: {str(exc)[:160]}"}

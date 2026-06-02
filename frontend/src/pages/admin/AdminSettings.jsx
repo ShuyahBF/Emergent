@@ -28,6 +28,8 @@ import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSectio
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // S-iter39g (2026-02 post-handoff) — Universal Key burn-rate thresholds
+  "Universal Key Emergent — Seuils de consommation & alertes (S032)": "2026-02-02",
   // S-iter39e (2026-02 post-handoff) — Approval workflow + signers notify
   "Sécurité — Approbation WhatsApp pour téléchargements (S025)": "2026-02-02",
   "PV de réunions — Notification automatique des signataires (S026)": "2026-02-02",
@@ -716,6 +718,72 @@ export default function AdminSettings() {
               </button>
             ))}
           </div>
+        </Section>
+      </Filterable>
+
+      {/* S032 — Seuils de consommation Universal Key Emergent */}
+      <Filterable title="Universal Key Emergent — Seuils de consommation & alertes (S032)" anchorId="s-llm-budget-thresholds">
+        <Section icon={Brain} title="Budget IA — Seuils d'alerte (avertissement + critique)">
+          <p className="text-xs text-slate-500">
+            Surveille la consommation mensuelle de la Universal Key Emergent (Liluvine PRO, auto-réponse WA, OCR KB, planificateur IA).
+            Lorsque la consommation atteint le seuil d'<strong>avertissement</strong> (par défaut <strong>80 %</strong>) ou le seuil <strong>critique</strong> (par défaut <strong>95 %</strong>),
+            un email et/ou un message WhatsApp est automatiquement envoyé à l'admin <em>(une fois par 23 h par niveau)</em>.
+            Une bannière colorée apparaît également en haut du portail pour l'admin <code>admin@sawalismartsystems.com</code>.
+          </p>
+          <div className="grid sm:grid-cols-3 gap-3">
+            <Input
+              label="Seuil d'avertissement (% du budget mensuel)"
+              type="number"
+              min="50" max="99" step="1"
+              value={s.llm_budget_warning_pct ?? 80}
+              onChange={(v) => upd("llm_budget_warning_pct", v === "" ? null : parseInt(v, 10))}
+              placeholder="80"
+              testid="llm-budget-warning-pct"
+            />
+            <Input
+              label="Seuil critique (% du budget mensuel)"
+              type="number"
+              min="60" max="99" step="1"
+              value={s.llm_budget_critical_pct ?? 95}
+              onChange={(v) => upd("llm_budget_critical_pct", v === "" ? null : parseInt(v, 10))}
+              placeholder="95"
+              testid="llm-budget-critical-pct"
+            />
+            <Input
+              label="Budget mensuel max (USD)"
+              type="number"
+              min="0.1" step="0.1"
+              value={s.llm_budget_max_usd ?? 3.0}
+              onChange={(v) => upd("llm_budget_max_usd", v === "" ? null : parseFloat(v))}
+              placeholder="3.00"
+              testid="llm-budget-max-usd"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3 mt-2">
+            <Toggle
+              label="📧 Envoyer un email d'alerte à admin@sawalismartsystems.com"
+              value={s.llm_budget_notify_email !== false}
+              onChange={(v) => upd("llm_budget_notify_email", v)}
+              testid="toggle-llm-budget-notify-email"
+            />
+            <Toggle
+              label="💬 Envoyer une alerte WhatsApp"
+              value={s.llm_budget_notify_wa !== false}
+              onChange={(v) => upd("llm_budget_notify_wa", v)}
+              testid="toggle-llm-budget-notify-wa"
+            />
+          </div>
+          <Input
+            label="Numéro WhatsApp de l'admin pour les alertes (format E.164)"
+            value={s.llm_budget_notify_wa_phone || ""}
+            onChange={(v) => upd("llm_budget_notify_wa_phone", v)}
+            placeholder="+225XXXXXXXXXX"
+            testid="llm-budget-notify-wa-phone"
+          />
+          <p className="text-[11px] text-slate-500">
+            ⚠️ L'envoi WhatsApp libre exige que ce numéro ait écrit au bot dans les dernières 24 h
+            (fenêtre de service client Meta). Sinon, seul l'email sera reçu.
+          </p>
         </Section>
       </Filterable>
 

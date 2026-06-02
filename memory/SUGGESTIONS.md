@@ -281,6 +281,21 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/llm_health.py` (nouveau), wrappers dans `backend/routes/liluvine_pro.py` + `backend/routes/liluvine_wa_autoreply.py`, cron dans `backend/server.py`, `frontend/src/components/LlmHealthBanner.jsx` (nouveau), monté dans `frontend/src/App.js`.
 - **Tests** : `backend/tests/test_siter39g_llm_health.py` (regex parsing + admin read + 403 non-admin + state transitions + ping endpoint — 5/5 verts).
 
+## S032 — Vitesse de consommation Universal Key + alertes proactives (80% / 95%)
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — « oui va avec s032 »
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39h
+- **Détail** : Anticipe l'épuisement de la Universal Key Emergent en mesurant la vitesse de consommation et en alertant l'admin **avant** la coupure :
+  - **Source double** : (a) Chaque appel LLM appelle `record_llm_outcome(..., context=...)` qui ajoute une ligne dans `llm_usage_log` avec coût estimé par contexte (`liluvine_chat`=$0.004, `wa_autoreply`=$0.002, `health_probe`=$0.0001, etc. — basé sur la grille de tarifs Claude Haiku 4.5). (b) Lorsque Emergent renvoie une erreur de budget, la valeur réelle `current_cost` est extraite et utilisée comme vérité terrain.
+  - **Fonction `compute_metrics(db)`** : agrège `llm_usage_log` sur 24h et 1h + cumul mensuel, calcule `pct_used = cost/max`, projette la date d'épuisement (`projected_days_left`) et classe l'état en `ok` / `warning` / `critical` / `exhausted` / `error`.
+  - **Bannière 4 niveaux** : la `LlmHealthBanner` change de couleur selon `status_level` (ambre/orange/rose) et affiche en mode warning/critical la vitesse 24h, la projection d'épuisement et le nombre d'appels IA.
+  - **Notifications proactives** : Email + WhatsApp (canaux configurables, throttle 23h par niveau) envoyés dès passage en `warning` (par défaut 80%) ou `critical` (par défaut 95%). WA via `_wa_send_text` (numéro super-admin configuré).
+  - **Configuration admin** : Nouvelle section `Universal Key Emergent — Seuils de consommation & alertes (S032)` dans `/admin/settings` (anchor `s-llm-budget-thresholds`) — 6 paramètres : `llm_budget_warning_pct`, `llm_budget_critical_pct`, `llm_budget_max_usd`, `llm_budget_notify_email`, `llm_budget_notify_wa`, `llm_budget_notify_wa_phone`. Validation stricte côté backend (50≤warn≤99, 60≤crit≤99, warn<crit, max>0).
+- **Bénéfice** : élimine les coupures surprises du service IA — l'admin reçoit un préavis suffisant pour recharger la clé.
+- **Endpoints** : `GET /api/admin/llm-health` enrichi des 13 nouveaux champs S032 (burn_rate_24h_usd, burn_rate_1h_usd, calls_24h, cumulative_month_usd, current_cost_usd, max_budget_usd, pct_used, projected_days_left, projected_exhaustion_at, warning_pct, critical_pct, status_level, cost_source).
+- **Fichiers** : `backend/routes/llm_health.py` (compute_metrics + maybe_send_budget_warning_alerts), `backend/models.py:SettingsUpdate` (6 nouveaux champs), `backend/server.py` (validation + cron updated), `backend/routes/liluvine_pro.py` + `liluvine_wa_autoreply.py` (context propagé), `frontend/src/components/LlmHealthBanner.jsx` (4 niveaux visuels + métriques), `frontend/src/pages/admin/AdminSettings.jsx` (section S032).
+- **Tests** : `backend/tests/test_siter39h_llm_burn_rate.py` (6/6 verts) — usage log + compute_metrics + bascule warning/critical/ok + endpoint exposes metrics + validation seuils + envoi email+WA + throttle 23h.
+
 ---
 
 ## Comment référencer une suggestion

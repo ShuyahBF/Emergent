@@ -6,6 +6,19 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39h — 📈 Burn-rate Universal Key & alertes anticipées
+
+### ✅ S032 — Vitesse de consommation Universal Key + alertes Email + WhatsApp (80% / 95%)
+- **Objectif** : anticiper l'épuisement de la Universal Key Emergent **avant** la coupure du service IA, en mesurant la vitesse de consommation et en alertant l'admin sur 2 canaux.
+- **Source double des coûts** : (a) Chaque appel LLM (`liluvine_chat`, `wa_autoreply`, `health_probe`, etc.) ajoute une ligne dans `llm_usage_log` avec coût estimé par contexte (basé sur tarifs Claude Haiku 4.5). (b) Quand Emergent renvoie une erreur de budget, la valeur réelle `current_cost` est extraite et utilisée comme vérité terrain.
+- **Fonction `compute_metrics(db)`** : agrège sur 24h / 1h / cumul mensuel, calcule `pct_used`, projette `projected_days_left` et `projected_exhaustion_at`, classe l'état en `ok` / `warning` / `critical` / `exhausted` / `error`.
+- **Bannière 4 niveaux** : `LlmHealthBanner` change de couleur (ambre→orange→rose) et affiche en warning/critical : vitesse 24h, projection d'épuisement, nombre d'appels IA (24h).
+- **Notifications proactives** : Email + WhatsApp (canaux configurables, throttle 23h **par niveau**) déclenchés dès passage en `warning` (par défaut 80%) ou `critical` (par défaut 95%). Cron 15 min appelle `maybe_send_budget_warning_alerts(db, send_email, _wa_send_text)`.
+- **Configuration admin** : nouvelle section `Universal Key Emergent — Seuils de consommation & alertes (S032)` dans `/admin/settings` (anchor `s-llm-budget-thresholds`) — 6 paramètres (warning_pct, critical_pct, max_usd, notify_email, notify_wa, notify_wa_phone). Validation backend stricte (50≤warn<crit≤99, max>0).
+- **Endpoints** : `GET /api/admin/llm-health` enrichi des 13 nouveaux champs S032.
+- **Fichiers** : `backend/routes/llm_health.py` (compute_metrics + maybe_send_budget_warning_alerts), `backend/models.py:SettingsUpdate`, `backend/server.py` (validation + cron), `backend/routes/liluvine_pro.py` + `liluvine_wa_autoreply.py` (context propagé), `frontend/src/components/LlmHealthBanner.jsx`, `frontend/src/pages/admin/AdminSettings.jsx`.
+- **Tests** : 6/6 verts — `backend/tests/test_siter39h_llm_burn_rate.py`.
+
 ## Recent (2026-02 post-handoff) — S-iter39g — 🚨 Monitoring Universal Key & bannière super-admin
 
 ### ✅ S031 — Bannière budget Universal Key + email quotidien

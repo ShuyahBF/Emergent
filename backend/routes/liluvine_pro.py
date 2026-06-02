@@ -316,13 +316,13 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             reply = await chat.send_message(UserMessage(text=user_text))
             try:
                 from routes.llm_health import record_llm_outcome
-                await record_llm_outcome(db, ok=True)
+                await record_llm_outcome(db, ok=True, context="liluvine_chat")
             except Exception:  # noqa: BLE001
                 pass
         except Exception as _llm_exc:
             try:
                 from routes.llm_health import record_llm_outcome
-                await record_llm_outcome(db, ok=False, error=str(_llm_exc))
+                await record_llm_outcome(db, ok=False, error=str(_llm_exc), context="liluvine_chat")
             except Exception:  # noqa: BLE001
                 pass
             raise

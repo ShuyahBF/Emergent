@@ -69,13 +69,13 @@ async def _resolve_admin_phone(settings: dict) -> Optional[str]:
     return phone or None
 
 
-async def _is_throttled(db, *, contact_phone_digits: str, cooldown_min: int) -> bool:
-    """Return True when an escalation was already sent for this contact
-    within the configured cooldown window."""
-    if not contact_phone_digits:
+async def _is_throttled(db, *, throttle_key: str, cooldown_min: int) -> bool:
+    """Return True when an escalation was already sent for this key
+    (contact_phone or user email/id) within the configured cooldown."""
+    if not throttle_key:
         return False
     last = await db.liluvine_escalations.find_one(
-        {"contact_phone_digits": contact_phone_digits},
+        {"throttle_key": throttle_key},
         sort=[("sent_at", -1)],
         projection={"_id": 0, "sent_at": 1},
     )
@@ -102,8 +102,17 @@ async def notify_admin(
     send_wa: Callable[[str, str], Awaitable[dict]],
     session_id: Optional[str] = None,
     history: Optional[list] = None,
+    initiator: str = "liluvine",
+    throttle_key: Optional[str] = None,
 ) -> dict:
     """Send a WhatsApp escalation message to the configured admin.
+
+    Args:
+        initiator: "liluvine" (auto-escalation via [ESCALATE] marker) or
+            "human" (S037 — portal user clicked "Demander de l'aide").
+        throttle_key: Override the throttle key. Default is the
+            contact_phone_digits, but for human-initiated escalations we
+            usually want to throttle per user (email or id) instead.
 
     Returns a dict {sent, skipped_reason, to}.
     """
@@ -124,11 +133,12 @@ async def notify_admin(
         return {"sent": False, "skipped_reason": "no_admin_phone", "to": None}
 
     cooldown = int(settings.get("liluvine_escalation_cooldown_minutes") or 30)
-    if await _is_throttled(db, contact_phone_digits=contact_phone_digits, cooldown_min=cooldown):
+    effective_throttle_key = (throttle_key or contact_phone_digits or "").strip()
+    if await _is_throttled(db, throttle_key=effective_throttle_key, cooldown_min=cooldown):
         return {"sent": False, "skipped_reason": "throttled", "to": admin_phone}
 
     # Build a compact context block
-    name = (contact_name or "").strip() or f"+{contact_phone_digits}" if contact_phone_digits else "Contact inconnu"
+    name = (contact_name or "").strip() or (f"+{contact_phone_digits}" if contact_phone_digits else "Contact inconnu")
     last_msg = (last_user_message or "").strip()
     if len(last_msg) > 400:
         last_msg = last_msg[:400] + "…"
@@ -143,14 +153,27 @@ async def notify_admin(
                 snippet_lines.append(f"{who} {t}")
     snippet_block = ("\n".join(snippet_lines) + "\n") if snippet_lines else ""
 
+    # S037 — Differentiate the WA header by initiator so admins know
+    # whether the IA flagged itself OR a human asked for help.
+    if initiator == "human":
+        header = "🙋 *Demande d'aide d'un collaborateur*"
+        contact_label = "👤 *Collaborateur :*"
+        phone_label = "📧 *Identifiant :*" if not contact_phone_digits else "📱 *Téléphone :*"
+        phone_value = contact_phone_digits or (throttle_key or "—")
+    else:
+        header = "🆘 *Liluvine PRO demande de l'aide*"
+        contact_label = "👤 *Contact :*"
+        phone_label = "📱 *Téléphone :*"
+        phone_value = f"+{contact_phone_digits}" if contact_phone_digits else "—"
+
     body = (
-        "🆘 *Liluvine PRO demande de l'aide*\n"
+        f"{header}\n"
         "\n"
-        f"👤 *Contact :* {name}\n"
-        f"📱 *Téléphone :* +{contact_phone_digits or '—'}\n"
+        f"{contact_label} {name}\n"
+        f"{phone_label} {phone_value}\n"
         f"🧠 *Raison :* {reason_clean}\n"
         "\n"
-        f"💬 *Dernier message du contact :*\n_{last_msg}_\n"
+        f"💬 *Dernier message :*\n_{last_msg}_\n"
     )
     if snippet_block:
         body += f"\n*Extrait de conversation :*\n{snippet_block}"
@@ -176,6 +199,8 @@ async def notify_admin(
             "admin_phone": admin_phone,
             "session_id": session_id,
             "sent_ok": sent_ok,
+            "initiator": initiator,
+            "throttle_key": effective_throttle_key,
         })
     except Exception:  # noqa: BLE001
         logger.exception("[liluvine_escalation] persist log failed")

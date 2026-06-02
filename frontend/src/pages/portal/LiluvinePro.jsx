@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle } from "lucide-react";
+import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle, HelpCircle } from "lucide-react";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -41,6 +41,40 @@ export default function LiluvinePro() {
   // S-iter39b — "3 dernières conversations" quick toggle, always visible.
   // Sorts by updated_at desc and caps the list to the top 3.
   const [recentOnly, setRecentOnly] = useState(false);
+
+  // S037 — "Demander de l'aide" modal state
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [helpNote, setHelpNote] = useState("");
+  const [helpSending, setHelpSending] = useState(false);
+
+  const requestHelp = async () => {
+    const note = helpNote.trim();
+    if (!note) { toast.error("Veuillez préciser brièvement votre demande."); return; }
+    setHelpSending(true);
+    try {
+      const r = await apiClient.post("/me/liluvine-pro/request-help", {
+        note,
+        session_id: activeId || null,
+      });
+      if (r.data?.sent) {
+        toast.success("Demande envoyée à l'administrateur via WhatsApp.");
+      } else if (r.data?.skipped_reason === "throttled") {
+        toast.info("Une demande vient d'être envoyée — patientez quelques minutes avant d'en envoyer une autre.");
+      } else if (r.data?.skipped_reason === "disabled") {
+        toast.warning("L'escalade est désactivée. Contactez l'administrateur directement.");
+      } else if (r.data?.skipped_reason === "no_admin_phone") {
+        toast.warning("Aucun numéro admin configuré pour les escalades.");
+      } else {
+        toast.error("Envoi échoué — réessayez plus tard.");
+      }
+      setHelpOpen(false);
+      setHelpNote("");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur lors de l'envoi de la demande.");
+    } finally {
+      setHelpSending(false);
+    }
+  };
 
   // Iter38r-fix9f — Resizable sidebar (matches Direct Chat & WhatsApp panes)
   const { leftWidth, dragHandlers, isCollapsed, toggleCollapsed } = useResizablePanel({
@@ -543,6 +577,16 @@ export default function LiluvinePro() {
               data-testid="liluvine-input"
             />
             <button
+              onClick={() => setHelpOpen(true)}
+              disabled={sending || helpSending}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-200 px-3.5 py-2 text-sm hover:bg-rose-100 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="liluvine-request-help-btn"
+              title="Envoyer une demande d'aide à l'administrateur via WhatsApp"
+            >
+              <HelpCircle className="h-4 w-4" />
+              Demander de l'aide
+            </button>
+            <button
               onClick={send}
               disabled={sending || !input.trim() || !featureEnabled}
               className={`inline-flex items-center gap-1.5 rounded-lg bg-${branding.color}-600 text-white px-3.5 py-2 text-sm hover:bg-${branding.color}-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm`}
@@ -557,6 +601,66 @@ export default function LiluvinePro() {
           </p>
         </div>
       </main>
+
+      {/* S037 — Modal "Demander de l'aide" */}
+      {helpOpen && (
+        <div
+          className="fixed inset-0 z-[100] bg-slate-900/60 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => !helpSending && setHelpOpen(false)}
+          data-testid="liluvine-help-modal"
+        >
+          <div
+            className="bg-white rounded-xl shadow-2xl max-w-md w-full p-5 space-y-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-full bg-gradient-to-br from-rose-500 to-fuchsia-600 text-white grid place-items-center">
+                <HelpCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-slate-800">Demander de l'aide à l'admin</h3>
+                <p className="text-xs text-slate-500">Un message WhatsApp avec le contexte de votre conversation lui sera envoyé.</p>
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Expliquez brièvement pourquoi vous avez besoin d'aide
+              </label>
+              <textarea
+                value={helpNote}
+                onChange={(e) => setHelpNote(e.target.value)}
+                placeholder="Ex : Je n'arrive pas à expliquer la procédure de remboursement à ce client…"
+                rows={4}
+                maxLength={500}
+                disabled={helpSending}
+                className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm focus:ring-fuchsia-500 focus:ring-2 outline-none disabled:opacity-50"
+                data-testid="liluvine-help-note-input"
+                autoFocus
+              />
+              <p className="text-[10px] text-slate-400 mt-1 tabular-nums">{helpNote.length} / 500</p>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => { setHelpOpen(false); setHelpNote(""); }}
+                disabled={helpSending}
+                className="text-sm px-3 py-2 rounded-lg ring-1 ring-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+                data-testid="liluvine-help-cancel-btn"
+              >
+                Annuler
+              </button>
+              <button
+                onClick={requestHelp}
+                disabled={helpSending || !helpNote.trim()}
+                className="text-sm px-4 py-2 rounded-lg bg-gradient-to-r from-rose-500 to-fuchsia-600 text-white shadow-md hover:from-rose-600 hover:to-fuchsia-700 disabled:opacity-50 inline-flex items-center gap-1.5"
+                data-testid="liluvine-help-submit-btn"
+              >
+                {helpSending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {helpSending ? "Envoi…" : "Envoyer la demande"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

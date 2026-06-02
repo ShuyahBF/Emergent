@@ -184,7 +184,7 @@ async def _fetch_context_snippets(db, user: dict, text: str) -> str:
 # ============================================================
 # Route setup
 # ============================================================
-def setup_liluvine_pro_routes(*, db, api, get_current_user):
+def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     """Mount Liluvine PRO endpoints on the provided api router."""
 
     api_key = os.environ.get("EMERGENT_LLM_KEY")
@@ -940,6 +940,64 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
         await db.liluvine_pro_sessions.delete_one({"id": sid})
         await db.liluvine_pro_messages.delete_many({"session_id": sid})
         return {"ok": True, "id": sid}
+
+    # ----------------------------------------------------------
+    # S037 — User-initiated escalation to admin via WhatsApp.
+    # Any authenticated portal user (collaborator, moderator, etc.) can
+    # click "Demander de l'aide" in the Liluvine PRO chat UI and send a
+    # contextual WhatsApp ping to the admin with their note + last 3
+    # messages of the current session.
+    # ----------------------------------------------------------
+    @api.post("/me/liluvine-pro/request-help", tags=["Portail Client — Liluvine PRO"])
+    async def request_help(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_user)):
+        if wa_send_text is None:
+            raise HTTPException(status_code=503, detail="WhatsApp non disponible côté serveur")
+        note = (payload.get("note") or "").strip()
+        if not note:
+            raise HTTPException(status_code=400, detail="Veuillez préciser pourquoi vous avez besoin d'aide.")
+        if len(note) > 500:
+            note = note[:500] + "…"
+        session_id = (payload.get("session_id") or "").strip() or None
+
+        # Pull the last 3 messages (oldest → newest) from the session for
+        # context. Best-effort — silently ignore failures.
+        history = []
+        if session_id:
+            try:
+                cursor = db.liluvine_pro_messages.find(
+                    {"session_id": session_id},
+                    {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+                ).sort("created_at", -1).limit(3)
+                msgs = await cursor.to_list(length=3)
+                msgs.reverse()
+                history = [{"role": m.get("role"), "text": m.get("content") or ""} for m in msgs]
+            except Exception:
+                pass
+
+        # Identify the collaborator (full_name → email → id) and use the
+        # email as the throttle key so multiple collaborators don't block
+        # each other.
+        collaborator = (user.get("full_name") or user.get("email") or user["id"]).strip()
+        throttle_key = (user.get("email") or user["id"]).strip().lower()
+        phone_digits = "".join(ch for ch in (user.get("phone") or "") if ch.isdigit())
+
+        try:
+            from routes.liluvine_escalation import notify_admin
+            res = await notify_admin(
+                db,
+                contact_name=collaborator,
+                contact_phone_digits=phone_digits,
+                last_user_message=note,
+                reason=f"Demande d'aide manuelle du collaborateur — {note[:120]}",
+                send_wa=wa_send_text,
+                session_id=session_id,
+                history=history,
+                initiator="human",
+                throttle_key=throttle_key,
+            )
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Erreur escalade : {exc!s}") from exc
+        return res
 
     # ----------------------------------------------------------
     # Iter38r-fix9i — "Reprendre la conversation" : human takeover

@@ -21516,7 +21516,7 @@ _setup_ai_quotas_routes(
 
 # Iter38r-fix6 — Liluvine PRO / Assistant SAWALI interne.
 from routes.liluvine_pro import setup_liluvine_pro_routes as _setup_liluvine_pro_routes  # noqa: E402
-_setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user)
+_setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user, wa_send_text=_wa_send_text)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

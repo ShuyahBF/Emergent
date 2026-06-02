@@ -265,6 +265,22 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/download_approvals.py` (endpoint `admin_audit`), `frontend/src/pages/admin/AdminDownloadAudit.jsx` (nouveau), entrée sidebar admin dans `PortalLayout.jsx`, route dans `App.js`
 - **Tests** : `backend/tests/test_siter39f_audit.py` (counters + filtres status/q + 400 status invalide + 403 modérateur — 2/2 verts)
 
+## S031 — Bannière d'alerte « Universal Key Emergent épuisée » (super-admin)
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — restreint à `admin@sawalismartsystems.com`
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39g
+- **Détail** : Monitoring temps réel de la santé Universal Key :
+  - Helper `record_llm_outcome(db, ok, error)` appelé après chaque appel LLM (intégré dans `liluvine_pro.py` chat + `liluvine_wa_autoreply.py`).
+  - Regex `BUDGET_ERROR_RE` détecte l'erreur exacte d'Emergent (« Budget has been exceeded! Current cost: X, Max budget: Y ») → extrait les chiffres + bascule en status `budget_exceeded`.
+  - Détecte aussi `key_missing` (EMERGENT_LLM_KEY absente) et `unknown_error`.
+  - Cron 15 min : `ping_emergent_llm` envoie un message minimaliste à Claude Haiku 4.5 → mise à jour automatique du status (rétablit l'état `ok` dès recharge).
+  - Email quotidien (throttlé 23 h) à `admin@sawalismartsystems.com` tant que le status reste `budget_exceeded`.
+  - Bannière sticky en haut du portail (gradient ambre→rose, animation pulse) avec : titre + chiffres `cost/max`, instructions de recharge, bouton « Re-tester » (ping immédiat), bouton dismiss (jusqu'au prochain check 15 min).
+  - **Visible uniquement pour `admin@sawalismartsystems.com`** (gate frontend strict sur l'email).
+- **Endpoints** : `GET /api/admin/llm-health` (state) + `POST /api/admin/llm-health/ping` (force probe).
+- **Fichiers** : `backend/routes/llm_health.py` (nouveau), wrappers dans `backend/routes/liluvine_pro.py` + `backend/routes/liluvine_wa_autoreply.py`, cron dans `backend/server.py`, `frontend/src/components/LlmHealthBanner.jsx` (nouveau), monté dans `frontend/src/App.js`.
+- **Tests** : `backend/tests/test_siter39g_llm_health.py` (regex parsing + admin read + 403 non-admin + state transitions + ping endpoint — 5/5 verts).
+
 ---
 
 ## Comment référencer une suggestion

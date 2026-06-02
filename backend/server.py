@@ -19054,6 +19054,23 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+
+            # S031 — Universal Key health probe (every 15 min) + daily admin
+            # alert email while the key is exhausted.
+            from routes.llm_health import ping_emergent_llm as _llm_ping, maybe_send_budget_alert_email as _llm_alert
+            async def _scheduled_llm_health_ping():
+                try:
+                    await _llm_ping(db)
+                    await _llm_alert(db, send_email)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[scheduler:llm_health] %s", exc)
+            _scheduler.add_job(
+                _scheduled_llm_health_ping,
+                CronTrigger(minute="*/15", timezone="Africa/Abidjan"),
+                id="llm_health_ping_15min",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
             # Weekly DB auto-snapshot — Sunday 03:00 (Africa/Abidjan), gated by
             # settings.auto_snapshot_enabled. Keeps the last N (settings
             # .auto_snapshot_keep, default 4) auto snapshots; manual ones
@@ -21689,6 +21706,10 @@ api.include_router(_make_dl_router(
     wa_send_template=_wa_send_template_for_approval,
 ))
 api.include_router(_make_dl_public_router(db=db))
+
+# S031 — Universal Key health monitoring & budget-exceeded banner
+from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402
+api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_user, send_email=send_email))
 
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).

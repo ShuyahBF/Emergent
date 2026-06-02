@@ -311,7 +311,21 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user):
             session_id=session_id,
             system_message=system_text,
         ).with_model("anthropic", LILUVINE_MODEL)
-        reply = await chat.send_message(UserMessage(text=user_text))
+        # S031 — Record LLM outcome for the budget-exceeded banner
+        try:
+            reply = await chat.send_message(UserMessage(text=user_text))
+            try:
+                from routes.llm_health import record_llm_outcome
+                await record_llm_outcome(db, ok=True)
+            except Exception:  # noqa: BLE001
+                pass
+        except Exception as _llm_exc:
+            try:
+                from routes.llm_health import record_llm_outcome
+                await record_llm_outcome(db, ok=False, error=str(_llm_exc))
+            except Exception:  # noqa: BLE001
+                pass
+            raise
         # Token estimation : ~4 chars per token. Used for quota accounting.
         tokens = max(int((len(system_text) + len(user_text) + len(reply or "")) / 4), 1)
         return {"reply": reply or "", "tokens": tokens, "model": LILUVINE_MODEL}

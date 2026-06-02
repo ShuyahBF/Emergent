@@ -6,6 +6,18 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39g — 🚨 Monitoring Universal Key & bannière super-admin
+
+### ✅ S031 — Bannière budget Universal Key + email quotidien
+- **Détection auto** : helper `record_llm_outcome(db, ok, error)` intégré dans `liluvine_pro.py` + `liluvine_wa_autoreply.py`. Regex extrait `current_cost`/`max_budget` du message d'erreur exact d'Emergent.
+- **Statuts** : `ok | budget_exceeded | key_missing | unknown_error | unknown`.
+- **Cron 15 min** : `ping_emergent_llm` envoie un test minimaliste à Claude Haiku 4.5 → rétablit auto le status `ok` dès recharge.
+- **Email quotidien** (throttle 23 h) à `admin@sawalismartsystems.com` tant que le status est `budget_exceeded`.
+- **Bannière sticky** (gradient ambre→rose, pulse animation) avec chiffres `cost/max`, instructions Profile → Universal Key → Add Balance, bouton Re-tester (ping immédiat) + dismiss.
+- **Restriction stricte** : `admin@sawalismartsystems.com` est le **SEUL email** qui voit la bannière (gate frontend stricte). Les autres admins peuvent lire l'endpoint mais ne voient rien.
+- Endpoints : `GET /api/admin/llm-health` + `POST /api/admin/llm-health/ping` (force probe).
+- Tests : 5/5 verts (regex parsing + admin read + 403 non-admin + state transitions + ping endpoint).
+
 ## Recent (2026-02 post-handoff) — S-iter39f — 📊 Journal d'audit des téléchargements
 
 ### ✅ S029 — Journal d'audit consultable des demandes de téléchargement

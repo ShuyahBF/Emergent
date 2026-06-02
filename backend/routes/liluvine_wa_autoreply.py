@@ -229,6 +229,11 @@ async def autoreply_to_inbound(
     # Call the LLM
     api_key = os.environ.get("EMERGENT_LLM_KEY")
     if not api_key:
+        try:
+            from routes.llm_health import record_llm_outcome
+            await record_llm_outcome(db, ok=False, error="EMERGENT_LLM_KEY missing")
+        except Exception:  # noqa: BLE001
+            pass
         return {"ok": False, "reason": "EMERGENT_LLM_KEY missing"}
     try:
         from emergentintegrations.llm.chat import LlmChat, UserMessage
@@ -242,8 +247,18 @@ async def autoreply_to_inbound(
             api_key=api_key, session_id=session_id, system_message=sys_text,
         ).with_model("anthropic", "claude-haiku-4-5-20251001")
         reply = await chat.send_message(UserMessage(text=text))
+        try:
+            from routes.llm_health import record_llm_outcome
+            await record_llm_outcome(db, ok=True)
+        except Exception:  # noqa: BLE001
+            pass
     except Exception as exc:
         logger.exception("[wa_autoreply] LLM error")
+        try:
+            from routes.llm_health import record_llm_outcome
+            await record_llm_outcome(db, ok=False, error=str(exc))
+        except Exception:  # noqa: BLE001
+            pass
         return {"ok": False, "reason": f"llm_error: {str(exc)[:160]}"}
     reply = (reply or "").strip()
     if not reply:

@@ -35,6 +35,7 @@ if (typeof window !== "undefined" && !window.__sawali_err_handler__) {
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import GlobalRouteLoader from "@/components/GlobalRouteLoader";
+import LlmHealthBanner from "@/components/LlmHealthBanner";
 import MarketingLayout from "@/components/MarketingLayout";
 import PortalLayout from "@/components/PortalLayout";
 
@@ -164,6 +165,7 @@ export default function App() {
         <WebhookResultModal />
         <RouteTracker />
         <GlobalRouteLoader />
+        <LlmHealthBanner />
         <AutoLogoutGate />
         <Routes>
           {/* Public marketing */}

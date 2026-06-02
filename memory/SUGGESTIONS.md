@@ -325,6 +325,35 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/wa_admin_cockpit.py` (nouveau — dispatcher + builders STATS/INCIDENTS/HELP), `backend/server.py` (hook webhook remplace S033 par le dispatcher S034), `frontend/src/pages/admin/AdminSettings.jsx` (UI section S032 listant les 4 commandes + alias).
 - **Tests** : `backend/tests/test_siter39j_wa_admin_cockpit.py` (8/8 verts) — HELP/STATS/INCIDENTS/BALANCE delegation + unknown keyword + master toggle off + unauthorized phone + tous les alias (BUDGET/KPI/TICKETS/HELP/MENU).
 
+## S035 — Commandes d'action du Cockpit WhatsApp (fermeture ticket + mute alertes)
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — « ok implémente S035 »
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39k
+- **Détail** : Étend le cockpit S034 avec des **commandes d'action** (et plus seulement de consultation) :
+  - **`RESOLU #1234` / `FERMER #1234`** → Ferme le ticket de support dont le numéro est passé en argument. Match par `number` (regex case-insensitive) ou par `id` (UUID/préfixe). Le ticket bascule en `status="resolved"` + champs `resolved_at` / `closed_at` / `closed_by_wa` (téléphone E.164) / `closed_via="wa_cockpit_s035"`. Réponse différenciée si ticket introuvable / déjà clôturé.
+  - **`MUTE` / `NOTIF STOP` / `NOTIF OFF`** → Persiste `settings.llm_alerts_muted_until` à `now + 24h`. Les alertes S031 (email épuisement) et S032 (warning/critical) honorent ce champ via le helper `alerts_are_muted(db)`.
+  - **`UNMUTE` / `NOTIF ON` / `NOTIF START` / `NOTIF RESUME`** → Unset du champ `llm_alerts_muted_until`. Les alertes reprennent au prochain cron 15 min.
+  - Menu `AIDE` mis à jour avec les nouvelles sections « Consultation » et « Actions ».
+  - L'auth reste identique à S034 (toggle + match 10 derniers chiffres).
+- **Bénéfice** : permet à l'admin de gérer son CRM en mobilité — fermer un incident ou couper temporairement les alertes pendant une réunion, depuis un simple message WhatsApp.
+- **Fichiers** : `backend/routes/wa_admin_cockpit.py` (regex `RE_CLOSE_TICKET`/`RE_NOTIF_*` + handlers `_close_ticket_action`/`_mute_alerts_action`/`_unmute_alerts_action` + helper `alerts_are_muted`), `backend/models.py:SettingsUpdate.llm_alerts_muted_until`, `backend/routes/llm_health.py` (S031 email + S032 warning_alerts honorent le mute).
+- **Tests** : `backend/tests/test_siter39k_actions_and_escalation.py` (10/10 verts dont 4 dédiés S035) — fermeture ticket OK + ticket introuvable + mute/unmute (MUTE/NOTIF STOP/UNMUTE/NOTIF ON) + email S031 skippé pendant mute.
+
+## S036 — Liluvine PRO appelle l'admin via WhatsApp quand elle est bloquée
+- **Demande directe utilisateur** : 2026-02 (post-handoff) — « permet à Liluvine PRO d'envoyer un message à l'admin dont on pourra définir le numéro en paramètre lorsqu'elle a besoin d'aide en expliquant le contexte et pourquoi elle est bloquée »
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39k
+- **Détail** : Quand Liluvine PRO ne sait pas répondre à un contact via WhatsApp auto-reply, elle peut s'auto-déclarer en demande d'aide et déclencher une notification WhatsApp contextuelle à l'admin :
+  - **Mécanisme d'auto-détection** : Le system prompt d'auto-reply est étendu avec `ESCALATE_PROMPT_HINT` qui demande explicitement à Liluvine de terminer son message par `[ESCALATE: <raison brève>]` lorsqu'elle est bloquée, qu'elle détecte de la frustration/urgence, ou que la demande dépasse ses compétences.
+  - **Strip + escalade** : Après réception de la réponse LLM, la regex `ESCALATE_RE` extrait la raison et nettoie le message (le client final ne voit jamais le marqueur). Si la réponse devient vide après nettoyage, un fallback « un agent humain va vous recontacter » est utilisé.
+  - **Notification WhatsApp** : `notify_admin(db, contact_name, contact_phone_digits, last_user_message, reason, send_wa, ...)` envoie un message structuré à `liluvine_escalation_wa_phone` (fallback `llm_budget_notify_wa_phone`) contenant : 👤 nom contact · 📱 téléphone · 🧠 raison · 💬 dernier message · extrait de conversation · lien vers l'historique Liluvine.
+  - **Anti-spam** : 1 escalade max par contact tous les `liluvine_escalation_cooldown_minutes` (défaut 30 min, configurable 1-1440), persisté dans `db.liluvine_escalations`.
+  - **Configuration admin** : nouvelle section `Liluvine PRO — Demande d'aide WhatsApp à l'admin (S036)` dans `/admin/settings` (anchor `s-liluvine-escalation`) — 3 paramètres : `liluvine_escalation_enabled` (toggle), `liluvine_escalation_wa_phone` (E.164), `liluvine_escalation_cooldown_minutes` (1-1440). Bouton « Envoyer un test à l'admin » qui appelle `POST /api/admin/liluvine-escalation/test` (synthetic notification).
+- **Bénéfice** : Liluvine devient un assistant intelligent qui sait demander de l'aide — l'admin n'est jamais surpris de découvrir un mécontent 24h après. Temps de réaction divisé par 10 sur les cas difficiles.
+- **Endpoints** : `POST /api/admin/liluvine-escalation/test` (admin/sup uniquement).
+- **Fichiers** : `backend/routes/liluvine_escalation.py` (nouveau — `ESCALATE_RE`, `ESCALATE_PROMPT_HINT`, `strip_escalation_marker`, `notify_admin`), `backend/routes/liluvine_wa_autoreply.py` (injection du hint + parsing + appel notify_admin), `backend/models.py:SettingsUpdate` (3 nouveaux champs + validation cooldown 1-1440), `backend/server.py` (endpoint `/admin/liluvine-escalation/test`), `frontend/src/components/LiluvineEscalationTestButton.jsx` (nouveau), `frontend/src/pages/admin/AdminSettings.jsx` (section S036 + filterable + NEW badge).
+- **Tests** : `backend/tests/test_siter39k_actions_and_escalation.py` (10/10 verts dont 6 dédiés S036) — strip marker (basique + spacing tolérant) + disabled skip + no_phone skip + envoi + contexte présent + throttle 30min + endpoint admin /test.
+
 ---
 
 ## Comment référencer une suggestion

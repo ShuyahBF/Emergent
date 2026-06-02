@@ -295,7 +295,14 @@ def make_router(*, db, get_current_user, send_email):
 
 async def maybe_send_budget_alert_email(db, send_email) -> bool:
     """S031 — Send a daily reminder to the super-admin while the key is down.
-    Throttled to at most one email per 23 h."""
+    Throttled to at most one email per 23 h. Skipped when S035 mute is on."""
+    # S035 — Respect the WA cockpit mute toggle
+    try:
+        from routes.wa_admin_cockpit import alerts_are_muted
+        if await alerts_are_muted(db):
+            return False
+    except Exception:  # noqa: BLE001
+        pass
     state = await db.llm_health_state.find_one({"_id": "current"}, {"_id": 0}) or {}
     if state.get("status") != "budget_exceeded":
         return False
@@ -352,6 +359,13 @@ async def maybe_send_budget_warning_alerts(
 
     Returns a dict {sent_email, sent_wa, level, skipped_reason}.
     """
+    # S035 — Respect the WA cockpit mute toggle
+    try:
+        from routes.wa_admin_cockpit import alerts_are_muted
+        if await alerts_are_muted(db):
+            return {"sent_email": False, "sent_wa": False, "level": None, "skipped_reason": "muted_s035"}
+    except Exception:  # noqa: BLE001
+        pass
     metrics = await compute_metrics(db)
     level = metrics.get("status_level")
     if level not in ("warning", "critical"):

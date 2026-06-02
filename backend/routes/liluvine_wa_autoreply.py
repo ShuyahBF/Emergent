@@ -225,6 +225,14 @@ async def autoreply_to_inbound(
         + (("\n\n" + kb) if kb else "")
         + contact_tag
     )
+    # S036 — Allow Liluvine to flag herself as needing human help. The
+    # marker [ESCALATE: <reason>] will be stripped from the user-facing
+    # reply and trigger a WhatsApp notification to the admin.
+    try:
+        from routes.liluvine_escalation import ESCALATE_PROMPT_HINT
+        sys_text = sys_text + ESCALATE_PROMPT_HINT
+    except Exception:  # noqa: BLE001
+        pass
 
     # Call the LLM
     api_key = os.environ.get("EMERGENT_LLM_KEY")
@@ -263,6 +271,30 @@ async def autoreply_to_inbound(
     reply = (reply or "").strip()
     if not reply:
         return {"ok": False, "reason": "empty_reply"}
+
+    # S036 — Parse escalation marker, strip from user-facing reply,
+    # and trigger an async notification to the admin.
+    escalation_reason: Optional[str] = None
+    try:
+        from routes.liluvine_escalation import strip_escalation_marker, notify_admin
+        reply, escalation_reason = strip_escalation_marker(reply)
+        if escalation_reason:
+            await notify_admin(
+                db,
+                contact_name=(contact or {}).get("name") if contact else None,
+                contact_phone_digits=phone_digits,
+                last_user_message=text,
+                reason=escalation_reason,
+                send_wa=wa_send_text,
+                session_id=session_id,
+                history=[{"role": "user", "text": text}, {"role": "assistant", "text": reply}],
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("[wa_autoreply] escalation hook failed")
+    # If after stripping the marker the reply is empty, fall back to a
+    # safe "we'll get back to you" message and still consider it a success.
+    if not reply.strip():
+        reply = "Merci pour votre message. Un agent humain va vous recontacter rapidement."
 
     signature = (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip()
     if signature is None or signature == "":

@@ -16,6 +16,7 @@ import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
+import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -29,6 +30,8 @@ import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // S-iter39k (2026-02 post-handoff) — Liluvine escalation
+  "Liluvine PRO — Demande d'aide WhatsApp à l'admin (S036)": "2026-02-02",
   // S-iter39g (2026-02 post-handoff) — Universal Key burn-rate thresholds
   "Universal Key Emergent — Seuils de consommation & alertes (S032)": "2026-02-02",
   // S-iter39e (2026-02 post-handoff) — Approval workflow + signers notify
@@ -823,6 +826,52 @@ export default function AdminSettings() {
               Le numéro <em>autorisé</em> (celui des alertes ci-dessus) peut envoyer ces mots-clés au bot
               pour recevoir un résumé instantané. Les messages déclencheurs ne sont ni stockés ni transmis à Liluvine PRO.
             </p>
+          </div>
+        </Section>
+      </Filterable>
+
+      {/* S036 — Escalation Liluvine PRO vers admin via WhatsApp */}
+      <Filterable title="Liluvine PRO — Demande d'aide WhatsApp à l'admin (S036)" anchorId="s-liluvine-escalation">
+        <Section icon={Brain} title="Liluvine PRO appelle l'admin quand elle est bloquée">
+          <p className="text-xs text-slate-500">
+            Quand Liluvine PRO ne sait pas répondre à un contact (question complexe, demande sensible,
+            frustration détectée…), elle peut envoyer automatiquement un message WhatsApp à l'admin
+            avec le contexte de la conversation et la raison du blocage. Anti-spam intégré : maximum
+            une escalade par contact toutes les <strong>{s.liluvine_escalation_cooldown_minutes || 30} min</strong>.
+          </p>
+          <div className="grid sm:grid-cols-1 gap-3">
+            <Toggle
+              label="🆘 Activer les demandes d'aide WhatsApp de Liluvine"
+              value={!!s.liluvine_escalation_enabled}
+              onChange={(v) => upd("liluvine_escalation_enabled", v)}
+              testid="toggle-liluvine-escalation"
+            />
+          </div>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Numéro WhatsApp de l'admin (E.164)"
+              value={s.liluvine_escalation_wa_phone || ""}
+              onChange={(v) => upd("liluvine_escalation_wa_phone", v)}
+              placeholder="+225XXXXXXXXXX (sinon utilise celui des alertes ci-dessus)"
+              testid="liluvine-escalation-wa-phone"
+            />
+            <Input
+              label="Délai anti-spam entre escalades (minutes)"
+              type="number"
+              min="1" max="1440" step="1"
+              value={s.liluvine_escalation_cooldown_minutes ?? 30}
+              onChange={(v) => upd("liluvine_escalation_cooldown_minutes", v === "" ? null : parseInt(v, 10))}
+              placeholder="30"
+              testid="liluvine-escalation-cooldown"
+            />
+          </div>
+          <p className="text-[11px] text-slate-500">
+            ⚠️ L'envoi WhatsApp libre exige que ce numéro ait écrit au bot dans les dernières 24 h
+            (fenêtre de service client Meta). Si laissé vide, le numéro des alertes Universal Key est utilisé.
+          </p>
+          <div className="mt-2 pt-2 border-t border-slate-200">
+            <p className="text-xs font-semibold text-slate-700 mb-2">🧪 Tester l'envoi maintenant</p>
+            <LiluvineEscalationTestButton />
           </div>
         </Section>
       </Filterable>

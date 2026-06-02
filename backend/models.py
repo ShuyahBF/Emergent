@@ -449,6 +449,24 @@ class SettingsUpdate(BaseModel):
     llm_budget_wa_query_enabled: Optional[bool] = None  # default false
     llm_budget_wa_query_keyword: Optional[str] = None  # default "SOLDE"
 
+    # --- S035 — Mute Universal Key alerts via WA cockpit ---
+    # ISO timestamp until which the S031/S032 alerts (email + WA) are
+    # silenced. Set via the `MUTE` / `NOTIF STOP` WhatsApp cockpit command
+    # (24h auto-expiry) and cleared via `UNMUTE` / `NOTIF ON`. The cron
+    # `_scheduled_llm_health_ping` honours this value before sending.
+    llm_alerts_muted_until: Optional[str] = None
+
+    # --- S036 — Liluvine PRO escalation to admin via WhatsApp ---
+    # When enabled, Liluvine can emit a `[ESCALATE: <reason>]` marker at
+    # the end of her reply (system-prompt instructed). The backend strips
+    # the marker from the customer-facing message and sends a contextual
+    # WhatsApp notification to `liluvine_escalation_wa_phone` (defaults to
+    # `llm_budget_notify_wa_phone` when unset). Anti-spam : 1 per contact
+    # per `liluvine_escalation_cooldown_minutes` (default 30).
+    liluvine_escalation_enabled: Optional[bool] = None  # default false
+    liluvine_escalation_wa_phone: Optional[str] = None  # E.164
+    liluvine_escalation_cooldown_minutes: Optional[int] = None  # default 30 min
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

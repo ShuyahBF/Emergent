@@ -1,20 +1,24 @@
-"""S034 — WhatsApp Admin Cockpit (mobile command center).
+"""S034 + S035 — WhatsApp Admin Cockpit (mobile command center).
 
 When `llm_budget_wa_query_enabled` is true (the master toggle reused from
 S033), the authorized admin number can send one of the following keywords
-by WhatsApp to the bot and receive an instant reply:
+by WhatsApp to the bot and receive an instant reply / trigger an action:
 
-    SOLDE       → Universal Key Emergent balance summary (S033 / S032)
-    STATS       → 24h KPIs: WA inbound/outbound, SMS, contacts, etc.
-    INCIDENTS   → Open support tickets (5 most recent)
-    AIDE / HELP → Menu of available commands
+CONSULTATION (S034)
+    SOLDE / BUDGET             → Universal Key balance summary
+    STATS / KPI                → 24h KPIs
+    INCIDENTS / TICKETS        → Open support tickets (top 5)
+    AIDE / HELP / MENU         → Menu of available commands
 
-The trigger message is never persisted nor forwarded to Liluvine PRO so
-the cockpit feels completely separate from the conversation flow.
+ACTIONS (S035)
+    RESOLU #NNNN / FERMER #NNNN  → Close a support ticket
+    MUTE / NOTIF STOP            → Mute LLM budget alerts for 24h
+    UNMUTE / NOTIF ON            → Resume LLM budget alerts immediately
 """
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone, timedelta
 from typing import Awaitable, Callable, Optional
 
@@ -35,20 +39,37 @@ KEYWORDS: dict[str, str] = {
     "AIDE": "help",
     "HELP": "help",
     "MENU": "help",
+    # S035 — Action commands (single-keyword form; parametric ones handled below)
+    "MUTE": "mute",
+    "UNMUTE": "unmute",
 }
+
+# S035 — Parametric command patterns (regex). Matched AFTER the static
+# KEYWORDS table.
+RE_CLOSE_TICKET = re.compile(r"^\s*(?:RESOLU|RÉSOLU|FERMER|CLOSE)\s+#?(\S+)\s*$", re.IGNORECASE)
+RE_NOTIF_STOP = re.compile(r"^\s*NOTIF\s+(STOP|OFF)\s*$", re.IGNORECASE)
+RE_NOTIF_ON = re.compile(r"^\s*NOTIF\s+(ON|START|RESUME)\s*$", re.IGNORECASE)
+
+MUTE_DURATION_HOURS = 24
 
 
 def _help_text() -> str:
     return (
         "🤖 *Cockpit WhatsApp Admin — Commandes disponibles*\n"
         "\n"
-        "💰 *SOLDE* — Solde et vitesse de consommation Universal Key\n"
-        "📊 *STATS* — KPI temps réel (24h) : WA, SMS, contacts\n"
-        "🎫 *INCIDENTS* — Tickets de support ouverts (top 5)\n"
+        "*📊 Consultation*\n"
+        "💰 *SOLDE* — Consommation Universal Key\n"
+        "📊 *STATS* — KPI temps réel (24h)\n"
+        "🎫 *INCIDENTS* — Tickets ouverts (top 5)\n"
+        "\n"
+        "*⚡ Actions*\n"
+        "✅ *RESOLU #1234* — Fermer un ticket\n"
+        "🔕 *NOTIF STOP* (ou MUTE) — Mettre en pause les alertes (24h)\n"
+        "🔔 *NOTIF ON* (ou UNMUTE) — Réactiver les alertes\n"
         "❓ *AIDE* — Afficher ce menu\n"
         "\n"
         "_Envoyez simplement le mot-clé en majuscules ou minuscules._\n"
-        "_— SAWALI Smart Systems · Cockpit S034_"
+        "_— SAWALI Smart Systems · Cockpit S034+S035_"
     )
 
 
@@ -141,11 +162,126 @@ async def _build_incidents_text(db) -> str:
         lines.append(f"   _{title}_")
         lines.append(f"   👤 {contact} · 🕒 {opened_short}")
     lines.append("")
+    lines.append("💡 _Pour fermer : envoyer_ `RESOLU #NUM`")
     lines.append(f"_Snapshot {datetime.now(timezone.utc).strftime('%d/%m/%Y %H:%M UTC')}_")
     return "\n".join(lines)
 
 
-def _resolve_keyword(text: str) -> Optional[str]:
+# ----------------------------------------------------------------------
+# S035 — Action handlers
+# ----------------------------------------------------------------------
+
+async def _close_ticket_action(db, *, ticket_num: str, actor_phone: str) -> str:
+    """Close a support ticket by number OR id. Returns the WhatsApp reply
+    text."""
+    ticket_num = (ticket_num or "").strip().lstrip("#")
+    if not ticket_num:
+        return "❌ Numéro de ticket manquant. Utilisez : *RESOLU #1234*"
+    ticket = None
+    try:
+        # Try by number first (string match, case-insensitive)
+        ticket = await db.support_tickets.find_one(
+            {"number": {"$regex": f"^{re.escape(ticket_num)}$", "$options": "i"}},
+            {"_id": 0, "id": 1, "number": 1, "status": 1, "title": 1, "contact_name": 1},
+        )
+        # Fallback: match by id (UUID or partial id prefix)
+        if not ticket:
+            ticket = await db.support_tickets.find_one(
+                {"$or": [{"id": ticket_num},
+                         {"id": {"$regex": f"^{re.escape(ticket_num)}", "$options": "i"}}]},
+                {"_id": 0, "id": 1, "number": 1, "status": 1, "title": 1, "contact_name": 1},
+            )
+    except Exception:  # noqa: BLE001
+        logger.exception("[cockpit] ticket lookup failed")
+        return "❌ Erreur technique lors de la recherche du ticket."
+
+    if not ticket:
+        return f"❌ Ticket *#{ticket_num}* introuvable.\n\nEnvoyez *INCIDENTS* pour voir les tickets ouverts."
+
+    if (ticket.get("status") or "").lower() not in TICKET_OPEN_STATUSES:
+        return (
+            f"ℹ️ Le ticket *#{ticket.get('number', ticket_num)}* est déjà *{ticket.get('status')}*.\n"
+            f"_{(ticket.get('title') or '')[:80]}_"
+        )
+
+    now_iso = datetime.now(timezone.utc).isoformat()
+    try:
+        await db.support_tickets.update_one(
+            {"id": ticket["id"]},
+            {"$set": {
+                "status": "resolved",
+                "resolved_at": now_iso,
+                "closed_at": now_iso,
+                "closed_by_wa": actor_phone,
+                "closed_via": "wa_cockpit_s035",
+            }},
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[cockpit] failed to close ticket")
+        return "❌ Erreur lors de la fermeture du ticket. Réessayez plus tard."
+
+    return (
+        f"✅ *Ticket #{ticket.get('number', ticket_num)} fermé*\n"
+        f"_{(ticket.get('title') or '(sans titre)')[:80]}_\n"
+        f"👤 {ticket.get('contact_name') or '—'}\n"
+        f"🕒 Fermé à {datetime.now(timezone.utc).strftime('%H:%M UTC')} via WhatsApp"
+    )
+
+
+async def _mute_alerts_action(db) -> str:
+    """Pause LLM budget alerts (S032 + S031 daily email) for 24h."""
+    until = datetime.now(timezone.utc) + timedelta(hours=MUTE_DURATION_HOURS)
+    until_iso = until.isoformat()
+    try:
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"llm_alerts_muted_until": until_iso}},
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[cockpit] mute persist failed")
+        return "❌ Erreur lors de l'activation du silencieux."
+    return (
+        f"🔕 *Alertes Universal Key mises en pause*\n"
+        f"Reprise automatique : *{until.strftime('%d/%m/%Y %H:%M UTC')}*\n"
+        f"(soit dans {MUTE_DURATION_HOURS}h)\n"
+        f"\n"
+        f"Envoyez *NOTIF ON* pour réactiver immédiatement."
+    )
+
+
+async def _unmute_alerts_action(db) -> str:
+    """Resume LLM budget alerts immediately."""
+    try:
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$unset": {"llm_alerts_muted_until": ""}},
+            upsert=True,
+        )
+    except Exception:  # noqa: BLE001
+        logger.exception("[cockpit] unmute persist failed")
+        return "❌ Erreur lors de la réactivation des alertes."
+    return "🔔 *Alertes Universal Key réactivées.*\nLe cron de surveillance reprendra ses contrôles toutes les 15 min."
+
+
+async def alerts_are_muted(db) -> bool:
+    """Helper used by S031/S032 alert senders to check the mute state."""
+    settings = await db.settings.find_one({"_id": "global"}, {"_id": 0, "llm_alerts_muted_until": 1}) or {}
+    raw = settings.get("llm_alerts_muted_until")
+    if not raw:
+        return False
+    try:
+        until = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
+        return datetime.now(timezone.utc) < until
+    except (TypeError, ValueError):
+        return False
+
+
+# ----------------------------------------------------------------------
+# Dispatcher
+# ----------------------------------------------------------------------
+
+def _resolve_static_keyword(text: str) -> Optional[str]:
     norm = (text or "").strip().upper()
     return KEYWORDS.get(norm)
 
@@ -158,39 +294,27 @@ async def handle_wa_admin_command(
     send_wa: Callable[[str, str], Awaitable[dict]],
     build_balance_text: Callable[[], Awaitable[str]],
 ) -> bool:
-    """S034 — Inbound WhatsApp dispatcher for the admin cockpit.
+    """S034 + S035 — Inbound WhatsApp dispatcher for the admin cockpit.
 
-    Args:
-        db: motor async db.
-        text: inbound message body (free-form).
-        from_digits: digits-only sender phone.
-        send_wa: async callable (to_e164, text) → dict.
-        build_balance_text: async callable returning the SOLDE summary
-            (injected — points to llm_health.build_budget_summary_text).
-
-    Returns True when the message matched a command and was handled (caller
-    must skip persistence + auto-reply). Returns False otherwise.
+    Returns True when the message matched a command (caller must skip
+    persistence + auto-reply). Returns False otherwise.
     """
-    handler_key = _resolve_keyword(text)
-    if not handler_key:
-        return False
-
+    # Auth check FIRST so we can short-circuit on disabled toggle or
+    # unauthorized phone before pattern matching.
     settings = await db.settings.find_one(
         {"_id": "global"},
         {"_id": 0, "llm_budget_wa_query_enabled": 1, "llm_budget_notify_wa_phone": 1},
     ) or {}
     if not settings.get("llm_budget_wa_query_enabled"):
         return False
-
     authorized = (settings.get("llm_budget_notify_wa_phone") or "").strip()
     auth_digits = "".join(ch for ch in authorized if ch.isdigit())
-    if auth_digits:
-        if (from_digits or "")[-10:] != auth_digits[-10:]:
-            logger.info("[cockpit] command %s from %s ignored (not authorized %s)",
-                        handler_key, from_digits, auth_digits)
-            return False
+    if auth_digits and (from_digits or "")[-10:] != auth_digits[-10:]:
+        return False
 
-    # Build reply
+    # 1. Try static keywords
+    handler_key = _resolve_static_keyword(text)
+    reply: Optional[str] = None
     try:
         if handler_key == "balance":
             reply = await build_balance_text()
@@ -200,10 +324,24 @@ async def handle_wa_admin_command(
             reply = await _build_incidents_text(db)
         elif handler_key == "help":
             reply = _help_text()
+        elif handler_key == "mute":
+            reply = await _mute_alerts_action(db)
+        elif handler_key == "unmute":
+            reply = await _unmute_alerts_action(db)
         else:
-            return False
+            # 2. Try parametric commands
+            m = RE_CLOSE_TICKET.match(text or "")
+            if m:
+                reply = await _close_ticket_action(db, ticket_num=m.group(1), actor_phone="+" + from_digits)
+            elif RE_NOTIF_STOP.match(text or ""):
+                reply = await _mute_alerts_action(db)
+            elif RE_NOTIF_ON.match(text or ""):
+                reply = await _unmute_alerts_action(db)
     except Exception:  # noqa: BLE001
-        logger.exception("[cockpit] failed to build reply for %s", handler_key)
+        logger.exception("[cockpit] failed to build reply for text=%r", text)
+        return False
+
+    if reply is None:
         return False
 
     try:
@@ -213,4 +351,9 @@ async def handle_wa_admin_command(
     return True
 
 
-__all__ = ["handle_wa_admin_command", "KEYWORDS", "_help_text"]
+__all__ = [
+    "handle_wa_admin_command",
+    "alerts_are_muted",
+    "KEYWORDS",
+    "_help_text",
+]

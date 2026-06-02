@@ -11086,6 +11086,17 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if len(kw) > 32:
             raise HTTPException(status_code=400, detail="llm_budget_wa_query_keyword doit faire au plus 32 caractères")
         update["llm_budget_wa_query_keyword"] = kw or "SOLDE"
+    # S036 — Validate Liluvine escalation settings
+    if "liluvine_escalation_wa_phone" in update:
+        update["liluvine_escalation_wa_phone"] = (update["liluvine_escalation_wa_phone"] or "").strip()
+    if "liluvine_escalation_cooldown_minutes" in update and update["liluvine_escalation_cooldown_minutes"] is not None:
+        try:
+            v = int(update["liluvine_escalation_cooldown_minutes"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="liluvine_escalation_cooldown_minutes doit être un entier") from exc
+        if v < 1 or v > 1440:
+            raise HTTPException(status_code=400, detail="liluvine_escalation_cooldown_minutes doit être entre 1 et 1440 minutes")
+        update["liluvine_escalation_cooldown_minutes"] = v
     # S025 — Strip whitespace on approval phone (E.164 expected)
     if "download_approval_whatsapp" in update:
         v = (update["download_approval_whatsapp"] or "").strip()
@@ -21801,6 +21812,31 @@ async def get_suggestions_registry(_: dict = Depends(get_admin_or_supervisor)):
 
 
 app.include_router(api)
+
+
+# =====================================================================
+# S036 — Admin endpoint to test the Liluvine escalation flow without
+# waiting for Liluvine to emit [ESCALATE]. Sends a synthetic notification
+# to the configured admin phone.
+# Declared on the FastAPI app directly (the api router has already been
+# included above).
+# =====================================================================
+@app.post("/api/admin/liluvine-escalation/test", tags=["Admin"])
+async def admin_test_liluvine_escalation(user: dict = Depends(get_admin_or_supervisor)):
+    from routes.liluvine_escalation import notify_admin as _esc_notify
+    res = await _esc_notify(
+        db,
+        contact_name="Contact de test",
+        contact_phone_digits="22500000000",
+        last_user_message=(
+            "Bonjour, j'ai un problème urgent avec ma facture #12345 — pouvez-vous m'aider rapidement ?"
+        ),
+        reason="Test manuel depuis Admin Settings — vérification du canal WhatsApp",
+        send_wa=_wa_send_text,
+        session_id="admin-test",
+        history=None,
+    )
+    return res
 
 
 # =====================================================================

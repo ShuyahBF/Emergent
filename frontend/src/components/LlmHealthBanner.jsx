@@ -7,6 +7,7 @@
 //   - status_level = "error"      → amber banner (key missing / unknown)
 //   - status_level = "ok"         → no banner rendered
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { useLocation } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { AlertTriangle, RefreshCw, X as XIcon, Loader2, TrendingUp, Clock } from "lucide-react";
@@ -42,12 +43,17 @@ function fmtDays(d) {
 
 export default function LlmHealthBanner() {
   const { user } = useAuth() || {};
+  const location = useLocation();
   const [state, setState] = useState(null);
   const [dismissed, setDismissed] = useState(false);
   const [pinging, setPinging] = useState(false);
   const timerRef = useRef(null);
 
-  const isSuper = (user?.email || "").toLowerCase() === SUPER_ADMIN_EMAIL;
+  // Gate 1 : connecté ET super-admin uniquement.
+  // Gate 2 : pages /admin/* uniquement (pas le portail utilisateur, pas la page publique).
+  const isSuper = !!user && (user?.email || "").toLowerCase() === SUPER_ADMIN_EMAIL;
+  const isAdminRoute = (location?.pathname || "").startsWith("/admin");
+  const canRender = isSuper && isAdminRoute;
 
   const refresh = useCallback(async () => {
     if (!user) return;
@@ -60,11 +66,11 @@ export default function LlmHealthBanner() {
   }, [user]);
 
   useEffect(() => {
-    if (!isSuper) return;
+    if (!canRender) return;
     refresh();
     timerRef.current = setInterval(refresh, POLL_MS);
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
-  }, [isSuper, refresh]);
+  }, [canRender, refresh]);
 
   // Reset the dismissed flag whenever the level changes
   useEffect(() => {
@@ -80,7 +86,7 @@ export default function LlmHealthBanner() {
     finally { setPinging(false); }
   };
 
-  if (!isSuper || !state) return null;
+  if (!canRender || !state) return null;
   const level = state.status_level || "ok";
   if (level === "ok") return null;
   if (dismissed) return null;

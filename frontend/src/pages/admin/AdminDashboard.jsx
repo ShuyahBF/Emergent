@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Link } from "react-router-dom";
 import { Users, Calendar, FileText, Wrench, Inbox, ClipboardList, ArrowRight } from "lucide-react";
 import AdminAICostChart from "./AdminAICostChart";
+import AdminLlmUsageChart from "./AdminLlmUsageChart";
 
 const Card = ({ icon: Icon, label, value, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -85,6 +86,9 @@ export default function AdminDashboard() {
           )}
         </div>
       )}
+
+      {/* S-iter39n — Universal Key daily consumption chart (S032 sister) */}
+      <AdminLlmUsageChart />
 
       {/* Iter38r-fix9z5 — AI monthly cost chart */}
       <AdminAICostChart />

@@ -290,6 +290,62 @@ def make_router(*, db, get_current_user, send_email):
         resp["summary_text"] = summary_text
         return resp
 
+    @router.get("/usage-chart")
+    async def usage_chart(days: int = 30, user: dict = Depends(get_current_user)):
+        """S-iter39n — Daily consumption chart for the Universal Key.
+
+        Aggregates `llm_usage_log` per day over the last `days` days and
+        returns a list of `{date, cost_usd, calls, by_context}` entries
+        suitable for a frontend bar/line chart. Backbone for the S032
+        burn-rate dashboard.
+        """
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        days = max(1, min(int(days or 30), 90))
+        now = datetime.now(timezone.utc)
+        since = now - timedelta(days=days)
+        pipeline = [
+            {"$match": {"ts": {"$gte": since}}},
+            {"$group": {
+                "_id": {
+                    "day": {"$dateToString": {"format": "%Y-%m-%d", "date": "$ts"}},
+                    "context": "$context",
+                },
+                "cost": {"$sum": "$estimated_cost_usd"},
+                "calls": {"$sum": 1},
+            }},
+            {"$sort": {"_id.day": 1}},
+        ]
+        try:
+            rows = await db.llm_usage_log.aggregate(pipeline).to_list(length=10000)
+        except Exception:  # noqa: BLE001
+            rows = []
+        # Build a day → totals map
+        daily: dict[str, dict] = {}
+        for r in rows:
+            day = (r.get("_id") or {}).get("day") or "?"
+            ctx = (r.get("_id") or {}).get("context") or "default"
+            d = daily.setdefault(day, {"date": day, "cost_usd": 0.0, "calls": 0, "by_context": {}})
+            d["cost_usd"] += float(r.get("cost") or 0.0)
+            d["calls"] += int(r.get("calls") or 0)
+            d["by_context"][ctx] = d["by_context"].get(ctx, 0.0) + float(r.get("cost") or 0.0)
+        # Ensure all days are present (even with 0)
+        series = []
+        for i in range(days):
+            day = (now - timedelta(days=days - 1 - i)).strftime("%Y-%m-%d")
+            row = daily.get(day) or {"date": day, "cost_usd": 0.0, "calls": 0, "by_context": {}}
+            row["cost_usd"] = round(row["cost_usd"], 4)
+            row["by_context"] = {k: round(v, 4) for k, v in row["by_context"].items()}
+            series.append(row)
+        total_cost = round(sum(r["cost_usd"] for r in series), 4)
+        total_calls = sum(r["calls"] for r in series)
+        return {
+            "days": days,
+            "series": series,
+            "totals": {"cost_usd": total_cost, "calls": total_calls},
+            "max_cost_usd": round(max((r["cost_usd"] for r in series), default=0), 4),
+        }
+
     return router
 
 

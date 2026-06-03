@@ -15554,10 +15554,83 @@ async def whatsapp_webhook_incoming(request: Request):
                     ts_raw = int(msg.get("timestamp") or 0)
                     ts_iso = datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat() if ts_raw else _now()
                     # Find contact by phone within the scope
-                    contact = await db.directory_contacts.find_one(
-                        {"$or": [{"whatsapp": {"$regex": digits_only}}, {"phone": {"$regex": digits_only}}]},
-                        {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
-                    ) if digits_only else None
+                    # Bug #3 (2026-02 — rabo.f) — When multiple contacts match
+                    # the phone across tenants, PREFER the one in our resolved
+                    # `client_scope`. Otherwise, the first cross-tenant row wins
+                    # arbitrarily and messages get routed to a tenant the
+                    # legitimate viewer can't see (→ "name disappeared" bug).
+                    contact = None
+                    if digits_only:
+                        phone_match = {"$or": [
+                            {"whatsapp": {"$regex": digits_only}},
+                            {"phone": {"$regex": digits_only}},
+                        ]}
+                        if client_scope:
+                            contact = await db.directory_contacts.find_one(
+                                {"$and": [phone_match, {"client_id": client_scope}]},
+                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
+                            )
+                        if not contact:
+                            contact = await db.directory_contacts.find_one(
+                                phone_match,
+                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
+                            )
+                    # Bug #3 — If the inbound sender is a REGISTERED system user
+                    # (e.g. a moderator writing to the WA bot), auto-create their
+                    # contact in their canonical tenant scope so they appear in
+                    # /portal/contacts. Without this, system users land in
+                    # `wa_pending_imports` and stay nameless until manually imported.
+                    if not contact and digits_only:
+                        try:
+                            sys_user = await db.users.find_one(
+                                {"phone": {"$regex": digits_only}},
+                                {"_id": 0, "id": 1, "full_name": 1, "email": 1, "role": 1,
+                                 "phone": 1, "client_id": 1, "parent_client_id": 1, "company": 1},
+                            )
+                        except Exception:
+                            sys_user = None
+                        if sys_user:
+                            # Resolve canonical tenant scope for this user
+                            if (sys_user.get("role") or "") in ("admin", "superviseur"):
+                                sys_scope = sys_user["id"]
+                            else:
+                                sys_scope = (
+                                    sys_user.get("parent_client_id")
+                                    or sys_user.get("client_id")
+                                    or client_scope
+                                    or sys_user["id"]
+                                )
+                            sys_full_name = (
+                                (sys_user.get("full_name") or "").strip()
+                                or sys_user.get("email") or "—"
+                            )
+                            new_contact = {
+                                "id": _uuid(),
+                                "client_id": sys_scope,
+                                "owner_id": sys_user.get("id"),
+                                "owner_label": sys_full_name,
+                                "name": sys_full_name,
+                                "phone": sys_user.get("phone") or f"+{digits_only}",
+                                "whatsapp": sys_user.get("phone") or f"+{digits_only}",
+                                "email": sys_user.get("email"),
+                                "company": sys_user.get("company"),
+                                "tags": ["utilisateur-système"],
+                                "shared": True,
+                                "wa_profile_name": profile_name or sys_full_name,
+                                "wa_user_link": sys_user.get("id"),
+                                "created_at": _now(),
+                                "updated_at": _now(),
+                            }
+                            try:
+                                await db.directory_contacts.insert_one(new_contact.copy())
+                                contact = {
+                                    "id": new_contact["id"],
+                                    "client_id": sys_scope,
+                                    "name": sys_full_name,
+                                    "wa_profile_name": new_contact["wa_profile_name"],
+                                }
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("auto-create contact for system user failed: %s", exc)
                     scope_for_msg = (contact or {}).get("client_id") or client_scope
                     doc = {
                         "id": _uuid(),

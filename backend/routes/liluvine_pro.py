@@ -192,6 +192,129 @@ async def _diagnose_wa_inbound(db, phone: str) -> Dict[str, Any]:
     return out
 
 
+async def _diagnose_contact_visibility(db, *, phone: str, user: Optional[dict] = None) -> Dict[str, Any]:
+    """Bugfix (2026-02 — bug #3 rabo.f) — explain why a phone number's contact
+    name may be missing in /portal/contacts. Scans `directory_contacts`,
+    `wa_pending_imports` and recent `whatsapp_messages` for the given phone.
+
+    If `user` is provided, also resolves the user's `visible_client_ids` so we
+    can flag contacts that live outside the user's viewing scope (a frequent
+    cross-tenant cause of missing contacts).
+    """
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    out: Dict[str, Any] = {"phone": phone, "phone_digits": digits}
+    if not digits:
+        out["error"] = "Numéro vide ou invalide."
+        return out
+
+    # 1) ALL directory_contacts rows matching this phone (across tenants)
+    contacts: List[Dict[str, Any]] = []
+    async for c in db.directory_contacts.find(
+        {"$or": [{"whatsapp": {"$regex": digits}}, {"phone": {"$regex": digits}}]},
+        {"_id": 0, "id": 1, "client_id": 1, "owner_id": 1, "name": 1,
+         "wa_profile_name": 1, "phone": 1, "whatsapp": 1, "email": 1,
+         "company": 1, "created_at": 1, "updated_at": 1},
+    ):
+        contacts.append(c)
+    out["directory_contacts_count"] = len(contacts)
+    out["directory_contacts"] = contacts
+
+    # 2) wa_pending_imports matches
+    pending: List[Dict[str, Any]] = []
+    async for p in db.wa_pending_imports.find(
+        {"phone_digits": digits},
+        {"_id": 0, "id": 1, "client_id": 1, "phone_digits": 1, "from": 1,
+         "wa_profile_name": 1, "last_message": 1, "last_seen_at": 1},
+    ):
+        pending.append(p)
+    out["wa_pending_imports_count"] = len(pending)
+    out["wa_pending_imports"] = pending
+
+    # 3) Last 5 inbound whatsapp_messages from this phone
+    recent_msgs = await db.whatsapp_messages.find(
+        {"phone_digits": digits, "direction": "inbound"},
+        {"_id": 0, "id": 1, "client_id": 1, "contact_id": 1, "contact_name": 1,
+         "from": 1, "from_profile_name": 1, "received_at": 1, "body": 1},
+    ).sort("received_at", -1).to_list(5)
+    out["recent_inbound_messages"] = recent_msgs
+
+    # 4) Resolve the user's viewing scope, if a user context is provided
+    if user is not None:
+        try:
+            # Mirror the same `_resolve_visible_client_ids` logic from server.py
+            ids: set = set()
+            for k in ("client_id", "parent_client_id", "id"):
+                v = user.get(k)
+                if v:
+                    ids.add(v)
+            company = (user.get("company") or "").strip()
+            if company:
+                async for u in db.users.find(
+                    {"company": {"$regex": f"^{re.escape(company)}$", "$options": "i"}},
+                    {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1},
+                ):
+                    for k in ("id", "client_id", "parent_client_id"):
+                        v = u.get(k)
+                        if v:
+                            ids.add(v)
+            visible = list(ids)
+            out["user_visible_client_ids"] = visible
+            in_scope = [c for c in contacts if c.get("client_id") in visible]
+            out_of_scope = [c for c in contacts if c.get("client_id") not in visible]
+            out["contacts_in_user_scope"] = len(in_scope)
+            out["contacts_out_of_scope"] = len(out_of_scope)
+            out["contacts_in_user_scope_detail"] = in_scope
+            out["contacts_out_of_scope_detail"] = out_of_scope
+        except Exception as exc:  # noqa: BLE001
+            out["scope_resolution_error"] = str(exc)[:200]
+
+    # 5) Conclusion — flag the likely root cause
+    diagnosis: List[str] = []
+    if not contacts and not pending:
+        diagnosis.append(
+            "Aucun contact (directory_contacts) ni pending import pour ce numéro. "
+            "Probable : aucun message inbound n'a été reçu de ce numéro, OU le contact "
+            "n'a jamais été créé."
+        )
+    if pending and not contacts:
+        diagnosis.append(
+            "Numéro présent dans wa_pending_imports (non importé) mais SANS contact "
+            "dans directory_contacts. Importer le pending via /me/wa-pending-imports."
+        )
+    if contacts:
+        blank = [c for c in contacts if not (c.get("name") or "").strip()]
+        if blank:
+            diagnosis.append(
+                f"{len(blank)} contact(s) ont un champ `name` vide. La liste de "
+                "messagerie affichera une ligne sans nom."
+            )
+        phone_like = [
+            c for c in contacts
+            if (c.get("name") or "").strip() and
+               re.fullmatch(r"\+?\d[\d\s().-]*", c.get("name").strip())
+        ]
+        if phone_like:
+            diagnosis.append(
+                f"{len(phone_like)} contact(s) ont un `name` qui n'est qu'un numéro "
+                "de téléphone (jamais renommé)."
+            )
+    if user is not None and out.get("contacts_out_of_scope", 0):
+        diagnosis.append(
+            f"{out['contacts_out_of_scope']} contact(s) existent mais hors scope "
+            "visible de l'utilisateur — ils n'apparaîtront pas dans /portal/contacts. "
+            "Exécutez POST /admin/contacts/repair-user-contact pour réparer."
+        )
+    if user is not None and out.get("contacts_in_user_scope", 0) > 1:
+        diagnosis.append(
+            f"{out['contacts_in_user_scope']} contacts DUPLIQUÉS dans le scope visible. "
+            "Recommandé : exécuter le repair pour fusionner."
+        )
+    out["diagnosis"] = diagnosis or [
+        "Aucune anomalie évidente — le contact devrait s'afficher correctement."
+    ]
+    return out
+
+
 # Lightweight keyword → fetcher map. The point is to inject a small,
 # truncated context relevant to the user's question. Each fetcher returns
 # a short markdown-like snippet (max ~2 KB) — no PII overload.
@@ -1544,6 +1667,9 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             # Even if no user, the inbound WA flow may still trigger via auto-reply
             # against the global tenant. Diagnose that path too.
             report["wa_inbound_path"] = await _diagnose_wa_inbound(db, phone or "")
+            report["contact_visibility"] = await _diagnose_contact_visibility(
+                db, phone=phone or "", user=None,
+            )
             return report
         # Resolve the tenant scope used by Liluvine for this user
         scope_uid = _client_scope(target)
@@ -1568,12 +1694,240 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         }
         # Also describe the inbound-WA path even when we know the user
         report["wa_inbound_path"] = await _diagnose_wa_inbound(db, target.get("phone") or phone or "")
+        # Bug #3 (rabo.f) — diagnose why the contact name may be missing in
+        # /portal/contacts. Pass the target user so the helper can flag
+        # contacts that live outside their visible scope.
+        report["contact_visibility"] = await _diagnose_contact_visibility(
+            db, phone=target.get("phone") or phone or "", user=target,
+        )
         # Hint
         if not report["resolved_tenant_scope"]["ai_liluvine_pro_enabled"]:
             report["hint"] = (
                 f"Activez la feature 'ai_liluvine_pro' sur le compte "
                 f"{parent.get('email')} (id={scope_uid}) via /admin/clients/{scope_uid}/features."
             )
+        return report
+
+    # ----------------------------------------------------------
+    # Bugfix (2026-02 — bug #3 rabo.f) — Repair a user's directory contact.
+    #
+    # Cases handled :
+    #   • No contact in user's scope → create one with full_name as name.
+    #   • Contact exists but `name` is empty/phone-only → fill from full_name.
+    #   • Duplicate contacts in other tenants → archive (set `archived_at`)
+    #     to keep the canonical one in the user's scope.
+    #   • Reattach orphan `whatsapp_messages` (contact_id=None) to the
+    #     canonical contact and backfill `contact_name`.
+    #   • Delete matching `wa_pending_imports` rows (the contact now exists).
+    # ----------------------------------------------------------
+    @api.post("/admin/contacts/repair-user-contact", tags=["Admin — Liluvine PRO"])
+    async def admin_repair_user_contact(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        email = (payload.get("email") or "").lower().strip()
+        user_id = (payload.get("user_id") or "").strip()
+        dry_run = bool(payload.get("dry_run", False))
+        if not email and not user_id:
+            raise HTTPException(status_code=400, detail="Fournissez email ou user_id.")
+
+        target = None
+        if user_id:
+            target = await db.users.find_one({"id": user_id}, {"_id": 0, "password_hash": 0})
+        if not target and email:
+            target = await db.users.find_one({"email": email}, {"_id": 0, "password_hash": 0})
+        if not target:
+            raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+
+        phone_raw = (target.get("phone") or "").strip()
+        digits = "".join(ch for ch in phone_raw if ch.isdigit())
+        if not digits:
+            raise HTTPException(
+                status_code=400,
+                detail=f"L'utilisateur {target.get('email')} n'a pas de numéro de téléphone.",
+            )
+
+        # Canonical scope = the user's parent tenant (admin/superviseur tenant
+        # for tracked/moderation users, self for admin/superviseur themselves).
+        canonical_scope = _client_scope(target)
+        full_name = (target.get("full_name") or "").strip() or target.get("email") or "—"
+
+        # Find ALL existing contacts matching this phone
+        all_matches = await db.directory_contacts.find(
+            {"$or": [{"whatsapp": {"$regex": digits}}, {"phone": {"$regex": digits}}]},
+            {"_id": 0},
+        ).to_list(50)
+
+        report: Dict[str, Any] = {
+            "target_user": {
+                "id": target.get("id"),
+                "email": target.get("email"),
+                "full_name": target.get("full_name"),
+                "phone": phone_raw,
+                "phone_digits": digits,
+                "role": target.get("role"),
+            },
+            "canonical_scope": canonical_scope,
+            "matches_before": len(all_matches),
+            "dry_run": dry_run,
+            "actions": [],
+        }
+
+        # Pick (or create) the canonical contact in the canonical scope.
+        canonical = next(
+            (c for c in all_matches if c.get("client_id") == canonical_scope),
+            None,
+        )
+
+        if canonical is None:
+            # Create a new directory_contacts row in the canonical scope.
+            new_doc = {
+                "id": str(uuid.uuid4()),
+                "client_id": canonical_scope,
+                "owner_id": target.get("id"),
+                "owner_label": full_name,
+                "name": full_name,
+                "phone": phone_raw,
+                "whatsapp": phone_raw,
+                "email": target.get("email"),
+                "company": target.get("company"),
+                "tags": ["utilisateur-système"],
+                "shared": True,
+                "wa_profile_name": (target.get("full_name") or "").strip() or None,
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+            if not dry_run:
+                await db.directory_contacts.insert_one(new_doc.copy())
+            new_doc.pop("_id", None)
+            canonical = new_doc
+            report["actions"].append({
+                "type": "created_canonical_contact",
+                "client_id": canonical_scope,
+                "contact_id": canonical["id"],
+                "name": full_name,
+            })
+        else:
+            # Fix name if it's blank or phone-only
+            existing_name = (canonical.get("name") or "").strip()
+            phone_only = bool(re.fullmatch(r"\+?\d[\d\s().-]*", existing_name)) if existing_name else False
+            patch: Dict[str, Any] = {}
+            if not existing_name or phone_only:
+                patch["name"] = full_name
+            # Always keep WA profile name in sync if we have a better one
+            if (target.get("full_name") or "").strip() and not canonical.get("wa_profile_name"):
+                patch["wa_profile_name"] = target["full_name"].strip()
+            # Ensure phone/whatsapp/email are set if missing
+            if not (canonical.get("phone") or "").strip():
+                patch["phone"] = phone_raw
+            if not (canonical.get("whatsapp") or "").strip():
+                patch["whatsapp"] = phone_raw
+            if not (canonical.get("email") or "").strip() and target.get("email"):
+                patch["email"] = target.get("email")
+            if patch:
+                patch["updated_at"] = _now()
+                if not dry_run:
+                    await db.directory_contacts.update_one(
+                        {"id": canonical["id"]}, {"$set": patch},
+                    )
+                report["actions"].append({
+                    "type": "patched_canonical_contact",
+                    "contact_id": canonical["id"],
+                    "patch": patch,
+                })
+
+        # Archive (or delete) duplicates in OTHER tenants.
+        for c in all_matches:
+            if c.get("id") == canonical["id"]:
+                continue
+            if c.get("client_id") == canonical_scope:
+                # Same scope dup → keep the canonical, archive this one
+                if not dry_run:
+                    await db.directory_contacts.update_one(
+                        {"id": c["id"]},
+                        {"$set": {
+                            "archived_at": _now(),
+                            "archived_reason": f"merged into {canonical['id']} by repair-user-contact",
+                        }},
+                    )
+                report["actions"].append({
+                    "type": "archived_same_scope_duplicate",
+                    "contact_id": c["id"],
+                })
+            else:
+                # Cross-tenant duplicate — flag but don't delete (RGPD)
+                if not dry_run:
+                    await db.directory_contacts.update_one(
+                        {"id": c["id"]},
+                        {"$set": {
+                            "wa_user_link": target.get("id"),
+                            "wa_user_link_canonical": canonical["id"],
+                        }},
+                    )
+                report["actions"].append({
+                    "type": "flagged_cross_tenant_duplicate",
+                    "contact_id": c["id"],
+                    "client_id": c.get("client_id"),
+                })
+
+        # Reattach orphan whatsapp_messages (contact_id=null) to canonical
+        if not dry_run:
+            res = await db.whatsapp_messages.update_many(
+                {
+                    "phone_digits": digits,
+                    "direction": "inbound",
+                    "$or": [{"contact_id": None}, {"contact_id": {"$exists": False}}],
+                },
+                {"$set": {"contact_id": canonical["id"], "contact_name": full_name}},
+            )
+            report["actions"].append({
+                "type": "reattached_orphan_inbound_messages",
+                "matched": res.matched_count,
+                "modified": res.modified_count,
+            })
+            # Also re-tag messages that point to the now-archived duplicates
+            res2 = await db.whatsapp_messages.update_many(
+                {
+                    "phone_digits": digits,
+                    "client_id": canonical_scope,
+                    "contact_id": {"$ne": canonical["id"]},
+                },
+                {"$set": {"contact_id": canonical["id"], "contact_name": full_name}},
+            )
+            report["actions"].append({
+                "type": "retagged_misrouted_messages",
+                "matched": res2.matched_count,
+                "modified": res2.modified_count,
+            })
+        else:
+            report["actions"].append({"type": "skipped_message_reattach_due_to_dry_run"})
+
+        # Clean wa_pending_imports for this phone (contact now exists)
+        if not dry_run:
+            res3 = await db.wa_pending_imports.delete_many({"phone_digits": digits})
+            report["actions"].append({
+                "type": "deleted_wa_pending_imports",
+                "count": res3.deleted_count,
+            })
+
+        # Sync the Liluvine session label too (cosmetic improvement)
+        session_id = f"wa:{canonical_scope}:{digits}"
+        if not dry_run:
+            res4 = await db.liluvine_pro_sessions.update_one(
+                {"id": session_id},
+                {"$set": {"user_label": full_name, "updated_at": _now()}},
+            )
+            report["actions"].append({
+                "type": "patched_liluvine_session_label",
+                "session_id": session_id,
+                "matched": res4.matched_count,
+                "modified": res4.modified_count,
+            })
+
+        report["canonical_contact_id"] = canonical["id"]
+        report["canonical_contact_name"] = full_name
         return report
 
     # ----------------------------------------------------------

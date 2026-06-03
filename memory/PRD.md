@@ -32,11 +32,46 @@ _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHA
 2. Vérifier `account_status=active` et `parent_client_id` pointant vers l'admin SAWALI principal.
 3. Si `ai_liluvine_pro_enabled=false` sur le tenant parent → l'activer via `/admin/clients/{scope_uid}/features`.
 4. Vérifier que `liluvine_wa_autoreply_enabled=true` et phone pas en deny.
-5. Pour le bug #2 (contacts) — la cause exacte dépend de quelle vue UI : « centre de messagerie » est ambigu, l'utilisateur doit préciser (Contacts portail, Liste assignables tickets, Internal Chat ?). À investiguer avec une capture d'écran.
+5. **Bug #3 — Contact manquant — RÉSOLU (2026-02)** — Voir la section dédiée ci-dessous.
+
+## CRITICAL FIX (2026-02) — Bug #3 — Contact rabo.f manquant dans le centre de messagerie
+
+### Cause racine
+Quand un **utilisateur système** (modérateur, admin…) envoie un WhatsApp inbound :
+1. Le webhook cherchait `directory_contacts` GLOBALEMENT (sans scope), donc une ligne d'un autre tenant pouvait être ramenée → message routé vers un tenant que le viewer ne voit pas.
+2. Si aucune ligne directory_contacts n'existait pour ce numéro, l'utilisateur atterrissait dans `wa_pending_imports` (état "à importer") au lieu d'avoir un vrai contact → son nom n'apparaissait jamais dans `/portal/contacts`.
+
+### Fix shipped (2026-02)
+**A. Hardening du webhook WA** (`server.py` lignes 15556-15640) :
+- Recherche `directory_contacts` PRIORITAIRE dans le `client_scope` résolu (anti cross-tenant pollution).
+- Si toujours pas de match ET le numéro correspond à un utilisateur système, le webhook crée automatiquement la ligne `directory_contacts` dans le **tenant parent canonique** avec `name = full_name`, `wa_user_link = user_id`, tag `utilisateur-système`. L'utilisateur apparaît immédiatement dans `/portal/contacts`.
+
+**B. Endpoint diagnostic enrichi** : `GET /api/admin/liluvine-pro/diagnose?email=…` renvoie désormais un objet `contact_visibility` qui liste :
+- Tous les `directory_contacts` matchant le numéro (cross-tenant).
+- Tous les `wa_pending_imports` matchant.
+- Les 5 derniers messages inbound.
+- Le `user_visible_client_ids` du target (pour détecter les contacts hors scope).
+- Une liste `diagnosis` en français qui pointe la cause exacte.
+
+**C. Endpoint de réparation** : `POST /api/admin/contacts/repair-user-contact` (body : `{"email": "...", "dry_run": false}`) — réservé admin/superviseur/modération. Idempotent. Pour un utilisateur donné :
+- Crée la ligne canonique manquante (parent tenant scope) avec `name = full_name`.
+- Si la ligne existe avec `name` vide ou phone-only → remplit avec full_name.
+- Archive les doublons même-scope (`archived_at` set).
+- Flag les doublons cross-tenant avec `wa_user_link` (jamais delete RGPD).
+- Re-attache les `whatsapp_messages` orphelins (`contact_id=null`) sur la ligne canonique.
+- Supprime les `wa_pending_imports` pour ce numéro.
+- Synchronise le `user_label` de la session Liluvine WA.
+
+### Comment l'admin doit corriger rabo.f en PRODUCTION
+1. Déployer le code en Production.
+2. Appeler `POST /api/admin/contacts/repair-user-contact` avec `{"email": "rabo.f@sawalismartsystems.com"}`.
+3. Vérifier `/portal/contacts` → rabo.f apparaît avec son nom complet.
+4. Les futurs WA depuis son numéro vont désormais s'auto-router correctement (le webhook patché s'en charge).
 
 ### Tests
-- Régression 27/27 verts (auth refactor + screenshots + coverage gaps + S044).
-- Endpoint diagnose validé E2E sur preview, identifie 2 blocking_reasons correctement.
+- `backend/tests/test_bug3_rabo_contact_repair.py` (4/4 verts + 1 skipped RBAC).
+- `backend/tests/test_bug3_webhook_auto_contact.py` (1/1 vert).
+- Régression complète : `test_iter35a_critical_bugs.py` + `test_iter35l_wa_media_http.py` (16/16 verts).
 
 
 ## Recent (2026-02 post-handoff) — Sujets non couverts + S045 Phase 1

@@ -136,6 +136,79 @@ def test_i18n_admin_rejects_invalid_key(admin_h):
     assert r.status_code == 422  # pydantic regex rejection
 
 
+# ------------- New : CSV export/import + region detect -------------
+
+
+def test_i18n_detect_endpoint_returns_lang():
+    r = requests.get(f"{API}/i18n/detect", timeout=10)
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["suggested_lang"] in ("fr", "en", "ar")
+    assert isinstance(data["supported"], list) and "fr" in data["supported"]
+
+
+def test_i18n_detect_uses_accept_language():
+    """When Accept-Language hints AR, we should suggest AR."""
+    r = requests.get(
+        f"{API}/i18n/detect",
+        headers={"Accept-Language": "ar-MA,fr;q=0.8"},
+        timeout=10,
+    )
+    assert r.status_code == 200
+    assert r.json()["suggested_lang"] == "ar"
+
+
+def test_i18n_export_csv_returns_utf8_bom(admin_h):
+    r = requests.get(f"{API}/admin/i18n/translations.csv", headers=admin_h, timeout=15)
+    assert r.status_code == 200, r.text
+    assert "text/csv" in r.headers.get("content-type", "")
+    # The BOM is the first 3 bytes EF BB BF (Excel-friendly).
+    body = r.content
+    assert body[:3] == b"\xef\xbb\xbf", "expected UTF-8 BOM for Excel compatibility"
+    text = body.decode("utf-8-sig")
+    lines = text.splitlines()
+    assert lines[0] == '"key","fr","en","ar","lg1","lg2","context"'
+    assert any("nav.dashboard" in ln for ln in lines)
+
+
+def test_i18n_import_csv_upserts_and_reports_errors(admin_h, db_sync):
+    key1 = f"test.csv_a_{uuid.uuid4().hex[:6]}"
+    key2 = f"test.csv_b_{uuid.uuid4().hex[:6]}"
+    csv_data = (
+        "key,fr,en,ar,lg1,lg2,context\n"
+        f'"{key1}","Bonjour CSV","Hello CSV","","","","csv test"\n'
+        f'"{key2}","Au revoir","Goodbye","","","",""\n'
+        '"invalid key","x","y","","","",""\n'  # invalid key (space)
+        ',"orphan","",,,,\n'                    # empty key
+    )
+    files = {"file": ("test.csv", csv_data.encode("utf-8"), "text/csv")}
+    r = requests.post(
+        f"{API}/admin/i18n/translations/import-csv",
+        files=files, headers=admin_h, timeout=15,
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()
+    assert data["upserted"] == 2
+    assert data["errors_count"] == 2
+    # Roundtrip via public dictionary
+    pub = requests.get(f"{API}/i18n/translations", params={"lang": "en"}, timeout=10).json()
+    assert pub["translations"][key1] == "Hello CSV"
+    assert pub["translations"][key2] == "Goodbye"
+    # Cleanup
+    db_sync.i18n_translations.delete_many({"key": {"$in": [key1, key2]}})
+
+
+def test_i18n_import_csv_rejects_missing_columns(admin_h):
+    bad_csv = "k,t\nfoo,bar\n"
+    files = {"file": ("bad.csv", bad_csv.encode("utf-8"), "text/csv")}
+    r = requests.post(
+        f"{API}/admin/i18n/translations/import-csv",
+        files=files, headers=admin_h, timeout=15,
+    )
+    assert r.status_code == 400
+    assert "requises" in r.text.lower() or "required" in r.text.lower()
+
+
 # ------------- P3 — download gauge toggle -------------
 
 

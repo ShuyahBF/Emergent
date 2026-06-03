@@ -112,6 +112,37 @@ Après le fix Bug #3, rabo.f restait bloquée car la feature `ai_liluvine_pro` n
 4. rabo.f peut immédiatement utiliser Liluvine PRO sans changer les features du tenant.
 
 
+## S046 ENHANCEMENT (2026-02) — Régionalisation publique + CSV + auto-détection
+
+### Renommage UI
+- Sidebar admin : « Traductions (i18n) » → « **Régionalisation** »
+- Titre page admin : « Régionalisation » (H1 avec icône Languages)
+
+### Public language selector + auto-detect
+- `MarketingNav` intègre le `LanguageSelector` (visible dès la page d'accueil publique, header desktop + mobile menu).
+- 10 liens de la marketing navbar maintenant traduits via clés `public.nav.*` (Home, Missions, Specialisations, Catalogue, Case studies, Subscriptions, Testimonials, Book appointment, Contact, Policies, Book a meeting, My space, Loois Space).
+- **I18nContext** auto-détecte la langue au premier passage selon cet ordre :
+  1. `localStorage.sawali_lang` (choix explicite précédent)
+  2. `navigator.language` (FR/EN/AR mappés vers les codes supportés)
+  3. Backend `GET /api/i18n/detect` (basé sur `cf-ipcountry` / `x-vercel-ip-country` / `Accept-Language`)
+  4. Fallback FR
+- **Backend `/api/i18n/detect`** : map ISO 3166-1 alpha-2 → langue. 60+ pays mappés (Afrique francophone FR, Maghreb/Moyen-Orient AR, anglo-saxons EN). Fallback `Accept-Language` quand pas de header pays.
+
+### CSV Export/Import
+- `GET /api/admin/i18n/translations.csv` → fichier UTF-8 BOM (compatible Excel), colonnes `key, fr, en, ar, lg1, lg2, context`.
+- `POST /api/admin/i18n/translations/import-csv` (multipart) → upsert idempotent. Erreurs reportées ligne par ligne sans bloquer l'import.
+- UI : boutons "📥 Exporter CSV" (emerald) et "📤 Importer CSV" (fuchsia) dans le header de `/admin/i18n`.
+
+### Translations seed étendu (31 → 99 clés)
++68 clés ajoutées : sidebar étendue (inbox, sms, whatsapp_bulk, cash, hr, meetings, media_lib, media_gen, voice_studio, brochures, catalog_stats, logout), boutons communs (add, remove, next, previous, download, upload, export, import, send, copy, share, print, required, optional, error, success, warning, info, actions, status, filter, sort, all, none, empty, back), login (connexion, or, welcome_back, tagline), navigation publique complète (`public.nav.*`), dashboard, contacts, errors.
+
+### Tests (`backend/tests/test_s046_i18n_and_p3_gauge.py`)
+12 tests verts couvrent : languages public, FR seed, EN fallback, validation langue, admin CRUD + bulk, validation regex clé, **détection (defaut + Accept-Language)**, **CSV export UTF-8 BOM**, **CSV import upserts + reports errors + rejects missing columns**.
+
+### Comportement clé
+- Le seed `_ensure_seed` est désormais **idempotent + additif** : upsert uniquement les clés absentes. Permet d'ajouter de nouvelles SEED_KEYS sans écraser les éditions admin.
+
+
 ## S046 (2026-02) — i18n FR + EN + AR + LG1 + LG2 (Gulmancema/Mooré)
 
 ### Architecture

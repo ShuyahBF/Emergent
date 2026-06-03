@@ -3,29 +3,32 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { Menu, X, ArrowRight, LogIn } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { useAuth } from "@/contexts/AuthContext";
+import { useT } from "@/contexts/I18nContext";
+import LanguageSelector from "@/components/LanguageSelector";
 import SupportLoadGauge from "@/components/SupportLoadGauge";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 
 const links = [
-  { to: "/", label: "Accueil" },
-  { to: "/missions", label: "Missions" },
-  { to: "/specialisations", label: "Spécialisations" },
-  { to: "/catalogue", label: "Catalogue" },
-  { to: "/etudes-de-cas", label: "Études de cas" },
-  { to: "/subscriptions", label: "Abonnements" },
-  { to: "/temoignages", label: "Témoignages" },
-  { to: "/rdv", label: "Demande RDV" },
-  { to: "/contact", label: "Contact" },
-  { to: "/politiques", label: "Politiques" },
+  { to: "/", label: "Accueil", tKey: "public.nav.home" },
+  { to: "/missions", label: "Missions", tKey: "public.nav.missions" },
+  { to: "/specialisations", label: "Spécialisations", tKey: "public.nav.specialisations" },
+  { to: "/catalogue", label: "Catalogue", tKey: "public.nav.catalogue" },
+  { to: "/etudes-de-cas", label: "Études de cas", tKey: "public.nav.case_studies" },
+  { to: "/subscriptions", label: "Abonnements", tKey: "public.nav.subscriptions" },
+  { to: "/temoignages", label: "Témoignages", tKey: "public.nav.testimonials" },
+  { to: "/rdv", label: "Demande RDV", tKey: "public.nav.rdv" },
+  { to: "/contact", label: "Contact", tKey: "public.nav.contact" },
+  { to: "/politiques", label: "Politiques", tKey: "public.nav.policies" },
 ];
 
 export default function MarketingNav() {
   const [open, setOpen] = useState(false);
   const { user } = useAuth();
+  const t = useT();
   const navigate = useNavigate();
 
   const portalHref = user ? (user.role === "admin" ? "/admin" : "/portal") : "/login";
-  const portalLabel = user ? "Mon espace" : "Espace Loois";
+  const portalLabel = user ? t("public.nav.my_space", "Mon espace") : t("public.nav.loois_space", "Espace Loois");
 
   return (
     <header className="glass-nav sticky top-0 z-50 backdrop-blur-md bg-[#081226]/85 border-b border-white/5" data-testid="marketing-navbar">
@@ -60,12 +63,13 @@ export default function MarketingNav() {
                 }
                 data-testid={`nav-link-${l.to.replace("/", "") || "home"}`}
               >
-                {l.label}
+                {t(l.tKey, l.label)}
               </NavLink>
             ))}
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
+            <LanguageSelector compact />
             <TeamPresenceBadge tone="dark" compact className="hidden md:inline-flex" />
             <button
               onClick={() => navigate(portalHref)}
@@ -80,7 +84,7 @@ export default function MarketingNav() {
               className="hidden md:inline-flex items-center gap-2 rounded-lg btn-electric px-4 py-2 text-sm font-medium"
               data-testid="navbar-cta-rdv"
             >
-              Réserver un RDV
+              {t("public.nav.book_rdv", "Réserver un RDV")}
               <ArrowRight className="h-4 w-4" />
             </Link>
             <button
@@ -107,9 +111,12 @@ export default function MarketingNav() {
                 `block rounded-md px-3 py-2 text-sm ${isActive ? "bg-sawali-blue/20 text-white" : "text-slate-300"}`
               }
             >
-              {l.label}
+              {t(l.tKey, l.label)}
             </NavLink>
           ))}
+          <div className="pt-2 mt-2 border-t border-white/10 flex justify-end">
+            <LanguageSelector compact />
+          </div>
           <button
             onClick={() => { setOpen(false); navigate(portalHref); }}
             className="w-full text-left rounded-md px-3 py-2 text-sm text-white border border-sawali-blue/40 mt-2"

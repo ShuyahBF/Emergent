@@ -1,10 +1,10 @@
-// S046 (2026-02) — Admin i18n translations table.
+// S046 (2026-02) — Admin Régionalisation page (i18n translations table).
 // Allows admin/superviseur to manage the i18n_translations collection
-// with inline edits, add/delete rows, and bulk save.
-import React, { useEffect, useMemo, useState } from "react";
+// with inline edits, add/delete rows, CSV export/import, and bulk save.
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText } from "lucide-react";
+import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText, Download, Upload } from "lucide-react";
 
 const BLANK_ROW = { key: "", fr: "", en: "", ar: "", lg1: "", lg2: "", context: "" };
 
@@ -15,6 +15,8 @@ export default function AdminI18n() {
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState(null); // row being edited
   const [saving, setSaving] = useState(false);
+  const [importing, setImporting] = useState(false);
+  const fileInputRef = useRef(null);
 
   const load = async () => {
     setLoading(true);
@@ -71,19 +73,102 @@ export default function AdminI18n() {
     }
   };
 
+  // Export the current collection as a CSV file (UTF-8 BOM, Excel-friendly).
+  const exportCsv = async () => {
+    try {
+      const r = await apiClient.get("/admin/i18n/translations.csv", { responseType: "blob" });
+      const url = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sawali_translations_${new Date().toISOString().slice(0, 10)}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success("Export CSV téléchargé");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'export");
+    }
+  };
+
+  const onPickCsv = () => fileInputRef.current?.click();
+
+  const importCsv = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = ""; // reset so the same file can be re-picked
+    if (!file) return;
+    if (!file.name.toLowerCase().endsWith(".csv")) {
+      toast.error("Veuillez sélectionner un fichier .csv");
+      return;
+    }
+    if (!window.confirm(
+      `Importer « ${file.name} » ? Les clés existantes seront mises à jour. ` +
+      `Les nouvelles seront ajoutées. Les clés absentes du CSV ne seront PAS supprimées.`
+    )) return;
+    setImporting(true);
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      const r = await apiClient.post("/admin/i18n/translations/import-csv", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const n = r.data?.upserted || 0;
+      const errs = r.data?.errors_count || 0;
+      toast.success(
+        `${n} clé${n > 1 ? "s" : ""} importée${n > 1 ? "s" : ""}` +
+        (errs > 0 ? ` · ${errs} ligne${errs > 1 ? "s" : ""} ignorée${errs > 1 ? "s" : ""}` : ""),
+        { duration: 7000 }
+      );
+      if (errs > 0 && r.data?.errors) {
+        console.warn("CSV import errors:", r.data.errors);
+      }
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur d'import");
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <div className="space-y-4 p-4" data-testid="admin-i18n-page">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <div>
           <h1 className="text-2xl font-display font-bold flex items-center gap-2">
-            <Languages className="h-6 w-6 text-sawali-blue" /> Traductions (i18n)
+            <Languages className="h-6 w-6 text-sawali-blue" /> Régionalisation
           </h1>
           <p className="text-xs text-slate-500 mt-1">
             La colonne <strong>FR</strong> est la source. Les autres langues servent de remplacement —
             si vide, le texte FR s'affiche par défaut. <strong>LG1 = Gulmancema</strong>, <strong>LG2 = Mooré</strong>.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
+          <input
+            type="file"
+            accept=".csv"
+            ref={fileInputRef}
+            onChange={importCsv}
+            style={{ display: "none" }}
+            data-testid="i18n-csv-file-input"
+          />
+          <button
+            onClick={exportCsv}
+            className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-50 px-3 py-1.5 text-xs"
+            data-testid="i18n-export-csv"
+            title="Télécharger toutes les traductions au format CSV (UTF-8 BOM, Excel-compatible)"
+          >
+            <Download className="h-3.5 w-3.5" /> Exporter CSV
+          </button>
+          <button
+            onClick={onPickCsv}
+            disabled={importing}
+            className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-50 px-3 py-1.5 text-xs disabled:opacity-50"
+            data-testid="i18n-import-csv"
+            title="Importer un fichier CSV (les clés existantes sont mises à jour, les nouvelles ajoutées)"
+          >
+            {importing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Upload className="h-3.5 w-3.5" />}
+            Importer CSV
+          </button>
           <button
             onClick={load}
             disabled={loading}

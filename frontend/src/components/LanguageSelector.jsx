@@ -2,10 +2,11 @@
 // Compact button + popover with the supported languages from the backend.
 import React, { useEffect, useRef, useState } from "react";
 import { Globe, Check } from "lucide-react";
+import { toast } from "sonner";
 import { useI18n } from "@/contexts/I18nContext";
 
 export default function LanguageSelector({ compact = false }) {
-  const { lang, setLang, languages } = useI18n();
+  const { lang, setLang, languages, t } = useI18n();
   const [open, setOpen] = useState(false);
   const popRef = useRef(null);
 
@@ -19,6 +20,17 @@ export default function LanguageSelector({ compact = false }) {
   }, [open]);
 
   const current = (languages || []).find((l) => l.code === lang);
+
+  const handlePick = (langDef) => {
+    if (langDef.code === lang) { setOpen(false); return; }
+    setLang(langDef.code);
+    setOpen(false);
+    // Visual feedback : confirms the click registered even when most of
+    // the visible page has no translation yet (fallback FR applies).
+    const label = langDef.native || langDef.label || langDef.code.toUpperCase();
+    const msg = t("lang.changed", "Langue changée");
+    toast.success(`${msg} : ${label}`, { duration: 2500, id: "lang-change" });
+  };
 
   return (
     <div className="relative" ref={popRef} data-testid="language-selector">
@@ -46,7 +58,7 @@ export default function LanguageSelector({ compact = false }) {
               <button
                 key={l.code}
                 type="button"
-                onClick={() => { setLang(l.code); setOpen(false); }}
+                onClick={() => handlePick(l)}
                 className={`w-full flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-slate-50 ${isActive ? "bg-sky-50 text-sky-800 font-semibold" : "text-slate-700"}`}
                 data-testid={`language-option-${l.code}`}
               >

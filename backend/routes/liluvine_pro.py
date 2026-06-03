@@ -25,6 +25,7 @@ import logging
 import os
 import re
 import secrets
+import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1424,3 +1425,101 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "created_at": {"$gte": cutoff},
         })
         return {"items": top, "total_screenshots": total_screenshots, "days": days}
+
+    # ----------------------------------------------------------
+    # #2 (2026-02 — suite #1) — Generate documentation draft from a SAWALI
+    # screen's real customer questions. Uses Claude (via emergentintegrations)
+    # to summarize all questions clients asked about this exact screen, and
+    # produce a clean Markdown step-by-step guide.
+    # ----------------------------------------------------------
+    @api.post("/admin/liluvine-pro/generate-doc-draft", tags=["Admin — Liluvine PRO"])
+    async def admin_generate_doc_draft(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        image_url = (payload.get("image_url") or "").strip()
+        title = (payload.get("title") or "").strip() or "Écran SAWALI"
+        days = int(payload.get("days") or 30)
+        if not image_url:
+            raise HTTPException(status_code=400, detail="image_url requis.")
+        chk = await _pre_check(user, LILUVINE_MODEL)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
+        scope = _client_scope(user)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        # Find all client questions about this exact screen
+        cursor = db.liluvine_pro_messages.find(
+            {
+                "client_id": scope,
+                "role": "user",
+                "matched_images.image_url": image_url,
+                "created_at": {"$gte": cutoff},
+            },
+            {"_id": 0, "content": 1, "image_analysis": 1, "created_at": 1},
+        ).sort("created_at", -1)
+        rows = await cursor.to_list(30)
+        if not rows:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Aucune question client trouvée pour cet écran sur les {days} derniers jours.",
+            )
+        # Build the prompt
+        questions_block = []
+        for i, r in enumerate(rows, start=1):
+            text = (r.get("content") or "").strip()
+            ana = r.get("image_analysis") or {}
+            ocr = (ana.get("ocr_text") or "").strip()[:300]
+            summary = (ana.get("visual_summary") or "").strip()[:200]
+            line = f"\n### Question #{i}\n"
+            if text and text != "📸 Capture d'écran envoyée":
+                line += f"**Texte du client** : {text[:400]}\n"
+            if summary:
+                line += f"**Description visuelle (Vision)** : {summary}\n"
+            if ocr:
+                line += f"**Texte visible (OCR)** : {ocr}\n"
+            questions_block.append(line)
+        prompt = (
+            f"Je veux que tu génères un article de documentation Markdown propre, structuré et "
+            f"pédagogique pour l'écran SAWALI suivant :\n\n"
+            f"**Titre de l'écran** : {title}\n\n"
+            f"Tu as accès à {len(rows)} VRAIES questions clients reçues ces {days} derniers "
+            f"jours qui concernent cet écran (extraites automatiquement par Claude Vision + Qdrant). "
+            f"Voici ces questions :\n"
+            + "".join(questions_block) +
+            "\n\n---\n\n"
+            "À partir de ces vraies questions, génère un article de documentation Markdown qui :\n"
+            "1. Commence par un **titre H1** clair et un **paragraphe d'introduction** (1-2 phrases) "
+            "qui explique à quoi sert l'écran.\n"
+            "2. Contient une section **« Procédure pas-à-pas »** numérotée (étapes 1, 2, 3…).\n"
+            "3. Contient une section **« Questions fréquentes »** sous forme de FAQ Markdown, en "
+            "regroupant les questions clients similaires et en y répondant clairement.\n"
+            "4. Termine par une section **« En cas de problème »** avec 2-3 conseils de dépannage.\n"
+            "5. Reste en **FRANÇAIS** et utilise un ton professionnel mais accessible.\n"
+            "6. Ne mentionne pas les questions individuelles brutes — synthétise.\n\n"
+            "Renvoie UNIQUEMENT le Markdown, sans phrase d'introduction."
+        )
+        try:
+            llm = await _llm_send(
+                f"docgen-{scope}-{uuid.uuid4().hex[:6]}",
+                "Tu es un rédacteur technique expert en documentation logicielle SAWALI. Tu écris en français.",
+                prompt,
+            )
+        except Exception as exc:
+            logger.exception("[doc-draft] LLM failure")
+            raise HTTPException(status_code=502, detail=f"Claude indisponible : {str(exc)[:160]}") from exc
+        track_result = await _track(
+            user, llm["tokens"], llm["model"],
+            metadata={"feature": "doc_draft", "image_url": image_url, "questions_used": len(rows)},
+        )
+        return {
+            "ok": True,
+            "markdown": llm["reply"] or "",
+            "questions_used": len(rows),
+            "model": llm["model"],
+            "tokens": llm["tokens"],
+            "image_url": image_url,
+            "title": title,
+            "warn": track_result.get("warn", False),
+        }

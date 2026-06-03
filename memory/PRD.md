@@ -6,6 +6,17 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — Suite #1 — ✨ Brouillon de doc auto-généré
+
+### ✅ #2 — Bouton « Générer doc » sur chaque écran du Top
+- Nouveau endpoint backend `POST /api/admin/liluvine-pro/generate-doc-draft` (body : `image_url`, `title`, `days`).
+- Pipeline : (1) requête MongoDB pour toutes les vraies questions clients reçues sur cet écran les N derniers jours, (2) construction d'un prompt structuré (titre/Vision/OCR par question), (3) appel Claude Haiku 4.5 avec instructions de produire un Markdown propre (titre H1 + Procédure pas-à-pas + FAQ + Dépannage), (4) tracking quota via `_track`.
+- **UI** : bouton « ✨ Générer doc » sur chaque ligne du Top Screens. Modal `DocDraftModal` qui affiche le brouillon généré dans un `<textarea>` éditable + bouton « Copier le Markdown ». L'admin peut peaufiner le brouillon avant de le coller dans son outil de doc.
+- Pratique : transforme des questions support récurrentes en article de KB en 1 clic.
+- **Tests** : `backend/tests/test_iter1_doc_draft_generator.py` (4/4 verts) — couverture 400 missing image_url, 404 no questions, 403 client, 200 schema.
+- **Fichiers** : `backend/routes/liluvine_pro.py` (endpoint + import `uuid`), `frontend/src/components/LiluvineScreenshotsInsights.jsx` (DocDraftModal + bouton).
+
+
 ## Recent (2026-02 post-handoff) — Suite S044 — 📸 Captures & Top écrans
 
 ### ✅ #1 — Historique des captures + Top écrans SAWALI consultés

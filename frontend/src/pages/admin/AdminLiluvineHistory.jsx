@@ -8,10 +8,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Bot, Sparkles, Search, MessageCircle, Hand, Eye, AlertTriangle, Phone, Globe, ArrowRightCircle, RefreshCw } from "lucide-react";
+import { Bot, Sparkles, Search, MessageCircle, Hand, Eye, AlertTriangle, Phone, Globe, ArrowRightCircle, RefreshCw, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
+import LiluvineScreenshotsInsights from "@/components/LiluvineScreenshotsInsights";
 
 const CHANNELS = [
   { id: "all", label: "Tous canaux", icon: null, badge: null },
@@ -49,6 +50,8 @@ export default function AdminLiluvineHistory() {
   const [openSession, setOpenSession] = useState(null);
   const [openMessages, setOpenMessages] = useState([]);
   const [loadingMessages, setLoadingMessages] = useState(false);
+  // #1 (2026-02 — suite S044) — Top-level tabs (conversations vs screenshots)
+  const [topTab, setTopTab] = useState("conversations");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -162,6 +165,28 @@ export default function AdminLiluvineHistory() {
         </button>
       </div>
 
+      {/* #1 (2026-02) — Top-level tabs: Conversations vs Screenshots/Top Screens */}
+      <div className="inline-flex gap-1 rounded-lg ring-1 ring-slate-200 bg-white p-1" data-testid="liluvine-top-tabs">
+        <button
+          onClick={() => setTopTab("conversations")}
+          data-testid="liluvine-top-tab-conversations"
+          className={`px-3 py-1.5 text-xs rounded-md inline-flex items-center gap-1.5 ${topTab === "conversations" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+        >
+          <MessageCircle size={14} /> Conversations
+        </button>
+        <button
+          onClick={() => setTopTab("screenshots")}
+          data-testid="liluvine-top-tab-screenshots"
+          className={`px-3 py-1.5 text-xs rounded-md inline-flex items-center gap-1.5 ${topTab === "screenshots" ? "bg-fuchsia-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+        >
+          <Camera size={14} /> Captures & Analytics
+        </button>
+      </div>
+
+      {topTab === "screenshots" ? (
+        <LiluvineScreenshotsInsights />
+      ) : (
+      <>
       {/* KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
         {CHANNELS.map((c) => (
@@ -361,6 +386,8 @@ export default function AdminLiluvineHistory() {
             </footer>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   );

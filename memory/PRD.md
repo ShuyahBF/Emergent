@@ -6,6 +6,20 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — Suite S044 — 📸 Captures & Top écrans
+
+### ✅ #1 — Historique des captures + Top écrans SAWALI consultés
+- 2 nouveaux endpoints backend :
+  - `GET /api/admin/liluvine-pro/screenshots-history?days=N&limit=M` — liste les captures envoyées par les clients via Liluvine PRO chat-with-image, enrichies du sender_label/session_channel/Vision analysis/matched_images.
+  - `GET /api/admin/liluvine-pro/top-screens?days=N` — agrégat MongoDB (`$unwind` matched_images + `$group` par image_url) qui sort les écrans SAWALI les plus matchés, avec count + avg_score + last_seen. Pipeline propre, indexé sur `client_id + role + created_at`.
+- **UI** : nouvelle barre d'onglets en haut de `/admin/liluvine-history` (« Conversations » ↔ « Captures & Analytics »). Le nouveau composant `LiluvineScreenshotsInsights.jsx` propose 2 sous-onglets :
+  - « Historique » : grille des captures avec preview client + analyse Vision + matches Qdrant (clicks zoom).
+  - « Top écrans consultés » : leaderboard avec barre de progression visuelle + denominator « N captures totales sur cette période » → identifie en un coup d'œil les écrans qui génèrent beaucoup de questions support (= cible idéale pour onboarding/doc).
+- Filtres : 7j / 30j / 90j / 1 an + bouton Actualiser.
+- **Tests** : `backend/tests/test_iter1_screenshot_history_top_screens.py` (4/4 verts) — couverture role=user filter + days filter + aggregation + 403 client.
+- **Fichiers** : `backend/routes/liluvine_pro.py` (2 endpoints), `frontend/src/components/LiluvineScreenshotsInsights.jsx` (nouveau), `frontend/src/pages/admin/AdminLiluvineHistory.jsx` (top tab switcher).
+
+
 ## Recent (2026-02 post-handoff) — Sprint Order 0 — 5 fixes UX/UI/backend
 
 ### ✅ 0.1 — Coffre-fort des secrets repliable

@@ -25,7 +25,7 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
@@ -1336,3 +1336,91 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
                 it["last_message_role"] = lm.get("role")
                 it["last_message_at"] = lm.get("created_at")
         return {"items": items, "count": len(items)}
+
+    # ----------------------------------------------------------
+    # #1 (2026-02 — suite S044) — Screenshots history + top screens
+    # ----------------------------------------------------------
+    @api.get("/admin/liluvine-pro/screenshots-history", tags=["Admin — Liluvine PRO"])
+    async def admin_screenshots_history(
+        days: int = 30,
+        limit: int = 100,
+        user: dict = Depends(get_current_user),
+    ):
+        """List the screenshots that clients sent to Liluvine PRO via the
+        /chat-with-image endpoint. Each entry includes the sender, the
+        original client screenshot URL, the Vision analysis (OCR + summary),
+        and the top SAWALI matches that Liluvine proposed."""
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        scope = _client_scope(user)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        query = {
+            "client_id": scope,
+            "role": "user",
+            "user_image_url": {"$ne": None, "$exists": True},
+            "created_at": {"$gte": cutoff},
+        }
+        cap = min(max(limit, 1), 500)
+        cursor = db.liluvine_pro_messages.find(query, {"_id": 0}).sort("created_at", -1)
+        items = await cursor.to_list(cap)
+        sids = list({it.get("session_id") for it in items if it.get("session_id")})
+        sess_map: Dict[str, dict] = {}
+        if sids:
+            async for s in db.liluvine_pro_sessions.find(
+                {"id": {"$in": sids}}, {"_id": 0, "id": 1, "user_label": 1, "user_id": 1, "title": 1, "external_source": 1},
+            ):
+                sess_map[s["id"]] = s
+        for it in items:
+            sess = sess_map.get(it.get("session_id") or "") or {}
+            it["sender_label"] = sess.get("user_label") or "—"
+            it["sender_user_id"] = sess.get("user_id")
+            it["session_title"] = sess.get("title") or ""
+            it["session_channel"] = sess.get("external_source") or "web"
+        return {"items": items, "count": len(items), "days": days}
+
+    @api.get("/admin/liluvine-pro/top-screens", tags=["Admin — Liluvine PRO"])
+    async def admin_top_screens(
+        days: int = 30,
+        limit: int = 20,
+        user: dict = Depends(get_current_user),
+    ):
+        """Aggregate the most-matched SAWALI screens across all client
+        screenshots. Useful to spot pages that need better onboarding /
+        documentation (high-traffic = source of confusion)."""
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        scope = _client_scope(user)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        pipeline = [
+            {"$match": {
+                "client_id": scope,
+                "role": "user",
+                "matched_images": {"$exists": True, "$ne": []},
+                "created_at": {"$gte": cutoff},
+            }},
+            {"$unwind": "$matched_images"},
+            {"$group": {
+                "_id": "$matched_images.image_url",
+                "count": {"$sum": 1},
+                "title": {"$first": "$matched_images.title"},
+                "avg_score": {"$avg": "$matched_images.score"},
+                "collection": {"$first": "$matched_images.collection"},
+                "last_seen": {"$max": "$created_at"},
+            }},
+            {"$sort": {"count": -1}},
+            {"$limit": min(max(limit, 1), 100)},
+            {"$project": {
+                "_id": 0, "image_url": "$_id",
+                "count": 1, "title": 1, "collection": 1,
+                "avg_score": {"$round": ["$avg_score", 3]},
+                "last_seen": 1,
+            }},
+        ]
+        top = await db.liluvine_pro_messages.aggregate(pipeline).to_list(100)
+        total_screenshots = await db.liluvine_pro_messages.count_documents({
+            "client_id": scope,
+            "role": "user",
+            "user_image_url": {"$ne": None, "$exists": True},
+            "created_at": {"$gte": cutoff},
+        })
+        return {"items": top, "total_screenshots": total_screenshots, "days": days}

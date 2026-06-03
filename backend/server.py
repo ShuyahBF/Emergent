@@ -19709,14 +19709,18 @@ def _format_ticket_duration(opened_iso: str, closed_iso: str) -> str:
 async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
     """Mongo query filter restricting tickets to the user's effective client scope.
 
-    Bug fix (S-iter39m) : admin/superviseur can CREATE a ticket on any
-    client_id (`/me/clients` returns the full list to elevated users), so
-    they must also be able to READ them back. Without this branch, tickets
-    opened from the floating bubble on a client outside the admin's
-    `company` became invisible everywhere.
+    Bug fix (S-iter39m) : admin/superviseur AND moderators can CREATE a
+    ticket on any client_id (`/me/clients` returns the full list to
+    elevated users), so they must also be able to READ them back. Without
+    this branch, tickets opened from the floating bubble on a client
+    outside the user's `company` became invisible everywhere.
+
+    Note : moderators can SEE all tickets (they pilot the interventions)
+    but cannot DELETE them — the delete endpoint enforces that via
+    `_can_delete_records()` which only allows admin/superviseur.
     """
-    if _is_admin_or_superviseur(user):
-        return {}  # no scope restriction — admin/superviseur see all tickets
+    if _is_elevated_creator(user):
+        return {}  # no scope restriction for admin/superviseur/moderators
     scope = await _resolve_visible_client_ids(user)
     return {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
 

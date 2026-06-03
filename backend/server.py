@@ -10498,12 +10498,24 @@ async def _send_weekly_digest():
         s = await db.settings.find_one({"_id": "global"}) or {}
         if not s.get("health_weekly_enabled"):
             return
+        # 0-2 (2026-02) — Don't blast preview-database digests to the admin.
+        # When running in the PREVIEW environment, skip by default unless the
+        # admin has explicitly opted to receive preview digests too.
+        preview_url = os.environ.get("preview_endpoint", "") or os.environ.get("REACT_APP_BACKEND_URL", "")
+        is_preview_env = ".preview." in preview_url
+        if is_preview_env and not s.get("health_weekly_send_from_preview"):
+            logger.info(
+                "[weekly-digest] Skipping send — running in PREVIEW environment "
+                "(set settings.health_weekly_send_from_preview=True to override).",
+            )
+            return
         stats = await _build_health_stats(window_hours=24 * 7)
         recipient = (s.get("health_email_to") or SUPER_ADMIN_EMAIL).strip().lower()
         await _fire_health_webhook({"type": "weekly_digest", "fired_at": _now(), "stats": stats})
         try:
             from email_service import send_email
-            subject = f"[SAWALI] Rapport hebdo santé — {datetime.now(timezone.utc).date().isoformat()}"
+            env_tag = "[PREVIEW] " if is_preview_env else ""
+            subject = f"{env_tag}[SAWALI] Rapport hebdo santé — {datetime.now(timezone.utc).date().isoformat()}"
             top_err_html = "".join(
                 f"<tr><td style='padding:4px 8px;font-family:monospace;'>{e['method']} {e['url']}</td><td style='padding:4px 8px;text-align:right;'>{e['count']}</td></tr>"
                 for e in stats["top_errors"][:5]
@@ -20203,6 +20215,24 @@ async def me_update_ticket(
         update["motif"] = m
     if payload.notes is not None:
         update["notes"] = (payload.notes or "").strip()[:2000] or None
+    # 0-4 (2026-02) — Reassign ticket to a different client/tenant.
+    # Restricted to elevated roles (admin/superviseur/moderateur).
+    if payload.client_id is not None:
+        new_cid = (payload.client_id or "").strip()
+        if not new_cid:
+            raise HTTPException(status_code=400, detail="client_id requis pour réaffectation.")
+        if not _is_elevated_creator(user):
+            raise HTTPException(status_code=403, detail="Seuls admin/superviseur/modérateur peuvent réaffecter un ticket.")
+        if new_cid != ticket.get("client_id"):
+            new_client = await db.users.find_one({"id": new_cid}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1})
+            if not new_client:
+                raise HTTPException(status_code=404, detail="Client cible introuvable.")
+            old_cid = ticket.get("client_id")
+            update["client_id"] = new_cid
+            update["client_company_snapshot"] = (new_client.get("company") or new_client.get("full_name") or new_client.get("email") or "")[:200]
+            update["reassigned_from"] = old_cid
+            update["reassigned_at"] = _now()
+            update["reassigned_by"] = user.get("id")
     if not update:
         return {"ok": True, "ticket": ticket, "changed": False}
     update["updated_at"] = _now()

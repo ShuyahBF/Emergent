@@ -16,11 +16,12 @@ Security:
 from __future__ import annotations
 
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Form, HTTPException, Query
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("sawali.hr")
@@ -127,6 +128,7 @@ class AllowancePayload(BaseModel):
     active: bool = True
     sort_order: int = 0
     notes: Optional[str] = Field(None, max_length=500)
+    catalog_id: Optional[str] = None  # 0-3 — link to catalog template
 
 
 class AllowanceUpdate(BaseModel):
@@ -146,6 +148,7 @@ class BonusPayload(BaseModel):
     amount: float = Field(..., ge=0)
     currency: str = Field("XOF", max_length=8)
     notes: Optional[str] = Field(None, max_length=500)
+    catalog_id: Optional[str] = None  # 0-3 — link to catalog template
 
 
 class BonusUpdate(BaseModel):
@@ -153,6 +156,30 @@ class BonusUpdate(BaseModel):
     amount: Optional[float] = Field(None, ge=0)
     currency: Optional[str] = Field(None, max_length=8)
     notes: Optional[str] = Field(None, max_length=500)
+
+
+# 0-3 (2026-02) — Catalog of standalone pay items (allowance/bonus templates)
+class PayCatalogItemPayload(BaseModel):
+    kind: str = Field(..., pattern=r"^(allowance|bonus)$")
+    label: str = Field(..., min_length=1, max_length=120)
+    default_amount: float = Field(0, ge=0)
+    currency: str = Field("XOF", max_length=8)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class PayCatalogItemUpdate(BaseModel):
+    label: Optional[str] = Field(None, min_length=1, max_length=120)
+    default_amount: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, max_length=8)
+    description: Optional[str] = Field(None, max_length=500)
+
+
+class CopyPayItemsPayload(BaseModel):
+    """Copy primes/indemnités from src employee to target employee."""
+    target_employee_id: str = Field(..., min_length=1)
+    include_allowances: bool = True
+    include_bonuses: bool = False
+    bonus_month: Optional[str] = Field(None, pattern=r"^\d{4}-\d{2}$")
 
 
 # ---------------------------------------------------------------------
@@ -1323,6 +1350,25 @@ def make_router(*, db, get_current_user):
         return await _compute_payslip(user, eid, month)
     router.compute_payslip = compute_payslip_public  # type: ignore[attr-defined]
 
+    # 0-3 (2026-02) — Auto-generated codes for pay-table indexes.
+    # Format : `IND-NNNN` for indemnités, `PRM-NNNN` for primes, `CAT-NNNN`
+    # for the standalone catalog. Tenant-scoped counter stored in hr_counters.
+    async def _next_pay_code(tid: str, prefix: str) -> str:
+        counter_id = f"hr_{prefix.lower()}_{tid}"
+        r = await db.hr_counters.find_one_and_update(
+            {"_id": counter_id},
+            {"$inc": {"seq": 1}},
+            upsert=True,
+            return_document=True,  # type: ignore[arg-type]
+        )
+        # find_one_and_update returns the updated doc when return_document=AFTER;
+        # motor's default differs — fallback to fetching the doc explicitly.
+        seq = (r or {}).get("seq")
+        if not seq:
+            doc = await db.hr_counters.find_one({"_id": counter_id})
+            seq = (doc or {}).get("seq", 1)
+        return f"{prefix}-{int(seq):04d}"
+
     # =====================================================================
     # S-iter39s (2026-02) — Allowances (indemnités fixes) CRUD
     # =====================================================================
@@ -1353,6 +1399,7 @@ def make_router(*, db, get_current_user):
         doc = payload.model_dump()
         doc.update({
             "id": str(uuid.uuid4()),
+            "code": await _next_pay_code(tid, "IND"),  # 0-3 — auto code IND-NNNN
             "tenant_id": tid,
             "employee_id": eid,
             "created_at": _now_iso(),
@@ -1425,6 +1472,7 @@ def make_router(*, db, get_current_user):
         doc = payload.model_dump()
         doc.update({
             "id": str(uuid.uuid4()),
+            "code": await _next_pay_code(tid, "PRM"),  # 0-3 — auto code PRM-NNNN
             "tenant_id": tid,
             "employee_id": eid,
             "created_at": _now_iso(),
@@ -1460,6 +1508,213 @@ def make_router(*, db, get_current_user):
         if r.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Prime introuvable")
         return {"ok": True, "id": bid}
+
+    # =====================================================================
+    # 0-3 (2026-02) — Pay Catalog (standalone allowance/bonus templates)
+    # =====================================================================
+    @router.get("/pay-catalog")
+    async def list_catalog(
+        kind: Optional[str] = Query(None, pattern=r"^(allowance|bonus)$"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        q: Dict[str, Any] = {**scope}
+        if kind:
+            q["kind"] = kind
+        cursor = db.hr_pay_catalog.find(q, {"_id": 0}).sort([("kind", 1), ("label", 1)])
+        return [c async for c in cursor]
+
+    @router.post("/pay-catalog")
+    async def create_catalog_item(
+        payload: PayCatalogItemPayload, user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        tid = await _resolve_tenant_id(user)
+        prefix = "CAT" if payload.kind == "allowance" else "PRMC"
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "code": await _next_pay_code(tid, prefix),
+            "tenant_id": tid,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "updated_at": _now_iso(),
+        })
+        await db.hr_pay_catalog.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/pay-catalog/{cid}")
+    async def update_catalog_item(
+        cid: str, payload: PayCatalogItemUpdate, user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_pay_catalog.find_one({**scope, "id": cid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Élément introuvable")
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            return existing
+        updates["updated_at"] = _now_iso()
+        await db.hr_pay_catalog.update_one({"id": cid}, {"$set": updates})
+        return await db.hr_pay_catalog.find_one({"id": cid}, {"_id": 0})
+
+    @router.delete("/pay-catalog/{cid}")
+    async def delete_catalog_item(cid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        r = await db.hr_pay_catalog.delete_one({**scope, "id": cid})
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Élément introuvable")
+        return {"ok": True, "id": cid}
+
+    @router.post("/employees/{eid}/apply-catalog/{cid}")
+    async def apply_catalog_to_employee(
+        eid: str, cid: str,
+        amount: Optional[float] = Form(None),
+        bonus_month: Optional[str] = Form(None),
+        user: dict = Depends(get_current_user),
+    ):
+        """0-3 — Apply a catalog template to an employee. For allowances,
+        creates a hr_allowances row; for bonuses, creates a hr_bonuses row
+        (bonus_month required). The amount can be overridden via the
+        `amount` form field, otherwise uses default_amount from catalog."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        cat = await db.hr_pay_catalog.find_one({**scope, "id": cid}, {"_id": 0})
+        if not cat:
+            raise HTTPException(status_code=404, detail="Élément catalogue introuvable")
+        tid = await _resolve_tenant_id(user)
+        final_amount = float(amount) if amount is not None else float(cat.get("default_amount") or 0)
+        now = _now_iso()
+        if cat["kind"] == "allowance":
+            doc = {
+                "id": str(uuid.uuid4()),
+                "code": await _next_pay_code(tid, "IND"),
+                "tenant_id": tid,
+                "employee_id": eid,
+                "label": cat["label"],
+                "amount": final_amount,
+                "currency": cat.get("currency", "XOF"),
+                "active": True,
+                "sort_order": 0,
+                "notes": cat.get("description") or "",
+                "catalog_id": cid,
+                "created_at": now,
+                "created_by": user["id"],
+                "updated_at": now,
+            }
+            await db.hr_allowances.insert_one(doc.copy())
+        else:  # bonus
+            if not bonus_month:
+                raise HTTPException(status_code=400, detail="bonus_month requis pour une prime.")
+            if not re.match(r"^\d{4}-\d{2}$", bonus_month):
+                raise HTTPException(status_code=400, detail="bonus_month doit être au format YYYY-MM.")
+            doc = {
+                "id": str(uuid.uuid4()),
+                "code": await _next_pay_code(tid, "PRM"),
+                "tenant_id": tid,
+                "employee_id": eid,
+                "month": bonus_month,
+                "label": cat["label"],
+                "amount": final_amount,
+                "currency": cat.get("currency", "XOF"),
+                "notes": cat.get("description") or "",
+                "catalog_id": cid,
+                "created_at": now,
+                "created_by": user["id"],
+            }
+            await db.hr_bonuses.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    # =====================================================================
+    # 0-3 (2026-02) — Copy primes/indemnités from one employee to another
+    # =====================================================================
+    @router.post("/employees/{src_eid}/copy-pay-items")
+    async def copy_pay_items(
+        src_eid: str, payload: CopyPayItemsPayload, user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        src = await db.hr_employees.find_one({**scope, "id": src_eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not src:
+            raise HTTPException(status_code=404, detail="Employé source introuvable")
+        tgt = await db.hr_employees.find_one({**scope, "id": payload.target_employee_id, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not tgt:
+            raise HTTPException(status_code=404, detail="Employé cible introuvable")
+        if src_eid == payload.target_employee_id:
+            raise HTTPException(status_code=400, detail="Source et cible doivent différer.")
+        tid = await _resolve_tenant_id(user)
+        now = _now_iso()
+        copied_allowances = 0
+        copied_bonuses = 0
+        if payload.include_allowances:
+            cursor = db.hr_allowances.find(
+                {**scope, "employee_id": src_eid, "active": True}, {"_id": 0},
+            )
+            async for src_al in cursor:
+                doc = {
+                    "id": str(uuid.uuid4()),
+                    "code": await _next_pay_code(tid, "IND"),
+                    "tenant_id": tid,
+                    "employee_id": payload.target_employee_id,
+                    "label": src_al["label"],
+                    "amount": src_al["amount"],
+                    "currency": src_al.get("currency", "XOF"),
+                    "active": True,
+                    "sort_order": src_al.get("sort_order", 0),
+                    "notes": src_al.get("notes") or "",
+                    "catalog_id": src_al.get("catalog_id"),
+                    "copied_from_employee_id": src_eid,
+                    "created_at": now,
+                    "created_by": user["id"],
+                    "updated_at": now,
+                }
+                await db.hr_allowances.insert_one(doc.copy())
+                copied_allowances += 1
+        if payload.include_bonuses:
+            if not payload.bonus_month:
+                raise HTTPException(status_code=400, detail="bonus_month requis quand include_bonuses=true.")
+            cursor = db.hr_bonuses.find(
+                {**scope, "employee_id": src_eid, "month": payload.bonus_month}, {"_id": 0},
+            )
+            async for src_b in cursor:
+                doc = {
+                    "id": str(uuid.uuid4()),
+                    "code": await _next_pay_code(tid, "PRM"),
+                    "tenant_id": tid,
+                    "employee_id": payload.target_employee_id,
+                    "month": src_b["month"],
+                    "label": src_b["label"],
+                    "amount": src_b["amount"],
+                    "currency": src_b.get("currency", "XOF"),
+                    "notes": src_b.get("notes") or "",
+                    "catalog_id": src_b.get("catalog_id"),
+                    "copied_from_employee_id": src_eid,
+                    "created_at": now,
+                    "created_by": user["id"],
+                }
+                await db.hr_bonuses.insert_one(doc.copy())
+                copied_bonuses += 1
+        return {
+            "ok": True,
+            "source_employee_id": src_eid,
+            "target_employee_id": payload.target_employee_id,
+            "copied_allowances": copied_allowances,
+            "copied_bonuses": copied_bonuses,
+        }
 
     return router
 

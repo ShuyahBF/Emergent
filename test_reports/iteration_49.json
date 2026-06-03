@@ -1,0 +1,36 @@
+{
+  "summary": "Backend regression (28/28 pytest PASS) and targeted UI/API tests for Order 0 sub-items 0.1, 0.2, 0.3, 0.4. 0.1 Coffre-fort collapsible: PASS. 0.2 PREVIEW skip-email behavior: FAIL (preview_endpoint env var not set in backend/.env so is_preview_env is always False → digest never skips). 0.3 GRH catalog & copy: backend pytest 9/9 PASS; UI testids verified (hr-catalog-card, hr-catalog-add-btn, hr-copy-pay-items-btn). 0.4 Ticket reassign: backend pytest 4/4 PASS; UI not exercised because the test tenant has 0 tickets currently.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/admin/health/run-weekly-now", "issue": "0.2 — backend/.env is missing `preview_endpoint`. As a result `_send_weekly_digest` at server.py:10496 computes `preview_url = ''` (fallback REACT_APP_BACKEND_URL is a frontend-only env var, not present in the Python process), `is_preview_env=False`, and the digest never logs 'Skipping send — running in PREVIEW environment'. Setting `health_weekly_send_from_preview=true` therefore has no observable effect (both runs already attempt send and only fail because SMTP isn't configured)."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter0_4_ticket_reassign.py",
+    "/app/backend/tests/test_siter39u_catalog_copy_codes.py",
+    "/app/backend/tests/test_siter39s_primes_indemnites.py",
+    "/app/backend/tests/test_siter39t_s044_vision_compare.py",
+    "/app/backend/tests/test_siter39r_p1_vision_enrich.py"
+  ],
+  "action_items": [
+    "Add `preview_endpoint=https://sawali-portal.preview.emergentagent.com` to /app/backend/.env (or change the helper in _send_weekly_digest to read PUBLIC_BASE_URL which IS already set in backend/.env) so the skip-on-PREVIEW behavior fires correctly. Recommended quick fix: change line 10504 to also include `or os.environ.get('PUBLIC_BASE_URL', '')`."
+  ],
+  "critical_code_review_comments": [
+    "server.py:10504 — `_send_weekly_digest` falls back to REACT_APP_BACKEND_URL which is a frontend-only env var; in the FastAPI process it is empty, defeating the preview-detection logic. Use PUBLIC_BASE_URL (already in backend/.env) as a fallback to make the feature actually work without adding new env vars.",
+    "routes/hr.py — pay-catalog CRUD, apply-catalog, and copy-pay-items work correctly; auto-codes (CAT-NNNN / PRMC-NNNN / IND-NNNN / PRM-NNNN) format and increment correctly within tenant (verified via direct API + pytest)."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "98% (28/28 pytest pass; 1 functional gap on preview email skip)", "frontend": "100% on UI elements observed (0.1 + 0.3); 0.4 UI not exercised — 0 tickets in tenant"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp on /api/auth/login then /api/auth/verify-otp with {session_token, code})",
+  "seed_data_creation": "Created one HR catalog allowance (CAT-0001 'Test Carburant T1', 10000 XOF) in admin tenant for UI verification. One HR catalog bonus was created (PRMC-0001) and immediately DELETEd as part of the API smoke test.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest battery for this sprint (test_iter0_4_ticket_reassign.py + test_siter39u_catalog_copy_codes.py + test_siter39s_primes_indemnites.py + test_siter39t_s044_vision_compare.py + test_siter39r_p1_vision_enrich.py) is 28/28 green. Only outstanding issue is 0.2 preview-skip: backend/.env lacks `preview_endpoint`; fix by either adding the env var or wiring PUBLIC_BASE_URL into the fallback chain in server.py:_send_weekly_digest. 0.4 UI couldn't be exercised because admin tenant has zero tickets — create a ticket first (or pick a tenant that has them) to verify the reassign-row / reassign-btn / reassign-select chain end-to-end.",
+  "rca of the issue": "0.2 RCA: In /app/backend/server.py line 10504, `preview_url = os.environ.get('preview_endpoint', '') or os.environ.get('REACT_APP_BACKEND_URL', '')`. The first key isn't in backend/.env. The second key is a CRA convention — only injected into the frontend webpack build, never into the Python process — so `os.environ.get('REACT_APP_BACKEND_URL')` returns None. Hence `preview_url=''`, `is_preview_env = '.preview.' in '' = False`, and the early-return at line 10510 never executes. Reproduction: PUT /api/admin/settings with `{health_weekly_enabled:true, health_weekly_send_from_preview:false}`, then POST /api/admin/health/run-weekly-now → backend log shows `SMTP not configured` (i.e., it tried to send) and no 'Skipping send — running in PREVIEW environment' log line. Mitigation: add `preview_endpoint` to backend/.env OR amend the helper to include `os.environ.get('PUBLIC_BASE_URL', '')` (already populated)."
+}

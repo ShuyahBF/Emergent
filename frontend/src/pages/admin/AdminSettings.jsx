@@ -656,9 +656,15 @@ export default function AdminSettings() {
       <NoteServiceHistorySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
-      <FileStorageSection />
-      <SecretsVaultSection />
-      <RoadmapTrackerSection />
+      <Filterable title="Stockage de fichiers (Object Storage)" anchorId="s-file-storage" category="diagnostics">
+        <FileStorageSection />
+      </Filterable>
+      <Filterable title="Coffre-fort des secrets (Secrets Vault)" anchorId="s-secrets-vault" category="auth">
+        <SecretsVaultSection />
+      </Filterable>
+      <Filterable title="Roadmap & Suivi des fonctionnalités" anchorId="s-roadmap-tracker" category="diagnostics">
+        <RoadmapTrackerSection />
+      </Filterable>
       {/* Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity */}
       <Section icon={Clock} title="Sécurité — Déconnexion automatique par inactivité">
         <p className="text-xs text-slate-500">

@@ -398,6 +398,33 @@ function TicketRow({ t, reload, targets }) {
     } finally { setBusy(false); }
   };
 
+  // 0-4 (2026-02) — Reassign ticket to a different client/tenant.
+  const [clientList, setClientList] = useState(null);
+  const [reassigning, setReassigning] = useState(false);
+  const loadClientList = async () => {
+    if (clientList) return;
+    try {
+      const r = await apiClient.get("/me/clients");
+      setClientList(r.data?.clients || r.data || []);
+    } catch (err) { toast.error("Impossible de charger la liste des clients"); }
+  };
+  const reassignToClient = async (newClientId) => {
+    if (!newClientId || newClientId === t.client_id) { setReassigning(false); return; }
+    const ok = window.confirm(
+      `Réaffecter ce ticket à un autre client ?\n\nCette opération est tracée (reassigned_at, reassigned_by) et l'ancien client_id est conservé pour audit.`,
+    );
+    if (!ok) return;
+    setBusy(true);
+    try {
+      await apiClient.patch(`/me/tickets/${t.id}`, { client_id: newClientId });
+      toast.success("Ticket réaffecté au nouveau client.");
+      setReassigning(false);
+      await reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de réaffectation");
+    } finally { setBusy(false); }
+  };
+
   const reopen = async () => {
     const motif = window.prompt("Motif de la réouverture (laisser vide pour réutiliser le motif initial) :", "");
     if (motif === null) return;
@@ -513,6 +540,50 @@ function TicketRow({ t, reload, targets }) {
                   </option>
                 ))}
               </select>
+            </div>
+          )}
+          {/* 0-4 (2026-02) — Reassign ticket to a different tenant (admin/sup/mod only) */}
+          {!isClosed && (
+            <div className="flex items-center gap-2 text-xs flex-wrap" data-testid={`ticket-${t.id}-reassign-row`}>
+              <label className="text-slate-500 font-semibold">Client lié :</label>
+              <span className="text-slate-700">{t.company_label || t.client_label || t.client_id || "—"}</span>
+              {!reassigning ? (
+                <button
+                  onClick={() => { setReassigning(true); loadClientList(); }}
+                  disabled={busy}
+                  className="rounded-md ring-1 ring-indigo-200 text-indigo-700 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 text-[11px] disabled:opacity-50"
+                  data-testid={`ticket-${t.id}-reassign-btn`}
+                >
+                  ✎ Réaffecter
+                </button>
+              ) : (
+                <>
+                  <select
+                    onChange={(e) => reassignToClient(e.target.value)}
+                    disabled={busy || clientList === null}
+                    defaultValue=""
+                    className="rounded-md border border-indigo-300 bg-white px-2 py-1 text-xs"
+                    data-testid={`ticket-${t.id}-reassign-select`}
+                  >
+                    <option value="" disabled>{clientList === null ? "Chargement…" : "— Sélectionner un client —"}</option>
+                    {(clientList || []).map((c) => (
+                      <option key={c.id} value={c.id} disabled={c.id === t.client_id}>
+                        {(c.company || c.full_name || c.email || c.id) + (c.id === t.client_id ? " (actuel)" : "")}
+                      </option>
+                    ))}
+                  </select>
+                  <button
+                    onClick={() => setReassigning(false)}
+                    className="rounded-md ring-1 ring-slate-200 text-slate-600 px-2 py-1 text-[11px]"
+                    data-testid={`ticket-${t.id}-reassign-cancel`}
+                  >Annuler</button>
+                </>
+              )}
+              {t.reassigned_at && (
+                <span className="text-[10px] text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-full px-2 py-0.5" title={`Réaffecté depuis ${t.reassigned_from} le ${t.reassigned_at}`}>
+                  ↻ Réaffecté
+                </span>
+              )}
             </div>
           )}
           {t.resolution_note && (

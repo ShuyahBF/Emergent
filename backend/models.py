@@ -483,6 +483,9 @@ class SettingsUpdate(BaseModel):
     # text so Liluvine can find an image even without a manual caption.
     # Per-upload override available via the `auto_describe` form field.
     qdrant_image_auto_describe: Optional[bool] = None
+    # --- 0-2 (2026-02) — Allow opt-in for digest emails to be sent from the
+    # PREVIEW environment too (default = skip preview, only send from PROD).
+    health_weekly_send_from_preview: Optional[bool] = None
 
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
@@ -992,6 +995,9 @@ class TicketUpdatePayload(BaseModel):
     status: Optional[str] = None  # open|in_progress|suspended (closing uses /close)
     motif: Optional[str] = None
     notes: Optional[str] = None
+    # 0-4 (2026-02) — Admin / supervisor can re-attach a ticket to a
+    # different client (tenant). Must be a real user from the same group.
+    client_id: Optional[str] = None
 
 
 class TicketClosePayload(BaseModel):

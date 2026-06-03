@@ -15,7 +15,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Plus, Trash2, Edit2, Save, X, Loader2, Calendar, Banknote,
-  ToggleLeft, ToggleRight, Sparkles, Briefcase, Copy,
+  ToggleLeft, ToggleRight, Sparkles, Briefcase, Copy, BookOpen, ArrowRightLeft,
 } from "lucide-react";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -493,12 +493,338 @@ function BonusesCard({ employee, currency, defaultMonth }) {
 
 
 // =====================================================================
+// 0-3 (2026-02) — Catalog of pay items (standalone templates)
+// =====================================================================
+function CatalogCard({ employee, onApplied, defaultMonth }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [creating, setCreating] = useState(false);
+  const [form, setForm] = useState({ kind: "allowance", label: "", default_amount: "", description: "" });
+  const [applyingId, setApplyingId] = useState(null);
+  const [applyForm, setApplyForm] = useState({ amount: "", bonus_month: defaultMonth });
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/hr/pay-catalog");
+      setItems(r.data || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de chargement du catalogue");
+    } finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const create = async () => {
+    if (!form.label.trim()) { toast.error("Libellé requis"); return; }
+    try {
+      await apiClient.post("/hr/pay-catalog", {
+        kind: form.kind,
+        label: form.label.trim(),
+        default_amount: parseFloat(form.default_amount || 0),
+        description: form.description.trim() || null,
+      });
+      toast.success("Élément catalogue ajouté");
+      setForm({ kind: "allowance", label: "", default_amount: "", description: "" });
+      setCreating(false);
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  const remove = async (it) => {
+    if (!window.confirm(`Supprimer « ${it.label} » du catalogue ? (Les indemnités/primes déjà attachées aux employés ne sont pas touchées.)`)) return;
+    try {
+      await apiClient.delete(`/hr/pay-catalog/${it.id}`);
+      toast.success("Supprimé");
+      load();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  const apply = async (it) => {
+    if (!employee?.id) { toast.error("Sélectionnez d'abord un employé"); return; }
+    const data = new FormData();
+    if (applyForm.amount) data.append("amount", applyForm.amount);
+    if (it.kind === "bonus") {
+      if (!applyForm.bonus_month) { toast.error("Mois requis pour une prime"); return; }
+      data.append("bonus_month", applyForm.bonus_month);
+    }
+    try {
+      await apiClient.post(`/hr/employees/${employee.id}/apply-catalog/${it.id}`, data, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      toast.success(`« ${it.label} » appliqué à ${employee.user?.full_name || employee.matricule}`);
+      setApplyingId(null);
+      setApplyForm({ amount: "", bonus_month: defaultMonth });
+      onApplied?.();
+    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  return (
+    <div className="bg-white border border-slate-200 rounded-xl p-4" data-testid="hr-catalog-card">
+      <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+        <div>
+          <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+            <BookOpen size={16} className="text-violet-600" />
+            Catalogue des primes & indemnités
+          </h3>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            Définissez vos rubriques (transport, logement, treizième mois…) une seule fois.
+            Appliquez-les ensuite à n'importe quel agent en un clic. Codes auto-générés.
+          </p>
+        </div>
+        {!creating && (
+          <button
+            onClick={() => setCreating(true)}
+            data-testid="hr-catalog-add-btn"
+            className="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs rounded-lg flex items-center gap-1"
+          >
+            <Plus size={14} /> Nouvelle rubrique
+          </button>
+        )}
+      </div>
+
+      {creating && (
+        <div className="bg-violet-50 border border-violet-200 rounded-lg p-3 mb-3 space-y-2" data-testid="hr-catalog-create-form">
+          <div className="flex gap-2">
+            <select
+              value={form.kind}
+              onChange={(e) => setForm({ ...form, kind: e.target.value })}
+              data-testid="hr-catalog-kind"
+              className="px-2.5 py-1.5 rounded-md border border-slate-200 text-sm bg-white"
+            >
+              <option value="allowance">📌 Indemnité (fixe / mois)</option>
+              <option value="bonus">✨ Prime (variable / mois)</option>
+            </select>
+            <input
+              placeholder="Libellé (ex: Indemnité Transport)"
+              value={form.label}
+              onChange={(e) => setForm({ ...form, label: e.target.value })}
+              data-testid="hr-catalog-label"
+              className="flex-1 px-2.5 py-1.5 rounded-md border border-slate-200 text-sm"
+            />
+          </div>
+          <input
+            type="number"
+            placeholder="Montant par défaut (modifiable à l'application)"
+            value={form.default_amount}
+            onChange={(e) => setForm({ ...form, default_amount: e.target.value })}
+            data-testid="hr-catalog-default-amount"
+            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-sm"
+          />
+          <input
+            placeholder="Description / règle (optionnel)"
+            value={form.description}
+            onChange={(e) => setForm({ ...form, description: e.target.value })}
+            className="w-full px-2.5 py-1.5 rounded-md border border-slate-200 text-sm"
+          />
+          <div className="flex justify-end gap-2">
+            <button onClick={() => { setCreating(false); setForm({ kind: "allowance", label: "", default_amount: "", description: "" }); }} className="px-2.5 py-1.5 text-xs rounded-md ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+            <button onClick={create} data-testid="hr-catalog-save" className="px-2.5 py-1.5 bg-violet-600 hover:bg-violet-700 text-white text-xs rounded-md inline-flex items-center gap-1">
+              <Save size={12} /> Enregistrer
+            </button>
+          </div>
+        </div>
+      )}
+
+      {loading ? <Empty label="Chargement…" /> : items.length === 0 ? (
+        <Empty label="Aucune rubrique. Créez votre première !" />
+      ) : (
+        <div className="space-y-1.5">
+          {items.map((it) => (
+            <div key={it.id} data-testid={`hr-catalog-row-${it.id}`} className="rounded-lg ring-1 ring-slate-200 bg-white p-2.5">
+              <div className="flex items-center gap-2">
+                <span className={`text-[10px] font-mono px-1.5 py-0.5 rounded ${it.kind === "allowance" ? "bg-indigo-100 text-indigo-700" : "bg-amber-100 text-amber-700"}`}>
+                  {it.code}
+                </span>
+                <span className={`text-[10px] uppercase tracking-wider ${it.kind === "allowance" ? "text-indigo-600" : "text-amber-600"}`}>
+                  {it.kind === "allowance" ? "Indemnité" : "Prime"}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-800 truncate">{it.label}</p>
+                  {it.description && <p className="text-[10px] text-slate-500 truncate">{it.description}</p>}
+                </div>
+                <div className="text-xs text-slate-600 tabular-nums shrink-0">
+                  ~ {FCFA(it.default_amount)} {it.currency || "XOF"}
+                </div>
+                <button
+                  onClick={() => { setApplyingId(applyingId === it.id ? null : it.id); setApplyForm({ amount: "", bonus_month: defaultMonth }); }}
+                  data-testid={`hr-catalog-apply-${it.id}`}
+                  disabled={!employee}
+                  title={employee ? `Appliquer à ${employee.user?.full_name || employee.matricule}` : "Sélectionnez un employé d'abord"}
+                  className="px-2 py-1 text-[11px] rounded bg-emerald-600 hover:bg-emerald-700 text-white disabled:opacity-40 inline-flex items-center gap-1"
+                >
+                  → Appliquer
+                </button>
+                <button onClick={() => remove(it)} className="text-rose-400 hover:text-rose-700 p-1" data-testid={`hr-catalog-delete-${it.id}`}>
+                  <Trash2 size={14} />
+                </button>
+              </div>
+              {applyingId === it.id && employee && (
+                <div className="mt-2 pt-2 border-t border-slate-100 flex flex-wrap items-center gap-2" data-testid={`hr-catalog-apply-form-${it.id}`}>
+                  <input
+                    type="number"
+                    placeholder={`Montant (def. ${FCFA(it.default_amount)})`}
+                    value={applyForm.amount}
+                    onChange={(e) => setApplyForm({ ...applyForm, amount: e.target.value })}
+                    className="px-2 py-1 rounded border border-slate-300 text-xs w-40"
+                  />
+                  {it.kind === "bonus" && (
+                    <input
+                      type="month"
+                      value={applyForm.bonus_month}
+                      onChange={(e) => setApplyForm({ ...applyForm, bonus_month: e.target.value })}
+                      className="px-2 py-1 rounded border border-slate-300 text-xs"
+                    />
+                  )}
+                  <button onClick={() => apply(it)} className="px-2 py-1 text-[11px] rounded bg-emerald-600 hover:bg-emerald-700 text-white" data-testid={`hr-catalog-confirm-${it.id}`}>
+                    Confirmer
+                  </button>
+                  <button onClick={() => setApplyingId(null)} className="px-2 py-1 text-[11px] rounded ring-1 ring-slate-300 text-slate-600">
+                    Annuler
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+// =====================================================================
+// 0-3 (2026-02) — Copy primes/indemnités from src to target employee
+// =====================================================================
+function CopyButton({ employees, srcEmployee, onCopied, defaultMonth }) {
+  const [open, setOpen] = useState(false);
+  const [targetId, setTargetId] = useState("");
+  const [includeAllowances, setIncludeAllowances] = useState(true);
+  const [includeBonuses, setIncludeBonuses] = useState(false);
+  const [bonusMonth, setBonusMonth] = useState(defaultMonth);
+  const [busy, setBusy] = useState(false);
+
+  const submit = async () => {
+    if (!targetId) { toast.error("Sélectionnez un employé cible"); return; }
+    if (!includeAllowances && !includeBonuses) { toast.error("Au moins une option (indemnités ou primes)"); return; }
+    setBusy(true);
+    try {
+      const r = await apiClient.post(`/hr/employees/${srcEmployee.id}/copy-pay-items`, {
+        target_employee_id: targetId,
+        include_allowances: includeAllowances,
+        include_bonuses: includeBonuses,
+        bonus_month: includeBonuses ? bonusMonth : null,
+      });
+      const d = r.data || {};
+      toast.success(`✓ ${d.copied_allowances || 0} indemnité(s) + ${d.copied_bonuses || 0} prime(s) recopiées.`);
+      setOpen(false);
+      setTargetId("");
+      onCopied?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  const otherEmployees = employees.filter((e) => e.id !== srcEmployee?.id);
+
+  if (!srcEmployee) return null;
+
+  return (
+    <>
+      <button
+        onClick={() => setOpen(true)}
+        data-testid="hr-copy-pay-items-btn"
+        className="px-3 py-2 bg-sky-50 hover:bg-sky-100 text-sky-700 ring-1 ring-sky-200 rounded-lg text-xs inline-flex items-center gap-1.5"
+        title="Reporter les primes & indemnités d'un agent à un autre"
+      >
+        <ArrowRightLeft size={14} /> Reporter vers un autre agent
+      </button>
+      {open && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" data-testid="hr-copy-modal">
+          <div className="bg-white rounded-xl shadow-xl max-w-md w-full p-5 space-y-4">
+            <div className="flex items-center justify-between">
+              <h3 className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                <ArrowRightLeft size={16} className="text-sky-600" />
+                Reporter les rubriques de paie
+              </h3>
+              <button onClick={() => setOpen(false)} className="text-slate-400 hover:text-slate-700" data-testid="hr-copy-modal-close">
+                <X size={18} />
+              </button>
+            </div>
+            <div className="text-xs text-slate-600 bg-slate-50 rounded p-2">
+              <p>De : <strong>{srcEmployee.user?.full_name || srcEmployee.matricule}</strong></p>
+            </div>
+            <div>
+              <label className="text-xs font-semibold text-slate-700 mb-1 block">Vers</label>
+              <select
+                value={targetId}
+                onChange={(e) => setTargetId(e.target.value)}
+                data-testid="hr-copy-target-select"
+                className="w-full px-2.5 py-2 rounded border border-slate-300 text-sm"
+              >
+                <option value="">— Choisir un employé —</option>
+                {otherEmployees.map((e) => (
+                  <option key={e.id} value={e.id}>{e.user?.full_name || e.name_snapshot || e.matricule}</option>
+                ))}
+              </select>
+            </div>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeAllowances}
+                onChange={(e) => setIncludeAllowances(e.target.checked)}
+                data-testid="hr-copy-include-allowances"
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-semibold text-slate-700">Indemnités fixes (actives uniquement)</span>
+                <span className="block text-[10px] text-slate-500">Récurrentes — recopiées telles quelles, état actif.</span>
+              </span>
+            </label>
+            <label className="flex items-start gap-2 text-xs cursor-pointer">
+              <input
+                type="checkbox"
+                checked={includeBonuses}
+                onChange={(e) => setIncludeBonuses(e.target.checked)}
+                data-testid="hr-copy-include-bonuses"
+                className="mt-0.5"
+              />
+              <span>
+                <span className="font-semibold text-slate-700">Primes d'un mois précis</span>
+                <span className="block text-[10px] text-slate-500">Spécifiez le mois ; les primes de ce mois seront recopiées.</span>
+              </span>
+            </label>
+            {includeBonuses && (
+              <input
+                type="month"
+                value={bonusMonth}
+                onChange={(e) => setBonusMonth(e.target.value)}
+                data-testid="hr-copy-bonus-month"
+                className="ml-6 px-2 py-1 rounded border border-slate-300 text-xs"
+              />
+            )}
+            <div className="flex justify-end gap-2 pt-2">
+              <button onClick={() => setOpen(false)} className="px-3 py-1.5 text-xs rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
+              <button onClick={submit} disabled={busy || !targetId} data-testid="hr-copy-submit" className="px-3 py-1.5 bg-sky-600 hover:bg-sky-700 text-white text-xs rounded inline-flex items-center gap-1 disabled:opacity-50">
+                {busy ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />} Reporter
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+
+// =====================================================================
 // Main tab
 // =====================================================================
 export default function PrimesIndemnitesTab({ employees }) {
   const today = new Date();
   const defaultMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, "0")}`;
   const [selectedId, setSelectedId] = useState(employees[0]?.id || "");
+  const [refreshKey, setRefreshKey] = useState(0);
 
   const selected = useMemo(
     () => employees.find((e) => e.id === selectedId) || null,
@@ -506,6 +832,8 @@ export default function PrimesIndemnitesTab({ employees }) {
   );
 
   if (employees.length === 0) return <Empty label="Aucun employé enrôlé." />;
+
+  const triggerRefresh = () => setRefreshKey((k) => k + 1);
 
   return (
     <div className="space-y-4" data-testid="hr-primes-indemnites-tab">
@@ -526,19 +854,30 @@ export default function PrimesIndemnitesTab({ employees }) {
           </select>
         </div>
         {selected && (
-          <div className="text-xs text-slate-500 px-2 py-2 inline-flex items-center gap-2">
-            <Banknote size={14} className="text-emerald-600" />
-            Salaire de base : <strong className="text-slate-700">{FCFA(selected.base_salary)} {selected.currency || "XOF"}</strong>
-          </div>
+          <>
+            <div className="text-xs text-slate-500 px-2 py-2 inline-flex items-center gap-2">
+              <Banknote size={14} className="text-emerald-600" />
+              Salaire de base : <strong className="text-slate-700">{FCFA(selected.base_salary)} {selected.currency || "XOF"}</strong>
+            </div>
+            <CopyButton
+              employees={employees}
+              srcEmployee={selected}
+              defaultMonth={defaultMonth}
+              onCopied={triggerRefresh}
+            />
+          </>
         )}
       </div>
 
       {selected && (
-        <div className="grid lg:grid-cols-2 gap-4">
+        <div className="grid lg:grid-cols-2 gap-4" key={refreshKey}>
           <AllowancesCard employee={selected} currency={selected.currency || "XOF"} />
           <BonusesCard employee={selected} currency={selected.currency || "XOF"} defaultMonth={defaultMonth} />
         </div>
       )}
+
+      {/* 0-3 — Standalone catalog of pay items (independent of any employee) */}
+      <CatalogCard employee={selected} defaultMonth={defaultMonth} onApplied={triggerRefresh} />
 
       <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-[11px] text-blue-800">
         💡 Les <strong>indemnités fixes</strong> et <strong>primes du mois</strong> sont automatiquement

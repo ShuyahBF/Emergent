@@ -6,6 +6,50 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — Sprint Order 0 — 5 fixes UX/UI/backend
+
+### ✅ 0.1 — Coffre-fort des secrets repliable
+- 3 sections « libres » (`SecretsVaultSection`, `FileStorageSection`, `RoadmapTrackerSection`) qui s'affichaient sur tous les onglets sont désormais enveloppées dans `<Filterable>` avec catégories (auth/diagnostics). Le coffre-fort apparaît uniquement sur l'onglet « Sécurité & Auth » + « Tous ».
+- **Fichier** : `frontend/src/pages/admin/AdminSettings.jsx`.
+
+### ✅ 0.2 — Digest hebdo : skip de l'environnement PREVIEW
+- Nouveau setting `health_weekly_send_from_preview` (default false). Le helper `_send_weekly_digest()` détecte l'env via `PUBLIC_BASE_URL` (variable déjà présente dans backend/.env) et skip si `.preview.` dans l'URL.
+- Log : `[weekly-digest] Skipping send — running in PREVIEW environment` vérifié.
+- L'utilisateur ne reçoit plus de digest depuis le preview ; uniquement depuis production.
+- **Tests** : `backend/tests/test_iter0_2_preview_digest_skip.py` (2/2 verts).
+- **Fichiers** : `backend/server.py`, `backend/models.py:SettingsUpdate`.
+
+### ✅ 0.3 — GRH : Catalogue de primes/indemnités + Report agent→agent + auto-codes
+- Nouveau **Catalogue** standalone (`hr_pay_catalog`) avec CRUD : rubriques `kind` (allowance/bonus), `label`, `default_amount`, `description`. Codes auto : `CAT-NNNN` (indemnités) / `PRMC-NNNN` (primes). Tenant-scoped via collection `hr_counters`.
+- Nouveau endpoint `POST /api/hr/employees/{eid}/apply-catalog/{cid}` : applique une rubrique catalogue à un employé en un clic, avec override `amount` optionnel + `bonus_month` pour les primes.
+- **Auto-codes universels** : toutes les indemnités créées (anciennes API ou via catalogue) ont désormais `code` au format `IND-NNNN` ; toutes les primes ont `PRM-NNNN`. Compteur tenant-scoped, incrémental.
+- Nouveau endpoint `POST /api/hr/employees/{src_eid}/copy-pay-items` (body : `target_employee_id`, `include_allowances`, `include_bonuses`, `bonus_month`) : recopie en bloc les indemnités actives + primes d'un mois précis vers un autre employé. Trace `copied_from_employee_id`.
+- **UI** : 2 nouveaux composants dans l'onglet « Primes & Indemnités » :
+  - `CatalogCard` (data-testid `hr-catalog-card`) : CRUD complet du catalogue + bouton « → Appliquer » par rubrique.
+  - `CopyButton` (data-testid `hr-copy-pay-items-btn`) : modal « Reporter les rubriques de paie » → sélection cible + cases à cocher allowances/bonuses.
+- **Tests** : `backend/tests/test_siter39u_catalog_copy_codes.py` (9/9 verts).
+- **Fichiers** : `backend/routes/hr.py` (5 nouveaux endpoints + helper `_next_pay_code` + Pydantic models), `frontend/src/pages/portal/HrPrimesIndemnites.jsx` (CatalogCard + CopyButton).
+
+### ✅ 0.4 — Tickets : réaffecter le client lié (tenant)
+- `TicketUpdatePayload` accepte désormais `client_id` (optionnel). PATCH `/me/tickets/{tid}` avec `{client_id: …}` réaffecte le ticket (restricted to elevated roles).
+- Trace : `reassigned_from`, `reassigned_at`, `reassigned_by`, `client_company_snapshot` mis à jour. Badge `↻ Réaffecté` dans l'UI.
+- **UI** : nouvelle ligne « Client lié : [actuel] [✎ Réaffecter] » dans `TicketRow` (testid `ticket-{id}-reassign-row`). Bouton ouvre un select avec tous les clients (`/me/clients`).
+- **Tests** : `backend/tests/test_iter0_4_ticket_reassign.py` (4/4 verts) — reassign OK, same-cid noop, 404 cible inconnue, 403 client lambda.
+- **Fichiers** : `backend/server.py:me_update_ticket`, `backend/models.py:TicketUpdatePayload`, `frontend/src/pages/portal/Tickets.jsx`.
+
+### ✅ 0.5 — Modérateurs suivent Liluvine PRO et reprennent la main
+- **Déjà en place** (S-iter39d) : sidebar `/portal/liluvine-history` avec `moderationOnly: true`, `_TAKEOVER_ROLES` backend inclut `"moderation"`, bouton « Reprendre la conversation » dans `AdminLiluvineHistory`. Aucun code à ajouter.
+
+### 📊 Total sprint
+- **15 nouveaux tests verts** (+9 catalog/copy +4 ticket reassign +2 digest skip) = **32/32 régression incl. nouveaux**.
+- **Fichiers modifiés** : 6 backend + 3 frontend. Lints clean.
+
+### 📋 Reporté pour sessions dédiées (sur demande utilisateur)
+- **#1 (S044 history)** : « Voir l'historique des captures envoyées » sur la fiche d'un contact + analytics top-écrans consultés. ~30 min.
+- **#2 (S046 i18n)** : 5 langues, 3-4 h, traduction auto Claude ~$2-3.
+- **#3 (S045 Phase 1)** : Refactor Auth & Sessions de server.py vers routes/auth.py. ~1 session.
+
+
 ## Recent (2026-02 post-handoff) — S-iter39t — 📸 Liluvine voit & duplication primes
 
 ### ✅ S044 — Liluvine compare une capture d'écran client avec la base d'images SAWALI

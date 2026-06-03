@@ -10500,8 +10500,13 @@ async def _send_weekly_digest():
             return
         # 0-2 (2026-02) — Don't blast preview-database digests to the admin.
         # When running in the PREVIEW environment, skip by default unless the
-        # admin has explicitly opted to receive preview digests too.
-        preview_url = os.environ.get("preview_endpoint", "") or os.environ.get("REACT_APP_BACKEND_URL", "")
+        # admin has explicitly opted to receive preview digests too. Use
+        # PUBLIC_BASE_URL (always populated in backend/.env) to detect env.
+        preview_url = (
+            os.environ.get("PUBLIC_BASE_URL", "")
+            or os.environ.get("preview_endpoint", "")
+            or os.environ.get("REACT_APP_BACKEND_URL", "")
+        )
         is_preview_env = ".preview." in preview_url
         if is_preview_env and not s.get("health_weekly_send_from_preview"):
             logger.info(

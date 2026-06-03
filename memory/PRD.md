@@ -6,6 +6,25 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39r — 🖼️ S040 modal upload + P1 Claude Vision RAG
+
+### ✅ S040 — MediaUploadModal monté dans AdminMediaLibrary (& /admin/brochures)
+- `MediaUploadModal.jsx` (créé fin session précédente) maintenant branché dans `AdminMediaLibrary.jsx` à la place de la cascade `window.prompt`.
+- Modal complet : fichier, titre obligatoire (auto-rempli depuis le nom du fichier), description, tags (séparés par virgules), toggle public, badge type (PDF/Vidéo/Image) avec icône + taille en Ko.
+- 7 data-testid : `media-upload-modal`, `…-file`, `…-title`, `…-description`, `…-tags`, `…-public`, `…-submit`, `…-cancel`.
+- AdminBrochures.jsx hérite automatiquement (il utilise AdminMediaLibrary).
+
+### ✅ P1 — Enrichissement Qdrant image via Claude Sonnet 4.6 Vision (OCR + description)
+- Nouveau helper `describe_image_with_vision(raw, mime)` dans `qdrant_rag.py` : appel à Claude Vision (via emergentintegrations + EMERGENT_LLM_KEY) qui renvoie un Markdown `### OCR / ### Description`. Parser robuste, swallow errors (retourne `{ocr_text:"", visual_summary:""}` si clé absente, octets vides ou réseau down).
+- `upsert_image()` enrichi : le texte d'embedding combine désormais `title + caption + visual_summary + ocr_text`. Le payload stocke chaque champ séparément pour inspection.
+- Endpoint `POST /api/admin/qdrant/collections/{name}/points/image` accepte un nouveau form-field `auto_describe` (`'on'|'off'|'auto'`, default `'auto'` → respecte le setting global `qdrant_image_auto_describe`, true par défaut).
+- L'entrée `media_library` créée en parallèle est taggée `vision-enriched` et stocke `vision_ocr` + `vision_summary`.
+- UI : `QdrantRagSection.jsx > UpsertImageTab` propose désormais un checkbox `data-testid="qdrant-image-auto-describe"` (coché par défaut, label « Analyser l'image avec Claude Vision »). Submit activé dès qu'un fichier est sélectionné (titre/caption manuels facultatifs). Le panneau de résultat affiche la description Vision + un `<details>` pour le texte OCR.
+- **Fichiers** : `backend/routes/qdrant_rag.py`, `frontend/src/components/QdrantRagSection.jsx`, `frontend/src/components/AdminMediaLibrary.jsx`.
+- **Tests** : 5/5 verts — `backend/tests/test_siter39r_p1_vision_enrich.py` (parser regex + helper mocké LlmChat + cas no-key + cas bytes vides). Backend total 13/13 (E2E HTTP auto_describe on/off ajouté par testing agent dans `test_siter39r_image_auto_describe.py`).
+- **Itération test** : `/app/test_reports/iteration_46.json` — 100% pass backend & frontend.
+
+
 ## Recent (2026-02 post-handoff) — S-iter39h — 📈 Burn-rate Universal Key & alertes anticipées
 
 ### ✅ S032 — Vitesse de consommation Universal Key + alertes Email + WhatsApp (80% / 95%)

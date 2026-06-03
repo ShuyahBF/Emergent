@@ -6,6 +6,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## CRITICAL FIX (2026-02) — rabo.f@sawalismartsystems.com — Liluvine PRO indisponible
+
+### Symptômes (rapportés par l'utilisateur sur PRODUCTION)
+1. Web chat Liluvine PRO → erreur « Liluvine PRO n'est pas activé pour votre compte »
+2. Nom rabo.f absent des contacts du centre de messagerie
+3. WhatsApp depuis +22673494658 → Liluvine ne réagit pas
+
+### Bugs identifiés et corrigés en code (à déployer)
+**Bug #1** — `_client_scope()` dans `routes/liluvine_pro.py` ne gérait pas le rôle `moderateur` : `tracked_user_id` et `client_id` étant vides pour un modérateur, scope tombait sur `user["id"]` → check `features.ai_liluvine_pro` sur le compte personnel du modérateur (jamais activé) → erreur 403.
+- **Fix** : ajout de `parent_client_id` dans la chaîne de fallback. Les modérateurs résolvent maintenant leur scope vers le tenant admin qui les a créés.
+
+**Bug #2** — `whatsapp_webhook_receive()` dans `server.py` ligne 15439 ne cherchait QUE les `superviseur` pour résoudre le tenant inbound. Un install Sawali avec uniquement un `admin` (cas typique) finissait avec `client_scope=None` → l'auto-reply ne pouvait pas résoudre la feature.
+- **Fix** : chaîne de fallback `superviseur → admin (non-super-admin) → super-admin`.
+
+**Outil de diagnostic** — Nouveau endpoint `GET /api/admin/liluvine-pro/diagnose?email=...&phone=...` accessible aux admins/superviseurs/modérateurs. Renvoie un rapport JSON exhaustif :
+- Si l'utilisateur existe (id, role, parent_client_id, account_status, features…)
+- Le tenant résolu pour Liluvine (scope_uid, ai_liluvine_pro_enabled)
+- L'état complet de l'auto-reply WhatsApp (autoreply_enabled, allow/deny lists, whitelist mode, human_takeover, cooldown)
+- Une liste **blocking_reasons** en français qui pointe directement la cause racine
+- Un hint d'action quand la feature est désactivée
+
+### Restant à vérifier en PRODUCTION (l'admin doit faire après déploiement)
+1. Appeler `GET /api/admin/liluvine-pro/diagnose?email=rabo.f@sawalismartsystems.com` depuis prod.
+2. Vérifier `account_status=active` et `parent_client_id` pointant vers l'admin SAWALI principal.
+3. Si `ai_liluvine_pro_enabled=false` sur le tenant parent → l'activer via `/admin/clients/{scope_uid}/features`.
+4. Vérifier que `liluvine_wa_autoreply_enabled=true` et phone pas en deny.
+5. Pour le bug #2 (contacts) — la cause exacte dépend de quelle vue UI : « centre de messagerie » est ambigu, l'utilisateur doit préciser (Contacts portail, Liste assignables tickets, Internal Chat ?). À investiguer avec une capture d'écran.
+
+### Tests
+- Régression 27/27 verts (auth refactor + screenshots + coverage gaps + S044).
+- Endpoint diagnose validé E2E sur preview, identifie 2 blocking_reasons correctement.
+
+
 ## Recent (2026-02 post-handoff) — Sujets non couverts + S045 Phase 1
 
 ### ✅ #2bis — Onglet « Sujets non couverts »

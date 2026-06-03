@@ -15436,7 +15436,23 @@ async def whatsapp_webhook_incoming(request: Request):
 
     client_scope = None  # our app uses per-install WABA, so scope = primary client/superviseur
     try:
+        # Iter Bugfix (2026-02 — rabo.f case) — fallback chain: first
+        # `superviseur` → first `admin` excluding the platform super-admin →
+        # finally the super-admin himself. Without this, installs that only
+        # have an `admin` role (typical for a fresh Sawali tenant) couldn't
+        # match inbound WhatsApp messages to any tenant scope, breaking the
+        # Liluvine WA auto-reply (it would skip with `liluvine_pro_not_enabled`
+        # or, worse, fire without a tenant context).
         primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1})
+        if not primary:
+            primary = await db.users.find_one(
+                {"role": "admin", "email": {"$ne": "admin@sawalismartsystems.com"}},
+                {"_id": 0, "id": 1},
+            )
+        if not primary:
+            primary = await db.users.find_one(
+                {"email": "admin@sawalismartsystems.com"}, {"_id": 0, "id": 1},
+            )
         client_scope = (primary or {}).get("id")
     except Exception:
         pass

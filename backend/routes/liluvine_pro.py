@@ -99,10 +99,97 @@ def _now() -> str:
 
 
 def _client_scope(user: dict) -> str:
-    """Tenant scope = parent admin id for tracked users, self for admins."""
+    """Tenant scope = parent admin id for tracked users, self for admins.
+
+    Bugfix (2026-02) — `moderateur` users (Sawali support staff working
+    inside an admin/superviseur tenant) had no scope resolved : their
+    `tracked_user_id` is empty and they don't own a tenant. Falling back
+    to `parent_client_id` correctly anchors them to the admin tenant
+    that created them, so feature checks (ai_liluvine_pro, etc.) resolve
+    to that tenant — not to their own personal account.
+    """
     if user.get("role") in ("admin", "superviseur"):
         return user["id"]
-    return user.get("tracked_user_id") or user.get("client_id") or user["id"]
+    return (
+        user.get("tracked_user_id")
+        or user.get("client_id")
+        or user.get("parent_client_id")
+        or user["id"]
+    )
+
+
+async def _diagnose_wa_inbound(db, phone: str) -> Dict[str, Any]:
+    """Bugfix helper (2026-02) — explain what would happen when WhatsApp
+    receives an inbound message from this phone number. Used by the
+    admin /diagnose endpoint to give a clear root-cause hint."""
+    out: Dict[str, Any] = {"phone": phone}
+    digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+    out["phone_digits"] = digits
+    # 1) Which tenant scope would the webhook resolve?
+    primary = await db.users.find_one({"role": "superviseur"}, {"_id": 0, "id": 1, "email": 1})
+    if not primary:
+        primary = await db.users.find_one(
+            {"role": "admin", "email": {"$ne": "admin@sawalismartsystems.com"}},
+            {"_id": 0, "id": 1, "email": 1},
+        )
+    if not primary:
+        primary = await db.users.find_one(
+            {"email": "admin@sawalismartsystems.com"}, {"_id": 0, "id": 1, "email": 1},
+        )
+    out["resolved_webhook_tenant"] = primary or None
+    # 2) Settings for the auto-reply
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    out["autoreply_enabled"] = bool(s.get("liluvine_wa_autoreply_enabled"))
+    out["allow_mode"] = s.get("liluvine_wa_autoreply_allow_mode") or "any"
+    keywords = (s.get("liluvine_wa_autoreply_keywords") or "").strip()
+    out["keywords_filter"] = keywords or "(aucun — accepte tout)"
+    out["cooldown_seconds"] = s.get("liluvine_wa_autoreply_cooldown_seconds") or 60
+    deny_raw = s.get("liluvine_wa_autoreply_deny_phones") or ""
+    allow_raw = s.get("liluvine_wa_autoreply_allow_phones") or ""
+    # Robust: accept either a comma-separated string OR a list of strings.
+    deny_list = deny_raw if isinstance(deny_raw, list) else [p.strip() for p in str(deny_raw).split(",") if p.strip()]
+    allow_list = allow_raw if isinstance(allow_raw, list) else [p.strip() for p in str(allow_raw).split(",") if p.strip()]
+    deny_digits = {"".join(ch for ch in p if ch.isdigit()) for p in deny_list}
+    allow_digits = {"".join(ch for ch in p if ch.isdigit()) for p in allow_list}
+    out["denylisted"] = digits in deny_digits if digits else False
+    out["whitelist_required"] = out["allow_mode"] == "whitelist"
+    out["in_whitelist"] = digits in allow_digits if digits else False
+    # 3) Human takeover ?
+    if primary:
+        sid = f"wa:{primary['id']}:{digits}"
+        sess = await db.liluvine_pro_sessions.find_one(
+            {"id": sid}, {"_id": 0, "human_takeover": 1, "human_takeover_until": 1},
+        )
+        out["human_takeover_active"] = bool(sess and sess.get("human_takeover"))
+    # 4) Tenant feature
+    if primary:
+        tenant = await db.users.find_one({"id": primary["id"]}, {"_id": 0, "features": 1, "email": 1}) or {}
+        feats = tenant.get("features") or {}
+        out["tenant_ai_liluvine_pro"] = bool(feats.get("ai_liluvine_pro"))
+        out["tenant_email"] = tenant.get("email")
+    # 5) Anti-flood state for this phone
+    state = await db.liluvine_wa_autoreply_state.find_one(
+        {"phone_digits": digits}, {"_id": 0, "last_replied_at": 1},
+    )
+    out["last_replied_at"] = (state or {}).get("last_replied_at")
+    # 6) Conclusion
+    reasons = []
+    if not out["autoreply_enabled"]:
+        reasons.append("L'auto-réponse WhatsApp Liluvine est DÉSACTIVÉE dans les Réglages.")
+    if out["denylisted"]:
+        reasons.append(f"Le numéro {digits} est dans la liste DENY.")
+    if out["whitelist_required"] and not out["in_whitelist"]:
+        reasons.append(f"Mode whitelist actif et {digits} n'y est pas.")
+    if out.get("human_takeover_active"):
+        reasons.append("Un humain a repris la conversation (human_takeover actif).")
+    if out.get("tenant_ai_liluvine_pro") is False:
+        reasons.append(
+            f"La feature 'ai_liluvine_pro' n'est PAS activée sur le tenant {out.get('tenant_email')}."
+        )
+    if not primary:
+        reasons.append("Aucun tenant primaire (admin/superviseur) trouvé pour router le message.")
+    out["blocking_reasons"] = reasons or ["Aucun blocage évident — vérifiez les keywords + cooldown."]
+    return out
 
 
 # Lightweight keyword → fetcher map. The point is to inject a small,
@@ -1425,6 +1512,69 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "created_at": {"$gte": cutoff},
         })
         return {"items": top, "total_screenshots": total_screenshots, "days": days}
+
+    # ----------------------------------------------------------
+    # Bugfix (2026-02 — rabo.f case) — Diagnostic endpoint to
+    # explain *why* Liluvine PRO is/isn't available for a given user
+    # or phone number. Admin/sup/moderation only. No state mutation.
+    # ----------------------------------------------------------
+    @api.get("/admin/liluvine-pro/diagnose", tags=["Admin — Liluvine PRO"])
+    async def admin_diagnose(
+        email: Optional[str] = None,
+        phone: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        if not email and not phone:
+            raise HTTPException(status_code=400, detail="Fournissez email OU phone.")
+        target = None
+        if email:
+            target = await db.users.find_one({"email": email.lower().strip()}, {"_id": 0, "password_hash": 0})
+        if not target and phone:
+            digits = "".join(ch for ch in phone if ch.isdigit())
+            # Try multiple normalized forms
+            candidates = [phone.strip(), f"+{digits}", digits]
+            target = await db.users.find_one({"phone": {"$in": candidates}}, {"_id": 0, "password_hash": 0})
+        report = {
+            "input": {"email": email, "phone": phone},
+            "user_found": bool(target),
+        }
+        if not target:
+            # Even if no user, the inbound WA flow may still trigger via auto-reply
+            # against the global tenant. Diagnose that path too.
+            report["wa_inbound_path"] = await _diagnose_wa_inbound(db, phone or "")
+            return report
+        # Resolve the tenant scope used by Liluvine for this user
+        scope_uid = _client_scope(target)
+        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "email": 1, "full_name": 1, "role": 1, "features": 1}) or {}
+        report["user"] = {
+            "id": target.get("id"),
+            "email": target.get("email"),
+            "full_name": target.get("full_name"),
+            "role": target.get("role"),
+            "phone": target.get("phone"),
+            "account_status": target.get("account_status"),
+            "parent_client_id": target.get("parent_client_id"),
+            "tracked_user_id": target.get("tracked_user_id"),
+            "client_id_field": target.get("client_id"),
+        }
+        report["resolved_tenant_scope"] = {
+            "scope_uid": scope_uid,
+            "parent_email": parent.get("email"),
+            "parent_role": parent.get("role"),
+            "features": parent.get("features") or {},
+            "ai_liluvine_pro_enabled": bool((parent.get("features") or {}).get("ai_liluvine_pro")),
+        }
+        # Also describe the inbound-WA path even when we know the user
+        report["wa_inbound_path"] = await _diagnose_wa_inbound(db, target.get("phone") or phone or "")
+        # Hint
+        if not report["resolved_tenant_scope"]["ai_liluvine_pro_enabled"]:
+            report["hint"] = (
+                f"Activez la feature 'ai_liluvine_pro' sur le compte "
+                f"{parent.get('email')} (id={scope_uid}) via /admin/clients/{scope_uid}/features."
+            )
+        return report
 
     # ----------------------------------------------------------
     # #2 (2026-02 — suite #1) — Generate documentation draft from a SAWALI

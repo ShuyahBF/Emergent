@@ -78,6 +78,39 @@ function writeSeen(map) {
 }
 const SettingsFilterCtx = createContext(null);
 const useSettingsFilter = () => useContext(SettingsFilterCtx);
+
+// S-iter39q — Settings page split into tabs. Each section's category is
+// derived from its title via keyword matching so we don't have to
+// manually annotate the 30+ existing `<Filterable>` blocks. The bare
+// `<Section>` calls (reCAPTCHA, SMTP, OTP, Google Auth…) are bucketed
+// into "Sécurité & Auth" by default.
+const TABS = [
+  { key: "all",         label: "Tous",                emoji: "📋" },
+  { key: "auth",        label: "Sécurité & Auth",     emoji: "🔐" },
+  { key: "liluvine",    label: "Liluvine PRO",        emoji: "🤖" },
+  { key: "meta",        label: "META (FB / WA)",      emoji: "💬" },
+  { key: "ia",          label: "IA & Universal Key",  emoji: "🧠" },
+  { key: "paiements",   label: "Paiements & Caisse",  emoji: "💳" },
+  { key: "comms",       label: "Communications",      emoji: "📨" },
+  { key: "rh",          label: "GRH & Personnel",     emoji: "👥" },
+  { key: "modules",     label: "Modules & Bonus",     emoji: "✨" },
+  { key: "diagnostics", label: "Diagnostics & Logs",  emoji: "🛠️" },
+];
+
+function categoryOf(title = "") {
+  const t = title.toLowerCase();
+  if (/qdrant|universal key|llm|liluvine|kb|ocr|rag|gpt|claude/i.test(title)) {
+    if (/liluvine|kb|ocr/i.test(title)) return "liluvine";
+    return "ia";
+  }
+  if (/whatsapp|wa\b|facebook|messenger|meta\b|approbation/i.test(title)) return "meta";
+  if (/stripe|paywall|pawapay|coupon|paiement|caisse|facture|abonnement/i.test(title)) return "paiements";
+  if (/email|sms|smtp|otp|notification|alexa|note de service|template|digest|pv de réunion/i.test(title)) return "comms";
+  if (/grh|paie|salaire|personnel|webhook paie/i.test(title)) return "rh";
+  if (/recaptcha|sécurité|gdpr|brute|approval|2fa|mfa|téléchargement|téléchargements|signature|auth|verrouillage/i.test(title)) return "auth";
+  if (/diagnostic|log|historique|orphelins|orphans|version/i.test(title)) return "diagnostics";
+  return "modules";
+}
 function isStillNew(title, seenMap) {
   const addedAt = NEW_SECTIONS[title];
   if (!addedAt) return false;
@@ -92,16 +125,17 @@ function slugify(title) {
   return (title || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
 }
 
-const Filterable = ({ title, anchorId, children }) => {
+const Filterable = ({ title, anchorId, category, children }) => {
   const ctx = useSettingsFilter();
   const ref = useRef(null);
   const [, force] = useState(0);
+  const cat = category || categoryOf(title);
   useEffect(() => {
     if (!ctx) return;
-    ctx.register(title, anchorId);
+    ctx.register(title, anchorId, cat);
     return () => ctx.unregister(title);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [title, anchorId]);
+  }, [title, anchorId, cat]);
   useEffect(() => {
     if (!ref.current || !ctx) return;
     if (!isStillNew(title, ctx.seenMap || {})) return;
@@ -120,6 +154,9 @@ const Filterable = ({ title, anchorId, children }) => {
   if (ctx?.search) {
     if (!title.toLowerCase().includes(ctx.search.toLowerCase())) return null;
   }
+  // S-iter39q — Tab-based filtering. When activeTab !== "all", hide
+  // sections that don't belong to the active tab.
+  if (ctx?.activeTab && ctx.activeTab !== "all" && cat !== ctx.activeTab) return null;
   const showNew = isStillNew(title, ctx?.seenMap || {});
   return (
     <div ref={ref} id={anchorId} className="relative scroll-mt-32" data-settings-anchor={anchorId}>
@@ -140,11 +177,47 @@ const Filterable = ({ title, anchorId, children }) => {
 const SettingsToolbar = () => {
   const ctx = useSettingsFilter();
   const titles = useMemo(() => Object.keys(ctx?.registry || {}).sort((a, b) => a.localeCompare(b)), [ctx?.registry]);
+  // S-iter39q — Filter titles by active tab so the dropdown stays in sync
+  const visibleTitles = useMemo(() => {
+    if (!ctx?.activeTab || ctx.activeTab === "all") return titles;
+    return titles.filter((t) => (ctx.registry[t]?.category || categoryOf(t)) === ctx.activeTab);
+  }, [titles, ctx?.activeTab, ctx?.registry]);
+  // Count items per tab for the badge (computed before any early return so
+  // React hook order stays stable across renders)
+  const countsPerTab = useMemo(() => {
+    const c = {};
+    titles.forEach((t) => {
+      const k = ctx?.registry?.[t]?.category || categoryOf(t);
+      c[k] = (c[k] || 0) + 1;
+    });
+    return c;
+  }, [titles, ctx?.registry]);
   if (!ctx) return null;
-  const newCount = titles.filter((t) => isStillNew(t, ctx.seenMap)).length;
-  const matchCount = ctx.search ? titles.filter((t) => t.toLowerCase().includes(ctx.search.toLowerCase())).length : titles.length;
+  const newCount = visibleTitles.filter((t) => isStillNew(t, ctx.seenMap)).length;
+  const matchCount = ctx.search ? visibleTitles.filter((t) => t.toLowerCase().includes(ctx.search.toLowerCase())).length : visibleTitles.length;
   return (
     <div className="sticky top-0 z-30 -mx-3 sm:-mx-6 lg:-mx-10 px-3 sm:px-6 lg:px-10 py-3 bg-slate-50/95 backdrop-blur border-b border-slate-200" data-testid="settings-toolbar">
+      {/* S-iter39q — Tab bar */}
+      <div className="flex gap-1 overflow-x-auto pb-2 -mx-1 px-1" data-testid="settings-tab-bar">
+        {TABS.map((t) => {
+          const count = t.key === "all" ? titles.length : (countsPerTab[t.key] || 0);
+          const isActive = ctx.activeTab === t.key;
+          return (
+            <button
+              key={t.key}
+              onClick={() => ctx.setActiveTab(t.key)}
+              className={`shrink-0 text-xs px-3 py-1.5 rounded-full inline-flex items-center gap-1.5 transition ${isActive ? "bg-sawali-blue text-white shadow-md" : "bg-white ring-1 ring-slate-200 text-slate-700 hover:ring-slate-400"}`}
+              data-testid={`settings-tab-${t.key}`}
+            >
+              <span>{t.emoji}</span>
+              <span>{t.label}</span>
+              {count > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-semibold ${isActive ? "bg-white/30" : "bg-slate-100 text-slate-600"}`}>{count}</span>
+              )}
+            </button>
+          );
+        })}
+      </div>
       <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-center">
         <div className="relative flex-1">
           <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
@@ -167,14 +240,14 @@ const SettingsToolbar = () => {
             onChange={(e) => {
               const t = e.target.value;
               if (t && ctx.registry[t]) {
-                document.getElementById(ctx.registry[t])?.scrollIntoView({ behavior: "smooth", block: "start" });
+                document.getElementById(ctx.registry[t].anchorId)?.scrollIntoView({ behavior: "smooth", block: "start" });
               }
             }}
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm pr-8 appearance-none w-full sm:w-72"
             data-testid="settings-jump-select"
           >
             <option value="">Aller à un paramètre…{newCount > 0 ? `  (${newCount} nouveau${newCount > 1 ? "x" : ""})` : ""}</option>
-            {titles.map((t) => (
+            {visibleTitles.map((t) => (
               <option key={t} value={t}>{isStillNew(t, ctx.seenMap) ? "🆕  " : ""}{t}</option>
             ))}
           </select>
@@ -237,10 +310,21 @@ export default function AdminSettings() {
   const upd = (k, v) => setS({ ...s, [k]: v });
 
   // iter33 — Settings filter context state
+  // S-iter39q — Adds `activeTab` to the registry (tab-scoped filtering).
   const [search, setSearch] = useState("");
-  const [registry, setRegistry] = useState({});  // {title: anchorId}
+  const [activeTab, setActiveTab] = useState(() => {
+    try { return localStorage.getItem("adminSettings.activeTab") || "all"; } catch { return "all"; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem("adminSettings.activeTab", activeTab); } catch { /* ignore */ }
+  }, [activeTab]);
+  const [registry, setRegistry] = useState({});  // {title: {anchorId, category}}
   const [seenMap, setSeenMap] = useState(() => readSeen());
-  const register = (title, anchorId) => setRegistry((m) => (m[title] === anchorId ? m : { ...m, [title]: anchorId }));
+  const register = (title, anchorId, category) => setRegistry((m) => {
+    const prev = m[title];
+    if (prev && prev.anchorId === anchorId && prev.category === category) return m;
+    return { ...m, [title]: { anchorId, category } };
+  });
   const unregister = (title) => setRegistry((m) => { const n = { ...m }; delete n[title]; return n; });
   const markSeen = (title) => setSeenMap((m) => {
     if (m[title]) return m;
@@ -249,8 +333,8 @@ export default function AdminSettings() {
     return n;
   });
   const filterCtxValue = useMemo(
-    () => ({ search, setSearch, registry, register, unregister, seenMap, markSeen }),
-    [search, registry, seenMap],
+    () => ({ search, setSearch, activeTab, setActiveTab, registry, register, unregister, seenMap, markSeen }),
+    [search, activeTab, registry, seenMap],
   );
 
   return (

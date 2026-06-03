@@ -21803,6 +21803,10 @@ api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_u
 from routes.qdrant_rag import make_router as _make_qdrant_router  # noqa: E402
 api.include_router(_make_qdrant_router(db=db, get_current_user=get_current_user))
 
+# S-iter39p — Media Library (PDF + video + image library shared in Brochures)
+from routes.media_library import setup_media_library_routes  # noqa: E402
+setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, save_and_log=_obj_storage.save_and_log)
+
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).
 # Permet à l'admin de consulter SUGGESTIONS.md directement depuis l'UI sans

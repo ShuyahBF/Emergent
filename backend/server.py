@@ -884,6 +884,11 @@ attach_auth_routes(
     },
 )
 
+# S046 (2026-02) — i18n translations management.
+from routes.i18n import attach_i18n_routes  # noqa: E402
+
+attach_i18n_routes(api, db=db, get_current_user=get_current_user)
+
 
 # ====================================================================
 # PUBLIC - Content / Catalog / Contact / RDV

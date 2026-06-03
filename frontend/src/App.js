@@ -33,6 +33,7 @@ if (typeof window !== "undefined" && !window.__sawali_err_handler__) {
 }
 
 import { AuthProvider, useAuth } from "@/contexts/AuthContext";
+import { I18nProvider } from "@/contexts/I18nContext";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import GlobalRouteLoader from "@/components/GlobalRouteLoader";
 import LlmHealthBanner from "@/components/LlmHealthBanner";
@@ -104,6 +105,7 @@ import AdminUsage from "@/pages/admin/AdminUsage";
 import AdminBrochures from "@/pages/admin/AdminBrochures";
 import AdminPolicies from "@/pages/admin/AdminPolicies";
 import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
+import AdminI18n from "@/pages/admin/AdminI18n";
 import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
 import AdminDownloadAudit from "@/pages/admin/AdminDownloadAudit";
 import Launch from "@/pages/public/Launch";
@@ -160,7 +162,8 @@ const Protected = ({ admin = false, children }) => {
 export default function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <I18nProvider>
+        <BrowserRouter>
         <Toaster richColors position="top-right" />
         <WebhookResultModal />
         <RouteTracker />
@@ -286,6 +289,7 @@ export default function App() {
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
             <Route path="suggestions" element={<AdminSuggestionsRegistry />} />
             <Route path="download-audit" element={<AdminDownloadAudit />} />
+            <Route path="i18n" element={<AdminI18n />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />
             <Route path="settings" element={<AdminSettings />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
@@ -296,6 +300,7 @@ export default function App() {
         </Routes>
         <VirtualAssistant />
       </BrowserRouter>
+      </I18nProvider>
     </AuthProvider>
   );
 }

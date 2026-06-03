@@ -112,6 +112,48 @@ Après le fix Bug #3, rabo.f restait bloquée car la feature `ai_liluvine_pro` n
 4. rabo.f peut immédiatement utiliser Liluvine PRO sans changer les features du tenant.
 
 
+## S046 (2026-02) — i18n FR + EN + AR + LG1 + LG2 (Gulmancema/Mooré)
+
+### Architecture
+Source de vérité = MongoDB collection `i18n_translations` (et non des fichiers JSON statiques). Cela permet aux admins de créer/éditer les traductions en live via une page CRUD.
+
+### Backend (`backend/routes/i18n.py`)
+- `GET /api/i18n/languages` → liste publique des 5 langues supportées avec RTL flag
+- `GET /api/i18n/translations?lang=fr|en|ar|lg1|lg2` → dictionnaire `{key: text}` avec **fallback automatique sur FR** quand la valeur cible est vide
+- `GET /api/admin/i18n/translations` (admin/sup) → liste complète pour le tableau d'édition
+- `POST /api/admin/i18n/translations` → upsert d'une clé
+- `DELETE /api/admin/i18n/translations/{key}` → suppression
+- `POST /api/admin/i18n/translations/bulk` → upsert en masse
+- **Auto-seed** au premier appel : 31 clés (navigation sidebar, boutons communs, page login) en FR + EN
+
+### Frontend
+- `contexts/I18nContext.jsx` : provider qui fetche `/api/i18n/translations?lang=…` au montage et à chaque changement de langue. Persistance dans `localStorage` (`sawali_lang`). Applique `dir="rtl"` sur `<html>` pour AR. Expose `useT()` qui renvoie `t(key, fallbackText)`.
+- `components/LanguageSelector.jsx` : dropdown compact 🌐 affichant les 5 langues avec nom natif (Français / English / العربية / Gulmancema / Mooré). Intégré dans **PortalLayout header mobile** + **sidebar desktop**.
+- `pages/admin/AdminI18n.jsx` : table CRUD éditable inline (filtre, search, add/edit/delete) accessible via `/admin/i18n` (lien ⚛︎ "Traductions (i18n)" dans la sidebar admin).
+
+### Tests (`backend/tests/test_s046_i18n_and_p3_gauge.py`)
+- ✅ Languages public endpoint (codes + ordre + RTL flag)
+- ✅ Dictionnaire FR seed (count ≥ 20, clés attendues)
+- ✅ Dictionnaire EN avec **fallback FR pour valeur vide**
+- ✅ Rejet de code de langue inconnu (400)
+- ✅ Admin list/upsert/delete avec roundtrip 3 langues
+- ✅ Validation clé Pydantic regex (rejette espaces)
+- ✅ P3 download_gauge_enabled retourné dans la réponse (7/8 verts, 1 skipped car admin a bypass direct)
+
+### Workflow pour ajouter une nouvelle langue
+1. Modifier `SUPPORTED_LANGS` dans `routes/i18n.py` (ajouter `{"code": "xx", ...}`)
+2. Aller dans `/admin/i18n`, remplir la colonne `xx` ligne par ligne
+3. La langue apparaît automatiquement dans le LanguageSelector
+
+
+## P3 (2026-02) — Toggle Admin pour désactiver la jauge de chargement plein écran
+
+### Implémenté
+- Backend `routes/download_approvals.py` retourne `gauge_enabled: bool` (default `True`) dans la réponse du `POST /me/download-requests`.
+- Frontend `components/DownloadGate.jsx` lit le flag : si `False`, n'ouvre plus la modale plein écran avec la jauge circulaire et affiche à la place un **toast discret** ("En attente d'approbation…"). Le polling continue en arrière-plan et déclenche le téléchargement à l'approbation.
+- UI Admin : nouvelle checkbox « Afficher la jauge d'attente plein écran » dans la section "Téléchargements & Approbation" de `/admin/settings`.
+
+
 ## Recent (2026-02 post-handoff) — Sujets non couverts + S045 Phase 1
 
 ### ✅ #2bis — Onglet « Sujets non couverts »

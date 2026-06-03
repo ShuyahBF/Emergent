@@ -66,6 +66,7 @@ def make_router(*, db, get_current_user, wa_send_text, wa_send_template=None, re
                 "download_approval_template_name": 1,
                 "download_approval_template_lang": 1,
                 "download_approval_text_body": 1,
+                "download_gauge_enabled": 1,
             },
         )
         return s or {}
@@ -186,6 +187,11 @@ def make_router(*, db, get_current_user, wa_send_text, wa_send_template=None, re
         )
 
         pending_msg = settings.get("download_pending_message") or "En attente d'approbation pour le téléchargement..."
+        # P3 (2026-02) — Default to TRUE for back-compat. When admin sets
+        # `download_gauge_enabled=False`, the frontend hides the central
+        # fullscreen gauge and shows a discreet toast instead.
+        gauge_enabled = settings.get("download_gauge_enabled")
+        gauge_enabled = True if gauge_enabled is None else bool(gauge_enabled)
         return {
             "token": token,
             "status": "pending",
@@ -193,6 +199,7 @@ def make_router(*, db, get_current_user, wa_send_text, wa_send_template=None, re
             "pending_message": pending_msg,
             "wa_send_status": doc["wa_send_status"],
             "expires_at": doc["expires_at"],
+            "gauge_enabled": gauge_enabled,
         }
 
     @router.get("/{token}")

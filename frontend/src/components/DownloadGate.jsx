@@ -63,7 +63,20 @@ export function useDownloadGate() {
         toast.error("Configuration d'approbation incomplète.");
         return;
       }
-      setState({ open: true, token: data.token, status: "pending", label, url, pendingMessage: data.pending_message || "En attente d'approbation pour le téléchargement..." });
+      // P3 (2026-02) — Admin can disable the central waiting gauge. When
+      // off, we just show a discreet toast and silently poll in the
+      // background. The download triggers automatically once approved.
+      const gaugeEnabled = data.gauge_enabled !== false; // default ON for back-compat
+      if (!gaugeEnabled) {
+        toast.info(
+          (data.pending_message || "En attente d'approbation pour le téléchargement…") +
+          " (Vous serez notifié dès l'approbation)",
+          { duration: 6000 }
+        );
+        setState({ open: false, token: data.token, status: "pending", label, url, pendingMessage: "", gaugeEnabled: false });
+      } else {
+        setState({ open: true, token: data.token, status: "pending", label, url, pendingMessage: data.pending_message || "En attente d'approbation pour le téléchargement...", gaugeEnabled: true });
+      }
       pollTimer.current = setInterval(async () => {
         if (cancelledRef.current) return;
         try {
@@ -73,15 +86,25 @@ export function useDownloadGate() {
             stopPolling();
             if (status === "approved") {
               triggerActualDownload(url, label);
-              setState((s) => ({ ...s, status: "approved" }));
-              setTimeout(() => setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" }), 1500);
+              if (!gaugeEnabled) {
+                toast.success(`✅ Téléchargement de « ${label} » approuvé et démarré.`);
+                setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" });
+              } else {
+                setState((s) => ({ ...s, status: "approved" }));
+                setTimeout(() => setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" }), 1500);
+              }
             } else {
-              setState((s) => ({ ...s, status }));
               const msg = status === "denied" ? "Désolé, l'opération n'a pas été confirmée." :
                           status === "expired" ? "La demande a expiré (24 h sans réponse)." :
                           "Demande annulée.";
-              toast.warning(msg);
-              setTimeout(() => setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" }), 3000);
+              if (!gaugeEnabled) {
+                toast.warning(`« ${label} » — ${msg}`);
+                setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" });
+              } else {
+                setState((s) => ({ ...s, status }));
+                toast.warning(msg);
+                setTimeout(() => setState({ open: false, token: null, status: null, label: "", url: "", pendingMessage: "" }), 3000);
+              }
             }
           }
         } catch (e) {

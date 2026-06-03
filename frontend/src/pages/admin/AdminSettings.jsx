@@ -730,6 +730,18 @@ export default function AdminSettings() {
             />
             <span>Activer le workflow d'approbation par WhatsApp</span>
           </label>
+          <label className="inline-flex items-center gap-2 text-sm cursor-pointer mt-1">
+            <input
+              type="checkbox"
+              checked={s.download_gauge_enabled !== false}
+              onChange={(e) => upd("download_gauge_enabled", e.target.checked)}
+              data-testid="dl-gauge-enabled"
+            />
+            <span>
+              Afficher la jauge d'attente plein écran
+              <span className="ml-1 text-[10px] text-slate-500">(décocher pour un simple toast discret)</span>
+            </span>
+          </label>
           <div className="grid sm:grid-cols-2 gap-3 mt-2">
             <div>
               <label className="text-[11px] font-semibold text-slate-600">Numéro WhatsApp de l'approbateur (E.164)</label>

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -15,6 +15,8 @@ import VersionStamp from "@/components/VersionStamp";
 import InternalChatPanel from "@/components/InternalChatPanel";
 import TicketsBubble from "@/components/TicketsBubble";
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
+import LanguageSelector from "@/components/LanguageSelector";
+import { useT } from "@/contexts/I18nContext";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
@@ -29,16 +31,16 @@ function absoluteUrl(u) {
 }
 
 const clientLinks = [
-  { to: "/portal", label: "Tableau de bord", icon: LayoutDashboard, end: true },
-  { to: "/portal/appointments", label: "Mes rendez-vous", icon: Calendar, module: "appointments" },
-  { to: "/portal/documents", label: "Documentation", icon: FileText, module: "documents" },
-  { to: "/portal/interventions", label: "Historique interventions", icon: Wrench, module: "interventions" },
-  { to: "/portal/users", label: "Suivi utilisateurs", icon: Users },
+  { to: "/portal", label: "Tableau de bord", tKey: "nav.dashboard", icon: LayoutDashboard, end: true },
+  { to: "/portal/appointments", label: "Mes rendez-vous", tKey: "nav.appointments", icon: Calendar, module: "appointments" },
+  { to: "/portal/documents", label: "Documentation", tKey: "nav.documentation", icon: FileText, module: "documents" },
+  { to: "/portal/interventions", label: "Historique interventions", tKey: "nav.interventions", icon: Wrench, module: "interventions" },
+  { to: "/portal/users", label: "Suivi utilisateurs", tKey: "nav.users_tracking", icon: Users },
   { to: "/portal/formations", label: "Formations Spécialisées", icon: GraduationCap, trackedOnly: true, module: "formations" },
-  { to: "/portal/notes/reports", label: "Mes rapports", icon: FileEdit, module: "reports" },
-  { to: "/portal/notes/suivis", label: "Mes suivis", icon: FileEdit, module: "suivis" },
-  { to: "/portal/forms", label: "Formulaires", icon: FileText },
-  { to: "/portal/contacts", label: "Centre de Messagerie", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
+  { to: "/portal/notes/reports", label: "Mes rapports", tKey: "nav.reports", icon: FileEdit, module: "reports" },
+  { to: "/portal/notes/suivis", label: "Mes suivis", tKey: "nav.followups", icon: FileEdit, module: "suivis" },
+  { to: "/portal/forms", label: "Formulaires", tKey: "nav.forms", icon: FileText },
+  { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   // Iter38i — Unified omnichannel inbox (WhatsApp + Messenger)
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
@@ -51,14 +53,14 @@ const clientLinks = [
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
   // least one of the three meta_* features is enabled for the tenant.
   { to: "/portal/meta", label: "Meta (Facebook/Messenger/Ads)", icon: MessageCircle, metaOnly: true },
-  { to: "/portal/tickets", label: "Tickets", icon: Ticket, badgeKey: "tickets_pending" },
+  { to: "/portal/tickets", label: "Tickets", tKey: "nav.tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
   { to: "/portal/voice-studio", label: "Voice Studio (Clonage)", icon: Volume2 },
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
-  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", icon: Bot, featureGate: "ai_liluvine_pro" },
+  { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", tKey: "nav.liluvine", icon: Bot, featureGate: "ai_liluvine_pro" },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs
@@ -83,6 +85,7 @@ const adminLinks = [
   { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },
   { to: "/admin/suggestions", label: "Suggestions (registre S###)", icon: ScrollText },
   { to: "/admin/download-audit", label: "Téléchargements — Audit (S029)", icon: History },
+  { to: "/admin/i18n", label: "Traductions (i18n)", icon: Languages },
   { to: "/admin/policies", label: "Politiques publiques", icon: Shield },
   { to: "/admin/formations", label: "Formations", icon: GraduationCap },
   { to: "/admin/contents", label: "Contenus du site", icon: FileEdit },
@@ -113,6 +116,7 @@ const adminLinks = [
 
 export default function PortalLayout({ admin = false }) {
   const { user, logout } = useAuth();
+  const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
   const [open, setOpen] = useState(false);
@@ -239,7 +243,7 @@ export default function PortalLayout({ admin = false }) {
 
   const SidebarContent = (
     <>
-      <Link to="/" className="flex items-center gap-3 mb-8 px-2">
+      <Link to="/" className="flex items-center gap-3 mb-2 px-2">
         <img src={displayedLogo} alt={displayedName} className={`h-10 w-10 ${useClientLogo ? "rounded-md object-contain bg-white/95 p-1" : "rounded-md object-cover"} ring-1 ring-white/20`} />
         <div className="min-w-0">
           <p className="font-display font-bold text-white text-sm truncate" title={displayedName}>{displayedName}</p>
@@ -248,13 +252,16 @@ export default function PortalLayout({ admin = false }) {
           </p>
         </div>
       </Link>
+      <div className="px-2 mb-6 flex justify-end" data-testid="sidebar-language-row">
+        <LanguageSelector compact />
+      </div>
       <nav className="space-y-1">
-        {links.map(({ to, label, icon: Icon, end, module, soon, badgeKey, featureGate }) => {
+        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate }) => {
           const count = module ? (badges[module] || 0) : 0;
           const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
-          // Iter38r-fix7 — Feature-gated links stay visible but greyed out
-          // and unclickable when the parent admin's feature is OFF.
           const featureDisabled = featureGate && !tenantFeatures[featureGate];
+          // S046 — translate label if a tKey is provided
+          const displayLabel = tKey ? t(tKey, label) : label;
           return (
             <NavLink
               key={to}
@@ -263,7 +270,7 @@ export default function PortalLayout({ admin = false }) {
               onClick={(e) => {
                 if (featureDisabled) {
                   e.preventDefault();
-                  toast.info(`Fonctionnalité « ${label} » non activée — contactez votre administrateur SAWALI.`);
+                  toast.info(`Fonctionnalité « ${displayLabel} » non activée — contactez votre administrateur SAWALI.`);
                   return;
                 }
                 setOpen(false);
@@ -274,10 +281,10 @@ export default function PortalLayout({ admin = false }) {
                   : `sidebar-link ${isActive ? "active" : ""} group`
               }
               data-testid={`sidebar-link-${to.replace(/\//g, "-")}`}
-              title={featureDisabled ? `${label} (non activé)` : undefined}
+              title={featureDisabled ? `${displayLabel} (non activé)` : undefined}
             >
               <Icon className="h-4 w-4" />
-              <span className="flex-1 truncate">{label}</span>
+              <span className="flex-1 truncate">{displayLabel}</span>
               {featureDisabled && (
                 <span
                   className="text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-slate-500/30 text-slate-300 ring-1 ring-slate-500/40"
@@ -415,7 +422,7 @@ export default function PortalLayout({ admin = false }) {
             {admin ? <ShieldCheck className="h-4 w-4 text-sawali-blue" /> : <Mail className="h-4 w-4 text-sawali-blue" />}
             <span className="font-display font-semibold text-sm">{admin ? "Admin SAWALI" : "Espace Loois"}</span>
           </div>
-          <div className="w-5" />
+          <LanguageSelector compact />
         </header>
         {/* Iter38r-fix9w — Monetized ad banner slot at the top of the portal */}
         <AdBannerSlot placement="portal" />

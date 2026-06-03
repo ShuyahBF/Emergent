@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
@@ -162,6 +162,36 @@ export default function AdminClients() {
       toast.success("Statut retiré");
       await load();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+  };
+
+  // Bug #3 (2026-02 — rabo.f) — Repair the directory_contacts row for a user.
+  // Useful when an admin/superviseur/moderateur whose number sends WhatsApp
+  // messages doesn't appear in /portal/contacts (or appears nameless).
+  const repairContact = async (c) => {
+    if (!c?.email) { toast.error("Email manquant"); return; }
+    if (!c?.phone) {
+      toast.error("Cet utilisateur n'a pas de numéro de téléphone. Renseignez-le d'abord.");
+      return;
+    }
+    if (!window.confirm(
+      `Réparer le contact de "${c.full_name || c.email}" ?\n\n` +
+      `• Crée/corrige la ligne directory_contacts dans le bon tenant.\n` +
+      `• Ré-attache les WhatsApp orphelins.\n` +
+      `• Supprime les wa_pending_imports correspondants.\n\n` +
+      `Action idempotente, sans destruction de données.`
+    )) return;
+    try {
+      const r = await apiClient.post("/admin/contacts/repair-user-contact", { email: c.email });
+      const actions = r?.data?.actions || [];
+      const summary = actions.map((a) => a.type).join(", ") || "aucune action nécessaire";
+      toast.success(
+        `Contact réparé : ${r?.data?.canonical_contact_name || c.full_name}\n` +
+        `Actions : ${summary}`,
+        { duration: 9000 }
+      );
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors de la réparation");
+    }
   };
 
   return (
@@ -343,6 +373,14 @@ export default function AdminClients() {
                       <Link to={`/admin/clients/${c.id}/timeline`} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`timeline-client-${c.id}`} title="Timeline CRM"><Activity className="h-4 w-4 inline" /></Link>
                       <Link to={`/admin/clients/${c.id}/features`} className="text-slate-500 hover:text-fuchsia-600 mr-3" data-testid={`features-client-${c.id}`} title="SMART Communications"><ShieldCheck className="h-4 w-4 inline" /></Link>
                       <button onClick={() => setWaStats(c)} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`wa-stats-${c.id}`} title="Consommation WhatsApp"><MessageCircle className="h-4 w-4 inline" /></button>
+                      <button
+                        onClick={() => repairContact(c)}
+                        className="text-slate-500 hover:text-fuchsia-600 mr-3"
+                        data-testid={`repair-contact-${c.id}`}
+                        title="Réparer la fiche contact (directory_contacts) — utile si l'utilisateur n'apparaît pas dans /portal/contacts malgré ses WhatsApp"
+                      >
+                        <Wrench className="h-4 w-4 inline" />
+                      </button>
                       <button onClick={() => open(c)} className="text-slate-500 hover:text-sawali-blue mr-3" data-testid={`edit-client-${c.id}`}><Edit className="h-4 w-4 inline" /></button>
                       <button onClick={() => del(c.id)} className="text-slate-500 hover:text-rose-600" data-testid={`del-client-${c.id}`}><Trash2 className="h-4 w-4 inline" /></button>
                     </td>

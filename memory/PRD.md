@@ -6,6 +6,30 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39s — 🛡️ Toggle Vision global + GRH Primes & Indemnités
+
+### ✅ S042 — Toggle global `qdrant_image_auto_describe` dans Admin Settings
+- Nouveau champ persistant `qdrant_image_auto_describe` (default true) dans `settings.global`.
+- UI : toggle dans /admin/settings → section Qdrant RAG, avec aide explicative.
+- Backend endpoint `POST /api/admin/qdrant/collections/{name}/points/image` lit ce setting quand `auto_describe='auto'`. Toggle par-upload reste prioritaire.
+- Permet de couper Claude Vision en masse pour économiser sur la Universal Key (~$0.001/image).
+
+### ✅ S043 — GRH : Primes (variables/mois) & Indemnités (fixes)
+- **Indemnités fixes** (`hr_allowances`) : par employé, récurrentes chaque mois, avec toggle active/inactive (transport, logement, panier, ancienneté…).
+- **Primes variables** (`hr_bonuses`) : rattachées à un mois `YYYY-MM` précis, peuvent être absentes ou présentes d'un mois à l'autre.
+- CRUD complet via 8 nouveaux endpoints `/api/hr/employees/{eid}/allowances`, `/api/hr/allowances/{aid}`, `/api/hr/employees/{eid}/bonuses?month=…`, `/api/hr/bonuses/{bid}`.
+- Intégration `_compute_payslip` : `gross_with_gains = gross + total_allowances + total_bonuses`. Les taxes s'appliquent sur le nouveau total ; la déduction d'absence aussi.
+- **Frontend** : nouvel onglet « Primes & Indemnités » dans `/portal/hr` (entre Avances et Paie), avec 2 cartes (Indemnités fixes / Primes du mois) + sélecteur d'employé + sélecteur de mois pour les primes. PayslipsTab + PDF affichent désormais le détail ligne par ligne.
+- **Tests** : 5/5 verts — `backend/tests/test_siter39s_primes_indemnites.py` (CRUD allowances + CRUD bonuses + filter par mois + payslip integration + backward compat).
+- **Fichiers** : `backend/routes/hr.py` (modèles + endpoints + intégration + PDF), `backend/models.py:SettingsUpdate` (S042 field), `frontend/src/pages/portal/HrPrimesIndemnites.jsx` (nouveau), `frontend/src/pages/portal/HumanResources.jsx` (tab), `frontend/src/pages/portal/HumanResourcesAdvanced.jsx` (PayslipsTab), `frontend/src/pages/admin/AdminSettings.jsx` (toggle S042).
+- **Itération test** : `/app/test_reports/iteration_47.json` — 100% pass (50/50 backend, frontend OK).
+
+### 📝 Suggestions notées pour les prochains sprints
+- **S044** (à faire) : Liluvine compare une capture d'écran client (WhatsApp/chat) avec la base d'images SAWALI via Claude Vision + Qdrant.
+- **S045** (à faire) : Refactor `server.py` (21 800+ lignes) → modules `/backend/routes/`.
+- **S046** (différée) : i18n FR/EN + 4 langues, table `translations` éditable, sélecteur public.
+
+
 ## Recent (2026-02 post-handoff) — S-iter39r — 🖼️ S040 modal upload + P1 Claude Vision RAG
 
 ### ✅ S040 — MediaUploadModal monté dans AdminMediaLibrary (& /admin/brochures)

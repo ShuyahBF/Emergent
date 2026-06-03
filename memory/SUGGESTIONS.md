@@ -354,6 +354,42 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fichiers** : `backend/routes/liluvine_escalation.py` (nouveau — `ESCALATE_RE`, `ESCALATE_PROMPT_HINT`, `strip_escalation_marker`, `notify_admin`), `backend/routes/liluvine_wa_autoreply.py` (injection du hint + parsing + appel notify_admin), `backend/models.py:SettingsUpdate` (3 nouveaux champs + validation cooldown 1-1440), `backend/server.py` (endpoint `/admin/liluvine-escalation/test`), `frontend/src/components/LiluvineEscalationTestButton.jsx` (nouveau), `frontend/src/pages/admin/AdminSettings.jsx` (section S036 + filterable + NEW badge).
 - **Tests** : `backend/tests/test_siter39k_actions_and_escalation.py` (10/10 verts dont 6 dédiés S036) — strip marker (basique + spacing tolérant) + disabled skip + no_phone skip + envoi + contexte présent + throttle 30min + endpoint admin /test.
 
+## S042 — Toggle global d'auto-enrichissement Claude Vision des images Qdrant
+- **Demande directe utilisateur** : 2026-02 (post-S041) — « exposer le toggle global » pour activer/désactiver l'analyse Claude Vision en masse depuis les Réglages
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39s
+- **Détail** : Nouveau toggle `qdrant_image_auto_describe` dans `/admin/settings` → section Qdrant RAG. Active par défaut. Chaque upload d'image (via `POST /api/admin/qdrant/collections/{name}/points/image`) qui laisse `auto_describe=auto` lit ce setting global. Le toggle par-upload du UI Qdrant > Image reste prioritaire pour les exceptions.
+- **Bénéfice** : permet de couper Claude Vision en masse pour économiser sur la Universal Key (~$0.001/image), sans toucher au code.
+- **Fichiers** : `backend/models.py:SettingsUpdate`, `backend/routes/qdrant_rag.py` (déjà câblé en S041), `frontend/src/pages/admin/AdminSettings.jsx`.
+
+## S043 — GRH : Primes (variables/mois) & Indemnités (fixes)
+- **Demande directe utilisateur** : 2026-02 — « Dans le module GRH permettre d'ajouter ou supprimer des primes ou indemnités. Pour les primes elles sont variables d'un mois à l'autre… alors que pour les indemnités elles ne changent pas »
+- **Statut** : 🟢 IMPLÉMENTÉE
+- **Fix associé** : siter39s
+- **Détail** : Deux nouvelles collections `hr_allowances` (indemnités fixes par employé, récurrentes, toggle active/inactive) et `hr_bonuses` (primes variables, rattachées à un mois YYYY-MM précis). CRUD complets. Le calcul `_compute_payslip` ajoute désormais `total_allowances + total_bonuses` au brut avant déduction d'absence (`gross_with_gains = gross + allowances + bonuses`). Les taxes s'appliquent sur le nouveau brut. Nouvel onglet « Primes & Indemnités » dans `/portal/hr` avec 2 cartes (Indemnités fixes / Primes du mois) + sélecteur d'employé. La fiche de paie (UI + PDF) affiche le détail ligne par ligne.
+- **Endpoints** : `GET/POST /api/hr/employees/{eid}/allowances`, `PATCH/DELETE /api/hr/allowances/{aid}`, `GET/POST /api/hr/employees/{eid}/bonuses?month=YYYY-MM`, `PATCH/DELETE /api/hr/bonuses/{bid}`.
+- **Tests** : `backend/tests/test_siter39s_primes_indemnites.py` (5/5 verts) — CRUD allowances + CRUD bonuses + filter par mois + intégration payslip.
+- **Fichiers** : `backend/routes/hr.py` (modèles + endpoints + intégration _compute_payslip + PDF), `frontend/src/pages/portal/HrPrimesIndemnites.jsx` (nouveau), `frontend/src/pages/portal/HumanResources.jsx` (nouvel onglet), `frontend/src/pages/portal/HumanResourcesAdvanced.jsx` (PayslipsTab).
+
+## S044 — Liluvine compare une capture d'écran client avec la base d'images SAWALI
+- **Proposée par l'assistant** : 2026-02 (suite de S041)
+- **Statut** : 🔵 PROPOSÉE — utilisateur a confirmé qu'il veut l'implémenter, à faire au prochain sprint
+- **Détail** : Quand un client envoie une capture d'écran via WhatsApp ou le chat portail, Liluvine pourra (a) extraire l'OCR + description via Claude Vision, (b) faire une recherche sémantique dans Qdrant images, (c) identifier l'écran SAWALI le plus probable et proposer la procédure correspondante directement.
+- **Bénéfice** : transforme Liluvine en assistant capable de « voir » l'écran du client, accélère la résolution support de plusieurs minutes par ticket.
+- **Dépendances** : S041 (Qdrant images) + S042 (Claude Vision enrichment) — toutes deux livrées.
+
+## S045 — Refactor `server.py` (21 800+ lignes) vers modules /backend/routes/
+- **Demande directe utilisateur** : 2026-02 — « P2 »
+- **Statut** : 🟡 ACCEPTÉE — à découper en plusieurs PR, démarrage prochain sprint
+- **Détail** : Extraire progressivement les blocs monolithiques de `server.py` vers `/app/backend/routes/` (déjà bien entamé : qdrant_rag.py, media_library.py, liluvine_pro.py, wa_admin_cockpit.py, hr.py, cashier.py, ad_banners.py, etc.). Cibles prioritaires : routes auth, routes settings, routes WhatsApp, routes payments, routes notifications. À faire avec test de non-régression à chaque extraction.
+- **Bénéfice** : code maintenable, tests plus rapides, isolation des bugs, onboarding facilité.
+
+## S046 — Internationalisation (i18n) FR / EN + 4 langues à définir
+- **Demande directe utilisateur** : 2026-02 — « Plus tard ; comme suggestion à noter, on va mettre le site en 5 langues en plus du français »
+- **Statut** : ⚪ DIFFÉRÉE (notée, planifiée plus tard)
+- **Détail** : Extraire tous les textes UI dans une table `translations` (clé canonique FR + colonnes EN + LG1..LG4). Éditeur back-office pour les traductions. Sélecteur de langue côté public, switch instantané. Approche recommandée : `react-i18next` + collection MongoDB pour les traductions dynamiques + script d'extraction automatique des chaînes hardcodées.
+- **Bénéfice** : ouverture du portail SAWALI à des clients hors francophonie (Afrique anglophone, Europe…).
+
 ---
 
 ## Comment référencer une suggestion

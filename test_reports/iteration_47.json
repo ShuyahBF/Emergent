@@ -1,0 +1,32 @@
+{
+  "summary": "S047 — Validated (A) Admin global toggle qdrant_image_auto_describe (PUT /api/admin/settings persists boolean, GET returns it; UI toggle + global save flow verified end-to-end) and (C) GRH Primes & Indemnités: full backend pytest 48/48 + new 2 tests for admin toggle (50/50 total this run, plus the wider 5-suite regression at 48/48). Frontend end-to-end CRUD on /portal/hr Primes & Indemnités tab fully exercised: tab renders, employee select populated, allowances card + bonuses card both visible, allowance create→toggle inactive→toggle active→delete OK, bonus month change + create→delete OK. All testids present and aligned with spec.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_siter39s_primes_indemnites.py",
+    "/app/backend/tests/test_iter47_admin_qdrant_toggle.py",
+    "/app/test_reports/pytest/iter47_regression.xml"
+  ],
+  "action_items": [
+    "Note: review_request mentions PATCH /api/admin/settings but the actual endpoint is PUT — wording-only, behavior identical. No code change needed.",
+    "Pre-existing console warnings on /admin/settings (React 'key' prop on Geographies + hydration <span> inside <option>) are unrelated to this sprint but worth cleaning in a future iter."
+  ],
+  "critical_code_review_comments": [
+    "HrPrimesIndemnites.jsx (490 lines) is clean and well-structured — AllowancesCard + BonusesCard properly separated, all testids prefixed hr-allowance-* / hr-bonus-*, French UI throughout, native window.confirm for delete is acceptable here.",
+    "Backend allowance/bonus CRUD in /app/backend/routes/hr.py uses Pydantic models + tenant scoping via require_tenant_owner — looks robust; covered by 5/5 backend tests."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter47_admin_qdrant_toggle.py (new)"
+  ],
+  "success_rate": { "backend": "100% (50/50: 48 regression + 2 new toggle)", "frontend": "100% (admin toggle + HR primes full CRUD)" },
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp + session_token from /api/auth/login).",
+  "seed_data_creation": "Seeded one TEST_S47 user + hr_employee in admin tenant to exercise UI CRUD, then cleaned up at end of test (users + hr_employees + hr_allowances + hr_bonuses purged).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Admin tenant has zero employees by default — to exercise /portal/hr UI you must seed one (db.users with parent_client_id=admin_id + db.hr_employees with tenant_id=admin_id). OTP login: POST /api/auth/login → use dev_otp + session_token → POST /api/auth/verify-otp with {email, session_token, code}. Token must be set in localStorage under sawali_token, token, access_token. The 'Enregistrer les paramètres' button at the bottom of /admin/settings persists ALL state including the new qdrant_image_auto_describe toggle. Briefing modal 'J'ai lu' must be dismissed on first load of authenticated pages.",
+  "rca of the issue": "N/A — no issues found."
+}

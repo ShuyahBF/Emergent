@@ -21,6 +21,7 @@ import {
   WeeklyPresenceCard, AbsencesTab, TaxesTab, AdvancesTab, PayslipsTab, HrSettingsTab,
   HolidaysTab,
 } from "./HumanResourcesAdvanced";
+import PrimesIndemnitesTab from "./HrPrimesIndemnites";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const fmtDate = (iso) => {
@@ -52,6 +53,7 @@ function Tabs({ tab, setTab, hideTimesheet }) {
   tabs.push({ id: "holidays", label: "Jours fériés", icon: Calendar });
   tabs.push({ id: "taxes", label: "Taxes", icon: Banknote });
   tabs.push({ id: "advances", label: "Avances", icon: Banknote });
+  tabs.push({ id: "primes", label: "Primes & Indemnités", icon: Banknote });
   tabs.push({ id: "payslips", label: "Paie", icon: Briefcase });
   tabs.push({ id: "settings", label: "Réglages", icon: Briefcase });
   return (
@@ -732,6 +734,8 @@ export default function HumanResources() {
         <TaxesTab />
       ) : tab === "advances" ? (
         <AdvancesTab employees={activeEmployees} />
+      ) : tab === "primes" ? (
+        <PrimesIndemnitesTab employees={activeEmployees} />
       ) : tab === "payslips" ? (
         <PayslipsTab employees={activeEmployees} />
       ) : tab === "settings" ? (

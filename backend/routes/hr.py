@@ -116,6 +116,46 @@ class AdvanceRepayPayload(BaseModel):
 
 
 # ---------------------------------------------------------------------
+# S-iter39s (2026-02) — Allowances (indemnités fixes) & Bonuses (primes variables)
+# ---------------------------------------------------------------------
+class AllowancePayload(BaseModel):
+    """Indemnité fixe — récurrente chaque mois (transport, logement, panier…).
+    Reste active jusqu'à modification/désactivation/suppression manuelle."""
+    label: str = Field(..., min_length=1, max_length=120)
+    amount: float = Field(..., ge=0)
+    currency: str = Field("XOF", max_length=8)
+    active: bool = True
+    sort_order: int = 0
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class AllowanceUpdate(BaseModel):
+    label: Optional[str] = Field(None, min_length=1, max_length=120)
+    amount: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, max_length=8)
+    active: Optional[bool] = None
+    sort_order: Optional[int] = None
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class BonusPayload(BaseModel):
+    """Prime variable — rattachée à un mois précis (YYYY-MM). Peut être
+    absente ou présente d'un mois à l'autre."""
+    month: str = Field(..., pattern=r"^\d{4}-\d{2}$")
+    label: str = Field(..., min_length=1, max_length=120)
+    amount: float = Field(..., ge=0)
+    currency: str = Field("XOF", max_length=8)
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+class BonusUpdate(BaseModel):
+    label: Optional[str] = Field(None, min_length=1, max_length=120)
+    amount: Optional[float] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, max_length=8)
+    notes: Optional[str] = Field(None, max_length=500)
+
+
+# ---------------------------------------------------------------------
 # Iter38b — Tenant HR settings (thresholds + payslip template)
 # ---------------------------------------------------------------------
 class HrSettingsPayload(BaseModel):
@@ -947,13 +987,43 @@ def make_router(*, db, get_current_user):
             hourly_for_deduction = float(emp.get("base_salary") or 0) / baseline_hours
         billable_unjustified = max(0.0, abs_h["unjustified"] - threshold)
         absence_deduction = round(billable_unjustified * hourly_for_deduction, 2)
+        # S-iter39s — Allowances (indemnités fixes récurrentes) + bonuses (primes du mois)
+        allowance_cursor = db.hr_allowances.find({
+            **scope, "employee_id": eid, "active": True,
+        }, {"_id": 0}).sort("sort_order", 1)
+        allowance_lines = []
+        total_allowances = 0.0
+        async for al in allowance_cursor:
+            amt = float(al.get("amount", 0))
+            total_allowances += amt
+            allowance_lines.append({
+                "id": al["id"], "label": al.get("label"),
+                "amount": round(amt, 2),
+                "notes": al.get("notes") or "",
+            })
+        total_allowances = round(total_allowances, 2)
+        bonus_cursor = db.hr_bonuses.find({
+            **scope, "employee_id": eid, "month": month,
+        }, {"_id": 0}).sort("created_at", 1)
+        bonus_lines = []
+        total_bonuses = 0.0
+        async for b in bonus_cursor:
+            amt = float(b.get("amount", 0))
+            total_bonuses += amt
+            bonus_lines.append({
+                "id": b["id"], "label": b.get("label"),
+                "amount": round(amt, 2),
+                "notes": b.get("notes") or "",
+            })
+        total_bonuses = round(total_bonuses, 2)
+        gross_with_gains = round(gross + total_allowances + total_bonuses, 2)
         # Apply tax overrides
         emp_overrides = emp.get("tax_overrides") or {}
         taxes_cursor = db.hr_taxes.find({**scope}, {"_id": 0}).sort("sort_order", 1)
         taxes = [t async for t in taxes_cursor]
         tax_lines = []
         total_taxes = 0.0
-        gross_after_abs = max(0.0, gross - absence_deduction)
+        gross_after_abs = max(0.0, gross_with_gains - absence_deduction)
         for t in taxes:
             if not t.get("active"):
                 continue
@@ -1016,6 +1086,11 @@ def make_router(*, db, get_current_user):
             "billable_unjustified_hours": round(billable_unjustified, 2),
             "absence_deduction": absence_deduction,
             "gross": gross,
+            "allowances": allowance_lines,
+            "total_allowances": total_allowances,
+            "bonuses": bonus_lines,
+            "total_bonuses": total_bonuses,
+            "gross_with_gains": gross_with_gains,
             "gross_after_absence": round(gross_after_abs, 2),
             "taxes": tax_lines,
             "total_taxes": total_taxes,
@@ -1248,6 +1323,144 @@ def make_router(*, db, get_current_user):
         return await _compute_payslip(user, eid, month)
     router.compute_payslip = compute_payslip_public  # type: ignore[attr-defined]
 
+    # =====================================================================
+    # S-iter39s (2026-02) — Allowances (indemnités fixes) CRUD
+    # =====================================================================
+    @router.get("/employees/{eid}/allowances")
+    async def list_allowances(eid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        cursor = db.hr_allowances.find(
+            {**scope, "employee_id": eid}, {"_id": 0}
+        ).sort([("active", -1), ("sort_order", 1), ("created_at", 1)])
+        return [a async for a in cursor]
+
+    @router.post("/employees/{eid}/allowances")
+    async def create_allowance(
+        eid: str, payload: AllowancePayload, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        tid = await _resolve_tenant_id(user)
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "employee_id": eid,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+            "updated_at": _now_iso(),
+        })
+        await db.hr_allowances.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/allowances/{aid}")
+    async def update_allowance(
+        aid: str, payload: AllowanceUpdate, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_allowances.find_one({**scope, "id": aid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Indemnité introuvable")
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            return existing
+        updates["updated_at"] = _now_iso()
+        await db.hr_allowances.update_one({"id": aid}, {"$set": updates})
+        return await db.hr_allowances.find_one({"id": aid}, {"_id": 0})
+
+    @router.delete("/allowances/{aid}")
+    async def delete_allowance(aid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        r = await db.hr_allowances.delete_one({**scope, "id": aid})
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Indemnité introuvable")
+        return {"ok": True, "id": aid}
+
+    # =====================================================================
+    # S-iter39s (2026-02) — Bonuses (primes variables par mois) CRUD
+    # =====================================================================
+    @router.get("/employees/{eid}/bonuses")
+    async def list_bonuses(
+        eid: str,
+        month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        q: Dict[str, Any] = {**scope, "employee_id": eid}
+        if month:
+            q["month"] = month
+        cursor = db.hr_bonuses.find(q, {"_id": 0}).sort([("month", -1), ("created_at", 1)])
+        return [b async for b in cursor]
+
+    @router.post("/employees/{eid}/bonuses")
+    async def create_bonus(
+        eid: str, payload: BonusPayload, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        emp = await db.hr_employees.find_one({**scope, "id": eid, "deleted_at": None}, {"_id": 0, "id": 1})
+        if not emp:
+            raise HTTPException(status_code=404, detail="Employé introuvable")
+        tid = await _resolve_tenant_id(user)
+        doc = payload.model_dump()
+        doc.update({
+            "id": str(uuid.uuid4()),
+            "tenant_id": tid,
+            "employee_id": eid,
+            "created_at": _now_iso(),
+            "created_by": user["id"],
+        })
+        await db.hr_bonuses.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    @router.patch("/bonuses/{bid}")
+    async def update_bonus(
+        bid: str, payload: BonusUpdate, user: dict = Depends(get_current_user)
+    ):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_bonuses.find_one({**scope, "id": bid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Prime introuvable")
+        updates = {k: v for k, v in payload.model_dump().items() if v is not None}
+        if not updates:
+            return existing
+        updates["updated_at"] = _now_iso()
+        await db.hr_bonuses.update_one({"id": bid}, {"$set": updates})
+        return await db.hr_bonuses.find_one({"id": bid}, {"_id": 0})
+
+    @router.delete("/bonuses/{bid}")
+    async def delete_bonus(bid: str, user: dict = Depends(get_current_user)):
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        r = await db.hr_bonuses.delete_one({**scope, "id": bid})
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Prime introuvable")
+        return {"ok": True, "id": bid}
+
     return router
 
 
@@ -1323,12 +1536,25 @@ def _render_payslip_pdf(data: Dict[str, Any]) -> bytes:
         ["Salaire brut estimé", _fmt_amount(data["gross"], currency)],
         ["Heures travaillées (mois)", f"{data['hours_worked']} h / {data['expected_hours']} h"],
     ]
+    # S-iter39s — Allowances (indemnités fixes) + bonuses (primes variables)
+    for al in (data.get("allowances") or []):
+        gains_data.append([f"Indemnité — {al['label']}", _fmt_amount(al['amount'], currency)])
+    for b in (data.get("bonuses") or []):
+        gains_data.append([f"Prime — {b['label']}", _fmt_amount(b['amount'], currency)])
+    total_allowances = float(data.get("total_allowances") or 0)
+    total_bonuses = float(data.get("total_bonuses") or 0)
+    if total_allowances or total_bonuses:
+        gains_data.append([
+            "Total brut avec indemnités & primes",
+            _fmt_amount(data.get("gross_with_gains") or data["gross"], currency),
+        ])
     tg = Table(gains_data, colWidths=[350, 150])
     tg.setStyle(TableStyle([
         ("FONTSIZE", (0, 0), (-1, -1), 9),
         ("ALIGN", (1, 0), (1, -1), "RIGHT"),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
         ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold") if (total_allowances or total_bonuses) else ("FONTSIZE", (0, 0), (-1, -1), 9),
     ]))
     story.append(tg)
     story.append(Spacer(1, 8))

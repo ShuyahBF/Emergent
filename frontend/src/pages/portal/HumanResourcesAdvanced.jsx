@@ -602,6 +602,42 @@ export function PayslipsTab({ employees }) {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between"><span className="text-slate-600">Brut estimé</span><span className="font-medium">{FCFA(data.gross)} {data.employee.currency}</span></div>
               <div className="flex justify-between"><span className="text-slate-600">Heures faites</span><span>{data.hours_worked}h / {data.expected_hours}h</span></div>
+              {(data.allowances || []).length > 0 && (
+                <>
+                  <div className="pt-2 mt-1 border-t border-slate-100 text-[11px] uppercase tracking-wider text-indigo-700 font-semibold">Indemnités fixes</div>
+                  {data.allowances.map((al) => (
+                    <div key={al.id} className="flex justify-between" data-testid={`payslip-allowance-${al.id}`}>
+                      <span className="text-slate-600">{al.label}</span>
+                      <span className="text-indigo-700">+ {FCFA(al.amount)} {data.employee.currency}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between font-medium">
+                    <span className="text-slate-600">Total indemnités</span>
+                    <span className="text-indigo-700">+ {FCFA(data.total_allowances)} {data.employee.currency}</span>
+                  </div>
+                </>
+              )}
+              {(data.bonuses || []).length > 0 && (
+                <>
+                  <div className="pt-2 mt-1 border-t border-slate-100 text-[11px] uppercase tracking-wider text-amber-600 font-semibold">Primes du mois</div>
+                  {data.bonuses.map((b) => (
+                    <div key={b.id} className="flex justify-between" data-testid={`payslip-bonus-${b.id}`}>
+                      <span className="text-slate-600">{b.label}</span>
+                      <span className="text-amber-700">+ {FCFA(b.amount)} {data.employee.currency}</span>
+                    </div>
+                  ))}
+                  <div className="flex justify-between font-medium">
+                    <span className="text-slate-600">Total primes</span>
+                    <span className="text-amber-700">+ {FCFA(data.total_bonuses)} {data.employee.currency}</span>
+                  </div>
+                </>
+              )}
+              {(data.total_allowances > 0 || data.total_bonuses > 0) && (
+                <div className="flex justify-between pt-2 mt-1 border-t border-slate-200 font-bold">
+                  <span className="text-slate-700">Brut total (avec gains)</span>
+                  <span className="text-slate-900">{FCFA(data.gross_with_gains || data.gross)} {data.employee.currency}</span>
+                </div>
+              )}
             </div>
             <h4 className="text-sm font-semibold text-slate-700 mb-2 mt-4">Absences</h4>
             <div className="space-y-1 text-sm">

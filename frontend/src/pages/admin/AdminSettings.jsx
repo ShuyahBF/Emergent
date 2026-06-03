@@ -980,6 +980,20 @@ export default function AdminSettings() {
             onChange={(v) => upd("qdrant_enabled", v)}
             testid="toggle-qdrant-enabled"
           />
+          <div className="space-y-1">
+            <Toggle
+              label="👁️ Enrichir automatiquement les images uploadées via Claude Vision (OCR + description)"
+              value={s.qdrant_image_auto_describe !== false}
+              onChange={(v) => upd("qdrant_image_auto_describe", v)}
+              testid="toggle-qdrant-image-auto-describe"
+            />
+            <p className="text-[11px] text-slate-500 ml-7">
+              Quand activé, chaque image envoyée dans une collection Qdrant est analysée par Claude Sonnet 4.6 Vision
+              pour extraire son texte (OCR) et générer une description visuelle. Cela rend l'image retrouvable par
+              Liluvine même sans légende manuelle. Désactivez pour économiser sur la Universal Key (~$0.001/image).
+              Le toggle par-upload dans Qdrant &gt; Image reste prioritaire si vous souhaitez forcer ou couper au cas par cas.
+            </p>
+          </div>
           <QdrantRagSection />
         </Section>
       </Filterable>

@@ -477,6 +477,12 @@ class SettingsUpdate(BaseModel):
     qdrant_url: Optional[str] = None
     qdrant_api_key: Optional[str] = None
     qdrant_collection_settings: Optional[dict] = None  # name → {enabled_for_liluvine, description}
+    # --- P1 (2026-02) — Auto-enrich uploaded images with Claude Vision ---
+    # When True (default), uploaded images go through Claude Sonnet 4.6 Vision
+    # to extract OCR text + a visual description. These enrich the embedding
+    # text so Liluvine can find an image even without a manual caption.
+    # Per-upload override available via the `auto_describe` form field.
+    qdrant_image_auto_describe: Optional[bool] = None
 
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.

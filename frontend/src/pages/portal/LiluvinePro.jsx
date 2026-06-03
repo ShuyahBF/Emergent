@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle, HelpCircle } from "lucide-react";
+import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle, HelpCircle, Image as ImageIcon, X } from "lucide-react";
 import LiluvineMessageContent from "@/components/LiluvineMessageContent";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import { useAuth } from "@/contexts/AuthContext";
@@ -47,6 +47,31 @@ export default function LiluvinePro() {
   const [helpOpen, setHelpOpen] = useState(false);
   const [helpNote, setHelpNote] = useState("");
   const [helpSending, setHelpSending] = useState(false);
+
+  // S044 — Image attachment for "Compare ma capture d'écran avec SAWALI"
+  const [attachedImage, setAttachedImage] = useState(null); // File object
+  const [attachedPreview, setAttachedPreview] = useState(null); // data: URL for preview
+  const fileInputRef = useRef(null);
+  const pickAttachedImage = (file) => {
+    if (!file) return;
+    if (!/^image\/(jpeg|png|webp|gif)$/.test(file.type)) {
+      toast.error("Format non supporté (JPEG, PNG, WebP, GIF uniquement)");
+      return;
+    }
+    if (file.size > 15 * 1024 * 1024) {
+      toast.error("Image > 15 Mo");
+      return;
+    }
+    setAttachedImage(file);
+    const reader = new FileReader();
+    reader.onload = (ev) => setAttachedPreview(ev.target?.result || null);
+    reader.readAsDataURL(file);
+  };
+  const clearAttachedImage = () => {
+    setAttachedImage(null);
+    setAttachedPreview(null);
+    if (fileInputRef.current) fileInputRef.current.value = "";
+  };
 
   const requestHelp = async () => {
     const note = helpNote.trim();
@@ -119,9 +144,64 @@ export default function LiluvinePro() {
     } finally { setLoadingSession(false); }
   };
 
+  // S044 — Send text + image via chat-with-image endpoint (non-streaming)
+  const sendWithImage = async (text) => {
+    if (!attachedImage) return;
+    setSending(true);
+    const tmpUserId = `u-${Date.now()}`;
+    const tmpAsstId = `a-${Date.now()}`;
+    const localPreview = attachedPreview;
+    setMessages((m) => [
+      ...m,
+      {
+        id: tmpUserId,
+        role: "user",
+        content: text || "📸 Capture d'écran envoyée",
+        user_image_url: localPreview,
+      },
+      { id: tmpAsstId, role: "assistant", content: "", _streaming: true },
+    ]);
+    const file = attachedImage;
+    setInput("");
+    clearAttachedImage();
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      if (text) fd.append("text", text);
+      if (activeId) fd.append("session_id", activeId);
+      const r = await apiClient.post("/me/liluvine-pro/chat-with-image", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      const d = r.data || {};
+      if (d.session_id) setActiveId(d.session_id);
+      setMessages((m) => m.map((x) => x.id === tmpAsstId ? {
+        id: d.message_id || tmpAsstId,
+        role: "assistant",
+        content: d.reply || "",
+        tokens: d.tokens,
+        model: d.model,
+        matched_images: d.matched_images || [],
+      } : x));
+      if (d.warn) toast.warning("⚠️ Vous approchez de votre quota IA mensuel (80% atteint).");
+      await loadSessions();
+    } catch (err) {
+      setMessages((m) => m.filter((x) => x.id !== tmpAsstId));
+      const detail = err?.response?.data?.detail || err?.message || "Erreur réseau";
+      if (err?.response?.status === 429) toast.error(`Quota IA atteint : ${detail}`);
+      else if (err?.response?.status === 403) { setFeatureEnabled(false); toast.error(detail); }
+      else toast.error(detail);
+    } finally { setSending(false); }
+  };
+
   const send = async () => {
     const text = input.trim();
-    if (!text || sending) return;
+    if (sending) return;
+    // S044 — When an image is attached, use the chat-with-image endpoint
+    if (attachedImage) {
+      await sendWithImage(text);
+      return;
+    }
+    if (!text) return;
     setSending(true);
     const tmpUserId = `u-${Date.now()}`;
     const tmpAsstId = `a-${Date.now()}`;
@@ -532,7 +612,40 @@ export default function LiluvinePro() {
                     ? "bg-sky-600 text-white"
                     : "bg-slate-50 ring-1 ring-slate-200 text-slate-800"
                 }`}>
+                  {/* S044 — Display user-attached screenshot */}
+                  {m.role === "user" && m.user_image_url && (
+                    <img
+                      src={m.user_image_url}
+                      alt="Capture d'écran envoyée"
+                      className="rounded-lg mb-1.5 max-h-48 object-contain ring-1 ring-sky-300/50"
+                      data-testid="liluvine-msg-user-image"
+                    />
+                  )}
                   <LiluvineMessageContent content={m.content} />
+                  {/* S044 — Matched SAWALI images carousel */}
+                  {m.role === "assistant" && (m.matched_images || []).length > 0 && (
+                    <div className="mt-2 grid grid-cols-3 gap-1.5" data-testid="liluvine-msg-matched-images">
+                      {m.matched_images.map((mi, idx) => (
+                        <a
+                          key={mi.image_url + idx}
+                          href={mi.image_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="relative group rounded ring-1 ring-slate-300 overflow-hidden bg-white"
+                          title={`${mi.title || `Match #${idx + 1}`} (score ${mi.score?.toFixed(2)})`}
+                        >
+                          <img
+                            src={mi.image_url}
+                            alt={mi.title || `Match #${idx + 1}`}
+                            className="h-20 w-full object-cover"
+                          />
+                          <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-[9px] px-1 py-0.5 truncate">
+                            #{idx + 1} · {Math.round((mi.score || 0) * 100)}%
+                          </div>
+                        </a>
+                      ))}
+                    </div>
+                  )}
                   {m.role === "assistant" && (m.tokens || m.context_injected) && (
                     <p className="text-[9px] text-slate-400 mt-1">
                       {m.tokens && <>~{m.tokens} tokens · </>}
@@ -563,6 +676,27 @@ export default function LiluvinePro() {
 
         {/* Composer */}
         <div className="p-3 border-t border-slate-100" data-testid="liluvine-composer">
+          {/* S044 — Attached image preview */}
+          {attachedPreview && (
+            <div className="mb-2 flex items-start gap-2 rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50 p-2" data-testid="liluvine-attached-image-preview">
+              <img src={attachedPreview} alt="Aperçu de la capture" className="h-16 w-16 object-cover rounded ring-1 ring-fuchsia-200" />
+              <div className="flex-1 min-w-0 text-xs">
+                <p className="font-semibold text-fuchsia-800">📸 Capture d'écran prête à envoyer</p>
+                <p className="text-fuchsia-700/80 truncate">{attachedImage?.name} · {Math.round((attachedImage?.size || 0) / 1024)} Ko</p>
+                <p className="text-[10px] text-fuchsia-700/70 mt-0.5">
+                  Liluvine va analyser cette image (OCR + Vision) et chercher l'écran SAWALI correspondant.
+                </p>
+              </div>
+              <button
+                onClick={clearAttachedImage}
+                className="text-fuchsia-700 hover:text-fuchsia-900 p-1"
+                title="Retirer l'image"
+                data-testid="liluvine-attached-image-remove"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          )}
           <div className="flex gap-2 items-end">
             <textarea
               value={input}
@@ -570,13 +704,34 @@ export default function LiluvinePro() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
               }}
-              placeholder="Posez votre question… (Entrée = envoyer, Shift+Entrée = nouvelle ligne)"
+              placeholder={attachedImage
+                ? "Décrivez votre problème en quelques mots (optionnel)…"
+                : "Posez votre question… (Entrée = envoyer, Shift+Entrée = nouvelle ligne)"}
               disabled={sending}
               rows={2}
               maxLength={8000}
               className="flex-1 resize-none rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm focus:ring-fuchsia-500 focus:ring-2 outline-none disabled:opacity-50"
               data-testid="liluvine-input"
             />
+            {/* S044 — Attach image */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp,image/gif"
+              onChange={(e) => pickAttachedImage(e.target.files?.[0])}
+              className="hidden"
+              data-testid="liluvine-attach-image-input"
+            />
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              disabled={sending || helpSending}
+              className="inline-flex items-center gap-1 rounded-lg bg-slate-100 text-slate-700 ring-1 ring-slate-200 px-2.5 py-2 text-sm hover:bg-slate-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              data-testid="liluvine-attach-image-btn"
+              title="Envoyer une capture d'écran — Liluvine identifiera l'écran SAWALI et la procédure"
+            >
+              <ImageIcon className="h-4 w-4" />
+              <span className="hidden sm:inline">Capture</span>
+            </button>
             <button
               onClick={() => setHelpOpen(true)}
               disabled={sending || helpSending}
@@ -589,12 +744,12 @@ export default function LiluvinePro() {
             </button>
             <button
               onClick={send}
-              disabled={sending || !input.trim() || !featureEnabled}
+              disabled={sending || (!input.trim() && !attachedImage) || !featureEnabled}
               className={`inline-flex items-center gap-1.5 rounded-lg bg-${branding.color}-600 text-white px-3.5 py-2 text-sm hover:bg-${branding.color}-700 disabled:opacity-40 disabled:cursor-not-allowed shadow-sm`}
               data-testid="liluvine-send-btn"
             >
               <Send className="h-4 w-4" />
-              {sending ? "Envoi…" : "Envoyer"}
+              {sending ? "Envoi…" : (attachedImage ? "Analyser" : "Envoyer")}
             </button>
           </div>
           <p className="text-[10px] text-slate-400 mt-1 tabular-nums">

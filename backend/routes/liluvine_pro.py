@@ -28,7 +28,7 @@ import secrets
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, HTTPException, Request
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
@@ -766,6 +766,185 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "model": llm["model"],
             "context_injected": bool(ctx),
             "escalation": bool(escalated),
+            "warn": track_result.get("warn", False),
+        }
+
+    # ----------------------------------------------------------
+    # S044 (2026-02) — POST /chat-with-image
+    # Liluvine "sees" a client screenshot: Claude Vision extracts the
+    # OCR + visual summary, then Qdrant finds the closest SAWALI image
+    # in the knowledge base. The LLM is fed the analysis + matches so
+    # it can identify the screen and propose the relevant procedure.
+    # ----------------------------------------------------------
+    @api.post("/me/liluvine-pro/chat-with-image", tags=["Portail Client — Liluvine PRO"])
+    async def chat_with_image(
+        file: UploadFile = File(...),
+        text: str = Form(""),
+        session_id: Optional[str] = Form(None),
+        user: dict = Depends(get_current_user),
+    ):
+        # Same feature gate as /chat
+        scope_uid = _client_scope(user)
+        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
+        feats = (parent or {}).get("features") or {}
+        if not feats.get("ai_liluvine_pro"):
+            raise HTTPException(
+                status_code=403,
+                detail="Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
+            )
+        chk = await _pre_check(user, LILUVINE_MODEL)
+        if not chk.get("allowed"):
+            raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
+        ct = (file.content_type or "").lower()
+        if not ct.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Fichier image attendu (JPEG, PNG, WebP).")
+        if ct not in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+            raise HTTPException(status_code=400, detail=f"Format non supporté : {ct}")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Image > 15 Mo.")
+        # 1) Persist the client's image so we can show it back in the chat
+        try:
+            import object_storage as _obj_storage
+            ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+            ext = ext_map.get(ct, "bin")
+            stored = await _obj_storage.save_and_log(
+                db, data=content, kind="liluvine_user_image",
+                tenant_id="sawali_global", ext=ext, content_type=ct,
+                original_filename=file.filename or f"upload.{ext}",
+                user_id=user.get("id"),
+                metadata={"session_id": session_id or ""},
+            )
+            client_image_url = stored.get("url")
+        except Exception:  # noqa: BLE001
+            logger.exception("[liluvine-chat-image] storing failed")
+            client_image_url = None
+        # 2) Run Claude Vision on the client's image
+        analysis = {"ocr_text": "", "visual_summary": ""}
+        try:
+            from routes.qdrant_rag import describe_image_with_vision
+            analysis = await describe_image_with_vision(content, ct) or analysis
+        except Exception:  # noqa: BLE001
+            logger.exception("[liluvine-chat-image] Claude Vision failed")
+        # 3) Search Qdrant for similar SAWALI screenshots
+        matches: list = []
+        try:
+            from routes.qdrant_rag import search_similar_images
+            search_query = "\n".join([
+                p for p in [text, analysis.get("visual_summary"), analysis.get("ocr_text")] if p
+            ]).strip()
+            if search_query:
+                matches = await search_similar_images(db, query=search_query, top_k=3)
+        except Exception:  # noqa: BLE001
+            logger.exception("[liluvine-chat-image] Qdrant image search failed")
+        # 4) Create / pick session
+        scope = _client_scope(user)
+        sid = session_id
+        first_line = (text or "").strip().splitlines()[0] if text.strip() else "📸 Capture d'écran"
+        if not sid:
+            sid = secrets.token_urlsafe(12)
+            await db.liluvine_pro_sessions.insert_one({
+                "id": sid,
+                "client_id": scope,
+                "user_id": user["id"],
+                "user_label": user.get("full_name") or user.get("email") or "—",
+                "title": first_line[:60] or "Capture d'écran",
+                "created_at": _now(),
+                "updated_at": _now(),
+                "message_count": 0,
+            })
+        else:
+            session = await db.liluvine_pro_sessions.find_one(
+                {"id": sid, "client_id": scope}, {"_id": 0},
+            )
+            if not session:
+                raise HTTPException(status_code=404, detail="Session introuvable.")
+        # 5) Build a rich user prompt that the LLM will see
+        prompt_parts: list[str] = []
+        if text.strip():
+            prompt_parts.append(text.strip())
+        prompt_parts.append("\n[ANALYSE DE LA CAPTURE D'ÉCRAN ENVOYÉE PAR LE CLIENT]")
+        if analysis.get("visual_summary"):
+            prompt_parts.append(f"Description visuelle : {analysis['visual_summary']}")
+        if analysis.get("ocr_text"):
+            ocr = analysis["ocr_text"][:1500]
+            prompt_parts.append(f"Texte visible (OCR) :\n{ocr}")
+        if not analysis.get("visual_summary") and not analysis.get("ocr_text"):
+            prompt_parts.append("(Aucun texte ou élément visuel notable n'a pu être extrait — l'image est peut-être floue ou vide.)")
+        if matches:
+            prompt_parts.append("\n[ÉCRANS SAWALI POSSIBLEMENT CORRESPONDANTS — IDENTIFIE LE BON]")
+            for i, m in enumerate(matches, start=1):
+                line = f"  {i}. {m['title'] or '(sans titre)'}  (score {m['score']:.2f})"
+                if m.get("visual_summary"):
+                    line += f"\n     → {m['visual_summary'][:250]}"
+                prompt_parts.append(line)
+            prompt_parts.append(
+                "\nQuand tu réponds, indique si l'une de ces images SAWALI correspond exactement à "
+                "l'écran du client (ex: « Vous êtes sur l'écran X. Voici la procédure : … ») et "
+                "inclus l'image en Markdown ![titre](url) en utilisant les URLs ci-dessous :"
+            )
+            for m in matches:
+                prompt_parts.append(f"  - {m['title'] or 'écran'}: {m['image_url']}")
+        else:
+            prompt_parts.append("\n(Aucune image SAWALI ne correspond — réponds en t'appuyant sur l'analyse + ta connaissance générale du CRM SAWALI.)")
+        enriched_user_text = "\n".join(prompt_parts)
+        # 6) Persist the user message (text + image URL)
+        await db.liluvine_pro_messages.insert_one({
+            "id": secrets.token_urlsafe(12),
+            "session_id": sid,
+            "client_id": scope,
+            "user_id": user["id"],
+            "role": "user",
+            "content": text or "📸 Capture d'écran envoyée",
+            "user_image_url": client_image_url,
+            "image_analysis": analysis,
+            "matched_images": matches,
+            "created_at": _now(),
+        })
+        # 7) Call the LLM with the enriched prompt
+        ctx = await _fetch_context_snippets(db, user, text or analysis.get("visual_summary") or "")
+        system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "")
+        try:
+            llm = await _llm_send(sid, system_text, enriched_user_text)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            logger.exception("[liluvine-chat-image] LLM failure")
+            raise HTTPException(status_code=502, detail=f"Liluvine indisponible : {str(exc)[:160]}") from exc
+        reply_text = (llm["reply"] or "").strip()
+        # 8) Persist the assistant reply
+        msg_id = secrets.token_urlsafe(12)
+        await db.liluvine_pro_messages.insert_one({
+            "id": msg_id,
+            "session_id": sid,
+            "client_id": scope,
+            "user_id": user["id"],
+            "role": "assistant",
+            "content": reply_text,
+            "tokens": llm["tokens"],
+            "model": llm["model"],
+            "vision_used": True,
+            "created_at": _now(),
+        })
+        await db.liluvine_pro_sessions.update_one(
+            {"id": sid}, {"$inc": {"message_count": 2}, "$set": {"updated_at": _now()}},
+        )
+        track_result = await _track(
+            user, llm["tokens"], llm["model"],
+            metadata={"session_id": sid, "vision": True, "matches": len(matches)},
+        )
+        return {
+            "ok": True,
+            "session_id": sid,
+            "message_id": msg_id,
+            "reply": reply_text,
+            "tokens": llm["tokens"],
+            "model": llm["model"],
+            "user_image_url": client_image_url,
+            "image_analysis": analysis,
+            "matched_images": matches,
             "warn": track_result.get("warn", False),
         }
 

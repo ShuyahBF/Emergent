@@ -568,6 +568,58 @@ async def test_connection(db) -> dict:
 # Liluvine integration
 # ---------------------------------------------------------------------------
 
+async def search_similar_images(db, *, query: str, top_k: int = 4) -> list[dict]:
+    """S044 (2026-02) — Search image-kind points across ALL collections
+    flagged enabled_for_liluvine. Returns the top_k matches.
+
+    Used when a client sends a screenshot to Liluvine — we run Claude
+    Vision on the client's image to get OCR + visual_summary, then call
+    this helper with that text to find the closest SAWALI screen.
+    Failures are swallowed (returns []).
+    """
+    if not (query or "").strip():
+        return []
+    settings = await db.settings.find_one({"_id": "global"}) or {}
+    if not settings.get("qdrant_enabled"):
+        return []
+    coll_meta = settings.get("qdrant_collection_settings") or {}
+    enabled = [name for name, cfg in coll_meta.items() if (cfg or {}).get("enabled_for_liluvine")]
+    if not enabled:
+        return []
+    try:
+        url, key = await _resolve_credentials(db)
+        client = _make_client(url, key)
+        qvec = _embed_query(query)
+    except Exception:  # noqa: BLE001
+        logger.exception("[qdrant_rag] search_similar_images credentials/embed failed")
+        return []
+    all_hits: list[dict] = []
+    for cname in enabled:
+        try:
+            hits = client.query_points(
+                collection_name=cname, query=qvec, limit=top_k * 2, with_payload=True,
+            ).points
+            for h in hits:
+                payload = h.payload or {}
+                if (payload.get("kind") or "text") != "image":
+                    continue
+                if not payload.get("image_url"):
+                    continue
+                all_hits.append({
+                    "score": float(h.score),
+                    "collection": cname,
+                    "title": payload.get("title") or "",
+                    "image_url": payload["image_url"],
+                    "visual_summary": payload.get("visual_summary") or "",
+                    "ocr_text": payload.get("ocr_text") or "",
+                    "caption": payload.get("caption") or "",
+                })
+        except Exception:  # noqa: BLE001
+            logger.warning("[qdrant_rag] image search failed on %s", cname, exc_info=True)
+    all_hits.sort(key=lambda x: x["score"], reverse=True)
+    return all_hits[:top_k]
+
+
 async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
     """Search all collections flagged enabled_for_liluvine and concat the
     top matches up to max_chars. Returns "" if RAG is disabled or no
@@ -902,4 +954,6 @@ __all__ = [
     "delete_collection",
     "upsert_text_documents",
     "search_points",
+    "search_similar_images",
+    "describe_image_with_vision",
 ]

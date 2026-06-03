@@ -15,7 +15,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Plus, Trash2, Edit2, Save, X, Loader2, Calendar, Banknote,
-  ToggleLeft, ToggleRight, Sparkles, Briefcase,
+  ToggleLeft, ToggleRight, Sparkles, Briefcase, Copy,
 } from "lucide-react";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
@@ -273,6 +273,7 @@ function BonusesCard({ employee, currency, defaultMonth }) {
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState({ label: "", amount: "", notes: "" });
   const [saving, setSaving] = useState(false);
+  const [duplicating, setDuplicating] = useState(false);
 
   const load = useCallback(async () => {
     if (!employee?.id) return;
@@ -286,6 +287,54 @@ function BonusesCard({ employee, currency, defaultMonth }) {
   }, [employee?.id, month]);
 
   useEffect(() => { load(); }, [load]);
+
+  const previousMonth = useMemo(() => {
+    // YYYY-MM → previous YYYY-MM
+    if (!/^\d{4}-\d{2}$/.test(month)) return null;
+    const [y, m] = month.split("-").map(Number);
+    const d = new Date(y, m - 2, 1);  // m-1 (zero-based) - 1
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+  }, [month]);
+
+  const duplicateFromPreviousMonth = async () => {
+    if (!previousMonth) return;
+    if (items.length > 0) {
+      if (!window.confirm(
+        `Le mois ${month} contient déjà ${items.length} prime(s). Voulez-vous ajouter celles de ${previousMonth} par-dessus (sans écraser) ?`,
+      )) return;
+    }
+    setDuplicating(true);
+    try {
+      // Fetch previous month bonuses
+      const r = await apiClient.get(`/hr/employees/${employee.id}/bonuses?month=${previousMonth}`);
+      const prev = r.data || [];
+      if (prev.length === 0) {
+        toast.error(`Aucune prime à dupliquer (${previousMonth} est vide).`);
+        setDuplicating(false);
+        return;
+      }
+      // Create each one for the current month
+      let created = 0;
+      for (const b of prev) {
+        try {
+          await apiClient.post(`/hr/employees/${employee.id}/bonuses`, {
+            month,
+            label: b.label,
+            amount: Number(b.amount || 0),
+            currency: b.currency || currency || "XOF",
+            notes: b.notes || null,
+          });
+          created += 1;
+        } catch (err) {
+          /* keep going */
+        }
+      }
+      toast.success(`${created} prime(s) dupliquée(s) depuis ${previousMonth}.`);
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de duplication");
+    } finally { setDuplicating(false); }
+  };
 
   const create = async () => {
     if (!form.label.trim()) { toast.error("Libellé requis"); return; }
@@ -335,7 +384,7 @@ function BonusesCard({ employee, currency, defaultMonth }) {
             Variables d'un mois à l'autre (rendement, performance, treizième mois…). Saisies pour un mois précis.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <input
             type="month"
             value={month}
@@ -343,6 +392,18 @@ function BonusesCard({ employee, currency, defaultMonth }) {
             data-testid="hr-bonus-month"
             className="px-2 py-1 rounded-md border border-slate-200 text-xs"
           />
+          {previousMonth && (
+            <button
+              onClick={duplicateFromPreviousMonth}
+              disabled={duplicating}
+              data-testid="hr-bonus-duplicate-prev"
+              title={`Recopier toutes les primes de ${previousMonth} vers ${month}`}
+              className="px-2.5 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs rounded-lg inline-flex items-center gap-1 disabled:opacity-60"
+            >
+              {duplicating ? <Loader2 size={12} className="animate-spin" /> : <Copy size={12} />}
+              Dupliquer {previousMonth}
+            </button>
+          )}
           {!creating && (
             <button
               onClick={() => setCreating(true)}

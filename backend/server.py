@@ -21795,6 +21795,10 @@ api.include_router(_make_dl_public_router(db=db))
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402
 api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_user, send_email=send_email))
 
+# S038 — Qdrant RAG router (admin-only)
+from routes.qdrant_rag import make_router as _make_qdrant_router  # noqa: E402
+api.include_router(_make_qdrant_router(db=db, get_current_user=get_current_user))
+
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).
 # Permet à l'admin de consulter SUGGESTIONS.md directement depuis l'UI sans

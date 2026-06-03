@@ -467,6 +467,17 @@ class SettingsUpdate(BaseModel):
     liluvine_escalation_wa_phone: Optional[str] = None  # E.164
     liluvine_escalation_cooldown_minutes: Optional[int] = None  # default 30 min
 
+    # --- S038 — Qdrant RAG semantic knowledge base ---
+    # Master toggle + connection settings (DB takes precedence over env).
+    # When `qdrant_enabled` is True, Liluvine PRO (chat + WA auto-reply)
+    # runs a semantic search across all collections flagged
+    # `enabled_for_liluvine=true` in `qdrant_collection_settings` and
+    # injects the top hits as KB context for the LLM.
+    qdrant_enabled: Optional[bool] = None
+    qdrant_url: Optional[str] = None
+    qdrant_api_key: Optional[str] = None
+    qdrant_collection_settings: Optional[dict] = None  # name → {enabled_for_liluvine, description}
+
     # --- Iter38r-fix9o (P1) — Stripe webhook signing secret ---
     # Used by `POST /api/webhook/stripe` to verify Stripe event signatures.
     # Stored alongside other secrets in `settings.global`. Takes precedence

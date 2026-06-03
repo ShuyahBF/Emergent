@@ -194,46 +194,62 @@ async def _ocr_pdf_with_claude_vision(raw: bytes, settings_doc: Dict[str, Any]) 
     return "\n\n".join(chunks), used
 
 
-async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET) -> str:
+async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query: Optional[str] = None) -> str:
     """Aggregate enabled KB entries into a compact context string.
 
-    Iter38r-fix9t — In-memory cache (TTL 60 s, per-process). The KB rarely
-    changes (admin-only writes) so caching saves a Mongo round-trip on every
-    Liluvine chat message (~1 s on large KBs).
+    S038 — When `query` is provided AND `settings.qdrant_enabled` is True,
+    we run a semantic search (RAG) across all Qdrant collections flagged
+    `enabled_for_liluvine` and concatenate the results. The RAG block
+    consumes up to ~60% of `max_chars`; the remaining budget falls back
+    to the legacy MongoDB KB. If RAG returns nothing (or fails), we use
+    100% of the budget for the MongoDB KB (no behavior change).
     """
-    # Cache lookup
+    # ---- S038 — RAG semantic block (uses query when available) ----
+    rag_block = ""
+    rag_budget = 0
+    if query and (query or "").strip():
+        try:
+            from routes.qdrant_rag import build_rag_context
+            rag_budget = int(max_chars * 0.6)
+            rag_block = await build_rag_context(db, query=query, max_chars=rag_budget)
+        except Exception:  # noqa: BLE001
+            rag_block = ""
+    remaining = max_chars - len(rag_block)
+    # Cache lookup (legacy MongoDB KB only — keyed by remaining budget)
     now = time.time()
-    cached = _KB_CONTEXT_CACHE.get(max_chars)
+    cached = _KB_CONTEXT_CACHE.get(remaining)
     if cached and (now - cached[0] < _KB_CONTEXT_TTL):
-        return cached[1]
-    cur = db.liluvine_knowledge.find(
-        {"enabled": True, "is_deleted": {"$ne": True}},
-        {"_id": 0, "title": 1, "content": 1, "kind": 1, "tags": 1},
-    ).sort([("priority", -1), ("updated_at", -1)])
-    items = await cur.to_list(50)
-    if not items:
-        _KB_CONTEXT_CACHE[max_chars] = (now, "")
-        return ""
-    parts: List[str] = ["[Base de connaissance SAWALI — Liluvine PRO]"]
-    used = len(parts[0])
-    for it in items:
-        title = (it.get("title") or "").strip()
-        content = (it.get("content") or "").strip()
-        if not content:
-            continue
-        block = f"\n\n## {title}\n{content}"
-        if used + len(block) > max_chars:
-            # Try to fit a truncated version of just the title and a sliver
-            remaining = max_chars - used - len(title) - 12
-            if remaining > 80:
-                block = f"\n\n## {title}\n{content[:remaining]}…"
+        mongo_block = cached[1]
+    else:
+        cur = db.liluvine_knowledge.find(
+            {"enabled": True, "is_deleted": {"$ne": True}},
+            {"_id": 0, "title": 1, "content": 1, "kind": 1, "tags": 1},
+        ).sort([("priority", -1), ("updated_at", -1)])
+        items = await cur.to_list(50)
+        if not items:
+            mongo_block = ""
+        else:
+            parts: List[str] = ["[Base de connaissance SAWALI — Liluvine PRO]"]
+            used = len(parts[0])
+            for it in items:
+                title = (it.get("title") or "").strip()
+                content = (it.get("content") or "").strip()
+                if not content:
+                    continue
+                block = f"\n\n## {title}\n{content}"
+                if used + len(block) > remaining:
+                    rest = remaining - used - len(title) - 12
+                    if rest > 80:
+                        parts.append(f"\n\n## {title}\n{content[:rest]}…")
+                    break
                 parts.append(block)
-            break
-        parts.append(block)
-        used += len(block)
-    result = "".join(parts)
-    _KB_CONTEXT_CACHE[max_chars] = (now, result)
-    return result
+                used += len(block)
+            mongo_block = "".join(parts)
+        _KB_CONTEXT_CACHE[remaining] = (now, mongo_block)
+    # Concatenate (RAG first for higher LLM attention)
+    if rag_block and mongo_block:
+        return rag_block + "\n\n" + mongo_block
+    return rag_block or mongo_block
 
 
 def invalidate_kb_cache() -> None:

@@ -209,7 +209,7 @@ async def autoreply_to_inbound(
     # Iter38r-fix9c — Also inject the Knowledge Base for WhatsApp auto-reply
     try:
         from routes.liluvine_kb import build_kb_context
-        kb = await build_kb_context(db, max_chars=4000)  # smaller budget for WA
+        kb = await build_kb_context(db, max_chars=4000, query=text)  # smaller budget for WA
     except Exception:
         kb = ""
     contact_tag = ""

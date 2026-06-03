@@ -17,6 +17,7 @@ import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
+import QdrantRagSection from "@/components/QdrantRagSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -30,6 +31,8 @@ import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestBut
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // S-iter39o (2026-02 post-handoff) — Qdrant RAG
+  "Qdrant RAG — Base de connaissance vectorielle (S038)": "2026-02-02",
   // S-iter39k (2026-02 post-handoff) — Liluvine escalation
   "Liluvine PRO — Demande d'aide WhatsApp à l'admin (S036)": "2026-02-02",
   // S-iter39g (2026-02 post-handoff) — Universal Key burn-rate thresholds
@@ -873,6 +876,27 @@ export default function AdminSettings() {
             <p className="text-xs font-semibold text-slate-700 mb-2">🧪 Tester l'envoi maintenant</p>
             <LiluvineEscalationTestButton />
           </div>
+        </Section>
+      </Filterable>
+
+      {/* S038 — Qdrant RAG semantic knowledge base */}
+      <Filterable title="Qdrant RAG — Base de connaissance vectorielle (S038)" anchorId="s-qdrant-rag">
+        <Section icon={Brain} title="Recherche sémantique pour Liluvine PRO (RAG)">
+          <p className="text-xs text-slate-500">
+            Connectez votre base Qdrant Cloud, créez des collections (FAQ, produits, procédures…)
+            et injectez du contenu : <strong>texte brut</strong>, <strong>PDF</strong> (extraction
+            automatique) ou <strong>URLs web</strong> (scraping). Liluvine PRO interrogera
+            sémantiquement les collections que vous activez ci-dessous à chaque message client.
+            Modèle d'embeddings : <code>paraphrase-multilingual-MiniLM-L12-v2</code> (384 dim,
+            optimisé multilingue dont français, exécution locale sans coût Universal Key).
+          </p>
+          <Toggle
+            label="🟢 Activer la recherche sémantique Qdrant pour Liluvine PRO"
+            value={!!s.qdrant_enabled}
+            onChange={(v) => upd("qdrant_enabled", v)}
+            testid="toggle-qdrant-enabled"
+          />
+          <QdrantRagSection />
         </Section>
       </Filterable>
 

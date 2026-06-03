@@ -545,9 +545,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         # Fetch context + call LLM
         ctx = await _fetch_context_snippets(db, user_doc, text)
         # Iter38r-fix9c — Inject the Knowledge Base content
+        # S038 — pass the user query so build_kb_context can run a RAG
+        # search across Qdrant collections (when enabled).
         try:
             from routes.liluvine_kb import build_kb_context
-            kb = await build_kb_context(db)
+            kb = await build_kb_context(db, query=text)
         except Exception:
             kb = ""
         system_text = (await _resolve_system_prompt(client_id)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
@@ -692,9 +694,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         # Fetch RAG context based on keywords in the user's text
         ctx = await _fetch_context_snippets(db, user, payload.text)
         # Iter38r-fix9c — Inject the Knowledge Base content for the main chat too
+        # S038 — query-aware: triggers RAG semantic search via Qdrant.
         try:
             from routes.liluvine_kb import build_kb_context
-            kb = await build_kb_context(db)
+            kb = await build_kb_context(db, query=payload.text)
         except Exception:
             kb = ""
         system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")

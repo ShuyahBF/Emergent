@@ -1523,3 +1523,68 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "title": title,
             "warn": track_result.get("warn", False),
         }
+
+    # ----------------------------------------------------------
+    # #2bis (2026-02) — Coverage gaps : list client questions sent with a
+    # screenshot but for which Qdrant returned NO match (or weak matches).
+    # These are the "blind spots" of the knowledge base.
+    # ----------------------------------------------------------
+    @api.get("/admin/liluvine-pro/coverage-gaps", tags=["Admin — Liluvine PRO"])
+    async def admin_coverage_gaps(
+        days: int = 30,
+        min_score: float = 0.5,
+        limit: int = 50,
+        user: dict = Depends(get_current_user),
+    ):
+        """Return user-image messages where the best Qdrant match is below
+        `min_score` (or no matches at all). These are gaps in the KB:
+        clients asked about something the KB doesn't cover. Each entry
+        keeps the client image, the Vision analysis, and the user's text
+        — perfect input to enrich Qdrant via the admin UI."""
+        if not _can_takeover(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/sup/modération")
+        scope = _client_scope(user)
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=max(1, min(days, 365)))).isoformat()
+        cursor = db.liluvine_pro_messages.find(
+            {
+                "client_id": scope,
+                "role": "user",
+                "user_image_url": {"$ne": None, "$exists": True},
+                "created_at": {"$gte": cutoff},
+            },
+            {"_id": 0},
+        ).sort("created_at", -1)
+        all_user_msgs = await cursor.to_list(500)
+        gaps = []
+        for m in all_user_msgs:
+            matches = m.get("matched_images") or []
+            if not matches:
+                gap_reason = "no_match"
+                top_score = 0.0
+            else:
+                top_score = max(float(x.get("score") or 0.0) for x in matches)
+                if top_score >= min_score:
+                    continue
+                gap_reason = "low_score"
+            gaps.append({
+                "id": m.get("id"),
+                "session_id": m.get("session_id"),
+                "user_image_url": m.get("user_image_url"),
+                "content": m.get("content") or "",
+                "image_analysis": m.get("image_analysis") or {},
+                "top_score": round(top_score, 3),
+                "gap_reason": gap_reason,
+                "created_at": m.get("created_at"),
+            })
+            if len(gaps) >= min(max(limit, 1), 200):
+                break
+        # Compute KB blindspot rate as denominator info
+        total_screenshots = len(all_user_msgs)
+        return {
+            "items": gaps,
+            "total_screenshots": total_screenshots,
+            "gaps_count": len(gaps),
+            "blindspot_rate": round((len(gaps) / total_screenshots) if total_screenshots else 0.0, 3),
+            "days": days,
+            "min_score": min_score,
+        }

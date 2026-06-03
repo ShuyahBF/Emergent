@@ -11,7 +11,7 @@
  *     pour de l'onboarding / documentation).
  */
 import React, { useCallback, useEffect, useState } from "react";
-import { Camera, BarChart3, RefreshCw, ExternalLink, FileText, Loader2, Sparkles, Copy as CopyIcon, X } from "lucide-react";
+import { Camera, BarChart3, RefreshCw, ExternalLink, FileText, Loader2, Sparkles, Copy as CopyIcon, X, AlertTriangle } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 
@@ -256,11 +256,68 @@ function TopScreensTable({ data, loading, onGenerateDoc }) {
   );
 }
 
+// =====================================================================
+// #2bis (2026-02) — Coverage gaps (questions sans match Qdrant)
+// =====================================================================
+function GapsTable({ data, loading }) {
+  if (loading) return <p className="py-8 text-center text-slate-400 text-xs"><Loader2 className="h-4 w-4 animate-spin inline mr-1" /> Chargement…</p>;
+  if (!data || data.items.length === 0) {
+    return (
+      <p className="py-8 text-center text-emerald-600 text-xs italic">
+        🎉 Aucun trou dans la base de connaissances ! Toutes les questions clients ont trouvé un écran SAWALI correspondant.
+      </p>
+    );
+  }
+  const rate = Math.round((data.blindspot_rate || 0) * 100);
+  return (
+    <>
+      <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 text-amber-900 p-3 text-xs mb-3">
+        ⚠️ <strong>{data.gaps_count}</strong> question(s) client sur <strong>{data.total_screenshots}</strong> captures
+        ({rate}% de blind-spot) ne trouvent pas d'écran SAWALI correspondant.
+        Ces sujets <strong>manquent dans votre base Qdrant</strong> — les ajouter améliorera directement les réponses de Liluvine.
+      </div>
+      <div className="space-y-2">
+        {data.items.map((g) => (
+          <div key={g.id} className="bg-white ring-1 ring-amber-200 rounded-lg p-3 flex gap-3 items-start" data-testid={`gap-item-${g.id}`}>
+            <a href={g.user_image_url} target="_blank" rel="noopener noreferrer" className="shrink-0">
+              <img src={g.user_image_url} alt="Capture client" className="h-14 w-14 object-cover rounded ring-1 ring-amber-300" />
+            </a>
+            <div className="flex-1 min-w-0 space-y-1">
+              <div className="flex items-center gap-2 flex-wrap text-[11px]">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] uppercase font-bold ${
+                  g.gap_reason === "no_match" ? "bg-rose-100 text-rose-700" : "bg-amber-100 text-amber-800"
+                }`}>
+                  {g.gap_reason === "no_match" ? "❌ Aucun match" : `⚠ Score ${Math.round((g.top_score || 0) * 100)}%`}
+                </span>
+                <span className="text-slate-500">{fmtAge(g.created_at)}</span>
+              </div>
+              {g.content && g.content !== "📸 Capture d'écran envoyée" && (
+                <p className="text-xs text-slate-700 italic">« {g.content.slice(0, 220)}{g.content.length > 220 ? "…" : ""} »</p>
+              )}
+              {g.image_analysis?.visual_summary && (
+                <p className="text-[11px] text-violet-700 bg-violet-50 rounded px-2 py-1">
+                  <strong>Vision :</strong> {g.image_analysis.visual_summary.slice(0, 200)}
+                </p>
+              )}
+              <p className="text-[10px] text-slate-500 mt-1">
+                💡 Pour combler ce gap : copiez le contexte ci-dessus, allez sur <strong>Admin → Réglages → Qdrant RAG</strong>,
+                cliquez sur « Image » et ajoutez la bonne capture SAWALI avec ce contexte en description.
+              </p>
+            </div>
+          </div>
+        ))}
+      </div>
+    </>
+  );
+}
+
+
 export default function LiluvineScreenshotsInsights() {
-  const [tab, setTab] = useState("history");  // history | top
+  const [tab, setTab] = useState("history");  // history | top | gaps
   const [days, setDays] = useState(30);
   const [history, setHistory] = useState({ items: [], loading: false });
   const [topScreens, setTopScreens] = useState({ data: null, loading: false });
+  const [gaps, setGaps] = useState({ data: null, loading: false });
   // #2 — Doc draft generator
   const [docModalScreen, setDocModalScreen] = useState(null);
 
@@ -286,10 +343,22 @@ export default function LiluvineScreenshotsInsights() {
     }
   }, [days]);
 
+  const loadGaps = useCallback(async () => {
+    setGaps((g) => ({ ...g, loading: true }));
+    try {
+      const r = await apiClient.get(`/admin/liluvine-pro/coverage-gaps?days=${days}&min_score=0.5&limit=50`);
+      setGaps({ data: r.data, loading: false });
+    } catch (err) {
+      setGaps({ data: null, loading: false });
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  }, [days]);
+
   useEffect(() => {
     if (tab === "history") loadHistory();
-    else loadTop();
-  }, [tab, loadHistory, loadTop]);
+    else if (tab === "top") loadTop();
+    else if (tab === "gaps") loadGaps();
+  }, [tab, loadHistory, loadTop, loadGaps]);
 
   return (
     <div className="space-y-4" data-testid="liluvine-screenshots-insights">
@@ -309,6 +378,13 @@ export default function LiluvineScreenshotsInsights() {
           >
             <BarChart3 size={14} /> Top écrans consultés
           </button>
+          <button
+            onClick={() => setTab("gaps")}
+            data-testid="screenshots-tab-gaps"
+            className={`px-3 py-1.5 text-xs rounded-md inline-flex items-center gap-1.5 ${tab === "gaps" ? "bg-amber-500 text-white" : "text-slate-600 hover:bg-slate-50"}`}
+          >
+            <AlertTriangle size={14} /> Sujets non couverts
+          </button>
         </div>
         <div className="flex items-center gap-2">
           <select
@@ -323,7 +399,7 @@ export default function LiluvineScreenshotsInsights() {
             <option value={365}>1 an</option>
           </select>
           <button
-            onClick={() => tab === "history" ? loadHistory() : loadTop()}
+            onClick={() => tab === "history" ? loadHistory() : tab === "top" ? loadTop() : loadGaps()}
             className="text-xs inline-flex items-center gap-1 rounded ring-1 ring-slate-300 px-2.5 py-1.5 hover:bg-slate-50"
             data-testid="screenshots-refresh"
           >
@@ -333,12 +409,14 @@ export default function LiluvineScreenshotsInsights() {
       </div>
       {tab === "history" ? (
         <HistoryTable items={history.items} loading={history.loading} />
-      ) : (
+      ) : tab === "top" ? (
         <TopScreensTable
           data={topScreens.data}
           loading={topScreens.loading}
           onGenerateDoc={(screen) => setDocModalScreen(screen)}
         />
+      ) : (
+        <GapsTable data={gaps.data} loading={gaps.loading} />
       )}
       {docModalScreen && (
         <DocDraftModal

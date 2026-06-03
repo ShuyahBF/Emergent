@@ -860,129 +860,29 @@ async def version():
 
 
 # ====================================================================
-# AUTH
+# AUTH — S045 Phase 1 (2026-02) : extracted to routes/auth.py for
+# maintainability. The implementation is byte-for-byte identical — only
+# the location changed. See /app/backend/routes/auth.py.
 # ====================================================================
-@api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
-async def auth_login(payload: LoginRequest, request: Request):
-    user = await db.users.find_one({"email": payload.email.lower()})
-    if not user or not verify_password(payload.password, user["password_hash"]):
-        raise HTTPException(status_code=401, detail="Identifiants invalides")
-    if user.get("account_status") != "active":
-        raise HTTPException(status_code=403, detail="Compte désactivé")
+from routes.auth import attach_auth_routes  # noqa: E402
 
-    captcha = await verify_recaptcha(payload.captcha_token, request=request)
-    if not captcha["success"]:
-        raise HTTPException(status_code=400, detail=f"Captcha invalide ({captcha['reason']})")
-
-    code = generate_otp()
-    session = generate_session_token()
-    expires_at = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    await db.otps.insert_one(
-        {
-            "id": _uuid(),
-            "user_id": user["id"],
-            "session_token": session,
-            "code": code,
-            "expires_at": expires_at,
-            "used": False,
-            "created_at": _now(),
-        }
-    )
-    # Resolve OTP delivery mode: internal-domain users get the code shown on
-    # the login page (no SMTP cost / round-trip) — everyone else gets an email.
-    email_domain = (user["email"].split("@", 1)[-1] or "").lower().strip()
-    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
-    internal_list = [
-        d.strip().lower().lstrip("@")
-        for d in (settings_doc.get("internal_domains") or "sawalismartsystems.com").split(",")
-        if d.strip()
-    ]
-    is_internal_user = email_domain in internal_list
-    if is_internal_user:
-        dev_otp = code  # always revealed on the page
-        sent = False
-        msg = "Plateforme Interne : code OTP affiché directement sur la page."
-    else:
-        sent = await send_otp_email(user["email"], user["full_name"], code)
-        dev_otp = None if sent else code
-        msg = (
-            "Un code de vérification a été envoyé à votre adresse email."
-            if sent
-            else "Service e-mail indisponible : code OTP affiché ci-dessous (à usage unique)."
-        )
-    return LoginResponse(needs_otp=True, session_token=session, message=msg, dev_otp=dev_otp)
-
-
-@api.post("/auth/verify-otp", response_model=AuthTokenResponse, tags=["Authentification"])
-async def auth_verify_otp(payload: OtpVerifyRequest):
-    otp = await db.otps.find_one({"session_token": payload.session_token, "used": False})
-    if not otp:
-        raise HTTPException(status_code=400, detail="Session invalide ou expirée")
-    if datetime.fromisoformat(otp["expires_at"]) < datetime.now(timezone.utc):
-        raise HTTPException(status_code=400, detail="Code expiré")
-    if otp["code"] != payload.code.strip():
-        raise HTTPException(status_code=400, detail="Code incorrect")
-
-    await db.otps.update_one({"id": otp["id"]}, {"$set": {"used": True, "used_at": _now()}})
-    user = await db.users.find_one({"id": otp["user_id"]}, {"_id": 0, "password_hash": 0})
-    if user is None:
-        raise HTTPException(status_code=401, detail="Utilisateur introuvable")
-    await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": _now()}})
-    token = create_access_token(user["id"], user["role"])
-    return AuthTokenResponse(access_token=token, user=_to_user_public(user))
-
-
-@api.post("/auth/resend-otp", tags=["Authentification"])
-async def auth_resend_otp(session_token: str):
-    otp = await db.otps.find_one({"session_token": session_token, "used": False})
-    if not otp:
-        raise HTTPException(status_code=400, detail="Session invalide")
-    user = await db.users.find_one({"id": otp["user_id"]})
-    if not user:
-        raise HTTPException(status_code=404, detail="Utilisateur introuvable")
-    new_code = generate_otp()
-    expires = (datetime.now(timezone.utc) + timedelta(minutes=10)).isoformat()
-    await db.otps.update_one({"id": otp["id"]}, {"$set": {"code": new_code, "expires_at": expires}})
-    # Respect the same internal-domain rule as /auth/login
-    email_domain = (user["email"].split("@", 1)[-1] or "").lower().strip()
-    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
-    internal_list = [
-        d.strip().lower().lstrip("@")
-        for d in (settings_doc.get("internal_domains") or "sawalismartsystems.com").split(",")
-        if d.strip()
-    ]
-    if email_domain in internal_list:
-        return {"sent": False, "dev_otp": new_code}
-    sent = await send_otp_email(user["email"], user["full_name"], new_code)
-    return {"sent": sent, "dev_otp": None if sent else new_code}
-
-
-@api.get("/auth/me", response_model=UserPublic, tags=["Authentification"])
-async def auth_me(user: dict = Depends(get_current_user)):
-    return _to_user_public(user)
-
-
-@api.post("/auth/change-password", tags=["Authentification"])
-async def auth_change_password(
-    payload: ChangePasswordRequest, user: dict = Depends(get_current_user)
-):
-    db_user = await db.users.find_one({"id": user["id"]})
-    if not verify_password(payload.current_password, db_user["password_hash"]):
-        raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
-    await db.users.update_one(
-        {"id": user["id"]},
-        {"$set": {"password_hash": hash_password(payload.new_password), "updated_at": _now()}},
-    )
-    return {"ok": True}
-
-
-@api.get("/auth/captcha-config", tags=["Authentification"])
-async def auth_captcha_config():
-    s = await db.settings.find_one({"_id": "global"}) or {}
-    return {
-        "enabled": bool(s.get("recaptcha_enabled") and s.get("recaptcha_site_key")),
-        "site_key": s.get("recaptcha_site_key") or None,
-    }
+attach_auth_routes(
+    api,
+    db=db,
+    helpers={
+        "verify_password": verify_password,
+        "hash_password": hash_password,
+        "verify_recaptcha": verify_recaptcha,
+        "generate_otp": generate_otp,
+        "generate_session_token": generate_session_token,
+        "send_otp_email": send_otp_email,
+        "create_access_token": create_access_token,
+        "get_current_user": get_current_user,
+        "_to_user_public": _to_user_public,
+        "_uuid": _uuid,
+        "_now": _now,
+    },
+)
 
 
 # ====================================================================

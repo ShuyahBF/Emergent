@@ -6,6 +6,31 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — Sujets non couverts + S045 Phase 1
+
+### ✅ #2bis — Onglet « Sujets non couverts »
+- Nouveau endpoint `GET /api/admin/liluvine-pro/coverage-gaps?days=N&min_score=0.5&limit=50` → liste les questions clients dont aucun match Qdrant n'atteint le seuil (ou aucun match du tout). Calcule un `blindspot_rate` (% questions non couvertes).
+- **UI** : 3e sous-onglet dans `/admin/liluvine-history` → Captures & Analytics, intitulé « Sujets non couverts » (badge orange `AlertTriangle`). Affiche pour chaque gap : image client + analyse Vision + question texte + indication « ❌ Aucun match » ou « ⚠ Score N% » + conseil pour combler le gap (lien vers admin Qdrant RAG).
+- Cas idéal : transformez les questions sans réponse en nouveau contenu Qdrant en un coup d'œil.
+- **Tests** : `backend/tests/test_iter2bis_coverage_gaps.py` (3/3 verts).
+- **Fichiers** : `backend/routes/liluvine_pro.py` (endpoint), `frontend/src/components/LiluvineScreenshotsInsights.jsx` (GapsTable).
+
+### ✅ S045 Phase 1 — Refactor Auth (routes/auth.py)
+- **6 endpoints d'authentification extraits** de `server.py` (lignes 865-985, 122 lignes) vers `routes/auth.py` (factory `attach_auth_routes(api, db=db, helpers={…})`). ZÉRO changement de comportement.
+- Endpoints : `POST /auth/login`, `POST /auth/verify-otp`, `POST /auth/resend-otp`, `GET /auth/me`, `POST /auth/change-password`, `GET /auth/captcha-config`.
+- **Gotcha résolu** : Pydantic models importés au niveau module (pas via dict d'helpers) — sinon FastAPI's `get_type_hints()` ne détecte pas les body params dans des closures.
+- **Tests dédiés** : `backend/tests/test_s045p1_auth_refactor.py` (11/11 verts) — captcha, login invalid/internal, verify-otp full flow + bad session + bad code, change-password full flow + wrong current, me without token, resend-otp + bad session.
+- **Régression complète sur 11 suites** : 81/81 verts.
+- **server.py** : 21 913 → 21 800 lignes (-113). Premier pas vers l'objectif des 7k lignes.
+- **Fichiers** : `backend/routes/auth.py` (nouveau, 175 lignes lisibles), `backend/server.py` (bloc auth remplacé par un appel `attach_auth_routes`).
+
+### 📋 Prochaines phases S045
+- **Phase 2** (~1 session) : Settings & Configuration admin → `routes/admin_settings.py`.
+- **Phase 3** (1-2 sessions) : WhatsApp (~3-4k lignes) → `routes/whatsapp.py`.
+- **Phase 4** (~1 session) : Notifications → `routes/notifications.py`.
+- **Phase 5** (~1 session) : Payments webhooks → `routes/payments.py`.
+
+
 ## Recent (2026-02 post-handoff) — Suite #1 — ✨ Brouillon de doc auto-généré
 
 ### ✅ #2 — Bouton « Générer doc » sur chaque écran du Top

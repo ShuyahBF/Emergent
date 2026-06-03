@@ -269,19 +269,17 @@ function UpsertImageTab({ name }) {
   const [file, setFile] = useState(null);
   const [title, setTitle] = useState("");
   const [caption, setCaption] = useState("");
+  const [autoDescribe, setAutoDescribe] = useState(true);
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState(null);
   const submit = async () => {
     if (!file) { toast.error("Sélectionnez une image"); return; }
-    if (!title.trim() && !caption.trim()) {
-      toast.error("Renseignez au moins un titre OU une description (c'est le texte qui permet à Liluvine de retrouver l'image).");
-      return;
-    }
     setBusy(true); setResult(null);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("title", title);
     fd.append("caption", caption);
+    fd.append("auto_describe", autoDescribe ? "on" : "off");
     try {
       const r = await apiClient.post(`/admin/qdrant/collections/${encodeURIComponent(name)}/points/image`, fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -297,7 +295,8 @@ function UpsertImageTab({ name }) {
       <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
         💡 Liluvine PRO pourra inclure cette image dans ses réponses chat pour illustrer le support
         (par exemple : « Voici la capture d'écran à laquelle vous faites référence ! »).
-        Le texte (titre + description) sert à <strong>retrouver</strong> l'image — Liluvine ne « voit » pas l'image.
+        Avec l'<strong>analyse Claude Vision</strong> activée, l'IA décrit automatiquement l'image
+        (OCR + description visuelle) pour la rendre retrouvable même sans description manuelle.
       </div>
       <input
         type="file"
@@ -318,28 +317,57 @@ function UpsertImageTab({ name }) {
       <textarea
         value={caption}
         onChange={(e) => setCaption(e.target.value)}
-        placeholder="Description détaillée (ex: 'Capture d'écran de la page de login affichant le champ email, le champ mot de passe et le bouton Se connecter en vert. Visible dans Chrome en plein écran.')"
-        rows={4}
+        placeholder="Description manuelle (optionnel si Claude Vision activé)"
+        rows={3}
         maxLength={2000}
         className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm"
         data-testid="qdrant-image-caption"
       />
+      <label className="flex items-start gap-2 text-xs cursor-pointer rounded-lg ring-1 ring-indigo-200 bg-indigo-50 p-2">
+        <input
+          type="checkbox"
+          checked={autoDescribe}
+          onChange={(e) => setAutoDescribe(e.target.checked)}
+          disabled={busy}
+          className="mt-0.5 h-4 w-4 rounded text-indigo-600"
+          data-testid="qdrant-image-auto-describe"
+        />
+        <span>
+          <span className="font-semibold text-indigo-800">Analyser l'image avec Claude Vision</span>
+          <span className="block text-[10px] text-indigo-700 mt-0.5">
+            Extrait automatiquement le texte (OCR) + génère une description visuelle pour améliorer la recherche sémantique. Recommandé.
+          </span>
+        </span>
+      </label>
       <p className="text-[10px] text-slate-400 tabular-nums">
         {file ? `${file.name} · ${Math.round(file.size / 1024)} Ko` : "Aucune image sélectionnée"}
       </p>
       <button
         onClick={submit}
-        disabled={busy || !file || (!title.trim() && !caption.trim())}
+        disabled={busy || !file}
         className="text-sm inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50"
         data-testid="qdrant-image-submit"
       >
-        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Indexer l'image
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+        {busy && autoDescribe ? "Analyse Claude Vision…" : "Indexer l'image"}
       </button>
       {result && (
         <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs space-y-2" data-testid="qdrant-image-result">
           <p className="text-emerald-700 font-semibold">✓ Image indexée — Liluvine peut désormais la suggérer.</p>
           {result.image_url && (
-            <img src={result.image_url} alt={title} className="max-h-40 rounded ring-1 ring-emerald-200" />
+            <img src={result.image_url} alt={result.title || "Image indexée"} className="max-h-40 rounded ring-1 ring-emerald-200" />
+          )}
+          {result.visual_summary && (
+            <div className="rounded ring-1 ring-emerald-200 bg-white p-2">
+              <p className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 mb-0.5">Description Claude Vision</p>
+              <p className="text-slate-700">{result.visual_summary}</p>
+            </div>
+          )}
+          {result.ocr_text && (
+            <details className="rounded ring-1 ring-emerald-200 bg-white p-2">
+              <summary className="text-[10px] uppercase tracking-wider font-bold text-emerald-700 cursor-pointer">Texte OCR ({result.ocr_text.length} car.)</summary>
+              <pre className="text-[11px] text-slate-700 whitespace-pre-wrap mt-1 max-h-40 overflow-y-auto">{result.ocr_text}</pre>
+            </details>
           )}
         </div>
       )}

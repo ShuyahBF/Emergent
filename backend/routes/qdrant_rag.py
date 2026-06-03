@@ -354,6 +354,74 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
     return {"ok": True, "inserted_chunks": inserted_chunks, "documents": len(docs)}
 
 
+async def describe_image_with_vision(raw: bytes, mime: str) -> dict:
+    """P1 (2026-02) — Use Claude Sonnet 4.6 Vision to derive a deep
+    semantic understanding of an image for RAG indexing.
+
+    Returns a dict with two fields:
+      - ocr_text         : raw text visible in the image (or "")
+      - visual_summary   : 2-4 sentence description of the visual content,
+                           subjects, colors, scene context, in French.
+
+    Failures are swallowed — returns {"ocr_text": "", "visual_summary": ""}
+    so callers can still index the image with user-provided metadata.
+    """
+    out = {"ocr_text": "", "visual_summary": ""}
+    api_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not api_key or not raw:
+        return out
+    try:
+        import base64
+        from emergentintegrations.llm.chat import LlmChat, UserMessage, ImageContent
+    except Exception:  # noqa: BLE001
+        logger.exception("[qdrant_rag] emergentintegrations import failed")
+        return out
+    try:
+        b64 = base64.b64encode(raw).decode("ascii")
+        chat = LlmChat(
+            api_key=api_key,
+            session_id=f"qdrant-img-{uuid.uuid4().hex[:8]}",
+            system_message=(
+                "Tu es un expert en analyse d'image pour un système de "
+                "recherche sémantique (RAG). On va te montrer UNE image. "
+                "Réponds en français en suivant EXACTEMENT ce format Markdown :\n\n"
+                "### OCR\n"
+                "<tout le texte visible dans l'image, en respectant la mise en "
+                "page (paragraphes, listes, tableaux). Si aucun texte lisible, "
+                "écris exactement : [aucun]>\n\n"
+                "### Description\n"
+                "<2 à 4 phrases décrivant le contenu visuel : objets, "
+                "personnes, scène, couleurs dominantes, ambiance, intention "
+                "probable. Inclus tout détail aidant un client à reconnaître "
+                "cette image à partir d'une requête textuelle.>\n\n"
+                "Pas de préambule, pas de conclusion. Suis le format à la lettre."
+            ),
+        ).with_model("anthropic", "claude-sonnet-4-6")
+        result = await chat.send_message(UserMessage(
+            text="Analyse cette image et applique le format demandé.",
+            file_contents=[ImageContent(image_base64=b64)],
+        ))
+    except Exception:  # noqa: BLE001
+        logger.exception("[qdrant_rag] vision call failed")
+        return out
+    text = (result or "").strip()
+    if not text:
+        return out
+    # Parse the two sections (robust to small format variations)
+    ocr_m = re.search(r"###\s*OCR\s*\n+(.*?)(?=\n###|\Z)", text, re.IGNORECASE | re.DOTALL)
+    desc_m = re.search(r"###\s*Description\s*\n+(.*?)(?=\n###|\Z)", text, re.IGNORECASE | re.DOTALL)
+    if ocr_m:
+        ocr = ocr_m.group(1).strip()
+        if ocr and ocr.lower().strip("[]") != "aucun":
+            out["ocr_text"] = ocr[:4000]
+    if desc_m:
+        out["visual_summary"] = desc_m.group(1).strip()[:2000]
+    # Fallback: if format parsing failed, store the whole reply as summary
+    if not out["ocr_text"] and not out["visual_summary"]:
+        out["visual_summary"] = text[:2000]
+    return out
+
+
 async def upsert_image(
     db,
     *,
@@ -362,19 +430,29 @@ async def upsert_image(
     title: str,
     caption: str,
     tags: Optional[list] = None,
+    ocr_text: str = "",
+    visual_summary: str = "",
 ) -> dict:
-    """S041 — Index an image into Qdrant.
+    """S041 + P1 (2026-02) — Index an image into Qdrant.
 
-    The text used for embedding is `title + caption` (Option 1 — Liluvine
-    doesn't 'see' the image, it sees its description). The payload stores
-    `image_url` so Liluvine can include the image in its replies via
-    Markdown `![title](url)`.
+    The text used for embedding now combines, in order:
+      1. user-provided title + caption (verbatim, highest signal),
+      2. AI-generated visual_summary (Claude Vision),
+      3. AI-extracted OCR text (Claude Vision).
+
+    Liluvine doesn't 'see' the image — she sees this rich textual
+    representation. The payload stores `image_url` so she can embed the
+    image in her replies via Markdown `![title](url)`, plus `ocr_text`
+    and `visual_summary` for future inspection/debugging.
     """
     title = (title or "").strip()
     caption = (caption or "").strip()
-    if not title and not caption:
+    ocr_text = (ocr_text or "").strip()
+    visual_summary = (visual_summary or "").strip()
+    if not title and not caption and not ocr_text and not visual_summary:
         raise HTTPException(status_code=400, detail="Titre OU description requis pour qu'une image soit retrouvable par Liluvine.")
-    embed_text = f"{title}\n{caption}".strip() or title or caption
+    embed_parts = [p for p in [title, caption, visual_summary, ocr_text] if p]
+    embed_text = "\n".join(embed_parts)
     url, key = await _resolve_credentials(db)
     client = _make_client(url, key)
     from qdrant_client.models import PointStruct
@@ -388,8 +466,10 @@ async def upsert_image(
             payload={
                 "kind": "image",
                 "title": title[:200],
-                "text": caption[:2000],
+                "text": (caption or visual_summary)[:2000],
                 "caption": caption[:2000],
+                "visual_summary": visual_summary[:2000],
+                "ocr_text": ocr_text[:4000],
                 "image_url": image_url,
                 "source": "media_library",
                 "tags": list(tags or []) + ["image"],
@@ -397,7 +477,13 @@ async def upsert_image(
             },
         )],
     )
-    return {"ok": True, "id": point_id, "image_url": image_url}
+    return {
+        "ok": True,
+        "id": point_id,
+        "image_url": image_url,
+        "visual_summary": visual_summary,
+        "ocr_text": ocr_text,
+    }
 
 
 async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50) -> dict:
@@ -673,11 +759,17 @@ def make_router(*, db, get_current_user):
         file: UploadFile = File(...),
         title: str = Form(""),
         caption: str = Form(""),
+        auto_describe: str = Form("auto"),
         user: dict = Depends(get_current_user),
     ):
-        """S041 — Upload an image, save it in the media library, and
-        index its (title + caption) in Qdrant. Liluvine can then surface
-        the image URL in her replies via Markdown.
+        """S041 + P1 (2026-02) — Upload an image, save it in the media
+        library, optionally enrich it via Claude Vision (OCR + visual
+        description), and index everything in Qdrant. Liluvine can then
+        surface the image URL in her replies via Markdown.
+
+        `auto_describe` accepts: 'on' / 'off' / 'auto'. 'auto' (default)
+        respects the global setting `qdrant_image_auto_describe` (True by
+        default).
         """
         _gate(user)
         ct = (file.content_type or "").lower()
@@ -703,6 +795,23 @@ def make_router(*, db, get_current_user):
             user_id=user.get("id"),
             metadata={"qdrant_collection": name, "title": title or ""},
         )
+        # P1 — Vision enrichment (OCR + visual summary)
+        ocr_text = ""
+        visual_summary = ""
+        ad = (auto_describe or "auto").strip().lower()
+        if ad == "auto":
+            settings = await db.settings.find_one({"_id": "global"}) or {}
+            enrich = settings.get("qdrant_image_auto_describe")
+            enrich = True if enrich is None else bool(enrich)
+        else:
+            enrich = ad in ("on", "true", "1", "yes")
+        if enrich and ct in ("image/jpeg", "image/png", "image/webp", "image/gif"):
+            try:
+                analysis = await describe_image_with_vision(content, ct)
+                ocr_text = analysis.get("ocr_text") or ""
+                visual_summary = analysis.get("visual_summary") or ""
+            except Exception:  # noqa: BLE001
+                logger.exception("[qdrant_rag] vision enrichment failed (continuing without)")
         # Also create a media_library entry so it shows up in /admin/brochures
         import secrets
         media_id = secrets.token_urlsafe(10)
@@ -710,7 +819,7 @@ def make_router(*, db, get_current_user):
             "id": media_id,
             "kind": "image",
             "title": (title or file.filename or "Image Qdrant").strip()[:200],
-            "description": (caption or "")[:1000],
+            "description": (caption or visual_summary or "")[:1000],
             "filename": file.filename,
             "content_type": ct,
             "size": stored.get("size") or len(content),
@@ -718,7 +827,7 @@ def make_router(*, db, get_current_user):
             "storage_id": stored.get("id"),
             "storage_path": stored.get("path"),
             "thumbnail_url": None,
-            "tags": ["qdrant", "kb", name],
+            "tags": ["qdrant", "kb", name] + (["vision-enriched"] if (ocr_text or visual_summary) else []),
             "public": False,  # private by default — only Liluvine surfaces it
             "sort_order": 0,
             "is_deleted": False,
@@ -726,6 +835,8 @@ def make_router(*, db, get_current_user):
             "created_by_id": user.get("id"),
             "created_by_name": user.get("full_name") or user.get("email"),
             "qdrant_collection": name,
+            "vision_ocr": ocr_text[:4000],
+            "vision_summary": visual_summary[:2000],
         })
         # Index in Qdrant
         return await upsert_image(
@@ -735,6 +846,8 @@ def make_router(*, db, get_current_user):
             title=title or file.filename or "Image",
             caption=caption,
             tags=["image", "media_library"],
+            ocr_text=ocr_text,
+            visual_summary=visual_summary,
         )
 
     @router.delete("/collections/{name}/points/{pid}")

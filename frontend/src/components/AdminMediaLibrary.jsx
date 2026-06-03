@@ -1,5 +1,6 @@
 // S-iter39p — Admin Media Library : upload PDF / video / image, edit
 // metadata (title, description, public toggle, sort, tags), delete (soft).
+// S040 (2026-02) — Replaced the window.prompt cascade with MediaUploadModal.
 // Mounted on /admin/brochures alongside the existing static PDF builder.
 import React, { useState, useCallback, useEffect } from "react";
 import { apiClient } from "@/lib/api";
@@ -8,6 +9,7 @@ import {
   Upload, Trash2, Loader2, FileText, Video, ImageIcon, Eye, EyeOff,
   Edit2, Save, X,
 } from "lucide-react";
+import MediaUploadModal from "./MediaUploadModal";
 
 const KIND_LABELS = { pdf: "PDF", video: "Vidéo", image: "Image" };
 
@@ -21,6 +23,7 @@ export default function AdminMediaLibrary() {
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [showModal, setShowModal] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -34,18 +37,15 @@ export default function AdminMediaLibrary() {
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const upload = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return;
-    const title = window.prompt("Titre du document ?", file.name.replace(/\.[^.]+$/, ""));
-    if (!title) { e.target.value = ""; return; }
-    const description = window.prompt("Description (optionnelle) ?", "") || "";
+  const upload = async ({ file, title, description, public: pub, tags }) => {
     setUploading(true);
     const fd = new FormData();
     fd.append("file", file);
     fd.append("title", title);
-    fd.append("description", description);
-    fd.append("public", "true");
+    fd.append("description", description || "");
+    fd.append("public", pub ? "true" : "false");
     fd.append("sort_order", "0");
+    if (tags) fd.append("tags", tags);
     try {
       await apiClient.post("/admin/media-library", fd, {
         headers: { "Content-Type": "multipart/form-data" },
@@ -54,8 +54,9 @@ export default function AdminMediaLibrary() {
       refresh();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Upload échoué");
+      throw err;
     } finally {
-      setUploading(false); e.target.value = "";
+      setUploading(false);
     }
   };
 
@@ -86,12 +87,23 @@ export default function AdminMediaLibrary() {
           <h2 className="text-lg font-display font-bold text-slate-900">Bibliothèque médias</h2>
           <p className="text-xs text-slate-500 mt-0.5">PDF, vidéos et images partagés dans <em>Brochures &amp; Guides</em> du portail.</p>
         </div>
-        <label className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm cursor-pointer" data-testid="media-library-upload">
+        <button
+          type="button"
+          onClick={() => setShowModal(true)}
+          disabled={uploading}
+          className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm disabled:opacity-60"
+          data-testid="media-library-upload"
+        >
           {uploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
           {uploading ? "Upload en cours…" : "Téléverser un média"}
-          <input type="file" accept="application/pdf,video/*,image/*" onChange={upload} disabled={uploading} className="sr-only" />
-        </label>
+        </button>
       </div>
+
+      <MediaUploadModal
+        open={showModal}
+        onClose={() => setShowModal(false)}
+        onSubmit={upload}
+      />
 
       {loading && items.length === 0 && (
         <p className="text-xs text-slate-500 inline-flex items-center gap-1"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Chargement…</p>

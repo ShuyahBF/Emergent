@@ -11,6 +11,7 @@ import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutorep
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
+import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
@@ -520,6 +521,10 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Auto-réponse WhatsApp (sans n8n)" anchorId="s-liluvine-wa-autoreply">
         <LiluvineWaAutoreplySection />
+      </Filterable>
+
+      <Filterable title="Liluvine PRO — Bypass (emails autorisés malgré feature OFF)" anchorId="s-liluvine-bypass">
+        <LiluvineBypassEmailsSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

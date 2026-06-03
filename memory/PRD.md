@@ -74,6 +74,44 @@ Quand un **utilisateur système** (modérateur, admin…) envoie un WhatsApp inb
 - Régression complète : `test_iter35a_critical_bugs.py` + `test_iter35l_wa_media_http.py` (16/16 verts).
 
 
+## CRITICAL FIX (2026-02) — Bypass list Liluvine PRO + Recherche cross-tenant
+
+### Contexte
+Après le fix Bug #3, rabo.f restait bloquée car la feature `ai_liluvine_pro` n'était toujours pas activée sur son tenant parent en production. L'utilisateur a demandé deux nouveautés :
+1. **Une bypass-list** : permettre à des emails individuels d'utiliser Liluvine PRO même quand `ai_liluvine_pro=False` sur leur tenant.
+2. **Une recherche cross-tenant** : permettre de chercher un numéro de téléphone dans TOUS les tenants et d'importer la fiche dans le tenant courant (les messages, eux, réservés admin/superviseur pour des raisons RGPD).
+
+### Implémenté en 2026-02
+**Bypass list (backend)** :
+- Nouveau helper `_liluvine_pro_allowed(db, user)` qui résout `True` si `feats.ai_liluvine_pro` OU email dans `settings.liluvine_pro_bypass_emails`.
+- Helper appliqué sur les 4 endpoints Liluvine PRO : `POST /chat`, `POST /chat-with-image`, `POST /chat/stream`, ainsi que le hook `autoreply_to_inbound` (WhatsApp).
+- Endpoints admin : `GET /api/admin/liluvine-pro/bypass-emails` + `PATCH` (réservé admin/superviseur). Validation email basique.
+
+**Bypass list (UI)** :
+- Nouvelle section `LiluvineBypassEmailsSection.jsx` dans `/admin/settings` (ancre `s-liluvine-bypass`) — textarea séparée par espace/virgule/point-virgule, compteur live, bouton "Enregistrer" qui n'apparaît que si modifié.
+
+**Cross-tenant search & import (backend)** :
+- `GET /api/me/contacts/search-cross-tenant?phone=...` → recherche tous tenants. Retourne fiche sanitizée (name, phone, whatsapp, email, company, tags, `in_current_scope`). Pas de `client_id`/`owner_id` dans la réponse.
+- `POST /api/me/contacts/import-cross-tenant` body `{phone, include_messages?}` → crée la fiche dans le tenant du caller. Anti-doublon (réutilise une ligne non archivée si elle existe). Si `include_messages=True` ET role admin/superviseur, copie également les `whatsapp_messages` avec re-scoping (`imported_from_client_id`).
+
+**Cross-tenant (UI)** :
+- Nouveau composant `CrossTenantSearch.jsx` (dépliable, design sky/fuchsia) intégré dans `/portal/contacts` sous le panneau "Pending imports". Input phone + boutons "Importer fiche" (tous users) et "+ Messages" (admin/superviseur uniquement).
+
+### Tests
+- `backend/tests/test_bypass_and_cross_tenant_contacts.py` (8/8 verts) :
+  - bypass list GET/PATCH (normalize, dedupe, reject invalid)
+  - bypass email grants Liluvine access (full flow : 403 → patch → non-403)
+  - cross-tenant search sanitize + min length
+  - cross-tenant import (card-only + with messages, admin/superviseur gating)
+- Régression cumulée : 35/35 verts (Bug #3 + Bypass + Auth refactor + Liluvine PRO).
+
+### Action immédiate pour rabo.f en production
+1. Déployer.
+2. Aller dans `/admin/settings` → section "Liluvine PRO — Bypass (emails autorisés malgré feature OFF)".
+3. Coller `rabo.f@sawalismartsystems.com` dans la textarea, cliquer "Enregistrer".
+4. rabo.f peut immédiatement utiliser Liluvine PRO sans changer les features du tenant.
+
+
 ## Recent (2026-02 post-handoff) — Sujets non couverts + S045 Phase 1
 
 ### ✅ #2bis — Onglet « Sujets non couverts »

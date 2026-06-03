@@ -91,6 +91,17 @@ class AutoreplyConfigPayload(BaseModel):
     signature: Optional[str] = Field(None, max_length=200)
 
 
+# Bypass list (2026-02) — Admin payload to overwrite the email allowlist.
+class BypassPayload(BaseModel):
+    emails: List[str] = Field(default_factory=list)
+
+
+# Cross-tenant import payload (2026-02).
+class CrossTenantImportPayload(BaseModel):
+    phone: str = Field(..., min_length=4, max_length=32)
+    include_messages: bool = False
+
+
 # ============================================================
 # Helpers
 # ============================================================
@@ -116,6 +127,50 @@ def _client_scope(user: dict) -> str:
         or user.get("parent_client_id")
         or user["id"]
     )
+
+
+# ============================================================
+# Bypass list (2026-02) — Per-user override for `ai_liluvine_pro`.
+#
+# Admin sets `settings.liluvine_pro_bypass_emails` (space/comma-separated
+# string OR list) to grant individual users Liluvine PRO access even when
+# the parent tenant feature flag is OFF. Typical case: a moderator like
+# `rabo.f@sawalismartsystems.com` whose tenant hasn't been migrated yet,
+# but who needs immediate access to the assistant for support work.
+# ============================================================
+def _parse_bypass_emails(raw: Any) -> set:
+    if isinstance(raw, list):
+        items = raw
+    elif isinstance(raw, str):
+        items = re.split(r"[\s,;]+", raw)
+    else:
+        items = []
+    return {str(x).strip().lower() for x in items if str(x).strip()}
+
+
+async def _liluvine_pro_allowed(db, user: dict) -> Dict[str, Any]:
+    """Return {"allowed": bool, "reason": str, "via_bypass": bool}.
+
+    Resolution order :
+      1. If the parent tenant has `features.ai_liluvine_pro = True` → allow.
+      2. If the user's email matches `settings.liluvine_pro_bypass_emails` → allow.
+      3. Otherwise → deny (with a friendly French reason).
+    """
+    scope_uid = _client_scope(user)
+    parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1, "email": 1})
+    feats = (parent or {}).get("features") or {}
+    if feats.get("ai_liluvine_pro"):
+        return {"allowed": True, "reason": "tenant_feature_on", "via_bypass": False}
+    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+    bypass = _parse_bypass_emails(settings_doc.get("liluvine_pro_bypass_emails"))
+    email = (user.get("email") or "").lower().strip()
+    if email and email in bypass:
+        return {"allowed": True, "reason": "user_in_bypass_list", "via_bypass": True}
+    return {
+        "allowed": False,
+        "reason": "Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
+        "via_bypass": False,
+    }
 
 
 async def _diagnose_wa_inbound(db, phone: str) -> Dict[str, Any]:
@@ -868,16 +923,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     # ----------------------------------------------------------
     @api.post("/me/liluvine-pro/chat", tags=["Portail Client — Liluvine PRO"])
     async def chat(payload: ChatMessage, user: dict = Depends(get_current_user)):
-        # Iter38r-fix7 — Feature gate: tenant must have ai_liluvine_pro enabled.
-        # Resolve to the parent admin and inspect their features field.
-        scope_uid = _client_scope(user)
-        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
-        feats = (parent or {}).get("features") or {}
-        if not feats.get("ai_liluvine_pro"):
-            raise HTTPException(
-                status_code=403,
-                detail="Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
-            )
+        # Iter38r-fix7 + Bypass (2026-02): allow if tenant feature ON OR
+        # the user's email is in the admin bypass list.
+        gate = await _liluvine_pro_allowed(db, user)
+        if not gate["allowed"]:
+            raise HTTPException(status_code=403, detail=gate["reason"])
         chk = await _pre_check(user, "claude-haiku-4-5-20251001")
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
@@ -994,15 +1044,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         session_id: Optional[str] = Form(None),
         user: dict = Depends(get_current_user),
     ):
-        # Same feature gate as /chat
-        scope_uid = _client_scope(user)
-        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
-        feats = (parent or {}).get("features") or {}
-        if not feats.get("ai_liluvine_pro"):
-            raise HTTPException(
-                status_code=403,
-                detail="Liluvine PRO n'est pas activé pour votre compte. Contactez votre administrateur.",
-            )
+        # Same feature gate as /chat (with bypass)
+        gate = await _liluvine_pro_allowed(db, user)
+        if not gate["allowed"]:
+            raise HTTPException(status_code=403, detail=gate["reason"])
         chk = await _pre_check(user, LILUVINE_MODEL)
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
@@ -1173,11 +1218,9 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     # ----------------------------------------------------------
     @api.post("/me/liluvine-pro/chat/stream", tags=["Portail Client — Liluvine PRO"])
     async def chat_stream(payload: ChatMessage, user: dict = Depends(get_current_user)):
-        scope_uid = _client_scope(user)
-        parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
-        feats = (parent or {}).get("features") or {}
-        if not feats.get("ai_liluvine_pro"):
-            raise HTTPException(status_code=403, detail="Liluvine PRO n'est pas activé pour votre compte.")
+        gate = await _liluvine_pro_allowed(db, user)
+        if not gate["allowed"]:
+            raise HTTPException(status_code=403, detail=gate["reason"])
         chk = await _pre_check(user, LILUVINE_MODEL)
         if not chk.get("allowed"):
             raise HTTPException(status_code=429, detail=chk.get("reason") or "Quota IA atteint.")
@@ -1929,6 +1972,243 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         report["canonical_contact_id"] = canonical["id"]
         report["canonical_contact_name"] = full_name
         return report
+
+    # ----------------------------------------------------------
+    # Bypass list (2026-02) — Admin endpoints to manage the
+    # `settings.liluvine_pro_bypass_emails` list. Emails in this list get
+    # Liluvine PRO access (web chat + WA auto-reply) even when their
+    # parent tenant's `ai_liluvine_pro` feature is OFF.
+    # ----------------------------------------------------------
+    @api.get("/admin/liluvine-pro/bypass-emails", tags=["Admin — Liluvine PRO"])
+    async def admin_get_bypass_emails(user: dict = Depends(get_current_user)):
+        if (user.get("role") or "") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "liluvine_pro_bypass_emails": 1}) or {}
+        raw = s.get("liluvine_pro_bypass_emails") or ""
+        emails = sorted(_parse_bypass_emails(raw))
+        return {"emails": emails, "count": len(emails)}
+
+    class _BypassPayload(BaseModel):
+        emails: List[str] = Field(default_factory=list)
+
+    @api.patch("/admin/liluvine-pro/bypass-emails", tags=["Admin — Liluvine PRO"])
+    async def admin_patch_bypass_emails(
+        payload: BypassPayload, user: dict = Depends(get_current_user)
+    ):
+        if (user.get("role") or "") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        cleaned = sorted({(e or "").strip().lower() for e in payload.emails if (e or "").strip()})
+        # Quick sanity : reject obvious non-emails (we don't try to RFC-validate).
+        bad = [e for e in cleaned if "@" not in e or "." not in e.split("@")[-1]]
+        if bad:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Emails invalides : {', '.join(bad[:5])}",
+            )
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"liluvine_pro_bypass_emails": cleaned, "updated_at": _now()}},
+            upsert=True,
+        )
+        return {"ok": True, "emails": cleaned, "count": len(cleaned)}
+
+    # ----------------------------------------------------------
+    # Cross-tenant contact search & import (2026-02).
+    #
+    # Use case : in production, a user's contact card may end up in the
+    # wrong tenant scope (legacy migration, cross-tenant pollution…). The
+    # user opens /portal/contacts, doesn't see the contact, and has no way
+    # to recover it. These endpoints let them :
+    #
+    #   1. SEARCH a phone number across ALL tenants (admin-level look-up).
+    #      Returns a sanitized contact card (no tenant identifier leaked).
+    #   2. IMPORT that contact into their OWN tenant scope as a fresh row.
+    #      Only the card is copied by default (RGPD-safe). Admin/superviseur
+    #      may additionally copy the WhatsApp message history.
+    # ----------------------------------------------------------
+    class _CrossTenantImportPayload(BaseModel):
+        phone: str = Field(..., min_length=4, max_length=32)
+        include_messages: bool = False
+
+    @api.get("/me/contacts/search-cross-tenant", tags=["Portail Client"])
+    async def search_cross_tenant_contacts(
+        phone: str,
+        user: dict = Depends(get_current_user),
+    ):
+        """Search a phone number across ALL tenants. Returns sanitized
+        contact cards (name, phone, whatsapp, email, company, tags only —
+        no client_id, owner_id, internal flags). Available to every
+        authenticated user (the leak risk is bounded : caller must already
+        know the phone number)."""
+        digits = "".join(ch for ch in (phone or "") if ch.isdigit())
+        if len(digits) < 4:
+            raise HTTPException(status_code=400, detail="Numéro trop court (min 4 chiffres).")
+        results: List[Dict[str, Any]] = []
+        async for c in db.directory_contacts.find(
+            {"$or": [{"whatsapp": {"$regex": digits}}, {"phone": {"$regex": digits}}]},
+            {
+                "_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp": 1,
+                "email": 1, "company": 1, "tags": 1, "wa_profile_name": 1,
+                "archived_at": 1, "created_at": 1, "client_id": 1,
+            },
+        ):
+            if c.get("archived_at"):
+                continue
+            results.append(c)
+
+        # Compute the caller's visible scope so the UI can flag rows that
+        # already live in the caller's tenant (= no need to re-import).
+        visible_ids: set = set()
+        for k in ("client_id", "parent_client_id", "id"):
+            v = user.get(k)
+            if v:
+                visible_ids.add(v)
+        company = (user.get("company") or "").strip()
+        if company:
+            async for u in db.users.find(
+                {"company": {"$regex": f"^{re.escape(company)}$", "$options": "i"}},
+                {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1},
+            ):
+                for k in ("id", "client_id", "parent_client_id"):
+                    v = u.get(k)
+                    if v:
+                        visible_ids.add(v)
+
+        # Sanitize : strip tenant ids before returning. Just keep an
+        # `in_current_scope` flag so the UI can disable the import button.
+        sanitized: List[Dict[str, Any]] = []
+        for c in results:
+            in_scope = c.get("client_id") in visible_ids
+            sanitized.append({
+                "id": c.get("id"),
+                "name": c.get("name") or "",
+                "wa_profile_name": c.get("wa_profile_name") or "",
+                "phone": c.get("phone") or "",
+                "whatsapp": c.get("whatsapp") or "",
+                "email": c.get("email") or "",
+                "company": c.get("company") or "",
+                "tags": c.get("tags") or [],
+                "in_current_scope": in_scope,
+                "created_at": c.get("created_at"),
+            })
+        return {
+            "items": sanitized,
+            "count": len(sanitized),
+            "phone_digits": digits,
+        }
+
+    @api.post("/me/contacts/import-cross-tenant", tags=["Portail Client"])
+    async def import_cross_tenant_contact(
+        payload: CrossTenantImportPayload,
+        user: dict = Depends(get_current_user),
+    ):
+        """Create a contact row in the caller's tenant scope from any
+        matching cross-tenant record. By default only the contact card
+        is copied. Admin/superviseur may set `include_messages=True` to
+        also pull the WhatsApp history (RGPD-controlled)."""
+        digits = "".join(ch for ch in (payload.phone or "") if ch.isdigit())
+        if len(digits) < 4:
+            raise HTTPException(status_code=400, detail="Numéro trop court.")
+        # Pick the most complete cross-tenant match (prefer rows with a
+        # non-blank `name`, fallback to most recent).
+        candidates: List[Dict[str, Any]] = []
+        async for c in db.directory_contacts.find(
+            {
+                "$or": [{"whatsapp": {"$regex": digits}}, {"phone": {"$regex": digits}}],
+                "archived_at": {"$in": [None, ""]},
+            },
+            {"_id": 0},
+        ):
+            candidates.append(c)
+        if not candidates:
+            raise HTTPException(status_code=404, detail="Aucune fiche contact trouvée pour ce numéro.")
+        def _score(c: Dict[str, Any]) -> tuple:
+            name = (c.get("name") or "").strip()
+            has_name = 1 if (name and not re.fullmatch(r"\+?\d[\d\s().-]*", name)) else 0
+            return (has_name, c.get("created_at") or "")
+        candidates.sort(key=_score, reverse=True)
+        src = candidates[0]
+
+        # Caller's canonical scope
+        caller_scope = (
+            user.get("client_id") or user.get("parent_client_id") or user["id"]
+        )
+
+        # Anti-duplicate : if the caller's scope already has a non-archived
+        # contact for this phone, return it instead of creating a duplicate.
+        existing = await db.directory_contacts.find_one(
+            {
+                "client_id": caller_scope,
+                "$or": [{"whatsapp": {"$regex": digits}}, {"phone": {"$regex": digits}}],
+                "archived_at": {"$in": [None, ""]},
+            },
+            {"_id": 0},
+        )
+        include_messages = bool(payload.include_messages)
+        allow_messages = (user.get("role") or "") in ("admin", "superviseur")
+        if include_messages and not allow_messages:
+            raise HTTPException(
+                status_code=403,
+                detail="Seuls admin et superviseur peuvent importer l'historique des messages.",
+            )
+
+        if existing:
+            doc = existing
+            created = False
+        else:
+            doc = {
+                "id": str(uuid.uuid4()),
+                "client_id": caller_scope,
+                "owner_id": user.get("id"),
+                "owner_label": user.get("full_name") or user.get("email"),
+                "name": (src.get("name") or src.get("wa_profile_name") or f"+{digits}").strip(),
+                "phone": src.get("phone") or f"+{digits}",
+                "whatsapp": src.get("whatsapp") or src.get("phone") or f"+{digits}",
+                "email": src.get("email"),
+                "company": src.get("company"),
+                "tags": list(src.get("tags") or ["importé-cross-tenant"]),
+                "wa_profile_name": src.get("wa_profile_name"),
+                "shared": True,
+                "imported_from_contact_id": src.get("id"),
+                "created_at": _now(),
+                "updated_at": _now(),
+            }
+            await db.directory_contacts.insert_one(doc.copy())
+            doc.pop("_id", None)
+            created = True
+
+        msg_copied = 0
+        if include_messages and allow_messages:
+            # Copy inbound WhatsApp messages (caller_scope only sees its own scope).
+            # We re-write client_id & contact_id to keep the data consistent.
+            async for m in db.whatsapp_messages.find(
+                {"phone_digits": digits, "client_id": src.get("client_id")},
+                {"_id": 0},
+            ):
+                m["id"] = str(uuid.uuid4())
+                m["client_id"] = caller_scope
+                m["contact_id"] = doc["id"]
+                m["contact_name"] = doc["name"]
+                m["imported_at"] = _now()
+                m["imported_from_client_id"] = src.get("client_id")
+                await db.whatsapp_messages.insert_one(m)
+                msg_copied += 1
+
+        return {
+            "ok": True,
+            "created": created,
+            "contact": {
+                "id": doc.get("id"),
+                "name": doc.get("name"),
+                "phone": doc.get("phone"),
+                "whatsapp": doc.get("whatsapp"),
+                "email": doc.get("email"),
+                "company": doc.get("company"),
+            },
+            "messages_imported": msg_copied,
+            "include_messages_requested": include_messages,
+            "include_messages_allowed": allow_messages,
+        }
 
     # ----------------------------------------------------------
     # #2 (2026-02 — suite #1) — Generate documentation draft from a SAWALI

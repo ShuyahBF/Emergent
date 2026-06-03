@@ -13,6 +13,7 @@ import {
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
 import { phonePlaceholder } from "@/lib/tenantMeta";
+import CrossTenantSearch from "@/components/CrossTenantSearch";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -376,6 +377,9 @@ export default function Contacts() {
           onChange={() => { loadPending(); load(); }}
         />
       )}
+
+      {/* Cross-tenant search & import (2026-02) — récupération de fiches contact perdues */}
+      <CrossTenantSearch user={user} onImported={load} />
 
       {loading ? (
         <div className="text-center text-slate-500 py-10">Chargement…</div>

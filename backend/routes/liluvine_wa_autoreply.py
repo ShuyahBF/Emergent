@@ -183,12 +183,30 @@ async def autoreply_to_inbound(
                 return {"ok": False, "reason": "human_takeover_active"}
 
     # Tenant feature gate — only if Liluvine PRO is enabled on the parent admin
+    # OR the inbound number is matched to a user whose email is in the bypass list.
     scope_uid = inbound_doc.get("client_id")
     if scope_uid:
         parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
         feats = (parent or {}).get("features") or {}
         if not feats.get("ai_liluvine_pro"):
-            return {"ok": False, "reason": "liluvine_pro_not_enabled"}
+            # Bypass check : settings.liluvine_pro_bypass_emails may grant
+            # access to specific user emails matched via their phone number.
+            settings_doc_local = await db.settings.find_one({"_id": "global"}) or {}
+            bypass_raw = settings_doc_local.get("liluvine_pro_bypass_emails") or ""
+            bypass = set()
+            if isinstance(bypass_raw, list):
+                bypass = {str(x).strip().lower() for x in bypass_raw if str(x).strip()}
+            else:
+                bypass = {p.strip().lower() for p in re.split(r"[\s,;]+", str(bypass_raw)) if p.strip()}
+            phone_user = None
+            if phone_digits and bypass:
+                phone_user = await db.users.find_one(
+                    {"phone": {"$regex": phone_digits}},
+                    {"_id": 0, "email": 1},
+                )
+            sender_email = ((phone_user or {}).get("email") or "").lower().strip()
+            if not (sender_email and sender_email in bypass):
+                return {"ok": False, "reason": "liluvine_pro_not_enabled"}
 
     # Build the LLM context (reuse the same RAG helper as the chat UI)
     try:

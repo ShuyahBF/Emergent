@@ -6,6 +6,38 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Recent (2026-02 post-handoff) — S-iter39t — 📸 Liluvine voit & duplication primes
+
+### ✅ S044 — Liluvine compare une capture d'écran client avec la base d'images SAWALI
+- Nouveau endpoint backend `POST /api/me/liluvine-pro/chat-with-image` (multipart : file + text + session_id).
+- Pipeline robuste : feature gate → quota pre-check → Claude Sonnet 4.6 Vision (OCR + description) → recherche sémantique Qdrant images (collections `enabled_for_liluvine`) → prompt enrichi à Claude Haiku 4.5 pour identifier l'écran SAWALI + proposer la procédure.
+- L'image client est stockée via object_storage, l'analyse Vision + matches Qdrant sont persistés dans le message (`user_image_url`, `image_analysis`, `matched_images`).
+- Toutes les étapes externes (storage, Vision, Qdrant) sont best-effort : le endpoint répond 200 même si Anthropic ou Qdrant échoue.
+- **Frontend** : bouton « Capture » dans le composer Liluvine PRO, preview avant envoi, bouton 🗑 pour retirer. Le message utilisateur affiche l'image envoyée ; le message assistant affiche une grille des 3 meilleurs matches SAWALI (score visible).
+- **Tests** : 5/5 unit + 2/2 E2E HTTP live (admin login + Vision + Qdrant) = 7/7 verts.
+- **Fichiers** : `backend/routes/qdrant_rag.py` (helper `search_similar_images` + export), `backend/routes/liluvine_pro.py` (endpoint + UploadFile/File/Form imports), `frontend/src/pages/portal/LiluvinePro.jsx` (state + sendWithImage + composer + message bubble), `backend/tests/test_siter39t_s044_vision_compare.py` (nouveau).
+
+### ✅ Quick-win — Bouton « Dupliquer YYYY-MM » dans l'onglet Primes
+- Dans `BonusesCard`, nouveau bouton `hr-bonus-duplicate-prev` qui recopie en un clic toutes les primes du mois précédent vers le mois courant (ajout par-dessus, confirmation si primes déjà présentes).
+- Gestion robuste de l'arithmétique YYYY-MM (Jan→Dec) via `useMemo`. Toast informatif si le mois précédent est vide.
+- **Fichiers** : `frontend/src/pages/portal/HrPrimesIndemnites.jsx`.
+
+### 📌 Note pour onboarding
+Testing agent S048 a remonté que `features.ai_liluvine_pro` est **false** par défaut pour le super-admin (admin@sawalismartsystems.com). Considérer le mettre à `true` dans le seed du super-admin (sinon l'utilisateur ne peut pas utiliser Liluvine PRO sur son propre compte).
+
+### 📋 Plan phasé S045 — Refactor server.py (21 800+ lignes) → /backend/routes/
+À mener en 4-5 sessions dédiées (1 PR par phase, tests de non-régression entre chaque) :
+- **Phase 1** (1 session) : Auth & Sessions (login, logout, OTP, JWT, session middleware) → `routes/auth.py`.
+- **Phase 2** (1 session) : Settings & Configuration admin (`SettingsUpdate` PATCH, secret vault, branding) → `routes/admin_settings.py`.
+- **Phase 3** (1-2 sessions) : WhatsApp (webhook Meta, send_text/media, template management, polling) → `routes/whatsapp.py` (~3-4k lignes).
+- **Phase 4** (1 session) : Notifications (email, SMS, voice, push) → `routes/notifications.py`.
+- **Phase 5** (1 session) : Payments core (PawaPay, Stripe Checkout webhooks) → `routes/payments.py` (cashier.py existe déjà).
+- Reste : Contacts, Tickets, Appointments, Ad Banners. Total estimé : 12-15k lignes extraites, server.py ramené à ~7k lignes (orchestration + endpoints transversaux).
+
+### 📅 Estimation S046 — i18n FR/EN + 4 langues
+~3-4h de travail réparties en 4 phases : setup `react-i18next` (30 min) + extraction script chaînes FR (1h) + endpoint admin CRUD traductions (45 min) + sélecteur public + switch instantané (15 min). Traduction auto Claude des 12 000 chaînes ≈ $2-3 sur la Universal Key, à valider manuellement.
+
+
 ## Recent (2026-02 post-handoff) — S-iter39s — 🛡️ Toggle Vision global + GRH Primes & Indemnités
 
 ### ✅ S042 — Toggle global `qdrant_image_auto_describe` dans Admin Settings

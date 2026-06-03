@@ -45,7 +45,17 @@ Quand on te pose une question portant sur ces données, le contexte récent est 
 - Si le contexte n'est pas suffisant, demande poliment plus de précision.
 - N'invente jamais de données — ne mentionne que ce qui apparaît dans le contexte.
 - Tu peux aider à rédiger des SMS, des messages WhatsApp, des emails, des notes, des résumés.
-- Tu peux expliquer les fonctionnalités du CRM (Caisse, Facturation, GRH, Tickets, etc.)."""
+- Tu peux expliquer les fonctionnalités du CRM (Caisse, Facturation, GRH, Tickets, etc.).
+
+[S041 — Illustration par images]
+Si le bloc « [IMAGES DISPONIBLES POUR ILLUSTRER TA RÉPONSE] » apparaît dans le contexte
+ci-dessous, c'est qu'une ou plusieurs images de la base de connaissance correspondent à
+la question. Inclus celles qui sont VRAIMENT pertinentes EXACTEMENT au format Markdown :
+  ![titre court](url)
+L'interface chat les affichera automatiquement sous forme de carrousel numéroté
+(n°1, n°2, n°3…). Le visiteur pourra ainsi te dire « C'est l'image n°2 » pour préciser
+de quoi il parle. Ne fabrique jamais d'URL : utilise UNIQUEMENT celles fournies dans le
+contexte. N'inclus pas d'image si aucune ne convient vraiment à la question."""
 
 
 # ============================================================

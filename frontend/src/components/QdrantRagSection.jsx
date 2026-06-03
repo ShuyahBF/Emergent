@@ -6,13 +6,16 @@ import { apiClient } from "@/lib/api";
 import {
   Database, RefreshCw, Loader2, Plus, Trash2, Search, FileText, Upload,
   Link as LinkIcon, ToggleLeft, ToggleRight, CheckCircle2, XCircle,
-  AlertCircle, ArrowRightCircle, Eye, X,
+  AlertCircle, ArrowRightCircle, Eye, X, Image as ImageIcon,
 } from "lucide-react";
 import { toast } from "sonner";
+
+const _BYTES_PER_VECTOR_DISPLAY = 384 * 4 * 1.30 + 512;
 
 export default function QdrantRagSection() {
   const [status, setStatus] = useState(null);
   const [statusErr, setStatusErr] = useState(null);
+  const [storage, setStorage] = useState(null);
   const [collections, setCollections] = useState([]);
   const [loading, setLoading] = useState(false);
   const [activeColl, setActiveColl] = useState(null);
@@ -27,6 +30,13 @@ export default function QdrantRagSection() {
     }
   }, []);
 
+  const loadStorage = useCallback(async () => {
+    try {
+      const r = await apiClient.get("/admin/qdrant/storage");
+      setStorage(r.data);
+    } catch { /* noop */ }
+  }, []);
+
   const loadCollections = useCallback(async () => {
     setLoading(true);
     try {
@@ -37,7 +47,7 @@ export default function QdrantRagSection() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { testConn(); loadCollections(); }, [testConn, loadCollections]);
+  useEffect(() => { testConn(); loadCollections(); loadStorage(); }, [testConn, loadCollections, loadStorage]);
 
   const createCollection = async () => {
     const name = window.prompt("Nom de la nouvelle collection ? (a-z, 0-9, _, -)");
@@ -118,6 +128,28 @@ export default function QdrantRagSection() {
         {statusErr && (
           <div className="mt-3 text-xs px-3 py-2 rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-200 inline-flex items-center gap-2" data-testid="qdrant-status-err">
             <XCircle className="h-4 w-4" /> {statusErr}
+          </div>
+        )}
+        {storage && (
+          <div className="mt-3" data-testid="qdrant-storage-panel">
+            <div className="flex items-center justify-between text-[11px] text-slate-600 mb-1">
+              <span className="font-semibold">Stockage Qdrant Cloud</span>
+              <span className="tabular-nums">
+                <strong className={storage.pct_used >= 80 ? "text-rose-600" : storage.pct_used >= 60 ? "text-amber-600" : "text-emerald-700"}>
+                  {storage.estimated_size_mb.toFixed(2)} Mo
+                </strong> / {storage.quota_mb} Mo ({storage.pct_used.toFixed(1)}%) · reste {storage.remaining_mb.toFixed(0)} Mo
+              </span>
+            </div>
+            <div className="h-2 bg-slate-100 rounded-full overflow-hidden ring-1 ring-slate-200">
+              <div
+                className={`h-full transition-all ${storage.pct_used >= 80 ? "bg-rose-500" : storage.pct_used >= 60 ? "bg-amber-500" : "bg-emerald-500"}`}
+                style={{ width: `${Math.min(100, storage.pct_used)}%` }}
+              />
+            </div>
+            <p className="text-[10px] text-slate-400 mt-1">
+              Estimation : {storage.total_points} vecteur(s) × {Math.round(_BYTES_PER_VECTOR_DISPLAY)} octets/vecteur (payload + index inclus).
+              Free tier Qdrant Cloud = 1 Go.
+            </p>
           </div>
         )}
       </div>
@@ -209,6 +241,7 @@ function CollectionWorkspace({ name, onClose, onMigrate }) {
           { k: "text", label: "Texte", icon: FileText },
           { k: "pdf", label: "PDF", icon: Upload },
           { k: "url", label: "URL", icon: LinkIcon },
+          { k: "image", label: "Image", icon: ImageIcon },
           { k: "search", label: "Recherche", icon: Search },
           { k: "browse", label: "Parcourir", icon: Eye },
         ].map(({ k, label, icon: Icon }) => (
@@ -225,8 +258,91 @@ function CollectionWorkspace({ name, onClose, onMigrate }) {
       {activeTab === "text" && <UpsertTextTab name={name} />}
       {activeTab === "pdf" && <UpsertPdfTab name={name} />}
       {activeTab === "url" && <UpsertUrlTab name={name} />}
+      {activeTab === "image" && <UpsertImageTab name={name} />}
       {activeTab === "search" && <SearchTab name={name} />}
       {activeTab === "browse" && <BrowseTab name={name} />}
+    </div>
+  );
+}
+
+function UpsertImageTab({ name }) {
+  const [file, setFile] = useState(null);
+  const [title, setTitle] = useState("");
+  const [caption, setCaption] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const submit = async () => {
+    if (!file) { toast.error("Sélectionnez une image"); return; }
+    if (!title.trim() && !caption.trim()) {
+      toast.error("Renseignez au moins un titre OU une description (c'est le texte qui permet à Liluvine de retrouver l'image).");
+      return;
+    }
+    setBusy(true); setResult(null);
+    const fd = new FormData();
+    fd.append("file", file);
+    fd.append("title", title);
+    fd.append("caption", caption);
+    try {
+      const r = await apiClient.post(`/admin/qdrant/collections/${encodeURIComponent(name)}/points/image`, fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setResult(r.data);
+      toast.success("Image indexée et liée au point Qdrant.");
+      setFile(null); setTitle(""); setCaption("");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+    finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-3" data-testid="qdrant-upsert-image-tab">
+      <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-[11px] text-amber-800">
+        💡 Liluvine PRO pourra inclure cette image dans ses réponses chat pour illustrer le support
+        (par exemple : « Voici la capture d'écran à laquelle vous faites référence ! »).
+        Le texte (titre + description) sert à <strong>retrouver</strong> l'image — Liluvine ne « voit » pas l'image.
+      </div>
+      <input
+        type="file"
+        accept="image/*"
+        onChange={(e) => setFile(e.target.files?.[0] || null)}
+        disabled={busy}
+        className="block w-full text-sm"
+        data-testid="qdrant-image-file"
+      />
+      <input
+        value={title}
+        onChange={(e) => setTitle(e.target.value)}
+        placeholder="Titre court (ex: 'Écran de connexion')"
+        maxLength={200}
+        className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm"
+        data-testid="qdrant-image-title"
+      />
+      <textarea
+        value={caption}
+        onChange={(e) => setCaption(e.target.value)}
+        placeholder="Description détaillée (ex: 'Capture d'écran de la page de login affichant le champ email, le champ mot de passe et le bouton Se connecter en vert. Visible dans Chrome en plein écran.')"
+        rows={4}
+        maxLength={2000}
+        className="w-full rounded-lg ring-1 ring-slate-300 px-3 py-2 text-sm"
+        data-testid="qdrant-image-caption"
+      />
+      <p className="text-[10px] text-slate-400 tabular-nums">
+        {file ? `${file.name} · ${Math.round(file.size / 1024)} Ko` : "Aucune image sélectionnée"}
+      </p>
+      <button
+        onClick={submit}
+        disabled={busy || !file || (!title.trim() && !caption.trim())}
+        className="text-sm inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-50"
+        data-testid="qdrant-image-submit"
+      >
+        {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />} Indexer l'image
+      </button>
+      {result && (
+        <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50 p-3 text-xs space-y-2" data-testid="qdrant-image-result">
+          <p className="text-emerald-700 font-semibold">✓ Image indexée — Liluvine peut désormais la suggérer.</p>
+          {result.image_url && (
+            <img src={result.image_url} alt={title} className="max-h-40 rounded ring-1 ring-emerald-200" />
+          )}
+        </div>
+      )}
     </div>
   );
 }

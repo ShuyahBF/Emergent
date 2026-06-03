@@ -43,7 +43,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Iterable, List, Optional
 
-from fastapi import APIRouter, Body, Depends, File, HTTPException, UploadFile
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, UploadFile
 
 logger = logging.getLogger("sawali.qdrant_rag")
 
@@ -206,15 +206,23 @@ async def list_collections(db) -> list[dict]:
     client = _make_client(url, key)
     settings = await db.settings.find_one({"_id": "global"}) or {}
     coll_meta = settings.get("qdrant_collection_settings") or {}
+    # S041 — Estimate storage. Each vector is 384 dim × 4 bytes = 1536 B,
+    # plus ~512 B avg per payload (title, text chunk, source, tags, kind,
+    # image_url…), plus Qdrant indexing overhead (~30%). Numbers tuned
+    # empirically against the Qdrant Cloud dashboard.
+    BYTES_PER_VECTOR = int(_EMBED_VECTOR_SIZE * 4 * 1.30) + 512
     out = []
+    total_points = 0
     for c in client.get_collections().collections:
         try:
             info = client.get_collection(c.name)
             count = client.count(c.name, exact=False).count
         except Exception:  # noqa: BLE001
             info = None
-            count = None
+            count = 0
         cfg = coll_meta.get(c.name) or {}
+        size_bytes = (count or 0) * BYTES_PER_VECTOR
+        total_points += count or 0
         out.append({
             "name": c.name,
             "vectors_count": count,
@@ -222,9 +230,43 @@ async def list_collections(db) -> list[dict]:
             "description": cfg.get("description") or "",
             "vector_size": _EMBED_VECTOR_SIZE,
             "distance": "Cosine",
+            "estimated_size_bytes": size_bytes,
+            "estimated_size_mb": round(size_bytes / (1024 * 1024), 3),
             "raw": str(info) if info else None,
         })
     return out
+
+
+async def get_storage_info(db) -> dict:
+    """S041 — Returns total estimated Qdrant storage usage vs the
+    configured cluster quota (default 1 GB for Qdrant Cloud free tier)."""
+    settings = await db.settings.find_one({"_id": "global"}) or {}
+    quota_mb = int(settings.get("qdrant_quota_mb") or 1024)  # 1 GB free tier
+    BYTES_PER_VECTOR = int(_EMBED_VECTOR_SIZE * 4 * 1.30) + 512
+    url, key = await _resolve_credentials(db)
+    client = _make_client(url, key)
+    total_points = 0
+    coll_count = 0
+    try:
+        for c in client.get_collections().collections:
+            coll_count += 1
+            try:
+                total_points += client.count(c.name, exact=False).count or 0
+            except Exception:  # noqa: BLE001
+                pass
+    except Exception:  # noqa: BLE001
+        pass
+    bytes_total = total_points * BYTES_PER_VECTOR
+    mb_total = bytes_total / (1024 * 1024)
+    return {
+        "total_points": total_points,
+        "collections": coll_count,
+        "estimated_size_mb": round(mb_total, 3),
+        "estimated_size_bytes": bytes_total,
+        "quota_mb": quota_mb,
+        "pct_used": round((mb_total / quota_mb) * 100.0, 2) if quota_mb > 0 else 0.0,
+        "remaining_mb": round(max(0.0, quota_mb - mb_total), 3),
+    }
 
 
 async def create_collection(db, *, name: str, description: str = "") -> dict:
@@ -312,6 +354,52 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
     return {"ok": True, "inserted_chunks": inserted_chunks, "documents": len(docs)}
 
 
+async def upsert_image(
+    db,
+    *,
+    collection: str,
+    image_url: str,
+    title: str,
+    caption: str,
+    tags: Optional[list] = None,
+) -> dict:
+    """S041 — Index an image into Qdrant.
+
+    The text used for embedding is `title + caption` (Option 1 — Liluvine
+    doesn't 'see' the image, it sees its description). The payload stores
+    `image_url` so Liluvine can include the image in its replies via
+    Markdown `![title](url)`.
+    """
+    title = (title or "").strip()
+    caption = (caption or "").strip()
+    if not title and not caption:
+        raise HTTPException(status_code=400, detail="Titre OU description requis pour qu'une image soit retrouvable par Liluvine.")
+    embed_text = f"{title}\n{caption}".strip() or title or caption
+    url, key = await _resolve_credentials(db)
+    client = _make_client(url, key)
+    from qdrant_client.models import PointStruct
+    vec = _embed_texts([embed_text])[0]
+    point_id = str(uuid.uuid4())
+    client.upsert(
+        collection_name=collection,
+        points=[PointStruct(
+            id=point_id,
+            vector=vec,
+            payload={
+                "kind": "image",
+                "title": title[:200],
+                "text": caption[:2000],
+                "caption": caption[:2000],
+                "image_url": image_url,
+                "source": "media_library",
+                "tags": list(tags or []) + ["image"],
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )],
+    )
+    return {"ok": True, "id": point_id, "image_url": image_url}
+
+
 async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50) -> dict:
     url, key = await _resolve_credentials(db)
     client = _make_client(url, key)
@@ -330,9 +418,11 @@ async def browse_points(db, *, collection: str, offset: int = 0, limit: int = 50
         payload = pt.payload or {}
         items.append({
             "id": str(pt.id),
+            "kind": payload.get("kind") or "text",
             "title": payload.get("title") or "(sans titre)",
             "text_preview": (payload.get("text") or "")[:280],
             "source": payload.get("source"),
+            "image_url": payload.get("image_url"),
             "tags": payload.get("tags") or [],
             "created_at": payload.get("created_at"),
         })
@@ -368,8 +458,10 @@ async def search_points(db, *, collection: str, query: str, top_k: int = 5) -> d
         items.append({
             "id": str(h.id),
             "score": float(h.score),
+            "kind": payload.get("kind") or "text",
             "title": payload.get("title") or "(sans titre)",
             "text": (payload.get("text") or "")[:1200],
+            "image_url": payload.get("image_url"),
             "source": payload.get("source"),
             "tags": payload.get("tags") or [],
         })
@@ -393,7 +485,13 @@ async def test_connection(db) -> dict:
 async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
     """Search all collections flagged enabled_for_liluvine and concat the
     top matches up to max_chars. Returns "" if RAG is disabled or no
-    matches. Failures are swallowed (returns "")."""
+    matches. Failures are swallowed (returns "").
+
+    S041 — When image points are matched, their URLs are surfaced in a
+    dedicated block that Liluvine is instructed (via system prompt) to
+    embed in her reply using Markdown `![title](url)`. The chat UI then
+    renders them as a numbered carousel.
+    """
     settings = await db.settings.find_one({"_id": "global"}) or {}
     if not settings.get("qdrant_enabled"):
         return ""
@@ -417,16 +515,22 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
                 all_hits.append({
                     "score": float(h.score),
                     "collection": cname,
+                    "kind": payload.get("kind") or "text",
                     "title": payload.get("title") or "",
                     "text": payload.get("text") or "",
+                    "image_url": payload.get("image_url"),
                     "source": payload.get("source") or "",
                 })
         except Exception:  # noqa: BLE001
             logger.warning("[qdrant_rag] search failed on %s", cname, exc_info=True)
     all_hits.sort(key=lambda x: x["score"], reverse=True)
+    # Split image hits from text hits
+    image_hits = [h for h in all_hits if h["kind"] == "image" and h.get("image_url")]
+    text_hits = [h for h in all_hits if h["kind"] != "image"]
     parts = ["[BASE DE CONNAISSANCES (RAG sémantique Qdrant)]"]
-    total = 0
-    for h in all_hits:
+    total = len(parts[0])
+    # Text block
+    for h in text_hits:
         title = h["title"][:80] or "(sans titre)"
         body = h["text"].strip()
         block = f"\n• {title} (score {h['score']:.2f})\n  {body[:800]}"
@@ -434,6 +538,20 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
             break
         parts.append(block)
         total += len(block)
+    # S041 — Images block (Liluvine is instructed to include relevant ones
+    # in her reply using the URLs verbatim).
+    if image_hits:
+        parts.append("\n\n[IMAGES DISPONIBLES POUR ILLUSTRER TA RÉPONSE]")
+        parts.append(
+            "\nSi l'une de ces images aide le client à comprendre ta réponse, inclus-la "
+            "EXACTEMENT comme ceci à un endroit pertinent de ta réponse :\n"
+            "  ![titre](url)\n"
+            "Tu peux en inclure plusieurs si elles sont toutes utiles — l'interface "
+            "les affichera automatiquement sous forme de carrousel numéroté."
+        )
+        for idx, h in enumerate(image_hits[:5], start=1):
+            title = (h["title"] or h["text"][:80] or f"image-{idx}").strip()
+            parts.append(f"\n  ![{title}]({h['image_url']})  (score {h['score']:.2f})")
     if len(parts) == 1:
         return ""
     return "\n".join(parts)
@@ -455,6 +573,12 @@ def make_router(*, db, get_current_user):
     async def r_test(user: dict = Depends(get_current_user)):
         _gate(user)
         return await test_connection(db)
+
+    @router.get("/storage")
+    async def r_storage(user: dict = Depends(get_current_user)):
+        """S041 — Total estimated Qdrant disk usage vs cluster quota."""
+        _gate(user)
+        return await get_storage_info(db)
 
     @router.get("/collections")
     async def r_list(user: dict = Depends(get_current_user)):
@@ -542,6 +666,76 @@ def make_router(*, db, get_current_user):
             "source": f"url:{url}",
             "tags": ["url"],
         }])
+
+    @router.post("/collections/{name}/points/image")
+    async def r_upsert_image(
+        name: str,
+        file: UploadFile = File(...),
+        title: str = Form(""),
+        caption: str = Form(""),
+        user: dict = Depends(get_current_user),
+    ):
+        """S041 — Upload an image, save it in the media library, and
+        index its (title + caption) in Qdrant. Liluvine can then surface
+        the image URL in her replies via Markdown.
+        """
+        _gate(user)
+        ct = (file.content_type or "").lower()
+        if not ct.startswith("image/"):
+            raise HTTPException(status_code=400, detail="Fichier image attendu.")
+        content = await file.read()
+        if not content:
+            raise HTTPException(status_code=400, detail="Fichier vide.")
+        if len(content) > 15 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Image > 15 Mo.")
+        import object_storage as _obj_storage
+        # Map MIME → extension
+        ext_map = {"image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "image/gif": "gif"}
+        ext = ext_map.get(ct, "bin")
+        stored = await _obj_storage.save_and_log(
+            db,
+            data=content,
+            kind="qdrant_image",
+            tenant_id="sawali_global",
+            ext=ext,
+            content_type=ct,
+            original_filename=file.filename or f"image.{ext}",
+            user_id=user.get("id"),
+            metadata={"qdrant_collection": name, "title": title or ""},
+        )
+        # Also create a media_library entry so it shows up in /admin/brochures
+        import secrets
+        media_id = secrets.token_urlsafe(10)
+        await db.media_library.insert_one({
+            "id": media_id,
+            "kind": "image",
+            "title": (title or file.filename or "Image Qdrant").strip()[:200],
+            "description": (caption or "")[:1000],
+            "filename": file.filename,
+            "content_type": ct,
+            "size": stored.get("size") or len(content),
+            "url": stored.get("url"),
+            "storage_id": stored.get("id"),
+            "storage_path": stored.get("path"),
+            "thumbnail_url": None,
+            "tags": ["qdrant", "kb", name],
+            "public": False,  # private by default — only Liluvine surfaces it
+            "sort_order": 0,
+            "is_deleted": False,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "created_by_id": user.get("id"),
+            "created_by_name": user.get("full_name") or user.get("email"),
+            "qdrant_collection": name,
+        })
+        # Index in Qdrant
+        return await upsert_image(
+            db,
+            collection=name,
+            image_url=stored.get("url"),
+            title=title or file.filename or "Image",
+            caption=caption,
+            tags=["image", "media_library"],
+        )
 
     @router.delete("/collections/{name}/points/{pid}")
     async def r_delete_point(name: str, pid: str, user: dict = Depends(get_current_user)):

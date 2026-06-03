@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Bot, Send, Plus, Trash2, MessageCircle, Loader2, Sparkles, User, Edit2, Globe, Phone, Search, Hand, ArrowRightCircle, HelpCircle } from "lucide-react";
+import LiluvineMessageContent from "@/components/LiluvineMessageContent";
 import { useResizablePanel, DragHandle } from "@/hooks/useResizablePanel";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -531,7 +532,7 @@ export default function LiluvinePro() {
                     ? "bg-sky-600 text-white"
                     : "bg-slate-50 ring-1 ring-slate-200 text-slate-800"
                 }`}>
-                  <p className="whitespace-pre-wrap text-sm leading-relaxed">{m.content}</p>
+                  <LiluvineMessageContent content={m.content} />
                   {m.role === "assistant" && (m.tokens || m.context_injected) && (
                     <p className="text-[9px] text-slate-400 mt-1">
                       {m.tokens && <>~{m.tokens} tokens · </>}

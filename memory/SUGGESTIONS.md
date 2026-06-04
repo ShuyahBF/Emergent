@@ -386,9 +386,26 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 
 ## S046 — Internationalisation (i18n) FR / EN + 4 langues à définir
 - **Demande directe utilisateur** : 2026-02 — « Plus tard ; comme suggestion à noter, on va mettre le site en 5 langues en plus du français »
-- **Statut** : ⚪ DIFFÉRÉE (notée, planifiée plus tard)
-- **Détail** : Extraire tous les textes UI dans une table `translations` (clé canonique FR + colonnes EN + LG1..LG4). Éditeur back-office pour les traductions. Sélecteur de langue côté public, switch instantané. Approche recommandée : `react-i18next` + collection MongoDB pour les traductions dynamiques + script d'extraction automatique des chaînes hardcodées.
-- **Bénéfice** : ouverture du portail SAWALI à des clients hors francophonie (Afrique anglophone, Europe…).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02)
+- **Fix associé** : S046 Phase 1 (i18n module + sélecteur public + RTL Arabic + auto-detect + CSV import/export + auto-translate via Anthropic) + **S046 Phase 2 — Contenus CMS multilingues** (Iter40-content-i18n)
+- **Détail** : Table MongoDB `i18n_strings` + collection `contents.translations` (par slug). Sélecteur public, switch instantané. `AdminI18n.jsx` pour gestion UI strings + `AdminContents.jsx` avec onglets de langues pour gérer les contenus longs (Hero, Mission, Spécialisations, etc.). Re-fetch automatique côté pages publiques (`Home.jsx`, `Missions.jsx`, `Specialisations.jsx`) lors d'un changement de langue.
+- **Bénéfice** : ouverture du portail SAWALI à des clients hors francophonie (Afrique anglophone, Europe…). Contenus longs traduisibles sans toucher au code.
+
+## S047 — Modale publicitaire publique avec fréquence & A/B
+- **Demande utilisateur** : 2026-06 — « Affiche une image au hasard parmi 10 sur la page publique »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-modal + Iter40-modal-frequency + Iter40-modal-ab + global-cap
+- **Détail** : Nouveau placement `public_modal` côté admin avec fréquence configurable (`session` | `daily` | `always`), A/B test possible sur la fréquence (variant_b_modal_frequency), compteurs séparés modale (`modal_impressions/clicks` global + par variante A/B). Plafond global anti-spam (`modal_global_cap_per_day`, 0–20) configurable dans Admin Settings, enforcé côté client via localStorage daté. Composant `PublicAdModal.jsx` intégré dans `MarketingLayout`.
+- **Bénéfice** : nouvelle source de revenu publicitaire (régie) avec contrôle fin de l'agressivité d'affichage et mesure indépendante du slot top-of-page.
+- **Tests** : 36 tests pytest passants (placement, frequency, A/B, global cap, stats).
+
+## S048 — Gestion multilingue des contenus longs (CMS i18n)
+- **Demande utilisateur** : 2026-06 — « Pour la page admin/contents, affiche la liste des langues et permet de saisir les champs spécifiques »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-content-i18n
+- **Détail** : Le modèle `ContentUpsert` gagne un champ `translations: {<lang>: {title, body_html, metadata}}`. Endpoints `GET /content?lang=xx` et `GET /content/{slug}?lang=xx` font un deep-merge (override > default). Admin UI : onglets de langues (FR base + langues définies dans `/i18n/languages`) avec indicateur ● vert quand une surcharge existe + bouton "Effacer surcharges". Pages publiques re-fetchent quand la langue change via `useI18n().lang` dans les dépendances `useEffect`.
+- **Bénéfice** : permet à l'admin de localiser les textes longs (Hero, Mission, descriptions de spécialisations) sans dupliquer la structure, tout en gardant les chiffres clés et la structure JSON cohérents.
+- **Tests** : 6 tests pytest (`test_iter40_content_i18n.py`) couvrant upsert, no-lang fallback, override, unknown lang, deep-merge metadata, list endpoint.
 
 ---
 

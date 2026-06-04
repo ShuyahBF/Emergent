@@ -1,15 +1,18 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 import { Globe, Smartphone, Database, Cpu, Code2 } from "lucide-react";
 import { CODE_IMG } from "@/lib/brand";
 
 const ICONS = { Globe, Smartphone, Database, Cpu, Code: Code2 };
 
 export default function Specialisations() {
+  const { lang } = useI18n();
   const [spec, setSpec] = useState(null);
+  // Iter40-content-i18n — Re-fetch on language change
   useEffect(() => {
-    apiClient.get("/content/specialisations").then((r) => setSpec(r.data)).catch(() => {});
-  }, []);
+    apiClient.get("/content/specialisations", { params: { lang } }).then((r) => setSpec(r.data)).catch(() => {});
+  }, [lang]);
   const items = spec?.metadata?.items || [];
   return (
     <section className="py-20" data-testid="specialisations-page">

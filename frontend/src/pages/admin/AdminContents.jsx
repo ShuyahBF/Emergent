@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Save, Plus, Trash2 } from "lucide-react";
+import { Save, Plus, Trash2, Languages } from "lucide-react";
 
 const SLUGS = [
   { slug: "home_hero", label: "Accueil — Hero" },
@@ -12,34 +12,120 @@ const SLUGS = [
 ];
 
 const ICON_OPTIONS = ["Globe", "Smartphone", "Database", "Cpu", "Code"];
+// Iter40-content-i18n — Sentinel key for the base/default content (FR).
+// Stored at the top-level of the doc; other langs live under `translations.<code>`.
+const DEFAULT_LANG_KEY = "__default__";
 
 export default function AdminContents() {
   const [list, setList] = useState([]);
   const [active, setActive] = useState(SLUGS[0].slug);
-  const [data, setData] = useState({ title: "", body_html: "", metadata: {}, images: [] });
+  // Iter40-content-i18n — supported languages list (loaded from /i18n/languages)
+  const [languages, setLanguages] = useState([]);
+  // Iter40-content-i18n — Currently edited language; `__default__` = base FR fields
+  const [activeLang, setActiveLang] = useState(DEFAULT_LANG_KEY);
+  // Full document (default fields + translations map)
+  const [doc, setDoc] = useState({ title: "", body_html: "", metadata: {}, images: [], translations: {} });
   const [loading, setLoading] = useState(false);
 
   const reload = () => apiClient.get("/content").then((r) => setList(r.data));
   useEffect(() => { reload().catch(() => {}); }, []);
 
+  // Load supported languages once
+  useEffect(() => {
+    apiClient.get("/i18n/languages").then((r) => setLanguages(r.data?.items || [])).catch(() => {});
+  }, []);
+
+  // When tab changes, hydrate the editor with the saved content
   useEffect(() => {
     const found = list.find((c) => c.slug === active);
-    setData(found
-      ? { title: found.title, body_html: found.body_html || "", metadata: found.metadata || {}, images: found.images || [] }
-      : { title: "", body_html: "", metadata: {}, images: [] });
+    setDoc(found
+      ? {
+          title: found.title || "",
+          body_html: found.body_html || "",
+          metadata: found.metadata || {},
+          images: found.images || [],
+          translations: found.translations || {},
+        }
+      : { title: "", body_html: "", metadata: {}, images: [], translations: {} });
+    setActiveLang(DEFAULT_LANG_KEY); // reset to default whenever the slug changes
   }, [active, list]);
+
+  // -------------------------------------------------------------------
+  // Iter40-content-i18n — All `data.*` helpers below operate on the
+  // currently selected language. For `__default__`, they read/write
+  // the top-level fields; for any other language, they read/write the
+  // entry inside `translations[lang]` (deep merge).
+  // -------------------------------------------------------------------
+  const isDefault = activeLang === DEFAULT_LANG_KEY;
+  const langOverride = !isDefault ? (doc.translations?.[activeLang] || {}) : null;
+
+  // Merged "view" the editor shows. For overrides, we let the form display
+  // the override value but fall back to default fields when the override
+  // doesn't define a key — that way the admin sees a meaningful baseline.
+  const data = isDefault
+    ? doc
+    : {
+        title: langOverride?.title ?? doc.title,
+        body_html: langOverride?.body_html ?? doc.body_html,
+        metadata: { ...(doc.metadata || {}), ...(langOverride?.metadata || {}) },
+      };
+
+  // Setters route to default OR override
+  const setTitle = (v) => {
+    if (isDefault) return setDoc({ ...doc, title: v });
+    const t = { ...(doc.translations || {}) };
+    t[activeLang] = { ...(t[activeLang] || {}), title: v };
+    setDoc({ ...doc, translations: t });
+  };
+  const setBody = (v) => {
+    if (isDefault) return setDoc({ ...doc, body_html: v });
+    const t = { ...(doc.translations || {}) };
+    t[activeLang] = { ...(t[activeLang] || {}), body_html: v };
+    setDoc({ ...doc, translations: t });
+  };
+  const updMeta = (key, value) => {
+    if (isDefault) {
+      setDoc({ ...doc, metadata: { ...(doc.metadata || {}), [key]: value } });
+      return;
+    }
+    const t = { ...(doc.translations || {}) };
+    const cur = t[activeLang] || {};
+    const curMeta = cur.metadata || {};
+    t[activeLang] = { ...cur, metadata: { ...curMeta, [key]: value } };
+    setDoc({ ...doc, translations: t });
+  };
 
   const save = async () => {
     setLoading(true);
     try {
-      await apiClient.put(`/admin/content/${active}`, { slug: active, ...data });
-      toast.success("Contenu mis à jour");
+      const payload = {
+        slug: active,
+        title: doc.title || "",
+        body_html: doc.body_html || "",
+        metadata: doc.metadata || {},
+        images: doc.images || [],
+        translations: doc.translations || {},
+      };
+      await apiClient.put(`/admin/content/${active}`, payload);
+      toast.success(isDefault
+        ? "Contenu de base mis à jour"
+        : `Traduction « ${activeLang.toUpperCase()} » enregistrée`);
       await reload();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
-    finally { setLoading(false); }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const updMeta = (key, value) => setData({ ...data, metadata: { ...data.metadata, [key]: value } });
+  // Iter40-content-i18n — Clear the active language overrides (revert to default)
+  const clearLangOverrides = () => {
+    if (isDefault) return;
+    const t = { ...(doc.translations || {}) };
+    delete t[activeLang];
+    setDoc({ ...doc, translations: t });
+    toast.message(`Surcharges « ${activeLang.toUpperCase()} » supprimées (non sauvegardées)`);
+  };
 
   // Metrics editor (for "experience")
   const metrics = data.metadata?.metrics || [];
@@ -56,13 +142,17 @@ export default function AdminContents() {
   // Hero kicker
   const kicker = data.metadata?.kicker || "";
 
+  // Iter40-content-i18n — Has-override indicator for tab badges
+  const hasOverride = (code) => !!(doc.translations || {})[code];
+
   return (
     <div className="space-y-6" data-testid="admin-contents-page">
       <div>
         <h1 className="text-2xl font-display font-bold">Contenus du site public</h1>
-        <p className="text-sm text-slate-500">Modifiez les textes, chiffres et spécialisations affichés sur le site.</p>
+        <p className="text-sm text-slate-500">Modifiez les textes, chiffres et spécialisations affichés sur le site, par langue.</p>
       </div>
 
+      {/* Section tabs (slug) */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {SLUGS.map((s) => (
           <button key={s.slug} onClick={() => setActive(s.slug)}
@@ -73,16 +163,69 @@ export default function AdminContents() {
         ))}
       </div>
 
+      {/* Iter40-content-i18n — Language sub-tabs */}
+      <div className="rounded-xl border border-fuchsia-200 bg-fuchsia-50/40 p-3 space-y-2" data-testid="content-lang-tabs">
+        <div className="flex items-center gap-2 text-xs text-fuchsia-700 font-semibold">
+          <Languages className="h-4 w-4" />
+          <span>Langue à éditer</span>
+          {!isDefault && (
+            <button
+              onClick={clearLangOverrides}
+              className="ml-auto text-[10px] underline text-rose-600 hover:text-rose-700"
+              data-testid="clear-lang-overrides-btn"
+              title="Supprime les surcharges de cette langue (revient au contenu par défaut)"
+            >
+              Effacer les surcharges {activeLang.toUpperCase()}
+            </button>
+          )}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => setActiveLang(DEFAULT_LANG_KEY)}
+            className={`px-3 py-1.5 rounded-lg text-xs ring-1 transition ${
+              isDefault ? "bg-fuchsia-600 text-white ring-fuchsia-700" : "bg-white text-slate-700 ring-slate-300 hover:ring-fuchsia-400"
+            }`}
+            data-testid="lang-tab-default"
+          >
+            Par défaut (FR base)
+          </button>
+          {languages.filter((l) => l.code !== "fr").map((l) => (
+            <button
+              key={l.code}
+              onClick={() => setActiveLang(l.code)}
+              className={`px-3 py-1.5 rounded-lg text-xs ring-1 transition inline-flex items-center gap-1.5 ${
+                activeLang === l.code ? "bg-fuchsia-600 text-white ring-fuchsia-700" : "bg-white text-slate-700 ring-slate-300 hover:ring-fuchsia-400"
+              }`}
+              data-testid={`lang-tab-${l.code}`}
+              title={l.name}
+            >
+              <span className="uppercase font-semibold">{l.code}</span>
+              <span className="text-[10px] opacity-70">{l.name}</span>
+              {hasOverride(l.code) && (
+                <span className="ml-1 h-1.5 w-1.5 rounded-full bg-emerald-400" title="Surcharges définies" />
+              )}
+            </button>
+          ))}
+        </div>
+        <p className="text-[10px] text-slate-500 italic">
+          Les champs ci-dessous s'appliquent à la langue sélectionnée. Quand un visiteur change la langue sur le site, les champs traduits remplacent les valeurs par défaut. <strong>Pour effacer une surcharge</strong>, videz le champ correspondant et sauvegardez.
+        </p>
+      </div>
+
       <div className="rounded-xl border border-slate-200 bg-white p-6 space-y-5" data-testid="content-editor">
         <div>
-          <label className="block text-xs font-semibold mb-1">Titre</label>
-          <input value={data.title} onChange={(e) => setData({ ...data, title: e.target.value })}
+          <label className="block text-xs font-semibold mb-1">
+            Titre {!isDefault && <span className="text-fuchsia-600">({activeLang.toUpperCase()})</span>}
+          </label>
+          <input value={data.title} onChange={(e) => setTitle(e.target.value)}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="content-title" />
         </div>
 
         {active === "home_hero" && (
           <div>
-            <label className="block text-xs font-semibold mb-1">Suréltitre (kicker)</label>
+            <label className="block text-xs font-semibold mb-1">
+              Surtitre (kicker) {!isDefault && <span className="text-fuchsia-600">({activeLang.toUpperCase()})</span>}
+            </label>
             <input value={kicker} onChange={(e) => updMeta("kicker", e.target.value)}
                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="content-kicker"
                    placeholder="SAWALI · Software Engineering" />
@@ -90,8 +233,10 @@ export default function AdminContents() {
         )}
 
         <div>
-          <label className="block text-xs font-semibold mb-1">Contenu HTML</label>
-          <textarea rows={8} value={data.body_html} onChange={(e) => setData({ ...data, body_html: e.target.value })}
+          <label className="block text-xs font-semibold mb-1">
+            Contenu HTML {!isDefault && <span className="text-fuchsia-600">({activeLang.toUpperCase()})</span>}
+          </label>
+          <textarea rows={8} value={data.body_html} onChange={(e) => setBody(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="content-body" />
           {data.body_html && <div className="mt-2 rounded-lg border border-slate-200 p-3 prose-sawali bg-slate-50" dangerouslySetInnerHTML={{ __html: data.body_html }} />}
         </div>
@@ -100,7 +245,9 @@ export default function AdminContents() {
         {active === "experience" && (
           <div className="rounded-lg border border-slate-200 p-4" data-testid="metrics-editor">
             <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-semibold">Chiffres clés affichés sur l'accueil</label>
+              <label className="text-sm font-semibold">
+                Chiffres clés affichés sur l'accueil {!isDefault && <span className="text-fuchsia-600 text-xs">({activeLang.toUpperCase()})</span>}
+              </label>
               <button onClick={addMetric} className="text-xs text-sawali-blue inline-flex items-center gap-1" data-testid="add-metric"><Plus className="h-3 w-3" /> Ajouter</button>
             </div>
             <p className="text-xs text-slate-500 mb-3">
@@ -127,7 +274,9 @@ export default function AdminContents() {
         {active === "specialisations" && (
           <div className="rounded-lg border border-slate-200 p-4" data-testid="specs-editor">
             <div className="flex items-center justify-between mb-3">
-              <label className="text-sm font-semibold">Spécialisations (cards)</label>
+              <label className="text-sm font-semibold">
+                Spécialisations (cards) {!isDefault && <span className="text-fuchsia-600 text-xs">({activeLang.toUpperCase()})</span>}
+              </label>
               <button onClick={addItem} className="text-xs text-sawali-blue inline-flex items-center gap-1" data-testid="add-spec"><Plus className="h-3 w-3" /> Ajouter</button>
             </div>
             <div className="space-y-3">
@@ -153,11 +302,23 @@ export default function AdminContents() {
           </div>
         )}
 
-        {/* Fallback raw JSON editor for advanced edits */}
+        {/* Fallback raw JSON editor for advanced edits — always edits the default doc */}
         <details className="rounded-lg border border-slate-200 p-3">
-          <summary className="text-xs cursor-pointer text-slate-600">Avancé : éditer le JSON brut des métadonnées</summary>
+          <summary className="text-xs cursor-pointer text-slate-600">
+            Avancé : éditer le JSON brut des métadonnées
+            {!isDefault && <span className="text-fuchsia-600 ml-1">(surcharge {activeLang.toUpperCase()})</span>}
+          </summary>
           <textarea rows={6} value={JSON.stringify(data.metadata, null, 2)} onChange={(e) => {
-            try { setData({ ...data, metadata: JSON.parse(e.target.value || "{}") }); } catch { /* ignore */ }
+            try {
+              const parsed = JSON.parse(e.target.value || "{}");
+              if (isDefault) {
+                setDoc({ ...doc, metadata: parsed });
+              } else {
+                const t = { ...(doc.translations || {}) };
+                t[activeLang] = { ...(t[activeLang] || {}), metadata: parsed };
+                setDoc({ ...doc, translations: t });
+              }
+            } catch { /* ignore */ }
           }} className="mt-2 w-full rounded-lg border border-slate-300 px-3 py-2 text-xs font-mono" data-testid="content-metadata" />
         </details>
 

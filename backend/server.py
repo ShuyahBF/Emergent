@@ -898,18 +898,50 @@ attach_i18n_routes(api, db=db, get_current_user=get_current_user)
 # ====================================================================
 # PUBLIC - Content / Catalog / Contact / RDV
 # ====================================================================
+def _apply_content_lang(doc: dict, lang: Optional[str]) -> dict:
+    """Iter40-content-i18n — Overlay per-language fields onto the default
+    content document. When `lang` is falsy or no override exists for it,
+    returns the document unchanged.
+
+    Override shape (stored in `translations`):
+      { "en": {"title": "...", "body_html": "...", "metadata": {...}}, ... }
+    """
+    if not lang:
+        return doc
+    translations = (doc or {}).get("translations") or {}
+    override = translations.get(lang)
+    if not override:
+        return doc
+    merged = dict(doc)
+    if isinstance(override, dict):
+        if override.get("title"):
+            merged["title"] = override["title"]
+        if "body_html" in override and override["body_html"] is not None:
+            merged["body_html"] = override["body_html"]
+        if isinstance(override.get("metadata"), dict):
+            # Deep-merge for metadata so partial overrides (e.g. only `metrics`)
+            # still inherit other admin-set fields.
+            base_meta = dict(doc.get("metadata") or {})
+            base_meta.update(override["metadata"])
+            merged["metadata"] = base_meta
+    merged["lang_applied"] = lang
+    return merged
+
+
 @api.get("/content", tags=["Public"])
-async def list_content():
+async def list_content(lang: Optional[str] = None):
     items = await db.contents.find({}, {"_id": 0}).to_list(500)
+    if lang:
+        return [_apply_content_lang(it, lang) for it in items]
     return items
 
 
 @api.get("/content/{slug}", tags=["Public"])
-async def get_content(slug: str):
+async def get_content(slug: str, lang: Optional[str] = None):
     item = await db.contents.find_one({"slug": slug}, {"_id": 0})
     if item is None:
         raise HTTPException(status_code=404, detail="Contenu introuvable")
-    return item
+    return _apply_content_lang(item, lang)
 
 
 @api.get("/catalog", tags=["Public"])

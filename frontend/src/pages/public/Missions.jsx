@@ -1,17 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 import { Target, Compass, Award } from "lucide-react";
 
 export default function Missions() {
+  const { lang } = useI18n();
   const [mission, setMission] = useState(null);
   const [about, setAbout] = useState(null);
+  // Iter40-content-i18n — Re-fetch on language change
   useEffect(() => {
-    apiClient.get("/content").then((r) => {
+    apiClient.get("/content", { params: { lang } }).then((r) => {
       const map = Object.fromEntries(r.data.map((c) => [c.slug, c]));
       setMission(map.mission);
       setAbout(map.about);
     }).catch(() => {});
-  }, []);
+  }, [lang]);
   return (
     <section className="py-20" data-testid="missions-page">
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">

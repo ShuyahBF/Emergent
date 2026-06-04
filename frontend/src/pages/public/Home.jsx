@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { ArrowRight, ShieldCheck, Sparkles, Code2, Database, Smartphone, Globe2, Cpu, Quote, Star, MapPin, User as UserIcon, MessageCircle } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import { useI18n } from "@/contexts/I18nContext";
 import { HERO_BG, OFFICE_IMG, CODE_IMG } from "@/lib/brand";
 import DeploymentsMap from "@/components/DeploymentsMap";
 import HeroVideoSection from "@/components/HeroVideoSection";
@@ -12,19 +13,24 @@ import AdBannerSlot from "@/components/AdBannerSlot";
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
 export default function Home() {
+  const { lang } = useI18n();
   const [home, setHome] = useState(null);
   const [exp, setExp] = useState(null);
   const [spec, setSpec] = useState(null);
   const [testimonials, setTestimonials] = useState([]);
   const [npsStats, setNpsStats] = useState(null);
 
+  // Iter40-content-i18n — Re-fetch content whenever the active language changes.
   useEffect(() => {
-    apiClient.get("/content").then((r) => {
+    apiClient.get("/content", { params: { lang } }).then((r) => {
       const map = Object.fromEntries(r.data.map((c) => [c.slug, c]));
       setHome(map.home_hero);
       setExp(map.experience);
       setSpec(map.specialisations);
     }).catch(() => {});
+  }, [lang]);
+
+  useEffect(() => {
     apiClient.get("/testimonials").then((r) => setTestimonials(r.data.slice(0, 3))).catch(() => {});
     apiClient.get("/testimonials/stats").then((r) => setNpsStats(r.data)).catch(() => {});
   }, []);

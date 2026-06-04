@@ -323,6 +323,11 @@ class ContentUpsert(BaseModel):
     body_html: str = ""
     images: List[str] = []
     metadata: dict = {}
+    # Iter40-content-i18n — Per-language overrides. Shape:
+    # { "en": {"title": "...", "body_html": "...", "metadata": {...}}, "ar": {...}, ... }
+    # When a language is selected on the public page, its overrides replace
+    # the default top-level fields. Missing language → fall back to default.
+    translations: dict = {}
 
 
 # ====================================================================

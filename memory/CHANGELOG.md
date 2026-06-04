@@ -2769,3 +2769,92 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - ✅ Flow en 2 étapes : (1) saisie numéro + nom optionnel → `POST /auth/wa-otp/request`. (2) saisie code 6 chiffres → `POST /auth/wa-otp/verify` → JWT + redirection `/portal`.
 - ✅ Liens "Retour à la connexion classique" et "Changer de numéro" pour navigation fluide.
 - ✅ Branché sur les endpoints `wa_otp_login_9o.py` existants. Smoke screenshot validé.
+
+## Iter40-modal (2026-06-04) — Régie publicitaire : modale aléatoire publique
+
+### 🎯 1) Nouveau placement `public_modal`
+- Backend `routes/ad_banners.py` : regex `placement` étendue à `^(public|portal|both|public_modal)$`.
+- `GET /api/public/ad-banners/active?placement=public_modal` retourne uniquement les bannières `public_modal` (pas de fuite avec `public`/`both`).
+- Sélection aléatoire pondérée par budget restant (même algo).
+
+### 💫 2) Composant frontend `PublicAdModal.jsx`
+- Modal centré (z-index 9999), backdrop blur, fermeture par X / ESC / clic backdrop.
+- Badge "PUBLICITÉ", CTA "Découvrir →", responsive (max-h 70vh).
+- Intégré dans `MarketingLayout.jsx` (toutes pages publiques).
+- Tracking impression/clic via les endpoints existants.
+
+### 🛠️ 3) Admin UI
+- Option `<option value="public_modal">Modale aléatoire (page publique)</option>` ajoutée au select Emplacement.
+- Libellé colonne « Modale publique » dans la liste.
+
+### 🧪 4) Tests
+- `test_iter40_public_modal_placement.py` (4 tests) + régression 16 anciens.
+
+---
+
+## Iter40-modal-frequency (2026-06-04) — Fréquence + compteurs modale dédiés
+
+### ⏱️ 1) Champ `modal_frequency`
+- Valeurs `session` | `daily` | `always`, défaut `session`.
+- Validation regex + persistance + retour dans `_public_view`.
+
+### 📊 2) Compteurs séparés
+- `modal_impressions` / `modal_clicks` incrémentés en plus du global lors de `?modal=1`.
+- Stats endpoint expose un bloc `modal: {impressions, clicks, ctr_pct, frequency}`.
+
+### 🎨 3) Frontend
+- `PublicAdModal.jsx` choisit le storage selon la fréquence (`sessionStorage` / `localStorage` daté / aucun).
+- `AdminAdBanners.jsx` : nouveau select "Fréquence d'affichage" + bloc stats fuchsia modale.
+
+### 🧪 4) Tests
+- `test_iter40_modal_frequency.py` (7 tests) — défaut, validation, séparation des compteurs.
+
+---
+
+## Iter40-modal-ab + global-cap (2026-06-04) — A/B fréquence + plafond global
+
+### 🛡️ 1) Plafond global anti-spam (`modal_global_cap_per_day`)
+- Champ ajouté à `SettingsUpdate` (modèle), validation 0-20 dans `server.py`.
+- Nouvel endpoint **anonyme** `GET /api/public/ad-banners/config` retourne le cap.
+- `AdminSettings.jsx` : bloc "Régie publicitaire — Plafond de modales" avec presets 0/1/2/3/5.
+- `PublicAdModal.jsx` : compteur dans `localStorage` daté (réinit auto chaque jour), modal ne s'affiche pas si plafond atteint.
+
+### 🅰️🅱️ 2) A/B sur la fréquence modale
+- Nouveau champ `variant_b_modal_frequency` dans `AdBannerPayload`/`Update`.
+- `_public_view` : si variante B tirée + override défini, retourne la fréquence B (sinon fallback global).
+- Compteurs par variante : `modal_impressions_a/b`, `modal_clicks_a/b`.
+- `AdminAdBanners.jsx` : select visible quand A/B activé + placement=public_modal, tuiles de stats par variante (`ModalVariantTile`).
+
+### 🧪 3) Tests
+- `test_iter40_modal_ab_and_global_cap.py` (9 tests) — settings, cap, A/B variant frequency, fallback, compteurs, stats.
+- **36/36 PASS** au total sur la régression ad-banners.
+
+---
+
+## Iter40-content-i18n (2026-06-04) — Contenus CMS multilingues
+
+### 🌍 1) Modèle `ContentUpsert` enrichi
+- Nouveau champ `translations: dict = {}` au format `{ "en": {"title", "body_html", "metadata"}, "ar": {...}, ... }`.
+- Stockage MongoDB inchangé (collection `contents`).
+
+### 🔗 2) Endpoints publics avec paramètre `?lang=`
+- `GET /content?lang=xx` et `GET /content/{slug}?lang=xx` appliquent un deep-merge : override > default (metadata fusionnées key-by-key).
+- Sans paramètre `lang`, les contenus par défaut (FR) sont retournés inchangés.
+- Helper `_apply_content_lang(doc, lang)` réutilisable.
+
+### 🎨 3) Admin UI multi-onglets
+- `AdminContents.jsx` complètement réécrit avec :
+  - Onglets de langues (FR base + langues chargées depuis `/i18n/languages`)
+  - Indicateur ● vert quand une surcharge existe pour la langue
+  - Bouton "Effacer les surcharges" pour revenir au défaut
+  - Tous les champs (titre, kicker, body_html, metrics, items, JSON brut) gèrent la langue active
+  - Fallback affichant la valeur par défaut quand l'override n'existe pas (UX claire)
+
+### 🔄 4) Public pages réactives au changement de langue
+- `Home.jsx`, `Missions.jsx`, `Specialisations.jsx` : `useI18n()` import + `lang` dans les dépendances de l'effet de fetch.
+- Quand l'utilisateur change la langue dans le `LanguageSelector`, les contenus re-fetchent automatiquement avec la bonne traduction.
+
+### 🧪 5) Tests
+- `test_iter40_content_i18n.py` (6 tests) — upsert, fallback sans lang, override appliqué, lang inconnue, deep-merge metadata, list endpoint.
+- **6/6 PASS**.
+

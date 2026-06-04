@@ -10982,6 +10982,15 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if v < 0 or v > 120:
             raise HTTPException(status_code=400, detail="auto_logout_minutes doit être entre 0 et 120")
         update["auto_logout_minutes"] = v
+    # Iter40-modal — Validate modal_global_cap_per_day (0-20, 0=unlimited)
+    if "modal_global_cap_per_day" in update and update["modal_global_cap_per_day"] is not None:
+        try:
+            v = int(update["modal_global_cap_per_day"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="modal_global_cap_per_day doit être un entier") from exc
+        if v < 0 or v > 20:
+            raise HTTPException(status_code=400, detail="modal_global_cap_per_day doit être entre 0 et 20")
+        update["modal_global_cap_per_day"] = v
     # S026 — Validate meeting_signers_notify_channel against allowed set
     if "meeting_signers_notify_channel" in update:
         allowed = {"none", "email", "wa", "both"}

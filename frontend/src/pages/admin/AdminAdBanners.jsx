@@ -72,6 +72,8 @@ const DEFAULT_DRAFT = {
   reminder_days_before: 3,
   // Iter40-modal — Modal display frequency (only used when placement=public_modal)
   modal_frequency: "session",
+  // Iter40-modal-ab — Per-variant modal frequency override (empty = same as A)
+  variant_b_modal_frequency: "",
 };
 
 export default function AdminAdBanners() {
@@ -158,6 +160,8 @@ export default function AdminAdBanners() {
       reminder_days_before: it.reminder_days_before ?? 3,
       // Iter40-modal — Modal display frequency
       modal_frequency: it.modal_frequency || "session",
+      // Iter40-modal-ab — Per-variant modal frequency override
+      variant_b_modal_frequency: it.variant_b_modal_frequency || "",
     });
     setShowForm(true);
   };
@@ -705,6 +709,21 @@ function StatsModal({ stats, onClose }) {
                   <p className="font-display font-bold text-fuchsia-700 tabular-nums">{stats.modal.ctr_pct}%</p>
                 </div>
               </div>
+              {/* Iter40-modal-ab — Per-variant breakdown when A/B is on */}
+              {stats.ab?.enabled && (stats.modal.variant_a?.impressions > 0 || stats.modal.variant_b?.impressions > 0) && (
+                <div className="grid grid-cols-2 gap-2 pt-2 border-t border-fuchsia-200/60">
+                  <ModalVariantTile
+                    label="A"
+                    st={stats.modal.variant_a}
+                    freqLabel={stats.modal.frequency}
+                  />
+                  <ModalVariantTile
+                    label="B"
+                    st={stats.modal.variant_b}
+                    freqLabel={stats.modal.variant_b_frequency || stats.modal.frequency}
+                  />
+                </div>
+              )}
             </div>
           )}
 
@@ -949,6 +968,39 @@ function BannerSizingBlock({ draft, setDraft }) {
   );
 }
 
+// Iter40-modal-ab — Per-variant modal CTR tile (fuchsia palette to match the modal section).
+function ModalVariantTile({ label, st, freqLabel }) {
+  const s = st || { impressions: 0, clicks: 0, ctr_pct: 0 };
+  const fLabel =
+    freqLabel === "session" ? "1×/session"
+    : freqLabel === "daily" ? "1×/jour"
+    : freqLabel === "always" ? "À chaque chargement"
+    : (freqLabel || "—");
+  return (
+    <div className="rounded-lg bg-white ring-1 ring-fuchsia-200 p-2" data-testid={`ad-stats-modal-variant-${label.toLowerCase()}`}>
+      <div className="flex items-center justify-between">
+        <p className="text-[10px] uppercase font-semibold text-fuchsia-700">Variante {label}</p>
+        <span className="text-[9px] text-slate-500 italic">{fLabel}</span>
+      </div>
+      <div className="grid grid-cols-3 gap-1.5 text-[11px] mt-1.5">
+        <div>
+          <p className="text-[9px] uppercase text-slate-500">Affich.</p>
+          <p className="font-display font-bold text-slate-800 tabular-nums">{(s.impressions || 0).toLocaleString("fr-FR")}</p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase text-slate-500">Clics</p>
+          <p className="font-display font-bold text-slate-800 tabular-nums">{(s.clicks || 0).toLocaleString("fr-FR")}</p>
+        </div>
+        <div>
+          <p className="text-[9px] uppercase text-slate-500">CTR</p>
+          <p className="font-display font-bold text-fuchsia-700 tabular-nums">{s.ctr_pct || 0}%</p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 // Iter38r-fix9z6 — Per-variant CTR comparison + winner badge.
 function ABBreakdown({ ab }) {
   const a = ab.variant_a || {};
@@ -1063,6 +1115,20 @@ function BannerABBlock({ draft, setDraft, handleFileChange, uploading }) {
                 className="w-full text-xs rounded ring-1 ring-violet-200 px-2 py-1.5 mt-2 bg-white"
                 data-testid="ad-ab-variant-b-target"
               />
+              {draft.placement === "public_modal" && (
+                <select
+                  value={draft.variant_b_modal_frequency || ""}
+                  onChange={(e) => setDraft({ ...draft, variant_b_modal_frequency: e.target.value })}
+                  className="w-full text-xs rounded ring-1 ring-violet-200 px-2 py-1.5 mt-2 bg-white"
+                  data-testid="ad-ab-variant-b-frequency"
+                  title="Fréquence d'affichage spécifique à la variante B (vide = même que A)"
+                >
+                  <option value="">Fréquence : identique à variante A</option>
+                  <option value="session">B : 1×/session</option>
+                  <option value="daily">B : 1×/jour</option>
+                  <option value="always">B : à chaque chargement</option>
+                </select>
+              )}
             </div>
           </div>
         </>

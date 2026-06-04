@@ -17,12 +17,35 @@ import { resolveAssetUrl } from "@/lib/useAssetUrl";
 
 const SESSION_KEY = "public_ad_modal_shown";
 const DAILY_KEY_PREFIX = "public_ad_modal_shown_day_";
+// Iter40-modal — Global daily cap tracking (across ALL public_modal banners).
+// Stored as a JSON object: { date: "YYYY-MM-DD", count: N } in localStorage.
+const GLOBAL_CAP_KEY = "public_ad_modal_global_count";
 // Wait a beat before showing so the page settles first (avoids being
 // dismissed by layout shifts / route loaders).
 const SHOW_DELAY_MS = 1500;
 
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
+}
+
+function readGlobalCount() {
+  try {
+    const raw = localStorage.getItem(GLOBAL_CAP_KEY);
+    if (!raw) return 0;
+    const parsed = JSON.parse(raw);
+    if (parsed?.date === todayISO()) return Number(parsed.count) || 0;
+    return 0;
+  } catch { return 0; }
+}
+
+function bumpGlobalCount() {
+  try {
+    const current = readGlobalCount();
+    localStorage.setItem(
+      GLOBAL_CAP_KEY,
+      JSON.stringify({ date: todayISO(), count: current + 1 }),
+    );
+  } catch { /* ignore */ }
 }
 
 function alreadyShown(frequency, bannerId) {
@@ -59,22 +82,27 @@ export default function PublicAdModal() {
     let cancelled = false;
     let showTimer = null;
 
-    fetch(`${apiBase}/api/public/ad-banners/active?placement=public_modal`)
-      .then((r) => (r.ok ? r.json() : { banner: null }))
-      .then((data) => {
+    // Iter40-modal — Step 1: fetch the global cap config + the candidate banner in parallel.
+    Promise.all([
+      fetch(`${apiBase}/api/public/ad-banners/config`).then((r) => r.ok ? r.json() : { modal_global_cap_per_day: 2 }).catch(() => ({ modal_global_cap_per_day: 2 })),
+      fetch(`${apiBase}/api/public/ad-banners/active?placement=public_modal`).then((r) => r.ok ? r.json() : { banner: null }).catch(() => ({ banner: null })),
+    ]).then(([cfg, data]) => {
+      if (cancelled) return;
+      const b = data?.banner || null;
+      if (!b) return;
+      const cap = Number(cfg?.modal_global_cap_per_day ?? 2);
+      // 0 = unlimited; otherwise stop if today's modal count already at the cap
+      if (cap > 0 && readGlobalCount() >= cap) return;
+      const freq = b.modal_frequency || "session";
+      if (alreadyShown(freq, b.id)) return;
+      setBanner(b);
+      showTimer = setTimeout(() => {
         if (cancelled) return;
-        const b = data?.banner || null;
-        if (!b) return;
-        const freq = b.modal_frequency || "session";
-        if (alreadyShown(freq, b.id)) return;
-        setBanner(b);
-        showTimer = setTimeout(() => {
-          if (cancelled) return;
-          setVisible(true);
-          markShown(freq, b.id);
-        }, SHOW_DELAY_MS);
-      })
-      .catch(() => {});
+        setVisible(true);
+        markShown(freq, b.id);
+        bumpGlobalCount();
+      }, SHOW_DELAY_MS);
+    });
 
     return () => {
       cancelled = true;

@@ -140,12 +140,18 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
     image_url = b.get("image_url")
     target_url = b.get("target_url")
     media_kind = b.get("media_kind") or "image"
+    # Iter40-modal-ab — A/B on modal_frequency: variant B can override.
+    # When the random variant pick lands on B and a variant_b_modal_frequency is
+    # defined, use it; otherwise fall back to the global modal_frequency.
+    modal_frequency = b.get("modal_frequency") or "session"
     if b.get("ab_enabled") and (b.get("variant_b_image_url") or "").strip():
         if random.random() < 0.5:
             active_variant = "b"
             image_url = b.get("variant_b_image_url")
             target_url = b.get("variant_b_target_url") or b.get("target_url")
             media_kind = b.get("variant_b_media_kind") or "image"
+            if (b.get("variant_b_modal_frequency") or "").strip():
+                modal_frequency = b.get("variant_b_modal_frequency")
     return {
         "id": b.get("id"),
         "name": b.get("name"),
@@ -167,7 +173,18 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
         "active_variant": active_variant,
         "ab_enabled": bool(b.get("ab_enabled")),
         # Iter40-modal — Modal display frequency (consumed by PublicAdModal)
-        "modal_frequency": b.get("modal_frequency") or "session",
+        "modal_frequency": modal_frequency,
+    }
+
+
+def _modal_variant_stats(b: Dict[str, Any], variant: str) -> Dict[str, Any]:
+    """Iter40-modal-ab — Modal-channel counters for a single A/B variant."""
+    imp = int(b.get(f"modal_impressions_{variant}") or 0)
+    clk = int(b.get(f"modal_clicks_{variant}") or 0)
+    return {
+        "impressions": imp,
+        "clicks": clk,
+        "ctr_pct": round((clk / imp) * 100, 2) if imp else 0.0,
     }
 
 
@@ -381,6 +398,9 @@ class AdBannerPayload(BaseModel):
     # Iter40-modal — Frequency of modal display (only used when placement=public_modal)
     # session: once per session (default), daily: once per day, always: every page load
     modal_frequency: str = Field("session", pattern="^(session|daily|always)$")
+    # Iter40-modal-ab — Optional per-variant override of modal_frequency when
+    # A/B testing is enabled. Empty = use global modal_frequency for both variants.
+    variant_b_modal_frequency: str = Field("", max_length=12)
     # Iter38r-fix9z6 — A/B testing (2-variant rotation). When ab_enabled,
     # the rotation picks variant_a (image_url/target_url) or variant_b
     # (variant_b_*) with 50/50 weighting. Per-variant counters live in
@@ -426,6 +446,7 @@ class AdBannerUpdate(BaseModel):
     object_fit: Optional[str] = Field(None, pattern="^(cover|contain|fill)$")
     # Iter40-modal — Modal frequency
     modal_frequency: Optional[str] = Field(None, pattern="^(session|daily|always)$")
+    variant_b_modal_frequency: Optional[str] = Field(None, max_length=12)
     # Iter38r-fix9z6 — A/B testing + advertiser contact + reminder
     ab_enabled: Optional[bool] = None
     variant_b_image_url: Optional[str] = None
@@ -581,6 +602,21 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         chosen = random.choices(ready, weights=weights, k=1)[0]
         return {"banner": _public_view(chosen)}
 
+    # Iter40-modal — Public config endpoint exposed to anonymous visitors.
+    # Returns the global daily cap so PublicAdModal can enforce a maximum
+    # number of popup modals per visitor across all `public_modal` banners.
+    @api.get("/public/ad-banners/config", tags=["Public — Ad Banners"])
+    async def public_ad_config():
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+        cap = s.get("modal_global_cap_per_day")
+        if cap is None:
+            cap = 2  # default
+        try:
+            cap = max(0, min(20, int(cap)))
+        except (TypeError, ValueError):
+            cap = 2
+        return {"modal_global_cap_per_day": cap}
+
     @api.post("/public/ad-banners/{banner_id}/impression", tags=["Public — Ad Banners"])
     async def public_impression(
         banner_id: str,
@@ -600,6 +636,7 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         inc = {"total_impressions": 1, "amount_spent": cpi, f"total_impressions_{variant}": 1}
         if modal:
             inc["modal_impressions"] = 1
+            inc[f"modal_impressions_{variant}"] = 1
         await db.ad_banners.update_one(
             {"id": banner_id},
             {"$inc": inc, "$set": {"updated_at": _now_iso()}},
@@ -634,6 +671,7 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         inc = {"total_clicks": 1, "amount_spent": cpc, f"total_clicks_{variant}": 1}
         if modal:
             inc["modal_clicks"] = 1
+            inc[f"modal_clicks_{variant}"] = 1
         await db.ad_banners.update_one(
             {"id": banner_id},
             {"$inc": inc, "$set": {"updated_at": _now_iso()}},
@@ -709,8 +747,14 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             "object_fit": payload.object_fit,
             # Iter40-modal — Modal display frequency + dedicated counters
             "modal_frequency": payload.modal_frequency,
+            "variant_b_modal_frequency": (payload.variant_b_modal_frequency or "").strip(),
             "modal_impressions": 0,
             "modal_clicks": 0,
+            # Iter40-modal-ab — Per-variant modal counters
+            "modal_impressions_a": 0,
+            "modal_clicks_a": 0,
+            "modal_impressions_b": 0,
+            "modal_clicks_b": 0,
             # Iter38r-fix9z6 — A/B + reminders
             "ab_enabled": bool(payload.ab_enabled),
             "variant_b_image_url": (payload.variant_b_image_url or "").strip(),
@@ -860,6 +904,10 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
                     if int(b.get("modal_impressions") or 0) else 0.0
                 ),
                 "frequency": b.get("modal_frequency") or "session",
+                # Iter40-modal-ab — Per-variant breakdown for the modal channel
+                "variant_a": _modal_variant_stats(b, "a"),
+                "variant_b": _modal_variant_stats(b, "b"),
+                "variant_b_frequency": b.get("variant_b_modal_frequency") or "",
             },
             "ab": {
                 "enabled": bool(b.get("ab_enabled")),

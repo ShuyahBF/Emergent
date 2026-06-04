@@ -413,6 +413,12 @@ class SettingsUpdate(BaseModel):
     # When set to 0, auto-logout is disabled. Range: 0-120 minutes.
     auto_logout_minutes: Optional[int] = None
 
+    # --- Iter40-modal — Global daily cap of public modal ads per visitor ---
+    # Max number of distinct popup-modal banners a single visitor sees in a
+    # rolling 24h window (tracked client-side via localStorage). 0 = unlimited.
+    # Range 0-20. Default 2.
+    modal_global_cap_per_day: Optional[int] = None
+
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download
     # trigger a WhatsApp approval flow: a message is sent to the configured

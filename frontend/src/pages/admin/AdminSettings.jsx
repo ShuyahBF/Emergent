@@ -711,6 +711,47 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* Iter40-modal — Global cap of public ad modals per visitor per day */}
+      <Section icon={Clock} title="Régie publicitaire — Plafond de modales par visiteur / jour">
+        <p className="text-xs text-slate-500">
+          Limite le nombre <strong>maximum de modales publicitaires</strong> qu'un même visiteur peut voir
+          sur les pages publiques sur une fenêtre glissante de 24 heures, toutes campagnes confondues.
+          Évite la sur-sollicitation quand plusieurs campagnes <em>« à chaque chargement »</em> tournent en parallèle.
+          <strong> Mettre 0 pour désactiver le plafond.</strong>
+        </p>
+        <div className="flex flex-wrap items-center gap-2 text-xs">
+          {[0, 1, 2, 3, 5].map((m) => (
+            <button
+              key={m}
+              type="button"
+              onClick={() => upd("modal_global_cap_per_day", m)}
+              className={`px-3 py-1.5 rounded-lg ring-1 transition ${
+                Number(s.modal_global_cap_per_day ?? 2) === m
+                  ? "bg-fuchsia-600 text-white ring-fuchsia-700 shadow-sm"
+                  : "bg-white text-slate-700 ring-slate-300 hover:ring-fuchsia-400"
+              }`}
+              data-testid={`modal-cap-preset-${m}`}
+            >
+              {m === 0 ? "Illimité" : `${m} / jour`}
+            </button>
+          ))}
+          <div className="inline-flex items-center gap-2 ml-2">
+            <span className="text-slate-500">Personnalisé :</span>
+            <input
+              type="number" min="0" max="20"
+              value={s.modal_global_cap_per_day ?? 2}
+              onChange={(e) => upd("modal_global_cap_per_day", parseInt(e.target.value, 10) || 0)}
+              className="w-20 text-xs rounded ring-1 ring-slate-300 px-2 py-1 bg-white font-mono"
+              data-testid="modal-cap-custom"
+            />
+            <span className="text-slate-500">modales/jour</span>
+          </div>
+        </div>
+        <p className="text-[10px] text-slate-500 italic">
+          Le compteur est stocké côté navigateur (<code>localStorage</code>) — réinitialisé après 24h. Défaut : 2.
+        </p>
+      </Section>
+
       {/* 2026-02 (#3) — Default Liluvine takeover duration */}
       <Filterable title="Liluvine PRO — Durée par défaut de la reprise (minutes)" anchorId="s-liluvine-takeover-minutes">
         <Section icon={Bot} title="Liluvine — Reprise humaine">

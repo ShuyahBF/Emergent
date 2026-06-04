@@ -1290,3 +1290,48 @@ Suggestion d'amélioration acceptée par l'utilisateur. La modale était utile m
   - Endpoint stats expose `{modal: {impressions, clicks, ctr_pct, frequency}}`
 - Régression complète : **27/27 PASS** (7 nouveaux + 4 placement + 16 anciens)
 - Smoke UI : page publique se charge proprement
+
+
+## Iter40-modal-ab + global-cap (2026-06) — A/B fréquence + plafond global de modales
+
+### Contexte
+Deux améliorations majeures du système de modale publicitaire publique :
+1. **Plafond global** : limite le nombre de modales qu'un même visiteur peut voir sur 24h, toutes campagnes confondues (anti-sur-sollicitation, surtout utile quand plusieurs campagnes "always" tournent).
+2. **A/B sur la fréquence** : permet de tester deux fréquences différentes sur la même bannière (ex : A=session, B=always) pour mesurer l'impact sur le CTR.
+
+### Implémentation
+- **Backend**
+  - `models.py` : nouveau champ `SettingsUpdate.modal_global_cap_per_day` (0-20, défaut 2)
+  - `server.py` : validation (HTTP 400 si hors plage)
+  - `routes/ad_banners.py` :
+    - Nouvel endpoint **anonyme** `GET /api/public/ad-banners/config` → `{modal_global_cap_per_day}` lu depuis `settings.global` (défaut 2 si non défini)
+    - Nouveau champ `variant_b_modal_frequency` dans `AdBannerPayload` & `AdBannerUpdate` (vide = même que A)
+    - `_public_view` étendu : quand la variante B est tirée, `modal_frequency` retourné = `variant_b_modal_frequency` (ou fallback `modal_frequency` si vide)
+    - Compteurs modale par variante : `modal_impressions_a`, `modal_clicks_a`, `modal_impressions_b`, `modal_clicks_b` (bumpés en plus du global lors de `?modal=1`)
+    - Helper `_modal_variant_stats(b, variant)` calcule CTR par variante
+    - Endpoint `/admin/ad-banners/{id}/stats` étendu : `modal.variant_a`, `modal.variant_b`, `modal.variant_b_frequency`
+- **Frontend**
+  - `PublicAdModal.jsx` :
+    - Lit `/api/public/ad-banners/config` en parallèle du fetch de la bannière
+    - Compteur global stocké dans `localStorage["public_ad_modal_global_count"]` au format `{date: "YYYY-MM-DD", count: N}` — réinitialisé chaque jour
+    - Si `cap > 0` et `count >= cap` → la modale n'apparaît pas
+    - `bumpGlobalCount()` appelé quand la modale s'affiche
+  - `AdminSettings.jsx` :
+    - Nouveau bloc "Régie publicitaire — Plafond de modales par visiteur / jour" avec presets (0/1/2/3/5) + input personnalisé
+  - `AdminAdBanners.jsx` :
+    - Nouveau select `variant_b_modal_frequency` visible uniquement quand `ab_enabled` + `placement=public_modal`
+    - Bloc stats étendu : 2 tuiles fuchsia "Variante A / Variante B" affichant impressions/clics/CTR modale + libellé fréquence par variante (composant `ModalVariantTile`)
+
+### Tests
+- `/app/backend/tests/test_iter40_modal_ab_and_global_cap.py` (9 nouveaux tests) :
+  - Settings PUT accepte `modal_global_cap_per_day` 0-20
+  - Valeurs invalides (-1, 21, 100) rejetées HTTP 400
+  - `GET /public/ad-banners/config` retourne la valeur configurée
+  - Endpoint config est anonyme (pas d'auth requise)
+  - Admin peut créer un banner A/B avec fréquences distinctes par variante
+  - Endpoint public retourne la fréquence appropriée à la variante tirée (40 tirages couvrent A et B)
+  - Si `variant_b_modal_frequency` est vide, B fall back sur la fréquence globale
+  - Compteurs modale par variante bumpent correctement (`?variant=a&modal=1`, `?variant=b&modal=1`)
+  - Stats endpoint expose le bloc complet `modal.variant_a/b/variant_b_frequency`
+- Régression complète : **36/36 PASS** (9 nouveaux + 7 frequency + 4 placement + 16 anciens)
+- Smoke UI : page publique se charge, endpoint config répond `{modal_global_cap_per_day: 5}` (valeur de test).

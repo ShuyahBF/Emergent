@@ -4,6 +4,12 @@
 // Mounts at the App root; subscribes to React Router location changes
 // and the global axios interceptor (via apiClient.interceptors) so any
 // in-flight backend call extends the visible window.
+//
+// Iter40-route-loader (S051) — Admin-toggleable via /api/public/ui-flags.
+// When `global_route_loader_enabled === false`, the component disables itself
+// completely (no fetches, no interceptors, no DOM). The flag is fetched once
+// at mount AND refreshed when AdminSettings dispatches a 'ui-flags-updated'
+// CustomEvent so the toggle takes effect immediately without a reload.
 import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import { apiClient } from "@/lib/api";
@@ -11,15 +17,45 @@ import { apiClient } from "@/lib/api";
 const MIN_VISIBLE_MS = 350;     // Don't flicker for sub-100ms transitions
 const NAV_GRACE_MS = 220;       // How long to show after a route change
 const REQUEST_THROTTLE_MS = 80;  // Coalesce bursts of requests
+const FLAG_CACHE_KEY = "ui_flag_global_route_loader_enabled";
 
 export default function GlobalRouteLoader() {
   const location = useLocation();
   const [visible, setVisible] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Iter40-route-loader — gate. Default true (cached) so the loader appears
+  // for first-paint UX while we fetch the real flag.
+  const [enabled, setEnabled] = useState(() => {
+    try {
+      const v = localStorage.getItem(FLAG_CACHE_KEY);
+      return v === null ? true : v === "1";
+    } catch { return true; }
+  });
   const pendingCount = useRef(0);
   const showTsRef = useRef(0);
   const hideTimerRef = useRef(null);
   const progressTimerRef = useRef(null);
+
+  // Iter40-route-loader — Fetch the public toggle once at mount and listen to
+  // 'ui-flags-updated' so AdminSettings changes apply immediately.
+  useEffect(() => {
+    const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+    const fetchFlag = () => {
+      fetch(`${apiBase}/api/public/ui-flags`)
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          if (!data) return;
+          const v = data.global_route_loader_enabled !== false;
+          setEnabled(v);
+          try { localStorage.setItem(FLAG_CACHE_KEY, v ? "1" : "0"); } catch { /* ignore */ }
+        })
+        .catch(() => {});
+    };
+    fetchFlag();
+    const onChange = () => fetchFlag();
+    window.addEventListener("ui-flags-updated", onChange);
+    return () => window.removeEventListener("ui-flags-updated", onChange);
+  }, []);
 
   const clearHide = () => { if (hideTimerRef.current) { clearTimeout(hideTimerRef.current); hideTimerRef.current = null; } };
 
@@ -50,16 +86,18 @@ export default function GlobalRouteLoader() {
 
   // Route change → flash the loader
   useEffect(() => {
+    if (!enabled) return;
     show();
     const t = setTimeout(() => {
       if (pendingCount.current <= 0) hide();
     }, NAV_GRACE_MS);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [location.pathname]);
+  }, [location.pathname, enabled]);
 
   // Wire axios interceptors so in-flight API calls extend the loader.
   useEffect(() => {
+    if (!enabled) return undefined;
     let bumpTimer = null;
     const onStart = () => {
       pendingCount.current += 1;
@@ -90,9 +128,10 @@ export default function GlobalRouteLoader() {
       if (progressTimerRef.current) clearInterval(progressTimerRef.current);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [enabled]);
 
-  if (!visible) return null;
+  // Iter40-route-loader — When disabled or nothing is showing, render nothing.
+  if (!enabled || !visible) return null;
 
   const R = 18;
   const CIRC = 2 * Math.PI * R;

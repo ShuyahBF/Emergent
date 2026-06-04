@@ -437,16 +437,15 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 
 ## S051 — Toggle Admin pour désactiver le GlobalRouteLoader
 - **Demande utilisateur** : 2026-06 — « Ajoute un toggle dédié dans Admin Settings pour aussi désactiver le GlobalRouteLoader. Pour cette suggestion, met à jour mon historique des suggestions, on y reviendra plus tard. »
-- **Statut** : ⚪ DIFFÉRÉE (notée, à implémenter plus tard)
-- **Contexte** : `GlobalRouteLoader` (`/app/frontend/src/components/GlobalRouteLoader.jsx`, monté dans `App.js`) est une mini barre circulaire fluide affichée brièvement lors de chaque changement de route et de chaque requête backend (via axios interceptors). Elle améliore la perception de réactivité mais peut être perçue comme intrusive par les utilisateurs réguliers.
-- **À implémenter** :
-  1. Backend `SettingsUpdate` : nouveau champ `global_route_loader_enabled: Optional[bool] = None` (défaut activé)
-  2. Endpoint `GET /api/admin/settings` retourne déjà tous les champs → automatique
-  3. Frontend `GlobalRouteLoader.jsx` : lire la valeur depuis un context settings global (ou via un fetch `/admin/settings` au mount) et early-return `null` quand `global_route_loader_enabled === false`
-  4. Frontend `AdminSettings.jsx` : nouveau bloc à côté de "download_gauge_enabled" (section Sécurité — Approbation WhatsApp), avec checkbox + libellé « Afficher la jauge de transition entre pages »
-  5. Côté UX : envisager de garder la jauge ON pour les admins (debug) même si OFF globalement
-- **Bénéfice** : option pour les utilisateurs/clients trouvant la jauge intrusive, sans toucher au code. Préserve la flexibilité de réactivation rapide.
-- **Référence** : voir aussi `download_gauge_enabled` (S025 — Sécurité approbation WhatsApp) pour le pattern.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-route-loader
+- **Détail** :
+  - Backend `models.py` : champ `SettingsUpdate.global_route_loader_enabled: Optional[bool] = None`
+  - Backend `server.py` : nouvel endpoint **anonyme** `GET /api/public/ui-flags` retournant uniquement `{global_route_loader_enabled, download_gauge_enabled}` (jamais de secrets)
+  - Frontend `GlobalRouteLoader.jsx` : lit le flag au mount via `/api/public/ui-flags`, le cache dans `localStorage["ui_flag_global_route_loader_enabled"]` pour un comportement instantané au prochain chargement, écoute l'event `ui-flags-updated` pour réagir aux changements sans rechargement
+  - Frontend `AdminSettings.jsx` : nouveau bloc "Affichage — Jauge de transition entre pages" avec checkbox et explication. Au toggle, dispatch `CustomEvent("ui-flags-updated")` pour propager immédiatement
+- **Bénéfice** : option pour les utilisateurs/clients trouvant la jauge intrusive. Préserve la flexibilité de réactivation rapide. Cache localStorage évite un flash entre le rendu initial et la réception du flag.
+- **Tests** : 5 tests pytest (`test_iter40_route_loader_toggle.py`) : endpoint anonyme, défaut true, toggle on/off, aucune fuite de secrets, GET /admin/settings retourne le flag.
 
 ---
 

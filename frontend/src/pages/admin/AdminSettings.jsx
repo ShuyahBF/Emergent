@@ -711,6 +711,36 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* Iter40-route-loader (S051) — Toggle the global circular page-loader */}
+      <Section icon={Clock} title="Affichage — Jauge de transition entre pages">
+        <p className="text-xs text-slate-500">
+          Le <strong>GlobalRouteLoader</strong> est une mini barre circulaire bleu/violet qui apparaît brièvement
+          (au centre de l'écran) lors de chaque changement de page et de chaque requête réseau.
+          Elle rassure l'utilisateur sur la réactivité du serveur, mais peut être perçue comme intrusive
+          par les utilisateurs habitués à la plateforme.
+        </p>
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={s.global_route_loader_enabled !== false}
+            onChange={(e) => {
+              upd("global_route_loader_enabled", e.target.checked);
+              // Iter40-route-loader — Notify the loader so it picks up the
+              // new flag without requiring a full page reload.
+              try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+            }}
+            data-testid="global-route-loader-enabled"
+          />
+          <span>
+            Afficher la jauge de transition entre pages
+            <span className="ml-1 text-[10px] text-slate-500">(décocher = navigation silencieuse, sans indicateur visuel)</span>
+          </span>
+        </label>
+        <p className="text-[10px] text-slate-500 italic">
+          Référence : <code>/app/memory/SUGGESTIONS.md → S051</code>. Le réglage est lu à chaque rafraîchissement de page via <code>GET /api/public/ui-flags</code> (endpoint anonyme — aucune donnée sensible).
+        </p>
+      </Section>
+
       {/* Iter40-modal — Global cap of public ad modals per visitor per day */}
       <Section icon={Clock} title="Régie publicitaire — Plafond de modales par visiteur / jour">
         <p className="text-xs text-slate-500">

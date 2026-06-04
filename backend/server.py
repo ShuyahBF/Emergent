@@ -11092,6 +11092,18 @@ async def admin_query_collection(
 # ====================================================================
 # ADMIN - Settings
 # ====================================================================
+@api.get("/public/ui-flags", tags=["Public"])
+async def public_ui_flags():
+    """Iter40-route-loader (S051) — Tiny anonymous endpoint exposing only the
+    UI-display toggles needed by frontend components that mount BEFORE auth
+    (e.g. GlobalRouteLoader). NEVER expose secrets here."""
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+    return {
+        "global_route_loader_enabled": s.get("global_route_loader_enabled") is not False,
+        "download_gauge_enabled": s.get("download_gauge_enabled") is not False,
+    }
+
+
 @api.get("/admin/settings", tags=["Admin"])
 async def admin_get_settings(_: dict = Depends(get_current_admin)):
     s = await _get_settings_doc()

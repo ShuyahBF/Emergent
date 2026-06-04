@@ -424,6 +424,12 @@ class SettingsUpdate(BaseModel):
     # Range 0-20. Default 2.
     modal_global_cap_per_day: Optional[int] = None
 
+    # --- Iter40-route-loader — S051 — Toggle the central GlobalRouteLoader ---
+    # When false, the mini circular loader shown between page navigations and
+    # during in-flight API calls is hidden. Defaults to true. Useful for users
+    # who find the indicator intrusive on fast connections.
+    global_route_loader_enabled: Optional[bool] = None
+
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download
     # trigger a WhatsApp approval flow: a message is sent to the configured

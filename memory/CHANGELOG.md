@@ -2909,3 +2909,33 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
   - Régression : `monthly` continue de proratiser (=0 avec 0 heures)
 - Tous **PASS**.
 
+
+## Iter40-route-loader (S051) (2026-06-04) — Toggle GlobalRouteLoader
+
+### 🎛️ 1) Endpoint anonyme `GET /api/public/ui-flags`
+- Expose UNIQUEMENT `{global_route_loader_enabled, download_gauge_enabled}` — jamais de secrets
+- Anonyme : aucun header d'auth requis (le loader monte avant l'authentification)
+
+### 🛠️ 2) Backend `SettingsUpdate.global_route_loader_enabled`
+- `models.py` : nouveau champ `Optional[bool] = None` (défaut conceptuel = `True`)
+- Le défaut est appliqué dans l'endpoint public via `is not False`
+
+### 🎨 3) Frontend `GlobalRouteLoader.jsx`
+- Fetch le flag au mount via `/api/public/ui-flags`
+- Cache dans `localStorage["ui_flag_global_route_loader_enabled"]` pour éviter un flash au prochain chargement
+- Écoute `window.addEventListener("ui-flags-updated", ...)` pour réagir aux changements sans rechargement
+- Early-return `null` quand désactivé (aucun interceptor axios, aucun event de route)
+
+### 🎛️ 4) Frontend `AdminSettings.jsx`
+- Nouveau bloc "Affichage — Jauge de transition entre pages" avec checkbox claire
+- Au toggle, dispatch immédiat de `CustomEvent("ui-flags-updated")` pour propager sans reload
+
+### 🧪 5) Tests
+- `test_iter40_route_loader_toggle.py` (5 tests) :
+  - Endpoint anonyme accessible sans auth
+  - Défaut `true` quand le réglage n'est jamais écrit
+  - Admin peut basculer ON/OFF
+  - Aucune fuite de secrets (vérification de pattern de noms)
+  - GET /admin/settings expose bien le flag
+- **5/5 PASS**.
+

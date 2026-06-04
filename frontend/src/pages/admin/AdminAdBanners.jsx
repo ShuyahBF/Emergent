@@ -356,7 +356,7 @@ export default function AdminAdBanners() {
                           </div>
                         </div>
                       </td>
-                      <td className="text-slate-700 px-2 capitalize">{it.placement === "both" ? "Public + Portail" : it.placement}</td>
+                      <td className="text-slate-700 px-2 capitalize">{it.placement === "both" ? "Public + Portail" : it.placement === "public_modal" ? "Modale publique" : it.placement}</td>
                       <td className="text-center">
                         {it.is_currently_active
                           ? <span className="inline-block h-2 w-2 rounded-full bg-emerald-500" title="Active maintenant" />
@@ -575,6 +575,7 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
             <option value="public">Pages publiques uniquement</option>
             <option value="portal">Espace Loois uniquement</option>
             <option value="both">Public + Espace Loois</option>
+            <option value="public_modal">Modale aléatoire (page publique)</option>
           </select>
         </Field>
         <Field label="Date de début (optionnelle)" testid="ad-form-start">

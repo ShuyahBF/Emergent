@@ -1224,3 +1224,34 @@ Voir `CHANGELOG.md` ci-dessous pour le détail itération par itération.
 
 
 ---
+
+
+## Iter40-modal (2026-06) — Régie publicitaire : modale aléatoire publique
+
+### Contexte
+L'utilisateur souhaite afficher, sur la page publique, **une bannière publicitaire en modale au chargement** (image au hasard parmi un pool, jusqu'à 10 actives). Indépendant du slot top-of-page.
+
+### Implémentation
+- **Backend** (`/app/backend/routes/ad_banners.py`) :
+  - Pattern regex de validation `placement` étendu à `^(public|portal|both|public_modal)$` (déjà fait dans la session précédente)
+  - Endpoint `GET /api/public/ad-banners/active?placement=public_modal` :
+    - Renvoie **uniquement** les bannières dont `placement == "public_modal"` (pas de fuite avec public/both)
+    - Sélection aléatoire pondérée (même algo que `public`/`portal`)
+    - Pas de banner → `{"banner": null}`
+- **Frontend** :
+  - Nouveau composant `/app/frontend/src/components/PublicAdModal.jsx` — modal centré (z-index 9999), backdrop blur, fermeture par X / ESC / clic backdrop, badge « PUBLICITÉ », CTA « Découvrir → »
+  - Affichage avec délai de 1500ms après mount, **une seule fois par session** via `sessionStorage`
+  - Tracking impression/clic via les endpoints existants
+  - Intégré dans `MarketingLayout.jsx` (toutes les pages publiques en bénéficient)
+- **Admin UI** (`/app/frontend/src/pages/admin/AdminAdBanners.jsx`) :
+  - Option `<option value="public_modal">Modale aléatoire (page publique)</option>` ajoutée au select Emplacement
+  - Libellé colonne « Modale publique » affiché dans la liste
+
+### Tests
+- `/app/backend/tests/test_iter40_public_modal_placement.py` (4 tests, **tous PASS**) :
+  - Admin peut créer une bannière avec placement=public_modal
+  - L'endpoint modal ne renvoie QUE des bannières modal
+  - L'endpoint public top-slot exclut les bannières modal
+  - Placement invalide rejeté (HTTP 422)
+- Régression 16 tests précédents (`test_iter38r_fix9w_*`, `test_iter38r_fix9y_*`) : **PASS**
+- Smoke screenshot UI : modal s'affiche correctement avec image, badge, X, CTA.

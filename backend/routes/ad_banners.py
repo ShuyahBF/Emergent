@@ -541,10 +541,17 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
     # PUBLIC — banner rotation + tracking
     # =====================================================================
     @api.get("/public/ad-banners/active", tags=["Public — Ad Banners"])
-    async def public_pick_banner(placement: str = Query("public", pattern="^(public|portal)$")):
+    async def public_pick_banner(placement: str = Query("public", pattern="^(public|portal|public_modal)$")):
         """Return ONE active banner suitable for `placement` (weighted random).
-        Returns 204 No Content when no banner is currently active."""
-        q = {"active": True, "placement": {"$in": [placement, "both"]}}
+        Returns 204 No Content when no banner is currently active.
+
+        Iter40-modal — When placement="public_modal", banners must be EXACTLY
+        of placement "public_modal" (these are reserved for the random popup
+        modal shown on public-page load — not mixed with the top-of-page slot)."""
+        if placement == "public_modal":
+            q = {"active": True, "placement": "public_modal"}
+        else:
+            q = {"active": True, "placement": {"$in": [placement, "both"]}}
         cursor = db.ad_banners.find(q, {"_id": 0})
         candidates = await cursor.to_list(200)
         # Filter out expired / exhausted / not-started

@@ -5,6 +5,7 @@ import StatusPill from "@/components/StatusPill";
 import IncidentBanner from "@/components/IncidentBanner";
 import VersionStamp from "@/components/VersionStamp";
 import CookieBanner from "@/components/CookieBanner";
+import PublicAdModal from "@/components/PublicAdModal";
 
 export default function MarketingLayout({ children }) {
   return (
@@ -16,6 +17,7 @@ export default function MarketingLayout({ children }) {
       <StatusPill />
       <VersionStamp tone="light" />
       <CookieBanner />
+      <PublicAdModal />
     </div>
   );
 }

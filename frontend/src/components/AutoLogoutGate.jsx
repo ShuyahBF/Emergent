@@ -52,7 +52,23 @@ export default function AutoLogoutGate() {
     enabled: !!user,
   });
 
+  // 2026-02 (#5) — When admin enables `force_logout_on_idle` for a user,
+  // we don't show the warning modal — we logout immediately as soon as the
+  // idle timer would have surfaced the warning. The hook still measures
+  // inactivity correctly; we simply bypass the modal.
+  useEffect(() => {
+    if (!user) return;
+    if (warningCountdown === null) return;
+    if (user.force_logout_on_idle) {
+      // Skip warning, force immediate logout
+      handleLogout();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [warningCountdown, user]);
+
   if (warningCountdown === null) return null;
+  // When `force_logout_on_idle` is on, also hide the modal to avoid flicker.
+  if (user?.force_logout_on_idle) return null;
 
   return (
     <div

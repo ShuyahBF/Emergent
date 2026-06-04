@@ -322,20 +322,162 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
 
     @api.get("/admin/i18n/translations", tags=["Admin — i18n"])
     async def admin_list_translations(user: dict = Depends(get_current_user)):
-        if not _is_admin_or_sup(user):
-            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        # 2026-02 — Translator users can READ all rows (so they see the FR
+        # source) but the UI restricts editing to their allowed_languages.
+        is_translator = (user.get("tracked_role") or "") == "Traducteur"
+        if not _is_admin_or_sup(user) and not is_translator:
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur/traducteur")
         await _ensure_seed()
         rows: List[Dict[str, Any]] = []
         async for r in db.i18n_translations.find({}, {"_id": 0}).sort("key", 1):
             rows.append(r)
-        return {"items": rows, "count": len(rows), "languages": SUPPORTED_LANGS}
+        out: Dict[str, Any] = {
+            "items": rows,
+            "count": len(rows),
+            "languages": SUPPORTED_LANGS,
+            "viewer_role": "translator" if is_translator else "admin",
+        }
+        if is_translator:
+            out["allowed_languages"] = user.get("translator_languages") or []
+            out["rate_per_word"] = user.get("translator_rate_per_word") or 0
+        # Coverage stats per language (% of non-empty values)
+        if rows:
+            total = len(rows)
+            coverage: Dict[str, int] = {}
+            for lang_code in ("en", "ar", "lg1", "lg2"):
+                filled = sum(1 for r in rows if (r.get(lang_code) or "").strip())
+                coverage[lang_code] = round(filled * 100 / total)
+            out["coverage"] = coverage
+            out["total"] = total
+        return out
+
+    @api.get("/admin/i18n/translator-score", tags=["Admin — i18n"])
+    async def admin_translator_score(
+        translator_email: Optional[str] = None,
+        user: dict = Depends(get_current_user),
+    ):
+        """Daily / monthly word counters + payable amount.
+        - Self-view for a Traducteur: scoped to their email.
+        - Admin/sup: pass `translator_email` to see anyone's score.
+        """
+        is_translator = (user.get("tracked_role") or "") == "Traducteur"
+        if not _is_admin_or_sup(user) and not is_translator:
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur/traducteur")
+        target_email = (
+            translator_email.lower().strip()
+            if (_is_admin_or_sup(user) and translator_email)
+            else (user.get("email") or "").lower().strip()
+        )
+        if not target_email:
+            return {"day": {}, "month": {}, "total": {"words": 0, "amount": 0.0}}
+        today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        month = today[:7]
+        agg_day = {"words": 0, "amount": 0.0, "lines": 0}
+        agg_month = {"words": 0, "amount": 0.0, "lines": 0}
+        agg_total = {"words": 0, "amount": 0.0, "lines": 0}
+        async for entry in db.i18n_translator_log.find(
+            {"translator_email": target_email}, {"_id": 0},
+        ):
+            w = int(entry.get("words_added") or 0)
+            a = float(entry.get("amount") or 0)
+            agg_total["words"] += w
+            agg_total["amount"] += a
+            agg_total["lines"] += 1
+            if entry.get("month") == month:
+                agg_month["words"] += w
+                agg_month["amount"] += a
+                agg_month["lines"] += 1
+            if entry.get("day") == today:
+                agg_day["words"] += w
+                agg_day["amount"] += a
+                agg_day["lines"] += 1
+        return {
+            "translator_email": target_email,
+            "rate_per_word": float(user.get("translator_rate_per_word") or 0) if is_translator else 0,
+            "day": agg_day,
+            "month": agg_month,
+            "total": agg_total,
+        }
 
     @api.post("/admin/i18n/translations", tags=["Admin — i18n"])
     async def admin_upsert_translation(
         payload: TranslationUpsert, user: dict = Depends(get_current_user)
     ):
-        if not _is_admin_or_sup(user):
-            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        # 2026-02 — A Traducteur user is allowed to upsert ONLY the language(s)
+        # he/she has been granted in `translator_languages`. The admin sets
+        # this via /admin/tracked-users. FR is reserved to admin/sup.
+        is_translator = (user.get("tracked_role") or "") == "Traducteur"
+        if not _is_admin_or_sup(user) and not is_translator:
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur/traducteur")
+
+        if is_translator:
+            allowed_langs = set(user.get("translator_languages") or [])
+            if not allowed_langs:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Aucune langue n'est assignée à votre compte. Contactez votre administrateur.",
+                )
+            # Translator must not touch FR (source of truth) → only patch the
+            # langs they own; everything else is preserved by merging with the
+            # existing row.
+            existing = await db.i18n_translations.find_one(
+                {"key": payload.key},
+                {"_id": 0},
+            )
+            if not existing:
+                # Translators can't create new keys
+                raise HTTPException(
+                    status_code=403,
+                    detail="Création de clé réservée à l'administrateur.",
+                )
+            words_added = 0
+            patch: Dict[str, Any] = {
+                "updated_at": _now(),
+                "updated_by_id": user.get("id"),
+                "updated_by_email": user.get("email"),
+            }
+            for f in ("en", "ar", "lg1", "lg2"):
+                if f not in allowed_langs:
+                    continue  # not permitted to edit this language
+                new_val = (getattr(payload, f) or "").strip()
+                old_val = (existing.get(f) or "").strip()
+                if new_val != old_val:
+                    patch[f] = new_val
+                    # Count words only when the value GROWS (new translation).
+                    if new_val and not old_val:
+                        words_added += len(new_val.split())
+                    elif new_val and old_val:
+                        # Edit : count the delta in word length (cap at 0).
+                        delta = len(new_val.split()) - len(old_val.split())
+                        words_added += max(delta, 0)
+            if len(patch) <= 3:  # only metadata, nothing to update
+                return {"ok": True, "row": existing, "words_added": 0}
+            await db.i18n_translations.update_one(
+                {"key": payload.key}, {"$set": patch},
+            )
+            # Log the contribution for daily/monthly scoring + payroll.
+            if words_added > 0:
+                today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+                await db.i18n_translator_log.insert_one({
+                    "id": _now() + ":" + (user.get("id") or "?") + ":" + payload.key,
+                    "translator_id": user.get("id"),
+                    "translator_email": user.get("email"),
+                    "key": payload.key,
+                    "languages": [f for f in ("en", "ar", "lg1", "lg2")
+                                  if f in patch and f in allowed_langs],
+                    "words_added": words_added,
+                    "rate_per_word": float(user.get("translator_rate_per_word") or 0),
+                    "amount": words_added * float(user.get("translator_rate_per_word") or 0),
+                    "day": today,
+                    "month": today[:7],
+                    "created_at": _now(),
+                })
+            updated = await db.i18n_translations.find_one(
+                {"key": payload.key}, {"_id": 0},
+            )
+            return {"ok": True, "row": updated, "words_added": words_added}
+
+        # Admin/Sup path (unchanged) — full upsert
         update = {
             "key": payload.key,
             "fr": payload.fr,

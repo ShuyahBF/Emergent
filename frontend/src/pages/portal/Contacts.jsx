@@ -1018,6 +1018,9 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
         language_code: language,
         components: components.length > 0 ? components : null,
         contact_id: contact.id,
+        // 2026-02 (#4) — Send the rendered preview so the messaging center
+        // can show the actual delivered content under the template name.
+        template_rendered_body: previewBody || null,
       });
       setResult(r.data);
       if (r.data?.ok) {
@@ -2434,6 +2437,13 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
   // Body fallback: if a media bubble has no caption, hide the placeholder
   // string ("[image reçu]" / "[image envoyé]") to keep the UI clean.
   const placeholder = hasMedia && /^\[[a-z]+ (reçu|envoyé)\]$/i.test((m.body || "").trim());
+  // 2026-02 (#4) — Resolve the actual delivered message body for templates.
+  // Backend stores `template_rendered_body` when available; fall back to
+  // `m.body` (which the worker may already have populated) so we can show
+  // the user EXACTLY what was delivered to WhatsApp under the template name.
+  const templateBody = outbound && m.template_name
+    ? (m.template_rendered_body || m.body || "")
+    : null;
   const body = placeholder ? "" : (m.body || (m.template_name ? `Template : ${m.template_name}` : ""));
 
   return (
@@ -2454,6 +2464,22 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
             </code>
           )}
         </div>
+
+        {/* 2026-02 (#4) — Aperçu du contenu réellement délivré */}
+        {outbound && m.template_name && templateBody && (
+          <div
+            className={`mb-1.5 rounded-md border-l-2 px-2 py-1 text-[11px] italic ${
+              outbound ? "bg-white/10 border-white/40 text-white/95" : "bg-amber-50 border-amber-400 text-amber-900"
+            }`}
+            data-testid={`msg-template-preview-${m.id}`}
+            title="Aperçu du message effectivement délivré au destinataire"
+          >
+            <p className={`font-semibold text-[9px] uppercase tracking-wider mb-0.5 ${outbound ? "text-white/70" : "text-amber-700"}`}>
+              Aperçu délivré
+            </p>
+            <p className="whitespace-pre-wrap break-words">{templateBody}</p>
+          </div>
+        )}
 
         {/* Iter37h — Quote bar: render the message this one is replying to */}
         {(quotedTarget || m.reply_to_message_id) && (

@@ -17,6 +17,7 @@ import TicketsBubble from "@/components/TicketsBubble";
 import LiluvineLiveToast from "@/components/LiluvineLiveToast";
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
+import BrowserNotifications from "@/components/BrowserNotifications";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
@@ -147,9 +148,18 @@ export default function PortalLayout({ admin = false }) {
   const isComptaStrict = isComptable && !isAdminOrSup;
   // S-iter39b — Modérateurs (tracked_role="Moderation") accèdent à Brochures
   const isModerator = (user?.tracked_role || "") === "Moderation";
+  // 2026-02 (#1) — Traducteur : seul accès = /admin/i18n (Régionalisation).
+  // Toutes les autres entrées de la sidebar sont masquées. L'utilisateur
+  // est forcé d'aller sur Régionalisation au login (route handled in App.js).
+  const isTranslator = (user?.tracked_role || "") === "Traducteur";
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
-  const links = (admin ? adminLinks : clientLinks)
+  const allowedTranslatorPaths = new Set(["/admin/i18n"]);
+  const baseLinks = isTranslator
+    ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
+    : (admin ? adminLinks : clientLinks);
+  const links = baseLinks
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
+    .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
     .filter((l) => !l.trackedOnly || isTracked)
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
     .filter((l) => !l.cashOnly || canCash || isComptable)
@@ -157,7 +167,6 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup)
     .filter((l) => !l.moderationOnly || isModerator || isAdminOrSup)
-    // Iter38n — Catalog stats visible to admin/sup/tracked users
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page
@@ -439,6 +448,7 @@ export default function PortalLayout({ admin = false }) {
       <TicketsBubble />
       {/* Iter38r-fix9e — Live toast for Liluvine WhatsApp auto-replies (admins + superviseurs only). */}
       {isAdminOrSup && <LiluvineLiveToast />}
+      <BrowserNotifications />
     </div>
   );
 }

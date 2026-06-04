@@ -340,7 +340,7 @@ class ContactCreate(BaseModel):
 # ====================================================================
 # USERS TRACKING (sub-users of a client)
 # ====================================================================
-TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable"]
+TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur"]
 
 
 class TrackedUserCreate(BaseModel):
@@ -354,6 +354,11 @@ class TrackedUserCreate(BaseModel):
     company: Optional[str] = None  # override client.company for this user
     last_seen: Optional[str] = None
     status: str = "active"
+    # 2026-02 — Traducteur fields (only relevant when role == "Traducteur")
+    translator_languages: Optional[List[str]] = None  # e.g. ["en", "ar", "lg1"]
+    translator_rate_per_word: Optional[float] = None  # base in user currency
+    # 2026-02 — Force logout toggle (#5)
+    force_logout_on_idle: Optional[bool] = None
 
 
 class TrackedUserUpdate(BaseModel):
@@ -367,6 +372,9 @@ class TrackedUserUpdate(BaseModel):
     company: Optional[str] = None
     last_seen: Optional[str] = None
     status: Optional[str] = None
+    translator_languages: Optional[List[str]] = None
+    translator_rate_per_word: Optional[float] = None
+    force_logout_on_idle: Optional[bool] = None
 
 
 class SaveContactAsTrackedUser(BaseModel):
@@ -392,6 +400,12 @@ class SettingsUpdate(BaseModel):
     # background jobs (cron emails, WhatsApp links, OAuth redirects) when no
     # browser request is available. Editable from the Coffre-fort des secrets.
     public_base_url: Optional[str] = None
+
+    # 2026-02 (#3) — Default Liluvine takeover duration in minutes.
+    # When a moderator clicks "Reprendre" on a Liluvine session, the AI is
+    # paused for this many minutes (default 30). Previous hardcoded value
+    # was 120 min, which users found too long. Range 5–10080.
+    liluvine_takeover_default_minutes: Optional[int] = None
 
     # --- Iter38r-fix9z10 — Suggestion S009 — Auto-logout on inactivity ---
     # Idle delay in minutes after which a logged-in user is automatically

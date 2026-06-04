@@ -318,6 +318,11 @@ def _to_user_public(u: dict) -> dict:
         "tracked_user_id": u.get("tracked_user_id"),
         "parent_client_id": u.get("parent_client_id"),
         "can_cash": bool(u.get("can_cash", False)),
+        # 2026-02 — Translator user fields exposed to /me/me
+        "translator_languages": u.get("translator_languages") or [],
+        "translator_rate_per_word": u.get("translator_rate_per_word") or 0,
+        # 2026-02 (#5) — Admin can force logout without confirm at idle timeout
+        "force_logout_on_idle": bool(u.get("force_logout_on_idle", False)),
     }
 
 
@@ -8619,6 +8624,11 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
             bridge_update["email"] = str(update["email"]).lower()
         if "status" in update and update["status"]:
             bridge_update["account_status"] = "active" if update["status"] == "active" else "inactive"
+        # 2026-02 — Mirror translator fields & force_logout_on_idle to the
+        # bridged user account so the /me endpoint exposes them at login.
+        for f in ("translator_languages", "translator_rate_per_word", "force_logout_on_idle"):
+            if f in update:
+                bridge_update[f] = update[f]
         await db.users.update_one({"id": tu_doc["user_account_id"]}, {"$set": bridge_update})
     return {"ok": True}
 
@@ -10954,6 +10964,15 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if mode not in ("bounded", "lifetime"):
             raise HTTPException(status_code=400, detail="welcome_unread_mode doit être 'bounded' ou 'lifetime'")
         update["welcome_unread_mode"] = mode
+    # 2026-02 (#3) — Validate liluvine_takeover_default_minutes (5-10080)
+    if "liluvine_takeover_default_minutes" in update and update["liluvine_takeover_default_minutes"] is not None:
+        try:
+            v = int(update["liluvine_takeover_default_minutes"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="liluvine_takeover_default_minutes doit être un entier") from exc
+        if v < 5 or v > 10080:
+            raise HTTPException(status_code=400, detail="liluvine_takeover_default_minutes doit être entre 5 et 10080 (7 jours)")
+        update["liluvine_takeover_default_minutes"] = v
     # Iter38r-fix9z10 — Suggestion S009 — Validate auto_logout_minutes (0-120, 0 = disabled)
     if "auto_logout_minutes" in update:
         try:
@@ -12916,6 +12935,9 @@ class WhatsAppSendRequest(BaseModel):
     components: Optional[list] = None  # Template variables (body, header, button params)
     contact_id: Optional[str] = None
     tracked_user_id: Optional[str] = None
+    # 2026-02 (#4) — Rendered preview computed client-side, persisted on the
+    # WhatsApp log so the messaging center can display "what was delivered".
+    template_rendered_body: Optional[str] = None
 
 
 @api.post("/me/whatsapp/send", tags=["Portail Client"])
@@ -12954,6 +12976,10 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
         "phone_digits": digits_only,
         "template_name": payload.template_name,
         "language_code": payload.language_code,
+        # 2026-02 (#4) — Rendered preview of the actually delivered message,
+        # so the messaging center can show it below the template name.
+        "template_rendered_body": payload.template_rendered_body,
+        "body": payload.template_rendered_body or None,
         "contact_id": payload.contact_id,
         "tracked_user_id": payload.tracked_user_id,
         "ok": result["ok"],

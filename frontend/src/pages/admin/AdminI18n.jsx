@@ -1,16 +1,25 @@
 // S046 (2026-02) — Admin Régionalisation page (i18n translations table).
 // Allows admin/superviseur to manage the i18n_translations collection
 // with inline edits, add/delete rows, CSV export/import, and bulk save.
+// 2026-02 — Translator role : limited to their `allowed_languages`, with
+// a live score panel (day/month words + payable amount).
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText, Download, Upload } from "lucide-react";
+import { useAuth } from "@/contexts/AuthContext";
+import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText, Download, Upload, Coins } from "lucide-react";
 
 const BLANK_ROW = { key: "", fr: "", en: "", ar: "", lg1: "", lg2: "", context: "" };
 
 export default function AdminI18n() {
+  const { user } = useAuth();
   const [items, setItems] = useState([]);
   const [languages, setLanguages] = useState([]);
+  const [coverage, setCoverage] = useState({});
+  const [totalRows, setTotalRows] = useState(0);
+  const [allowedLangs, setAllowedLangs] = useState(null); // null = admin (no restriction)
+  const [viewerRole, setViewerRole] = useState("admin");
+  const [score, setScore] = useState(null);
   const [loading, setLoading] = useState(false);
   const [filter, setFilter] = useState("");
   const [editing, setEditing] = useState(null); // row being edited
@@ -18,12 +27,22 @@ export default function AdminI18n() {
   const [importing, setImporting] = useState(false);
   const fileInputRef = useRef(null);
 
+  const isTranslator = (user?.tracked_role || "") === "Traducteur";
+
   const load = async () => {
     setLoading(true);
     try {
       const r = await apiClient.get("/admin/i18n/translations");
       setItems(r.data?.items || []);
       setLanguages(r.data?.languages || []);
+      setCoverage(r.data?.coverage || {});
+      setTotalRows(r.data?.total || (r.data?.items || []).length);
+      setViewerRole(r.data?.viewer_role || "admin");
+      if (r.data?.viewer_role === "translator") {
+        setAllowedLangs(r.data?.allowed_languages || []);
+      } else {
+        setAllowedLangs(null);
+      }
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally {
@@ -31,7 +50,22 @@ export default function AdminI18n() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  const loadScore = async () => {
+    if (!isTranslator) return;
+    try {
+      const r = await apiClient.get("/admin/i18n/translator-score");
+      setScore(r.data);
+    } catch { /* noop */ }
+  };
+
+  useEffect(() => { load(); loadScore(); }, []);
+
+  // Helper : is the translator allowed to edit a given language column?
+  const canEditLang = (lang) => {
+    if (viewerRole !== "translator") return true;
+    if (lang === "fr" || lang === "context") return false; // FR reserved to admin
+    return (allowedLangs || []).includes(lang);
+  };
 
   const filtered = useMemo(() => {
     if (!filter.trim()) return items;
@@ -51,8 +85,14 @@ export default function AdminI18n() {
     }
     setSaving(true);
     try {
-      await apiClient.post("/admin/i18n/translations", row);
-      toast.success(`Clé ${row.key} enregistrée`);
+      const r = await apiClient.post("/admin/i18n/translations", row);
+      const words = r.data?.words_added || 0;
+      if (isTranslator && words > 0) {
+        toast.success(`Clé ${row.key} sauvée · +${words} mot${words > 1 ? "s" : ""} crédités`);
+        loadScore();
+      } else {
+        toast.success(`Clé ${row.key} enregistrée`);
+      }
       setEditing(null);
       await load();
     } catch (err) {
@@ -179,13 +219,74 @@ export default function AdminI18n() {
           </button>
           <button
             onClick={() => setEditing({ ...BLANK_ROW })}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-1.5 text-xs"
+            disabled={isTranslator}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-1.5 text-xs disabled:opacity-40 disabled:cursor-not-allowed"
             data-testid="i18n-add"
+            title={isTranslator ? "Création de clé réservée à l'admin" : "Ajouter une clé"}
           >
             <Plus className="h-3.5 w-3.5" /> Nouvelle clé
           </button>
         </div>
       </div>
+
+      {/* Coverage strip — % of non-empty cells per language */}
+      <div className="rounded-lg ring-1 ring-slate-200 bg-white p-3" data-testid="i18n-coverage">
+        <div className="flex flex-wrap items-center gap-3 text-[11px]">
+          <span className="font-semibold text-slate-700">Couverture · {totalRows} clés</span>
+          {["en", "ar", "lg1", "lg2"].map((code) => {
+            const pct = coverage[code] ?? 0;
+            const color = pct >= 80 ? "emerald" : pct >= 40 ? "amber" : "rose";
+            return (
+              <div key={code} className="flex items-center gap-1.5" data-testid={`coverage-${code}`}>
+                <span className="uppercase font-mono text-[10px] text-slate-500">{code}</span>
+                <div className="h-1.5 w-24 rounded-full bg-slate-100 overflow-hidden">
+                  <div
+                    className={`h-full bg-${color}-500`}
+                    style={{ width: `${pct}%` }}
+                  />
+                </div>
+                <span className={`font-semibold text-${color}-700`}>{pct}%</span>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Translator score (only for tracked_role=Traducteur) */}
+      {isTranslator && score && (
+        <div className="rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50/40 p-3" data-testid="i18n-translator-score">
+          <div className="flex items-center gap-2 mb-2">
+            <Coins className="h-4 w-4 text-fuchsia-600" />
+            <span className="font-semibold text-fuchsia-900 text-sm">Mon score (en tant que Traducteur)</span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+            <div className="rounded bg-white ring-1 ring-fuchsia-100 px-3 py-2" data-testid="score-day">
+              <div className="text-[10px] uppercase tracking-wider text-fuchsia-700">Aujourd'hui</div>
+              <div className="text-lg font-bold text-fuchsia-900 mt-0.5">{score.day?.words || 0} mots</div>
+              <div className="text-[11px] text-fuchsia-700">
+                {(score.day?.amount || 0).toFixed(2)} · {score.day?.lines || 0} lignes
+              </div>
+            </div>
+            <div className="rounded bg-white ring-1 ring-fuchsia-100 px-3 py-2" data-testid="score-month">
+              <div className="text-[10px] uppercase tracking-wider text-fuchsia-700">Ce mois-ci</div>
+              <div className="text-lg font-bold text-fuchsia-900 mt-0.5">{score.month?.words || 0} mots</div>
+              <div className="text-[11px] text-fuchsia-700">
+                {(score.month?.amount || 0).toFixed(2)} · {score.month?.lines || 0} lignes
+              </div>
+            </div>
+            <div className="rounded bg-white ring-1 ring-fuchsia-100 px-3 py-2" data-testid="score-total">
+              <div className="text-[10px] uppercase tracking-wider text-fuchsia-700">Total</div>
+              <div className="text-lg font-bold text-fuchsia-900 mt-0.5">{score.total?.words || 0} mots</div>
+              <div className="text-[11px] text-fuchsia-700">
+                {(score.total?.amount || 0).toFixed(2)} · {score.total?.lines || 0} lignes
+              </div>
+            </div>
+          </div>
+          <p className="text-[10px] text-fuchsia-600 mt-2 italic">
+            Taux : {score.rate_per_word || 0} / mot · Langues autorisées : {(allowedLangs || []).map((l) => l.toUpperCase()).join(", ") || "aucune"}
+          </p>
+        </div>
+      )}
 
       <div className="flex items-center gap-2">
         <div className="relative flex-1 max-w-md">
@@ -228,9 +329,11 @@ export default function AdminI18n() {
               return (
                 <tr key={row.key} className={`border-t border-slate-100 ${isEditing ? "bg-amber-50/50" : "hover:bg-slate-50"}`} data-testid={`i18n-row-${row.key}`}>
                   <td className="px-2 py-1.5 font-mono text-[10px] text-slate-700 truncate max-w-[200px]" title={row.key}>{row.key}</td>
-                  {["fr", "en", "ar", "lg1", "lg2", "context"].map((field) => (
+                  {["fr", "en", "ar", "lg1", "lg2", "context"].map((field) => {
+                    const editable = canEditLang(field);
+                    return (
                     <td key={field} className="px-1 py-1">
-                      {isEditing ? (
+                      {isEditing && editable ? (
                         <textarea
                           value={edit[field] || ""}
                           onChange={(e) => setEditing({ ...editing, [field]: e.target.value })}
@@ -241,15 +344,16 @@ export default function AdminI18n() {
                         />
                       ) : (
                         <div
-                          className={`truncate max-w-[200px] ${field === "ar" ? "text-right" : ""} ${(!row[field] && field !== "fr" && field !== "context") ? "text-slate-300 italic" : "text-slate-700"}`}
+                          className={`truncate max-w-[200px] ${field === "ar" ? "text-right" : ""} ${(!row[field] && field !== "fr" && field !== "context") ? "text-slate-300 italic" : "text-slate-700"} ${(!editable && isTranslator) ? "opacity-60" : ""}`}
                           dir={field === "ar" ? "rtl" : "ltr"}
-                          title={row[field] || (field !== "fr" ? "(vide — fallback FR)" : "")}
+                          title={!editable && isTranslator ? "Langue non autorisée pour votre compte" : (row[field] || (field !== "fr" ? "(vide — fallback FR)" : ""))}
                         >
                           {row[field] || (field !== "fr" && field !== "context" ? "—" : "")}
                         </div>
                       )}
                     </td>
-                  ))}
+                    );
+                  })}
                   <td className="px-1 py-1 text-right">
                     <div className="inline-flex items-center gap-1">
                       {isEditing ? (
@@ -279,14 +383,16 @@ export default function AdminI18n() {
                           >
                             <FileText className="h-3.5 w-3.5" />
                           </button>
-                          <button
-                            onClick={() => removeRow(row.key)}
-                            className="text-slate-500 hover:text-rose-600"
-                            title="Supprimer"
-                            data-testid={`i18n-del-${row.key}`}
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </button>
+                          {!isTranslator && (
+                            <button
+                              onClick={() => removeRow(row.key)}
+                              className="text-slate-500 hover:text-rose-600"
+                              title="Supprimer"
+                              data-testid={`i18n-del-${row.key}`}
+                            >
+                              <Trash2 className="h-3.5 w-3.5" />
+                            </button>
+                          )}
                         </>
                       )}
                     </div>

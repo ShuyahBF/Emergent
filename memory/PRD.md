@@ -112,6 +112,45 @@ Après le fix Bug #3, rabo.f restait bloquée car la feature `ai_liluvine_pro` n
 4. rabo.f peut immédiatement utiliser Liluvine PRO sans changer les features du tenant.
 
 
+## 2026-02 BATCH — Régionalisation traducteur, notifications, GRH, takeover, templates, force-logout
+
+### #1 — Nouveau rôle **Traducteur** + scoring journalier/mensuel
+- `TRACKED_USER_ROLES` += `Caissier`, `Traducteur` (models.py)
+- Fiche tracked-user : nouveaux champs `translator_languages` (multi-select EN/AR/LG1/LG2), `translator_rate_per_word` (numérique). UI affichée seulement si `role=Traducteur` (badge fuchsia).
+- Sidebar du portail entièrement masquée pour le rôle Traducteur sauf `/admin/i18n`. Toutes les autres entrées disparaissent. Login redirige automatiquement vers `/admin/i18n`.
+- Backend `POST /api/admin/i18n/translations` : si caller=Traducteur, autorise UNIQUEMENT les colonnes listées dans `translator_languages`. Création de clé et suppression refusées (403). FR jamais modifiable.
+- Log de contribution : chaque mot ajouté → `i18n_translator_log` (`words_added, amount, day, month`).
+- Endpoint `GET /api/admin/i18n/translator-score` : agrégation jour/mois/total. Traducteur voit son propre score. Admin/sup peut interroger via `?translator_email=`.
+- UI `/admin/i18n` : nouveau panneau fuchsia "Mon score" avec 3 cartes (Jour / Mois / Total) + total mots × rate. Bandeau "Couverture" % par langue (EN/AR/LG1/LG2) visible pour admin.
+- Restriction d'édition côté UI : les colonnes hors `allowed_languages` sont en read-only avec opacity-60 et tooltip "Langue non autorisée pour votre compte".
+
+### #2 — Notifications navigateur + clignotement titre
+- Nouveau composant `BrowserNotifications.jsx` monté globalement dans `PortalLayout`.
+- Demande la permission Notification API 5 s après login.
+- Poll `/me/notifications/counts` toutes les 25 s. Si compteur **augmente** ET tab cachée → titre clignote `🔔 Nouvelle activité · (N)` ↔ `(N) SAWALI Portal` toutes les 1.2 s. Une **system toast Windows/macOS** est créée tant que la croissance n'a pas été acquittée.
+- Sur retour focus tab : titre restauré, compteur "last_shown" remis à zéro.
+
+### #3 — Liluvine takeover durée admin-configurable
+- Nouveau setting `liluvine_takeover_default_minutes` (default 30, range 5-10080).
+- Backend valide la borne, route admin (PUT `/admin/settings`).
+- UI : input dans `/admin/settings` section "Liluvine — Reprise humaine" (sous l'auto-logout).
+- Backward-compat : `duration_minutes` explicite dans la requête prend toujours le pas.
+
+### #4 — Aperçu du contenu délivré pour templates WhatsApp
+- Le frontend envoie `template_rendered_body` dans `POST /me/whatsapp/send` (recalculé via `renderPreview`).
+- Backend persiste les deux champs dans `whatsapp_messages.template_rendered_body` ET `body` (pour rétro-compat affichage).
+- UI Contacts : sous le code du template, une carte "Aperçu délivré" en italique avec border-l fuchsia affiche le texte effectivement reçu côté client.
+
+### #5 — Force logout sans confirmation
+- Nouveau champ `force_logout_on_idle` (bool) sur la fiche tracked-user, propagé au compte bridgé `users`.
+- `AutoLogoutGate.jsx` : si `user.force_logout_on_idle=true`, dès que le warning surgirait → logout immédiat sans modal.
+- UI Admin tracked-user : toggle amber "Forcer la déconnexion à l'inactivité" avec helper text.
+
+### Tests
+- ✅ `test_s046b_translator_role.py` : 8/8 (coverage admin, traducteur scope, RBAC create/delete, word counting + rate, score endpoint self + admin view, takeover setting validation)
+- ✅ Régression cumulée : **43/45 verts** (35 antérieurs + 8 nouveaux).
+
+
 ## S046 ENHANCEMENT (2026-02) — Régionalisation publique + CSV + auto-détection
 
 ### Renommage UI

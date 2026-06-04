@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -710,6 +710,30 @@ export default function AdminSettings() {
           Référence : <code>/app/memory/SUGGESTIONS.md → S009</code>.
         </p>
       </Section>
+
+      {/* 2026-02 (#3) — Default Liluvine takeover duration */}
+      <Filterable title="Liluvine PRO — Durée par défaut de la reprise (minutes)" anchorId="s-liluvine-takeover-minutes">
+        <Section icon={Bot} title="Liluvine — Reprise humaine">
+          <p className="text-xs text-slate-500">
+            Lorsqu'un modérateur clique « Reprendre » sur une conversation Liluvine,
+            l'IA est mise en pause pour cette durée. <strong>30 min par défaut</strong>
+            (vs l'ancienne valeur de 120 min jugée trop longue). Plage : 5 à 10 080 min (7 jours).
+          </p>
+          <div className="flex items-center gap-2 mt-2">
+            <input
+              type="number"
+              min={5}
+              max={10080}
+              value={s.liluvine_takeover_default_minutes ?? 30}
+              onChange={(e) => upd("liluvine_takeover_default_minutes", parseInt(e.target.value || "30", 10))}
+              className="w-32 rounded-lg border border-slate-300 px-3 py-1.5 text-sm"
+              data-testid="liluvine-takeover-minutes-input"
+            />
+            <span className="text-xs text-slate-500">minutes</span>
+          </div>
+        </Section>
+      </Filterable>
+
       {/* S025 — Approbation de téléchargement par WhatsApp */}
       <Filterable title="Sécurité — Approbation WhatsApp pour téléchargements (S025)" anchorId="s-download-approval">
         <Section icon={ShieldCheck} title="Approbation WhatsApp des téléchargements">

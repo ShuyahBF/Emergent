@@ -1472,10 +1472,19 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         session = await db.liluvine_pro_sessions.find_one({"id": sid, "client_id": scope}, {"_id": 0})
         if not session:
             raise HTTPException(status_code=404, detail="Conversation introuvable")
+        # 2026-02 (#3) — Default takeover duration is now admin-configurable
+        # via settings.liluvine_takeover_default_minutes. Defaults to 30 min
+        # (vs the old hardcoded 120 min that the user found "too long").
+        settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+        admin_default = int(settings_doc.get("liluvine_takeover_default_minutes") or 30)
         try:
-            duration_minutes = max(5, min(int(payload.get("duration_minutes") or 120), 7 * 24 * 60))
+            requested = payload.get("duration_minutes")
+            if requested is None:
+                duration_minutes = admin_default
+            else:
+                duration_minutes = max(5, min(int(requested), 7 * 24 * 60))
         except Exception:
-            duration_minutes = 120
+            duration_minutes = admin_default
         from datetime import timedelta
         until = datetime.now(timezone.utc) + timedelta(minutes=duration_minutes)
         await db.liluvine_pro_sessions.update_one(

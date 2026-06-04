@@ -27,8 +27,16 @@ export default function Login() {
   const [waOtp, setWaOtp] = useState("");
   const captchaRef = useRef(null);
 
+  // Compute the post-login redirect target. Translators get a dedicated
+  // landing page (/admin/i18n) since they have no access to the rest.
+  const _postLoginRoute = (u) => {
+    if (!u) return "/portal";
+    if ((u.tracked_role || "") === "Traducteur") return "/admin/i18n";
+    return u.role === "admin" ? "/admin" : "/portal";
+  };
+
   useEffect(() => {
-    if (user) navigate(user.role === "admin" ? "/admin" : "/portal");
+    if (user) navigate(_postLoginRoute(user));
   }, [user, navigate]);
 
   // Deep-link auto-prefill : if the user arrived via /launch?t=..., the Launch
@@ -94,7 +102,7 @@ export default function Login() {
       const r = await apiClient.post("/auth/verify-otp", { session_token: session, code: otp });
       login(r.data.access_token, r.data.user);
       toast.success("Connexion réussie");
-      navigate(r.data.user.role === "admin" ? "/admin" : "/portal");
+      navigate(_postLoginRoute(r.data.user));
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Code invalide");
     } finally { setLoading(false); }

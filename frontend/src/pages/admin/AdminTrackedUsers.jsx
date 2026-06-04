@@ -4,7 +4,13 @@ import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "l
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur"];
+const TRANSLATOR_LANGS = [
+  { code: "en", label: "Anglais (EN)" },
+  { code: "ar", label: "Arabe (AR)" },
+  { code: "lg1", label: "LG1 — Gulmancema" },
+  { code: "lg2", label: "LG2 — Mooré" },
+];
 const empty = { client_id: "", name: "", email: "", phone: "", whatsapp_number: "", role: "Consultation", department: "", company: "", status: "active" };
 
 export default function AdminTrackedUsers() {
@@ -292,6 +298,71 @@ export default function AdminTrackedUsers() {
                 </select>
                 <p className="mt-1 text-xs text-slate-500">Seul le rôle <strong>Superviseur</strong> a accès aux paramètres.</p>
               </div>
+
+              {/* 2026-02 — Translator-specific fields */}
+              {form.role === "Traducteur" && (
+                <div className="rounded-lg ring-1 ring-fuchsia-200 bg-fuchsia-50/40 p-3 space-y-3" data-testid="translator-fields">
+                  <div className="text-xs font-semibold text-fuchsia-900">Configuration Traducteur</div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-fuchsia-800">Langues autorisées pour édition</label>
+                    <div className="flex flex-wrap gap-2">
+                      {TRANSLATOR_LANGS.map(({ code, label }) => {
+                        const checked = (form.translator_languages || []).includes(code);
+                        return (
+                          <label key={code} className={`inline-flex items-center gap-1.5 rounded-md px-2 py-1 text-xs cursor-pointer ${checked ? "bg-fuchsia-600 text-white" : "ring-1 ring-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-100"}`}>
+                            <input
+                              type="checkbox"
+                              className="sr-only"
+                              checked={checked}
+                              onChange={(e) => {
+                                const cur = form.translator_languages || [];
+                                setForm({
+                                  ...form,
+                                  translator_languages: e.target.checked
+                                    ? [...new Set([...cur, code])]
+                                    : cur.filter((c) => c !== code),
+                                });
+                              }}
+                              data-testid={`translator-lang-${code}`}
+                            />
+                            {label}
+                          </label>
+                        );
+                      })}
+                    </div>
+                    <p className="mt-1 text-[10px] text-fuchsia-600 italic">Le FR est réservé à l'administrateur (source de vérité).</p>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold mb-1 text-fuchsia-800">Base de rémunération (par mot traduit)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.01}
+                      value={form.translator_rate_per_word ?? ""}
+                      onChange={(e) => setForm({ ...form, translator_rate_per_word: e.target.value === "" ? null : parseFloat(e.target.value) })}
+                      placeholder="ex. 5.00"
+                      className="w-full rounded-lg border border-fuchsia-300 px-3 py-2 text-sm bg-white"
+                      data-testid="translator-rate-input"
+                    />
+                  </div>
+                </div>
+              )}
+
+              {/* 2026-02 (#5) — Force logout toggle */}
+              <label className="inline-flex items-center gap-2 text-xs cursor-pointer rounded-lg ring-1 ring-amber-200 bg-amber-50/50 px-3 py-2">
+                <input
+                  type="checkbox"
+                  checked={!!form.force_logout_on_idle}
+                  onChange={(e) => setForm({ ...form, force_logout_on_idle: e.target.checked })}
+                  data-testid="force-logout-toggle"
+                />
+                <span className="flex-1">
+                  <strong>Forcer la déconnexion à l'inactivité</strong>
+                  <span className="block text-[10px] text-amber-700 mt-0.5">
+                    Si activé, l'utilisateur est déconnecté automatiquement sans demande de confirmation à l'expiration du délai.
+                  </span>
+                </span>
+              </label>
               <div>
                 <label className="block text-xs font-semibold mb-1">Statut</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">

@@ -166,6 +166,8 @@ def _public_view(b: Dict[str, Any]) -> Dict[str, Any]:
         # Iter38r-fix9z6 — A/B
         "active_variant": active_variant,
         "ab_enabled": bool(b.get("ab_enabled")),
+        # Iter40-modal — Modal display frequency (consumed by PublicAdModal)
+        "modal_frequency": b.get("modal_frequency") or "session",
     }
 
 
@@ -376,6 +378,9 @@ class AdBannerPayload(BaseModel):
     height_px: int = Field(80, ge=20, le=1200)         # used in percentage / fixed modes
     width_px: int = Field(728, ge=50, le=2400)         # used in fixed mode
     object_fit: str = Field("cover", pattern="^(cover|contain|fill)$")
+    # Iter40-modal — Frequency of modal display (only used when placement=public_modal)
+    # session: once per session (default), daily: once per day, always: every page load
+    modal_frequency: str = Field("session", pattern="^(session|daily|always)$")
     # Iter38r-fix9z6 — A/B testing (2-variant rotation). When ab_enabled,
     # the rotation picks variant_a (image_url/target_url) or variant_b
     # (variant_b_*) with 50/50 weighting. Per-variant counters live in
@@ -419,6 +424,8 @@ class AdBannerUpdate(BaseModel):
     height_px: Optional[int] = Field(None, ge=20, le=1200)
     width_px: Optional[int] = Field(None, ge=50, le=2400)
     object_fit: Optional[str] = Field(None, pattern="^(cover|contain|fill)$")
+    # Iter40-modal — Modal frequency
+    modal_frequency: Optional[str] = Field(None, pattern="^(session|daily|always)$")
     # Iter38r-fix9z6 — A/B testing + advertiser contact + reminder
     ab_enabled: Optional[bool] = None
     variant_b_image_url: Optional[str] = None
@@ -575,7 +582,11 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         return {"banner": _public_view(chosen)}
 
     @api.post("/public/ad-banners/{banner_id}/impression", tags=["Public — Ad Banners"])
-    async def public_impression(banner_id: str, variant: str = Query("a", pattern="^(a|b)$")):
+    async def public_impression(
+        banner_id: str,
+        variant: str = Query("a", pattern="^(a|b)$"),
+        modal: int = Query(0, ge=0, le=1),
+    ):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
@@ -585,7 +596,10 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             return {"ok": False, "reason": "not_currently_active"}
         cpi = float(b.get("cost_per_impression") or 0)
         # Iter38r-fix9z6 — Bump per-variant + global counters
+        # Iter40-modal — When modal=1, also bump modal_impressions
         inc = {"total_impressions": 1, "amount_spent": cpi, f"total_impressions_{variant}": 1}
+        if modal:
+            inc["modal_impressions"] = 1
         await db.ad_banners.update_one(
             {"id": banner_id},
             {"$inc": inc, "$set": {"updated_at": _now_iso()}},
@@ -608,12 +622,18 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
         return {"ok": True}
 
     @api.post("/public/ad-banners/{banner_id}/click", tags=["Public — Ad Banners"])
-    async def public_click(banner_id: str, variant: str = Query("a", pattern="^(a|b)$")):
+    async def public_click(
+        banner_id: str,
+        variant: str = Query("a", pattern="^(a|b)$"),
+        modal: int = Query(0, ge=0, le=1),
+    ):
         b = await db.ad_banners.find_one({"id": banner_id}, {"_id": 0})
         if not b:
             raise HTTPException(status_code=404, detail="Bannière introuvable")
         cpc = float(b.get("cost_per_click") or 0)
         inc = {"total_clicks": 1, "amount_spent": cpc, f"total_clicks_{variant}": 1}
+        if modal:
+            inc["modal_clicks"] = 1
         await db.ad_banners.update_one(
             {"id": banner_id},
             {"$inc": inc, "$set": {"updated_at": _now_iso()}},
@@ -687,6 +707,10 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
             "height_px": int(payload.height_px),
             "width_px": int(payload.width_px),
             "object_fit": payload.object_fit,
+            # Iter40-modal — Modal display frequency + dedicated counters
+            "modal_frequency": payload.modal_frequency,
+            "modal_impressions": 0,
+            "modal_clicks": 0,
             # Iter38r-fix9z6 — A/B + reminders
             "ab_enabled": bool(payload.ab_enabled),
             "variant_b_image_url": (payload.variant_b_image_url or "").strip(),
@@ -826,6 +850,16 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
                 "clicks": clicks,
                 "amount_spent": float(b.get("amount_spent") or 0),
                 "ctr_pct": ctr,
+            },
+            # Iter40-modal — Dedicated modal counters (CTR included)
+            "modal": {
+                "impressions": int(b.get("modal_impressions") or 0),
+                "clicks": int(b.get("modal_clicks") or 0),
+                "ctr_pct": (
+                    round((int(b.get("modal_clicks") or 0) / int(b.get("modal_impressions") or 0)) * 100, 2)
+                    if int(b.get("modal_impressions") or 0) else 0.0
+                ),
+                "frequency": b.get("modal_frequency") or "session",
             },
             "ab": {
                 "enabled": bool(b.get("ab_enabled")),

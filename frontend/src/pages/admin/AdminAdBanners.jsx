@@ -70,6 +70,8 @@ const DEFAULT_DRAFT = {
   reminder_email_enabled: true,
   reminder_wa_enabled: false,
   reminder_days_before: 3,
+  // Iter40-modal — Modal display frequency (only used when placement=public_modal)
+  modal_frequency: "session",
 };
 
 export default function AdminAdBanners() {
@@ -154,6 +156,8 @@ export default function AdminAdBanners() {
       reminder_email_enabled: it.reminder_email_enabled !== false,
       reminder_wa_enabled: !!it.reminder_wa_enabled,
       reminder_days_before: it.reminder_days_before ?? 3,
+      // Iter40-modal — Modal display frequency
+      modal_frequency: it.modal_frequency || "session",
     });
     setShowForm(true);
   };
@@ -578,6 +582,15 @@ function BannerForm({ draft, setDraft, onSave, onCancel, editing }) {
             <option value="public_modal">Modale aléatoire (page publique)</option>
           </select>
         </Field>
+        {draft.placement === "public_modal" && (
+          <Field label="Fréquence d'affichage de la modale" testid="ad-form-modal-frequency">
+            <select value={draft.modal_frequency} onChange={(e) => setDraft({ ...draft, modal_frequency: e.target.value })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white">
+              <option value="session">1 fois par session (recommandé)</option>
+              <option value="daily">1 fois par jour et par visiteur</option>
+              <option value="always">À chaque chargement de page</option>
+            </select>
+          </Field>
+        )}
         <Field label="Date de début (optionnelle)" testid="ad-form-start">
           <input type="date" value={draft.start_date || ""} onChange={(e) => setDraft({ ...draft, start_date: e.target.value })} className="w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" />
         </Field>
@@ -671,6 +684,29 @@ function StatsModal({ stats, onClose }) {
 
           {/* Iter38r-fix9z6 — A/B breakdown */}
           {stats.ab?.enabled && <ABBreakdown ab={stats.ab} />}
+
+          {/* Iter40-modal — Modal-specific counters (only when modal_impressions > 0) */}
+          {stats.modal && (stats.modal.impressions > 0 || stats.modal.clicks > 0) && (
+            <div className="rounded-xl ring-1 ring-fuchsia-200 bg-fuchsia-50/40 p-3 space-y-2" data-testid="ad-stats-modal-breakdown">
+              <p className="text-xs uppercase font-semibold text-fuchsia-700">
+                Modale aléatoire · Fréquence : {stats.modal.frequency === "session" ? "1×/session" : stats.modal.frequency === "daily" ? "1×/jour" : "À chaque chargement"}
+              </p>
+              <div className="grid grid-cols-3 gap-2 text-xs">
+                <div className="rounded-lg bg-white ring-1 ring-fuchsia-200 p-2">
+                  <p className="text-[10px] uppercase text-slate-500">Affichages modale</p>
+                  <p className="font-display font-bold text-slate-800 tabular-nums">{stats.modal.impressions.toLocaleString("fr-FR")}</p>
+                </div>
+                <div className="rounded-lg bg-white ring-1 ring-fuchsia-200 p-2">
+                  <p className="text-[10px] uppercase text-slate-500">Clics modale</p>
+                  <p className="font-display font-bold text-slate-800 tabular-nums">{stats.modal.clicks.toLocaleString("fr-FR")}</p>
+                </div>
+                <div className="rounded-lg bg-white ring-1 ring-fuchsia-200 p-2">
+                  <p className="text-[10px] uppercase text-slate-500">CTR modale</p>
+                  <p className="font-display font-bold text-fuchsia-700 tabular-nums">{stats.modal.ctr_pct}%</p>
+                </div>
+              </div>
+            </div>
+          )}
 
           {stats.daily.length > 0 && (
             <div>

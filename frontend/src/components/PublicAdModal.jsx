@@ -3,20 +3,51 @@
 // Behaviour:
 //  • On first mount, fetches GET /api/public/ad-banners/active?placement=public_modal
 //    which returns ONE weighted-random active banner whose placement is exactly
-//    "public_modal" (max 10 active modal banners can be configured in admin).
-//  • Displays the banner inside a centered overlay modal once per session
-//    (sessionStorage flag prevents re-showing on every route change).
-//  • Fires impression tracking on display and click tracking when the user
-//    clicks the image — same endpoints as AdBannerSlot.
-//  • Clean dismissal via the X button or ESC key.
+//    "public_modal".
+//  • Display frequency is controlled per-banner via `modal_frequency`:
+//      - "session" → once per browser session (sessionStorage)
+//      - "daily"   → once per calendar day (localStorage with date key)
+//      - "always"  → every page load (no flag)
+//  • Fires impression/click tracking with `?modal=1` so the admin can see
+//    separate modal counters (modal_impressions / modal_clicks).
+//  • Clean dismissal via X button, ESC key, or backdrop click.
 import React, { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { resolveAssetUrl } from "@/lib/useAssetUrl";
 
 const SESSION_KEY = "public_ad_modal_shown";
+const DAILY_KEY_PREFIX = "public_ad_modal_shown_day_";
 // Wait a beat before showing so the page settles first (avoids being
 // dismissed by layout shifts / route loaders).
 const SHOW_DELAY_MS = 1500;
+
+function todayISO() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function alreadyShown(frequency, bannerId) {
+  try {
+    if (frequency === "always") return false;
+    if (frequency === "daily") {
+      return localStorage.getItem(`${DAILY_KEY_PREFIX}${bannerId}_${todayISO()}`) === "1";
+    }
+    // session (default)
+    return sessionStorage.getItem(SESSION_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function markShown(frequency, bannerId) {
+  try {
+    if (frequency === "always") return;
+    if (frequency === "daily") {
+      localStorage.setItem(`${DAILY_KEY_PREFIX}${bannerId}_${todayISO()}`, "1");
+      return;
+    }
+    sessionStorage.setItem(SESSION_KEY, "1");
+  } catch { /* ignore */ }
+}
 
 export default function PublicAdModal() {
   const [banner, setBanner] = useState(null);
@@ -25,11 +56,6 @@ export default function PublicAdModal() {
   const impressionFired = useRef(false);
 
   useEffect(() => {
-    // One modal per session
-    try {
-      if (sessionStorage.getItem(SESSION_KEY) === "1") return;
-    } catch { /* ignore */ }
-
     let cancelled = false;
     let showTimer = null;
 
@@ -39,11 +65,13 @@ export default function PublicAdModal() {
         if (cancelled) return;
         const b = data?.banner || null;
         if (!b) return;
+        const freq = b.modal_frequency || "session";
+        if (alreadyShown(freq, b.id)) return;
         setBanner(b);
         showTimer = setTimeout(() => {
           if (cancelled) return;
           setVisible(true);
-          try { sessionStorage.setItem(SESSION_KEY, "1"); } catch { /* ignore */ }
+          markShown(freq, b.id);
         }, SHOW_DELAY_MS);
       })
       .catch(() => {});
@@ -68,7 +96,7 @@ export default function PublicAdModal() {
     impressionFired.current = true;
     try {
       const variant = banner.active_variant === "b" ? "b" : "a";
-      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/impression?variant=${variant}`, {
+      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/impression?variant=${variant}&modal=1`, {
         method: "POST",
         keepalive: true,
       }).catch(() => {});
@@ -86,7 +114,7 @@ export default function PublicAdModal() {
     e.preventDefault();
     try {
       const variant = banner.active_variant === "b" ? "b" : "a";
-      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/click?variant=${variant}`, {
+      fetch(`${apiBase}/api/public/ad-banners/${banner.id}/click?variant=${variant}&modal=1`, {
         method: "POST",
         keepalive: true,
       }).catch(() => {});

@@ -1255,3 +1255,38 @@ L'utilisateur souhaite afficher, sur la page publique, **une bannière publicita
   - Placement invalide rejeté (HTTP 422)
 - Régression 16 tests précédents (`test_iter38r_fix9w_*`, `test_iter38r_fix9y_*`) : **PASS**
 - Smoke screenshot UI : modal s'affiche correctement avec image, badge, X, CTA.
+
+## Iter40-modal-frequency (2026-06) — Réglage de fréquence + compteurs modal dédiés
+
+### Contexte
+Suggestion d'amélioration acceptée par l'utilisateur. La modale était utile mais pouvait lasser les visiteurs (affichée 1×/session uniquement, en dur). Besoin de pouvoir choisir une fréquence par bannière et de séparer les statistiques modale du slot top-of-page.
+
+### Implémentation
+- **Backend** (`/app/backend/routes/ad_banners.py`) :
+  - Champ `modal_frequency` ajouté à `AdBannerPayload` & `AdBannerUpdate` (pattern `^(session|daily|always)^`, défaut `"session"`)
+  - Persisté à la création + retourné par `_public_view` pour que le frontend décide
+  - Compteurs dédiés `modal_impressions` / `modal_clicks` initialisés à 0
+  - Endpoints `/impression` et `/click` acceptent `?modal=1` → incrément séparé sur les compteurs modale (en plus du global)
+  - Endpoint `/admin/ad-banners/{id}/stats` expose un bloc `modal: {impressions, clicks, ctr_pct, frequency}`
+- **Frontend** :
+  - `PublicAdModal.jsx` réécrit pour lire `banner.modal_frequency` et choisir le storage :
+    - `session` → `sessionStorage["public_ad_modal_shown"]`
+    - `daily` → `localStorage["public_ad_modal_shown_day_{bannerId}_{YYYY-MM-DD}"]`
+    - `always` → aucun flag (rejoue à chaque rechargement)
+  - Tracking impression/clic envoie `&modal=1` pour alimenter les compteurs modale
+  - `AdminAdBanners.jsx` :
+    - Nouveau champ select "Fréquence d'affichage" visible uniquement quand `placement=public_modal`
+    - Bloc StatsModal "Modale aléatoire" affiche compteurs dédiés (affichages, clics, CTR) + libellé fréquence — visible quand des impressions modale existent
+
+### Tests
+- `/app/backend/tests/test_iter40_modal_frequency.py` (7 nouveaux tests) :
+  - Fréquence par défaut = "session" si omise
+  - Les 3 valeurs `session|daily|always` sont acceptées
+  - Valeur invalide ("weekly") rejetée HTTP 422
+  - Endpoint public renvoie `modal_frequency` dans la payload
+  - `?modal=1` sur impression bumpe `modal_impressions` ET `total_impressions`
+  - `?modal=0` ne bumpe QUE `total_impressions`
+  - `?modal=1` sur click bumpe `modal_clicks` ET `total_clicks`
+  - Endpoint stats expose `{modal: {impressions, clicks, ctr_pct, frequency}}`
+- Régression complète : **27/27 PASS** (7 nouveaux + 4 placement + 16 anciens)
+- Smoke UI : page publique se charge proprement

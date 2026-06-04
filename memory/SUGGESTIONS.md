@@ -422,6 +422,19 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : permet d'industrialiser la traduction (gain de temps massif), tester plusieurs modèles pour comparer le coût/qualité, et garder un contrôle fin via la relecture admin avant sauvegarde.
 - **Tests** : 9 tests pytest (`test_iter40_i18n_model_selector.py`) couvrant liste des modèles, validation, rejection des modèles inconnus, endpoint content/translate (validation lang/model, 404 slug inconnu, refus contenu vide).
 
+## S050 — Type de paie « Forfaitaire » (montant mensuel fixe, indépendant des heures)
+- **Demande utilisateur** : 2026-06 — « Où trouve-t-on dans GRH pour éditer le montant mensuel de base à payer à l'agent qui sera payé sans tenir compte des heures travaillées ? (Cas d'agents venant d'avoir un accès en fin de mois) »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-hr-fixed
+- **Détail** :
+  - Nouveau `pay_type="fixed"` (en plus de `monthly` et `hourly`) sur `EmployeePayload` et `EmployeeUpdate` (pattern regex étendu)
+  - Lorsque `pay_type=fixed`, le calcul `computed_gross = base_salary` (pas de proratisation, pas de coefficient horaire)
+  - Sur le payroll, `absence_deduction = 0` pour les forfaitaires (logique métier : un forfait n'est pas amputé pour absences)
+  - Frontend `HumanResources.jsx` : option `<option value="fixed">Forfaitaire (montant fixe)</option>` dans le dropdown "Type de paie", encart d'information ambre quand sélectionné, libellés "Forfaitaire" et "· forfait" dans toutes les tables (timesheet, liste salaires, employés)
+- **Bénéfice** : couvre 3 cas concrets — (1) agent recruté en fin de mois qui doit recevoir un montant fixe pour le mois en cours, (2) prestataires au forfait, (3) périodes d'essai. Évite le contournement par création manuelle de bonus.
+- **Où le trouver** : `/portal/hr` (module GRH) → bouton "Nouvel employé" ou édition d'un existant → champ "Type de paie" → choisir "Forfaitaire (montant fixe)". Le montant sera celui saisi dans "Salaire base".
+- **Tests** : 5 tests pytest (`test_iter40_hr_fixed_pay_type.py`) : création, refus type invalide, mise à jour PATCH, computed_gross == base_salary avec 0 heures, régression monthly toujours proratisé.
+
 ---
 
 ## Comment référencer une suggestion

@@ -33,7 +33,13 @@ log = logging.getLogger("sawali.hr")
 class EmployeePayload(BaseModel):
     user_id: str = Field(..., min_length=1)
     base_salary: float = Field(0.0, ge=0)
-    pay_type: str = Field("monthly", pattern=r"^(monthly|hourly)$")
+    # Iter40-hr-fixed — pay_type accepts 3 values:
+    #   "monthly"  : base_salary prorated by hours_worked / monthly_hours_baseline
+    #   "hourly"   : hourly_rate × hours_worked
+    #   "fixed"    : base_salary paid in full each month, regardless of hours
+    #                (useful for late-month hires, contractors with flat fees,
+    #                 trial periods, or any agent whose payment is not time-based)
+    pay_type: str = Field("monthly", pattern=r"^(monthly|hourly|fixed)$")
     currency: str = Field("XOF", max_length=8)
     hourly_rate: Optional[float] = Field(None, ge=0)  # used when pay_type == hourly
     monthly_hours_baseline: float = Field(160.0, ge=0)  # contractual monthly hours (default 160)
@@ -49,7 +55,7 @@ class EmployeePayload(BaseModel):
 
 class EmployeeUpdate(BaseModel):
     base_salary: Optional[float] = Field(None, ge=0)
-    pay_type: Optional[str] = Field(None, pattern=r"^(monthly|hourly)$")
+    pay_type: Optional[str] = Field(None, pattern=r"^(monthly|hourly|fixed)$")
     currency: Optional[str] = Field(None, max_length=8)
     hourly_rate: Optional[float] = Field(None, ge=0)
     monthly_hours_baseline: Optional[float] = Field(None, ge=0)
@@ -603,6 +609,10 @@ def make_router(*, db, get_current_user):
         hourly = float(emp.get("hourly_rate") or 0)
         if pay_type == "hourly":
             computed = round(hours_worked * hourly, 2)
+        elif pay_type == "fixed":
+            # Iter40-hr-fixed — Flat amount, ignores hours worked completely.
+            # Useful for late-month hires, trial periods, or contractors.
+            computed = round(base, 2)
         else:
             # Monthly: prorate by hours_worked / expected_hours (clamped to 1.0)
             ratio = (hours_worked / expected_hours) if expected_hours > 0 else 1.0
@@ -1007,8 +1017,11 @@ def make_router(*, db, get_current_user):
         threshold = float(emp.get("absence_threshold_hours_override") or 0) or global_threshold
         abs_h = await _absence_hours_for_month(user, eid, month)
         # Deduction: per-hour rate
+        # Iter40-hr-fixed — pay_type=fixed: NO absence deduction (flat amount).
         baseline_hours = float(emp.get("monthly_hours_baseline") or 1) or 1
-        if emp.get("pay_type") == "hourly":
+        if emp.get("pay_type") == "fixed":
+            hourly_for_deduction = 0.0
+        elif emp.get("pay_type") == "hourly":
             hourly_for_deduction = float(emp.get("hourly_rate") or 0)
         else:
             hourly_for_deduction = float(emp.get("base_salary") or 0) / baseline_hours

@@ -182,8 +182,9 @@ function EmployeeForm({ employee, eligibleUsers, onSave, onCancel }) {
                 data-testid="hr-employee-pay-type"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               >
-                <option value="monthly">Mensuel</option>
+                <option value="monthly">Mensuel (prorata heures)</option>
                 <option value="hourly">Horaire</option>
+                <option value="fixed">Forfaitaire (montant fixe)</option>
               </select>
             </div>
             <div>
@@ -218,6 +219,10 @@ function EmployeeForm({ employee, eligibleUsers, onSave, onCancel }) {
                 data-testid="hr-employee-hourly-rate"
                 className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm"
               />
+            </div>
+          ) : form.pay_type === "fixed" ? (
+            <div className="rounded-lg ring-1 ring-amber-300 bg-amber-50 p-3 text-xs text-amber-800" data-testid="hr-employee-fixed-info">
+              <strong>Mode forfaitaire :</strong> l'agent recevra exactement <strong>{form.base_salary} {form.currency}</strong> chaque mois, indépendamment des heures travaillées ou des absences. Idéal pour les recrutements en fin de mois, périodes d'essai ou prestataires au forfait.
             </div>
           ) : (
             <div>
@@ -352,10 +357,12 @@ function TimesheetView({ employees }) {
             <div className="bg-amber-50 border border-amber-100 rounded-xl p-4" data-testid="hr-totals-type">
               <p className="text-xs text-amber-700 font-medium">Mode de calcul</p>
               <p className="text-base font-semibold text-amber-900 mt-1">
-                {data.totals.pay_type === "hourly" ? "Horaire" : "Mensuel"}
+                {data.totals.pay_type === "hourly" ? "Horaire" : data.totals.pay_type === "fixed" ? "Forfaitaire" : "Mensuel"}
               </p>
               {data.totals.pay_type === "hourly" ? (
                 <p className="text-xs text-amber-600 mt-1">{FCFA(data.totals.hourly_rate)} {data.totals.currency}/h</p>
+              ) : data.totals.pay_type === "fixed" ? (
+                <p className="text-xs text-amber-600 mt-1">Forfait {FCFA(data.totals.base_salary)} {data.totals.currency} · indép. des heures</p>
               ) : (
                 <p className="text-xs text-amber-600 mt-1">Base {FCFA(data.totals.base_salary)} {data.totals.currency}</p>
               )}
@@ -463,11 +470,11 @@ function SalariesTable({ employees, refresh }) {
                 <tr key={e.id} className="border-t border-slate-100" data-testid={`hr-salary-row-${e.id}`}>
                   <td className="px-3 py-2 font-medium">{e.user?.full_name || e.name_snapshot}</td>
                   <td className="px-3 py-2 text-slate-600">{e.job_title || "—"}</td>
-                  <td className="px-3 py-2 text-slate-600">{e.pay_type === "hourly" ? "Horaire" : "Mensuel"}</td>
+                  <td className="px-3 py-2 text-slate-600">{e.pay_type === "hourly" ? "Horaire" : e.pay_type === "fixed" ? "Forfaitaire" : "Mensuel"}</td>
                   <td className="px-3 py-2 text-right">
                     {e.pay_type === "hourly"
                       ? `${FCFA(e.hourly_rate)} ${e.currency}/h`
-                      : `${FCFA(e.base_salary)} ${e.currency}`}
+                      : `${FCFA(e.base_salary)} ${e.currency}${e.pay_type === "fixed" ? " · forfait" : ""}`}
                   </td>
                   <td className="px-3 py-2 text-right">{c ? `${c.hours_worked} h` : "…"}</td>
                   <td className="px-3 py-2 text-right font-semibold">

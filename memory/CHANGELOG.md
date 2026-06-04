@@ -2885,3 +2885,27 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - `test_iter40_i18n_model_selector.py` (9 tests) : liste des modèles, validation, refus de modèles/langues inconnus, refus de slug inconnu, refus de contenu vide.
 - Régression Iter40 complète : **35/35 PASS** (9 model + 6 content + 9 modal-ab + 7 modal-freq + 4 placement).
 
+
+## Iter40-hr-fixed (2026-06-04) — Type de paie « Forfaitaire »
+
+### 💼 1) Nouveau pay_type="fixed" dans GRH
+- Backend `routes/hr.py` :
+  - `EmployeePayload.pay_type` et `EmployeeUpdate.pay_type` : pattern `^(monthly|hourly|fixed)$`
+  - Calcul timesheet : `if pay_type == "fixed": computed = round(base_salary, 2)` (pas de ratio horaire, pas de proratisation)
+  - Calcul payroll : `hourly_for_deduction = 0` pour `fixed` → **aucune déduction d'absence** (le forfait n'est pas amputé)
+
+### 🎨 2) Frontend `HumanResources.jsx`
+- Dropdown étendu : `Mensuel (prorata heures)` / `Horaire` / `Forfaitaire (montant fixe)`
+- Encart d'information ambre affiché quand "fixed" est sélectionné : "L'agent recevra exactement {amount} {currency} chaque mois, indépendamment des heures travaillées ou des absences. Idéal pour les recrutements en fin de mois, périodes d'essai ou prestataires au forfait."
+- Libellés "Forfaitaire" + suffixe "· forfait" dans toutes les tables : tableau de présence mensuel (totaux du mois), liste paie des salaires, liste employés
+- Le champ "Heures mensuelles contractuelles" est masqué quand `fixed` (pas pertinent)
+
+### 🧪 3) Tests
+- `test_iter40_hr_fixed_pay_type.py` (5 tests) :
+  - Création avec pay_type=fixed
+  - Refus des valeurs invalides (HTTP 422)
+  - PATCH d'un monthly vers fixed
+  - Critère clé : `computed_gross == base_salary` même avec 0 heures travaillées
+  - Régression : `monthly` continue de proratiser (=0 avec 0 heures)
+- Tous **PASS**.
+

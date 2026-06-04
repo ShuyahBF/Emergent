@@ -1218,6 +1218,79 @@ def make_router(*, db, get_current_user):
             "total_employees": len(results),
         }
 
+    # 2026-02 — Same metric, but aggregated over an arbitrary calendar month.
+    # Used by the admin /portal/users dashboard card so admins can pick any
+    # past month and see the top performers.
+    @router.get("/dashboard/monthly-presence")
+    async def monthly_presence(
+        month: Optional[str] = Query(None, pattern=r"^\d{4}-\d{2}$"),
+        user: dict = Depends(get_current_user),
+    ):
+        """Top 10 employees by accumulated hours for the given month.
+        `month` format = YYYY-MM. If absent, defaults to the current month."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        now = datetime.now(timezone.utc)
+        from datetime import timedelta as _td
+        month_str = month or f"{now.year}-{str(now.month).zfill(2)}"
+        year, mon = int(month_str[:4]), int(month_str[5:7])
+        month_start = datetime(year, mon, 1, tzinfo=timezone.utc)
+        if mon == 12:
+            month_end = datetime(year + 1, 1, 1, tzinfo=timezone.utc)
+        else:
+            month_end = datetime(year, mon + 1, 1, tzinfo=timezone.utc)
+
+        cursor = db.hr_employees.find({**scope, "deleted_at": None}, {"_id": 0})
+        emps = [e async for e in cursor]
+        results = []
+        for e in emps:
+            uid = e.get("user_id")
+            email = (e.get("email_snapshot") or "").lower()
+            or_conds: List[Dict[str, Any]] = []
+            if uid:
+                or_conds.append({"user_id": uid})
+            if email:
+                or_conds.append({"user_email": email})
+            if not or_conds:
+                results.append({"employee_id": e["id"], "name": e.get("name_snapshot"), "hours": 0.0, "days": 0})
+                continue
+            pipeline = [
+                {"$match": {
+                    "$or": or_conds,
+                    "created_at": {"$gte": month_start.isoformat(), "$lt": month_end.isoformat()},
+                }},
+                {"$group": {
+                    "_id": {"$substr": ["$created_at", 0, 10]},
+                    "first": {"$min": "$created_at"},
+                    "last": {"$max": "$created_at"},
+                }},
+            ]
+            secs = 0.0
+            days = 0
+            async for row in db.access_logs.aggregate(pipeline):
+                try:
+                    f_dt = datetime.fromisoformat(row["first"].replace("Z", "+00:00"))
+                    l_dt = datetime.fromisoformat(row["last"].replace("Z", "+00:00"))
+                    secs += max(0.0, (l_dt - f_dt).total_seconds())
+                    days += 1
+                except Exception:
+                    pass
+            results.append({
+                "employee_id": e["id"],
+                "name": e.get("name_snapshot") or e.get("email_snapshot"),
+                "hours": round(secs / 3600.0, 2),
+                "days": days,
+            })
+        results.sort(key=lambda x: x["hours"], reverse=True)
+        return {
+            "month": month_str,
+            "month_start": month_start.date().isoformat(),
+            "month_end": (month_end - _td(days=1)).date().isoformat(),
+            "top": results[:10],
+            "total_employees": len(results),
+        }
+
     # ================================================================
     # Iter38m — Holidays (Jours fériés) — per tenant
     # ================================================================

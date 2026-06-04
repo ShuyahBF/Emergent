@@ -7,7 +7,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText, Download, Upload, Coins } from "lucide-react";
+import { Plus, Trash2, Save, RefreshCw, Search, Languages, Loader2, FileText, Download, Upload, Coins, Sparkles } from "lucide-react";
 
 const BLANK_ROW = { key: "", fr: "", en: "", ar: "", lg1: "", lg2: "", context: "" };
 
@@ -25,6 +25,7 @@ export default function AdminI18n() {
   const [editing, setEditing] = useState(null); // row being edited
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
+  const [aiLoading, setAiLoading] = useState(null); // field code being translated
   const fileInputRef = useRef(null);
 
   const isTranslator = (user?.tracked_role || "") === "Traducteur";
@@ -65,6 +66,27 @@ export default function AdminI18n() {
     if (viewerRole !== "translator") return true;
     if (lang === "fr" || lang === "context") return false; // FR reserved to admin
     return (allowedLangs || []).includes(lang);
+  };
+
+  // 2026-02 — AI-assisted translation suggestion (Claude Sonnet via Emergent LLM key)
+  const suggestTranslation = async (targetLang) => {
+    if (!editing) return;
+    const fr = (editing.fr || "").trim();
+    if (!fr) { toast.warning("Renseignez d'abord le texte FR source."); return; }
+    setAiLoading(targetLang);
+    try {
+      const r = await apiClient.post("/admin/i18n/translate-suggest", {
+        fr, target_lang: targetLang, context: editing.context || "",
+      });
+      const suggestion = r.data?.suggestion || "";
+      if (!suggestion) { toast.warning("Aucune suggestion retournée."); return; }
+      setEditing({ ...editing, [targetLang]: suggestion });
+      toast.success(`Suggestion ${targetLang.toUpperCase()} générée — relisez avant d'enregistrer.`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur LLM");
+    } finally {
+      setAiLoading(null);
+    }
   };
 
   const filtered = useMemo(() => {
@@ -331,17 +353,35 @@ export default function AdminI18n() {
                   <td className="px-2 py-1.5 font-mono text-[10px] text-slate-700 truncate max-w-[200px]" title={row.key}>{row.key}</td>
                   {["fr", "en", "ar", "lg1", "lg2", "context"].map((field) => {
                     const editable = canEditLang(field);
+                    const isAITarget = isEditing && editable && ["en", "ar", "lg1", "lg2"].includes(field);
                     return (
                     <td key={field} className="px-1 py-1">
                       {isEditing && editable ? (
-                        <textarea
-                          value={edit[field] || ""}
-                          onChange={(e) => setEditing({ ...editing, [field]: e.target.value })}
-                          rows={2}
-                          className={`w-full rounded ring-1 ring-slate-300 px-1.5 py-1 text-xs focus:ring-sawali-blue focus:outline-none ${field === "ar" ? "text-right" : ""}`}
-                          dir={field === "ar" ? "rtl" : "ltr"}
-                          data-testid={`i18n-input-${row.key}-${field}`}
-                        />
+                        <div className="space-y-1">
+                          <textarea
+                            value={edit[field] || ""}
+                            onChange={(e) => setEditing({ ...editing, [field]: e.target.value })}
+                            rows={2}
+                            className={`w-full rounded ring-1 ring-slate-300 px-1.5 py-1 text-xs focus:ring-sawali-blue focus:outline-none ${field === "ar" ? "text-right" : ""}`}
+                            dir={field === "ar" ? "rtl" : "ltr"}
+                            data-testid={`i18n-input-${row.key}-${field}`}
+                          />
+                          {isAITarget && (editing.fr || row.fr) && (
+                            <button
+                              type="button"
+                              onClick={() => suggestTranslation(field)}
+                              disabled={!!aiLoading}
+                              className="inline-flex items-center gap-1 text-[10px] text-fuchsia-700 hover:text-fuchsia-900 disabled:opacity-50"
+                              data-testid={`i18n-ai-${row.key}-${field}`}
+                              title="Suggérer une traduction via IA (Claude Sonnet)"
+                            >
+                              {aiLoading === field
+                                ? <Loader2 className="h-3 w-3 animate-spin" />
+                                : <Sparkles className="h-3 w-3" />}
+                              ✨ IA
+                            </button>
+                          )}
+                        </div>
                       ) : (
                         <div
                           className={`truncate max-w-[200px] ${field === "ar" ? "text-right" : ""} ${(!row[field] && field !== "fr" && field !== "context") ? "text-slate-300 italic" : "text-slate-700"} ${(!editable && isTranslator) ? "opacity-60" : ""}`}

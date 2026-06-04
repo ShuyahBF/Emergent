@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
+import MonthlyPresenceCard from "@/components/MonthlyPresenceCard";
 
 export default function ClientUsersTracking() {
   const [items, setItems] = useState([]);
@@ -10,6 +11,7 @@ export default function ClientUsersTracking() {
         <h1 className="text-2xl font-display font-bold">Suivi de vos utilisateurs</h1>
         <p className="text-sm text-slate-500">Liste des utilisateurs déclarés sur vos logiciels.</p>
       </div>
+      <MonthlyPresenceCard />
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
         <table className="w-full text-sm min-w-[640px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">

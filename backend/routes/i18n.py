@@ -34,6 +34,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import os
 import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -558,7 +559,6 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                 "context": r.get("context", ""),
             })
         buf.seek(0)
-        # Prefix with UTF-8 BOM so Excel opens it with correct encoding.
         content = "\ufeff" + buf.getvalue()
         filename = f"sawali_translations_{datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')}.csv"
         return StreamingResponse(
@@ -566,6 +566,86 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             media_type="text/csv; charset=utf-8",
             headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
+
+    # ----------------------------------------------------------
+    # S046 (2026-02) — AI-assisted translation via Anthropic Claude.
+    # Generates a target-language translation from the FR source. Returns
+    # the suggestion as JSON — the admin can review and save. Restricted
+    # to admin/superviseur (LLM costs are charged on the EMERGENT_LLM_KEY).
+    # ----------------------------------------------------------
+    @api.post("/admin/i18n/translate-suggest", tags=["Admin — i18n"])
+    async def admin_translate_suggest(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        source_fr = (payload.get("fr") or "").strip()
+        target_lang = (payload.get("target_lang") or "").strip().lower()
+        context = (payload.get("context") or "").strip()
+        if not source_fr:
+            raise HTTPException(status_code=400, detail="Le texte FR source est requis.")
+        if target_lang not in {"en", "ar", "lg1", "lg2"}:
+            raise HTTPException(status_code=400, detail="Langue cible non supportée.")
+
+        emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+        if not emergent_key:
+            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+
+        lang_labels = {
+            "en": "English",
+            "ar": "Modern Standard Arabic (formal, no transliteration)",
+            "lg1": "Gulmancema (Burkina Faso national language)",
+            "lg2": "Mooré (Burkina Faso national language)",
+        }
+        target_label = lang_labels[target_lang]
+        # Use emergentintegrations LlmChat (only auth path that works on the
+        # Emergent platform — direct litellm calls reject the universal key).
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        except ImportError as exc:
+            raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
+
+        system_text = (
+            "You are a professional UI translator. Output ONLY the target-language "
+            "string — no quotes, no explanations, no leading 'Translation:' label. "
+            "Preserve any HTML tags, placeholders like {name}, and punctuation. "
+            "Keep brand names (SAWALI, Liluvine, WhatsApp) unchanged."
+        )
+        user_msg = f"Target language: {target_label}\n"
+        if context:
+            user_msg += f"UI context: {context}\n"
+        user_msg += f"\nFrench source:\n{source_fr}"
+
+        try:
+            chat = LlmChat(
+                api_key=emergent_key,
+                session_id=f"i18n-translate-{user.get('id') or 'admin'}",
+                system_message=system_text,
+            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+            suggestion = (await chat.send_message(UserMessage(text=user_msg))) or ""
+            suggestion = suggestion.strip()
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[i18n] translate-suggest failed")
+            raise HTTPException(
+                status_code=502,
+                detail=f"Échec de l'appel LLM : {str(exc)[:200]}",
+            ) from exc
+
+        # Strip wrapping quotes/colons that some models add despite the prompt
+        for quote in ('"', "'", "«", "»"):
+            if suggestion.startswith(quote) and suggestion.endswith(quote):
+                suggestion = suggestion[1:-1].strip()
+        if suggestion.lower().startswith("translation:"):
+            suggestion = suggestion[12:].strip()
+
+        return {
+            "ok": True,
+            "fr": source_fr,
+            "target_lang": target_lang,
+            "suggestion": suggestion,
+            "model": "claude-sonnet-4-5",
+        }
 
     @api.post("/admin/i18n/translations/import-csv", tags=["Admin — i18n"])
     async def admin_import_csv(

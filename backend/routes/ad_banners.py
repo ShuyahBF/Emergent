@@ -356,7 +356,7 @@ class AdBannerPayload(BaseModel):
     # are correctly rendered as <img> or <video> on the frontend.
     media_kind: str = Field("image", pattern="^(image|video)$")
     target_url: str = Field(..., min_length=4, max_length=600)
-    placement: str = Field("both", pattern="^(public|portal|both)$")
+    placement: str = Field("both", pattern="^(public|portal|both|public_modal)$")
     animated: bool = False
     active: bool = True
     budget_amount: float = Field(0, ge=0)

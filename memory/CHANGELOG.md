@@ -2858,3 +2858,30 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - `test_iter40_content_i18n.py` (6 tests) — upsert, fallback sans lang, override appliqué, lang inconnue, deep-merge metadata, list endpoint.
 - **6/6 PASS**.
 
+
+## Iter40-i18n-model (2026-06-04) — Sélecteur de modèle IA + traduction en lot
+
+### 🤖 1) 6 modèles de traduction au choix
+- Backend `routes/i18n.py` : registre `_TRANSLATE_MODELS` avec Claude Sonnet 4.5 / Haiku 4.5, GPT-4o / 4o-mini, Gemini 2.5 Pro / Flash.
+- Nouvel endpoint `GET /api/admin/i18n/translate-models` (renvoie items + défaut).
+- `POST /api/admin/i18n/translate-suggest` accepte désormais un champ `model` optionnel.
+
+### ⚡ 2) Traduction en lot pour i18n
+- Nouvel endpoint `POST /api/admin/i18n/translate-empty-bulk` :
+  - Trouve toutes les lignes où FR est non-vide ET la langue cible vide
+  - Lance le modèle sélectionné séquentiellement
+  - Retourne un rapport `{translated, skipped, errors, total_candidates}`
+- Frontend `AdminI18n.jsx` : nouveau bloc violet "Traducteur IA — réglages" avec dropdown modèle + select langue + bouton "Traduire toutes les cellules vides en XX".
+
+### 📝 3) Traduction de contenu entier en une passe
+- Nouvel endpoint `POST /api/admin/content/{slug}/translate` :
+  - Extrait titre + body_html + metadata.kicker + metrics labels + items title/desc
+  - Envoie en JSON au modèle avec prompt strict "préserver balises HTML, placeholders, marques (SAWALI, Liluvine, WhatsApp)"
+  - Parse la réponse JSON et persiste dans `translations[<target_lang>]`
+  - Préserve les `icons` des items (le LLM ne connaît pas notre vocabulaire d'icônes)
+- Frontend `AdminContents.jsx` : dropdown modèle + bouton "Traduire ce contenu en XX" visible uniquement quand une langue ≠ défaut est sélectionnée.
+
+### 🧪 4) Tests
+- `test_iter40_i18n_model_selector.py` (9 tests) : liste des modèles, validation, refus de modèles/langues inconnus, refus de slug inconnu, refus de contenu vide.
+- Régression Iter40 complète : **35/35 PASS** (9 model + 6 content + 9 modal-ab + 7 modal-freq + 4 placement).
+

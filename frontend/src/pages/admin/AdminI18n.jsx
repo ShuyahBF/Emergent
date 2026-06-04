@@ -26,6 +26,12 @@ export default function AdminI18n() {
   const [saving, setSaving] = useState(false);
   const [importing, setImporting] = useState(false);
   const [aiLoading, setAiLoading] = useState(null); // field code being translated
+  // Iter40-i18n-model — Available translation models + currently selected
+  const [aiModels, setAiModels] = useState([]);
+  const [aiModelId, setAiModelId] = useState("claude-sonnet-4-5-20250929");
+  // Iter40-i18n-batch — Bulk-translate-empty state
+  const [bulkTargetLang, setBulkTargetLang] = useState("en");
+  const [bulkRunning, setBulkRunning] = useState(false);
   const fileInputRef = useRef(null);
 
   const isTranslator = (user?.tracked_role || "") === "Traducteur";
@@ -61,6 +67,42 @@ export default function AdminI18n() {
 
   useEffect(() => { load(); loadScore(); }, []);
 
+  // Iter40-i18n-model — Load available translation models once
+  useEffect(() => {
+    apiClient.get("/admin/i18n/translate-models").then((r) => {
+      setAiModels(r.data?.items || []);
+      if (r.data?.default) setAiModelId(r.data.default);
+    }).catch(() => { /* admin-only endpoint; translators can skip */ });
+  }, []);
+
+  // Iter40-i18n-batch — Run "translate all empty cells" for the selected lang+model
+  const runBulkTranslate = async () => {
+    if (!aiModelId) { toast.warning("Sélectionnez un modèle IA."); return; }
+    if (!window.confirm(
+      `Lancer la traduction IA de TOUTES les cellules vides en ${bulkTargetLang.toUpperCase()} ` +
+      `avec le modèle ${aiModelId} ?\n\nCela peut prendre quelques minutes et consomme des crédits IA.`
+    )) return;
+    setBulkRunning(true);
+    try {
+      const r = await apiClient.post("/admin/i18n/translate-empty-bulk", {
+        target_lang: bulkTargetLang, model: aiModelId,
+      });
+      const n = r.data?.translated || 0;
+      const errs = (r.data?.errors || []).length;
+      toast.success(
+        `${n} cellule${n > 1 ? "s" : ""} traduite${n > 1 ? "s" : ""} en ${bulkTargetLang.toUpperCase()}` +
+        (errs > 0 ? ` · ${errs} erreur${errs > 1 ? "s" : ""}` : ""),
+        { duration: 8000 }
+      );
+      if (errs > 0) console.warn("[i18n] bulk-translate errors:", r.data.errors);
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de traduction en masse");
+    } finally {
+      setBulkRunning(false);
+    }
+  };
+
   // Helper : is the translator allowed to edit a given language column?
   const canEditLang = (lang) => {
     if (viewerRole !== "translator") return true;
@@ -77,6 +119,7 @@ export default function AdminI18n() {
     try {
       const r = await apiClient.post("/admin/i18n/translate-suggest", {
         fr, target_lang: targetLang, context: editing.context || "",
+        model: aiModelId,
       });
       const suggestion = r.data?.suggestion || "";
       if (!suggestion) { toast.warning("Aucune suggestion retournée."); return; }
@@ -273,6 +316,58 @@ export default function AdminI18n() {
           })}
         </div>
       </div>
+
+      {/* Iter40-i18n-model — AI translator: model selector + bulk-translate-empty */}
+      {!isTranslator && aiModels.length > 0 && (
+        <div className="rounded-lg ring-1 ring-violet-200 bg-violet-50/40 p-3 space-y-2" data-testid="i18n-ai-toolbar">
+          <div className="flex items-center gap-2 text-xs font-semibold text-violet-900">
+            <Sparkles className="h-4 w-4 text-violet-600" />
+            <span>Traducteur IA — réglages</span>
+          </div>
+          <div className="flex flex-wrap items-end gap-2 text-xs">
+            <div className="flex flex-col">
+              <label className="text-[10px] uppercase text-slate-500 mb-1">Modèle IA</label>
+              <select
+                value={aiModelId}
+                onChange={(e) => setAiModelId(e.target.value)}
+                className="rounded ring-1 ring-violet-300 bg-white px-2 py-1.5 text-xs"
+                data-testid="i18n-ai-model"
+              >
+                {aiModels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="flex flex-col">
+              <label className="text-[10px] uppercase text-slate-500 mb-1">Langue cible (en masse)</label>
+              <select
+                value={bulkTargetLang}
+                onChange={(e) => setBulkTargetLang(e.target.value)}
+                className="rounded ring-1 ring-violet-300 bg-white px-2 py-1.5 text-xs"
+                data-testid="i18n-bulk-target-lang"
+              >
+                <option value="en">EN — Anglais</option>
+                <option value="ar">AR — Arabe</option>
+                <option value="lg1">LG1 — Gulmancema</option>
+                <option value="lg2">LG2 — Mooré</option>
+              </select>
+            </div>
+            <button
+              onClick={runBulkTranslate}
+              disabled={bulkRunning}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 disabled:opacity-50"
+              data-testid="i18n-run-bulk-translate"
+              title="Traduit toutes les cellules vides dans la langue cible avec le modèle sélectionné"
+            >
+              {bulkRunning ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Traduire toutes les cellules vides en {bulkTargetLang.toUpperCase()}
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 italic">
+            Le modèle sélectionné s'applique aussi au bouton ✨ ligne-par-ligne dans l'éditeur. La traduction préserve les balises HTML et placeholders.
+          </p>
+        </div>
+      )}
 
       {/* Translator score (only for tracked_role=Traducteur) */}
       {isTranslator && score && (

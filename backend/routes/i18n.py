@@ -78,6 +78,26 @@ COUNTRY_LANG_MAP: Dict[str, str] = {
 }
 
 
+# Iter40-i18n-model — Allowed translation models for the AI-assisted translator.
+# All routed through emergentintegrations LlmChat (universal Emergent LLM key).
+# Tuple format: (provider, model_id).
+_TRANSLATE_MODELS: Dict[str, tuple] = {
+    "claude-sonnet-4-5-20250929": ("anthropic", "claude-sonnet-4-5-20250929"),
+    "claude-haiku-4-5-20251001": ("anthropic", "claude-haiku-4-5-20251001"),
+    "gpt-4o": ("openai", "gpt-4o"),
+    "gpt-4o-mini": ("openai", "gpt-4o-mini"),
+    "gemini-2.5-pro": ("gemini", "gemini-2.5-pro"),
+    "gemini-2.5-flash": ("gemini", "gemini-2.5-flash"),
+}
+_ALLOWED_TRANSLATE_MODELS = set(_TRANSLATE_MODELS.keys())
+
+
+def _resolve_model_provider(model_id: str) -> tuple:
+    """Iter40-i18n-model — Map a public model_id to (provider, model_id) tuple."""
+    return _TRANSLATE_MODELS.get(model_id, ("anthropic", "claude-sonnet-4-5-20250929"))
+
+
+
 # Seed strings — the most-visible UI labels that need translation by default.
 # AR = Modern Standard Arabic. LG1 (Gulmancema) and LG2 (Mooré) are left
 # empty on purpose, to be filled manually by human translators.
@@ -583,10 +603,14 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
         source_fr = (payload.get("fr") or "").strip()
         target_lang = (payload.get("target_lang") or "").strip().lower()
         context = (payload.get("context") or "").strip()
+        # Iter40-i18n-model — Optional model override. Defaults to Claude Sonnet 4.5.
+        model = (payload.get("model") or "claude-sonnet-4-5-20250929").strip()
         if not source_fr:
             raise HTTPException(status_code=400, detail="Le texte FR source est requis.")
         if target_lang not in {"en", "ar", "lg1", "lg2"}:
             raise HTTPException(status_code=400, detail="Langue cible non supportée.")
+        if model not in _ALLOWED_TRANSLATE_MODELS:
+            raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model}")
 
         emergent_key = os.environ.get("EMERGENT_LLM_KEY")
         if not emergent_key:
@@ -622,7 +646,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
                 api_key=emergent_key,
                 session_id=f"i18n-translate-{user.get('id') or 'admin'}",
                 system_message=system_text,
-            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+            ).with_model(*_resolve_model_provider(model))
             suggestion = (await chat.send_message(UserMessage(text=user_msg))) or ""
             suggestion = suggestion.strip()
         except Exception as exc:  # noqa: BLE001
@@ -644,7 +668,121 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
             "fr": source_fr,
             "target_lang": target_lang,
             "suggestion": suggestion,
-            "model": "claude-sonnet-4-5",
+            "model": model,
+        }
+
+    # Iter40-i18n-model — Public list of allowed translation models (for the
+    # admin dropdown). Returns ids + human-readable labels.
+    @api.get("/admin/i18n/translate-models", tags=["Admin — i18n"])
+    async def admin_translate_models(user: dict = Depends(get_current_user)):
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        return {
+            "items": [
+                {"id": "claude-sonnet-4-5-20250929", "label": "Claude Sonnet 4.5 (recommandé)", "provider": "anthropic"},
+                {"id": "claude-haiku-4-5-20251001", "label": "Claude Haiku 4.5 (rapide & économique)", "provider": "anthropic"},
+                {"id": "gpt-4o", "label": "GPT-4o (équilibré)", "provider": "openai"},
+                {"id": "gpt-4o-mini", "label": "GPT-4o mini (très économique)", "provider": "openai"},
+                {"id": "gemini-2.5-pro", "label": "Gemini 2.5 Pro (créatif)", "provider": "gemini"},
+                {"id": "gemini-2.5-flash", "label": "Gemini 2.5 Flash (rapide)", "provider": "gemini"},
+            ],
+            "default": "claude-sonnet-4-5-20250929",
+        }
+
+    # Iter40-i18n-batch — Translate ALL empty cells for a given target_lang
+    # in one batch call. Returns a per-row report (translated count + errors).
+    @api.post("/admin/i18n/translate-empty-bulk", tags=["Admin — i18n"])
+    async def admin_translate_empty_bulk(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Réservé admin/superviseur")
+        target_lang = (payload.get("target_lang") or "").strip().lower()
+        model = (payload.get("model") or "claude-sonnet-4-5-20250929").strip()
+        if target_lang not in {"en", "ar", "lg1", "lg2"}:
+            raise HTTPException(status_code=400, detail="Langue cible non supportée.")
+        if model not in _ALLOWED_TRANSLATE_MODELS:
+            raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model}")
+        emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+        if not emergent_key:
+            raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+        except ImportError as exc:
+            raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
+
+        # Find every row where FR is non-empty AND target_lang is empty
+        rows = await db.i18n_translations.find(
+            {"fr": {"$ne": ""}, "$or": [{target_lang: ""}, {target_lang: None}, {target_lang: {"$exists": False}}]},
+            {"_id": 0},
+        ).to_list(2000)
+
+        if not rows:
+            return {"ok": True, "translated": 0, "skipped": 0, "errors": [],
+                    "total_candidates": 0, "target_lang": target_lang, "model": model}
+
+        lang_labels = {
+            "en": "English",
+            "ar": "Modern Standard Arabic (formal, no transliteration)",
+            "lg1": "Gulmancema (Burkina Faso national language)",
+            "lg2": "Mooré (Burkina Faso national language)",
+        }
+        target_label = lang_labels[target_lang]
+        system_text = (
+            "You are a professional UI translator. Output ONLY the target-language "
+            "string — no quotes, no explanations, no leading 'Translation:' label. "
+            "Preserve any HTML tags, placeholders like {name}, and punctuation. "
+            "Keep brand names (SAWALI, Liluvine, WhatsApp) unchanged."
+        )
+
+        translated = 0
+        errors: List[Dict[str, Any]] = []
+        provider_tuple = _resolve_model_provider(model)
+
+        for row in rows:
+            fr = (row.get("fr") or "").strip()
+            ctx = (row.get("context") or "").strip()
+            key = row.get("key")
+            user_msg = f"Target language: {target_label}\n"
+            if ctx:
+                user_msg += f"UI context: {ctx}\n"
+            user_msg += f"\nFrench source:\n{fr}"
+            try:
+                chat = LlmChat(
+                    api_key=emergent_key,
+                    session_id=f"i18n-bulk-{user.get('id') or 'admin'}-{key}",
+                    system_message=system_text,
+                ).with_model(*provider_tuple)
+                suggestion = (await chat.send_message(UserMessage(text=user_msg))) or ""
+                suggestion = suggestion.strip()
+                for quote in ('"', "'", "«", "»"):
+                    if suggestion.startswith(quote) and suggestion.endswith(quote):
+                        suggestion = suggestion[1:-1].strip()
+                if not suggestion:
+                    errors.append({"key": key, "reason": "empty_suggestion"})
+                    continue
+                await db.i18n_translations.update_one(
+                    {"key": key},
+                    {"$set": {
+                        target_lang: suggestion,
+                        "updated_at": _now(),
+                        "updated_by_id": user.get("id"),
+                        "updated_by_email": user.get("email"),
+                    }},
+                )
+                translated += 1
+            except Exception as exc:  # noqa: BLE001
+                logger.exception("[i18n] bulk-translate failed for key=%s", key)
+                errors.append({"key": key, "reason": str(exc)[:200]})
+        return {
+            "ok": True,
+            "translated": translated,
+            "skipped": len(rows) - translated - len(errors),
+            "errors": errors,
+            "total_candidates": len(rows),
+            "model": model,
+            "target_lang": target_lang,
         }
 
     @api.post("/admin/i18n/translations/import-csv", tags=["Admin — i18n"])

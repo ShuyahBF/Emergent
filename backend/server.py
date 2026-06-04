@@ -8556,6 +8556,151 @@ async def admin_delete_content(slug: str, _: dict = Depends(get_current_admin)):
     return {"ok": True}
 
 
+# Iter40-content-i18n — Translate an entire content document (title, body_html,
+# metadata.kicker, and metadata.metrics/items labels) in ONE LLM call. The
+# JSON-in / JSON-out contract preserves HTML tags and content structure.
+@api.post("/admin/content/{slug}/translate", tags=["Admin"])
+async def admin_translate_content(slug: str, payload: dict = Body(...), user: dict = Depends(get_current_admin)):
+    target_lang = (payload.get("target_lang") or "").strip().lower()
+    model_id = (payload.get("model") or "claude-sonnet-4-5-20250929").strip()
+    if target_lang not in {"en", "ar", "lg1", "lg2"}:
+        raise HTTPException(status_code=400, detail="Langue cible non supportée.")
+    # Whitelist of allowed models (same set as i18n)
+    _ALLOWED = {
+        "claude-sonnet-4-5-20250929": ("anthropic", "claude-sonnet-4-5-20250929"),
+        "claude-haiku-4-5-20251001": ("anthropic", "claude-haiku-4-5-20251001"),
+        "gpt-4o": ("openai", "gpt-4o"),
+        "gpt-4o-mini": ("openai", "gpt-4o-mini"),
+        "gemini-2.5-pro": ("gemini", "gemini-2.5-pro"),
+        "gemini-2.5-flash": ("gemini", "gemini-2.5-flash"),
+    }
+    if model_id not in _ALLOWED:
+        raise HTTPException(status_code=400, detail=f"Modèle non autorisé : {model_id}")
+    emergent_key = os.environ.get("EMERGENT_LLM_KEY")
+    if not emergent_key:
+        raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY non configurée.")
+    doc = await db.contents.find_one({"slug": slug}, {"_id": 0})
+    if not doc:
+        raise HTTPException(status_code=404, detail="Contenu introuvable")
+
+    # Build the payload to translate: extract translatable strings from the
+    # DEFAULT fields (admin can override later from the UI).
+    translatable = {
+        "title": doc.get("title") or "",
+        "body_html": doc.get("body_html") or "",
+        "kicker": (doc.get("metadata") or {}).get("kicker") or "",
+        "metrics": [
+            {"label": m.get("label") or "", "value": m.get("value") or ""}
+            for m in ((doc.get("metadata") or {}).get("metrics") or [])
+        ],
+        "items": [
+            {"title": it.get("title") or "", "desc": it.get("desc") or ""}
+            for it in ((doc.get("metadata") or {}).get("items") or [])
+        ],
+    }
+    # Drop empty arrays to keep the prompt compact
+    if not translatable["metrics"]:
+        translatable.pop("metrics")
+    if not translatable["items"]:
+        translatable.pop("items")
+    if not (translatable.get("title") or translatable.get("body_html") or translatable.get("kicker") or translatable.get("metrics") or translatable.get("items")):
+        raise HTTPException(status_code=400, detail="Aucun texte à traduire.")
+
+    try:
+        from emergentintegrations.llm.chat import LlmChat, UserMessage  # type: ignore
+    except ImportError as exc:
+        raise HTTPException(status_code=503, detail=f"Bibliothèque IA absente : {exc}") from exc
+
+    lang_labels = {
+        "en": "English",
+        "ar": "Modern Standard Arabic (formal, no transliteration)",
+        "lg1": "Gulmancema (Burkina Faso national language)",
+        "lg2": "Mooré (Burkina Faso national language)",
+    }
+    target_label = lang_labels[target_lang]
+    import json as _json
+    system_text = (
+        "You are a professional website translator. Translate the JSON values "
+        "from French to the requested target language. Preserve EXACTLY:\n"
+        " - All HTML tags and attributes (<p>, <strong>, <a href=...>, …)\n"
+        " - Placeholders like {name}, {{var}}, and HTML entities\n"
+        " - Numbers (10+, 24/7, etc.) — do not translate digits\n"
+        " - Brand names: SAWALI, Liluvine, WhatsApp, PawaPay, Stripe (keep unchanged)\n"
+        "Return ONLY a valid JSON object with EXACTLY the same keys and structure "
+        "as the input. NO markdown fences, NO commentary."
+    )
+    user_msg = (
+        f"Target language: {target_label}\n\n"
+        f"Input JSON (French):\n{_json.dumps(translatable, ensure_ascii=False, indent=2)}"
+    )
+    provider, model_name = _ALLOWED[model_id]
+    try:
+        chat = LlmChat(
+            api_key=emergent_key,
+            session_id=f"content-translate-{slug}-{user.get('id') or 'admin'}",
+            system_message=system_text,
+        ).with_model(provider, model_name)
+        raw = (await chat.send_message(UserMessage(text=user_msg))) or ""
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=502, detail=f"Échec LLM : {str(exc)[:200]}") from exc
+
+    # Parse the model response (strip optional ```json fences just in case)
+    text = (raw or "").strip()
+    if text.startswith("```"):
+        text = text.strip("`")
+        if text.lower().startswith("json"):
+            text = text[4:].strip()
+    parsed: dict = {}
+    try:
+        parsed = _json.loads(text)
+    except Exception:  # noqa: BLE001
+        import re as _re
+        m = _re.search(r"\{.*\}", text, _re.S)
+        if m:
+            try:
+                parsed = _json.loads(m.group(0))
+            except Exception:  # noqa: BLE001
+                parsed = {}
+    if not parsed:
+        raise HTTPException(status_code=502, detail="Réponse IA non parsable")
+
+    # Build the override dict in our translations[<lang>] shape
+    override: dict = {}
+    if parsed.get("title"):
+        override["title"] = str(parsed["title"])
+    if parsed.get("body_html") is not None:
+        override["body_html"] = str(parsed["body_html"])
+    meta: dict = {}
+    if parsed.get("kicker"):
+        meta["kicker"] = str(parsed["kicker"])
+    if isinstance(parsed.get("metrics"), list):
+        meta["metrics"] = [
+            {"label": (m.get("label") or "") if isinstance(m, dict) else "",
+             "value": (m.get("value") or "") if isinstance(m, dict) else ""}
+            for m in parsed["metrics"]
+        ]
+    if isinstance(parsed.get("items"), list):
+        # Preserve icons from the default doc (LLM doesn't know our icon names)
+        base_items = ((doc.get("metadata") or {}).get("items") or [])
+        meta["items"] = [
+            {"title": (it.get("title") or "") if isinstance(it, dict) else "",
+             "desc": (it.get("desc") or "") if isinstance(it, dict) else "",
+             "icon": (base_items[i].get("icon") if i < len(base_items) else None) or "Code"}
+            for i, it in enumerate(parsed["items"])
+        ]
+    if meta:
+        override["metadata"] = meta
+
+    # Persist to translations[<target_lang>]
+    translations = dict(doc.get("translations") or {})
+    translations[target_lang] = override
+    await db.contents.update_one(
+        {"slug": slug},
+        {"$set": {"translations": translations, "updated_at": _now()}},
+    )
+    return {"ok": True, "slug": slug, "target_lang": target_lang, "model": model_id, "override": override}
+
+
 # ====================================================================
 # ADMIN - Tracked users (sub-users of clients)
 # ====================================================================

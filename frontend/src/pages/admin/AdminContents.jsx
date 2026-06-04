@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { Save, Plus, Trash2, Languages } from "lucide-react";
+import { Save, Plus, Trash2, Languages, Sparkles, Loader2 } from "lucide-react";
 
 const SLUGS = [
   { slug: "home_hero", label: "Accueil — Hero" },
@@ -26,6 +26,10 @@ export default function AdminContents() {
   // Full document (default fields + translations map)
   const [doc, setDoc] = useState({ title: "", body_html: "", metadata: {}, images: [], translations: {} });
   const [loading, setLoading] = useState(false);
+  // Iter40-content-i18n — Model selector for the "Translate this content" feature
+  const [aiModels, setAiModels] = useState([]);
+  const [aiModelId, setAiModelId] = useState("claude-sonnet-4-5-20250929");
+  const [aiTranslating, setAiTranslating] = useState(false);
 
   const reload = () => apiClient.get("/content").then((r) => setList(r.data));
   useEffect(() => { reload().catch(() => {}); }, []);
@@ -34,6 +38,41 @@ export default function AdminContents() {
   useEffect(() => {
     apiClient.get("/i18n/languages").then((r) => setLanguages(r.data?.items || [])).catch(() => {});
   }, []);
+
+  // Iter40-content-i18n — Load available translation models
+  useEffect(() => {
+    apiClient.get("/admin/i18n/translate-models").then((r) => {
+      setAiModels(r.data?.items || []);
+      if (r.data?.default) setAiModelId(r.data.default);
+    }).catch(() => {});
+  }, []);
+
+  // Iter40-content-i18n — Translate the current default content into the
+  // currently selected language in one LLM call. Persists to translations[lang].
+  const translateThisContent = async () => {
+    if (isDefault) { toast.warning("Sélectionnez d'abord une langue à traduire (autre que « Par défaut »)"); return; }
+    if (!aiModelId) { toast.warning("Sélectionnez un modèle IA."); return; }
+    if (!(doc.title || doc.body_html || (doc.metadata?.kicker))) {
+      toast.warning("Le contenu par défaut est vide — rien à traduire."); return;
+    }
+    setAiTranslating(true);
+    try {
+      const r = await apiClient.post(`/admin/content/${active}/translate`, {
+        target_lang: activeLang, model: aiModelId,
+      });
+      const override = r.data?.override || {};
+      // Merge into local state so the editor immediately shows the translation
+      const t = { ...(doc.translations || {}) };
+      t[activeLang] = override;
+      setDoc({ ...doc, translations: t });
+      toast.success(`Contenu traduit en ${activeLang.toUpperCase()} — relisez avant d'enregistrer.`);
+      await reload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de traduction");
+    } finally {
+      setAiTranslating(false);
+    }
+  };
 
   // When tab changes, hydrate the editor with the saved content
   useEffect(() => {
@@ -207,6 +246,37 @@ export default function AdminContents() {
             </button>
           ))}
         </div>
+        {/* Iter40-content-i18n — AI translate this content (whole doc, one LLM call) */}
+        {!isDefault && (
+          <div className="flex flex-wrap items-end gap-2 pt-2 border-t border-fuchsia-200/60">
+            <div className="flex flex-col">
+              <label className="text-[10px] uppercase text-slate-500 mb-1">Modèle IA</label>
+              <select
+                value={aiModelId}
+                onChange={(e) => setAiModelId(e.target.value)}
+                className="rounded ring-1 ring-violet-300 bg-white px-2 py-1.5 text-xs"
+                data-testid="content-ai-model"
+              >
+                {aiModels.map((m) => (
+                  <option key={m.id} value={m.id}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            <button
+              onClick={translateThisContent}
+              disabled={aiTranslating}
+              className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 hover:bg-violet-700 text-white px-3 py-1.5 text-xs disabled:opacity-50"
+              data-testid="content-translate-btn"
+              title="Traduit l'intégralité du contenu (titre, corps HTML, kicker, chiffres clés, items) en une seule passe en préservant les balises"
+            >
+              {aiTranslating ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Sparkles className="h-3.5 w-3.5" />}
+              Traduire ce contenu en {activeLang.toUpperCase()}
+            </button>
+            <p className="text-[10px] text-slate-500 italic ml-1">
+              Préserve les balises HTML et placeholders ; la réponse est pré-remplie dans les champs ci-dessous — relisez puis sauvegardez.
+            </p>
+          </div>
+        )}
         <p className="text-[10px] text-slate-500 italic">
           Les champs ci-dessous s'appliquent à la langue sélectionnée. Quand un visiteur change la langue sur le site, les champs traduits remplacent les valeurs par défaut. <strong>Pour effacer une surcharge</strong>, videz le champ correspondant et sauvegardez.
         </p>

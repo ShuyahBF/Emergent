@@ -407,6 +407,21 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : permet à l'admin de localiser les textes longs (Hero, Mission, descriptions de spécialisations) sans dupliquer la structure, tout en gardant les chiffres clés et la structure JSON cohérents.
 - **Tests** : 6 tests pytest (`test_iter40_content_i18n.py`) couvrant upsert, no-lang fallback, override, unknown lang, deep-merge metadata, list endpoint.
 
+## S049 — Sélecteur de modèle IA + Traduction en lot (i18n + contents)
+- **Demande utilisateur** : 2026-06 — « Au niveau de régionalisation et de /admin/contents il serait bien de sélectionner le modèle du générateur. En régionalisation, toutes les lignes vides sont traduites par le traducteur sélectionné. Dans admin/contents chaque onglet ayant un contenu est traduit en une seule passe (en conservant les balises) »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-i18n-model
+- **Détail** :
+  - 6 modèles disponibles : Claude Sonnet 4.5 (défaut), Claude Haiku 4.5, GPT-4o, GPT-4o mini, Gemini 2.5 Pro, Gemini 2.5 Flash
+  - Nouvel endpoint `GET /admin/i18n/translate-models` retourne la liste + défaut
+  - `POST /admin/i18n/translate-suggest` accepte désormais un champ optionnel `model`
+  - Nouvel endpoint `POST /admin/i18n/translate-empty-bulk` qui traduit en une passe toutes les cellules vides d'une langue cible avec le modèle sélectionné (préserve les balises HTML et placeholders)
+  - Nouvel endpoint `POST /admin/content/{slug}/translate` qui traduit l'intégralité d'un contenu (titre + body_html + metadata.kicker + metrics labels + items title/desc) en UN SEUL appel LLM (préserve les balises) et le persiste dans `translations[<target_lang>]`
+  - Frontend `AdminI18n.jsx` : nouveau bloc violet "Traducteur IA — réglages" avec dropdown modèle + select langue cible + bouton "Traduire toutes les cellules vides"
+  - Frontend `AdminContents.jsx` : dans le bloc langues, dropdown modèle + bouton "Traduire ce contenu en XX" (visible uniquement quand une langue autre que défaut est sélectionnée)
+- **Bénéfice** : permet d'industrialiser la traduction (gain de temps massif), tester plusieurs modèles pour comparer le coût/qualité, et garder un contrôle fin via la relecture admin avant sauvegarde.
+- **Tests** : 9 tests pytest (`test_iter40_i18n_model_selector.py`) couvrant liste des modèles, validation, rejection des modèles inconnus, endpoint content/translate (validation lang/model, 404 slug inconnu, refus contenu vide).
+
 ---
 
 ## Comment référencer une suggestion

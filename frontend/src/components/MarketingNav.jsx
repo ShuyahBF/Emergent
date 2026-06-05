@@ -4,6 +4,7 @@ import { Menu, X, ArrowRight, LogIn } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
 import { useAuth } from "@/contexts/AuthContext";
 import { useT } from "@/contexts/I18nContext";
+import { useUIFlags } from "@/lib/useUIFlags";
 import LanguageSelector from "@/components/LanguageSelector";
 import SupportLoadGauge from "@/components/SupportLoadGauge";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
@@ -26,6 +27,10 @@ export default function MarketingNav() {
   const { user } = useAuth();
   const t = useT();
   const navigate = useNavigate();
+  // Iter40-ui-flags — Public branding overrides (logo, brand name)
+  const flags = useUIFlags();
+  const logoSrc = flags?.public_logo_url || LOGO_URL;
+  const brandName = flags?.public_brand_name || "SAWALI SMART SYSTEMS";
 
   const portalHref = user ? (user.role === "admin" ? "/admin" : "/portal") : "/login";
   const portalLabel = user ? t("public.nav.my_space", "Mon espace") : t("public.nav.loois_space", "Espace Loois");
@@ -43,9 +48,9 @@ export default function MarketingNav() {
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <div className="flex h-16 items-center justify-between gap-4">
           <Link to="/" className="flex items-center gap-3 shrink-0" data-testid="navbar-logo-link">
-            <img src={LOGO_URL} alt="SAWALI" className="h-10 w-10 rounded-md object-cover ring-1 ring-white/20" />
+            <img src={logoSrc} alt={brandName} className="h-10 w-10 rounded-md object-cover ring-1 ring-white/20" data-testid="navbar-logo-img" />
             <div className="hidden sm:flex flex-col leading-tight">
-              <span className="font-display font-bold text-white tracking-tight whitespace-nowrap">SAWALI SMART SYSTEMS</span>
+              <span className="font-display font-bold text-white tracking-tight whitespace-nowrap" data-testid="navbar-brand-name">{brandName}</span>
               <span className="text-[10px] uppercase tracking-[0.25em] text-sawali-blue-light whitespace-nowrap">Software Engineering</span>
             </div>
           </Link>

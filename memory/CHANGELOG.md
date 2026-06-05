@@ -3000,3 +3000,32 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - Afficher `public_logo_url` dans `MarketingNav.jsx` quand défini (sinon logo SAWALI par défaut)
 - Override de `home_hero.title` par `public_hero_tagline`
 
+
+## Iter40-ui-flags-bugfix + logo + text-color + search (2026-06-05) — Itération polish
+
+### 🐛 1) Bugfix branding live preview (S052 amendée)
+- `lib/useUIFlags.js` exporte désormais `applyBrandingLocal` (alias de la fonction interne `applyBranding`)
+- `AdminSettings.jsx` : tous les inputs de la section "Identité publique" appellent `applyBrandingLocal({...})` au `onChange` au lieu de dispatcher l'event (qui re-fetchait l'ancienne valeur de la DB)
+- Le dispatch `ui-flags-updated` est désormais déclenché APRÈS un `PUT /admin/settings` réussi (bouton "Enregistrer") pour rafraîchir le cache localStorage des autres onglets/sessions
+- Note d'aide mise à jour : « Aperçu en direct dans votre navigateur — cliquez sur Enregistrer pour persister et propager à tous les visiteurs. »
+
+### 🎨 2) Couleur de texte personnalisable (S053)
+- Backend `models.py` + `server.py` : nouveau champ `public_brand_text_color` exposé via `/api/public/ui-flags`
+- Frontend `useUIFlags.js` : applique `--brand-text` au `:root` (défaut `#FFFFFF`)
+- Frontend `tailwind.config.js` : nouveau scope `brand.text` câblé sur `var(--brand-text)`
+- Frontend `AdminSettings.jsx` : 2ème color picker "Couleur du texte (sur fond brand)" + tuile d'aperçu de contraste live
+
+### 🖼️ 3) Logo dynamique dans MarketingNav (S054)
+- `components/MarketingNav.jsx` importe `useUIFlags`, lit `flags.public_logo_url` (fallback `LOGO_URL`) et `flags.public_brand_name` (fallback "SAWALI SMART SYSTEMS")
+- Le logo téléversé en Admin Settings remplace désormais le logo SAWALI dans le header de toutes les pages publiques
+- Data-testids ajoutés : `navbar-logo-img`, `navbar-brand-name`
+
+### 🔍 4) Recherche full-text dans /admin/suggestions (S055)
+- `AdminSuggestionsRegistry.jsx` : nouvelle barre de recherche violet
+- Algo : tokenize (≥2 chars, lowercased, accent-insensible), split par `## ` headings, filtre AND sur tous les tokens, highlight `<mark>` jaune, compteur live "X / Y"
+- Bouton "Effacer" + message "Aucune suggestion ne correspond..."
+
+### 🏷️ 5) Renommage "Qdrant RAG" → "RAG (Qdrant)" (S056)
+- `AdminSettings.jsx` : libellé de la section S038 modifié pour utiliser "RAG" comme mot-clé principal (cohérence vocabulaire métier)
+- Recherche fonctionne avec "rag" OU "qdrant"
+

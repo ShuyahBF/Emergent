@@ -11105,6 +11105,7 @@ async def public_ui_flags():
         # Iter40-ui-flags — Public branding (null/empty = use default)
         "public_brand_name": (s.get("public_brand_name") or "").strip() or None,
         "public_brand_color": (s.get("public_brand_color") or "").strip() or None,
+        "public_brand_text_color": (s.get("public_brand_text_color") or "").strip() or None,
         "public_logo_url": (s.get("public_logo_url") or "").strip() or None,
         "public_hero_tagline": (s.get("public_hero_tagline") or "").strip() or None,
     }

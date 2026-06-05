@@ -463,6 +463,35 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Pistes pour la suite** : ~~utiliser `var(--brand-primary)` dans les composants Tailwind~~ ✅ **FAIT en Iter40-ui-flags-tailwind (2026-06-05)** — la palette Tailwind `sawali.blue` et `sawali.blue-light` sont maintenant résolues via `var(--brand-primary)` et `var(--brand-primary-light)`, donc TOUS les `bg-sawali-blue`, `text-sawali-blue`, `border-sawali-blue`, `ring-sawali-blue` héritent automatiquement de la couleur choisie en Admin. Light/dark variants sont calculés automatiquement (shift de luminosité de ±12-18 %). Validé visuellement : changement de #1E90FF → #FF3366 dans la console, tous les boutons CTA, badges, accents, icônes du site public passent instantanément en rose. Aussi exposée comme `brand: { DEFAULT, light, dark }` pour les nouveaux composants qui voudraient un nom sémantique.
 - **Pistes restantes** : afficher `public_logo_url` dans `MarketingNav.jsx` quand défini ; appliquer `public_hero_tagline` dans `Home.jsx` (override de `home_hero.title`).
 
+## S053 — Couleur de texte personnalisable (sur fond brand)
+- **Demande utilisateur** : 2026-06 — « Il faudrait un 2ème picker supplémentaire (pour le texte). Le premier servira pour le fond et le second pour le texte. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-ui-flags-text
+- **Détail** : Nouveau champ `public_brand_text_color` dans `SettingsUpdate` + endpoint public `/api/public/ui-flags`. Applique `--brand-text` (CSS variable) au `:root`. Nouveau scope Tailwind `brand.text` câblé sur la variable. Admin UI : deuxième color picker juste sous le picker de fond, avec tuile aperçu de contraste en temps réel.
+- **Bénéfice** : permet d'ajuster le contraste texte/fond selon la couleur choisie (ex : fond jaune → texte noir).
+- **Où le trouver** : `/admin/settings` → section *« Identité publique »* → ligne *« Couleur du texte (sur fond brand) »*.
+
+## S054 — Logo personnalisable propagé au header public
+- **Demande utilisateur** : 2026-06 — « Dans tous les 2 cas le logo ne change pas »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-ui-flags-logo
+- **Détail** : `components/MarketingNav.jsx` consomme `useUIFlags()` et utilise `flags.public_logo_url` (fallback `LOGO_URL` SAWALI) ainsi que `flags.public_brand_name` (fallback "SAWALI SMART SYSTEMS"). Le logo téléversé dans Admin Settings remplace désormais le logo SAWALI dans le header de toutes les pages publiques. Le `useUIFlags()` au niveau racine de l'app garantit que le changement est appliqué immédiatement après "Enregistrer".
+- **Bénéfice** : white-label complet — un client revendeur peut changer logo + couleur + nom de marque depuis Admin Settings sans aucune intervention dev.
+
+## S055 — Recherche full-text dans /admin/suggestions
+- **Demande utilisateur** : 2026-06 — « Permettre dans /admin/suggestions de pouvoir faire une recherche full-text »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-suggestions-search
+- **Détail** : Barre de recherche violet en haut de `/admin/suggestions`. Tokenize la requête (mots ≥ 2 chars, lowercased, accent-insensible). Splitte le markdown en blocs `## ...`, filtre les blocs où **TOUS** les tokens sont présents (sémantique AND), highlight les matches via `<mark class="bg-yellow-200">` en jaune, compteur "X / Y suggestions" en temps réel, bouton "Effacer" pour vider. Message "Aucune suggestion ne correspond..." si zéro résultat.
+- **Bénéfice** : retrouver instantanément une suggestion par numéro (S046), mot-clé (qdrant, rag, traduction), statut (implémentée, différée) ou nom de fix (Iter40).
+- **Où le trouver** : `/admin/suggestions` → barre de recherche violet en haut, juste sous le titre.
+
+## S056 — Renommer "Qdrant RAG" → "RAG (Qdrant)" dans Admin Settings
+- **Demande utilisateur** : 2026-06 — « C'est comme quand tu parles de Qdrant dans les paramétrages de la KB. Ça ne donne pas le bon résultat. Il faut plutôt rechercher avec RAG »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-suggestions-search (cosmétique)
+- **Détail** : Dans `/admin/settings`, la section "Qdrant RAG — Base de connaissance vectorielle (S038)" devient "RAG — Base de connaissance vectorielle (Qdrant) (S038)". Le mot-clé principal devient "RAG" pour aligner avec le vocabulaire métier utilisateur. La barre de filtre intégrée à AdminSettings et la barre de recherche AdminSuggestionsRegistry trouvent maintenant la section sur "rag" ou "qdrant" indifféremment.
+
 ---
 
 ## Comment référencer une suggestion

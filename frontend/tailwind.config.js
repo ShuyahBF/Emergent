@@ -40,6 +40,7 @@ module.exports = {
           DEFAULT: "var(--brand-primary, #1E90FF)",
           light: "var(--brand-primary-light, #2BA4FF)",
           dark: "var(--brand-primary-dark, #1873CC)",
+          text: "var(--brand-text, #FFFFFF)",
         },
       },
       fontFamily: {

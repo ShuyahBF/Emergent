@@ -34,7 +34,7 @@ import QdrantRagSection from "@/components/QdrantRagSection";
 // ============================================================
 const NEW_SECTIONS = {
   // S-iter39o (2026-02 post-handoff) — Qdrant RAG
-  "Qdrant RAG — Base de connaissance vectorielle (S038)": "2026-02-02",
+  "RAG (Qdrant) — Base de connaissance vectorielle (S038)": "2026-02-02",
   // S-iter39k (2026-02 post-handoff) — Liluvine escalation
   "Liluvine PRO — Demande d'aide WhatsApp à l'admin (S036)": "2026-02-02",
   // S-iter39g (2026-02 post-handoff) — Universal Key burn-rate thresholds
@@ -772,7 +772,7 @@ export default function AdminSettings() {
             <p className="text-[10px] text-slate-500 italic mt-1">Utilisé pour <code>document.title</code> (onglet du navigateur).</p>
           </div>
           <div>
-            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Couleur primaire</label>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Couleur primaire (fond)</label>
             <div className="flex items-center gap-2">
               <input
                 type="color"
@@ -800,7 +800,48 @@ export default function AdminSettings() {
                 maxLength={9}
               />
             </div>
-            <p className="text-[10px] text-slate-500 italic mt-1">Exposée comme <code>var(--brand-primary)</code> dans le CSS.</p>
+            <p className="text-[10px] text-slate-500 italic mt-1">Exposée comme <code>var(--brand-primary)</code> · sert de couleur de fond pour les boutons CTA et accents.</p>
+          </div>
+          {/* Iter40-ui-flags-text — Second color picker for text on brand backgrounds */}
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Couleur du texte (sur fond brand)</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={s.public_brand_text_color || "#FFFFFF"}
+                onChange={(e) => {
+                  upd("public_brand_text_color", e.target.value);
+                  applyBrandingLocal({ public_brand_text_color: e.target.value });
+                }}
+                className="h-9 w-12 rounded ring-1 ring-slate-300 cursor-pointer"
+                data-testid="brand-text-color-picker"
+              />
+              <input
+                type="text"
+                value={s.public_brand_text_color || ""}
+                onChange={(e) => {
+                  upd("public_brand_text_color", e.target.value);
+                  if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                    applyBrandingLocal({ public_brand_text_color: e.target.value });
+                  }
+                }}
+                placeholder="#FFFFFF"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                className="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm font-mono"
+                data-testid="brand-text-color-hex"
+                maxLength={9}
+              />
+            </div>
+            <p className="text-[10px] text-slate-500 italic mt-1">Exposée comme <code>var(--brand-text)</code> · texte des boutons CTA et badges sur fond brand. Défaut : blanc.</p>
+            {/* Live preview tile to verify contrast */}
+            <div className="mt-2 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold"
+                 style={{
+                   backgroundColor: s.public_brand_color || "#1E90FF",
+                   color: s.public_brand_text_color || "#FFFFFF",
+                 }}
+                 data-testid="brand-contrast-preview">
+              Aperçu — Texte sur fond brand
+            </div>
           </div>
           <div className="sm:col-span-2">
             <label className="text-[11px] font-semibold text-slate-600 block mb-1">URL du logo public</label>
@@ -1225,8 +1266,8 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
-      {/* S038 — Qdrant RAG semantic knowledge base */}
-      <Filterable title="Qdrant RAG — Base de connaissance vectorielle (S038)" anchorId="s-qdrant-rag">
+      {/* S038 — RAG semantic knowledge base (Qdrant) */}
+      <Filterable title="RAG — Base de connaissance vectorielle (Qdrant) (S038)" anchorId="s-rag-qdrant">
         <Section icon={Brain} title="Recherche sémantique pour Liluvine PRO (RAG)">
           <p className="text-xs text-slate-500">
             Connectez votre base Qdrant Cloud, créez des collections (FAQ, produits, procédures…)

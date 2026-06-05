@@ -70,6 +70,20 @@ function applyBranding(flags) {
     if (light) root.style.setProperty("--brand-primary-light", light);
     if (dark) root.style.setProperty("--brand-primary-dark", dark);
   }
+  // Iter40-ui-flags-text — Text color on top of brand backgrounds (CTAs, badges).
+  if (flags.public_brand_text_color && typeof document !== "undefined") {
+    document.documentElement.style.setProperty("--brand-text", flags.public_brand_text_color);
+  }
+  // Iter40-ui-flags — Logo (so MarketingNav can react instantly to admin uploads)
+  if (typeof document !== "undefined" && flags.public_logo_url !== undefined) {
+    // Stored on the documentElement as a data-attribute so plain DOM
+    // observers (or simple consumers) can read it without React context.
+    if (flags.public_logo_url) {
+      document.documentElement.setAttribute("data-public-logo-url", flags.public_logo_url);
+    } else {
+      document.documentElement.removeAttribute("data-public-logo-url");
+    }
+  }
 }
 
 // Iter40-ui-flags-tailwind — Exported so AdminSettings can preview changes

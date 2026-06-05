@@ -435,6 +435,7 @@ class SettingsUpdate(BaseModel):
     # customize the public site without touching code.
     public_brand_name: Optional[str] = None     # Site title / window.document.title
     public_brand_color: Optional[str] = None    # Primary brand hex (e.g. "#1E90FF")
+    public_brand_text_color: Optional[str] = None  # Iter40-ui-flags-text — Text color on brand backgrounds (default white)
     public_logo_url: Optional[str] = None       # Public logo (header / footer)
     public_hero_tagline: Optional[str] = None   # Optional public hero tagline override
 

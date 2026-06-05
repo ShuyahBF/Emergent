@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useMemo, useRef, useCallback, createContext, useContext } from "react";
 import { apiClient } from "@/lib/api";
+import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
 import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
@@ -292,6 +293,9 @@ export default function AdminSettings() {
       delete payload.google_calendar_connected;
       await apiClient.put("/admin/settings", payload);
       toast.success("Paramètres enregistrés");
+      // Iter40-ui-flags — Notify the global hook so the localStorage cache is
+      // refreshed (other open tabs / fresh reloads will pick up the new values).
+      try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
       await load();
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
     finally { setLoading(false); }
@@ -746,7 +750,7 @@ export default function AdminSettings() {
         <p className="text-xs text-slate-500">
           Personnalisez les éléments visuels affichés sur le site public (titre de l'onglet, logo, couleur primaire,
           accroche du hero). Idéal pour les déploiements <em>white-label</em> ou pour ajuster le branding sans toucher au code.
-          Les valeurs vides utilisent les défauts SAWALI. Le changement est appliqué instantanément, sans rechargement.
+          Les valeurs vides utilisent les défauts SAWALI. <strong>Aperçu en direct dans votre navigateur</strong> — cliquez sur <strong>« Enregistrer »</strong> en bas de la page pour persister et propager à tous les visiteurs.
         </p>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -756,7 +760,9 @@ export default function AdminSettings() {
               value={s.public_brand_name || ""}
               onChange={(e) => {
                 upd("public_brand_name", e.target.value);
-                try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                // Iter40-ui-flags — Live preview: apply locally without
+                // waiting for a DB round-trip. Persistence happens on "Save".
+                applyBrandingLocal({ public_brand_name: e.target.value });
               }}
               placeholder="SAWALI Smart Systems"
               className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
@@ -773,7 +779,7 @@ export default function AdminSettings() {
                 value={s.public_brand_color || "#1E90FF"}
                 onChange={(e) => {
                   upd("public_brand_color", e.target.value);
-                  try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                  applyBrandingLocal({ public_brand_color: e.target.value });
                 }}
                 className="h-9 w-12 rounded ring-1 ring-slate-300 cursor-pointer"
                 data-testid="brand-color-picker"
@@ -783,7 +789,9 @@ export default function AdminSettings() {
                 value={s.public_brand_color || ""}
                 onChange={(e) => {
                   upd("public_brand_color", e.target.value);
-                  try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                  if (/^#[0-9A-Fa-f]{6}$/.test(e.target.value)) {
+                    applyBrandingLocal({ public_brand_color: e.target.value });
+                  }
                 }}
                 placeholder="#1E90FF"
                 pattern="^#[0-9A-Fa-f]{6}$"

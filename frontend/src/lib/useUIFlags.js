@@ -72,6 +72,10 @@ function applyBranding(flags) {
   }
 }
 
+// Iter40-ui-flags-tailwind — Exported so AdminSettings can preview changes
+// locally and instantly (without waiting for a database round-trip).
+export const applyBrandingLocal = applyBranding;
+
 export function useUIFlags() {
   const [flags, setFlags] = useState(() => readCache());
   const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");

@@ -8,6 +8,25 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## S045 Phase 2.A (2026-02) — Extraction admin_settings (read-only routes)
+
+### 🧹 Refactor
+- Nouveau module `backend/routes/admin_settings.py` — factory `attach_admin_settings_routes(api, db, get_current_admin, get_settings_doc)`.
+- 6 endpoints déplacés de `server.py` sans changement comportemental :
+  - `GET /admin/settings` (avec masquage des secrets)
+  - `POST /admin/settings/test-url` (ping dry-run + métriques)
+  - `GET /admin/secrets/change-audit` (filtre `?key=`)
+  - `GET /admin/incidents`
+  - `DELETE /admin/incidents/{id}`
+  - `GET /admin/incidents/export.csv`
+- Constantes `GET_MASK_FIELDS` + `TESTABLE_URL_KEYS` co-localisées dans le module.
+- `server.py` : -128 lignes (22223 → 22095). Reste à extraire le `PUT /admin/settings` (dépend de SettingsUpdate, _audit_secret_changes, _broadcast_incident_to_subscribers — phase 2.B).
+
+### ✅ Tests : 10/10 verts (`test_s045p2_admin_settings_refactor.py`)
+- Masquage sensitifs + 403 client + test-url 4xx/200 + audit shape & filter + incidents list/delete/csv + 403 cross-cutting.
+- Régression complète Iter40 + S045 : **83/83 verts**.
+
+
 ## Iter40 (2026-02) — 🧠 Liluvine RAG modules métier + ✉ Signataires PV par email + 📱 Commandes WA GRH
 
 ### 🧠 1) Liluvine PRO Business RAG + ACL par module

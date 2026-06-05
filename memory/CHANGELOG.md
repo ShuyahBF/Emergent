@@ -8,6 +8,39 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter40 (2026-02) — 🧠 Liluvine RAG modules métier + ✉ Signataires PV par email + 📱 Commandes WA GRH
+
+### 🧠 1) Liluvine PRO Business RAG + ACL par module
+- Nouveau module `backend/routes/liluvine_business_rag.py` : `build_business_rag_context(db, phone_digits, query)` injecte du contexte métier (RDV, Tickets, RH personnel, Caisse, Paiements, Contacts) dans les conversations WhatsApp.
+- Détection d'intention par regex (`detect_intents`) + ACL : `settings.liluvine_module_acl` est un dict `module → [phone_digits]`. Matching sur les 9 derniers chiffres (le code pays est ignoré).
+- Endpoints admin : `GET/PUT /api/admin/liluvine-pro/module-acl` (réservés admin/superviseur). Liste blanche par module.
+- Branchement : `liluvine_wa_autoreply.py` enrichit son `sys_text` du `--- CONTEXTE MÉTIER ---` quand l'ACL passe.
+- UI Admin : nouvelle section `LiluvineModuleAclSection.jsx` dans `/admin/settings` (anchor `s-liluvine-module-acl`) — 6 textareas (un par module) avec compteur live.
+- Nouvelle action limitée : `!ticket <description>` ouvre un ticket support WhatsApp (gated par ACL `tickets`).
+
+### ✉ 2) Signataires PV — Mix utilisateurs internes + emails externes
+- `routes/meetings.py:_norm_id_list` accepte désormais les emails (normalisés lowercase, dédupliqués).
+- Vérif de signature `/me/meetings/{id}/sign` : autorise si `user.id` OU `user.email` figure dans `signers`.
+- PDF : résout les entrées email à `full_name` si un compte existe, sinon affiche l'email tel quel.
+- Notifier `_meeting_signers_notifier` : envoie email aux signataires email-only (best-effort enrichissement WA si compte existant).
+- UI `MeetingMinutes.jsx > MultiUserPicker` : nouveau bouton « + Ajouter email » qui apparaît dès qu'une chaîne `…@…` est saisie. Chips violettes pour les emails externes.
+
+### 📱 3) Commandes WhatsApp GRH (absence + avance)
+- Nouveau module `backend/routes/liluvine_hr_wa.py` : parser regex pour `!absence YYYY-MM-DD [au YYYY-MM-DD] [motif]` et `!avance MONTANT [motif]`.
+- Lookup phone → user → hr_employees. Si pas employé : refus explicite avec message FR.
+- Absence : status=`pending_approval`, désactive temporairement `account_status` du user + flag `wa_absence_request_id`.
+- Avance : status=`pending_approval`, montant XOF, motif.
+- Notification admins du tenant via WA (best-effort).
+- Branché dans le webhook WA AVANT l'auto-reply (`hr_handled = True` court-circuite Liluvine).
+- Nouveaux endpoints HR : `POST /api/hr/absences/{aid}/approve|reject` + `POST /api/hr/advances/{aid}/approve|reject` (admin/sup/comptable). L'approbation réactive le user.
+
+### ✅ Tests : 21/21 verts
+- `test_iter40_pv_email_signers.py` (4/4) : norm mixte, persistance, sign by email, refus si non-signataire.
+- `test_iter40_liluvine_business_rag.py` (10/10) : ACL CRUD, normalisation, detect intents, _phone_in_acl, context empty/returned, !ticket detect/refuse/create.
+- `test_iter40_hr_wa_commands.py` (7/7) : detect, unknown phone, absence create + disable, advance create, refus 0, approve, reject.
+- Régression 58/59 verts (1 test ajusté pour exposer les nouveaux champs `bg_*` dans `/public/ui-flags`).
+
+
 ## Iter38r-fix7 (2026-05-28) — Toggle Liluvine PRO + Comptable hardening + Branding + n8n/WA/FB inbound + AI profile photo
 
 ### 🔒 1) Toggle Liluvine PRO dans Smart Communications

@@ -93,6 +93,7 @@ export default function MeetingMinutes() {
 
   // Cached id → label resolver for view + card display
   const userLabel = (id) => {
+    if (typeof id === "string" && id.includes("@")) return `✉ ${id} (externe)`;
     const u = tenantUsers.find((x) => x.value === id);
     return u ? u.label : id;
   };
@@ -515,6 +516,8 @@ function MultiUserPicker({ label, options, value, onChange, accent = "slate", te
   const c = accentMap[accent] || accentMap.slate;
   const valueIds = value || [];
   const selected = options.filter((o) => valueIds.includes(o.value));
+  // 2026-02 — Support free-form email entries that don't map to a tenant user
+  const externalEmails = valueIds.filter((v) => typeof v === "string" && v.includes("@") && !options.some((o) => o.value === v));
   const filtered = options.filter((o) => {
     if (valueIds.includes(o.value)) return false;
     if (!q) return true;
@@ -524,8 +527,16 @@ function MultiUserPicker({ label, options, value, onChange, accent = "slate", te
       || (o.role || "").toLowerCase().includes(s);
   }).slice(0, 50);
 
+  const isEmailQuery = q.includes("@") && q.split("@")[1]?.includes(".");
+
   const add = (id) => {
     onChange([...(valueIds), id]);
+    setQ("");
+  };
+  const addEmail = () => {
+    const em = q.trim().toLowerCase();
+    if (!em || !em.includes("@") || valueIds.includes(em)) return;
+    onChange([...(valueIds), em]);
     setQ("");
   };
   const remove = (id) => onChange(valueIds.filter((x) => x !== id));
@@ -546,17 +557,49 @@ function MultiUserPicker({ label, options, value, onChange, accent = "slate", te
           ))}
         </div>
       )}
+      {externalEmails.length > 0 && (
+        <div className="flex flex-wrap gap-1.5" data-testid={`${testIdPrefix}-email-chips`}>
+          {externalEmails.map((em) => (
+            <span key={em} className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full ring-1 bg-violet-100 text-violet-800 ring-violet-300" data-testid={`${testIdPrefix}-email-chip-${em}`}>
+              <span className="text-[9px] opacity-60">✉</span>
+              {em}
+              <span className="text-[9px] opacity-60">(externe)</span>
+              <button type="button" onClick={() => remove(em)} className="hover:bg-black/10 rounded-full p-0.5" aria-label={`Retirer ${em}`}>
+                <X className="h-2.5 w-2.5" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
       <div className="relative">
-        <input
-          type="text"
-          value={q}
-          onFocus={() => setOpen(true)}
-          onChange={(e) => { setQ(e.target.value); setOpen(true); }}
-          onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="Rechercher un utilisateur…"
-          className="w-full text-xs rounded-md ring-1 ring-slate-300 px-2 py-1.5 bg-white"
-          data-testid={`${testIdPrefix}-input`}
-        />
+        <div className="flex items-center gap-1.5">
+          <input
+            type="text"
+            value={q}
+            onFocus={() => setOpen(true)}
+            onChange={(e) => { setQ(e.target.value); setOpen(true); }}
+            onBlur={() => setTimeout(() => setOpen(false), 150)}
+            placeholder="Rechercher un utilisateur ou saisir un email externe…"
+            className="flex-1 text-xs rounded-md ring-1 ring-slate-300 px-2 py-1.5 bg-white"
+            data-testid={`${testIdPrefix}-input`}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && isEmailQuery) {
+                e.preventDefault();
+                addEmail();
+              }
+            }}
+          />
+          {isEmailQuery && (
+            <button
+              type="button"
+              onMouseDown={(e) => { e.preventDefault(); addEmail(); }}
+              className="text-[11px] px-2 py-1.5 rounded-md bg-violet-600 hover:bg-violet-700 text-white"
+              data-testid={`${testIdPrefix}-add-email`}
+            >
+              + Ajouter email
+            </button>
+          )}
+        </div>
         {open && filtered.length > 0 && (
           <div className="absolute z-30 left-0 right-0 top-full mt-1 max-h-60 overflow-y-auto bg-white rounded-md shadow-lg ring-1 ring-slate-200" data-testid={`${testIdPrefix}-suggestions`}>
             {filtered.map((u) => (

@@ -794,10 +794,107 @@ def make_router(*, db, get_current_user):
         if not _can_access_hr(user):
             raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
         scope = await _scoped(user)
+        existing = await db.hr_absences.find_one({**scope, "id": aid}, {"_id": 0, "wa_user_id": 1})
         res = await db.hr_absences.delete_one({**scope, "id": aid})
         if res.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Absence introuvable")
+        # Iter40 (2026-02) — Si la demande venait d'un !absence WA, on
+        # ré-active l'utilisateur dont l'accès a été désactivé.
+        if existing and existing.get("wa_user_id"):
+            await db.users.update_one(
+                {"id": existing["wa_user_id"], "wa_absence_request_id": aid},
+                {"$set": {
+                    "account_status": "active",
+                    "wa_absence_disabled_at": None,
+                    "wa_absence_request_id": None,
+                }},
+            )
         return {"ok": True}
+
+    @router.post("/absences/{aid}/approve")
+    async def approve_absence(aid: str, user: dict = Depends(get_current_user)):
+        """Iter40 — Approve an absence (typically a !absence WA request).
+        Sets status='approved' and re-activates the requesting user."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_absences.find_one({**scope, "id": aid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Absence introuvable")
+        await db.hr_absences.update_one(
+            {"id": aid},
+            {"$set": {
+                "status": "approved",
+                "approved_at": _now_iso(),
+                "approved_by": user["id"],
+                "approved_by_name": user.get("full_name") or user.get("email"),
+                "updated_at": _now_iso(),
+            }},
+        )
+        # Re-activate the user
+        if existing.get("wa_user_id"):
+            await db.users.update_one(
+                {"id": existing["wa_user_id"]},
+                {"$set": {
+                    "account_status": "active",
+                    "wa_absence_disabled_at": None,
+                    "wa_absence_request_id": None,
+                }},
+            )
+        return await db.hr_absences.find_one({"id": aid}, {"_id": 0})
+
+    @router.post("/absences/{aid}/reject")
+    async def reject_absence(aid: str, user: dict = Depends(get_current_user)):
+        """Iter40 — Reject a pending absence : remove + re-activate user."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_absences.find_one({**scope, "id": aid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Absence introuvable")
+        await db.hr_absences.delete_one({"id": aid})
+        if existing.get("wa_user_id"):
+            await db.users.update_one(
+                {"id": existing["wa_user_id"]},
+                {"$set": {
+                    "account_status": "active",
+                    "wa_absence_disabled_at": None,
+                    "wa_absence_request_id": None,
+                }},
+            )
+        return {"ok": True, "rejected": True}
+
+    @router.post("/advances/{aid}/approve")
+    async def approve_advance(aid: str, user: dict = Depends(get_current_user)):
+        """Iter40 — Approve a pending advance (typically WA-issued)."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        existing = await db.hr_advances.find_one({**scope, "id": aid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Avance introuvable")
+        await db.hr_advances.update_one(
+            {"id": aid},
+            {"$set": {
+                "status": "pending",  # back to default workflow (pending repayment)
+                "approved_at": _now_iso(),
+                "approved_by": user["id"],
+                "approved_by_name": user.get("full_name") or user.get("email"),
+                "updated_at": _now_iso(),
+            }},
+        )
+        return await db.hr_advances.find_one({"id": aid}, {"_id": 0})
+
+    @router.post("/advances/{aid}/reject")
+    async def reject_advance(aid: str, user: dict = Depends(get_current_user)):
+        """Iter40 — Reject (delete) a pending advance."""
+        if not _can_access_hr(user):
+            raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
+        scope = await _scoped(user)
+        res = await db.hr_advances.delete_one({**scope, "id": aid})
+        if res.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Avance introuvable")
+        return {"ok": True, "rejected": True}
 
     @router.post("/absences/scan")
     async def scan_auto_absences(

@@ -15988,6 +15988,53 @@ async def whatsapp_webhook_incoming(request: Request):
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("liluvine cmd parse failed: %s", exc)
 
+                    # Iter40 (2026-02) — HR WhatsApp commands (!absence, !avance)
+                    # + ticket WA command (!ticket). Handled BEFORE the
+                    # auto-reply so the same message is not processed twice.
+                    hr_handled = False
+                    if mtype == "text" and text_body and (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                        try:
+                            from routes.liluvine_hr_wa import try_handle_hr_wa_command
+                            hr_res = await try_handle_hr_wa_command(
+                                db,
+                                from_phone=from_num,
+                                message_text=text_body,
+                                wa_send_text=_wa_send_text,
+                            )
+                            if hr_res is not None:
+                                hr_handled = True
+                                reply = (hr_res or {}).get("user_reply")
+                                if reply:
+                                    try:
+                                        await _wa_send_text(from_num, reply)
+                                    except Exception:  # noqa: BLE001
+                                        pass
+                        except Exception as exc:  # noqa: BLE001
+                            logger.warning("[hr_wa_cmd] handler crashed: %s", exc)
+                        # !ticket command (business RAG action)
+                        if not hr_handled:
+                            try:
+                                from routes.liluvine_business_rag import (
+                                    detect_ticket_command,
+                                    handle_ticket_command,
+                                )
+                                if detect_ticket_command(text_body):
+                                    tk_res = await handle_ticket_command(
+                                        db,
+                                        phone_digits=digits_only,
+                                        text=text_body,
+                                        wa_send_text=_wa_send_text,
+                                    )
+                                    hr_handled = True
+                                    reply = (tk_res or {}).get("user_reply")
+                                    if reply:
+                                        try:
+                                            await _wa_send_text(from_num, reply)
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[ticket_wa_cmd] handler crashed: %s", exc)
+
                     # Iter38r-fix9l — WA Tasks bidirectional sync. Check if
                     # this inbound is a task acknowledgement (OK 1,3 / FAIT 2)
                     # by an opted-in user, BEFORE Liluvine auto-reply so it
@@ -16019,7 +16066,7 @@ async def whatsapp_webhook_incoming(request: Request):
                     # No n8n needed: when the toggle is on AND the message
                     # passes the configured rules, Liluvine generates a reply
                     # via Claude and ships it back through Meta Graph API.
-                    if not skip_autoreply and mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                    if not skip_autoreply and not hr_handled and mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
                         try:
                             from routes.liluvine_wa_autoreply import autoreply_to_inbound
                             s_root = await db.settings.find_one({"_id": "global"}) or {}
@@ -21800,6 +21847,10 @@ _setup_ai_quotas_routes(
 from routes.liluvine_pro import setup_liluvine_pro_routes as _setup_liluvine_pro_routes  # noqa: E402
 _setup_liluvine_pro_routes(db=db, api=api, get_current_user=get_current_user, wa_send_text=_wa_send_text)
 
+# Iter40 (2026-02) — Business RAG ACL admin endpoints
+from routes.liluvine_business_rag import attach_admin_acl_routes as _attach_business_acl  # noqa: E402
+_attach_business_acl(api=api, db=db, get_current_user=get_current_user)
+
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)
@@ -21965,35 +22016,60 @@ async def _meeting_signers_notifier(pv_doc: dict) -> None:
     signer_ids = pv_doc.get("signers") or []
     if not signer_ids:
         return
+    # 2026-02 — signers may mix user_ids (uuid) and free-form emails ('@').
+    internal_ids = [x for x in signer_ids if "@" not in x]
+    external_emails = [x.lower() for x in signer_ids if "@" in x]
     # Resolve each id → {email, phone, name}
     contacts: List[Dict[str, Any]] = []
     seen = set()
-    async for u in db.users.find(
-        {"id": {"$in": signer_ids}},
-        {"_id": 0, "id": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
-    ):
-        contacts.append({
-            "id": u["id"],
-            "name": u.get("full_name") or u.get("email") or "—",
-            "email": u.get("email"),
-            "phone": (u.get("whatsapp_number") or u.get("phone") or "").strip() or None,
-        })
-        seen.add(u["id"])
-    # Also resolve tracked users whose user_id is in signers
-    async for t in db.tracked_users.find(
-        {"$or": [{"id": {"$in": signer_ids}}, {"user_id": {"$in": signer_ids}}]},
-        {"_id": 0, "id": 1, "user_id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
-    ):
-        key = t.get("user_id") or t["id"]
-        if key in seen:
-            continue
-        contacts.append({
-            "id": key,
-            "name": t.get("full_name") or t.get("name") or t.get("email") or "—",
-            "email": t.get("email"),
-            "phone": (t.get("whatsapp_number") or t.get("phone") or "").strip() or None,
-        })
-        seen.add(key)
+    if internal_ids:
+        async for u in db.users.find(
+            {"id": {"$in": internal_ids}},
+            {"_id": 0, "id": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
+        ):
+            contacts.append({
+                "id": u["id"],
+                "name": u.get("full_name") or u.get("email") or "—",
+                "email": u.get("email"),
+                "phone": (u.get("whatsapp_number") or u.get("phone") or "").strip() or None,
+            })
+            seen.add(u["id"])
+        # Also resolve tracked users whose user_id is in signers
+        async for t in db.tracked_users.find(
+            {"$or": [{"id": {"$in": internal_ids}}, {"user_id": {"$in": internal_ids}}]},
+            {"_id": 0, "id": 1, "user_id": 1, "name": 1, "full_name": 1, "email": 1, "phone": 1, "whatsapp_number": 1},
+        ):
+            key = t.get("user_id") or t["id"]
+            if key in seen:
+                continue
+            contacts.append({
+                "id": key,
+                "name": t.get("full_name") or t.get("name") or t.get("email") or "—",
+                "email": t.get("email"),
+                "phone": (t.get("whatsapp_number") or t.get("phone") or "").strip() or None,
+            })
+            seen.add(key)
+    # External email-only signers (no portal account)
+    seen_emails = {(c.get("email") or "").lower() for c in contacts if c.get("email")}
+    if external_emails:
+        # Try to enrich with a user account if one matches the email
+        enriched = {}
+        async for u in db.users.find(
+            {"email": {"$in": external_emails}},
+            {"_id": 0, "email": 1, "full_name": 1, "phone": 1, "whatsapp_number": 1},
+        ):
+            enriched[(u.get("email") or "").lower()] = u
+        for em in external_emails:
+            if em in seen_emails:
+                continue
+            extra = enriched.get(em) or {}
+            contacts.append({
+                "id": em,
+                "name": extra.get("full_name") or em,
+                "email": em,
+                "phone": (extra.get("whatsapp_number") or extra.get("phone") or "").strip() or None,
+            })
+            seen_emails.add(em)
     base_url = (settings.get("public_base_url") or os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
     pv_link = f"{base_url}/portal/meetings/{pv_doc['id']}" if base_url else "le portail Loois"
     subject = f"[Loois] Vous êtes signataire du PV {pv_doc.get('numero', '')} — {pv_doc.get('title', '')}"

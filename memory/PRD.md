@@ -6,6 +6,28 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter40 (2026-02) — Liluvine RAG modules métier + Signataires PV par email + Commandes WA GRH
+
+### Architecture
+- **Liluvine Business RAG** : `routes/liluvine_business_rag.py` — ACL par module + helper `build_business_rag_context(db, phone_digits, query)` injecté dans `liluvine_wa_autoreply.py`. Stockage ACL : `settings.global.liluvine_module_acl = {module: [digits]}`. Match sur les 9 derniers chiffres.
+- **Commandes WA GRH** : `routes/liluvine_hr_wa.py` — `!absence YYYY-MM-DD [au …] [motif]` + `!avance MONTANT [motif]` + `!ticket <desc>` (via business_rag). Branchés dans `server.py` webhook BEFORE l'auto-reply (`hr_handled` court-circuite Liluvine).
+- **Approbation HR WA** : `POST /api/hr/absences|advances/{aid}/approve|reject` — l'approbation/rejet d'une absence réactive `account_status` du user.
+- **PV Signataires email** : `routes/meetings.py` accepte les entrées email dans `signers` (mix avec user_id). Vérification de signature étendue (user.id OR user.email). PDF résout emails → full_name si compte existant.
+
+### Endpoints clés
+- `GET/PUT /api/admin/liluvine-pro/module-acl` — admin/sup seulement, gère la liste blanche par module.
+- `POST /api/hr/absences/{aid}/approve|reject` — réactive le user automatiquement.
+- `POST /api/hr/advances/{aid}/approve|reject`.
+
+### UI
+- `AdminSettings.jsx → Filterable[s-liluvine-module-acl]` : nouvelle section `LiluvineModuleAclSection.jsx` (6 textareas modulaires + compteur + détails commandes WA).
+- `MeetingMinutes.jsx → MultiUserPicker` : bouton « + Ajouter email » dynamique + chips violettes externes.
+
+### Tests
+- 21 nouveaux verts (`test_iter40_liluvine_business_rag.py`, `test_iter40_hr_wa_commands.py`, `test_iter40_pv_email_signers.py`).
+- Régression 8/8 sur `test_iter40_route_loader_toggle.py` (mise à jour des champs autorisés pour le background theming).
+
+
 ## CRITICAL FIX (2026-02) — rabo.f@sawalismartsystems.com — Liluvine PRO indisponible
 
 ### Symptômes (rapportés par l'utilisateur sur PRODUCTION)

@@ -40,19 +40,30 @@ def _now() -> str:
 
 
 def _norm_id_list(items, *, exclude: Optional[set] = None) -> List[str]:
-    """De-duplicate, strip and exclude conflicts from a user-supplied id list."""
+    """De-duplicate, strip and exclude conflicts from a user-supplied id list.
+
+    Each entry can be either a user_id (uuid) OR a free-form email
+    (containing '@'). Emails are normalized to lower case before dedupe.
+    """
     if not items:
         return []
     out: List[str] = []
     seen = set()
-    excl = exclude or set()
+    excl = {(e or "").strip().lower() for e in (exclude or set())}
     for raw in items:
         s = (str(raw) if raw is not None else "").strip()
-        if not s or s in seen or s in excl:
+        if not s:
             continue
-        seen.add(s)
-        out.append(s)
+        key = s.lower() if "@" in s else s
+        if key in seen or key in excl:
+            continue
+        seen.add(key)
+        out.append(s.lower() if "@" in s else s)
     return out
+
+
+def _is_email(s: str) -> bool:
+    return "@" in (s or "") and "." in (s or "").split("@", 1)[-1]
 
 
 def _is_admin_or_sup(user: dict) -> bool:
@@ -234,9 +245,14 @@ def make_router(*, db, get_current_user, signers_notifier=None):
         if doc.get("signed_at"):
             return doc  # idempotent: already signed
         # S-iter39d (fix #1) — If signers list is non-empty, the signing user
-        # MUST be one of the declared signataires.
+        # MUST be one of the declared signataires (by id OR by email).
         signers = doc.get("signers") or []
-        if signers and user["id"] not in signers:
+        user_email = (user.get("email") or "").strip().lower()
+        allowed = (
+            (user["id"] in signers)
+            or (user_email and user_email in signers)
+        )
+        if signers and not allowed:
             raise HTTPException(
                 status_code=403,
                 detail="Vous n'êtes pas dans la liste des signataires obligatoires du PV.",
@@ -281,7 +297,9 @@ def make_router(*, db, get_current_user, signers_notifier=None):
             raise HTTPException(status_code=404, detail="PV introuvable")
         # S-iter39d (fix #1) — Resolve signers/participants ids → display names
         # so the PDF shows readable strings instead of UUIDs.
-        all_ids = list(set((doc.get("signers") or []) + (doc.get("participants") or [])))
+        # 2026-02 — Entries containing '@' are external emails: keep them as-is.
+        all_entries = list(set((doc.get("signers") or []) + (doc.get("participants") or [])))
+        all_ids = [x for x in all_entries if "@" not in x]
         names: Dict[str, str] = {}
         if all_ids:
             async for u in db.users.find({"id": {"$in": all_ids}}, {"_id": 0, "id": 1, "full_name": 1, "email": 1}):
@@ -290,8 +308,22 @@ def make_router(*, db, get_current_user, signers_notifier=None):
                 key = t.get("user_id") or t["id"]
                 if key not in names:
                     names[key] = t.get("full_name") or t.get("name") or t.get("email") or "—"
-        signers_names = [names.get(i, i) for i in (doc.get("signers") or [])]
-        participants_names = [names.get(i, i) for i in (doc.get("participants") or [])]
+        # Also resolve email entries to a user full_name when known.
+        all_emails = [x for x in all_entries if "@" in x]
+        if all_emails:
+            async for u in db.users.find(
+                {"email": {"$in": [e.lower() for e in all_emails]}},
+                {"_id": 0, "email": 1, "full_name": 1},
+            ):
+                em = (u.get("email") or "").lower()
+                if em:
+                    names[em] = u.get("full_name") or em
+        def _label(entry: str) -> str:
+            if "@" in entry:
+                return names.get(entry.lower(), entry)
+            return names.get(entry, entry)
+        signers_names = [_label(i) for i in (doc.get("signers") or [])]
+        participants_names = [_label(i) for i in (doc.get("participants") or [])]
         pdf_bytes = _render_pdf({**doc, "_signers_names": signers_names, "_participants_names": participants_names})
         filename = f"{doc.get('numero', 'PV')}.pdf"
         return Response(

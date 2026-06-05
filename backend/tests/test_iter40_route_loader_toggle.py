@@ -98,8 +98,10 @@ def test_ui_flags_never_exposes_secrets():
     # Allowed keys are explicit. No surprise field with secrets.
     allowed = {
         "global_route_loader_enabled", "download_gauge_enabled",
-        "public_brand_name", "public_brand_color",
+        "public_brand_name", "public_brand_color", "public_brand_text_color",
         "public_logo_url", "public_hero_tagline",
+        "public_bg_mode", "public_bg_color", "public_bg_image_url", "public_bg_image_position",
+        "portal_bg_mode", "portal_bg_color", "portal_bg_image_url", "portal_bg_image_position",
     }
     leaked = set(body.keys()) - allowed
     assert not leaked, f"Unexpected keys in /public/ui-flags: {leaked}"

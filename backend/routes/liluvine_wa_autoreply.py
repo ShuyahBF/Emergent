@@ -224,6 +224,13 @@ async def autoreply_to_inbound(
         return {"ok": False, "reason": "tenant_user_not_found"}
 
     ctx = await _fetch_context_snippets(db, user_doc, text)
+    # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…
+    # Filtré par ACL (liste blanche par module/numéro).
+    try:
+        from routes.liluvine_business_rag import build_business_rag_context
+        biz_ctx = await build_business_rag_context(db, phone_digits=phone_digits, query=text)
+    except Exception:  # noqa: BLE001
+        biz_ctx = ""
     # Iter38r-fix9c — Also inject the Knowledge Base for WhatsApp auto-reply
     try:
         from routes.liluvine_kb import build_kb_context
@@ -240,6 +247,7 @@ async def autoreply_to_inbound(
         "Ne réponds JAMAIS comme un humain — tu es Liluvine PRO, l'assistant SAWALI. "
         "Si la question dépasse tes capacités, dis-lui qu'un agent humain va le recontacter rapidement."
         + (("\n" + ctx) if ctx else "")
+        + (("\n" + biz_ctx) if biz_ctx else "")
         + (("\n\n" + kb) if kb else "")
         + contact_tag
     )

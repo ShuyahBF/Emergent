@@ -13,6 +13,7 @@ import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowled
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
+import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
@@ -642,6 +643,10 @@ export default function AdminSettings() {
 
       <Filterable title="Liluvine PRO — Bypass (emails autorisés malgré feature OFF)" anchorId="s-liluvine-bypass">
         <LiluvineBypassEmailsSection />
+      </Filterable>
+
+      <Filterable title="Liluvine PRO — ACL modules métier (RAG WhatsApp)" anchorId="s-liluvine-module-acl">
+        <LiluvineModuleAclSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

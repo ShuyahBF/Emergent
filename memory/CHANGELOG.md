@@ -2977,3 +2977,26 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - Afficher `public_logo_url` dans `MarketingNav.jsx` quand défini (sinon logo SAWALI par défaut)
 - Override de `home_hero.title` par `public_hero_tagline` quand défini
 
+
+## Iter40-ui-flags-tailwind (2026-06-05) — Propagation du branding dans toute la palette
+
+### 🎨 1) Palette Tailwind résolue via CSS variables
+- `tailwind.config.js` :
+  - `sawali.blue` → `var(--brand-primary, #1E90FF)` (fallback = défaut SAWALI)
+  - `sawali.blue-light` → `var(--brand-primary-light, #2BA4FF)`
+  - Nouveau scope sémantique `brand: { DEFAULT, light, dark }` également câblé sur les CSS variables
+- Conséquence : **TOUS** les `bg-sawali-blue`, `text-sawali-blue`, `border-sawali-blue`, `ring-sawali-blue`, `hover:bg-sawali-blue-light` etc. présents dans le code existant héritent automatiquement de la couleur définie en Admin. Zéro refactor nécessaire.
+
+### 🌗 2) Light/Dark variants calculés automatiquement
+- `lib/useUIFlags.js` : nouvelle fonction `shiftColor(hex, amount)` qui éclaircit (+12 %) ou assombrit (−18 %) une couleur hexa
+- À chaque application, `--brand-primary-light` et `--brand-primary-dark` sont dérivés du `public_brand_color` choisi par l'admin → cohérence visuelle entre les 3 nuances
+
+### 🧪 3) Validation visuelle
+- Test in-browser : override de `--brand-primary` à `#FF3366` (rose vif) sur la page d'accueil
+- Confirmation : badges header, boutons CTA, icônes horloge/visites, "Espace Loois", stats "10+/30+/24/7", lien "En savoir plus" dans le cookie banner → **TOUS passent instantanément en rose**
+- Aucune régression sur les couleurs neutres (navy, gris, texte) — uniquement les éléments brandés sont retintés
+
+### 🚀 Pistes restantes (encore à faire)
+- Afficher `public_logo_url` dans `MarketingNav.jsx` quand défini (sinon logo SAWALI par défaut)
+- Override de `home_hero.title` par `public_hero_tagline`
+

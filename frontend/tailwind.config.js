@@ -23,12 +23,23 @@ module.exports = {
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
         // SAWALI brand
+        // Iter40-ui-flags — Brand colors are resolved via CSS variables so
+        // changing public_brand_color in Admin Settings retints every
+        // `bg-sawali-blue`, `text-sawali-blue`, `border-sawali-blue`,
+        // `ring-sawali-blue`, etc. instantly across the app.
+        // Defaults (when var unset) are the historical SAWALI hex codes.
         sawali: {
           navy: "#0E1F3D",
           "navy-dark": "#081226",
-          blue: "#1E90FF",
-          "blue-light": "#2BA4FF",
+          blue: "var(--brand-primary, #1E90FF)",
+          "blue-light": "var(--brand-primary-light, #2BA4FF)",
           cyan: "#00E5FF",
+        },
+        // Iter40-ui-flags — Semantic aliases for new components. Prefer these.
+        brand: {
+          DEFAULT: "var(--brand-primary, #1E90FF)",
+          light: "var(--brand-primary-light, #2BA4FF)",
+          dark: "var(--brand-primary-dark, #1873CC)",
         },
       },
       fontFamily: {

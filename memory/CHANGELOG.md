@@ -3029,3 +3029,40 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
 - `AdminSettings.jsx` : libellé de la section S038 modifié pour utiliser "RAG" comme mot-clé principal (cohérence vocabulaire métier)
 - Recherche fonctionne avec "rag" OU "qdrant"
 
+
+## Iter40-ui-flags-bg (S057) (2026-06-05) — Habillage du fond (événementiel / charte client)
+
+### 🖼️ 1) 8 nouveaux champs Settings
+- `models.py` : 4 par scope (public + portail) — `bg_mode`, `bg_color`, `bg_image_url`, `bg_image_position`
+- `mode` peut être `default | color | image`
+- `image_position` peut être `cover | contain | center | repeat`
+- `/api/public/ui-flags` expose les 8 champs avec défauts (`mode=default`, `position=cover`)
+
+### 🎨 2) Composant `BackgroundApplier.jsx` (App-level)
+- Render-less, monté dans `App.js` à côté de `GlobalRouteLoader`
+- Écoute `useLocation()` et `useUIFlags()`
+- Détecte le scope actif via le pathname : `/portal*` ou `/admin*` → scope **portail**, sinon → scope **public**
+- Applique les styles directement sur `<body>` :
+  - mode=color → `backgroundColor`
+  - mode=image → `backgroundImage` + `backgroundRepeat/Size/Position` selon la position choisie + `backgroundAttachment: fixed` (effet parallaxe)
+  - mode=default → strip propre via `removeAttribute("data-bg-override-active")`
+- Marqueur `data-bg-override-active="1"` sur `<body>` pour signaler aux layouts qu'ils doivent devenir transparents
+
+### 🎭 3) `MarketingLayout.jsx` réactif
+- Hook local `useBgOverrideActive()` via `MutationObserver` sur `data-bg-override-active`
+- Quand override actif : classe `marketing-dark` (gradient sombre opaque) est remplacée par juste `min-h-screen flex flex-col overflow-x-hidden text-white` (transparent) → le fond `<body>` apparaît à travers
+- Quand pas d'override : retour à la palette SAWALI sombre habituelle
+
+### 🛠️ 4) Admin UI : composant `BgEditor` (dual scope)
+- Nouvelle section "Habillage — fond de page (événementiel / charte client)" dans `AdminSettings.jsx`
+- Deux blocs côte-à-côte (`lg:grid-cols-2`) : "Pages publiques" + "Espace Loois (Portail + Admin)"
+- Chaque éditeur : mode select, color picker (mode=color OU image overlay), URL image (mode=image), position select, tuile aperçu live qui reproduit le style appliqué
+
+### 🧪 5) Tests
+- `test_iter40_bg_theming.py` (4 tests) : 8 champs exposés, set public color, set portal image avec position, normalisation chaînes vides. **4/4 PASS**.
+
+### 📌 Note d'usage
+Les pages avec hero illustratif (Home, certaines landing pages) ont leur propre visuel qui se superpose au fond global. Le fond personnalisé est plus dominant sur :
+- Pages publiques sans hero illustré (Missions, Contact, Politique, Catalogue, etc.)
+- Toutes les pages du portail (`/portal/*`, `/admin/*`)
+

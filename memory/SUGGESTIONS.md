@@ -492,6 +492,27 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fix associé** : Iter40-suggestions-search (cosmétique)
 - **Détail** : Dans `/admin/settings`, la section "Qdrant RAG — Base de connaissance vectorielle (S038)" devient "RAG — Base de connaissance vectorielle (Qdrant) (S038)". Le mot-clé principal devient "RAG" pour aligner avec le vocabulaire métier utilisateur. La barre de filtre intégrée à AdminSettings et la barre de recherche AdminSuggestionsRegistry trouvent maintenant la section sur "rag" ou "qdrant" indifféremment.
 
+## S057 — Habillage du fond (couleur unie ou image, public + portail)
+- **Demande utilisateur** : 2026-06 — « Toujours pour l'identité peut-on avoir un paramètre pour modifier aussi le fond par une couleur unie ou une image (centré ou répétée) sur la page publique ou le portail. On habillera le site aux couleurs d'un évènement ou la charte graphique demandée par un de nos clients »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-ui-flags-bg
+- **Détail** :
+  - Backend `models.py` : 8 nouveaux champs (4 par scope) — `public_bg_mode/color/image_url/image_position` et `portal_bg_mode/color/image_url/image_position`
+  - Backend `/api/public/ui-flags` expose les 8 champs avec défauts (`mode=default`, `position=cover`)
+  - Frontend nouveau composant `BackgroundApplier.jsx` (render-less) monté dans `App.js` : écoute `useLocation` et `useUIFlags`, applique le mode approprié à `<body>` selon que la route est `/portal*` ou `/admin*` (= scope portail) ou autre (= scope public). Strip propre des overrides quand `mode=default`.
+  - Frontend `MarketingLayout.jsx` : hook `useBgOverrideActive()` via `MutationObserver` qui surveille `data-bg-override-active` sur `<body>` ; rend le layout transparent quand un override est actif (sinon `marketing-dark` couvrirait le fond).
+  - Frontend `AdminSettings.jsx` : nouvelle section "Habillage — fond de page (événementiel / charte client)" avec un composant `BgEditor` dual (côte à côte : public / portail). Pour chaque scope : sélecteur de mode, color picker, URL image, sélecteur de position (cover/contain/center/repeat) et tuile aperçu live.
+  - 4 modes d'affichage d'image :
+    - `cover` (recommandé) : remplit l'écran, peut rogner
+    - `contain` : image entière visible, possibles bandes
+    - `center` : taille originale, centrée, sans répétition (pour logos discrets)
+    - `repeat` : mosaïque (pattern / motif)
+  - L'image utilise `background-attachment: fixed` → effet parallaxe au scroll
+- **Bénéfice** : habillage saisonnier (Noël, anniversaire SAWALI), thèmes événementiels client, charte graphique blanche. Pages publiques et portail théméables indépendamment.
+- **Où le trouver** : `/admin/settings` → faire défiler jusqu'à la section *« Habillage — fond de page (événementiel / charte client) »* (juste après *« Identité publique »*). Deux blocs côte-à-côte : pages publiques à gauche, portail à droite.
+- **Note** : certains heros illustrés (ex : carte d'Afrique sur la page d'accueil) ont leur propre visuel illustratif et continuent de se superposer au fond global. Le fond personnalisé sera plus dominant sur les pages sans hero illustratif (Missions, Contact, Catalogue, Policies, etc.) et sur tout le portail.
+- **Tests** : 4 tests pytest (`test_iter40_bg_theming.py`) : exposition des 8 champs, set/get public color, set/get portal image avec position, normalisation chaînes vides → null. **4/4 PASS**.
+
 ---
 
 ## Comment référencer une suggestion

@@ -265,6 +265,119 @@ const SettingsToolbar = () => {
   );
 };
 
+// Iter40-ui-flags-bg (S057) — Background editor for one scope (public or portal).
+// Renders a mode select + conditional fields + live preview tile so the admin
+// can verify the result without leaving Settings.
+function BgEditor({ scope, label, s, upd }) {
+  const mode = s[`${scope}_bg_mode`] || "default";
+  const color = s[`${scope}_bg_color`] || "";
+  const imageUrl = s[`${scope}_bg_image_url`] || "";
+  const pos = s[`${scope}_bg_image_position`] || "cover";
+  const set = (k, v) => upd(`${scope}_${k}`, v);
+  const previewStyle = (() => {
+    if (mode === "color" && color) return { backgroundColor: color };
+    if (mode === "image" && imageUrl) {
+      const base = { backgroundColor: color || "#0E1F3D" };
+      if (pos === "repeat") return { ...base, backgroundImage: `url("${imageUrl}")`, backgroundRepeat: "repeat", backgroundSize: "auto", backgroundPosition: "top left" };
+      if (pos === "contain") return { ...base, backgroundImage: `url("${imageUrl}")`, backgroundRepeat: "no-repeat", backgroundSize: "contain", backgroundPosition: "center" };
+      if (pos === "center") return { ...base, backgroundImage: `url("${imageUrl}")`, backgroundRepeat: "no-repeat", backgroundSize: "auto", backgroundPosition: "center" };
+      return { ...base, backgroundImage: `url("${imageUrl}")`, backgroundRepeat: "no-repeat", backgroundSize: "cover", backgroundPosition: "center" };
+    }
+    return { background: "linear-gradient(135deg, #0E1F3D 0%, #1E90FF 100%)" };
+  })();
+  return (
+    <div className="rounded-xl ring-1 ring-slate-200 bg-slate-50/60 p-3 space-y-2" data-testid={`bg-editor-${scope}`}>
+      <p className="text-[11px] font-semibold text-slate-700">{label}</p>
+      <div>
+        <label className="text-[10px] uppercase text-slate-500 mb-1 block">Mode</label>
+        <select
+          value={mode}
+          onChange={(e) => set("bg_mode", e.target.value)}
+          className="w-full text-xs rounded ring-1 ring-slate-300 bg-white px-2 py-1.5"
+          data-testid={`bg-${scope}-mode`}
+        >
+          <option value="default">Défaut (palette SAWALI)</option>
+          <option value="color">Couleur unie</option>
+          <option value="image">Image de fond</option>
+        </select>
+      </div>
+      {mode === "color" && (
+        <div>
+          <label className="text-[10px] uppercase text-slate-500 mb-1 block">Couleur de fond</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="color"
+              value={color || "#0E1F3D"}
+              onChange={(e) => set("bg_color", e.target.value)}
+              className="h-8 w-10 rounded ring-1 ring-slate-300 cursor-pointer"
+              data-testid={`bg-${scope}-color-picker`}
+            />
+            <input
+              type="text"
+              value={color}
+              onChange={(e) => set("bg_color", e.target.value)}
+              placeholder="#0E1F3D"
+              pattern="^#[0-9A-Fa-f]{6}$"
+              className="flex-1 px-2 py-1.5 rounded ring-1 ring-slate-300 text-xs font-mono"
+              data-testid={`bg-${scope}-color-hex`}
+              maxLength={9}
+            />
+          </div>
+        </div>
+      )}
+      {mode === "image" && (
+        <>
+          <div>
+            <label className="text-[10px] uppercase text-slate-500 mb-1 block">URL de l'image</label>
+            <input
+              type="url"
+              value={imageUrl}
+              onChange={(e) => set("bg_image_url", e.target.value)}
+              placeholder="https://… ou /api/files/<id>"
+              className="w-full px-2 py-1.5 rounded ring-1 ring-slate-300 text-xs"
+              data-testid={`bg-${scope}-image-url`}
+            />
+            <p className="text-[10px] text-slate-500 italic mt-1">
+              Utilisez l'uploader de logo ci-dessus pour téléverser une image (puis collez son URL ici).
+            </p>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase text-slate-500 mb-1 block">Affichage de l'image</label>
+            <select
+              value={pos}
+              onChange={(e) => set("bg_image_position", e.target.value)}
+              className="w-full text-xs rounded ring-1 ring-slate-300 bg-white px-2 py-1.5"
+              data-testid={`bg-${scope}-image-position`}
+            >
+              <option value="cover">Plein écran (cover, recommandé)</option>
+              <option value="contain">Contenue (contain — image entière visible)</option>
+              <option value="center">Centrée (taille originale, sans répétition)</option>
+              <option value="repeat">Répétée en mosaïque (pattern / motif)</option>
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] uppercase text-slate-500 mb-1 block">Couleur d'arrière-plan (optionnelle, sous l'image)</label>
+            <input
+              type="color"
+              value={color || "#0E1F3D"}
+              onChange={(e) => set("bg_color", e.target.value)}
+              className="h-8 w-10 rounded ring-1 ring-slate-300 cursor-pointer"
+              data-testid={`bg-${scope}-overlay-color`}
+            />
+          </div>
+        </>
+      )}
+      {/* Live preview tile */}
+      <div className="h-24 rounded ring-1 ring-slate-300 overflow-hidden" style={previewStyle} data-testid={`bg-${scope}-preview`}>
+        <div className="h-full w-full bg-black/0 backdrop-blur-[0px] flex items-center justify-center">
+          <span className="text-xs text-white/80 font-semibold drop-shadow">Aperçu</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
 export default function AdminSettings() {
   const [s, setS] = useState({});
   const [loading, setLoading] = useState(false);
@@ -923,6 +1036,29 @@ export default function AdminSettings() {
               Override optionnel — laisser vide pour utiliser l'accroche du contenu <code>home_hero</code> (admin/contents).
             </p>
           </div>
+        </div>
+      </Section>
+
+      {/* Iter40-ui-flags-bg (S057) — Background theming for public + portal */}
+      <Section icon={Sparkles} title="Habillage — fond de page (événementiel / charte client)">
+        <p className="text-xs text-slate-500">
+          Habillez le site avec une <strong>couleur unie</strong> ou une <strong>image de fond</strong> (centrée, répétée ou plein écran).
+          Utile pour les événements (Noël, anniversaire SAWALI, lancement de produit) ou pour adopter la charte graphique d'un client.
+          Aperçu en direct dans votre navigateur ; cliquez « Enregistrer » pour persister.
+        </p>
+        <div className="grid lg:grid-cols-2 gap-3">
+          <BgEditor
+            scope="public"
+            label="Pages publiques (Accueil, Missions, Contact, …)"
+            s={s}
+            upd={upd}
+          />
+          <BgEditor
+            scope="portal"
+            label="Espace Loois (Portail + Admin)"
+            s={s}
+            upd={upd}
+          />
         </div>
       </Section>
 

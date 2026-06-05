@@ -439,6 +439,18 @@ class SettingsUpdate(BaseModel):
     public_logo_url: Optional[str] = None       # Public logo (header / footer)
     public_hero_tagline: Optional[str] = None   # Optional public hero tagline override
 
+    # --- Iter40-ui-flags-bg (S057) — Event/client themed background ---
+    # Public site background (marketing pages /, /missions, /spec, /contact, …)
+    public_bg_mode: Optional[str] = None        # "default" | "color" | "image"
+    public_bg_color: Optional[str] = None       # Hex (#RRGGBB) when mode == "color"
+    public_bg_image_url: Optional[str] = None   # URL when mode == "image"
+    public_bg_image_position: Optional[str] = None  # "center" | "repeat" | "cover" | "contain"
+    # Portal background (logged-in workspace /portal/*, /admin/*)
+    portal_bg_mode: Optional[str] = None
+    portal_bg_color: Optional[str] = None
+    portal_bg_image_url: Optional[str] = None
+    portal_bg_image_position: Optional[str] = None
+
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download
     # trigger a WhatsApp approval flow: a message is sent to the configured

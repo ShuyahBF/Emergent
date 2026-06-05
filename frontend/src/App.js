@@ -36,6 +36,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { I18nProvider } from "@/contexts/I18nContext";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import GlobalRouteLoader from "@/components/GlobalRouteLoader";
+import BackgroundApplier from "@/components/BackgroundApplier";
 import { useUIFlags } from "@/lib/useUIFlags";
 import LlmHealthBanner from "@/components/LlmHealthBanner";
 import MarketingLayout from "@/components/MarketingLayout";
@@ -172,6 +173,7 @@ export default function App() {
         <WebhookResultModal />
         <RouteTracker />
         <GlobalRouteLoader />
+        <BackgroundApplier />
         <LlmHealthBanner />
         <AutoLogoutGate />
         <Routes>

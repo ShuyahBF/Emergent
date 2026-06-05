@@ -11108,6 +11108,15 @@ async def public_ui_flags():
         "public_brand_text_color": (s.get("public_brand_text_color") or "").strip() or None,
         "public_logo_url": (s.get("public_logo_url") or "").strip() or None,
         "public_hero_tagline": (s.get("public_hero_tagline") or "").strip() or None,
+        # Iter40-ui-flags-bg (S057) — Event/client themed backgrounds
+        "public_bg_mode": (s.get("public_bg_mode") or "default").strip() or "default",
+        "public_bg_color": (s.get("public_bg_color") or "").strip() or None,
+        "public_bg_image_url": (s.get("public_bg_image_url") or "").strip() or None,
+        "public_bg_image_position": (s.get("public_bg_image_position") or "cover").strip() or "cover",
+        "portal_bg_mode": (s.get("portal_bg_mode") or "default").strip() or "default",
+        "portal_bg_color": (s.get("portal_bg_color") or "").strip() or None,
+        "portal_bg_image_url": (s.get("portal_bg_image_url") or "").strip() or None,
+        "portal_bg_image_position": (s.get("portal_bg_image_position") or "cover").strip() or "cover",
     }
 
 

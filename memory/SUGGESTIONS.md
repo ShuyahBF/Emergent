@@ -459,6 +459,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - Frontend `AdminSettings.jsx` : nouvelle section "Identité publique" avec champ texte (nom), color picker + hex, URL logo avec aperçu, accroche du hero. Tous les champs dispatchent `ui-flags-updated` au changement pour propagation immédiate.
 - **Bénéfice** : permet à un client revendeur (white-label) de personnaliser instantanément l'identité visuelle sans toucher au code ni redéployer. Préserve les défauts SAWALI quand les champs sont vides.
 - **Tests** : 3 nouveaux tests pytest dans `test_iter40_route_loader_toggle.py` : présence des 4 champs (defaut null), set+echo via PUT/GET, normalisation des chaînes vides/whitespace en null. **8/8 PASS**.
+- **Où le trouver dans l'UI** : `/admin/settings` → faire défiler jusqu'à la section bleu/violet **« Identité publique — marque, logo, couleur »** (juste après *« Affichage — Jauge de transition entre pages »* et avant *« Régie publicitaire — Plafond de modales »*). 4 champs alignés en grille 2 colonnes : Nom de la marque + Couleur primaire (color picker + hex), URL du logo + bouton *« Téléverser »* (drag-drop fichier), Accroche du hero. Aperçu du logo affiché en dessous quand un URL est défini.
 - **Pistes pour la suite** : utiliser `var(--brand-primary)` dans les composants Tailwind (boutons CTA, accents) pour une réelle propagation visuelle ; afficher `public_logo_url` dans `MarketingNav.jsx` quand défini ; appliquer `public_hero_tagline` dans `Home.jsx` (override de `home_hero.title`).
 
 ---

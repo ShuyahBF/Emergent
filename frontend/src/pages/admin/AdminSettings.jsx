@@ -796,22 +796,65 @@ export default function AdminSettings() {
           </div>
           <div className="sm:col-span-2">
             <label className="text-[11px] font-semibold text-slate-600 block mb-1">URL du logo public</label>
-            <input
-              type="url"
-              value={s.public_logo_url || ""}
-              onChange={(e) => {
-                upd("public_logo_url", e.target.value);
-                try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
-              }}
-              placeholder="https://exemple.com/logo.svg ou /uploads/mon-logo.png"
-              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
-              data-testid="brand-logo-url"
-            />
+            <div className="flex gap-2">
+              <input
+                type="url"
+                value={s.public_logo_url || ""}
+                onChange={(e) => {
+                  upd("public_logo_url", e.target.value);
+                  try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                }}
+                placeholder="https://exemple.com/logo.svg ou /api/files/<id>"
+                className="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+                data-testid="brand-logo-url"
+              />
+              {/* Iter40-ui-flags — Direct file upload (drag-replacement of /api/admin/upload) */}
+              <label
+                className="inline-flex items-center gap-1.5 cursor-pointer text-xs font-semibold bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-lg ring-1 ring-slate-300 whitespace-nowrap"
+                data-testid="brand-logo-upload-label"
+                title="Téléverser une image (PNG/SVG/JPG) et remplir automatiquement l'URL"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Téléverser
+                <input
+                  type="file"
+                  accept="image/png,image/jpeg,image/svg+xml,image/webp"
+                  className="hidden"
+                  data-testid="brand-logo-upload-input"
+                  onChange={async (e) => {
+                    const f = e.target.files?.[0];
+                    if (!f) return;
+                    const fd = new FormData();
+                    fd.append("file", f);
+                    try {
+                      const r = await apiClient.post("/admin/upload", fd, {
+                        headers: { "Content-Type": "multipart/form-data" },
+                      });
+                      const url = r.data?.url;
+                      if (url) {
+                        upd("public_logo_url", url);
+                        try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                        toast.success("Logo téléversé — pensez à enregistrer les paramètres.");
+                      } else {
+                        toast.error("Réponse d'upload invalide");
+                      }
+                    } catch (err) {
+                      toast.error(err?.response?.data?.detail || "Échec du téléversement");
+                    } finally {
+                      e.target.value = ""; // allow re-upload of same file
+                    }
+                  }}
+                />
+              </label>
+            </div>
             {s.public_logo_url && (
               <div className="mt-2 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-2 inline-block">
                 <img src={s.public_logo_url} alt="Aperçu du logo" className="h-12 w-auto object-contain" data-testid="brand-logo-preview" />
               </div>
             )}
+            <p className="text-[10px] text-slate-500 italic mt-1">
+              Téléversez un fichier image (PNG/JPG/SVG/WEBP) ou collez une URL externe. Le fichier sera servi via <code>/api/files/&lt;id&gt;</code>.
+            </p>
           </div>
           <div className="sm:col-span-2">
             <label className="text-[11px] font-semibold text-slate-600 block mb-1">Accroche du hero (page d'accueil)</label>

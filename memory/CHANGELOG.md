@@ -2939,3 +2939,41 @@ _⚠️ Historique antérieur (Iter38r-fix9l) conservé ci-dessous._
   - GET /admin/settings expose bien le flag
 - **5/5 PASS**.
 
+
+## Iter40-ui-flags (S052) (2026-06-05) — Identité publique (white-label branding)
+
+### 🎨 1) 4 nouveaux champs Settings
+- `models.py` : `public_brand_name`, `public_brand_color`, `public_logo_url`, `public_hero_tagline` (tous `Optional[str]`)
+
+### 🌐 2) Endpoint anonyme étendu
+- `GET /api/public/ui-flags` retourne désormais 6 clés (2 toggles + 4 branding)
+- Chaînes vides/whitespace normalisées en `null` côté backend (validé par test)
+- Toujours zéro secret exposé (whitelist explicite + test de garde)
+
+### 🔧 3) Frontend `lib/useUIFlags.js`
+- Nouveau hook React partagé : fetch les flags une fois au mount, cache en `localStorage["ui_flags_cache_v1"]`, écoute `window.addEventListener("ui-flags-updated")`
+- Applique automatiquement :
+  - `document.title = public_brand_name` (quand défini)
+  - `document.documentElement.style.setProperty("--brand-primary", public_brand_color)` → utilisable comme `var(--brand-primary, #1E90FF)` dans tout le CSS
+- Re-applique le branding à chaque changement de state (cohérence entre cache initial et flags fraîchement fetchés)
+
+### 🎛️ 4) Frontend `AdminSettings.jsx`
+- Nouvelle section "Identité publique — marque, logo, couleur"
+- Champ texte (nom de la marque), color picker + input hex synchronisés, URL logo avec aperçu image, accroche du hero
+- Chaque champ dispatch `ui-flags-updated` au changement → propagation instantanée sans rechargement
+
+### 🔌 5) Frontend `App.js`
+- Appel du hook `useUIFlags()` au niveau du composant racine → branding actif pour toutes les routes (publiques et portail)
+
+### 🧪 6) Tests
+- 3 nouveaux tests pytest (totaux : **8/8 PASS** dans `test_iter40_route_loader_toggle.py`) :
+  - Présence des 4 champs branding (defaut `null`)
+  - Admin peut set tous les champs (PUT + GET echo)
+  - Normalisation `"   "` → `null` (whitespace strip)
+- Test de garde "no secrets" mis à jour avec la nouvelle whitelist élargie.
+
+### 🚀 Pistes pour la suite (futures itérations)
+- Remplacer les couleurs hardcodées (`#1E90FF`, `bg-sawali-blue`) par `var(--brand-primary)` dans les composants Tailwind clés (CTA, headers)
+- Afficher `public_logo_url` dans `MarketingNav.jsx` quand défini (sinon logo SAWALI par défaut)
+- Override de `home_hero.title` par `public_hero_tagline` quand défini
+

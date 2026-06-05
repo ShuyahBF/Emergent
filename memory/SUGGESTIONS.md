@@ -447,6 +447,20 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : option pour les utilisateurs/clients trouvant la jauge intrusive. Préserve la flexibilité de réactivation rapide. Cache localStorage évite un flash entre le rendu initial et la réception du flag.
 - **Tests** : 5 tests pytest (`test_iter40_route_loader_toggle.py`) : endpoint anonyme, défaut true, toggle on/off, aucune fuite de secrets, GET /admin/settings retourne le flag.
 
+## S052 — Identité publique (white-label : marque, logo, couleur, accroche)
+- **Demande utilisateur** : 2026-06 — « Oui vas-y » (réponse à la suggestion d'étendre `/api/public/ui-flags` avec des flags de branding pour clients revendeurs)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter40-ui-flags
+- **Détail** :
+  - Backend `models.py` : 4 nouveaux champs dans `SettingsUpdate` : `public_brand_name`, `public_brand_color` (hex), `public_logo_url`, `public_hero_tagline`
+  - Backend `server.py` : `GET /api/public/ui-flags` étendu pour exposer ces 4 fields (anonyme, jamais de secrets). Valeurs vides normalisées en `null`.
+  - Frontend `lib/useUIFlags.js` : nouveau hook qui fetch les flags une fois, cache en `localStorage` (anti-flash), écoute `ui-flags-updated` pour propagation instantanée, applique automatiquement `document.title` (brand name) et `--brand-primary` (CSS variable) sur `:root`
+  - Frontend `App.js` : appel du hook au niveau racine → branding appliqué app-wide
+  - Frontend `AdminSettings.jsx` : nouvelle section "Identité publique" avec champ texte (nom), color picker + hex, URL logo avec aperçu, accroche du hero. Tous les champs dispatchent `ui-flags-updated` au changement pour propagation immédiate.
+- **Bénéfice** : permet à un client revendeur (white-label) de personnaliser instantanément l'identité visuelle sans toucher au code ni redéployer. Préserve les défauts SAWALI quand les champs sont vides.
+- **Tests** : 3 nouveaux tests pytest dans `test_iter40_route_loader_toggle.py` : présence des 4 champs (defaut null), set+echo via PUT/GET, normalisation des chaînes vides/whitespace en null. **8/8 PASS**.
+- **Pistes pour la suite** : utiliser `var(--brand-primary)` dans les composants Tailwind (boutons CTA, accents) pour une réelle propagation visuelle ; afficher `public_logo_url` dans `MarketingNav.jsx` quand défini ; appliquer `public_hero_tagline` dans `Home.jsx` (override de `home_hero.title`).
+
 ---
 
 ## Comment référencer une suggestion

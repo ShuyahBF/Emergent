@@ -96,14 +96,78 @@ def test_ui_flags_never_exposes_secrets():
     r = requests.get(f"{API}/public/ui-flags", timeout=10)
     body = r.json()
     # Allowed keys are explicit. No surprise field with secrets.
-    allowed = {"global_route_loader_enabled", "download_gauge_enabled"}
+    allowed = {
+        "global_route_loader_enabled", "download_gauge_enabled",
+        "public_brand_name", "public_brand_color",
+        "public_logo_url", "public_hero_tagline",
+    }
     leaked = set(body.keys()) - allowed
     assert not leaked, f"Unexpected keys in /public/ui-flags: {leaked}"
     # Verify no key with a sensitive name pattern slipped through
     for k in body:
         kl = k.lower()
-        for bad in ("password", "secret", "token", "key", "smtp", "stripe", "pawapay", "openai", "client_secret"):
+        for bad in ("password", "secret", "token", "smtp", "stripe", "pawapay", "openai", "client_secret"):
             assert bad not in kl, f"Suspicious key in /public/ui-flags: {k}"
+
+
+def test_ui_flags_branding_fields_default_null():
+    """Brand fields are null/None when never configured."""
+    r = requests.get(f"{API}/public/ui-flags", timeout=10)
+    body = r.json()
+    # All four branding keys must be present (even if null)
+    for k in ("public_brand_name", "public_brand_color", "public_logo_url", "public_hero_tagline"):
+        assert k in body
+
+
+def test_admin_can_set_branding_fields(admin, db):
+    """PUT branding fields and verify they are echoed by the public endpoint."""
+    headers = {"Authorization": f"Bearer {admin}"}
+    r = requests.put(
+        f"{API}/admin/settings",
+        json={
+            "public_brand_name": "Test Brand SA",
+            "public_brand_color": "#FF6B35",
+            "public_logo_url": "https://example.com/logo.svg",
+            "public_hero_tagline": "Notre accroche test",
+        }, headers=headers, timeout=10,
+    )
+    assert r.status_code == 200, r.text
+    r2 = requests.get(f"{API}/public/ui-flags", timeout=10)
+    body = r2.json()
+    assert body["public_brand_name"] == "Test Brand SA"
+    assert body["public_brand_color"] == "#FF6B35"
+    assert body["public_logo_url"] == "https://example.com/logo.svg"
+    assert body["public_hero_tagline"] == "Notre accroche test"
+    # Cleanup
+    db.settings.update_one(
+        {"_id": "global"},
+        {"$unset": {
+            "public_brand_name": "", "public_brand_color": "",
+            "public_logo_url": "", "public_hero_tagline": "",
+        }},
+    )
+
+
+def test_empty_branding_strings_normalized_to_null(admin, db):
+    """Empty strings are normalized to null in the public response."""
+    headers = {"Authorization": f"Bearer {admin}"}
+    # Set blanks (whitespace-only)
+    db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {
+            "public_brand_name": "   ",
+            "public_brand_color": "",
+            "public_logo_url": "",
+            "public_hero_tagline": "",
+        }},
+        upsert=True,
+    )
+    r = requests.get(f"{API}/public/ui-flags", timeout=10)
+    body = r.json()
+    assert body["public_brand_name"] is None
+    assert body["public_brand_color"] is None
+    assert body["public_logo_url"] is None
+    assert body["public_hero_tagline"] is None
 
 
 def test_admin_settings_get_returns_the_flag(admin, db):

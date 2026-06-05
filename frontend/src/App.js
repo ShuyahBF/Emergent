@@ -36,6 +36,7 @@ import { AuthProvider, useAuth } from "@/contexts/AuthContext";
 import { I18nProvider } from "@/contexts/I18nContext";
 import AutoLogoutGate from "@/components/AutoLogoutGate";
 import GlobalRouteLoader from "@/components/GlobalRouteLoader";
+import { useUIFlags } from "@/lib/useUIFlags";
 import LlmHealthBanner from "@/components/LlmHealthBanner";
 import MarketingLayout from "@/components/MarketingLayout";
 import PortalLayout from "@/components/PortalLayout";
@@ -160,6 +161,9 @@ const Protected = ({ admin = false, children }) => {
 };
 
 export default function App() {
+  // Iter40-ui-flags — Apply public branding (title, --brand-primary CSS var)
+  // app-wide. The hook fetches once and listens for ui-flags-updated.
+  useUIFlags();
   return (
     <AuthProvider>
       <I18nProvider>

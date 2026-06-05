@@ -741,6 +741,99 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* Iter40-ui-flags — Public branding (exposed via /api/public/ui-flags) */}
+      <Section icon={Sparkles} title="Identité publique — marque, logo, couleur">
+        <p className="text-xs text-slate-500">
+          Personnalisez les éléments visuels affichés sur le site public (titre de l'onglet, logo, couleur primaire,
+          accroche du hero). Idéal pour les déploiements <em>white-label</em> ou pour ajuster le branding sans toucher au code.
+          Les valeurs vides utilisent les défauts SAWALI. Le changement est appliqué instantanément, sans rechargement.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Nom de la marque</label>
+            <input
+              type="text"
+              value={s.public_brand_name || ""}
+              onChange={(e) => {
+                upd("public_brand_name", e.target.value);
+                try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+              }}
+              placeholder="SAWALI Smart Systems"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="brand-name"
+              maxLength={120}
+            />
+            <p className="text-[10px] text-slate-500 italic mt-1">Utilisé pour <code>document.title</code> (onglet du navigateur).</p>
+          </div>
+          <div>
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Couleur primaire</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="color"
+                value={s.public_brand_color || "#1E90FF"}
+                onChange={(e) => {
+                  upd("public_brand_color", e.target.value);
+                  try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                }}
+                className="h-9 w-12 rounded ring-1 ring-slate-300 cursor-pointer"
+                data-testid="brand-color-picker"
+              />
+              <input
+                type="text"
+                value={s.public_brand_color || ""}
+                onChange={(e) => {
+                  upd("public_brand_color", e.target.value);
+                  try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+                }}
+                placeholder="#1E90FF"
+                pattern="^#[0-9A-Fa-f]{6}$"
+                className="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm font-mono"
+                data-testid="brand-color-hex"
+                maxLength={9}
+              />
+            </div>
+            <p className="text-[10px] text-slate-500 italic mt-1">Exposée comme <code>var(--brand-primary)</code> dans le CSS.</p>
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">URL du logo public</label>
+            <input
+              type="url"
+              value={s.public_logo_url || ""}
+              onChange={(e) => {
+                upd("public_logo_url", e.target.value);
+                try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+              }}
+              placeholder="https://exemple.com/logo.svg ou /uploads/mon-logo.png"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="brand-logo-url"
+            />
+            {s.public_logo_url && (
+              <div className="mt-2 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-2 inline-block">
+                <img src={s.public_logo_url} alt="Aperçu du logo" className="h-12 w-auto object-contain" data-testid="brand-logo-preview" />
+              </div>
+            )}
+          </div>
+          <div className="sm:col-span-2">
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">Accroche du hero (page d'accueil)</label>
+            <input
+              type="text"
+              value={s.public_hero_tagline || ""}
+              onChange={(e) => {
+                upd("public_hero_tagline", e.target.value);
+                try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+              }}
+              placeholder="Construisons ensemble votre transformation digitale"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="brand-hero-tagline"
+              maxLength={200}
+            />
+            <p className="text-[10px] text-slate-500 italic mt-1">
+              Override optionnel — laisser vide pour utiliser l'accroche du contenu <code>home_hero</code> (admin/contents).
+            </p>
+          </div>
+        </div>
+      </Section>
+
       {/* Iter40-modal — Global cap of public ad modals per visitor per day */}
       <Section icon={Clock} title="Régie publicitaire — Plafond de modales par visiteur / jour">
         <p className="text-xs text-slate-500">

@@ -430,6 +430,14 @@ class SettingsUpdate(BaseModel):
     # who find the indicator intrusive on fast connections.
     global_route_loader_enabled: Optional[bool] = None
 
+    # --- Iter40-ui-flags — Public branding customization ---
+    # Exposed via /api/public/ui-flags (anonymous endpoint) so resellers can
+    # customize the public site without touching code.
+    public_brand_name: Optional[str] = None     # Site title / window.document.title
+    public_brand_color: Optional[str] = None    # Primary brand hex (e.g. "#1E90FF")
+    public_logo_url: Optional[str] = None       # Public logo (header / footer)
+    public_hero_tagline: Optional[str] = None   # Optional public hero tagline override
+
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download
     # trigger a WhatsApp approval flow: a message is sent to the configured

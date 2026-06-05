@@ -11094,13 +11094,19 @@ async def admin_query_collection(
 # ====================================================================
 @api.get("/public/ui-flags", tags=["Public"])
 async def public_ui_flags():
-    """Iter40-route-loader (S051) — Tiny anonymous endpoint exposing only the
-    UI-display toggles needed by frontend components that mount BEFORE auth
-    (e.g. GlobalRouteLoader). NEVER expose secrets here."""
+    """Iter40-route-loader (S051) + Iter40-ui-flags — Tiny anonymous endpoint
+    exposing only the UI display toggles and public branding fields needed by
+    frontend components that mount BEFORE auth (e.g. GlobalRouteLoader, brand
+    color CSS variable, public logo). NEVER expose secrets here."""
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     return {
         "global_route_loader_enabled": s.get("global_route_loader_enabled") is not False,
         "download_gauge_enabled": s.get("download_gauge_enabled") is not False,
+        # Iter40-ui-flags — Public branding (null/empty = use default)
+        "public_brand_name": (s.get("public_brand_name") or "").strip() or None,
+        "public_brand_color": (s.get("public_brand_color") or "").strip() or None,
+        "public_logo_url": (s.get("public_logo_url") or "").strip() or None,
+        "public_hero_tagline": (s.get("public_hero_tagline") or "").strip() or None,
     }
 
 

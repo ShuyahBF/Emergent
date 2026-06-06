@@ -45,6 +45,7 @@ GET_MASK_FIELDS = (
     "pawapay_api_token", "pawapay_api_token_sandbox", "pawapay_api_token_production", "pawapay_callback_secret",
     "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
     "stripe_webhook_secret",
+    "vidal_test_app_key", "vidal_prod_app_key",
 )
 
 

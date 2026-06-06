@@ -8,6 +8,49 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter41 (2026-02-06) — Module VIDAL France + fix mémoire conversationnelle Liluvine
+
+### 🩺 Backend — Module VIDAL France (REST API 2025.12 REV-03)
+- Nouveaux champs `SettingsUpdate` : `vidal_enabled`, `vidal_mode` (test|production), `vidal_test_base_url`, `vidal_test_app_id`, `vidal_test_app_key`, `vidal_prod_base_url`, `vidal_prod_app_id`, `vidal_prod_app_key`, `vidal_cache_ttl_hours`, `vidal_quota_per_user_per_day`, `vidal_http_timeout`. Les `app_key` masquées dans GET /admin/settings (ajoutées à GET_MASK_FIELDS + SECRET_FIELDS).
+- Nouveau module `routes/vidal.py` avec helpers `_load_config`, `_ensure_active`, `_cache_get/_set` (TTL configurable), `_quota_check_and_increment` (429 au-delà du plafond) et `_vidal_call` (httpx + auth via query params).
+- 8 nouveaux endpoints :
+  - `GET /api/admin/vidal/config` — masque les clés, lit la config courante
+  - `PUT /api/admin/vidal/config` — bascule mode, met à jour creds, ignore les masques renvoyés
+  - `POST /api/admin/vidal/test-connection` — ping VIDAL (`?q=doliprane&filter=product`) sur l'env actif
+  - `DELETE /api/admin/vidal/cache` — purge du cache Mongo `vidal_cache`
+  - `GET /api/vidal/quota/me` — compteur journalier du user
+  - `GET /api/vidal/search?q=…&filter=product|package|ucd|vmp|all-packages`
+  - `GET /api/vidal/product/{id}` + `/documents?type=RCP|FULL_MONO|PIL|INDICATIONS`
+  - `GET /api/vidal/products/status?status=NEW|AVAILABLE|DELETED|PHARMACO`
+  - `POST /api/vidal/prescription/analyze` (corps : patient + prescriptions + allergies + pathologies) → forwarde vers `/alerts/full` et persiste un audit dans `vidal_prescription_audit`.
+- Collections nouvelles : `vidal_cache`, `vidal_usage_daily`, `vidal_prescription_audit`.
+
+### 🩺 Frontend — Module VIDAL
+- Nouvelle section AdminSettings `S058VidalSection.jsx` (anchor `s-s058-vidal`) : toggle `enabled`, sélecteur mode TEST/PROD (vert/rouge), 2 blocs de credentials (TEST + PROD avec base_url + app_id + app_key masquée + œil), TTL/quota/timeout, boutons « Enregistrer », « Tester la connexion » (avec résultat ✅/❌), « Vider le cache », « Recharger ». Tous les champs disposent de `data-testid`.
+- Nouvelle page portail `/portal/vidal` (`Vidal.jsx`) avec 3 onglets :
+  - **Recherche** : champ q + filtre (produit/présentation/UCD/VMP) + tableau résultats + bouton « Voir la fiche » qui ouvre une modale chargeant en parallèle `/vidal/product/:id` et `/vidal/product/:id/documents?type=RCP`.
+  - **Catalogue** : sélecteur statut réglementaire (NEW/AVAILABLE/DELETED/PHARMACO) + liste.
+  - **Analyse de prescription** : éditeur patient (date naissance, sexe, poids), répétiteur de prescriptions (ID VIDAL + posologie), allergies et pathologies en CSV → affichage JSON des alertes.
+  - Badge quota du jour en haut + indicateur 🧪 TEST / 🚀 PROD.
+- Sidebar portal : nouvelle entrée « VIDAL France (médicaments) » via icône `HeartPulse` pour TOUS les rôles authentifiés.
+
+### 🤖 Backend — Fix mémoire conversationnelle Liluvine PRO
+- `EmergentIntegrations LlmChat` est stateless entre instances → 3 endpoints n'injectaient PAS l'historique : `whatsapp_native` inbound (ligne 852), web chat POST non-streaming (ligne 996), vision chat avec capture d'écran (ligne 1182). Le streaming SSE l'avait déjà depuis Iter40.
+- Nouveau helper `_build_memory_block(sid, current_text, limit=10)` dans `routes/liluvine_pro.py` : ramène les 10 derniers messages user/assistant de la session, retire le message courant, ordonne chronologiquement, encadre par `[HISTORIQUE DE LA CONVERSATION]…[FIN HISTORIQUE]`.
+- Appliqué aux 3 callers concernés. Liluvine se souvient désormais des échanges précédents quel que soit le canal (WA, web non-stream, vision).
+
+### ✅ Tests
+- `test_iter41_vidal.py` : 9/9 verts (CRUD config, RBAC, quota 429, mode switch, cache TTL, masking)
+- `test_iter40_liluvine_memory.py` : 4/4 verts (helper, ordre chronologique, limite, exposition module)
+- Régression Liluvine + Iter40 + S057 : 145/146 verts (1 pré-existant `test_iter38r_fix9c_liluvine_kb::test_build_kb_context_respects_budget` non lié)
+- Lint frontend : 0 issue sur les 2 nouveaux composants.
+
+### 🚧 Prochaines étapes
+- Validation E2E UI VIDAL une fois les vrais credentials saisis dans AdminSettings (le bouton "Tester la connexion" ping l'API VIDAL).
+- ACL fine-grained par rôle si besoin (actuellement TOUS les utilisateurs authentifiés ont accès).
+- Pipeline Liluvine ⇄ VIDAL : permettre à Liluvine d'appeler `/vidal/search` ou `/vidal/product/:id` dans le RAG (à câbler dans `liluvine_business_rag.py`).
+
+
 ## S057 Day 3+ (2026-02-06) — Habillage complet : Sidebar / Login / Blocs publics
 
 ### 🎨 Backend

@@ -16,6 +16,7 @@ import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEm
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
 import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
+import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
@@ -657,6 +658,10 @@ export default function AdminSettings() {
 
       <Filterable title="🎨 S057 — Habillage complet (Sidebar / Login / Blocs publics)" anchorId="s-s057-theming">
         <S057ThemingSection />
+      </Filterable>
+
+      <Filterable title="💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)" anchorId="s-s058-vidal">
+        <S058VidalSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

@@ -11153,6 +11153,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
         "support_load_webhook_secret", "liluvine_remote_secret",
         "stripe_webhook_secret",
+        "vidal_test_app_key", "vidal_prod_app_key",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -21793,6 +21794,14 @@ _attach_form_categories(api=api, db=db, get_current_user=get_current_user)
 # Iter40 (2026-02) — Registre des erreurs (logiciels externes)
 from routes.error_registry import attach_error_registry_routes as _attach_error_registry  # noqa: E402
 _attach_error_registry(api=api, db=db, get_current_user=get_current_user)
+
+# Iter41 (2026-02) — Module VIDAL France (médicaments / monographies / alertes)
+from routes.vidal import attach_vidal_routes as _attach_vidal  # noqa: E402
+_attach_vidal(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

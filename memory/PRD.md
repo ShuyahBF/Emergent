@@ -5,6 +5,30 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter41 (2026-02) — Module VIDAL France + Fix mémoire conversationnelle Liluvine
+
+### Architecture
+- **Module VIDAL** : `routes/vidal.py` monté via `attach_vidal_routes(api, db, get_current_user, get_current_admin)` dans `server.py`. Endpoints `/api/vidal/*` (utilisateur authentifié) + `/api/admin/vidal/*` (admin). 2 environnements (test / production) côte-à-côte dans `settings.global`, basculement via `vidal_mode`. Auth VIDAL via `app_id` + `app_key` en query string. Cache Mongo `vidal_cache` (TTL configurable, défaut 7 jours) + quota par user/jour `vidal_usage_daily`. Aucun cache sur l'analyse de prescription (patient-specific) ; audit conservé dans `vidal_prescription_audit`.
+- **Liluvine mémoire** : helper `_build_memory_block(sid, current_text, limit=10)` dans `routes/liluvine_pro.py`, appliqué aux 3 callers non-streaming (WA inbound, web chat POST, vision chat). Le streaming SSE l'avait déjà.
+
+### Endpoints clés
+- `GET/PUT /api/admin/vidal/config` — admin only, masque app_key.
+- `POST /api/admin/vidal/test-connection` — ping VIDAL.
+- `DELETE /api/admin/vidal/cache` — purge.
+- `GET /api/vidal/quota/me` — état du quota.
+- `GET /api/vidal/search?q=&filter=`, `/vidal/product/{id}`, `/vidal/product/{id}/documents?type=`, `/vidal/products/status?status=`.
+- `POST /api/vidal/prescription/analyze` — `{patient, prescriptions, allergies, pathologies}` → `/alerts/full` VIDAL.
+
+### UI
+- `/admin/settings` → section `s-s058-vidal` (S058VidalSection) : toggle on/off, sélecteur mode TEST/PROD (visuel vert/rouge), 2 blocs d'env (TEST + PROD) avec base_url + app_id + app_key, TTL/quota/timeout, 4 boutons (Enregistrer, Tester la connexion, Vider le cache, Recharger).
+- `/portal/vidal` (Vidal.jsx) — 3 onglets : Recherche, Catalogue, Analyse de prescription. Modale fiche médicament chargeant en parallèle détails + RCP. Badge quota + indicateur mode actif.
+- Sidebar portail : entrée « VIDAL France (médicaments) » (HeartPulse icon) pour tous les rôles authentifiés.
+
+### Tests
+- 9/9 verts (`test_iter41_vidal.py`) + 4/4 verts (`test_iter40_liluvine_memory.py`). Régression 145/146 (échec préexistant `test_iter38r_fix9c_liluvine_kb` non lié).
+
+
+
 
 ## Iter40 (2026-02) — Liluvine RAG modules métier + Signataires PV par email + Commandes WA GRH
 

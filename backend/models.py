@@ -881,6 +881,22 @@ class SettingsUpdate(BaseModel):
     # legacy single key (kept for backwards-compat — not exposed in new UI)
     pawapay_api_token: Optional[str] = None
 
+    # ----- VIDAL France — Médicaments / Monographies / Analyse de prescription (Iter41) -----
+    # Two environments (test & production). The active one is picked by `vidal_mode`.
+    vidal_enabled: Optional[bool] = None
+    vidal_mode: Optional[str] = None  # "test" | "production"
+    vidal_test_base_url: Optional[str] = None        # e.g. "https://api-test.vidal.net/rest/api"
+    vidal_test_app_id: Optional[str] = None          # masked
+    vidal_test_app_key: Optional[str] = None         # masked
+    vidal_prod_base_url: Optional[str] = None        # e.g. "https://api.vidal.net/rest/api"
+    vidal_prod_app_id: Optional[str] = None          # masked
+    vidal_prod_app_key: Optional[str] = None         # masked
+    # Cache & quota
+    vidal_cache_ttl_hours: Optional[int] = None      # default 168 (7 days)
+    vidal_quota_per_user_per_day: Optional[int] = None  # default 200 (0 = unlimited)
+    # Timeout for HTTP calls (in seconds)
+    vidal_http_timeout: Optional[int] = None         # default 12
+
     # ----- n8n Agenda Agent — bidirectional webhook for AI-driven RDV CRUD -----
     # Outbound: each manual create/update/delete fires a POST to this URL so
     # the n8n AI Agent can react, sync external calendars or notify users.

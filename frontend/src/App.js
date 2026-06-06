@@ -136,6 +136,7 @@ import UnifiedInbox from "@/pages/portal/UnifiedInbox";
 import CatalogStats from "@/pages/portal/CatalogStats";
 import PaymentReturn from "@/pages/portal/PaymentReturn";
 import LiluvinePro from "@/pages/portal/LiluvinePro";
+import Vidal from "@/pages/portal/Vidal";
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -249,6 +250,8 @@ export default function App() {
             <Route path="tickets" element={<Tickets />} />
             {/* Iter38r-fix6 — Liluvine PRO assistant interne */}
             <Route path="liluvine" element={<LiluvinePro />} />
+            {/* Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes) */}
+            <Route path="vidal" element={<Vidal />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />

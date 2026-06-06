@@ -64,6 +64,8 @@ const clientLinks = [
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", tKey: "nav.liluvine", icon: Bot, featureGate: "ai_liluvine_pro" },
+  // Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes prescription)
+  { to: "/portal/vidal", label: "VIDAL France (médicaments)", icon: HeartPulse },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs

@@ -569,6 +569,35 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         except Exception:
             logger.warning("[liluvine] escalation email loop failed", exc_info=True)
 
+    async def _build_memory_block(sid: str, current_text: str, limit: int = 10) -> str:
+        """Iter40 (2026-02) — Conversation memory.
+
+        EmergentIntegrations `LlmChat` is stateless across instances, so we must
+        inject the last N exchanges of the current session into the user prompt
+        ourselves. This helper is used by every non-streaming `_llm_send` call
+        site (web chat fallback, WhatsApp inbound, vision chat). The streaming
+        endpoint uses an inline variant for parallel `asyncio.gather`.
+        """
+        try:
+            rows = await db.liluvine_pro_messages.find(
+                {"session_id": sid, "role": {"$in": ["user", "assistant"]}},
+                {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+            ).sort("created_at", -1).limit(limit + 1).to_list(limit + 1)
+        except Exception:  # noqa: BLE001
+            return ""
+        # Drop the message the caller just inserted (matched by exact text)
+        rows = [r for r in rows if (r.get("content") or "") != current_text][:limit]
+        if not rows:
+            return ""
+        rows.reverse()
+        lines = ["[HISTORIQUE DE LA CONVERSATION (du plus ancien au plus récent)]"]
+        for r in rows:
+            prefix = "Utilisateur" if r["role"] == "user" else "Liluvine"
+            body = (r.get("content") or "")[:1500]
+            lines.append(f"{prefix}: {body}")
+        lines.append("[FIN HISTORIQUE]\n")
+        return "\n".join(lines)
+
     async def _llm_send(session_id: str, system_text: str, user_text: str) -> Dict[str, Any]:
         """Spin a fresh LlmChat instance, send the message, return reply + token estimate.
 
@@ -848,8 +877,11 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         # Iter38r-fix9o (Item 1) — Keyword pre-check for explicit human-handoff requests
         _user_lower = text.lower()
         _escalate_pre = any(k in _user_lower for k in ESCALATION_KEYWORDS)
+        # Iter40-fix (2026-02) — Inject the conversation memory so Liluvine
+        # remembers the previous exchanges of this session.
+        memory_block = await _build_memory_block(sid, text)
         try:
-            llm = await _llm_send(sid, system_text, text)
+            llm = await _llm_send(sid, system_text, (memory_block + text) if memory_block else text)
         except HTTPException:
             raise
         except Exception as exc:
@@ -990,10 +1022,12 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
         # Iter38r-fix9o (Item 1) — Keyword pre-check
         _escalate_pre = any(k in payload.text.lower() for k in ESCALATION_KEYWORDS)
-        # Call the LLM (the LlmChat library handles multi-turn history via session_id
-        # internally, but ours is keyed by sid which guarantees per-conversation memory)
+        # Iter40-fix (2026-02) — Inject the conversation memory so Liluvine
+        # remembers previous exchanges (LlmChat is stateless across instances).
+        memory_block = await _build_memory_block(sid, payload.text)
+        # Call the LLM (history is injected manually via memory_block above)
         try:
-            llm = await _llm_send(sid, system_text, payload.text)
+            llm = await _llm_send(sid, system_text, (memory_block + payload.text) if memory_block else payload.text)
         except HTTPException:
             raise
         except Exception as exc:
@@ -1178,8 +1212,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         # 7) Call the LLM with the enriched prompt
         ctx = await _fetch_context_snippets(db, user, text or analysis.get("visual_summary") or "")
         system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "")
+        # Iter40-fix (2026-02) — Inject conversation memory for vision chat too.
+        memory_block = await _build_memory_block(sid, text or "📸 Capture d'écran envoyée")
         try:
-            llm = await _llm_send(sid, system_text, enriched_user_text)
+            llm = await _llm_send(sid, system_text, (memory_block + enriched_user_text) if memory_block else enriched_user_text)
         except HTTPException:
             raise
         except Exception as exc:

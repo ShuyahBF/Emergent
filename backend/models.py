@@ -910,6 +910,9 @@ class SettingsUpdate(BaseModel):
     officines_public_quota_per_day: Optional[int] = None  # quota /jour /numéro
     sidebar_bg_image_url: Optional[str] = None
     sidebar_bg_image_opacity: Optional[float] = None  # 0..1
+    # Iter41 Phase 4 — HMAC secret used by /api/public/officines/register
+    officines_register_hmac_secret: Optional[str] = None
+
 
 
     # ----- n8n Agenda Agent — bidirectional webhook for AI-driven RDV CRUD -----

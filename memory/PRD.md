@@ -5,6 +5,25 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter41 Phase 4 (2026-02) — Dashboard VIDAL + API publique officines HMAC + rôles
+
+### Modules nouveaux
+- `routes/vidal_dashboard.py` — 2 endpoints admin (`/admin/vidal/usage`, `/admin/officines/usage`) + 1 endpoint public HMAC-signed (`/public/officines/register`)
+
+### Settings nouveau
+- `officines_register_hmac_secret` (masqué) — secret HMAC partagé avec les officines pour l'inscription
+
+### Rôles ajoutés au sélecteur de création client
+- `regulateur`, `pharmacien`, `medecin` (en plus de admin/superviseur/moderateur/client/demo)
+
+### Frontend
+- `S058VidalSection` héberge désormais le widget `VidalUsageDashboard` (StatCards + SVG + top consumers + by-mode + section Officines)
+- AdminSettings : bannière jaune au-dessus du bouton bleu global indiquant les sections S057/S058/S059 ont leur propre bouton
+
+### Tests : 8 nouveaux, 77/77 verts au total.
+
+
+
 ## Iter41 Phase 3 (2026-02) — Synthèse + Officines + CIPs + Sidebar image + Hotfix groupes
 
 ### Modules nouveaux

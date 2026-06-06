@@ -2548,8 +2548,12 @@ export default function AdminSettings() {
         )}
       </Section>
 
+      <div className="mt-6 ring-1 ring-amber-200 bg-amber-50 rounded-lg p-3 text-xs text-amber-800 max-w-3xl" data-testid="settings-save-hint">
+        💡 <strong>Astuce</strong> : les sections <strong>S057 (Habillage)</strong>, <strong>S058 (VIDAL)</strong> et <strong>S059 (Synthèse / Officines / Image sidebar)</strong> ont chacune leur propre bouton « Enregistrer » de couleur (fuchsia / rose / violet). Le bouton bleu ci-dessous ne sauvegarde QUE les paramètres généraux.
+      </div>
+
       <button onClick={save} disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-5 py-2.5 text-sm font-medium hover:bg-sawali-blue-light disabled:opacity-50" data-testid="save-settings-btn">
-        <Save className="h-4 w-4" /> {loading ? "Enregistrement..." : "Enregistrer les paramètres"}
+        <Save className="h-4 w-4" /> {loading ? "Enregistrement..." : "Enregistrer les paramètres généraux"}
       </button>
     </div>
     </SettingsFilterCtx.Provider>

@@ -47,6 +47,7 @@ GET_MASK_FIELDS = (
     "stripe_webhook_secret",
     "vidal_test_app_key", "vidal_prod_app_key",
     "officines_api_token",
+    "officines_register_hmac_secret",
 )
 
 

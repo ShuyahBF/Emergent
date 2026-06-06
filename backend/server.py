@@ -11175,6 +11175,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "stripe_webhook_secret",
         "vidal_test_app_key", "vidal_prod_app_key",
         "officines_api_token",
+        "officines_register_hmac_secret",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -21925,6 +21926,14 @@ _attach_amm(api=api, db=db, get_current_user=get_current_user)
 # Iter41 Phase 3 (2026-02) — API Officines (lookup + WA !aizenta)
 from routes.officines import attach_officines_routes as _attach_officines  # noqa: E402
 _attach_officines(api=api, db=db, get_current_user=get_current_user)
+
+# Iter41 Phase 4 (2026-02) — VIDAL usage dashboard + public officines inscription
+from routes.vidal_dashboard import (  # noqa: E402
+    attach_vidal_dashboard_routes as _attach_vidal_dashboard,
+    attach_public_officines_routes as _attach_public_officines,
+)
+_attach_vidal_dashboard(api=api, db=db, get_current_admin=get_current_admin)
+_attach_public_officines(api=api, db=db)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

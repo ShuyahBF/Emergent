@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   Loader2, Save, Stethoscope, Eye, EyeOff, RefreshCw, Trash2, Plug
 } from "lucide-react";
+import VidalUsageDashboard from "@/pages/admin/sections/VidalUsageDashboard";
 
 const DEFAULTS = {
   test_base_url: "https://api-test.vidal.net/rest/api",
@@ -303,6 +304,11 @@ export default function S058VidalSection() {
             : `❌ Échec : ${testResult.error}`}
         </div>
       )}
+
+      {/* Iter41 Phase 4 — Dashboard d'utilisation */}
+      <div className="pt-4 border-t border-slate-200">
+        <VidalUsageDashboard />
+      </div>
 
       {/* Debug verbose — toujours rendu quand un test a été lancé */}
       {testResult && testResult.debug && (

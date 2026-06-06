@@ -8,6 +8,49 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter41 Phase 4 (2026-02-06) — Dashboard VIDAL + API publique Officines HMAC + 3 nouveaux rôles + UX
+
+### 🎨 UX — Fix confusion bouton « Enregistrer »
+- Bannière jaune ajoutée au-dessus du bouton bleu global « Enregistrer les paramètres généraux » dans AdminSettings expliquant que S057/S058/S059 ont chacune leur propre bouton (fuchsia/rose/violet). Libellé du bouton bleu renommé en « Enregistrer les paramètres généraux ».
+
+### 👥 Backend — 3 nouveaux rôles disponibles à la création client
+- AdminClients.jsx : sélecteur de rôle étendu avec `regulateur` (💊 AMM), `pharmacien` (💊) et `medecin` (⚕️). Aucune validation backend stricte donc l'enregistrement passe directement.
+
+### 📊 Backend — Dashboard usage VIDAL (`/api/admin/vidal/usage`)
+- Nouveau module `routes/vidal_dashboard.py` :
+  - `GET /api/admin/vidal/usage?days=N` (admin) — totaux 30j, série quotidienne, top 10 consommateurs (enrichis email/full_name/role/company), distribution mode test/prod sur les analyses Rx, taille du cache.
+  - `GET /api/admin/officines/usage?days=N` (admin) — lookups portail, !aizenta WA, top produits recherchés, séries quotidiennes WA, nombre d'officines enrôlées.
+
+### 🏪 Backend — API publique d'inscription Officines (HMAC)
+- `POST /api/public/officines/register` — endpoint signé HMAC SHA256 pour que les officines déclarent leur inventaire :
+  - Headers requis : `X-Officine-Id`, `X-Timestamp` (epoch ±5 min), `X-Signature` (hex digest)
+  - Body : `{officine_name, address, phone, city, country, contact_email, inventory: [{product_name, cip, price, available, stock_qty}]}`
+  - Persistance dans `officines_inventory` (upsert par `officine_id` + compteur `updates_count`)
+  - Secret partagé stocké dans `settings.global.officines_register_hmac_secret` (masqué dans GET /admin/settings)
+- 4 protections : (1) secret absent → 503, (2) timestamp >5min → 401, (3) signature invalide → 401, (4) cap 500 items/call.
+
+### 🎨 Frontend — Widget Dashboard intégré à S058
+- Nouveau composant `VidalUsageDashboard.jsx` chargé en bas de la section S058 VIDAL :
+  - 4 StatCards (Appels, Users uniques, Analyses Rx, Cache)
+  - Mini graphique SVG quotidien sur 30j
+  - Top 5 consommateurs avec rôle + entreprise
+  - Distribution mode test/prod
+  - Section dédiée Officines (lookups portail, !aizenta, enrôlements, top 5 produits)
+- Sélecteur 7/30/90 jours + bouton refresh.
+
+### ✅ Tests
+- `test_iter41_phase4.py` : 8/8 verts (dashboard VIDAL, dashboard Officines, RBAC, HMAC valid/invalid/old-timestamp, secret désactivé, masking)
+- Régression complète Iter40+Iter41 : 77/77 verts
+- Lint : 0 erreur sur VidalUsageDashboard, S058VidalSection mis à jour.
+
+### 💼 Cas d'usage commercial du nouveau setup
+La combinaison **API publique HMAC** + **dashboard usage** + **!aizenta public** permet désormais :
+1. Inscription massive d'officines via leur propre logiciel de caisse (POST signé) — facturable par tranche d'usage.
+2. Visibilité côté régulateurs SAWALI sur la disponibilité réseau en temps réel.
+3. Service `!aizenta` monétisable côté grand public (push WA = 1 SMS facturable).
+4. Dashboard pour démontrer la valeur lors des renouvellements de contrat.
+
+
 ## Iter41 Phase 3 (2026-02-06) — Synthèse + Officines + CIPs + Sidebar image + Hotfix Contact Groups
 
 ### 🐛 Hot-fix Contact Groups (bug signalé par utilisateur)

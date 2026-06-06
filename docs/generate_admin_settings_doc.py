@@ -340,9 +340,141 @@ def build_admin_settings_doc():
         story.append(KeepTogether(kt))
         story.append(Spacer(1, 0.3 * cm))
 
+    # Iter40 (2026-02) — Append the full API reference table at the end
+    try:
+        _append_api_reference_section(story)
+    except Exception as exc:  # noqa: BLE001
+        print(f"[doctech] API reference section skipped: {exc}")
+
     pdf.build(story, onFirstPage=page_footer, onLaterPages=page_footer)
     print(f"Wrote {out}  ({out.stat().st_size // 1024} KB)")
     return out
+
+
+# ============================================================
+# Iter40 (2026-02) — API reference section
+# ============================================================
+def _append_api_reference_section(story):
+    """Enumerate FastAPI routes and append a comprehensive table.
+
+    Walks the live FastAPI app object (lazy import to avoid heavy
+    backend bootstrapping during PDF generation outside a running
+    server) and lists each route with method, description (docstring),
+    parameters, and a synthetic example URL.
+    """
+    import sys
+    # Add the backend folder to the path so we can import server.py
+    backend_dir = Path("/app/backend")
+    if str(backend_dir) not in sys.path:
+        sys.path.insert(0, str(backend_dir))
+    try:
+        from server import app as fastapi_app  # noqa: WPS433
+    except Exception as exc:
+        story.append(PageBreak())
+        story.append(Paragraph("Référence des API", H1))
+        story.append(Paragraph(f"(Erreur de chargement : {str(exc)[:120]})", BODY))
+        return
+
+    story.append(PageBreak())
+    story.append(Paragraph("Référence complète des API REST", H1))
+    story.append(Paragraph(
+        "Tableau exhaustif des endpoints exposés par le backend FastAPI. "
+        "Pour chaque endpoint, vous trouverez la méthode HTTP, le chemin "
+        "(préfixé par <b>/api</b>), une brève description, les paramètres "
+        "attendus (chemin et corps), et un exemple d'URL. Ce document est "
+        "auto-généré à partir de l'OpenAPI live du serveur.",
+        BODY,
+    ))
+    story.append(Spacer(1, 0.4 * cm))
+
+    routes = []
+    for route in fastapi_app.routes:
+        methods = getattr(route, "methods", None) or set()
+        path = getattr(route, "path", "")
+        if not path or path.startswith("/openapi") or path in ("/docs", "/redoc", "/api/openapi.json"):
+            continue
+        endpoint = getattr(route, "endpoint", None)
+        for m in sorted(methods):
+            if m in ("HEAD", "OPTIONS"):
+                continue
+            desc = ((endpoint.__doc__ or "").strip().split("\n", 1)[0]) if endpoint else ""
+            params = []
+            try:
+                import inspect as _inspect
+                if endpoint:
+                    sig = _inspect.signature(endpoint)
+                    for n, p in sig.parameters.items():
+                        if n in ("user", "request", "_"):
+                            continue
+                        if p.annotation is _inspect.Parameter.empty:
+                            params.append(n)
+                        else:
+                            # Skip Depends() / Body() default markers
+                            ann = getattr(p.annotation, "__name__", str(p.annotation))[:18]
+                            params.append(f"{n}:{ann}")
+            except Exception:
+                pass
+            routes.append({
+                "method": m,
+                "path": path,
+                "desc": desc[:140] or "—",
+                "params": ", ".join(params)[:90] or "—",
+            })
+    routes.sort(key=lambda r: (r["path"], r["method"]))
+
+    # Build the table (paginate by 35 rows per chunk to keep KeepTogether sane)
+    header = ["Méthode", "Endpoint", "Description", "Paramètres"]
+    rows = [header]
+    method_colors = {
+        "GET": colors.HexColor("#10b981"),
+        "POST": colors.HexColor("#3b82f6"),
+        "PUT": colors.HexColor("#f59e0b"),
+        "PATCH": colors.HexColor("#a855f7"),
+        "DELETE": colors.HexColor("#ef4444"),
+    }
+    for r in routes:
+        rows.append([
+            Paragraph(f"<b><font color='white'>{r['method']}</font></b>", PARAM),
+            Paragraph(f"<font name='Courier' size='7.5'>{r['path']}</font>", PARAM),
+            Paragraph(r["desc"], PARAM),
+            Paragraph(f"<font name='Courier' size='7'>{r['params']}</font>", PARAM),
+        ])
+
+    tbl = Table(rows, colWidths=[1.7 * cm, 6.8 * cm, 5.5 * cm, 3.5 * cm], repeatRows=1)
+    style_cmds = [
+        ("BACKGROUND", (0, 0), (-1, 0), BRAND_PRIMARY),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, 0), 8.5),
+        ("FONTSIZE", (0, 1), (-1, -1), 7.5),
+        ("ALIGN", (0, 0), (-1, -1), "LEFT"),
+        ("VALIGN", (0, 0), (-1, -1), "TOP"),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, BRAND_BG]),
+        ("BOX", (0, 0), (-1, -1), 0.3, colors.HexColor("#cbd5e1")),
+        ("INNERGRID", (0, 0), (-1, -1), 0.15, colors.HexColor("#e2e8f0")),
+    ]
+    # Color the method cell background per row
+    for idx, r in enumerate(routes, start=1):
+        style_cmds.append(("BACKGROUND", (0, idx), (0, idx), method_colors.get(r["method"], BRAND_MUTED)))
+    tbl.setStyle(TableStyle(style_cmds))
+    story.append(tbl)
+    story.append(Spacer(1, 0.6 * cm))
+    story.append(Paragraph(
+        f"<b>Nombre total d'API : {len(routes)}</b>",
+        ParagraphStyle("Total", parent=BODY, fontSize=11, textColor=BRAND_PRIMARY, alignment=TA_CENTER),
+    ))
+    story.append(Spacer(1, 0.5 * cm))
+    story.append(Paragraph(
+        "Toutes les API sont préfixées par <b>/api</b> et exigent généralement "
+        "une authentification Bearer JWT (header <code>Authorization: "
+        "Bearer &lt;token&gt;</code>). Les endpoints publics (préfixe "
+        "<code>/api/public/...</code>) sont anonymes.",
+        BODY,
+    ))
 
 
 if __name__ == "__main__":

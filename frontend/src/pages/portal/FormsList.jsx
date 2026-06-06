@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database } from "lucide-react";
+import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 
 // Form catalogue : user's forms + public forms from other clients
@@ -17,15 +17,32 @@ export default function FormsList() {
   const [newTitle, setNewTitle] = useState("");
   const [suggestions, setSuggestions] = useState([]);
   const [creating, setCreating] = useState(false);
+  // Iter40 (2026-02) — Categories
+  const [categories, setCategories] = useState([]);
+  const [activeCat, setActiveCat] = useState(null); // category id or null = "all"
+  const [search, setSearch] = useState("");
+  const [catModalOpen, setCatModalOpen] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
     setLoading(true);
-    try { const r = await apiClient.get("/me/forms"); setItems(r.data || []); }
-    catch { /* noop */ }
+    try {
+      const [fR, cR] = await Promise.all([
+        apiClient.get("/me/forms"),
+        apiClient.get("/me/form-categories").catch(() => ({ data: [] })),
+      ]);
+      setItems(fR.data || []);
+      const cats = cR.data || [];
+      setCategories(cats);
+      // Auto-select the default category on first load
+      if (activeCat === null && cats.length > 0) {
+        const def = cats.find((c) => c.is_default) || cats[0];
+        setActiveCat(def?.id || null);
+      }
+    } catch { /* noop */ }
     finally { setLoading(false); }
   };
-  useEffect(() => { load(); }, []);
+  useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const openCreate = async () => {
     setNewTitle("");
@@ -42,11 +59,32 @@ export default function FormsList() {
     return suggestions.find((s) => (s.title || "").trim().toLowerCase() === norm) || null;
   })();
 
-  const filtered = items.filter((f) => {
-    if (filter === "mine") return f.is_mine;
-    if (filter === "public") return !f.is_mine && f.is_public;
-    return true;
-  });
+  const filtered = useMemo(() => {
+    return items.filter((f) => {
+      // Tab "mine/public/all"
+      if (filter === "mine" && !f.is_mine) return false;
+      if (filter === "public" && (f.is_mine || !f.is_public)) return false;
+      // Category tab (only when tabs are present)
+      if (categories.length > 0 && activeCat) {
+        if (activeCat === "__uncategorized__") {
+          if (f.category_id) return false;
+        } else if (f.category_id !== activeCat) return false;
+      }
+      // Full-text search on description AND title
+      if (search.trim()) {
+        const q = search.trim().toLowerCase();
+        const hay = `${f.title || ""} ${f.description || ""}`.toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    }).sort((a, b) => {
+      // Sort: date desc, then author
+      const da = a.updated_at || a.created_at || "";
+      const dbb = b.updated_at || b.created_at || "";
+      if (da !== dbb) return dbb.localeCompare(da);
+      return (a.created_by_label || "").localeCompare(b.created_by_label || "");
+    });
+  }, [items, filter, categories, activeCat, search]);
 
   const create = async () => {
     const t = newTitle.trim();
@@ -112,6 +150,75 @@ export default function FormsList() {
           >{l}</button>
         ))}
       </div>
+
+      {/* Iter40 — Category tabs + search */}
+      <div className="flex flex-wrap items-center gap-2" data-testid="forms-category-bar">
+        {categories.length > 0 ? (
+          <>
+            <button
+              onClick={() => setActiveCat(null)}
+              className={`text-xs px-3 py-1.5 rounded-full ring-1 transition inline-flex items-center gap-1 ${activeCat === null ? "bg-sawali-blue text-white ring-sawali-blue" : "bg-white ring-slate-200 hover:ring-sawali-blue/50"}`}
+              data-testid="cat-tab-all"
+            >
+              Tous ({items.length})
+            </button>
+            {categories.map((c) => {
+              const count = items.filter((f) => f.category_id === c.id).length;
+              const active = activeCat === c.id;
+              return (
+                <button
+                  key={c.id}
+                  onClick={() => setActiveCat(c.id)}
+                  className={`text-xs px-3 py-1.5 rounded-full ring-1 transition inline-flex items-center gap-1 ${active ? "text-white ring-transparent" : "bg-white ring-slate-200 hover:ring-fuchsia-300"}`}
+                  style={active ? { background: c.color || "#6366f1" } : {}}
+                  data-testid={`cat-tab-${c.id}`}
+                >
+                  <Folder className="h-3 w-3" />
+                  {c.name}
+                  {c.is_default && <Star className="h-2.5 w-2.5 opacity-80" />}
+                  <span className="opacity-70">({count})</span>
+                </button>
+              );
+            })}
+            <button
+              onClick={() => setActiveCat("__uncategorized__")}
+              className={`text-xs px-3 py-1.5 rounded-full ring-1 transition ${activeCat === "__uncategorized__" ? "bg-slate-600 text-white ring-slate-600" : "bg-white ring-slate-200 hover:ring-slate-400"}`}
+              data-testid="cat-tab-uncategorized"
+            >
+              Sans catégorie ({items.filter((f) => !f.category_id).length})
+            </button>
+          </>
+        ) : (
+          <p className="text-xs text-slate-500 italic">Aucune catégorie. Créez-en pour organiser vos formulaires.</p>
+        )}
+        <button
+          onClick={() => setCatModalOpen(true)}
+          className="ml-auto text-[11px] px-2 py-1 rounded ring-1 ring-slate-300 text-slate-600 hover:bg-slate-50 inline-flex items-center gap-1"
+          data-testid="cat-manage-btn"
+        >
+          <SettingsIcon className="h-3 w-3" /> Gérer ({categories.length}/6)
+        </button>
+        <div className="relative w-full md:w-72">
+          <Search className="absolute left-2 top-2 h-3.5 w-3.5 text-slate-400" />
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Recherche (titre, description)…"
+            className="w-full pl-7 pr-2 py-1.5 text-xs rounded ring-1 ring-slate-300"
+            data-testid="forms-search-input"
+          />
+        </div>
+      </div>
+
+      {/* Iter40 — Categories management modal */}
+      {catModalOpen && (
+        <CategoriesManagerModal
+          categories={categories}
+          onClose={() => setCatModalOpen(false)}
+          onChanged={async () => { await load(); }}
+        />
+      )}
 
       {loading ? (
         <div className="text-center text-slate-500 py-10">Chargement…</div>
@@ -215,3 +322,103 @@ export default function FormsList() {
     </div>
   );
 }
+
+
+// ============================================================
+// Iter40 (2026-02) — Categories manager modal (max 6 per tenant)
+// ============================================================
+function CategoriesManagerModal({ categories, onClose, onChanged }) {
+  const [name, setName] = useState("");
+  const [color, setColor] = useState("#6366f1");
+  const COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#0ea5e9", "#ef4444", "#8b5cf6"];
+
+  const add = async () => {
+    if (!name.trim()) { toast.error("Saisissez un nom"); return; }
+    try {
+      await apiClient.post("/me/form-categories", { name: name.trim(), color, is_default: categories.length === 0 });
+      toast.success("Catégorie créée");
+      setName("");
+      await onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+  const rename = async (c) => {
+    const next = window.prompt(`Renommer « ${c.name} » :`, c.name);
+    if (!next || next.trim() === c.name) return;
+    try {
+      await apiClient.put(`/me/form-categories/${c.id}`, { name: next.trim() });
+      await onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+  const remove = async (c) => {
+    if (!window.confirm(`Supprimer « ${c.name} » ?\n\nLes formulaires associés ne seront pas supprimés (mais retireront leur catégorie).`)) return;
+    try {
+      await apiClient.delete(`/me/form-categories/${c.id}`);
+      await onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+  const setDefault = async (c) => {
+    try {
+      await apiClient.post(`/me/form-categories/${c.id}/set-default`);
+      await onChanged();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" data-testid="cat-manage-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg p-5 space-y-3">
+        <div className="flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800 flex items-center gap-2">
+            <Folder className="h-4 w-4" /> Catégories ({categories.length}/6)
+          </h2>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="h-4 w-4" /></button>
+        </div>
+        <p className="text-[11px] text-slate-500">
+          Maximum 6 catégories. La catégorie marquée comme « défaut » est affichée à l'ouverture de la page.
+        </p>
+        <div className="space-y-2 max-h-72 overflow-y-auto">
+          {categories.length === 0 && (
+            <p className="text-xs text-slate-400 italic">Aucune catégorie pour l'instant.</p>
+          )}
+          {categories.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 px-2 py-1.5 ring-1 ring-slate-200 rounded">
+              <span className="h-3 w-3 rounded-full" style={{ background: c.color || "#6366f1" }} />
+              <span className="flex-1 text-sm">{c.name}</span>
+              {c.is_default && <span className="text-[10px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded inline-flex items-center gap-0.5"><Star className="h-2.5 w-2.5" /> défaut</span>}
+              {!c.is_default && (
+                <button onClick={() => setDefault(c)} className="text-[10px] text-slate-500 hover:text-amber-600" title="Définir comme défaut" data-testid={`cat-set-default-${c.id}`}><Star className="h-3 w-3" /></button>
+              )}
+              <button onClick={() => rename(c)} className="text-[10px] text-slate-500 hover:text-slate-800" title="Renommer" data-testid={`cat-rename-${c.id}`}><Edit className="h-3 w-3" /></button>
+              <button onClick={() => remove(c)} className="text-[10px] text-rose-500 hover:text-rose-700" title="Supprimer" data-testid={`cat-delete-${c.id}`}><Trash2 className="h-3 w-3" /></button>
+            </div>
+          ))}
+        </div>
+        {categories.length < 6 && (
+          <div className="border-t pt-3 space-y-2">
+            <label className="text-xs">
+              <span className="block text-slate-600 mb-1">Nouvelle catégorie</span>
+              <input
+                value={name}
+                onChange={(e) => setName(e.target.value)}
+                placeholder="Ex : Client, Maintenance, Questionnaires…"
+                className="w-full px-2 py-1.5 text-sm rounded ring-1 ring-slate-300"
+                data-testid="cat-new-name"
+              />
+            </label>
+            <div className="flex items-center gap-1.5">
+              <span className="text-[10px] text-slate-500">Couleur :</span>
+              {COLORS.map((c) => (
+                <button key={c} type="button" onClick={() => setColor(c)}
+                        className={`h-6 w-6 rounded-full ring-2 ${color === c ? "ring-slate-700" : "ring-transparent"}`}
+                        style={{ background: c }} data-testid={`cat-color-${c.slice(1)}`} />
+              ))}
+              <button onClick={add} className="ml-auto text-xs px-3 py-1 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white inline-flex items-center gap-1" data-testid="cat-add-btn">
+                <Plus className="h-3 w-3" /> Ajouter
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+

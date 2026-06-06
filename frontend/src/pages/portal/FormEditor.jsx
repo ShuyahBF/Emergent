@@ -31,16 +31,19 @@ export default function FormEditor() {
   const [saving, setSaving] = useState(false);
   const [activePage, setActivePage] = useState(0);
   const [showShare, setShowShare] = useState(false);
+  const [categories, setCategories] = useState([]);
 
   useEffect(() => {
     apiClient.get(`/me/forms/${fid}`).then((r) => setForm(r.data)).catch(() => toast.error("Formulaire introuvable"));
+    apiClient.get("/me/form-categories").then((r) => setCategories(r.data || [])).catch(() => setCategories([]));
   }, [fid]);
 
   const save = async () => {
     setSaving(true);
     try {
       await apiClient.put(`/me/forms/${fid}`, {
-        title: form.title, description: form.description, is_public: form.is_public, pages: form.pages,
+        title: form.title, description: form.description, is_public: form.is_public,
+        category_id: form.category_id || null, pages: form.pages,
       });
       toast.success("Formulaire sauvegardé");
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
@@ -91,6 +94,22 @@ export default function FormEditor() {
           <input type="checkbox" checked={form.is_public} onChange={(e) => setForm({ ...form, is_public: e.target.checked })} data-testid="form-public-toggle" />
           {form.is_public ? <><Globe className="h-4 w-4 text-emerald-600" /> Public — importable par les autres clients</> : <><Lock className="h-4 w-4 text-slate-500" /> Privé</>}
         </label>
+        {categories.length > 0 && (
+          <label className="block text-xs">
+            <span className="text-slate-600 mr-2">Catégorie :</span>
+            <select
+              value={form.category_id || ""}
+              onChange={(e) => setForm({ ...form, category_id: e.target.value || null })}
+              className="text-sm rounded ring-1 ring-slate-300 px-2 py-1"
+              data-testid="form-category-select"
+            >
+              <option value="">— Sans catégorie —</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>{c.name}{c.is_default ? " (défaut)" : ""}</option>
+              ))}
+            </select>
+          </label>
+        )}
       </div>
 
       {/* Page tabs */}

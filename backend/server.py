@@ -12294,6 +12294,23 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
             counts["admin_profile_requests"] = 0
     except Exception:
         counts["admin_profile_requests"] = 0
+    # Iter40 (2026-02) — Registre des erreurs : 2 badges (exception + fatale)
+    try:
+        from routes.error_registry import ALLOWED_ROLES as _ER_ALLOWED
+        role_ok = (user.get("role") or "").lower() in _ER_ALLOWED
+        if role_ok:
+            base_q = {"deleted_at": None, "acknowledged": False, "estActif": True}
+            counts["errors_unack"] = await db.error_registry.count_documents(base_q)
+            counts["errors_exception"] = await db.error_registry.count_documents({**base_q, "StatutEnCours": {"$regex": "^exception$", "$options": "i"}})
+            counts["errors_fatale"] = await db.error_registry.count_documents({**base_q, "StatutEnCours": {"$regex": "^fatal", "$options": "i"}})
+        else:
+            counts["errors_unack"] = 0
+            counts["errors_exception"] = 0
+            counts["errors_fatale"] = 0
+    except Exception:
+        counts["errors_unack"] = 0
+        counts["errors_exception"] = 0
+        counts["errors_fatale"] = 0
     return {"counts": counts, "generated_at": _now()}
 
 
@@ -17443,6 +17460,7 @@ class FormCreate(BaseModel):
     description: Optional[str] = ""
     is_public: bool = False
     pages: Optional[List[FormPage]] = None
+    category_id: Optional[str] = None  # Iter40 (2026-02)
 
 
 class FormUpdate(BaseModel):
@@ -17450,6 +17468,7 @@ class FormUpdate(BaseModel):
     description: Optional[str] = None
     is_public: Optional[bool] = None
     pages: Optional[List[FormPage]] = None
+    category_id: Optional[str] = None  # Iter40 (2026-02)
 
 
 async def _next_form_number(client_code: str) -> int:
@@ -17524,6 +17543,7 @@ async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_u
         "title": title_norm,
         "description": payload.description or "",
         "is_public": payload.is_public,
+        "category_id": payload.category_id or None,  # Iter40 (2026-02)
         "pages": [p.model_dump() for p in (payload.pages or [FormPage(id=_uuid(), title="Page 1", fields=[])])],
         "created_by_id": user["id"],
         "created_by_label": user.get("full_name") or user.get("email"),
@@ -21752,6 +21772,14 @@ _attach_admin_settings(
 # Iter40 (2026-02) — Contact groups for SMS/WA bulk targeting
 from routes.contact_groups import attach_contact_groups_routes as _attach_contact_groups  # noqa: E402
 _attach_contact_groups(api=api, db=db, get_current_user=get_current_user)
+
+# Iter40 (2026-02) — Form categories (max 6 per tenant)
+from routes.form_categories import attach_form_categories_routes as _attach_form_categories  # noqa: E402
+_attach_form_categories(api=api, db=db, get_current_user=get_current_user)
+
+# Iter40 (2026-02) — Registre des erreurs (logiciels externes)
+from routes.error_registry import attach_error_registry_routes as _attach_error_registry  # noqa: E402
+_attach_error_registry(api=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

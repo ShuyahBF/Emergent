@@ -8,6 +8,34 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter40 (2026-02-06) — Day 3 : Catégories formulaires + Registre erreurs + DocTech API
+
+### 📁 P1-8 — Formulaires par catégorie
+- Nouveau module `routes/form_categories.py` + collection `form_categories` (max 6 par tenant).
+- Endpoints :
+  - `GET/POST/PUT/DELETE /me/form-categories`
+  - `POST /me/form-categories/{cid}/set-default` (exclusivité)
+- Champ `category_id` ajouté à `FormCreate`/`FormUpdate` (Pydantic + persistance).
+- Logique métier : 1ère catégorie créée auto-flaggée `is_default`. Suppression auto-promotion du suivant.
+- UI : onglets pills sur `/portal/forms`, modal de gestion 6/6, dropdown dans `FormEditor`. Recherche full-text titre+description, tri date/auteur.
+
+### 🚨 P2-7 — Registre des erreurs (Webhook + UI)
+- Webhook public `POST /api/errors/ingest` avec auth Bearer (token `settings.errors_webhook_token`).
+- 30 champs Pydantic conformes à la spec (IDTicketDemnde, Numéro_Généré, StatutEnCours, Code_Client, etc.).
+- Auto-génération `ERR-YYYY-NNNNN` si pas fourni.
+- Endpoints CRUD + filtres : `GET /me/errors` (status, code_client, search full-text, date_window today/7d/30d, active_only), `GET /me/errors/stats`, `POST /me/errors/{id}/acknowledge`, soft-delete, `POST /me/errors/purge` (Superviseur uniquement).
+- ACL stricte : Modérateur/Admin/Superviseur (clients refusés).
+- 2 badges sidebar séparés : exception (orange) + fatale (rouge pulsant) basés sur `StatutEnCours`. Intégration `/me/notifications/counts`.
+- UI : `/portal/error-registry` tableau filtrable, 4 KPI cards, modal détails, modal purge Superviseur-only.
+
+### 📚 P3-9 — Documentation Technique : Référence API
+- Le générateur `generate_admin_settings_doc.py` introspecte maintenant la FastAPI app et ajoute en fin de PDF un tableau exhaustif :
+  - Méthode HTTP (color-coded), Endpoint, Description (docstring 1ère ligne), Paramètres (extraits via inspect.signature)
+  - Nombre total d'API affiché en gras au bas du tableau
+- PDF passe de ~50 KB à ~127 KB avec ce nouvel index.
+
+### ✅ Tests : 19 nouveaux verts (9 form_categories + 10 error_registry) + régression **112/112 ✅**
+
 ## Iter40 (2026-02-06) — Day 2 : Liluvine RAG fix + Filtre no-toast + !aide + Groupes contacts
 
 ### 🔍 1) Liluvine PRO + Qdrant RAG (bugfix critique)

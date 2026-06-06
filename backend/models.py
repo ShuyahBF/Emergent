@@ -451,12 +451,12 @@ class SettingsUpdate(BaseModel):
     portal_bg_image_url: Optional[str] = None
     portal_bg_image_position: Optional[str] = None
 
-    # --- Iter40 (2026-02) — Filtre no-toast WA ---
-    # Quand `wa_silent_phones_enabled` est True, les messages provenant des
-    # numéros de la liste `wa_silent_phones` n'apparaissent PAS comme toast
-    # dans le portail (mais sont quand même enregistrés en DB).
+    # Iter40 (2026-02) — Filtre no-toast WA ---
     wa_silent_phones_enabled: Optional[bool] = None
     wa_silent_phones: Optional[List[str]] = None
+
+    # Iter40 (2026-02) — Token Bearer pour le webhook /api/errors/ingest
+    errors_webhook_token: Optional[str] = None
 
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download

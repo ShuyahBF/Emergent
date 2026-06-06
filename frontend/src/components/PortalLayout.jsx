@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -43,6 +43,7 @@ const clientLinks = [
   { to: "/portal/forms", label: "Formulaires", tKey: "nav.forms", icon: FileText },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
+  { to: "/portal/error-registry", label: "Registre des erreurs", icon: AlertOctagon, showBadges: true },
   // Iter38i — Unified omnichannel inbox (WhatsApp + Messenger)
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
@@ -266,9 +267,11 @@ export default function PortalLayout({ admin = false }) {
         <LanguageSelector compact />
       </div>
       <nav className="space-y-1">
-        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate }) => {
+        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges }) => {
           const count = module ? (badges[module] || 0) : 0;
           const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
+          const errorException = showBadges ? (badges.errors_exception || 0) : 0;
+          const errorFatale = showBadges ? (badges.errors_fatale || 0) : 0;
           const featureDisabled = featureGate && !tenantFeatures[featureGate];
           // S046 — translate label if a tKey is provided
           const displayLabel = tKey ? t(tKey, label) : label;
@@ -329,6 +332,24 @@ export default function PortalLayout({ admin = false }) {
                   title={`${liveCount} ticket(s) en cours`}
                 >
                   {liveCount > 99 ? "99+" : liveCount}
+                </span>
+              )}
+              {showBadges && errorException > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D]"
+                  data-testid="badge-errors-exception"
+                  title={`${errorException} exception(s) non lues`}
+                >
+                  {errorException > 99 ? "99+" : errorException}
+                </span>
+              )}
+              {showBadges && errorFatale > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] animate-pulse"
+                  data-testid="badge-errors-fatale"
+                  title={`${errorFatale} erreur(s) fatale(s) non lues`}
+                >
+                  {errorFatale > 99 ? "99+" : errorFatale}
                 </span>
               )}
             </NavLink>

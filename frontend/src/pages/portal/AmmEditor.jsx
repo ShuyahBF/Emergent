@@ -26,6 +26,7 @@ const EMPTY = {
   granted_at: "",
   expires_at: "",
   notes: "",
+  cip1: "", cip2: "", cip3: "", cip4: "", cip5: "",
 };
 
 function StatusBadge({ status }) {
@@ -132,6 +133,20 @@ function AmmEditor({ initial, onClose, onSaved }) {
             <textarea value={form.notes || ""} onChange={(e) => upd("notes", e.target.value)} rows={3}
                       className="w-full text-sm px-2 py-1.5 rounded ring-1 ring-slate-300" data-testid="amm-form-notes" />
           </label>
+          <fieldset className="sm:col-span-2 ring-1 ring-slate-200 rounded p-3 bg-slate-50">
+            <legend className="text-[10px] uppercase tracking-wider text-slate-500 px-1">Codes CIP (selon laboratoire / distributeur)</legend>
+            <div className="grid sm:grid-cols-5 gap-2 mt-1">
+              {[1,2,3,4,5].map((n) => (
+                <label key={n} className="block text-xs">
+                  <span className="block text-slate-600 mb-1">CIP{n}</span>
+                  <input value={form[`cip${n}`] || ""} onChange={(e) => upd(`cip${n}`, e.target.value)}
+                         placeholder="ex: 3400930471722"
+                         className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+                         data-testid={`amm-form-cip${n}`} />
+                </label>
+              ))}
+            </div>
+          </fieldset>
         </div>
         <div className="sticky bottom-0 bg-white border-t border-slate-100 px-4 py-3 flex justify-end gap-2">
           <button onClick={onClose} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>

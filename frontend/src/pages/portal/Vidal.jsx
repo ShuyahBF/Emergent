@@ -85,6 +85,8 @@ function ProductDetail({ id, onClose }) {
   const [loading, setLoading] = useState(true);
   const [detail, setDetail] = useState(null);
   const [rcp, setRcp] = useState(null);
+  const [officines, setOfficines] = useState(null);
+  const [loadingOff, setLoadingOff] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,6 +109,18 @@ function ProductDetail({ id, onClose }) {
     load();
     return () => { cancelled = true; };
   }, [id]);
+
+  const loadOfficines = async () => {
+    setLoadingOff(true);
+    try {
+      const name = (detail?.product?.name) || (detail?.name) || `VIDAL ${id}`;
+      const r = await apiClient.post("/officines/lookup", { product_name: name, requester_role: "vidal_button" });
+      setOfficines(r.data?.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur officines");
+    }
+    setTimeout(() => setLoadingOff(false), 0);
+  };
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" data-testid="vidal-product-modal">
@@ -140,6 +154,25 @@ function ProductDetail({ id, onClose }) {
               <pre className="text-[11px] bg-slate-50 ring-1 ring-slate-200 rounded p-3 overflow-auto max-h-72">
                 {JSON.stringify(rcp, null, 2).slice(0, 6000)}
               </pre>
+            </section>
+            <section data-testid="vidal-product-officines">
+              <div className="flex items-center justify-between mb-2">
+                <h3 className="text-xs uppercase tracking-wider text-slate-500">
+                  🏪 Officines (lookup distribué)
+                </h3>
+                <button onClick={loadOfficines} disabled={loadingOff}
+                        className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1 disabled:opacity-60"
+                        data-testid="vidal-load-officines-btn">
+                  {loadingOff ? <Loader2 className="h-3 w-3 animate-spin" /> : <Search className="h-3 w-3" />} Voir les officines
+                </button>
+              </div>
+              {officines ? (
+                <pre className="text-[11px] bg-emerald-50 ring-1 ring-emerald-200 rounded p-3 overflow-auto max-h-72">
+                  {JSON.stringify(officines, null, 2).slice(0, 6000)}
+                </pre>
+              ) : (
+                <p className="text-[11px] text-slate-400 italic">Cliquez le bouton pour interroger l&apos;API officines configurée.</p>
+              )}
             </section>
           </div>
         )}

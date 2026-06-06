@@ -432,10 +432,14 @@ export default function PortalLayout({ admin = false }) {
           shell prevents the "pinned-then-truncated" bug some browsers
           exhibit with `position: sticky` inside a flex row. */}
       <aside
-        className="hidden lg:flex flex-col shrink-0 w-72 p-5 h-screen overflow-y-auto"
+        className="hidden lg:flex flex-col shrink-0 w-72 p-5 h-screen overflow-y-auto relative"
         style={{
           background: "var(--sidebar-bg, #0E1F3D)",
           color: "var(--sidebar-text, #ffffff)",
+          backgroundImage: "var(--sidebar-bg-image, none)",
+          backgroundSize: "cover",
+          backgroundPosition: "center",
+          backgroundBlendMode: "multiply",
         }}
         data-testid="portal-sidebar"
       >
@@ -451,6 +455,10 @@ export default function PortalLayout({ admin = false }) {
             style={{
               background: "var(--sidebar-bg, #0E1F3D)",
               color: "var(--sidebar-text, #ffffff)",
+              backgroundImage: "var(--sidebar-bg-image, none)",
+              backgroundSize: "cover",
+              backgroundPosition: "center",
+              backgroundBlendMode: "multiply",
             }}
           >
             {SidebarContent}

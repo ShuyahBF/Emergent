@@ -11147,6 +11147,9 @@ async def public_ui_flags():
         "login_button_bg": (s.get("login_button_bg") or "").strip() or None,
         "login_button_text_color": (s.get("login_button_text_color") or "").strip() or None,
         "public_blocks_theme": s.get("public_blocks_theme") if isinstance(s.get("public_blocks_theme"), dict) else None,
+        # Iter41 Phase 3 — Sidebar background image (overrides sidebar_bg_color when set)
+        "sidebar_bg_image_url": (s.get("sidebar_bg_image_url") or "").strip() or None,
+        "sidebar_bg_image_opacity": float(s.get("sidebar_bg_image_opacity")) if s.get("sidebar_bg_image_opacity") is not None else None,
     }
 
 
@@ -11171,6 +11174,7 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "support_load_webhook_secret", "liluvine_remote_secret",
         "stripe_webhook_secret",
         "vidal_test_app_key", "vidal_prod_app_key",
+        "officines_api_token",
     )
     for k in SECRET_FIELDS:
         if update.get(k) == "********":
@@ -15991,6 +15995,44 @@ async def whatsapp_webhook_incoming(request: Request):
                                             pass
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("[vidal_wa_cmd] handler crashed: %s", exc)
+                        # Iter41 Phase 3 — !aizenta <produit> (officines, public)
+                        if not hr_handled:
+                            try:
+                                from routes.officines_wa import try_handle_aizenta_command
+                                az_res = await try_handle_aizenta_command(
+                                    db,
+                                    from_phone=from_num,
+                                    message_text=text_body,
+                                )
+                                if az_res is not None:
+                                    hr_handled = True
+                                    reply = (az_res or {}).get("user_reply")
+                                    if reply:
+                                        try:
+                                            await _wa_send_text(from_num, reply)
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[aizenta_wa_cmd] handler crashed: %s", exc)
+                        # Iter41 Phase 3 — !synthese [début] [fin] (Liluvine)
+                        if not hr_handled:
+                            try:
+                                from routes.synthese import detect_and_handle_synthese_command
+                                sy_res = await detect_and_handle_synthese_command(
+                                    db,
+                                    from_phone=from_num,
+                                    message_text=text_body,
+                                )
+                                if sy_res is not None:
+                                    hr_handled = True
+                                    reply = (sy_res or {}).get("user_reply")
+                                    if reply:
+                                        try:
+                                            await _wa_send_text(from_num, reply)
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[synthese_wa_cmd] handler crashed: %s", exc)
 
                     # Iter38r-fix9l — WA Tasks bidirectional sync. Check if
                     # this inbound is a task acknowledgement (OK 1,3 / FAIT 2)
@@ -19330,6 +19372,43 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=600,
             )
+            # Iter41 Phase 3 — Daily Liluvine synthèse cron.
+            # Reads `synthese_hour` from settings.global ("HH:MM") and dispatches
+            # via email / WA / both according to `synthese_channels`. We register
+            # an hourly trigger that internally compares the current hour:minute
+            # to the configured one — that way the user can change the time
+            # without restarting the backend.
+            try:
+                async def _synthese_minute_check():
+                    try:
+                        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "synthese_enabled": 1, "synthese_hour": 1}) or {}
+                        if not s.get("synthese_enabled"):
+                            return
+                        from datetime import datetime as _dt
+                        now = _dt.now()
+                        hhmm = (s.get("synthese_hour") or "08:00").strip()
+                        try:
+                            h, m = hhmm.split(":")
+                            if int(h) != now.hour or int(m) != now.minute:
+                                return
+                        except (ValueError, AttributeError):
+                            return
+                        from routes.synthese import run_scheduled_synthese
+                        result = await run_scheduled_synthese(db)
+                        logger.info("[synthese] scheduled run: %s", result)
+                    except Exception:
+                        logger.exception("[synthese] minute_check crashed")
+
+                _scheduler.add_job(
+                    _synthese_minute_check,
+                    CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                    id="liluvine_synthese_minutely",
+                    replace_existing=True,
+                    misfire_grace_time=120,
+                )
+                logger.info("Iter41 Phase 3 — Scheduled Liluvine synthèse (minute check).")
+            except Exception as _ex:
+                logger.warning("Failed to schedule synthèse cron: %s", _ex)
             # Hourly task reminders (1h window before due_at).
             _scheduler.add_job(
                 _task_reminder_cron,
@@ -21842,6 +21921,10 @@ _attach_vidal(
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402
 _attach_amm(api=api, db=db, get_current_user=get_current_user)
+
+# Iter41 Phase 3 (2026-02) — API Officines (lookup + WA !aizenta)
+from routes.officines import attach_officines_routes as _attach_officines  # noqa: E402
+_attach_officines(api=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

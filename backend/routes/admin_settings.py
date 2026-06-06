@@ -46,6 +46,7 @@ GET_MASK_FIELDS = (
     "agenda_n8n_outbound_token", "agenda_n8n_outbound_basic_pass", "agenda_n8n_inbound_secret",
     "stripe_webhook_secret",
     "vidal_test_app_key", "vidal_prod_app_key",
+    "officines_api_token",
 )
 
 

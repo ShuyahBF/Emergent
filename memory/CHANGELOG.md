@@ -8,6 +8,67 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter41 Phase 3 (2026-02-06) — Synthèse + Officines + CIPs + Sidebar image + Hotfix Contact Groups
+
+### 🐛 Hot-fix Contact Groups (bug signalé par utilisateur)
+- Bug : ajouter un contact à un groupe renvoyait `added=[]` (toujours 0 contacts dans le groupe). Cause : `add_contacts` filtrait par `client_id` strict, ignorant les contacts partagés en *peer-sharing* (même `company`).
+- Correctif : nouveau helper `_visible_contact_client_ids(db, user)` qui réplique la logique de `_resolve_visible_client_ids` (parent + peers du même `company`). Appliqué à `add_contacts`, `create_group`, `resolve_recipients`.
+- Tests : 3/3 verts (`test_iter41_contact_groups_bugfix.py`).
+
+### 📊 Synthèse Liluvine programmée + commande WA
+- Nouveau module `routes/synthese.py` :
+  - `_gather_kpis(db, scope, start, end)` — agrège counts (contacts, tickets, RDV, rapports, suivis, SMS, WA, factures, paiements) + top 5 derniers tickets
+  - `_build_prompt(custom_prompt, kpis, start, end)` — hybride : prompt admin + bloc structuré
+  - `_call_liluvine(prompt)` via EmergentIntegrations (Claude Sonnet 4.5)
+  - `build_synthese(start, end)` exposé en helper
+  - `parse_synthese_args(arg_string)` — accepte ISO (`2026-02-01`), français (`01/02/2026`), mots-clés (`aujourd'hui`, `hier`, `semaine`, `mois`)
+  - `run_scheduled_synthese(db)` — cron entry point, dispatch email/WA/both selon `synthese_channels`
+- Cron APScheduler : nouveau job `liluvine_synthese_minutely` qui vérifie chaque minute si `now == synthese_hour` et déclenche.
+- Settings : `synthese_enabled`, `synthese_email_to`, `synthese_wa_to`, `synthese_hour`, `synthese_prompt`, `synthese_channels`.
+- Commande WhatsApp `!synthese [début] [fin]` (case-insensitive, supporte `synthese` & `synthèse`) routée dans webhook AVANT auto-reply.
+
+### 🏪 API Officines + commande WA `!aizenta`
+- Nouveau module `routes/officines.py` :
+  - `POST /api/officines/lookup` (admin/superviseur/regulateur/pharmacien/medecin) — POSTe le payload `{product_name, cip_codes, requester_role, requester_id}` sur l'URL configurée
+  - Helper `lookup_for_wa_aizenta` + `format_officines_wa_reply` pour WhatsApp
+  - Audit en `vidal_audit_officines` (à terme `officines_audit`)
+  - Quota par numéro/jour stocké dans `officines_public_usage`
+- Settings : `officines_api_url`, `officines_api_token` (masqué), `officines_api_timeout`, `officines_public_quota_per_day` (défaut 10).
+- Commande WhatsApp publique `!aizenta <produit>` ou `!officine[s] <produit>` (case-insensitive, supporte `/`). Aucun gate tenant. Quota anti-abus.
+- Bouton « Voir les officines » ajouté dans la modale fiche médicament `/portal/vidal` — appelle `/officines/lookup`.
+
+### 🏥 Codes CIP1-CIP5 sur AMM
+- `AmmCreatePayload` + `AmmUpdatePayload` : nouveaux champs `cip1`…`cip5`.
+- AmmEditor UI : fieldset dédié sous Notes avec 5 inputs monospace.
+
+### 🎨 Image de fond de sidebar
+- Nouveau settings : `sidebar_bg_image_url`, `sidebar_bg_image_opacity`.
+- `/api/public/ui-flags` expose les 2 nouvelles clés.
+- `useUIFlags.js` injecte les CSS vars `--sidebar-bg-image` (URL absolue) et `--sidebar-bg-opacity`.
+- `PortalLayout.jsx` applique `backgroundImage: var(--sidebar-bg-image, none)` + `backgroundBlendMode: multiply` pour mixer image+couleur.
+- Upload via endpoint existant `/admin/upload` (limite 2 MB) — frontend stocke l'URL retournée.
+
+### 🎨 Nouvelle section AdminSettings S059
+- `S059SyntheseOfficinesSection.jsx` (anchor `s-s059-synthese-officines`) regroupe :
+  - Bloc Synthèse (toggle, email, WA, heure, canaux, prompt textarea)
+  - Bloc API Officines (URL, token Eye/EyeOff, timeout, quota)
+  - Bloc Image sidebar (upload, preview, slider opacité, bouton retirer)
+- Bouton « Enregistrer » sticky en bas. Token masqué `********`.
+
+### ✅ Tests
+- `test_iter41_phase3.py` : 14/14 verts (CIP fields, parsing dates 4 formats, casse-insensitive, RBAC officines, masking token, settings persistence, sidebar image)
+- `test_iter41_contact_groups_bugfix.py` : 3/3 verts
+- Régression complète Iter40+Iter41 : 69/69 verts
+- Lint frontend : 0 erreur sur S059, Vidal, useUIFlags
+
+### 🚧 Prochaines étapes (côté utilisateur)
+1. Tester en preview : créer un groupe + ajouter contacts (bug fix #1) → redéployer
+2. Configurer API Officines + tester depuis fiche VIDAL
+3. Activer la synthèse + saisir prompt + envoyer `!synthese hier` pour validation
+4. Tester `!aizenta doliprane` avec un numéro inconnu pour valider le quota anti-abus
+5. Uploader une image sidebar (test visuel)
+
+
 ## Iter41 Phase 2 (2026-02-06) — VIDAL + Liluvine RAG + Commandes WA + Table AMM
 
 ### 🩺 Backend — Améliorations VIDAL

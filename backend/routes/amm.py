@@ -34,6 +34,12 @@ class AmmCreatePayload(BaseModel):
     granted_at: Optional[str] = None  # ISO date
     expires_at: Optional[str] = None
     notes: Optional[str] = None
+    # Iter41 Phase 3 — CIPs (jusqu'à 5 codes selon laboratoire/distributeur)
+    cip1: Optional[str] = None
+    cip2: Optional[str] = None
+    cip3: Optional[str] = None
+    cip4: Optional[str] = None
+    cip5: Optional[str] = None
 
 
 class AmmUpdatePayload(BaseModel):
@@ -47,6 +53,11 @@ class AmmUpdatePayload(BaseModel):
     granted_at: Optional[str] = None
     expires_at: Optional[str] = None
     notes: Optional[str] = None
+    cip1: Optional[str] = None
+    cip2: Optional[str] = None
+    cip3: Optional[str] = None
+    cip4: Optional[str] = None
+    cip5: Optional[str] = None
 
 
 def _now_iso() -> str:
@@ -123,6 +134,11 @@ def attach_amm_routes(*, api, db, get_current_user):
             "granted_at": payload.granted_at,
             "expires_at": payload.expires_at,
             "notes": (payload.notes or "").strip() or None,
+            "cip1": (payload.cip1 or "").strip() or None,
+            "cip2": (payload.cip2 or "").strip() or None,
+            "cip3": (payload.cip3 or "").strip() or None,
+            "cip4": (payload.cip4 or "").strip() or None,
+            "cip5": (payload.cip5 or "").strip() or None,
             "source": "manual",
             "created_by": user.get("id"),
             "created_by_email": user.get("email"),

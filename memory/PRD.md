@@ -5,6 +5,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter41 Phase 3 (2026-02) — Synthèse + Officines + CIPs + Sidebar image + Hotfix groupes
+
+### Modules nouveaux
+- `routes/synthese.py` — KPIs aggregator + Liluvine prompt builder + cron `run_scheduled_synthese` + WA cmd handler `detect_and_handle_synthese_command`
+- `routes/officines.py` — POST proxy vers API tierce + helper WA + quota par numéro
+- `routes/officines_wa.py` — détection `!aizenta` (regex IGNORECASE, supporte `!officine[s]`)
+
+### Endpoints nouveaux
+- `POST /api/officines/lookup` (admin/superviseur/regulateur/pharmacien/medecin)
+
+### Settings nouveaux
+- `synthese_enabled`, `synthese_email_to`, `synthese_wa_to`, `synthese_hour`, `synthese_prompt`, `synthese_channels`
+- `officines_api_url`, `officines_api_token` (masqué), `officines_api_timeout`, `officines_public_quota_per_day`
+- `sidebar_bg_image_url`, `sidebar_bg_image_opacity`
+
+### Modèles modifiés
+- `AmmCreatePayload`/`AmmUpdatePayload` : ajout `cip1`…`cip5`
+
+### Cron
+- Job `liluvine_synthese_minutely` (vérification chaque minute du `synthese_hour` configuré)
+
+### Commandes WhatsApp ajoutées
+- `!synthese [début] [fin]` (toutes casses, dates ISO/français/mots-clés)
+- `!aizenta <produit>` ou `!officine[s] <produit>` (publique, quota anti-abus)
+
+### Frontend
+- `/admin/settings#s-s059-synthese-officines` — section S059
+- `/portal/amm` — champs CIP1-CIP5
+- `/portal/vidal` — bouton « Voir les officines » dans modale fiche
+- Sidebar portal : injection `--sidebar-bg-image` via useUIFlags
+
+### Hotfix
+- Bug Contact Groups : `add_contacts`/`create_group`/`resolve_recipients` corrigé pour reconnaître les contacts peer-shared (même `company`, `client_id` différent).
+
+### Tests : 17 nouveaux (14 phase3 + 3 hotfix groupes), 69/69 verts au total.
+
+
+
 ## Iter41 Phase 2 (2026-02) — VIDAL × Liluvine × AMM × Régulateur
 
 ### Architecture

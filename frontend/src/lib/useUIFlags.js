@@ -94,6 +94,21 @@ function applyBranding(flags) {
     setVar("--sidebar-bg", flags.sidebar_bg_color);
     setVar("--sidebar-text", flags.sidebar_text_color);
     setVar("--sidebar-accent", flags.sidebar_accent_color);
+    // Iter41 Phase 3 — Sidebar background image (priority over color).
+    // Exposes `--sidebar-bg-image` (full url(...)) + `--sidebar-bg-opacity`.
+    if (flags.sidebar_bg_image_url) {
+      // Ensure relative `/api/files/xyz` URLs are absolute so the browser fetches
+      // them from the backend, not from the frontend host.
+      const base = process.env.REACT_APP_BACKEND_URL || "";
+      const imgUrl = flags.sidebar_bg_image_url.startsWith("http")
+        ? flags.sidebar_bg_image_url
+        : `${base}${flags.sidebar_bg_image_url}`;
+      setVar("--sidebar-bg-image", `url("${imgUrl}")`);
+      setVar("--sidebar-bg-opacity", String(flags.sidebar_bg_image_opacity ?? 1));
+    } else {
+      setVar("--sidebar-bg-image", null);
+      setVar("--sidebar-bg-opacity", null);
+    }
     setVar("--login-bg", flags.login_bg_color);
     setVar("--login-text", flags.login_text_color);
     setVar("--login-card-bg", flags.login_card_bg);

@@ -897,6 +897,21 @@ class SettingsUpdate(BaseModel):
     # Timeout for HTTP calls (in seconds)
     vidal_http_timeout: Optional[int] = None         # default 12
 
+    # ----- Iter41 Phase 3 (2026-02) — Synthèse programmée + API officines + sidebar image -----
+    synthese_enabled: Optional[bool] = None
+    synthese_email_to: Optional[str] = None
+    synthese_wa_to: Optional[str] = None         # E.164 sans le +
+    synthese_hour: Optional[str] = None          # "HH:MM"
+    synthese_prompt: Optional[str] = None
+    synthese_channels: Optional[str] = None      # "email" | "wa" | "both"
+    officines_api_url: Optional[str] = None
+    officines_api_token: Optional[str] = None    # masqué dans /admin/settings
+    officines_api_timeout: Optional[int] = None
+    officines_public_quota_per_day: Optional[int] = None  # quota /jour /numéro
+    sidebar_bg_image_url: Optional[str] = None
+    sidebar_bg_image_opacity: Optional[float] = None  # 0..1
+
+
     # ----- n8n Agenda Agent — bidirectional webhook for AI-driven RDV CRUD -----
     # Outbound: each manual create/update/delete fires a POST to this URL so
     # the n8n AI Agent can react, sync external calendars or notify users.

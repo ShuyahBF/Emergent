@@ -8,6 +8,43 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter40 (2026-02-06) — Day 2 : Liluvine RAG fix + Filtre no-toast + !aide + Groupes contacts
+
+### 🔍 1) Liluvine PRO + Qdrant RAG (bugfix critique)
+- Le helper `_resolve_kb_context()` du streaming endpoint `/me/liluvine-pro/chat/stream` n'acceptait PAS de query → Qdrant ne s'activait jamais sur ce flux (les flux non-streaming étaient OK).
+- Fix : signature `_resolve_kb_context(query="")` + appel `_resolve_kb_context(payload.text)` dans `_event_stream`.
+- Test pytest qui inspecte la source pour garantir la non-régression.
+
+### 🔇 2) Filtre no-toast WhatsApp (paramètres globaux)
+- Nouveaux champs `settings.wa_silent_phones_enabled: bool` + `wa_silent_phones: list[str]`.
+- Endpoint `GET /me/liluvine-pro/autoreply-feed` filtre désormais les items provenant des numéros silencieux (match sur les 9 derniers chiffres). Les messages restent en DB.
+- UI : nouvelle section `WaSilentPhonesSection.jsx` dans `/admin/settings` (anchor `s-wa-silent-phones`).
+
+### ❓ 3) Commande WhatsApp `!aide`
+- Aliases reconnus : `!aide`, `!help`, `!commande`, `!commandes`, `!cmd`, `/aide` etc. (regex casse-insensible).
+- Branchement dans le webhook AVANT le routage HR/ticket. Évite que Liluvine auto-réponde à la place.
+- Liste toutes les commandes : `!absence`, `!avance`, `!ticket`, `!seuil`, plus une indication que les questions en langage naturel sont supportées.
+
+### 👥 4) Groupes de contacts
+- Nouveau module `routes/contact_groups.py` + collection `contact_groups` (id, client_id, name, description, color, contact_ids[]).
+- Endpoints :
+  - `GET    /me/contact-groups`
+  - `POST   /me/contact-groups` (avec `contact_ids[]` initial validé contre `directory_contacts`)
+  - `PUT    /me/contact-groups/{gid}` (rename/recolor, unicité du nom)
+  - `DELETE /me/contact-groups/{gid}`
+  - `POST   /me/contact-groups/{gid}/contacts` (ajout idempotent + filtrage IDs invalides)
+  - `DELETE /me/contact-groups/{gid}/contacts/{cid}`
+  - `POST   /me/contact-groups/resolve` (expanse `{group_ids, contact_ids}` → liste unique)
+- UI nouvelle page `/portal/contact-groups` : cartes par groupe, picker contact avec recherche, modal édition couleur+nom+desc.
+- Intégration dans `SmsBulk.jsx` + `WaBulk.jsx` : barre de pills « Groupes (N) » au-dessus des destinataires. Cliquer un pill résout via `/resolve` et fusionne avec la sélection manuelle.
+- Lien sidebar (icône Users) ajouté sous « Centre de Messagerie ».
+- Isolation tenant stricte (tests inclus).
+
+### ✅ Tests : 10/10 verts (`test_iter40_day2_priorities.py`)
+- regex !aide, filtre wa_silent (activé + désactivé), persistance via PUT settings, CRUD groupes (création/duplicate/add/remove/idempotency/invalid IDs), resolve mix groupes+individus, isolation tenant, signature `_resolve_kb_context`.
+- Régression complète : **93/93 verts** (iter40 + S045 P2).
+
+
 ## S045 Phase 2.A (2026-02) — Extraction admin_settings (read-only routes)
 
 ### 🧹 Refactor

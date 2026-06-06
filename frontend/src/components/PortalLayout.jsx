@@ -42,6 +42,7 @@ const clientLinks = [
   { to: "/portal/notes/suivis", label: "Mes suivis", tKey: "nav.followups", icon: FileEdit, module: "suivis" },
   { to: "/portal/forms", label: "Formulaires", tKey: "nav.forms", icon: FileText },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
+  { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
   // Iter38i — Unified omnichannel inbox (WhatsApp + Messenger)
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },

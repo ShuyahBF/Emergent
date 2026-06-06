@@ -707,19 +707,35 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             {"_id": 0, "id": 1, "user_label": 1, "external_payload": 1},
         ).to_list(len(sids))
         sess_by_id = {s["id"]: s for s in sessions}
+        # Iter40 (2026-02) — Filtre no-toast WA : si activé, exclure les
+        # messages provenant des numéros silencieux (matching sur les 9
+        # derniers chiffres pour ignorer le code pays).
+        s_global = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_silent_phones_enabled": 1, "wa_silent_phones": 1}) or {}
+        silent_tails: set = set()
+        if s_global.get("wa_silent_phones_enabled"):
+            for p in (s_global.get("wa_silent_phones") or []):
+                d = "".join(ch for ch in (p or "") if ch.isdigit())
+                if d:
+                    silent_tails.add(d[-9:])
+        filtered = []
         for it in items:
             sess = sess_by_id.get(it.get("session_id")) or {}
+            phone = ((sess.get("external_payload") or {}).get("phone_digits")) or ""
+            if silent_tails and phone:
+                tail = "".join(ch for ch in phone if ch.isdigit())[-9:]
+                if tail in silent_tails:
+                    continue  # skip — caller is on the silent list
             it["contact_label"] = sess.get("user_label") or "Contact WhatsApp"
-            it["phone_digits"] = ((sess.get("external_payload") or {}).get("phone_digits")) or ""
-            # Truncate content for the toast bubble
+            it["phone_digits"] = phone
             if len(it.get("content") or "") > 140:
                 it["content_preview"] = it["content"][:140] + "…"
             else:
                 it["content_preview"] = it["content"]
+            filtered.append(it)
         return {
-            "items": items,
+            "items": filtered,
             "server_now": _now(),
-            "count": len(items),
+            "count": len(filtered),
         }
 
 
@@ -1252,7 +1268,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
                 yield f"event: session\ndata: {json.dumps({'session_id': sid})}\n\n"
                 # Heavy lifting — context + LLM call
                 ctx_task = _fetch_context_snippets(db, user, payload.text)
-                kb_task = _resolve_kb_context()
+                kb_task = _resolve_kb_context(payload.text)
                 sys_task = _resolve_system_prompt(scope)
                 ctx, kb, base_sys = await asyncio.gather(ctx_task, kb_task, sys_task)
                 system_text = base_sys + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
@@ -1313,10 +1329,14 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             },
         )
 
-    async def _resolve_kb_context() -> str:
+    async def _resolve_kb_context(query: str = "") -> str:
+        """S038 — passes the user query so Qdrant RAG semantic search
+        actually triggers (it's a no-op without the query). The KB
+        helper falls back to MongoDB-only KB when Qdrant is disabled or
+        returns nothing."""
         try:
             from routes.liluvine_kb import build_kb_context
-            return await build_kb_context(db)
+            return await build_kb_context(db, query=(query or None))
         except Exception:
             return ""
 

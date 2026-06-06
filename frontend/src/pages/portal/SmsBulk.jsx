@@ -57,15 +57,19 @@ export default function SmsBulk() {
   const [submitting, setSubmitting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
   const [clientsRoster, setClientsRoster] = useState([]);
+  // Iter40 (2026-02) — Sélecteur de groupes de contacts
+  const [groups, setGroups] = useState([]);
+  const [selectedGroupIds, setSelectedGroupIds] = useState(new Set());
 
   const loadAll = async () => {
     try {
-      const [cR, fR, pR, sR, rosterR] = await Promise.all([
+      const [cR, fR, pR, sR, rosterR, gR] = await Promise.all([
         apiClient.get("/me/contacts"),
         apiClient.get("/me/features"),
         apiClient.get("/me/sms/providers"),
         apiClient.get("/me/sms/schedules"),
         apiClient.get("/me/clients-roster").catch(() => ({ data: [] })),
+        apiClient.get("/me/contact-groups").catch(() => ({ data: [] })),
       ]);
       setContacts(cR.data || []);
       setFeatures(fR.data?.features || {});
@@ -73,8 +77,35 @@ export default function SmsBulk() {
       setProvider(pR.data?.default || "auto");
       setSchedules(sR.data || []);
       setClientsRoster(rosterR.data || []);
+      setGroups(gR.data || []);
     } catch (err) {
       toast.error(safeText(err?.response?.data?.detail) || "Erreur");
+    }
+  };
+
+  // Iter40 — Toggle a group : add/remove its contact_ids from the selection.
+  const toggleGroup = async (g) => {
+    const next = new Set(selectedGroupIds);
+    if (next.has(g.id)) next.delete(g.id); else next.add(g.id);
+    setSelectedGroupIds(next);
+    try {
+      const r = await apiClient.post("/me/contact-groups/resolve", {
+        group_ids: Array.from(next),
+        contact_ids: [],
+      });
+      const ids = new Set(r.data?.contact_ids || []);
+      // Merge with previously hand-picked contacts (preserve manual selection)
+      setSelectedIds((prev) => {
+        const merged = new Set(ids);
+        // Keep manual ones not in any selected group (i.e. extras the user picked individually)
+        prev.forEach((cid) => merged.add(cid));
+        return merged;
+      });
+      if (ids.size > 0) {
+        toast.success(`${ids.size} contact(s) ajouté(s) depuis ${next.size} groupe(s)`);
+      }
+    } catch (e) {
+      toast.error("Erreur résolution groupes");
     }
   };
 
@@ -256,6 +287,32 @@ export default function SmsBulk() {
               </button>
             )}
           </div>
+          {/* Iter40 — Sélecteur de groupes de contacts */}
+          {groups.length > 0 && (
+            <div className="mb-3" data-testid="sms-groups-row">
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5 inline-flex items-center gap-1">
+                <Users className="h-3 w-3" /> Groupes ({groups.length})
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {groups.map((g) => {
+                  const active = selectedGroupIds.has(g.id);
+                  return (
+                    <button
+                      key={g.id}
+                      type="button"
+                      onClick={() => toggleGroup(g)}
+                      className={`text-[11px] px-2 py-0.5 rounded-full ring-1 inline-flex items-center gap-1 transition ${active ? "bg-fuchsia-100 ring-fuchsia-400 text-fuchsia-800" : "bg-white ring-slate-200 text-slate-600 hover:ring-fuchsia-300"}`}
+                      data-testid={`sms-group-${g.id}`}
+                    >
+                      <span className="h-2 w-2 rounded-full" style={{ background: g.color || "#6366f1" }} />
+                      {g.name}
+                      <span className="opacity-60">({g.contact_count})</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
           <div className="flex-1 overflow-y-auto max-h-[420px] divide-y divide-slate-100 ring-1 ring-slate-100 rounded-lg">
             {filtered.length === 0 && (
               <p className="text-center text-slate-400 italic py-8 text-sm">Aucun contact avec téléphone disponible.</p>

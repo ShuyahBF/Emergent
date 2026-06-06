@@ -15858,24 +15858,49 @@ async def whatsapp_webhook_incoming(request: Request):
                     # auto-reply so the same message is not processed twice.
                     hr_handled = False
                     if mtype == "text" and text_body and (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
-                        try:
-                            from routes.liluvine_hr_wa import try_handle_hr_wa_command
-                            hr_res = await try_handle_hr_wa_command(
-                                db,
-                                from_phone=from_num,
-                                message_text=text_body,
-                                wa_send_text=_wa_send_text,
+                        # !aide / !help / !commandes — list all available WA commands.
+                        if re.match(r"^[!/]\s*(aide|help|commandes?|cmd)\s*$", text_body.strip(), re.IGNORECASE):
+                            help_msg = (
+                                "*Liluvine PRO — Commandes WhatsApp disponibles*\n\n"
+                                "🆘 `!aide` — Affiche cette liste\n\n"
+                                "📅 `!absence YYYY-MM-DD [au YYYY-MM-DD] [motif]`\n"
+                                "    Demande d'absence (désactive le portail jusqu'à validation).\n"
+                                "    Ex : `!absence 2026-03-12 au 2026-03-14 maladie`\n\n"
+                                "💰 `!avance MONTANT [motif]`\n"
+                                "    Demande d'avance sur salaire.\n"
+                                "    Ex : `!avance 50000 mariage`\n\n"
+                                "🎫 `!ticket <description>`\n"
+                                "    Ouvre un ticket support. (Réservé aux numéros autorisés.)\n"
+                                "    Ex : `!ticket Imprimante en panne bureau 3`\n\n"
+                                "⚙️ `!seuil N` / `!niveau N` — (Admin uniquement) ajuste le seuil/niveau Liluvine.\n\n"
+                                "ℹ️ Vous pouvez aussi me poser des questions en langage naturel : "
+                                "RDV à venir, tickets actifs, congés restants, contacts, etc. "
+                                "Les modules accessibles dépendent de vos autorisations."
                             )
-                            if hr_res is not None:
+                            try:
+                                await _wa_send_text(from_num, help_msg)
                                 hr_handled = True
-                                reply = (hr_res or {}).get("user_reply")
-                                if reply:
-                                    try:
-                                        await _wa_send_text(from_num, reply)
-                                    except Exception:  # noqa: BLE001
-                                        pass
-                        except Exception as exc:  # noqa: BLE001
-                            logger.warning("[hr_wa_cmd] handler crashed: %s", exc)
+                            except Exception:  # noqa: BLE001
+                                pass
+                        if not hr_handled:
+                            try:
+                                from routes.liluvine_hr_wa import try_handle_hr_wa_command
+                                hr_res = await try_handle_hr_wa_command(
+                                    db,
+                                    from_phone=from_num,
+                                    message_text=text_body,
+                                    wa_send_text=_wa_send_text,
+                                )
+                                if hr_res is not None:
+                                    hr_handled = True
+                                    reply = (hr_res or {}).get("user_reply")
+                                    if reply:
+                                        try:
+                                            await _wa_send_text(from_num, reply)
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[hr_wa_cmd] handler crashed: %s", exc)
                         # !ticket command (business RAG action)
                         if not hr_handled:
                             try:
@@ -21723,6 +21748,10 @@ _attach_admin_settings(
     get_current_admin=get_current_admin,
     get_settings_doc=_get_settings_doc,
 )
+
+# Iter40 (2026-02) — Contact groups for SMS/WA bulk targeting
+from routes.contact_groups import attach_contact_groups_routes as _attach_contact_groups  # noqa: E402
+_attach_contact_groups(api=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

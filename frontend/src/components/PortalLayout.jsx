@@ -278,7 +278,10 @@ export default function PortalLayout({ admin = false }) {
           const errorFatale = showBadges ? (badges.errors_fatale || 0) : 0;
           const featureDisabled = featureGate && !tenantFeatures[featureGate];
           // S046 — translate label if a tKey is provided
-          const displayLabel = tKey ? t(tKey, label) : label;
+          // Iter41 Phase 4b — strip parenthetical hints from sidebar labels
+          // (e.g. "VIDAL France (médicaments)" → "VIDAL France")
+          const rawLabel = tKey ? t(tKey, label) : label;
+          const displayLabel = String(rawLabel || "").replace(/\s*\([^)]*\)/g, "").trim();
           return (
             <NavLink
               key={to}

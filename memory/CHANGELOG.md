@@ -8,6 +8,76 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## Iter41 Phase 2 (2026-02-06) — VIDAL + Liluvine RAG + Commandes WA + Table AMM
+
+### 🩺 Backend — Améliorations VIDAL
+- `POST /api/admin/vidal/test-connection` retourne désormais un objet `debug` complet : URL appelée, params (avec `app_key` masqué en `***`), méthode, body éventuel, timeout, status code, content-type, elapsed_ms, body preview (2000 chars max). Permet à l'admin de débugger sans accès aux logs.
+- Nouveau helper `_resolve_tenant_vidal(db, user)` qui résout le tenant via `parent_client_id` et lit `features.vidal_enabled` + `features.vidal_mode`. Le tenant peut FORCER son propre mode (`test`/`production`) ou hériter du global (`inherit`).
+- Nouveau helper `_ensure_tenant_can_access(db, user)` qui combine la double-vérification : tenant_enabled (sauf admin/superviseur) + global enabled. Renvoie 403 si tenant désactivé, 503 si global désactivé/sans creds.
+- `GET /vidal/quota/me` enrichi avec `access` (bool) + `tenant_type` pour permettre au frontend de masquer la sidebar.
+
+### 🤖 Backend — Liluvine RAG VIDAL + Commandes WhatsApp
+- Nouveau module `routes/vidal_rag.py` (Qdrant collection `VIDAL_db`):
+  - `_ensure_vidal_collection(db)` crée la collection si absente
+  - `index_product(db, pid, data)` — indexation lazy à chaque GET /vidal/product/{id}
+  - `index_search_results(db, data)` — indexation lazy des hits de recherche
+  - `build_vidal_rag_context(db, query, max_chars)` — RAG pour Liluvine
+  - `scheduled_import_new_products(db, vidal_call_fn)` — cron nightly pour les nouveautés
+- `_resolve_kb_context` de Liluvine (4 callers) intègre maintenant Qdrant `liluvine_kb` + Qdrant `VIDAL_db` en parallèle.
+- Nouveau module `routes/liluvine_vidal_wa.py` — commandes WhatsApp :
+  - `!vidal?` / `!vidal aide` → aide listant toutes les sous-commandes avec exemples
+  - `!vidal fiche <nom>` → fiche complète (nom, substance, labo, AMM local/VIDAL, RCP extrait)
+  - `!vidal amm <nom>` → numéro AMM uniquement (base SAWALI prioritaire, fallback VIDAL)
+  - `!vidal interactions <id1> <id2>` → analyse via `/alerts/full`
+  - `!vidal allergie <substance>` → liste produits référencés
+  - Routage WhatsApp inséré dans `server.py` AVANT l'auto-reply Liluvine
+  - Tenant gate + quota appliqués (la commande consomme du quota comme l'UI)
+
+### 🏥 Backend — Table AMM (rôle `regulateur`)
+- Nouveau rôle accepté : `regulateur` (au même niveau que `moderateur`)
+- Nouvelle collection `amm_numbers` avec CRUD via `routes/amm.py`:
+  - `GET /api/amm` (recherche + filtre statut) — lecture pour tous les utilisateurs authentifiés
+  - `GET /api/amm/by-product/{vidal_id}` — utilisé par les commandes WA
+  - `POST /api/amm` — création (réservé `admin|superviseur|regulateur`)
+  - `PUT /api/amm/{id}` — modification (même RBAC)
+  - `DELETE /api/amm/{id}` — suppression (même RBAC)
+  - Champs : `vidal_product_id`, `product_name`, `amm_number` (unique), `laboratory`, `galenic_form`, `atc_class`, `status` (active|withdrawn|suspended), `granted_at`, `expires_at`, `notes`, `source`
+- Helper `lookup_amm_for_product(db, vidal_id, name)` consommé par les fiches VIDAL et `!vidal fiche/amm`
+
+### 🎨 Frontend — Section S058 (Debug verbose)
+- Panneau « Debug verbose » s'ouvre automatiquement après chaque clic sur « Tester la connexion » :
+  - Bloc requête : méthode + URL + mode (badge couleur) + timeout + params JSON + body éventuel
+  - Bloc réponse : status code (vert si <400, rouge sinon) + content-type + elapsed_ms + body preview tronqué (formatted, scrollable)
+  - Visible UNIQUEMENT à l'admin (page AdminSettings)
+
+### 🎨 Frontend — Feature flag VIDAL par tenant
+- `AdminClientFeatures.jsx` : nouvelle ligne « Module VIDAL France (médicaments) » (toggle `vidal_enabled`)
+- Quand activé, apparition d'un sélecteur 3-options pour `vidal_mode` :
+  - « Hériter du global » (recommandé) → utilise AdminSettings → S058
+  - « 🧪 Test (sandbox) » → force en test pour ce tenant
+  - « 🚀 Production » → force en prod pour ce tenant
+- `DEFAULT_CLIENT_FEATURES` étendu : `vidal_enabled=False`, `vidal_mode="inherit"`
+
+### 🎨 Frontend — Page AMM `/portal/amm`
+- Nouveau composant `AmmEditor.jsx` — table + modale d'édition (CRUD)
+- Réservé en écriture aux rôles `admin|superviseur|regulateur` (les autres voient une bannière « Vous êtes en lecture seule »)
+- Filtre par nom/numéro + statut + boutons Editer/Supprimer + badge statut
+- Sidebar portail : nouvelle entrée « Numéros AMM (régulateur) » gated par `vidal_enabled`
+
+### 🎨 Frontend — Sidebar
+- `/portal/vidal` et `/portal/amm` désormais gated par `featureGate: "vidal_enabled"` (masqué ou grisé selon UI)
+
+### ✅ Tests
+- `test_iter41_vidal_phase2.py` : 14/14 verts (détection commandes WA × 6, AMM CRUD × 4, tenant gate × 2, debug verbose × 2)
+- Régression complète Iter40 + Iter41 : 52/52 verts
+- Lint frontend : `S058VidalSection.jsx`, `Vidal.jsx`, `AmmEditor.jsx` — 0 erreur build (webpack compile + warnings exhaustive-deps pré-existants seulement)
+
+### 🚧 Prochaines étapes
+- Saisie des credentials VIDAL réels (renouvellement en cours côté VIDAL France) puis test live des commandes `!vidal*` via WhatsApp
+- Pousser le rôle `regulateur` dans le sélecteur d'utilisateurs admin (création de compte)
+- Tester l'enrichissement RAG : demander à Liluvine « parle-moi du Doliprane » sur le web chat après un appel `/vidal/product/11064` pour valider la chaîne Qdrant `VIDAL_db`
+
+
 ## Iter41 (2026-02-06) — Module VIDAL France + fix mémoire conversationnelle Liluvine
 
 ### 🩺 Backend — Module VIDAL France (REST API 2025.12 REV-03)

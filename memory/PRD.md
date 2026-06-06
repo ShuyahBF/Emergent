@@ -5,6 +5,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter41 Phase 2 (2026-02) — VIDAL × Liluvine × AMM × Régulateur
+
+### Architecture
+- **Tenant gating VIDAL** : `features.vidal_enabled` (bool) + `features.vidal_mode` (`inherit|test|production`) sur le doc tenant. Les sous-utilisateurs héritent via `parent_client_id`. Admin/superviseur bypass.
+- **Qdrant `VIDAL_db`** : ingestion *lazy* à chaque `/vidal/search` + `/vidal/product/{id}` (helpers `routes/vidal_rag.py`) + cron nightly `scheduled_import_new_products`. Branchement RAG dans `_resolve_kb_context` de Liluvine — toutes les conversations (web + WA) peuvent désormais citer VIDAL automatiquement.
+- **Commandes WhatsApp** : `routes/liluvine_vidal_wa.py` détecte `!vidal*` et appelle VIDAL via le même `_vidal_call` + tenant gate + quota.
+- **Rôle `regulateur`** : nouveau rôle (au même niveau que `moderateur`), accepté par toutes les routes AMM en écriture. Lecture libre pour tout utilisateur authentifié.
+
+### Endpoints nouveaux
+- `GET/POST/PUT/DELETE /api/amm` + `GET /api/amm/by-product/{vidal_id}`
+- `POST /api/admin/vidal/test-connection` retourne désormais `{ok, mode, debug:{request, response, error}}`
+
+### UI nouvelles
+- `/portal/amm` — table éditable (réservé admin/superviseur/régulateur)
+- `/admin/clients/:id/features` : toggle `vidal_enabled` + sélecteur `vidal_mode` (3 options)
+- `/admin/settings#s-s058-vidal` : panneau Debug verbose après test-connection
+
+### Tests
+- 14/14 verts (`test_iter41_vidal_phase2.py`) + 9/9 (`test_iter41_vidal.py`) + 4/4 (`test_iter40_liluvine_memory.py`)
+- Régression 52/52 sur l'ensemble Iter40 + Iter41 + S057.
+
+
+
 ## Iter41 (2026-02) — Module VIDAL France + Fix mémoire conversationnelle Liluvine
 
 ### Architecture

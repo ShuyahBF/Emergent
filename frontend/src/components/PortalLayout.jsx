@@ -65,7 +65,9 @@ const clientLinks = [
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
   { to: "/portal/liluvine", label: "Liluvine PRO (Assistant IA)", tKey: "nav.liluvine", icon: Bot, featureGate: "ai_liluvine_pro" },
   // Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes prescription)
-  { to: "/portal/vidal", label: "VIDAL France (médicaments)", icon: HeartPulse },
+  { to: "/portal/vidal", label: "VIDAL France (médicaments)", icon: HeartPulse, featureGate: "vidal_enabled" },
+  // Iter41 Phase 2 — Table AMM (régulateurs / admins / superviseurs)
+  { to: "/portal/amm", label: "Numéros AMM (régulateur)", icon: ScrollText, featureGate: "vidal_enabled" },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs

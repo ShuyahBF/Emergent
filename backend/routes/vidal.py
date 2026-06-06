@@ -81,11 +81,21 @@ def _today_str() -> str:
     return _now().date().isoformat()
 
 
-async def _load_config(db) -> Dict[str, Any]:
+async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[str, Any]:
+    """Load VIDAL config from settings.global.
+
+    `tenant_mode_override` allows a per-tenant `vidal_mode` (test|production)
+    to take precedence over the global `vidal_mode` setting. Use values
+    "test", "production" or None/"inherit" to fall back to global.
+    """
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
-    mode = (s.get("vidal_mode") or "test").lower()
-    if mode not in ("test", "production"):
-        mode = "test"
+    # Per-tenant override wins when set to a concrete mode.
+    if tenant_mode_override in ("test", "production"):
+        mode = tenant_mode_override
+    else:
+        mode = (s.get("vidal_mode") or "test").lower()
+        if mode not in ("test", "production"):
+            mode = "test"
     if mode == "production":
         base = (s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL).rstrip("/")
         app_id = (s.get("vidal_prod_app_id") or "").strip()
@@ -106,6 +116,27 @@ async def _load_config(db) -> Dict[str, Any]:
     }
 
 
+async def _resolve_tenant_vidal(db, user: Dict[str, Any]) -> Dict[str, Any]:
+    """Resolve VIDAL feature flag + per-tenant mode for an authenticated user.
+
+    Returns dict {tenant_enabled: bool, tenant_mode: "test"|"production"|"inherit"}.
+    Walks `parent_client_id` chain so moderators inherit the SAME tenant config
+    as the admin who created them.
+    """
+    role = user.get("role")
+    scope_uid = user.get("id")
+    if role in ("client", "tracked", "moderateur", "regulateur", "pharmacien", "medecin"):
+        scope_uid = user.get("parent_client_id") or user.get("client_id") or scope_uid
+    tenant = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1, "tenant_type": 1}) or {}
+    feats = tenant.get("features") or {}
+    return {
+        "tenant_enabled": bool(feats.get("vidal_enabled")),
+        "tenant_mode": (feats.get("vidal_mode") or "inherit").lower(),
+        "tenant_type": (tenant.get("tenant_type") or "").lower(),
+        "scope_uid": scope_uid,
+    }
+
+
 def _ensure_active(cfg: Dict[str, Any]) -> None:
     if not cfg["enabled"]:
         raise HTTPException(status_code=503, detail="Module VIDAL désactivé (AdminSettings).")
@@ -114,6 +145,22 @@ def _ensure_active(cfg: Dict[str, Any]) -> None:
             status_code=503,
             detail=f"Identifiants VIDAL ({cfg['mode']}) manquants dans AdminSettings.",
         )
+
+
+async def _ensure_tenant_can_access(db, user: Dict[str, Any]) -> Dict[str, Any]:
+    """Verify the user's tenant has VIDAL enabled. Returns the cfg with the
+    tenant-mode applied. Raises 403 when the feature is OFF for this tenant.
+    Admins always pass through.
+    """
+    if user.get("role") in ("admin", "superviseur"):
+        return await _load_config(db)
+    tenant_info = await _resolve_tenant_vidal(db, user)
+    if not tenant_info["tenant_enabled"]:
+        raise HTTPException(
+            status_code=403,
+            detail="Module VIDAL non activé pour votre établissement. Contactez votre administrateur.",
+        )
+    return await _load_config(db, tenant_mode_override=tenant_info["tenant_mode"])
 
 
 def _cache_key(env: str, method: str, path: str, params: Dict[str, Any], body: Optional[Dict[str, Any]] = None) -> str:
@@ -182,17 +229,36 @@ async def _vidal_call(
     path: str,
     params: Optional[Dict[str, Any]] = None,
     body: Optional[Dict[str, Any]] = None,
+    return_debug: bool = False,
 ) -> Dict[str, Any]:
     """Single HTTP call to VIDAL. Adds app_id/app_key to the query string.
 
     Returns the parsed JSON body (or raw text wrapped in `{"raw": ...}` when
     the response is not JSON — VIDAL can return Atom/XML for some endpoints).
+
+    When `return_debug=True`, also returns a `_debug` dict containing the
+    exact URL, headers, body and response trace — useful for the admin
+    diagnostic UI (`/admin/vidal/test-connection`).
     """
     qp = dict(params or {})
     qp.setdefault("app_id", cfg["app_id"])
     qp.setdefault("app_key", cfg["app_key"])
     url = f"{cfg['base_url']}{path}"
     timeout = cfg["http_timeout"]
+    # Build a masked snapshot for the debug panel (never expose the secret).
+    masked_qp = {k: ("***" if k == "app_key" else v) for k, v in qp.items()}
+    debug: Dict[str, Any] = {
+        "request": {
+            "method": method.upper(),
+            "url": url,
+            "params": masked_qp,
+            "body": body or None,
+            "timeout_seconds": timeout,
+            "mode": cfg.get("mode"),
+        },
+        "response": None,
+        "error": None,
+    }
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method.upper() == "GET":
@@ -206,20 +272,40 @@ async def _vidal_call(
                     headers={"Accept": "application/json"},
                 )
     except httpx.HTTPError as exc:
+        debug["error"] = f"HTTPError: {str(exc)[:300]}"
+        if return_debug:
+            return {"_error": True, "_debug": debug}
         raise HTTPException(status_code=502, detail=f"VIDAL injoignable : {str(exc)[:200]}") from exc
+
+    ctype = (r.headers.get("content-type") or "").lower()
+    raw_text = r.text or ""
+    debug["response"] = {
+        "status_code": r.status_code,
+        "content_type": ctype,
+        "elapsed_ms": int(r.elapsed.total_seconds() * 1000) if r.elapsed else None,
+        "body_preview": raw_text[:2000],
+        "body_truncated": len(raw_text) > 2000,
+    }
     if r.status_code >= 400:
-        snippet = (r.text or "")[:300]
+        if return_debug:
+            return {"_error": True, "_debug": debug}
+        snippet = raw_text[:300]
         raise HTTPException(
             status_code=502 if r.status_code >= 500 else 400,
             detail=f"VIDAL a renvoyé {r.status_code} : {snippet}",
         )
-    ctype = (r.headers.get("content-type") or "").lower()
+
     if "application/json" in ctype:
         try:
-            return r.json()
+            data = r.json()
         except Exception:  # noqa: BLE001
-            return {"raw": r.text}
-    return {"raw": r.text}
+            data = {"raw": raw_text}
+    else:
+        data = {"raw": raw_text}
+
+    if return_debug:
+        return {"_data": data, "_debug": debug}
+    return data
 
 
 # --------------------------------------------------------------------------- #
@@ -283,16 +369,43 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
 
     @api.post("/admin/vidal/test-connection", tags=["Admin — VIDAL"])
     async def admin_test_connection(user: dict = Depends(get_current_admin)):
-        """Pings VIDAL with a cheap call (`/products?q=doliprane&filter=product`)
-        to validate the credentials and base URL for the active env."""
+        """Pings VIDAL with a cheap call to validate credentials and base URL.
+
+        Returns a full debug payload (URL appelée, params masqués, body, status
+        code, content-type, elapsed_ms, body preview) for the admin diagnostic
+        UI in `S058VidalSection`.
+        """
         cfg = await _load_config(db)
-        _ensure_active(cfg)
-        try:
-            data = await _vidal_call(cfg, "GET", "/products", params={"q": "doliprane", "filter": "product"})
-        except HTTPException as exc:
-            return {"ok": False, "mode": cfg["mode"], "error": exc.detail}
-        # Heuristic : if we receive ANY entry/feed/raw, count as success.
-        return {"ok": True, "mode": cfg["mode"], "sample_size": len(str(data)[:200])}
+        if not cfg["enabled"]:
+            return {"ok": False, "mode": cfg["mode"], "error": "Module VIDAL désactivé.", "debug": None}
+        if not cfg["app_id"] or not cfg["app_key"]:
+            return {
+                "ok": False, "mode": cfg["mode"],
+                "error": f"Credentials ({cfg['mode']}) manquants.",
+                "debug": {"request": {
+                    "url": f"{cfg['base_url']}/products",
+                    "params": {"q": "doliprane", "filter": "product", "app_id": cfg["app_id"] or "(vide)", "app_key": "(vide)"},
+                    "mode": cfg["mode"],
+                }, "response": None},
+            }
+        result = await _vidal_call(
+            cfg, "GET", "/products",
+            params={"q": "doliprane", "filter": "product"},
+            return_debug=True,
+        )
+        if result.get("_error"):
+            debug = result.get("_debug") or {}
+            return {
+                "ok": False, "mode": cfg["mode"],
+                "error": (debug.get("error") or
+                          f"HTTP {(debug.get('response') or {}).get('status_code')}"),
+                "debug": debug,
+            }
+        return {
+            "ok": True, "mode": cfg["mode"],
+            "sample_size": len(str(result.get("_data"))[:200]),
+            "debug": result.get("_debug"),
+        }
 
     # ---- Public-ish quota status (any authenticated user) ----
     @api.get("/vidal/quota/me", tags=["VIDAL"])
@@ -300,11 +413,25 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         cfg = await _load_config(db)
         today = _today_str()
         doc = await db.vidal_usage_daily.find_one({"user_id": user["id"], "day": today}) or {}
+        # Add tenant access info for the UI gate (sidebar can hide /portal/vidal)
+        tenant_info = await _resolve_tenant_vidal(db, user)
+        if user.get("role") in ("admin", "superviseur"):
+            access = True
+        else:
+            access = bool(tenant_info["tenant_enabled"]) and bool(cfg["enabled"])
+        # When tenant overrides the mode, reflect that in the badge.
+        active_mode = (
+            tenant_info["tenant_mode"]
+            if tenant_info["tenant_mode"] in ("test", "production")
+            else cfg["mode"]
+        )
         return {
             "used": int(doc.get("count") or 0),
             "limit": cfg["quota_per_day"],
-            "mode": cfg["mode"],
+            "mode": active_mode,
             "day": today,
+            "access": access,
+            "tenant_type": tenant_info["tenant_type"],
         }
 
     # ---- Search products / packages / molecules ----
@@ -314,7 +441,7 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         filter: str = Query("product", regex="^(product|package|ucd|vmp|all-packages)$"),
         user: dict = Depends(get_current_user),
     ):
-        cfg = await _load_config(db)
+        cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
         params = {"q": q, "filter": filter}
@@ -324,12 +451,18 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             return {"cached": True, "data": cached}
         data = await _vidal_call(cfg, "GET", "/products/search", params=params)
         await _cache_set(db, ckey, data)
+        # Iter41 Phase 2 — Hybrid Qdrant ingest (lazy on every search result).
+        try:
+            from routes.vidal_rag import index_search_results
+            await index_search_results(db, data, source="lazy_search")
+        except Exception:  # noqa: BLE001
+            pass
         return {"cached": False, "data": data}
 
     # ---- Fetch product details (fiche médicament) ----
     @api.get("/vidal/product/{product_id}", tags=["VIDAL"])
     async def get_product(product_id: int, user: dict = Depends(get_current_user)):
-        cfg = await _load_config(db)
+        cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
         path = f"/product/{product_id}"
@@ -339,6 +472,11 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             return {"cached": True, "data": cached}
         data = await _vidal_call(cfg, "GET", path)
         await _cache_set(db, ckey, data)
+        try:
+            from routes.vidal_rag import index_product
+            await index_product(db, product_id, data, source="lazy_product")
+        except Exception:  # noqa: BLE001
+            pass
         return {"cached": False, "data": data}
 
     # ---- Documents (RCP, monographie) ----
@@ -348,7 +486,7 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         type: str = Query("RCP", regex="^(RCP|FULL_MONO|PIL|INDICATIONS)$"),
         user: dict = Depends(get_current_user),
     ):
-        cfg = await _load_config(db)
+        cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
         path = f"/product/{product_id}/documents"
@@ -367,7 +505,7 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         status: str = Query(..., regex="^(NEW|AVAILABLE|DELETED|PHARMACO)$"),
         user: dict = Depends(get_current_user),
     ):
-        cfg = await _load_config(db)
+        cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
         params = {"status": status}
@@ -389,7 +527,7 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         objects per type (allergy, contraindication, interaction, posology…)."""
         if not payload.prescriptions:
             raise HTTPException(status_code=400, detail="`prescriptions` ne peut pas être vide")
-        cfg = await _load_config(db)
+        cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
         body = {
@@ -398,9 +536,7 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             "allergies": payload.allergies or [],
             "pathologies": payload.pathologies or [],
         }
-        # No cache : prescription analysis is patient-specific and stateful.
         data = await _vidal_call(cfg, "POST", "/alerts/full", body=body)
-        # Persist a slim audit log for accountability.
         try:
             await db.vidal_prescription_audit.insert_one({
                 "user_id": user["id"], "user_email": user.get("email"),

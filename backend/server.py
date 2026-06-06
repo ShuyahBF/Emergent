@@ -3281,6 +3281,13 @@ DEFAULT_CLIENT_FEATURES = {
     # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
     # Visible only when ON (default OFF — admin opts in).
     "tickets_bubble": False,
+    # Iter41 Phase 2 (2026-02) — VIDAL France module per-tenant gating.
+    # When OFF, /portal/vidal is hidden + VIDAL endpoints reject the user with 403.
+    "vidal_enabled": False,
+    # "inherit" = use the global vidal_mode from AdminSettings.
+    # "test"|"production" = override globally — useful when a tenant is paying
+    # for prod VIDAL while the platform default stays in test.
+    "vidal_mode": "inherit",
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -3546,6 +3553,9 @@ class ClientFeaturesUpdate(BaseModel):
     kb_ocr_pdf_max_pages: Optional[int] = None
     # Iter38r-fix9o (Item 6) — Floating "Open intervention ticket" bubble.
     tickets_bubble: Optional[bool] = None
+    # Iter41 Phase 2 (2026-02) — VIDAL France module per-tenant gating.
+    vidal_enabled: Optional[bool] = None
+    vidal_mode: Optional[str] = None  # "inherit" | "test" | "production"
     pawapay_mnos: Optional[List[str]] = None  # subset of ORANGE/MOOV/TELECEL
     # Iter38r — Pre-fix MSISDN on PawaPay Payment Page (true) or let the
     # customer enter it themselves on the hosted page (false). When null,
@@ -3577,12 +3587,19 @@ async def admin_update_client_features(client_id: str, payload: ClientFeaturesUp
     fix_msisdn = update_dict.pop("pawapay_fix_msisdn", None)
     # Iter38r-fix9p — Preserve numeric OCR pricing fields (don't coerce to bool)
     NUMERIC_FIELDS = {"kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages"}
+    # Iter41 Phase 2 — `vidal_mode` is a string enum, not a bool.
+    STRING_FIELDS = {"vidal_mode"}
     for k, v in update_dict.items():
         if k in NUMERIC_FIELDS:
             try:
                 current[k] = int(v) if v not in (None, "") else 0
             except (TypeError, ValueError):
                 current[k] = 0
+        elif k in STRING_FIELDS:
+            sv = str(v or "").lower().strip()
+            if k == "vidal_mode" and sv not in ("inherit", "test", "production"):
+                sv = "inherit"
+            current[k] = sv
         else:
             current[k] = bool(v)
     set_doc: Dict[str, Any] = {"features": current, "features_updated_at": _now()}
@@ -15955,6 +15972,25 @@ async def whatsapp_webhook_incoming(request: Request):
                                             pass
                             except Exception as exc:  # noqa: BLE001
                                 logger.warning("[ticket_wa_cmd] handler crashed: %s", exc)
+                        # Iter41 Phase 2 — !vidal* commands (médicament, AMM, interactions, allergie)
+                        if not hr_handled:
+                            try:
+                                from routes.liluvine_vidal_wa import try_handle_vidal_wa_command
+                                vd_res = await try_handle_vidal_wa_command(
+                                    db,
+                                    from_phone=from_num,
+                                    message_text=text_body,
+                                )
+                                if vd_res is not None:
+                                    hr_handled = True
+                                    reply = (vd_res or {}).get("user_reply")
+                                    if reply:
+                                        try:
+                                            await _wa_send_text(from_num, reply)
+                                        except Exception:  # noqa: BLE001
+                                            pass
+                            except Exception as exc:  # noqa: BLE001
+                                logger.warning("[vidal_wa_cmd] handler crashed: %s", exc)
 
                     # Iter38r-fix9l — WA Tasks bidirectional sync. Check if
                     # this inbound is a task acknowledgement (OK 1,3 / FAIT 2)
@@ -21802,6 +21838,10 @@ _attach_vidal(
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
 )
+
+# Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
+from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402
+_attach_amm(api=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

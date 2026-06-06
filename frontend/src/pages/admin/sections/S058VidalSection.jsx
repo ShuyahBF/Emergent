@@ -110,7 +110,7 @@ export default function S058VidalSection() {
       else toast.error(`Échec : ${r.data?.error || "inconnu"}`);
     } catch (e) {
       const detail = e?.response?.data?.detail || "Erreur réseau";
-      setTestResult({ ok: false, error: detail });
+      setTestResult({ ok: false, error: detail, debug: null });
       toast.error(detail);
     }
     setTimeout(() => setTesting(false), 0);
@@ -302,6 +302,58 @@ export default function S058VidalSection() {
             ? `✅ Connexion ${testResult.mode} OK (réponse reçue, ${testResult.sample_size} octets analysés)`
             : `❌ Échec : ${testResult.error}`}
         </div>
+      )}
+
+      {/* Debug verbose — toujours rendu quand un test a été lancé */}
+      {testResult && testResult.debug && (
+        <details className="text-xs ring-1 ring-slate-300 rounded bg-slate-50" data-testid="vidal-debug-panel" open>
+          <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100">
+            🔍 Debug verbose (requête + réponse)
+          </summary>
+          <div className="p-3 space-y-3">
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Requête envoyée</div>
+              <div className="bg-white ring-1 ring-slate-200 rounded p-2 space-y-1 font-mono text-[11px]">
+                <div><span className="text-fuchsia-600 font-semibold">{testResult.debug.request?.method}</span> <span className="break-all">{testResult.debug.request?.url}</span></div>
+                <div><span className="text-slate-500">mode:</span> <span className={testResult.debug.request?.mode === "production" ? "text-rose-700" : "text-emerald-700"}>{testResult.debug.request?.mode}</span></div>
+                <div><span className="text-slate-500">timeout:</span> {testResult.debug.request?.timeout_seconds}s</div>
+                <div className="text-slate-500">Params :</div>
+                <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-32">{JSON.stringify(testResult.debug.request?.params || {}, null, 2)}</pre>
+                {testResult.debug.request?.body && (
+                  <>
+                    <div className="text-slate-500">Body :</div>
+                    <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-32">{JSON.stringify(testResult.debug.request.body, null, 2)}</pre>
+                  </>
+                )}
+              </div>
+            </div>
+            <div>
+              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Réponse reçue</div>
+              {testResult.debug.error ? (
+                <div className="bg-rose-100 ring-1 ring-rose-200 rounded p-2 font-mono text-[11px] text-rose-800">
+                  Erreur réseau : {testResult.debug.error}
+                </div>
+              ) : testResult.debug.response ? (
+                <div className="bg-white ring-1 ring-slate-200 rounded p-2 space-y-1 font-mono text-[11px]">
+                  <div>
+                    <span className="text-slate-500">Status :</span>{" "}
+                    <span className={testResult.debug.response.status_code < 400 ? "text-emerald-700 font-semibold" : "text-rose-700 font-semibold"}>
+                      {testResult.debug.response.status_code}
+                    </span>
+                    {testResult.debug.response.elapsed_ms !== null && (
+                      <span className="ml-3 text-slate-400">({testResult.debug.response.elapsed_ms} ms)</span>
+                    )}
+                  </div>
+                  <div><span className="text-slate-500">Content-Type :</span> {testResult.debug.response.content_type || "(inconnu)"}</div>
+                  <div className="text-slate-500">Body preview {testResult.debug.response.body_truncated && "(tronqué à 2000 chars)"} :</div>
+                  <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-60 whitespace-pre-wrap break-all">{testResult.debug.response.body_preview || "(vide)"}</pre>
+                </div>
+              ) : (
+                <div className="text-slate-400 italic">Aucune réponse — la requête n&apos;a pas pu partir.</div>
+              )}
+            </div>
+          </div>
+        </details>
       )}
     </div>
   );

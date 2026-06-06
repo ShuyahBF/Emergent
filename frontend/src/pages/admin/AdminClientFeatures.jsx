@@ -225,12 +225,21 @@ const FEATURE_META = [
     color: "text-slate-700",
     bg: "bg-slate-100",
   },
+  // Iter41 Phase 2 — Module VIDAL France (médicaments, RCP, alertes)
+  {
+    key: "vidal_enabled",
+    label: "Module VIDAL France (médicaments)",
+    description: "Active l'accès à la base VIDAL (recherche médicament, monographie RCP, catalogue réglementaire, analyse de prescription, commandes WhatsApp !vidal*). Pertinent pour pharmaciens, médecins et régulateurs. Quand désactivé, /portal/vidal renvoie 403 et les commandes WhatsApp répondent un message d'erreur.",
+    icon: Sparkles,
+    color: "text-rose-600",
+    bg: "bg-rose-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false, vidal_enabled: false, vidal_mode: "inherit" });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   // Iter38r-fix9p — OCR pricing & quota per tenant
@@ -492,6 +501,42 @@ export default function AdminClientFeatures() {
           )}
         </div>
       )}
+
+      {/* Iter41 Phase 2 — VIDAL mode selector (only shown when vidal_enabled=true) */}
+      {features.vidal_enabled && (
+        <div className="rounded-2xl ring-1 ring-rose-200 bg-rose-50/40 p-5 space-y-3" data-testid="vidal-client-config-section">
+          <div className="flex items-start gap-3">
+            <div className="h-10 w-10 rounded-xl bg-rose-100 flex items-center justify-center">
+              <Sparkles className="h-5 w-5 text-rose-600" />
+            </div>
+            <div className="flex-1">
+              <h3 className="font-display font-semibold text-slate-900">Mode VIDAL pour ce client</h3>
+              <p className="text-xs text-slate-500 mt-1">
+                Choisissez quel environnement VIDAL utiliser pour ce tenant. « Hériter du global » utilise la valeur définie dans AdminSettings → S058.
+              </p>
+            </div>
+          </div>
+          <div className="grid sm:grid-cols-3 gap-2">
+            {[
+              { v: "inherit", label: "Hériter du global", hint: "Suit le réglage AdminSettings (recommandé)", cls: "ring-slate-300 hover:bg-slate-50" },
+              { v: "test", label: "🧪 Test (sandbox)", hint: "Force ce client en mode test, indépendant du global", cls: "ring-emerald-300 hover:bg-emerald-50" },
+              { v: "production", label: "🚀 Production", hint: "Force ce client en mode prod — facturé à chaque appel", cls: "ring-rose-300 hover:bg-rose-50" },
+            ].map((opt) => (
+              <button
+                key={String(opt.v)}
+                type="button"
+                onClick={() => { setFeatures((f) => ({ ...f, vidal_mode: opt.v })); setDirty(true); }}
+                className={`text-left rounded-lg ring-1 p-3 transition ${features.vidal_mode === opt.v ? "ring-2 ring-rose-500 bg-white shadow-sm" : `bg-white ${opt.cls}`}`}
+                data-testid={`vidal-mode-${opt.v}`}
+              >
+                <div className="text-sm font-semibold text-slate-800">{opt.label}</div>
+                <div className="text-[10px] text-slate-500 mt-1">{opt.hint}</div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="rounded-2xl ring-1 ring-slate-200 bg-white p-5 space-y-3" data-testid="pawapay-msisdn-policy-section">
         <div className="flex items-start gap-3">
           <div className="h-10 w-10 rounded-xl bg-sky-50 flex items-center justify-center">

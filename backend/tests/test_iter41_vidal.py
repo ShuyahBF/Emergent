@@ -127,34 +127,32 @@ def test_quota_me_returns_counter(client_token):
     assert "used" in body and "limit" in body and "mode" in body
 
 
-def test_search_blocked_when_disabled(db, admin_token, client_token):
-    """Disabling VIDAL should make every endpoint return 503."""
-    atoken, _ = admin_token
-    ctoken, _ = client_token
+def test_search_blocked_when_disabled(db, admin_token):
+    """Disabling VIDAL should make every endpoint return 503 (admin bypasses tenant gate)."""
+    atoken, aid = admin_token
     requests.put(f"{API}/admin/vidal/config", json={"enabled": False},
                  headers={"Authorization": f"Bearer {atoken}"}, timeout=10)
+    # Admin bypasses the tenant gate so we hit the global enabled check (503)
     r = requests.get(f"{API}/vidal/search?q=doliprane&filter=product",
-                     headers={"Authorization": f"Bearer {ctoken}"}, timeout=10)
+                     headers={"Authorization": f"Bearer {atoken}"}, timeout=10)
     assert r.status_code == 503
     assert "VIDAL" in r.json()["detail"]
-    # Re-enable for following tests
     requests.put(f"{API}/admin/vidal/config", json={"enabled": True},
                  headers={"Authorization": f"Bearer {atoken}"}, timeout=10)
 
 
-def test_search_blocked_when_credentials_missing(db, admin_token, client_token):
+def test_search_blocked_when_credentials_missing(db, admin_token):
     """Wipe app_id/app_key for the active mode → expect 503 with credential error."""
     atoken, _ = admin_token
-    ctoken, _ = client_token
     db.settings.update_one(
         {"_id": "global"},
         {"$set": {"vidal_test_app_id": "", "vidal_test_app_key": "", "vidal_mode": "test"}},
     )
+    # Admin bypasses tenant gate to test the credentials check
     r = requests.get(f"{API}/vidal/search?q=doliprane&filter=product",
-                     headers={"Authorization": f"Bearer {ctoken}"}, timeout=10)
+                     headers={"Authorization": f"Bearer {atoken}"}, timeout=10)
     assert r.status_code == 503
     assert "Identifiants VIDAL" in r.json()["detail"]
-    # Restore creds via the admin endpoint for subsequent tests
     requests.put(f"{API}/admin/vidal/config", json={
         "test_app_id": "demo_app_id_test", "test_app_key": "demo_secret_key_test",
     }, headers={"Authorization": f"Bearer {atoken}"}, timeout=10)
@@ -164,6 +162,8 @@ def test_mode_switch_changes_active_credentials(db, admin_token):
     """Switching `vidal_mode` flips which app_id/app_key are loaded."""
     atoken, _ = admin_token
     requests.put(f"{API}/admin/vidal/config", json={
+        "test_app_id": "demo_app_id_test",
+        "test_app_key": "demo_secret_key_test",
         "prod_app_id": "demo_app_id_prod",
         "prod_app_key": "demo_secret_key_prod",
         "mode": "production",

@@ -1392,12 +1392,27 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         """S038 — passes the user query so Qdrant RAG semantic search
         actually triggers (it's a no-op without the query). The KB
         helper falls back to MongoDB-only KB when Qdrant is disabled or
-        returns nothing."""
+        returns nothing.
+
+        Iter41 Phase 2 — Also pulls a VIDAL_db excerpt so Liluvine can
+        cite the right médicament when the user asks about a drug.
+        """
+        chunks: list[str] = []
         try:
             from routes.liluvine_kb import build_kb_context
-            return await build_kb_context(db, query=(query or None))
+            kb = await build_kb_context(db, query=(query or None))
+            if kb:
+                chunks.append(kb)
         except Exception:
-            return ""
+            pass
+        try:
+            from routes.vidal_rag import build_vidal_rag_context
+            vidal = await build_vidal_rag_context(db, query=query, max_chars=3000)
+            if vidal:
+                chunks.append(vidal)
+        except Exception:
+            pass
+        return "\n\n".join(chunks)
 
 
     # ----------------------------------------------------------

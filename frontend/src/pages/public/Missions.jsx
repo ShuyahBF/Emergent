@@ -16,7 +16,14 @@ export default function Missions() {
     }).catch(() => {});
   }, [lang]);
   return (
-    <section className="py-20" data-testid="missions-page">
+    <section
+      className="py-20"
+      style={{
+        background: "var(--block-missions-bg, transparent)",
+        color: "var(--block-missions-text, inherit)",
+      }}
+      data-testid="missions-page"
+    >
       <div className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
         <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Notre mission</p>
         <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{mission?.title || "Notre Mission"}</h1>

@@ -15,7 +15,14 @@ export default function Specialisations() {
   }, [lang]);
   const items = spec?.metadata?.items || [];
   return (
-    <section className="py-20" data-testid="specialisations-page">
+    <section
+      className="py-20"
+      style={{
+        background: "var(--block-specialisations-bg, transparent)",
+        color: "var(--block-specialisations-text, inherit)",
+      }}
+      data-testid="specialisations-page"
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Domaines d'intervention</p>
         <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{spec?.title || "Nos Spécialisations"}</h1>

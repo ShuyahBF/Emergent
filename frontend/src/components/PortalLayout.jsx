@@ -427,7 +427,14 @@ export default function PortalLayout({ admin = false }) {
           when the menu is taller than the viewport. Using a non-sticky
           shell prevents the "pinned-then-truncated" bug some browsers
           exhibit with `position: sticky` inside a flex row. */}
-      <aside className="hidden lg:flex flex-col shrink-0 w-72 bg-[#0E1F3D] p-5 h-screen overflow-y-auto" data-testid="portal-sidebar">
+      <aside
+        className="hidden lg:flex flex-col shrink-0 w-72 p-5 h-screen overflow-y-auto"
+        style={{
+          background: "var(--sidebar-bg, #0E1F3D)",
+          color: "var(--sidebar-text, #ffffff)",
+        }}
+        data-testid="portal-sidebar"
+      >
         {SidebarContent}
       </aside>
 
@@ -435,7 +442,13 @@ export default function PortalLayout({ admin = false }) {
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden">
           <div className="absolute inset-0 bg-black/60" onClick={() => setOpen(false)} />
-          <aside className="relative w-72 bg-[#0E1F3D] p-5 h-full overflow-y-auto">
+          <aside
+            className="relative w-72 p-5 h-full overflow-y-auto"
+            style={{
+              background: "var(--sidebar-bg, #0E1F3D)",
+              color: "var(--sidebar-text, #ffffff)",
+            }}
+          >
             {SidebarContent}
           </aside>
         </div>

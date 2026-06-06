@@ -45,6 +45,10 @@ export default function Home() {
       {/* HERO */}
       <section
         className="relative min-h-[88vh] flex items-center overflow-hidden"
+        style={{
+          background: "var(--block-hero-bg, transparent)",
+          color: "var(--block-hero-text, inherit)",
+        }}
         data-testid="home-hero"
       >
         <div className="absolute inset-0 -z-10">
@@ -111,7 +115,14 @@ export default function Home() {
       </section>
 
       {/* SPECIALISATIONS PREVIEW */}
-      <section className="py-24 bg-[#0a1730]" data-testid="home-specialisations">
+      <section
+        className="py-24"
+        style={{
+          background: "var(--block-specialisations-bg, #0a1730)",
+          color: "var(--block-specialisations-text, inherit)",
+        }}
+        data-testid="home-specialisations"
+      >
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
             <div>

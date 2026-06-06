@@ -11117,6 +11117,19 @@ async def public_ui_flags():
         "portal_bg_color": (s.get("portal_bg_color") or "").strip() or None,
         "portal_bg_image_url": (s.get("portal_bg_image_url") or "").strip() or None,
         "portal_bg_image_position": (s.get("portal_bg_image_position") or "cover").strip() or "cover",
+        # S057 Day 3+ — Habillage complet
+        "sidebar_bg_color": (s.get("sidebar_bg_color") or "").strip() or None,
+        "sidebar_text_color": (s.get("sidebar_text_color") or "").strip() or None,
+        "sidebar_accent_color": (s.get("sidebar_accent_color") or "").strip() or None,
+        "login_bg_mode": (s.get("login_bg_mode") or "default").strip() or "default",
+        "login_bg_color": (s.get("login_bg_color") or "").strip() or None,
+        "login_bg_image_url": (s.get("login_bg_image_url") or "").strip() or None,
+        "login_text_color": (s.get("login_text_color") or "").strip() or None,
+        "login_card_bg": (s.get("login_card_bg") or "").strip() or None,
+        "login_card_text_color": (s.get("login_card_text_color") or "").strip() or None,
+        "login_button_bg": (s.get("login_button_bg") or "").strip() or None,
+        "login_button_text_color": (s.get("login_button_text_color") or "").strip() or None,
+        "public_blocks_theme": s.get("public_blocks_theme") if isinstance(s.get("public_blocks_theme"), dict) else None,
     }
 
 

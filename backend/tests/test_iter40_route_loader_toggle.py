@@ -102,6 +102,11 @@ def test_ui_flags_never_exposes_secrets():
         "public_logo_url", "public_hero_tagline",
         "public_bg_mode", "public_bg_color", "public_bg_image_url", "public_bg_image_position",
         "portal_bg_mode", "portal_bg_color", "portal_bg_image_url", "portal_bg_image_position",
+        # S057 — habillage complet
+        "sidebar_bg_color", "sidebar_text_color", "sidebar_accent_color",
+        "login_bg_mode", "login_bg_color", "login_bg_image_url", "login_text_color",
+        "login_card_bg", "login_card_text_color", "login_button_bg", "login_button_text_color",
+        "public_blocks_theme",
     }
     leaked = set(body.keys()) - allowed
     assert not leaked, f"Unexpected keys in /public/ui-flags: {leaked}"

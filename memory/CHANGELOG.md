@@ -8,6 +8,28 @@ Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 > apparaisse automatiquement : ajoutez-la ici au format ci-dessus. Les sections "Tests",
 > "Frontend", "Backend", "Prochaines …" et les notes "🚨/🟧/🟨/🟦" sont automatiquement ignorées.
 
+## S057 Day 3+ (2026-02-06) — Habillage complet : Sidebar / Login / Blocs publics
+
+### 🎨 Backend
+- 15 nouvelles clés dans `SettingsUpdate` :
+  - Sidebar : `sidebar_bg_color`, `sidebar_text_color`, `sidebar_accent_color`
+  - Login : `login_bg_mode`, `login_bg_color`, `login_bg_image_url`, `login_text_color`, `login_card_bg`, `login_card_text_color`, `login_button_bg`, `login_button_text_color`
+  - Blocs publics : `public_blocks_theme` (dict imbriqué — keys `hero/missions/specialisations/experience/about`, chaque bloc avec `bg_color?` + `text_color?`)
+- Toutes les clés exposées via `/api/public/ui-flags` (anonyme, aucun secret leaké).
+
+### 🎨 Frontend
+- `useUIFlags.js` injecte 13 nouvelles CSS variables sur `documentElement` (`--sidebar-bg`, `--login-card-bg`, `--block-hero-bg`, etc.) — propagation live.
+- `PortalLayout.jsx` : sidebar passe en `var(--sidebar-bg, #0E1F3D)` + `var(--sidebar-text, #fff)`.
+- `Login.jsx` : 6 zones désormais themables (panneau gauche bg+texte, card, bouton de connexion).
+- `Home.jsx` + `Missions.jsx` + `Specialisations.jsx` + `CaseStudies.jsx` : blocs `var(--block-X-bg)` / `var(--block-X-text)`.
+- Nouvelle section `S057ThemingSection.jsx` dans `/admin/settings` (anchor `s-s057-theming`) :
+  - 3 groupes pliables (Sidebar / Login / Blocs publics)
+  - Pickers couleur + champ hex + bouton ✕ remettre au défaut
+  - Bouton « Aperçu » → modal avec rendu visuel sans sauvegarder (sidebar miniature, login mini-card, blocs)
+
+### ✅ Tests : 4/4 nouveaux + régression complète **116/116 verts**.
+
+
 ## Iter40 (2026-02-06) — Day 3 : Catégories formulaires + Registre erreurs + DocTech API
 
 ### 📁 P1-8 — Formulaires par catégorie

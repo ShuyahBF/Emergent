@@ -15,6 +15,7 @@ import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPr
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
+import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
@@ -652,6 +653,10 @@ export default function AdminSettings() {
 
       <Filterable title="WhatsApp — Filtre no-toast (numéros silencieux)" anchorId="s-wa-silent-phones">
         <WaSilentPhonesSection />
+      </Filterable>
+
+      <Filterable title="🎨 S057 — Habillage complet (Sidebar / Login / Blocs publics)" anchorId="s-s057-theming">
+        <S057ThemingSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

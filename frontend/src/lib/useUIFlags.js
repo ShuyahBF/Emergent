@@ -84,6 +84,29 @@ function applyBranding(flags) {
       document.documentElement.removeAttribute("data-public-logo-url");
     }
   }
+  // S057 Day 3+ (2026-02) — Full theming CSS variables
+  if (typeof document !== "undefined") {
+    const root = document.documentElement;
+    const setVar = (name, val) => {
+      if (val) root.style.setProperty(name, val);
+      else root.style.removeProperty(name);
+    };
+    setVar("--sidebar-bg", flags.sidebar_bg_color);
+    setVar("--sidebar-text", flags.sidebar_text_color);
+    setVar("--sidebar-accent", flags.sidebar_accent_color);
+    setVar("--login-bg", flags.login_bg_color);
+    setVar("--login-text", flags.login_text_color);
+    setVar("--login-card-bg", flags.login_card_bg);
+    setVar("--login-card-text", flags.login_card_text_color);
+    setVar("--login-btn-bg", flags.login_button_bg);
+    setVar("--login-btn-text", flags.login_button_text_color);
+    // Public block overrides
+    const blocks = flags.public_blocks_theme || {};
+    for (const key of ["hero", "specialisations", "missions", "experience", "about"]) {
+      setVar(`--block-${key}-bg`, (blocks[key] || {}).bg_color);
+      setVar(`--block-${key}-text`, (blocks[key] || {}).text_color);
+    }
+  }
 }
 
 // Iter40-ui-flags-tailwind — Exported so AdminSettings can preview changes

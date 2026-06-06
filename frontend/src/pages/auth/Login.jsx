@@ -148,14 +148,25 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen grid lg:grid-cols-2" data-testid="login-page">
+    <div
+      className="min-h-screen grid lg:grid-cols-2"
+      style={{
+        color: "var(--login-text, inherit)",
+      }}
+      data-testid="login-page"
+    >
       {/* Left: brand */}
-      <div className="relative hidden lg:flex items-end p-12 marketing-dark overflow-hidden">
+      <div
+        className="relative hidden lg:flex items-end p-12 marketing-dark overflow-hidden"
+        style={{
+          background: "var(--login-bg, transparent)",
+        }}
+      >
         <div className="absolute inset-0">
           <img src={AUTH_BG} alt="" className="w-full h-full object-cover opacity-50" />
           <div className="absolute inset-0 bg-gradient-to-tr from-[#081226]/95 via-[#081226]/70 to-transparent" />
         </div>
-        <div className="relative z-10 text-white">
+        <div className="relative z-10" style={{ color: "var(--login-text, #ffffff)" }}>
           <Link to="/" className="flex items-center gap-3 mb-8">
             <img src={LOGO_URL} alt="SAWALI" className="h-12 w-12 rounded-lg ring-1 ring-white/20" />
             <div>
@@ -164,21 +175,30 @@ export default function Login() {
             </div>
           </Link>
           <h2 className="text-4xl font-display font-bold leading-tight max-w-md">Bienvenue dans votre Espace Loois sécurisé.</h2>
-          <p className="mt-4 text-slate-300 max-w-md">
+          <p className="mt-4 max-w-md" style={{ color: "var(--login-text, #cbd5e1)" }}>
             Suivez vos rendez-vous, accédez à la documentation de vos logiciels et consultez l'historique de nos interventions.
           </p>
         </div>
       </div>
 
       {/* Right: form */}
-      <div className="flex items-center justify-center p-6 sm:p-12 bg-slate-50">
+      <div
+        className="flex items-center justify-center p-6 sm:p-12"
+        style={{ background: "var(--login-bg, #f8fafc)" }}
+      >
         <div className="w-full max-w-md">
           <Link to="/" className="lg:hidden flex items-center gap-3 mb-6">
             <img src={LOGO_URL} alt="SAWALI" className="h-10 w-10 rounded-md" />
             <span className="font-display font-bold">SAWALI SMART SYSTEMS</span>
           </Link>
 
-          <div className="rounded-2xl border border-slate-200 bg-white p-7 shadow-sm">
+          <div
+            className="rounded-2xl border border-slate-200 p-7 shadow-sm"
+            style={{
+              background: "var(--login-card-bg, #ffffff)",
+              color: "var(--login-card-text, inherit)",
+            }}
+          >
             <div className="flex items-center gap-2 text-sawali-blue">
               <ShieldCheck className="h-4 w-4" />
               <span className="text-xs uppercase tracking-[0.25em] font-semibold">{step === "credentials" ? "Connexion" : "Vérification 2FA"}</span>
@@ -226,7 +246,16 @@ export default function Login() {
                   {captchaCfg.enabled && captchaCfg.site_key && (
                     <div ref={captchaRef} data-testid="recaptcha-widget" />
                   )}
-                  <button type="submit" disabled={loading} className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition" data-testid="login-submit-button">
+                  <button
+                    type="submit"
+                    disabled={loading}
+                    className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2.5 text-sm font-medium hover:bg-sawali-blue-light transition"
+                    style={{
+                      background: "var(--login-btn-bg, var(--brand-primary, #1E90FF))",
+                      color: "var(--login-btn-text, #ffffff)",
+                    }}
+                    data-testid="login-submit-button"
+                  >
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
                     Se connecter
                   </button>

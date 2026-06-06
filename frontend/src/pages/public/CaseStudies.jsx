@@ -8,7 +8,14 @@ export default function CaseStudies() {
   useEffect(() => { apiClient.get("/case-studies").then((r) => setItems(r.data)).catch(() => {}); }, []);
 
   return (
-    <section className="py-20" data-testid="case-studies-page">
+    <section
+      className="py-20"
+      style={{
+        background: "var(--block-experience-bg, transparent)",
+        color: "var(--block-experience-text, inherit)",
+      }}
+      data-testid="case-studies-page"
+    >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
         <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Réalisations</p>
         <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">Études de cas</h1>

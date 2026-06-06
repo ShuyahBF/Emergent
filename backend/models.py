@@ -458,6 +458,24 @@ class SettingsUpdate(BaseModel):
     # Iter40 (2026-02) — Token Bearer pour le webhook /api/errors/ingest
     errors_webhook_token: Optional[str] = None
 
+    # --- S057 Day 3+ (2026-02) — Habillage complet ---
+    # Sidebar (portail) — global SAWALI defaults (tenant peut override via branding)
+    sidebar_bg_color: Optional[str] = None        # ex: "#0E1F3D"
+    sidebar_text_color: Optional[str] = None      # ex: "#FFFFFF"
+    sidebar_accent_color: Optional[str] = None    # active link / hover ex: "#1E90FF"
+    # Login page (page publique)
+    login_bg_mode: Optional[str] = None           # "default" | "color" | "image"
+    login_bg_color: Optional[str] = None
+    login_bg_image_url: Optional[str] = None
+    login_text_color: Optional[str] = None
+    login_card_bg: Optional[str] = None
+    login_card_text_color: Optional[str] = None
+    login_button_bg: Optional[str] = None
+    login_button_text_color: Optional[str] = None
+    # Blocs publics — chaque bloc peut overrider bg+text. JSON storé en dict.
+    # Clés possibles : "hero" | "specialisations" | "missions" | "experience" | "about"
+    public_blocks_theme: Optional[Dict[str, Any]] = None
+
     # --- S025 — Download approval workflow (S-iter39e) ---
     # When enabled, non-admin users requesting a private document download
     # trigger a WhatsApp approval flow: a message is sent to the configured

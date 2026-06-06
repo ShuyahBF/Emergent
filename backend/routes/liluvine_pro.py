@@ -1270,12 +1270,35 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
                 ctx_task = _fetch_context_snippets(db, user, payload.text)
                 kb_task = _resolve_kb_context(payload.text)
                 sys_task = _resolve_system_prompt(scope)
-                ctx, kb, base_sys = await asyncio.gather(ctx_task, kb_task, sys_task)
+                # Iter40 (2026-02) — Mémoire de conversation : on récupère les 10
+                # derniers messages de la session pour les inclure dans le user
+                # prompt. EmergentIntegrations LlmChat est stateless donc sans
+                # cette injection, Liluvine oublie le contexte d'un message à
+                # l'autre. Le message courant (`payload.text`) vient d'être
+                # inséré au-dessus → on le retire des derniers.
+                hist_task = db.liluvine_pro_messages.find(
+                    {"session_id": sid, "role": {"$in": ["user", "assistant"]}},
+                    {"_id": 0, "role": 1, "content": 1, "created_at": 1},
+                ).sort("created_at", -1).limit(11).to_list(11)
+                ctx, kb, base_sys, hist = await asyncio.gather(ctx_task, kb_task, sys_task, hist_task)
+                # hist[0] = le message qu'on vient d'insérer → on l'enlève.
+                # Puis on remet en ordre chronologique.
+                hist = [h for h in hist if h.get("content") != payload.text][:10]
+                hist.reverse()
+                memory_block = ""
+                if hist:
+                    lines = ["[HISTORIQUE DE LA CONVERSATION (du plus ancien au plus récent)]"]
+                    for h in hist:
+                        prefix = "Utilisateur" if h["role"] == "user" else "Liluvine"
+                        body = (h.get("content") or "")[:1500]
+                        lines.append(f"{prefix}: {body}")
+                    lines.append("[FIN HISTORIQUE]\n")
+                    memory_block = "\n".join(lines)
                 system_text = base_sys + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
                 _escalate_pre = any(k in payload.text.lower() for k in ESCALATION_KEYWORDS)
                 # Notify the client we're now waiting on the LLM
                 yield f"event: status\ndata: {json.dumps({'phase': 'llm'})}\n\n"
-                llm = await _llm_send(sid, system_text, payload.text)
+                llm = await _llm_send(sid, system_text, (memory_block + payload.text) if memory_block else payload.text)
                 reply_text = (llm["reply"] or "").replace(ESCALATION_TOKEN, "").strip()
                 _escalate_llm = ESCALATION_TOKEN in (llm["reply"] or "")
                 escalated = _escalate_pre or _escalate_llm

@@ -42,6 +42,41 @@ def _client_scope(user: dict) -> str:
     return user.get("parent_client_id") or user.get("client_id") or user["id"]
 
 
+async def _visible_contact_client_ids(db, user: dict) -> List[str]:
+    """Iter41 hot-fix (2026-02) — Bug : « ajout de contacts au groupe ne fait
+    rien ». Contacts may have been created under a *peer* client_id (same
+    company) — the directory listing `/me/contacts` honors this via
+    `_resolve_visible_client_ids`, but the add-to-group endpoint was filtering
+    by the single canonical client_id, so peer-owned contacts were silently
+    rejected (returned in `ignored`, never added).
+
+    This helper duplicates the visibility logic locally to avoid importing
+    from server.py (circular). It returns every client_id whose contacts the
+    user can legitimately group.
+    """
+    import re as _re
+    ids: set = set()
+    for k in ("client_id", "parent_client_id", "id"):
+        v = user.get(k)
+        if v:
+            ids.add(v)
+    company = (user.get("company") or "").strip()
+    if company:
+        try:
+            cursor = db.users.find(
+                {"company": {"$regex": f"^{_re.escape(company)}$", "$options": "i"}},
+                {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1},
+            )
+            async for u in cursor:
+                for k in ("id", "client_id", "parent_client_id"):
+                    v = u.get(k)
+                    if v:
+                        ids.add(v)
+        except Exception:  # noqa: BLE001
+            pass
+    return list(ids) if ids else [user.get("id")]
+
+
 class GroupCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
@@ -90,12 +125,13 @@ def attach_contact_groups_routes(*, api, db, get_current_user):
         )
         if existing:
             raise HTTPException(status_code=409, detail=f"Un groupe « {name} » existe déjà.")
-        # Validate provided contact_ids belong to the tenant
+        # Validate provided contact_ids belong to a visible tenant (peer-sharing aware).
         contact_ids = list({c for c in (payload.contact_ids or []) if c})
         valid_count = 0
         if contact_ids:
+            visible_ids = await _visible_contact_client_ids(db, user)
             valid_count = await db.directory_contacts.count_documents(
-                {"client_id": cid, "id": {"$in": contact_ids}},
+                {"client_id": {"$in": visible_ids}, "id": {"$in": contact_ids}},
             )
         doc = {
             "id": str(uuid.uuid4()),
@@ -150,10 +186,11 @@ def attach_contact_groups_routes(*, api, db, get_current_user):
         group = await db.contact_groups.find_one({"id": gid, "client_id": cid}, {"_id": 0})
         if not group:
             raise HTTPException(status_code=404, detail="Groupe introuvable")
-        # Only accept contact_ids that belong to the tenant
+        # Accept any contact_id visible to this user (multi-tenant peer sharing).
         wanted = [c for c in (payload.contact_ids or []) if c]
+        visible_ids = await _visible_contact_client_ids(db, user)
         valid = await db.directory_contacts.find(
-            {"client_id": cid, "id": {"$in": wanted}},
+            {"client_id": {"$in": visible_ids}, "id": {"$in": wanted}},
             {"_id": 0, "id": 1},
         ).to_list(len(wanted) or 1)
         valid_ids = {v["id"] for v in valid}
@@ -205,11 +242,12 @@ def attach_contact_groups_routes(*, api, db, get_current_user):
         for c in (payload.contact_ids or []):
             if c:
                 ids.add(c)
-        # Resolve to contact rows
+        # Resolve to contact rows (peer-sharing aware)
         contacts: List[Dict[str, Any]] = []
         if ids:
+            visible_ids = await _visible_contact_client_ids(db, user)
             cursor = db.directory_contacts.find(
-                {"client_id": cid, "id": {"$in": list(ids)}},
+                {"client_id": {"$in": visible_ids}, "id": {"$in": list(ids)}},
                 {"_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp": 1, "email": 1, "company": 1},
             )
             async for r in cursor:

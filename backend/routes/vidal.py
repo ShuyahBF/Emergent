@@ -125,7 +125,7 @@ async def _resolve_tenant_vidal(db, user: Dict[str, Any]) -> Dict[str, Any]:
     """
     role = user.get("role")
     scope_uid = user.get("id")
-    if role in ("client", "tracked", "moderateur", "regulateur", "pharmacien", "medecin"):
+    if role in ("client", "tracked", "moderateur", "regulateur", "pharmacien", "medecin", "editeur_vidal"):
         scope_uid = user.get("parent_client_id") or user.get("client_id") or scope_uid
     tenant = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1, "tenant_type": 1}) or {}
     feats = tenant.get("features") or {}

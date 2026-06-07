@@ -160,14 +160,31 @@ export default function PortalLayout({ admin = false }) {
   // Toutes les autres entrées de la sidebar sont masquées. L'utilisateur
   // est forcé d'aller sur Régionalisation au login (route handled in App.js).
   const isTranslator = (user?.tracked_role || "") === "Traducteur";
+  // Iter42b (2026-02) — Rôles métier réglementaires :
+  //   • regulateur     → uniquement /portal/amm + /portal/liluvine
+  //   • editeur_vidal  → uniquement /portal/vidal + /portal/amm + /portal/liluvine (lecture seule)
+  // /portal/vidal et /portal/amm sont masqués pour tous les rôles SAUF
+  // admin, superviseur, regulateur (amm), pharmacien, medecin, editeur_vidal.
+  const isRegulateur = user?.role === "regulateur";
+  const isEditeurVidal = user?.role === "editeur_vidal";
+  const isPharmacien = user?.role === "pharmacien";
+  const isMedecin = user?.role === "medecin";
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
+  const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
+  const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
+  // Paths réservés à certains rôles métier (cachés pour les autres)
+  const restrictedVidalPaths = new Set(["/portal/vidal", "/portal/amm"]);
+  const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal;
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
     : (admin ? adminLinks : clientLinks);
   const links = baseLinks
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
+    .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
+    .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
+    .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
     .filter((l) => !l.trackedOnly || isTracked)
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
     .filter((l) => !l.cashOnly || canCash || isComptable)

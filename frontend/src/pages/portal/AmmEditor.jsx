@@ -6,7 +6,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  ScrollText, Loader2, Plus, Search, Edit3, Trash2, X, Save
+  ScrollText, Loader2, Plus, Search, Edit3, Trash2, X, Save, Upload, ArrowUpDown
 } from "lucide-react";
 
 const STATUSES = [
@@ -163,6 +163,7 @@ function AmmEditor({ initial, onClose, onSaved }) {
 
 export default function AmmEditorPage() {
   const { user } = useAuth();
+  // Iter42b — editeur_vidal a un accès LECTURE SEULE (recherche/filtre/tri).
   const canEdit = user && ["admin", "superviseur", "regulateur"].includes(user.role);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -170,6 +171,10 @@ export default function AmmEditorPage() {
   const [status, setStatus] = useState("");
   const [editorOpen, setEditorOpen] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [importOpen, setImportOpen] = useState(false);
+  // Iter42b — tri côté client (utile pour le rôle editeur_vidal)
+  const [sortKey, setSortKey] = useState("created_at");
+  const [sortDir, setSortDir] = useState("desc");
 
   const load = async () => {
     setLoading(true);
@@ -206,11 +211,18 @@ export default function AmmEditorPage() {
           Numéros AMM
         </h1>
         {canEdit && (
-          <button onClick={() => { setEditing(null); setEditorOpen(true); }}
-                  className="text-sm px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-2"
-                  data-testid="amm-new-btn">
-            <Plus className="h-4 w-4" /> Nouvelle AMM
-          </button>
+          <div className="flex items-center gap-2">
+            <button onClick={() => setImportOpen(true)}
+                    className="text-sm px-3 py-2 rounded ring-1 ring-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 inline-flex items-center gap-2"
+                    data-testid="amm-import-csv-btn">
+              <Upload className="h-4 w-4" /> Importer CSV
+            </button>
+            <button onClick={() => { setEditing(null); setEditorOpen(true); }}
+                    className="text-sm px-3 py-2 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-2"
+                    data-testid="amm-new-btn">
+              <Plus className="h-4 w-4" /> Nouvelle AMM
+            </button>
+          </div>
         )}
       </div>
 
@@ -255,27 +267,26 @@ export default function AmmEditorPage() {
           <table className="w-full text-sm">
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
-                <th className="text-left px-3 py-2">Produit</th>
-                <th className="text-left px-3 py-2">AMM</th>
-                <th className="text-left px-3 py-2">Laboratoire</th>
-                <th className="text-left px-3 py-2">Statut</th>
-                <th className="text-left px-3 py-2">Validité</th>
+                <SortableTh label="Produit" k="product_name" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
+                <SortableTh label="AMM" k="amm_number" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
+                <SortableTh label="Laboratoire" k="laboratory" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
+                <SortableTh label="Statut" k="status" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
+                <SortableTh label="Expiration" k="expires_at" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
                 {canEdit && <th></th>}
               </tr>
             </thead>
             <tbody>
-              {items.map((it) => (
+              {sortItems(items, sortKey, sortDir).map((it) => (
                 <tr key={it.id} className="border-t border-slate-100 hover:bg-rose-50/30" data-testid={`amm-row-${it.id}`}>
                   <td className="px-3 py-2">
                     <div className="font-semibold text-slate-800">{it.product_name}</div>
                     {it.vidal_product_id && <div className="text-[10px] text-slate-500 font-mono">VIDAL #{it.vidal_product_id}</div>}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-slate-700">{it.amm_number}</td>
+                  <td className="px-3 py-2 font-mono text-xs text-slate-700">{it.amm_number || <span className="text-slate-400">—</span>}</td>
                   <td className="px-3 py-2 text-xs">{it.laboratory || "—"}</td>
                   <td className="px-3 py-2"><StatusBadge status={it.status} /></td>
                   <td className="px-3 py-2 text-xs text-slate-500">
-                    {it.granted_at ? <div>Du {it.granted_at}</div> : null}
-                    {it.expires_at ? <div>au {it.expires_at}</div> : null}
+                    {it.expires_at || "—"}
                   </td>
                   {canEdit && (
                     <td className="px-3 py-2 text-right whitespace-nowrap">
@@ -301,6 +312,144 @@ export default function AmmEditorPage() {
           onSaved={() => { setEditorOpen(false); setEditing(null); load(); }}
         />
       )}
+      {importOpen && (
+        <CsvImportModal
+          onClose={() => setImportOpen(false)}
+          onDone={() => { setImportOpen(false); load(); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ----- Iter42b — helpers tri + CSV import ---------------------------------
+function toggleSort(k, currentKey, currentDir, setKey, setDir) {
+  if (k === currentKey) {
+    setDir(currentDir === "asc" ? "desc" : "asc");
+  } else {
+    setKey(k); setDir("asc");
+  }
+}
+function sortItems(arr, key, dir) {
+  const mult = dir === "asc" ? 1 : -1;
+  return [...arr].sort((a, b) => {
+    const av = (a?.[key] ?? "").toString().toLowerCase();
+    const bv = (b?.[key] ?? "").toString().toLowerCase();
+    if (av < bv) return -1 * mult;
+    if (av > bv) return 1 * mult;
+    return 0;
+  });
+}
+function SortableTh({ label, k, sortKey, sortDir, onSort }) {
+  const active = k === sortKey;
+  return (
+    <th className="text-left px-3 py-2 select-none">
+      <button onClick={() => onSort(k)} className={`inline-flex items-center gap-1 ${active ? "text-rose-700 font-semibold" : "hover:text-slate-900"}`} data-testid={`amm-sort-${k}`}>
+        {label} <ArrowUpDown className={`h-3 w-3 ${active ? "" : "opacity-40"}`} />
+        {active && <span className="text-[10px]">{sortDir === "asc" ? "▲" : "▼"}</span>}
+      </button>
+    </th>
+  );
+}
+
+function CsvImportModal({ onClose, onDone }) {
+  const [file, setFile] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState(null);
+  const [conflicts, setConflicts] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) return;
+    setBusy(true); setResult(null); setConflicts(null);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      const r = await apiClient.post("/amm/import-csv", fd, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      setResult(r.data);
+      toast.success(`${r.data.imported} ligne(s) importée(s)`);
+      setTimeout(() => onDone(), 1500);
+    } catch (err) {
+      const detail = err?.response?.data?.detail;
+      if (detail && typeof detail === "object" && (detail.intra_file_conflicts || detail.database_conflicts)) {
+        setConflicts(detail);
+        toast.error("Import refusé — conflits détectés");
+      } else {
+        toast.error(typeof detail === "string" ? detail : "Erreur import");
+      }
+    }
+    setTimeout(() => setBusy(false), 0);
+  };
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" data-testid="amm-import-modal">
+      <form onSubmit={submit} className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+        <div className="px-4 py-3 border-b flex items-center justify-between">
+          <h2 className="font-semibold text-slate-800 inline-flex items-center gap-2">
+            <Upload className="h-4 w-4 text-rose-600" /> Importer un fichier CSV
+          </h2>
+          <button type="button" onClick={onClose} className="text-slate-400 hover:text-slate-700" data-testid="amm-import-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-4 space-y-3 text-sm">
+          <div className="bg-slate-50 ring-1 ring-slate-200 rounded p-3 text-xs text-slate-700">
+            <p className="font-medium">Format attendu (1ère ligne = en-têtes, séparateur , ou ; ) :</p>
+            <pre className="mt-1 bg-white border rounded p-2 text-[11px] overflow-x-auto">Nom du produit, AMM, CIP1, date expiration, Laboratoire, Note</pre>
+            <ul className="mt-2 list-disc list-inside space-y-0.5 text-[11px] text-slate-600">
+              <li>AMM et CIP1 peuvent être vides (un numéro interne sera autogénéré)</li>
+              <li>En cas de doublons (DB ou intra-fichier), l&apos;import est <strong>refusé en totalité</strong></li>
+              <li>Taille max : 5 Mo</li>
+            </ul>
+          </div>
+          <label className="block">
+            <span className="block text-xs text-slate-600 mb-1">Fichier CSV</span>
+            <input type="file" accept=".csv,text/csv" onChange={(e) => setFile(e.target.files?.[0] || null)}
+                   className="block w-full text-sm" data-testid="amm-import-file" />
+          </label>
+          {result && (
+            <div className="bg-emerald-50 ring-1 ring-emerald-200 rounded p-3 text-xs text-emerald-800" data-testid="amm-import-result">
+              ✅ {result.imported} ligne(s) importée(s) avec succès. {result.skipped_empty > 0 && `(${result.skipped_empty} lignes vides ignorées)`}
+            </div>
+          )}
+          {conflicts && (
+            <div className="bg-rose-50 ring-1 ring-rose-200 rounded p-3 text-xs text-rose-800 space-y-2" data-testid="amm-import-conflicts">
+              <p className="font-semibold">{conflicts.message}</p>
+              {conflicts.intra_file_conflicts?.length > 0 && (
+                <div>
+                  <p className="font-medium">Conflits dans le fichier ({conflicts.intra_file_conflicts.length}) :</p>
+                  <ul className="list-disc list-inside ml-2 mt-0.5">
+                    {conflicts.intra_file_conflicts.slice(0, 20).map((c, i) => (
+                      <li key={i}>Ligne {c.line} — {c.field} « {c.value} » → {c.conflict_with}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {conflicts.database_conflicts?.length > 0 && (
+                <div>
+                  <p className="font-medium">Conflits avec la base ({conflicts.database_conflicts.length}) :</p>
+                  <ul className="list-disc list-inside ml-2 mt-0.5">
+                    {conflicts.database_conflicts.slice(0, 20).map((c, i) => (
+                      <li key={i}>Ligne {c.line} — {c.field} « {c.value} » → {c.conflict_with}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="px-4 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300" data-testid="amm-import-cancel">
+            Fermer
+          </button>
+          <button type="submit" disabled={!file || busy} className="px-3 py-2 rounded text-sm bg-rose-600 hover:bg-rose-700 text-white disabled:opacity-50 inline-flex items-center gap-1" data-testid="amm-import-submit">
+            {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Upload className="h-3 w-3" />}
+            {busy ? "Import en cours…" : "Importer"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }

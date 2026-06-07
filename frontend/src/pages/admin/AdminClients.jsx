@@ -484,7 +484,7 @@ export default function AdminClients() {
               <p className="mt-1 text-[11px] text-slate-500">Affiché dans la sidebar du portail à la place du logo SAWALI quand l'utilisateur de ce client est connecté.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }, { v: "moderateur", l: "Modérateur" }, { v: "regulateur", l: "💊 Régulateur (AMM)" }, { v: "pharmacien", l: "💊 Pharmacien" }, { v: "medecin", l: "⚕️ Médecin" }, { v: "demo", l: "Démo (limité)" }]} />
+              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }, { v: "moderateur", l: "Modérateur" }, { v: "regulateur", l: "💊 Régulateur (AMM)" }, { v: "editeur_vidal", l: "📚 Éditeur VIDAL (lecture)" }, { v: "pharmacien", l: "💊 Pharmacien" }, { v: "medecin", l: "⚕️ Médecin" }, { v: "demo", l: "Démo (limité)" }]} />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
             </div>
 

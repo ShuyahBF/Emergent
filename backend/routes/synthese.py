@@ -247,3 +247,46 @@ async def run_scheduled_synthese(db) -> Dict[str, Any]:
         "sent_wa": sent_wa,
         "preview": body[:300],
     }
+
+
+async def run_synthese_test(db) -> Dict[str, Any]:
+    """Iter42b — Test à la demande de la synthèse Liluvine.
+
+    Force l'envoi (même si `synthese_enabled` est False) en utilisant la
+    configuration courante. Retourne un payload détaillé pour l'admin.
+    """
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
+    channels = (s.get("synthese_channels") or "both").lower()
+    today = date.today()
+    body = await build_synthese(db, start=today, end=today)
+    sent_email = False
+    sent_wa = False
+    errors: list = []
+    if channels in ("email", "both"):
+        try:
+            sent_email = await _dispatch_email(db, body)
+            if not sent_email:
+                errors.append("Email non envoyé (email destinataire vide ou SMTP non configuré)")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"Email error: {str(exc)[:200]}")
+    if channels in ("wa", "both"):
+        try:
+            sent_wa = await _dispatch_wa(db, body)
+            if not sent_wa:
+                errors.append("WhatsApp non envoyé (numéro vide ou WA non configuré)")
+        except Exception as exc:  # noqa: BLE001
+            errors.append(f"WhatsApp error: {str(exc)[:200]}")
+    return {
+        "ok": (sent_email or sent_wa),
+        "channels": channels,
+        "sent_email": sent_email,
+        "sent_wa": sent_wa,
+        "errors": errors,
+        "config": {
+            "synthese_enabled": bool(s.get("synthese_enabled")),
+            "email_to": s.get("synthese_email_to"),
+            "wa_to": s.get("synthese_wa_to"),
+            "hour": s.get("synthese_hour"),
+        },
+        "preview": body[:500],
+    }

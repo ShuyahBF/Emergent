@@ -21941,6 +21941,7 @@ _attach_public_officines(api=api, db=db)
 from routes.officines_portal import (  # noqa: E402
     attach_officines_portal_routes as _attach_officines_portal,
     attach_officines_portal_admin_routes as _attach_officines_portal_admin,
+    attach_synthese_otp_admin_routes as _attach_synthese_otp_admin,
 )
 from auth import JWT_SECRET as _JWT_SECRET, JWT_ALGORITHM as _JWT_ALGO  # noqa: E402
 
@@ -21958,6 +21959,10 @@ _attach_officines_portal(
 )
 _attach_officines_portal_admin(
     api=api, db=db, get_current_admin=get_current_admin,
+)
+_attach_synthese_otp_admin(
+    api=api, db=db, get_current_admin=get_current_admin,
+    wa_send_text=_wa_send_text,
 )
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base

@@ -1,0 +1,46 @@
+{
+  "summary": "Iter42b — 9/9 backend tests OK (7 existants test_iter42b_csv_and_roles + 2 nouveaux test_iter42b_extra_settings_and_otp: PUT /api/admin/settings avec officine_otp_template* persisté + POST /api/officines-portal/auth/request-otp coherent status). Frontend smoke: bouton 'Importer CSV' visible (amm-import-csv-btn), modal s'ouvre (amm-import-modal) avec input file (amm-import-file). Tri AMM testids présents: amm-sort-product_name, amm-sort-amm_number, amm-sort-laboratory, amm-sort-status, amm-sort-expires_at. Section /admin/settings#s-templates-otp section_present=true (composant TemplatesOtpSection monté) MAIS reste bloqué en 'Chargement…' — les data-testid template-wa_otp-card et template-officine_otp-card ne sont pas rendus dans la viewport même après scrollIntoView + 5s d'attente.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "/api/officines-portal/auth/request-otp", "issue": "Retourne 502 (au lieu de 503 attendu) quand WhatsApp non configuré. Cohérent et non-crash mais code 503 (Service Unavailable) serait plus sémantiquement correct que 502 (Bad Gateway) pour 'WA non configuré'."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TemplatesOtpSection (/admin/settings#s-templates-otp)", "issue": "Section reste en état 'Chargement…' visible même après scrollIntoView + 5s d'attente + dismiss du briefing modal. Les cards template-wa_otp-card et template-officine_otp-card ne se rendent pas dans la viewport et donc les testids ne sont pas atteignables par Playwright. Le composant TemplatesOtpSection est bien monté (HTML inspectable) mais bloqué sur un spinner. À investiguer: useEffect/fetch interne, IntersectionObserver, ou condition de rendu manquante.", "selector": "[data-testid='template-wa_otp-card']", "priority": "MEDIUM"},
+      {"component": "PortalLayout briefing modal", "issue": "Le briefing 'Bienvenue' s'affiche sur /portal/amm et intercepte les clics sur la page. Premier essai de click sur amm-import-csv-btn a été bloqué. Après dismiss ('J\\'ai lu'), tout fonctionne. Non-blocant mais UX: déclencher le briefing une seule fois par session ou ne pas le superposer aux pages métier ouvertes en direct.", "selector": "button:has-text(\"J'ai lu\")", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Top bar globale", "issues": ["Bannière critique 'Universal Key Emergent — Consommation CRITIQUE 3.50 / 3.00 USD (117%)' rouge sur fond rouge — contraste OK mais alerte permanente affichée sur toutes les pages admin. Non lié à Iter42b mais signalé."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter42b_csv_and_roles.py",
+    "/app/backend/tests/test_iter42b_extra_settings_and_otp.py",
+    "/app/test_reports/pytest/iter42b_combined.xml"
+  ],
+  "action_items": [
+    "Investiguer pourquoi TemplatesOtpSection reste en 'Chargement…' sur /admin/settings#s-templates-otp — les cards (template-wa_otp-card, template-officine_otp-card) ne se montent pas visuellement. Vérifier fetch /api/admin/settings ou condition de rendu de la section.",
+    "Optionnel: changer 502 → 503 sur /api/officines-portal/auth/request-otp quand WhatsApp non configuré pour cohérence sémantique."
+  ],
+  "critical_code_review_comments": [
+    "officines_portal.py: 808 lignes — toujours au-delà du seuil de 700 lignes recommandé (signalé en iter50, non-bloquant).",
+    "JWT_SECRET sur .env est 28 bytes → InsecureKeyLengthWarning de pyjwt (signalé en iter50, recommandé ≥32 bytes pour HS256).",
+    "Lazy-load des sections AdminSettings: plusieurs sections affichent 'Chargement…' simultanément à l'ouverture — peut introduire des bugs visibles si une section reste bloquée (cas observé pour TemplatesOtpSection). Considérer un timeout/error boundary par section."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter42b_extra_settings_and_otp.py (nouveau, 2 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (9/9)",
+    "frontend": "75% — 2/3 smoke OK (Import CSV + tri AMM), 1/3 partiellement validé (section OTP templates présente mais cards non rendues)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp via /api/auth/login). JWT forgé via JWT_SECRET du backend/.env (HS256). Voir /app/memory/test_credentials.md.",
+  "seed_data_creation": "Aucune seed persistée. Tests créent users/officines/AMM via fixtures et cleanup par id. Settings global: snapshot + restore des champs officine_otp_template* après test.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend Iter42b complet et fiable (9/9 tests passants). Pour relancer: pytest /app/backend/tests/test_iter42b_csv_and_roles.py /app/backend/tests/test_iter42b_extra_settings_and_otp.py -v. Pour le frontend, le seul écart est la section #s-templates-otp sur /admin/settings qui reste en 'Chargement…' — composant TemplatesOtpSection bien monté dans le DOM (vérifié via querySelector('#s-templates-otp').innerHTML) mais cards intérieures non rendues. À investiguer côté React (useEffect fetch settings ou condition de visibilité). Le briefing 'Bienvenue' doit être dismissé avant interactions UI (button 'J\\'ai lu').",
+  "rca of the issue": "TemplatesOtpSection (admin section S057 'Templates OTP'): la div racine est présente avec attribut x-component=TemplatesOtpSection et affiche un spinner Lucide + texte 'Chargement…'. Aucune erreur console capturée. L'attente jusqu'à 5s + scrollIntoView n'a pas suffi à rendre les cards. Hypothèses probables: (a) appel API /api/admin/settings en cours/échoué silencieusement, (b) lazy IntersectionObserver mal déclenché par l'ancre #s-templates-otp, (c) condition de rendu (settings non chargés) bloquante. Reproduction: 1) login admin, 2) /admin/settings#s-templates-otp, 3) dismiss briefing, 4) inspecter le DOM — section présente mais spinner permanent."
+}

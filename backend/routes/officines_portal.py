@@ -303,10 +303,53 @@ def attach_officines_portal_routes(
         if payload.channel == "wa":
             if not wa_send_text:
                 raise HTTPException(status_code=503, detail="Canal WhatsApp non disponible côté serveur")
-            r = await wa_send_text(phone, msg)
-            if not r.get("ok"):
-                raise HTTPException(status_code=502, detail=f"Envoi WhatsApp échoué : {r.get('error', 'erreur inconnue')[:200]}")
-            sent_via = "whatsapp"
+            # Iter42b — Si un template `officine_otp_template` est configuré dans
+            # Admin Settings, on l'utilise (Authentication d'abord, Utility ensuite,
+            # fallback texte). Permet de fonctionner hors fenêtre 24h.
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            template_name = (s.get("officine_otp_template") or "").strip()
+            lang = (s.get("officine_otp_template_lang") or "fr").strip() or "fr"
+            access_token = s.get("wa_access_token") or ""
+            phone_number_id = s.get("wa_phone_number_id") or ""
+            template_sent = False
+            if template_name and access_token and phone_number_id:
+                import httpx as _httpx
+                msisdn = _digits(phone)
+                url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+                headers = {"Authorization": f"Bearer {access_token}"}
+                for label, components in [
+                    ("authentication", [
+                        {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                        {"type": "button", "sub_type": "url", "index": "0",
+                         "parameters": [{"type": "text", "text": code}]},
+                    ]),
+                    ("utility", [
+                        {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                    ]),
+                ]:
+                    body = {
+                        "messaging_product": "whatsapp", "to": msisdn, "type": "template",
+                        "template": {"name": template_name, "language": {"code": lang}, "components": components},
+                    }
+                    try:
+                        async with _httpx.AsyncClient(timeout=10.0) as client:
+                            r = await client.post(url, json=body, headers=headers)
+                        if r.status_code == 200:
+                            template_sent = True
+                            sent_via = f"whatsapp_template_{label}"
+                            await db.settings.update_one(
+                                {"_id": "global"},
+                                {"$set": {"officine_otp_template_category": label.upper()}},
+                                upsert=True,
+                            )
+                            break
+                    except Exception:  # noqa: BLE001
+                        continue
+            if not template_sent:
+                r = await wa_send_text(phone, msg)
+                if not r.get("ok"):
+                    raise HTTPException(status_code=502, detail=f"Envoi WhatsApp échoué : {r.get('error', 'erreur inconnue')[:200]}")
+                sent_via = "whatsapp_text"
         elif payload.channel == "sms":
             if not sms_send:
                 raise HTTPException(status_code=503, detail="Canal SMS non disponible côté serveur")
@@ -805,3 +848,97 @@ def attach_officines_portal_admin_routes(
         return {"ok": True}
 
     logger.info("[officines_portal] admin registry routes mounted")
+
+
+def attach_synthese_otp_admin_routes(
+    api: APIRouter | FastAPI,
+    *,
+    db,
+    get_current_admin,
+    wa_send_text: Optional[Callable[[str, str], Awaitable[Dict[str, Any]]]] = None,
+) -> None:
+    """Iter42b — Admin endpoints :
+      - POST /api/admin/synthese/test          → déclenche la synthèse Liluvine immédiatement
+      - POST /api/admin/officine-otp/test      → envoie un OTP test via le template configuré
+    """
+
+    @api.post("/admin/synthese/test", tags=["Admin — Synthèse"])
+    async def admin_synthese_test(user: dict = Depends(get_current_admin)):
+        from routes.synthese import run_synthese_test
+        try:
+            result = await run_synthese_test(db)
+            return result
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Erreur synthèse : {str(exc)[:300]}") from exc
+
+    @api.post("/admin/officine-otp/test", tags=["Admin — Officines OTP"])
+    async def admin_officine_otp_test(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        msisdn = "".join(ch for ch in str(payload.get("msisdn") or "") if ch.isdigit())
+        if len(msisdn) < 8:
+            raise HTTPException(status_code=400, detail="Numéro invalide")
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        template_name = (s.get("officine_otp_template") or "").strip()
+        lang = (s.get("officine_otp_template_lang") or "fr").strip() or "fr"
+        access_token = s.get("wa_access_token") or ""
+        phone_number_id = s.get("wa_phone_number_id") or ""
+        if not access_token or not phone_number_id:
+            raise HTTPException(status_code=503, detail="WhatsApp Cloud API non configuré (wa_access_token / wa_phone_number_id)")
+        code = f"{random.randint(0, 999999):06d}"
+        results: List[Dict[str, Any]] = []
+        # Si template configuré, on tente Authentication puis Utility ; sinon, fallback texte
+        if template_name:
+            import httpx as _httpx
+            url = f"https://graph.facebook.com/v21.0/{phone_number_id}/messages"
+            headers = {"Authorization": f"Bearer {access_token}"}
+            for label, components in [
+                ("authentication", [
+                    {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                    {"type": "button", "sub_type": "url", "index": "0",
+                     "parameters": [{"type": "text", "text": code}]},
+                ]),
+                ("utility", [
+                    {"type": "body", "parameters": [{"type": "text", "text": code}]},
+                ]),
+            ]:
+                body = {
+                    "messaging_product": "whatsapp", "to": msisdn, "type": "template",
+                    "template": {"name": template_name, "language": {"code": lang}, "components": components},
+                }
+                try:
+                    async with _httpx.AsyncClient(timeout=10.0) as client:
+                        r = await client.post(url, json=body, headers=headers)
+                    ok = r.status_code == 200
+                    results.append({
+                        "category_tried": label,
+                        "http_status": r.status_code,
+                        "meta_response": r.json() if r.headers.get("content-type", "").startswith("application/json") else r.text[:500],
+                        "ok": ok,
+                    })
+                    if ok:
+                        await db.settings.update_one(
+                            {"_id": "global"},
+                            {"$set": {"officine_otp_template_category": label.upper()}},
+                            upsert=True,
+                        )
+                        return {
+                            "ok": True, "sent_via": f"template_{label}",
+                            "test_code": code, "attempts": results,
+                        }
+                except Exception as exc:  # noqa: BLE001
+                    results.append({"category_tried": label, "exception": str(exc)[:300], "ok": False})
+        # Fallback: texte brut
+        if wa_send_text:
+            msg = f"SAWALI Officines (TEST) — Code de connexion : {code}. Valable 10 min."
+            r = await wa_send_text(f"+{msisdn}", msg)
+            if r.get("ok"):
+                return {"ok": True, "sent_via": "text_fallback", "test_code": code, "attempts": results}
+            results.append({"category_tried": "text_fallback", "ok": False, "error": r.get("error", "")[:200]})
+        return {
+            "ok": False, "test_code": code, "attempts": results,
+            "hint": "Vérifiez : (1) le nom du template (champ officine_otp_template), (2) la langue, (3) l'approbation Meta, (4) le numéro destinataire au format E.164 sans +.",
+        }
+
+    logger.info("[officines_portal] synthese/otp test routes mounted")

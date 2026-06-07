@@ -46,6 +46,9 @@ export default function S059SyntheseOfficinesSection() {
   const [uploading, setUploading] = useState(false);
   const [testing, setTesting] = useState(false);
   const [testResult, setTestResult] = useState(null);
+  // Iter42b — Test "à la demande" de la synthèse Liluvine
+  const [synthTesting, setSynthTesting] = useState(false);
+  const [synthResult, setSynthResult] = useState(null);
   const [form, setForm] = useState({});
   const fileRef = useRef(null);
 
@@ -131,6 +134,21 @@ export default function S059SyntheseOfficinesSection() {
     setTimeout(() => setTesting(false), 0);
   };
 
+  // Iter42b — Tester la synthèse Liluvine à la demande
+  const testSynthese = async () => {
+    setSynthTesting(true); setSynthResult(null);
+    try {
+      const r = await apiClient.post("/admin/synthese/test");
+      setSynthResult(r.data);
+      if (r.data?.ok) toast.success(`Synthèse envoyée (email=${r.data.sent_email}, wa=${r.data.sent_wa})`);
+      else toast.warning("Synthèse générée mais aucun canal n'a pu envoyer — voir détail");
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "Erreur réseau";
+      setSynthResult({ ok: false, errors: [detail] });
+      toast.error(detail);
+    } finally { setSynthTesting(false); }
+  };
+
   if (loading) return (
     <div className="flex items-center gap-2 text-sm text-slate-600 py-4">
       <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
@@ -188,6 +206,47 @@ export default function S059SyntheseOfficinesSection() {
                     data-testid="synthese-prompt" />
           <p className="text-[10px] text-slate-400 mt-1">Les KPIs structurés (contacts, tickets, RDV, paiements…) sont injectés automatiquement après votre prompt.</p>
         </label>
+        {/* Iter42b — Bouton test à la demande */}
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button onClick={testSynthese} disabled={synthTesting}
+                  className="text-xs px-3 py-1.5 rounded ring-1 ring-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-50 inline-flex items-center gap-1 disabled:opacity-60"
+                  data-testid="synthese-test-btn">
+            {synthTesting ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Tester la synthèse maintenant
+          </button>
+          {synthResult && (
+            <span className={`text-[10px] px-2 py-0.5 rounded ${synthResult.ok ? "bg-emerald-100 text-emerald-700" : "bg-amber-100 text-amber-700"}`} data-testid="synthese-test-result-badge">
+              {synthResult.ok ? `✅ email=${synthResult.sent_email ? "OK" : "—"} / wa=${synthResult.sent_wa ? "OK" : "—"}` : `⚠️ ${(synthResult.errors || [])[0] || "Échec"}`}
+            </span>
+          )}
+        </div>
+        {synthResult && (synthResult.preview || synthResult.errors?.length) && (
+          <details className="text-xs ring-1 ring-slate-300 rounded bg-slate-50" data-testid="synthese-test-debug">
+            <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100">
+              🔍 Aperçu de la synthèse {synthResult.errors?.length > 0 && `(${synthResult.errors.length} erreur·s)`}
+            </summary>
+            <div className="p-3 space-y-2">
+              {synthResult.errors?.length > 0 && (
+                <div className="bg-rose-50 ring-1 ring-rose-200 rounded p-2 text-[11px] text-rose-800">
+                  <p className="font-semibold">Erreurs :</p>
+                  <ul className="list-disc list-inside">
+                    {synthResult.errors.map((e, i) => <li key={i}>{e}</li>)}
+                  </ul>
+                </div>
+              )}
+              {synthResult.preview && (
+                <div>
+                  <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Aperçu (500 premiers caractères)</p>
+                  <pre className="bg-white ring-1 ring-slate-200 rounded p-2 text-[11px] whitespace-pre-wrap break-words max-h-60 overflow-auto">{synthResult.preview}</pre>
+                </div>
+              )}
+              {synthResult.config && (
+                <div className="text-[11px] text-slate-600">
+                  <p>Config : enabled={String(synthResult.config.synthese_enabled)} • email_to=<code>{synthResult.config.email_to || "(vide)"}</code> • wa_to=<code>{synthResult.config.wa_to || "(vide)"}</code> • heure=<code>{synthResult.config.hour}</code></p>
+                </div>
+              )}
+            </div>
+          </details>
+        )}
       </div>
 
       {/* === API Officines === */}

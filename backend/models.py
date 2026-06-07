@@ -775,6 +775,10 @@ class SettingsUpdate(BaseModel):
     # 24h WA session window).
     wa_otp_template: Optional[str] = None  # ex. wa_envoiotp_fr — 1 body var = code
     wa_otp_template_lang: Optional[str] = None  # default "fr"
+    # Iter42b (2026-02) — Template OTP dédié au portail Self-Service Officines
+    officine_otp_template: Optional[str] = None
+    officine_otp_template_lang: Optional[str] = None
+    officine_otp_template_category: Optional[str] = None  # cached après 1er succès
 
     # Iter35r — Welcome modal at login (briefing)
     welcome_modal_notes_days: Optional[int] = None  # default 3 — fetch notes created within N days

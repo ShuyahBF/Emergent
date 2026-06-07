@@ -19,6 +19,7 @@ import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
+import TemplatesOtpSection from "@/pages/admin/sections/TemplatesOtpSection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
@@ -667,6 +668,10 @@ export default function AdminSettings() {
 
       <Filterable title="📊 S059 — Synthèse Liluvine + API Officines + Image sidebar" anchorId="s-s059-synthese-officines">
         <S059SyntheseOfficinesSection />
+      </Filterable>
+
+      <Filterable title="📲 Templates OTP (WhatsApp) — Login général + Officines" anchorId="s-templates-otp">
+        <TemplatesOtpSection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

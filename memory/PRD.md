@@ -5,6 +5,57 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter42 (2026-02) — Self-Service Portal pour Officines (Pharmacies)
+
+### Objectif
+Permettre aux pharmacies (officines) de gérer elles-mêmes leur inscription, leur authentification, leur inventaire, leur clé HMAC et leur historique — sans dépendre de l'admin pour chaque opération.
+
+### Choix utilisateur
+- **Auth** : Code OTP (WhatsApp + SMS) + Magic link email
+- **Validation** : Auto-inscription + validation admin requise avant activation
+- **Lien CRM** : Indépendant OU liable à un client CRM existant
+- **Inventaire** : Avancé (quantité + prix unitaire + devise + date de péremption + numéro de lot + dispo + notes)
+
+### Backend
+- **`routes/officines_portal.py` (nouveau)** : 19 endpoints `/api/officines-portal/*` + `/api/admin/officines-registry/*`
+  - JWT séparé (audience `officine-portal`, subject `officine:{id}`) pour ne pas se mélanger avec les comptes CRM
+  - Register (status=pending) / approve / suspend / reactivate / link-client / unlink-client
+  - OTP request via WhatsApp ou SMS + verify (rate-limit 5 tentatives → 429)
+  - Magic link email (TTL 15 min, one-shot consume)
+  - Inventaire CRUD complet avec isolation stricte par officine_id
+  - Régénération HMAC secret (one-shot display)
+  - Historique + exports CSV (inventaire et historique)
+- Collections MongoDB : `officines`, `officine_otp_codes`, `officine_magic_tokens`, `officine_inventory_items`, `officine_audit_log` (+ `officines_secrets` existante)
+
+### Frontend
+- **`/officines/login`** : 3 onglets (OTP / Magic / Inscription)
+- **`/officines/magic?token=...`** : callback magic link
+- **`/officines`** : Layout dédié (header + tabs)
+  - `/officines` (Dashboard avec KPIs : stock, expiration 30j, historique)
+  - `/officines/inventory` (CRUD complet + modal éditeur + export CSV)
+  - `/officines/secret` (régénération HMAC + exemple de code)
+  - `/officines/history` (timeline + export CSV)
+- **`/admin/officines-registry`** : page admin de validation (compteurs pending/active/suspended + recherche + actions)
+
+### Sidebar admin
+- Nouveau lien "Officines (validation)" (feature-gated `vidal_enabled`)
+
+### Tests : 18 tests pytest (12 test_iter42 + 6 test_iter50). 100% verts.
+
+### Endpoints clés
+- `POST /api/officines-portal/register` (public)
+- `POST /api/officines-portal/auth/request-otp` (canal wa|sms)
+- `POST /api/officines-portal/auth/verify-otp` → JWT
+- `POST /api/officines-portal/auth/magic-link`
+- `GET  /api/officines-portal/auth/magic-callback?token=` → JWT
+- `GET/POST/PUT/DELETE /api/officines-portal/inventory[/{id}]`
+- `GET /api/officines-portal/inventory/export.csv`
+- `POST /api/officines-portal/me/regenerate-secret`
+- `GET /api/officines-portal/history[/export.csv]`
+- `GET  /api/admin/officines-registry?status=pending|active|suspended`
+- `POST /api/admin/officines-registry/{id}/{approve|suspend|reactivate|link-client|unlink-client}`
+
+
 ## Iter41 Phase 4 (2026-02) — Dashboard VIDAL + API publique officines HMAC + rôles
 
 ### Modules nouveaux

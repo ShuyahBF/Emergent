@@ -779,6 +779,14 @@ class SettingsUpdate(BaseModel):
     officine_otp_template: Optional[str] = None
     officine_otp_template_lang: Optional[str] = None
     officine_otp_template_category: Optional[str] = None  # cached après 1er succès
+    # Iter42d (2026-02) — Code pays par défaut pour le catalogue AMM (ISO-2)
+    # Le code AMM dépend du pays — chaque pays a sa propre autorité. Si absent,
+    # tout AMM créé sera enregistré sans country_code (legacy).
+    amm_default_country: Optional[str] = None
+    # Iter42d — Webhook incidents entrant (auth par mot de passe simple)
+    incidents_webhook_password: Optional[str] = None
+    incidents_webhook_rotated_at: Optional[str] = None
+    incidents_webhook_rotated_by: Optional[str] = None
 
     # Iter35r — Welcome modal at login (briefing)
     welcome_modal_notes_days: Optional[int] = None  # default 3 — fetch notes created within N days

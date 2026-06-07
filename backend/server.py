@@ -21949,6 +21949,10 @@ from routes.officines_portal import (  # noqa: E402
     attach_officines_portal_routes as _attach_officines_portal,
     attach_officines_portal_admin_routes as _attach_officines_portal_admin,
     attach_synthese_otp_admin_routes as _attach_synthese_otp_admin,
+    make_get_current_officine as _make_get_current_officine,
+)
+from routes.iter42d_incidents_and_lookup import (  # noqa: E402
+    attach_iter42d_routes as _attach_iter42d,
 )
 from auth import JWT_SECRET as _JWT_SECRET, JWT_ALGORITHM as _JWT_ALGO  # noqa: E402
 
@@ -21970,6 +21974,11 @@ _attach_officines_portal_admin(
 _attach_synthese_otp_admin(
     api=api, db=db, get_current_admin=get_current_admin,
     wa_send_text=_wa_send_text,
+)
+# Iter42d (2026-02) — Webhook incidents entrant + Lookup AMM
+_attach_iter42d(
+    api=api, db=db, get_current_admin=get_current_admin,
+    get_current_officine=_make_get_current_officine(db=db, jwt_secret=_JWT_SECRET, jwt_algorithm=_JWT_ALGO),
 )
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base

@@ -65,6 +65,40 @@ JWT_TTL_HOURS = 12
 _bearer = HTTPBearer(auto_error=False)
 
 
+def make_get_current_officine(*, db, jwt_secret: str, jwt_algorithm: str = "HS256"):
+    """Factory réutilisable pour créer la dependency d'auth officine.
+
+    Permet à d'autres modules (ex: iter42d_incidents_and_lookup) de monter
+    des routes nécessitant un JWT officine sans dupliquer la logique.
+    """
+    def _decode(token: str) -> Dict[str, Any]:
+        return pyjwt.decode(
+            token, jwt_secret, algorithms=[jwt_algorithm],
+            audience=OFFICINE_JWT_AUDIENCE,
+        )
+
+    async def get_current_officine(
+        credentials: Optional[HTTPAuthorizationCredentials] = Depends(_bearer),
+    ) -> Dict[str, Any]:
+        if credentials is None:
+            raise HTTPException(status_code=401, detail="Token officine manquant")
+        try:
+            claims = _decode(credentials.credentials)
+        except pyjwt.ExpiredSignatureError:
+            raise HTTPException(status_code=401, detail="Token expiré")
+        except Exception:
+            raise HTTPException(status_code=401, detail="Token officine invalide")
+        oid = claims.get("officine_id")
+        doc = await db.officines.find_one({"id": oid}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=401, detail="Officine introuvable")
+        if doc.get("status") != "active":
+            raise HTTPException(status_code=403, detail=f"Officine {doc.get('status')} — accès refusé")
+        return doc
+
+    return get_current_officine
+
+
 # --------------------------------------------------------------------------- #
 # Pydantic payloads
 # --------------------------------------------------------------------------- #

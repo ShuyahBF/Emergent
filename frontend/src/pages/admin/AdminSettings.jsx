@@ -20,6 +20,7 @@ import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import TemplatesOtpSection from "@/pages/admin/sections/TemplatesOtpSection";
+import IncidentsAndCountrySection from "@/pages/admin/sections/IncidentsAndCountrySection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
@@ -672,6 +673,10 @@ export default function AdminSettings() {
 
       <Filterable title="📲 Templates OTP (WhatsApp) — Login général + Officines" anchorId="s-templates-otp">
         <TemplatesOtpSection />
+      </Filterable>
+
+      <Filterable title="🚨 Webhook Incidents entrant + Pays par défaut AMM" anchorId="s-incidents-webhook">
+        <IncidentsAndCountrySection />
       </Filterable>
 
       <Filterable title="Liluvine PRO — Prompt système (personnalisation)" anchorId="s-liluvine-system-prompt">

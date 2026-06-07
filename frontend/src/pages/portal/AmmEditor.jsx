@@ -19,6 +19,7 @@ const EMPTY = {
   vidal_product_id: "",
   product_name: "",
   amm_number: "",
+  country_code: "",
   laboratory: "",
   galenic_form: "",
   atc_class: "",
@@ -42,8 +43,10 @@ function AmmEditor({ initial, onClose, onSaved }) {
   const upd = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
   const save = async () => {
-    if (!form.product_name?.trim() || !form.amm_number?.trim()) {
-      toast.warning("Nom du produit et numéro AMM requis");
+    // Iter42b — amm_number et cip1 peuvent être NULL (autorité ou pays sans AMM
+    // officiel). Seul product_name reste requis.
+    if (!form.product_name?.trim()) {
+      toast.warning("Nom du produit requis");
       return;
     }
     setSaving(true);
@@ -51,6 +54,7 @@ function AmmEditor({ initial, onClose, onSaved }) {
       const payload = {
         ...form,
         vidal_product_id: form.vidal_product_id ? parseInt(form.vidal_product_id) : null,
+        country_code: (form.country_code || "").toUpperCase().slice(0, 2) || null,
       };
       let res;
       if (isEdit) {
@@ -84,10 +88,18 @@ function AmmEditor({ initial, onClose, onSaved }) {
                    className="w-full text-sm px-2 py-1.5 rounded ring-1 ring-slate-300" data-testid="amm-form-name" />
           </label>
           <label className="block text-xs">
-            <span className="block text-slate-600 mb-1">Numéro AMM *</span>
+            <span className="block text-slate-600 mb-1">Numéro AMM</span>
             <input value={form.amm_number || ""} onChange={(e) => upd("amm_number", e.target.value)}
-                   placeholder="ex: 3400930471722"
+                   placeholder="ex: 3400930471722 (optionnel)"
                    className="w-full text-sm px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono" data-testid="amm-form-number" />
+            <p className="text-[10px] text-slate-400 mt-0.5">Optionnel — un numéro interne sera autogénéré sinon.</p>
+          </label>
+          <label className="block text-xs">
+            <span className="block text-slate-600 mb-1">Code pays (ISO-2)</span>
+            <input value={form.country_code || ""} onChange={(e) => upd("country_code", e.target.value.toUpperCase().slice(0, 2))}
+                   placeholder="ex: BF, CI, FR, SN" maxLength={2}
+                   className="w-full text-sm px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono" data-testid="amm-form-country" />
+            <p className="text-[10px] text-slate-400 mt-0.5">Pays de l&apos;autorité ayant délivré l&apos;AMM. Pré-rempli depuis Admin Settings.</p>
           </label>
           <label className="block text-xs">
             <span className="block text-slate-600 mb-1">ID VIDAL (optionnel)</span>
@@ -269,6 +281,7 @@ export default function AmmEditorPage() {
               <tr>
                 <SortableTh label="Produit" k="product_name" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
                 <SortableTh label="AMM" k="amm_number" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
+                <SortableTh label="Pays" k="country_code" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
                 <SortableTh label="Laboratoire" k="laboratory" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
                 <SortableTh label="Statut" k="status" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
                 <SortableTh label="Expiration" k="expires_at" sortKey={sortKey} sortDir={sortDir} onSort={(k) => toggleSort(k, sortKey, sortDir, setSortKey, setSortDir)} />
@@ -283,6 +296,11 @@ export default function AmmEditorPage() {
                     {it.vidal_product_id && <div className="text-[10px] text-slate-500 font-mono">VIDAL #{it.vidal_product_id}</div>}
                   </td>
                   <td className="px-3 py-2 font-mono text-xs text-slate-700">{it.amm_number || <span className="text-slate-400">—</span>}</td>
+                  <td className="px-3 py-2 text-xs">
+                    {it.country_code ? (
+                      <span className="inline-flex items-center px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200 font-mono">{it.country_code}</span>
+                    ) : <span className="text-slate-400">—</span>}
+                  </td>
                   <td className="px-3 py-2 text-xs">{it.laboratory || "—"}</td>
                   <td className="px-3 py-2"><StatusBadge status={it.status} /></td>
                   <td className="px-3 py-2 text-xs text-slate-500">

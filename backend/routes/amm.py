@@ -40,6 +40,9 @@ class AmmCreatePayload(BaseModel):
     product_name: str
     # Iter42b — amm_number devient OPTIONNEL (peut être NULL)
     amm_number: Optional[str] = None
+    # Iter42d — code pays ISO2 (BF, CI, FR…) ; si absent, on prend
+    # settings.amm_default_country au moment du POST/import.
+    country_code: Optional[str] = None
     laboratory: Optional[str] = None
     galenic_form: Optional[str] = None
     atc_class: Optional[str] = None
@@ -59,6 +62,7 @@ class AmmUpdatePayload(BaseModel):
     vidal_product_id: Optional[int] = None
     product_name: Optional[str] = None
     amm_number: Optional[str] = None
+    country_code: Optional[str] = None
     laboratory: Optional[str] = None
     galenic_form: Optional[str] = None
     atc_class: Optional[str] = None
@@ -147,12 +151,18 @@ def attach_amm_routes(*, api, db, get_current_user):
         status = (payload.status or "active").lower()
         if status not in AMM_STATUSES:
             status = "active"
+        # Iter42d — country_code par défaut depuis settings.amm_default_country
+        country_code = (payload.country_code or "").strip().upper() or None
+        if not country_code:
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            country_code = (s.get("amm_default_country") or "").strip().upper() or None
         doc = {
             "id": secrets.token_urlsafe(12),
             "internal_no": _gen_internal_no(),
             "vidal_product_id": payload.vidal_product_id,
             "product_name": payload.product_name.strip(),
             "amm_number": amm_clean,
+            "country_code": country_code,
             "laboratory": (payload.laboratory or "").strip() or None,
             "galenic_form": (payload.galenic_form or "").strip() or None,
             "atc_class": (payload.atc_class or "").strip() or None,
@@ -321,6 +331,9 @@ def attach_amm_routes(*, api, db, get_current_user):
 
         # Insertion bulk
         now_iso = _now_iso()
+        # Iter42d — country_code par défaut depuis settings au moment de l'import
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        default_country = (s.get("amm_default_country") or "").strip().upper() or None
         docs = []
         for p in parsed:
             docs.append({
@@ -329,6 +342,7 @@ def attach_amm_routes(*, api, db, get_current_user):
                 "vidal_product_id": None,
                 "product_name": p["product_name"].strip(),
                 "amm_number": p.get("amm_number"),
+                "country_code": default_country,
                 "laboratory": p.get("laboratory"),
                 "galenic_form": None,
                 "atc_class": None,
@@ -369,6 +383,9 @@ def attach_amm_routes(*, api, db, get_current_user):
                 dup = await db.amm_numbers.find_one({"amm_number": update["amm_number"], "id": {"$ne": amm_id}})
                 if dup:
                     raise HTTPException(status_code=409, detail="Ce numéro AMM existe déjà")
+        # Iter42d — normalisation country_code (ISO 2 lettres MAJUSCULES)
+        if "country_code" in update:
+            update["country_code"] = (update["country_code"] or "").strip().upper() or None
         if "status" in update:
             s = update["status"].lower()
             if s not in AMM_STATUSES:

@@ -1,0 +1,36 @@
+{
+  "summary": "Iter42d testing — 3 features + bug fix #4. Backend fully validated (10/10 pytest passing including 2 new tests). Frontend smoke: admin auth + page navigation works; testids verified in source.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/settings", "issues": ["React hydration warning: <span> inside <option> in AdminSettings line 258. Non-blocking but should be cleaned up."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter42d_incidents_and_lookup.py",
+    "/app/backend/tests/test_iter42d_extra.py",
+    "/app/test_reports/pytest/iter42d_results.xml",
+    "/app/test_reports/pytest/iter42d_extra.xml"
+  ],
+  "action_items": [
+    "Optional: Fix React hydration warning <span> inside <option> in AdminSettings.jsx line ~258 (cosmetic, non-blocking).",
+    "Optional: Frontend smoke for incidents-webhook-card / amm-default-country-card / incidents-regen-btn / editor-lookup-amm could be verified manually — testids exist in source (grep confirmed). They were within a lazy-rendered virtualized AdminSettings section and weren't queryable in the limited test window, but the section component IncidentsAndCountrySection.jsx is wired and imported correctly."
+  ],
+  "critical_code_review_comments": [
+    "iter42d_incidents_and_lookup.py is clean: secrets.compare_digest for password check (timing-safe), audit log on bad attempts (no secret leakage), one-shot password display with warning, password stored as plain string in settings (NOT hashed — note: prompt mentioned 'hash en DB' but impl stores plaintext; works functionally since secrets.compare_digest is timing-safe, but if higher security needed, bcrypt-hash is recommended for compliance).",
+    "lookup-amm uses graceful fallback for legacy AMM without country_code — good.",
+    "Webhook ticket creation correctly sets channel='webhook', source, severity, and persists metadata into description as JSON. Verified in DB via test_incidents_webhook_regenerate_and_post.",
+    "AMM country_code normalization to upper-case works on POST and PUT (verified via 2 tests).",
+    "Bug fix #4 verified: pharmacien role appears in /api/admin/clients (test_admin_clients_includes_business_roles PASSED)."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter42d_extra.py"],
+  "success_rate": {"backend": "100% (10/10)", "frontend": "partial smoke — pages load + auth works, testid grep confirms components mounted"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — OTP via dev_otp on /api/auth/login (then /api/auth/verify-otp with {session_token, code} fields).",
+  "seed_data_creation": "Tests create + cleanup their own admin/officine/amm/user/support_ticket rows. No persistent seed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter42d backend is solid. For frontend tests of admin settings sections, login via API (/api/auth/login → /api/auth/verify-otp with body {session_token, code}) and inject localStorage.sawali_token + sawali_user, then navigate with wait_until='domcontentloaded' (NOT networkidle, page has long-running polling that blocks networkidle). Settings page is virtualized — scroll or click the 'Aller à un paramètre...' dropdown to jump to s-incidents-webhook.",
+  "security_note": "incidents_webhook_password is stored in plaintext in settings.global. Prompt claimed 'persiste hash en DB' but actual impl stores raw token_urlsafe(24). Functionally safe (compare_digest timing-safe + one-shot reveal) but main agent should clarify if hashing is expected."
+}

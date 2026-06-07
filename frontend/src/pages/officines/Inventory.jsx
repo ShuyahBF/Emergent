@@ -2,7 +2,7 @@
 import React from "react";
 import { toast } from "sonner";
 import { officineApi } from "@/lib/officineApi";
-import { Plus, Edit3, Trash2, Download, Search, X, Save, ScanLine } from "lucide-react";
+import { Plus, Edit3, Trash2, Download, Search, X, Save, ScanLine, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import BarcodeScannerModal from "@/components/BarcodeScannerModal";
 
 const EMPTY = {
@@ -183,6 +183,9 @@ function InventoryEditor({ item, onClose, onSaved }) {
   const [busy, setBusy] = React.useState(false);
   // Iter42c — Scanner code-barres pour CIP
   const [scanning, setScanning] = React.useState(false);
+  // Iter42d — Lookup AMM par CIP + pays par défaut
+  const [lookupBusy, setLookupBusy] = React.useState(false);
+  const [lookupResult, setLookupResult] = React.useState(null);
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setForm({ ...form, [k]: v });
@@ -191,7 +194,35 @@ function InventoryEditor({ item, onClose, onSaved }) {
   const onScanDetected = ({ cip, raw }) => {
     setForm((s) => ({ ...s, cip: cip || raw }));
     setScanning(false);
+    setLookupResult(null);
     toast.success(`Code détecté : ${cip || raw}`);
+  };
+
+  const lookupAmm = async () => {
+    if (!form.cip || form.cip.length < 3) {
+      toast.error("Saisissez d'abord un code CIP");
+      return;
+    }
+    setLookupBusy(true);
+    setLookupResult(null);
+    try {
+      const r = await officineApi.post("/officines-portal/inventory/lookup-amm", { cip: form.cip.trim() });
+      setLookupResult(r.data);
+      if (r.data.found) {
+        // Pré-remplit le nom du produit si vide
+        if (!form.product_name && r.data.product_name) {
+          setForm((s) => ({ ...s, product_name: r.data.product_name }));
+        }
+        if (r.data.expired) toast.warning(`AMM trouvé mais expiré (${r.data.expires_at})`);
+        else toast.success(`AMM valide : ${r.data.product_name}`);
+      } else {
+        toast.info("AMM non trouvé dans le catalogue — le code est enregistré tel quel");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lookup");
+    } finally {
+      setLookupBusy(false);
+    }
   };
 
   const submit = async (e) => {
@@ -235,7 +266,7 @@ function InventoryEditor({ item, onClose, onSaved }) {
           <div className="grid grid-cols-2 gap-3">
             <Row label="Code CIP">
               <div className="flex items-center gap-1.5">
-                <input value={form.cip} onChange={set("cip")}
+                <input value={form.cip} onChange={(e) => { set("cip")(e); setLookupResult(null); }}
                   className="flex-1 border rounded px-3 py-2 text-sm font-mono" data-testid="editor-cip"
                   placeholder="Ex: 3400930123456" />
                 <button
@@ -247,8 +278,44 @@ function InventoryEditor({ item, onClose, onSaved }) {
                 >
                   <ScanLine className="h-4 w-4" />
                 </button>
+                <button
+                  type="button"
+                  onClick={lookupAmm}
+                  disabled={lookupBusy || !form.cip}
+                  title="Vérifier la validité de l'AMM pour le pays par défaut"
+                  className="inline-flex items-center justify-center gap-1 px-2 py-2 rounded ring-1 ring-sky-300 bg-sky-50 text-sky-700 hover:bg-sky-100 disabled:opacity-50 whitespace-nowrap text-xs"
+                  data-testid="editor-lookup-amm"
+                >
+                  {lookupBusy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                  Vérifier AMM
+                </button>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1">📷 Cliquez sur l&apos;icône pour scanner le code-barres ou le Data Matrix de la boîte.</p>
+              <p className="text-[10px] text-slate-400 mt-1">📷 Scannez le code-barres (Data Matrix ou EAN-13) ou cliquez sur « Vérifier AMM » pour contrôler la validité dans le pays.</p>
+              {lookupResult && (
+                <div className={`mt-2 text-xs rounded p-2 ring-1 ${
+                  !lookupResult.found
+                    ? "bg-slate-50 text-slate-700 ring-slate-200"
+                    : lookupResult.expired
+                    ? "bg-rose-50 text-rose-800 ring-rose-200"
+                    : "bg-emerald-50 text-emerald-800 ring-emerald-200"
+                }`} data-testid="lookup-result">
+                  {!lookupResult.found ? (
+                    <p>ℹ️ {lookupResult.message}</p>
+                  ) : (
+                    <div className="space-y-0.5">
+                      <p className="font-medium inline-flex items-center gap-1">
+                        {lookupResult.expired ? <ShieldAlert className="h-3.5 w-3.5" /> : <ShieldCheck className="h-3.5 w-3.5" />}
+                        {lookupResult.expired ? "AMM trouvé mais expiré" : "AMM valide"}
+                      </p>
+                      <p>📦 <strong>{lookupResult.product_name}</strong></p>
+                      {lookupResult.laboratory && <p>🏭 {lookupResult.laboratory}</p>}
+                      {lookupResult.amm_number && <p>📋 N° AMM : <span className="font-mono">{lookupResult.amm_number}</span></p>}
+                      <p>🌍 Pays : <span className="font-mono">{lookupResult.country || "—"}</span></p>
+                      {lookupResult.expires_at && <p>📅 Expire le : {lookupResult.expires_at}</p>}
+                    </div>
+                  )}
+                </div>
+              )}
             </Row>
             <Row label="Numéro de lot">
               <input value={form.lot_number} onChange={set("lot_number")}

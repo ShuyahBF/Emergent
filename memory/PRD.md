@@ -5,6 +5,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter42b (2026-02) — Import CSV AMM + RBAC affiné + Templates OTP
+
+### Objectif
+Compléter le portail Officines/VIDAL avec 4 features ciblées :
+
+### Backend
+- **CSV Import AMM** (`POST /api/amm/import-csv`, multipart)
+  - Format : `Nom du produit, AMM, CIP1, date expiration, Laboratoire, Note`
+  - AMM et CIP1 peuvent être NULL — `internal_no` auto-généré (`INT-XXXXXXXX`)
+  - **Conflit (DB ou intra-fichier) → refus global 409** + liste détaillée des conflits
+  - Auto-détection séparateur (`,` ou `;`) + accents/casse ignorés sur les en-têtes
+  - Audit : `source="csv_import"` + `created_by_email`
+- **Rôle `editeur_vidal`** (lecture seule)
+  - GET autorisé sur AMM / VIDAL / Liluvine
+  - POST/PUT/DELETE/Import → 403
+- **Synthèse Liluvine à la demande** (`POST /api/admin/synthese/test`)
+  - Force l'envoi même si `synthese_enabled=False` — retourne `{ok, sent_email, sent_wa, errors, config, preview}`
+- **OTP Officines via template** (`officine_otp_template` dans settings)
+  - Tente Authentication puis Utility puis fallback texte
+  - Endpoint test : `POST /api/admin/officine-otp/test`
+
+### Frontend
+- **`AmmEditor.jsx`** : bouton "Importer CSV" + modal d'upload avec prévisualisation des conflits + tri client (cliquer en-têtes)
+- **`PortalLayout.jsx`** : sidebar restrictive
+  - `regulateur` → uniquement AMM + Liluvine
+  - `editeur_vidal` → uniquement VIDAL + AMM + Liluvine
+  - `/portal/vidal` et `/portal/amm` masqués pour tous sauf admin/superviseur/regulateur/pharmacien/medecin/editeur_vidal
+- **`AdminClients.jsx`** : ajout du rôle "Éditeur VIDAL" dans le sélecteur
+- **`TemplatesOtpSection.jsx`** (nouveau) : section AdminSettings dédiée
+  - 2 cards (Login général + Login Officines) avec champs nom/langue + bouton "Tester l'envoi"
+- **`S059SyntheseOfficinesSection.jsx`** : bouton "Tester la synthèse maintenant" + aperçu détaillé du résultat
+
+### Tests
+- 7 nouveaux tests pytest `test_iter42b_csv_and_roles.py` (100% verts)
+- Régression intacte : 41 tests verts (incluant Iter41 + Iter42)
+- Testing agent : 9/9 backend OK, smoke frontend OK
+
+
 ## Iter42 (2026-02) — Self-Service Portal pour Officines (Pharmacies)
 
 ### Objectif

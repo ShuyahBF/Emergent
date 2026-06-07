@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  Loader2, Save, Eye, EyeOff, Sparkles, Upload, Image as ImageIcon, X
+  Loader2, Save, Eye, EyeOff, Sparkles, Upload, Image as ImageIcon, X, Plug
 } from "lucide-react";
 
 function TextField({ label, value, onChange, type = "text", testid, placeholder, hint }) {
@@ -44,6 +44,8 @@ export default function S059SyntheseOfficinesSection() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
   const [form, setForm] = useState({});
   const fileRef = useRef(null);
 
@@ -111,6 +113,22 @@ export default function S059SyntheseOfficinesSection() {
       toast.error(e?.response?.data?.detail || "Erreur upload");
     }
     setTimeout(() => setUploading(false), 0);
+  };
+
+  const testOfficines = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await apiClient.post("/admin/officines/test-connection");
+      setTestResult(r.data);
+      if (r.data?.ok) toast.success("API Officines OK");
+      else toast.error(`Échec : ${r.data?.error || "inconnu"}`);
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "Erreur réseau";
+      setTestResult({ ok: false, error: detail, debug: null });
+      toast.error(detail);
+    }
+    setTimeout(() => setTesting(false), 0);
   };
 
   if (loading) return (
@@ -202,6 +220,57 @@ export default function S059SyntheseOfficinesSection() {
                      placeholder="10" testid="officines-quota"
                      hint="0 = illimité (déconseillé)" />
         </div>
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <button onClick={testOfficines} disabled={testing}
+                  className="text-xs px-3 py-1.5 rounded ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-50 inline-flex items-center gap-1 disabled:opacity-60"
+                  data-testid="officines-test-btn">
+            {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plug className="h-3 w-3" />} Tester l&apos;URL Officines
+          </button>
+          {testResult && (
+            <span className={`text-[10px] px-2 py-0.5 rounded ${testResult.ok ? "bg-emerald-100 text-emerald-700" : "bg-rose-100 text-rose-700"}`}>
+              {testResult.ok ? `✅ HTTP ${testResult.debug?.response?.status_code}` : `❌ ${testResult.error}`}
+            </span>
+          )}
+        </div>
+        {testResult && testResult.debug && (
+          <details className="text-xs ring-1 ring-slate-300 rounded bg-slate-50" data-testid="officines-debug-panel" open>
+            <summary className="cursor-pointer px-3 py-2 font-semibold text-slate-700 hover:bg-slate-100">
+              🔍 Debug verbose Officines (requête + réponse)
+            </summary>
+            <div className="p-3 space-y-3">
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Requête envoyée</div>
+                <div className="bg-white ring-1 ring-slate-200 rounded p-2 space-y-1 font-mono text-[11px]">
+                  <div><span className="text-emerald-600 font-semibold">{testResult.debug.request?.method}</span> <span className="break-all">{testResult.debug.request?.url}</span></div>
+                  <div><span className="text-slate-500">timeout:</span> {testResult.debug.request?.timeout_seconds}s</div>
+                  <div className="text-slate-500">Headers :</div>
+                  <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-32">{JSON.stringify(testResult.debug.request?.headers || {}, null, 2)}</pre>
+                  <div className="text-slate-500">Body :</div>
+                  <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-32">{JSON.stringify(testResult.debug.request?.body, null, 2)}</pre>
+                </div>
+              </div>
+              <div>
+                <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">Réponse reçue</div>
+                {testResult.debug.error ? (
+                  <div className="bg-rose-100 ring-1 ring-rose-200 rounded p-2 font-mono text-[11px] text-rose-800">Erreur : {testResult.debug.error}</div>
+                ) : testResult.debug.response ? (
+                  <div className="bg-white ring-1 ring-slate-200 rounded p-2 space-y-1 font-mono text-[11px]">
+                    <div>
+                      <span className="text-slate-500">Status :</span>{" "}
+                      <span className={testResult.debug.response.status_code < 400 ? "text-emerald-700 font-semibold" : "text-rose-700 font-semibold"}>
+                        {testResult.debug.response.status_code}
+                      </span>
+                      <span className="ml-3 text-slate-400">({testResult.debug.response.elapsed_ms} ms)</span>
+                    </div>
+                    <div><span className="text-slate-500">Content-Type :</span> {testResult.debug.response.content_type || "(inconnu)"}</div>
+                    <div className="text-slate-500">Body preview {testResult.debug.response.body_truncated && "(tronqué 2000c)"} :</div>
+                    <pre className="bg-slate-50 rounded p-2 overflow-auto max-h-60 whitespace-pre-wrap break-all">{testResult.debug.response.body_preview || "(vide)"}</pre>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          </details>
+        )}
       </div>
 
       {/* === Sidebar BG image === */}

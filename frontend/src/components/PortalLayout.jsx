@@ -118,6 +118,8 @@ const adminLinks = [
   { to: "/admin/voice-notifications", label: "Notifications vocales (HA)", icon: Volume2 },
   // Iter38r-fix9w — Ad banner monetization
   { to: "/admin/ad-banners", label: "Régie publicitaire", icon: Megaphone },
+  // Iter42 — Officines Registry (validation pharmacies inscrites au self-service)
+  { to: "/admin/officines-registry", label: "Officines (validation)", icon: HeartPulse, featureGate: "vidal_enabled" },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

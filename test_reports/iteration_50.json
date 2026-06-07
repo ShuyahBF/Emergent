@@ -1,0 +1,37 @@
+{
+  "summary": "Iter50 — Backend testing complet du Self-Service Portal Officines. 18/18 tests passent (12 existants test_iter42 + 6 nouveaux test_iter50). Tous les flows critiques validés : inscription pending + rejet doublons 409, validation admin (approve/suspend/reactivate/link-client/unlink-client), OTP verify (succès JWT, code invalide 401+attempts, rate-limit 429 après 5 tentatives), magic-link (callback JWT, déjà consommé 410, expiré 410), inventaire CRUD avec isolation stricte (404 entre officines pour PUT/DELETE), export CSV inventaire et historique scoped, régénération HMAC secret one-shot avec révocation de l'ancien, historique liste + CSV scoped par officine, endpoints non-authentifiés 401/403.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter42_officines_selfservice.py",
+    "/app/backend/tests/test_iter50_officines_additional.py",
+    "/app/test_reports/pytest/iter50_officines_existing.xml",
+    "/app/test_reports/pytest/iter50_officines_additional.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "officines_portal.py: 808 lignes — proche du seuil de 700 lignes recommandé. Envisager un split en sous-modules (auth_otp, auth_magic, inventory, admin_registry, history) pour faciliter la maintenance.",
+    "JWT_SECRET dans .env semble être de 28 bytes (warning InsecureKeyLengthWarning de pyjwt). Recommandation : porter à au moins 32 bytes pour HS256 (RFC 7518 §3.2). Non bloquant mais à corriger en hardening.",
+    "L'endpoint POST /api/officines-portal/register retourne 200 (et non 201) pour une création. Préférable 201 Created pour cohérence REST, mais documenté/testé tel quel — pas un blocker.",
+    "officines_portal.py:651 — import json à l'intérieur de la boucle (export CSV historique). Déplacer en haut du fichier (perf mineure)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter50_officines_additional.py (nouveau, 6 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (18/18)",
+    "frontend": "non testé (skip demandé)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp via /api/auth/login). JWT officine forgé via JWT_SECRET + audience='officine-portal'. Voir /app/memory/test_credentials.md.",
+  "seed_data_creation": "Aucune seed persistée. Chaque test crée ses propres officines/admin/clients via fixtures et nettoie en teardown (collections: officines, officine_otp_codes, officine_magic_tokens, officine_inventory_items, officine_audit_log, officines_secrets, users).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le portail Officines est complet et solide côté backend. Pour ré-authentifier en tant qu'officine : forger un JWT HS256 avec claims {sub: 'officine:{id}', officine_id: id, aud: 'officine-portal', iat, exp} via JWT_SECRET du .env. Utiliser uniquement des emails sur domaines non-réservés (officinetest.com, crmtest.com) car Pydantic EmailStr rejette .local/.test (422). Les tests utilisent des fixtures cleanup qui suppriment les données par id à la fin. Frontend non testé dans cette itération (smoke déjà fait précédemment selon main agent)."
+}

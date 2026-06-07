@@ -141,6 +141,67 @@ def attach_officines_routes(*, api, db, get_current_user):
             pass
         return {"data": data}
 
+    @api.post("/admin/officines/test-connection", tags=["Admin — VIDAL"])
+    async def admin_officines_test(user: dict = Depends(get_current_user)):
+        """Iter41 Phase 4b — Diagnostic verbose pour l'API Officines.
+
+        Effectue un POST réel sur l'URL configurée avec un payload minimal
+        (`product_name = "doliprane"`) et retourne :
+          - request : URL, headers (token masqué), body envoyé
+          - response : status code, content-type, elapsed_ms, body preview
+          - error : message en cas de timeout / DNS / TLS
+        Aucun audit ni quota — utilisé uniquement pour le débogage admin.
+        """
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé admin")
+        cfg = await _load_config(db)
+        if not cfg["url"]:
+            return {"ok": False, "error": "URL non configurée", "debug": None}
+        body = {
+            "product_name": "doliprane",
+            "cip_codes": [],
+            "requester_role": "diagnostic",
+            "requester_id": user.get("id"),
+        }
+        headers = {"Accept": "application/json", "Content-Type": "application/json"}
+        if cfg["token"]:
+            headers["Authorization"] = f"Bearer {cfg['token']}"
+        debug: Dict[str, Any] = {
+            "request": {
+                "method": "POST",
+                "url": cfg["url"],
+                "headers": {**headers, **({"Authorization": "Bearer ***"} if cfg["token"] else {})},
+                "body": body,
+                "timeout_seconds": cfg["timeout"],
+            },
+            "response": None,
+            "error": None,
+        }
+        import time as _time
+        t0 = _time.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=cfg["timeout"]) as client:
+                r = await client.post(cfg["url"], json=body, headers=headers)
+        except httpx.HTTPError as exc:
+            debug["error"] = f"HTTPError: {str(exc)[:300]}"
+            return {"ok": False, "error": debug["error"], "debug": debug}
+        elapsed_ms = int((_time.monotonic() - t0) * 1000)
+        ctype = (r.headers.get("content-type") or "").lower()
+        raw = r.text or ""
+        debug["response"] = {
+            "status_code": r.status_code,
+            "content_type": ctype,
+            "elapsed_ms": elapsed_ms,
+            "body_preview": raw[:2000],
+            "body_truncated": len(raw) > 2000,
+        }
+        ok = r.status_code < 400
+        return {
+            "ok": ok,
+            "error": None if ok else f"HTTP {r.status_code}",
+            "debug": debug,
+        }
+
     logger.info("[officines] routes mounted under /api/officines/*")
 
 

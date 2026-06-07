@@ -147,7 +147,6 @@ async def _call_liluvine(db, full_prompt: str) -> str:
         chat = (
             LlmChat(api_key=api_key, session_id="synthese-cron", system_message="Tu es Liluvine, assistante SAWALI.")
             .with_model("anthropic", "claude-sonnet-4-5-20250929")
-            .with_max_tokens(1500)
         )
         msg = UserMessage(text=full_prompt)
         reply = await chat.send_message(msg)

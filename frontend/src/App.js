@@ -143,6 +143,16 @@ import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
 import InvoicePrint from "@/pages/portal/InvoicePrint";
 import MyAccount from "@/pages/portal/MyAccount";
+
+// Iter42 (2026-02) — Self-Service Portal pour Officines (pharmacies)
+import OfficineLayout from "@/components/OfficineLayout";
+import OfficineLogin from "@/pages/officines/Login";
+import OfficineMagicCallback from "@/pages/officines/MagicCallback";
+import OfficineDashboard from "@/pages/officines/Dashboard";
+import OfficineInventory from "@/pages/officines/Inventory";
+import OfficineSecret from "@/pages/officines/Secret";
+import OfficineHistory from "@/pages/officines/History";
+import AdminOfficinesRegistry from "@/pages/admin/AdminOfficinesRegistry";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
@@ -210,6 +220,17 @@ export default function App() {
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />
+
+          {/* Iter42 — Self-Service Portal pour Officines (entité indépendante,
+              JWT séparé, ne passe PAS par /portal ni /admin) */}
+          <Route path="/officines/login" element={<OfficineLogin />} />
+          <Route path="/officines/magic" element={<OfficineMagicCallback />} />
+          <Route path="/officines" element={<OfficineLayout />}>
+            <Route index element={<OfficineDashboard />} />
+            <Route path="inventory" element={<OfficineInventory />} />
+            <Route path="secret" element={<OfficineSecret />} />
+            <Route path="history" element={<OfficineHistory />} />
+          </Route>
 
           {/* Client portal */}
           <Route path="/portal" element={<Protected><PortalLayout admin={false} /></Protected>}>
@@ -310,6 +331,8 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
+            {/* Iter42 — Officines Registry (validation des pharmacies inscrites) */}
+            <Route path="officines-registry" element={<AdminOfficinesRegistry />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

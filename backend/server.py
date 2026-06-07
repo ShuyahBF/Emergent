@@ -21935,6 +21935,31 @@ from routes.vidal_dashboard import (  # noqa: E402
 _attach_vidal_dashboard(api=api, db=db, get_current_admin=get_current_admin)
 _attach_public_officines(api=api, db=db)
 
+# Iter42 (2026-02) — Self-Service Portal pour Officines (auth dédiée, JWT,
+# OTP WA/SMS, magic link email, inventaire CRUD, historique CSV, validation
+# admin requise avant activation).
+from routes.officines_portal import (  # noqa: E402
+    attach_officines_portal_routes as _attach_officines_portal,
+    attach_officines_portal_admin_routes as _attach_officines_portal_admin,
+)
+from auth import JWT_SECRET as _JWT_SECRET, JWT_ALGORITHM as _JWT_ALGO  # noqa: E402
+
+_PUBLIC_BASE_URL = (os.environ.get("PUBLIC_APP_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+
+_attach_officines_portal(
+    api=api,
+    db=db,
+    jwt_secret=_JWT_SECRET,
+    jwt_algorithm=_JWT_ALGO,
+    wa_send_text=_wa_send_text,
+    sms_send=_sms_dispatch,
+    email_send=send_email,
+    public_base_url=_PUBLIC_BASE_URL,
+)
+_attach_officines_portal_admin(
+    api=api, db=db, get_current_admin=get_current_admin,
+)
+
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)

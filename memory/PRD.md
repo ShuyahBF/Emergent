@@ -5,6 +5,50 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+## Iter42c-d (2026-02) — Scanner code-barres + Webhook Incidents + Lookup AMM par pays
+
+### Bug fix
+- **`/admin/clients`** : la liste par défaut filtrait uniquement sur `client/admin/superviseur/moderateur` → les changements vers `pharmacien/regulateur/medecin/editeur_vidal` faisaient disparaître l'utilisateur. **Corrigé** (backend + 4 pills colorées frontend).
+
+### Features
+
+**1. Scanner code-barres** (`@zxing/browser` + `@zxing/library`)
+- `BarcodeScannerModal.jsx` : caméra arrière prioritaire, supporte **Data Matrix 2D (norme officines France)** + EAN-13 + Code 128 + QR
+- Extraction intelligente : Data Matrix GS1 (AI 01 + GTIN-14) → CIP-13
+- Bouton 📷 (icône `ScanLine`) à côté du champ CIP dans le modal d'inventaire officine
+
+**2. Webhook entrant `/api/public/incidents`** (auth mot de passe simple)
+- Header `X-Webhook-Password` OU body `password`
+- Crée un ticket dans `support_tickets` (channel=`webhook`, source, severity, metadata)
+- Section `/admin/settings#s-incidents-webhook` :
+  - Régénération password one-shot
+  - Désactivation
+  - Logs d'activité (20 dernières requêtes)
+  - Exemples curl + Python prêts à copier
+
+**3. Code pays AMM** (`amm_default_country` en settings)
+- ISO-2 (BF, CI, FR, SN…) — auto-assigné aux AMM créés via POST ou import CSV
+- Colonne `country_code` dans la table AMM
+- Champ pays dans le modal d'édition (override possible)
+
+**4. Lookup AMM** (`POST /api/officines-portal/inventory/lookup-amm`)
+- Cherche un CIP dans `amm_numbers` filtré par `country_code = amm_default_country`
+- Retourne `{found, product_name, amm_number, laboratory, status, expires_at, expired}`
+- Bouton "Vérifier AMM" dans le modal inventaire officine — affiche le résultat enrichi (rouge si expiré, vert si valide)
+- Pré-remplit auto `product_name` si vide
+
+### Tests
+- **10/10 backend pytest** (`test_iter42d_incidents_and_lookup.py`)
+- Régression : 27 tests verts (Iter42, 42b, 42c, 42d)
+- Frontend smoke OK (testing agent)
+
+### Endpoints
+- `POST /api/public/incidents` (public, mot de passe)
+- `GET/POST/DELETE /api/admin/incidents-webhook[/password|/regenerate-password]`
+- `POST /api/officines-portal/inventory/lookup-amm` (officine JWT)
+- AMM : `country_code` field on POST/PUT/import-csv
+
+
 ## Iter42b (2026-02) — Import CSV AMM + RBAC affiné + Templates OTP
 
 ### Objectif

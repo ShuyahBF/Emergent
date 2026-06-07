@@ -3121,7 +3121,14 @@ async def admin_list_clients(
     if include_roles:
         roles = [r.strip() for r in include_roles.split(",") if r.strip()]
     else:
-        roles = ["client", "superviseur", "admin", "moderateur"]
+        # Iter42c (2026-02) — Inclut tous les rôles métier (pharmacien, regulateur,
+        # medecin, editeur_vidal) pour éviter qu'un client ne disparaisse de la
+        # liste après changement de rôle. La pill "Autres rôles" côté UI permet
+        # de filtrer si nécessaire.
+        roles = [
+            "client", "superviseur", "admin", "moderateur",
+            "regulateur", "pharmacien", "medecin", "editeur_vidal",
+        ]
     query: Dict[str, Any] = {
         "role": {"$in": roles},
         "email": {"$nin": ["admin@sawalismartsystems.com"]},

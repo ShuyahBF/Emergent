@@ -2,7 +2,8 @@
 import React from "react";
 import { toast } from "sonner";
 import { officineApi } from "@/lib/officineApi";
-import { Plus, Edit3, Trash2, Download, Search, X, Save } from "lucide-react";
+import { Plus, Edit3, Trash2, Download, Search, X, Save, ScanLine } from "lucide-react";
+import BarcodeScannerModal from "@/components/BarcodeScannerModal";
 
 const EMPTY = {
   cip: "", product_name: "", lot_number: "",
@@ -180,9 +181,17 @@ function InventoryEditor({ item, onClose, onSaved }) {
     notes: item.notes || "",
   });
   const [busy, setBusy] = React.useState(false);
+  // Iter42c — Scanner code-barres pour CIP
+  const [scanning, setScanning] = React.useState(false);
   const set = (k) => (e) => {
     const v = e.target.type === "checkbox" ? e.target.checked : e.target.value;
     setForm({ ...form, [k]: v });
+  };
+
+  const onScanDetected = ({ cip, raw }) => {
+    setForm((s) => ({ ...s, cip: cip || raw }));
+    setScanning(false);
+    toast.success(`Code détecté : ${cip || raw}`);
   };
 
   const submit = async (e) => {
@@ -225,8 +234,21 @@ function InventoryEditor({ item, onClose, onSaved }) {
           </Row>
           <div className="grid grid-cols-2 gap-3">
             <Row label="Code CIP">
-              <input value={form.cip} onChange={set("cip")}
-                className="w-full border rounded px-3 py-2 text-sm font-mono" data-testid="editor-cip" />
+              <div className="flex items-center gap-1.5">
+                <input value={form.cip} onChange={set("cip")}
+                  className="flex-1 border rounded px-3 py-2 text-sm font-mono" data-testid="editor-cip"
+                  placeholder="Ex: 3400930123456" />
+                <button
+                  type="button"
+                  onClick={() => setScanning(true)}
+                  title="Scanner le code-barres"
+                  className="inline-flex items-center justify-center px-2 py-2 rounded ring-1 ring-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                  data-testid="editor-scan-cip"
+                >
+                  <ScanLine className="h-4 w-4" />
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-400 mt-1">📷 Cliquez sur l&apos;icône pour scanner le code-barres ou le Data Matrix de la boîte.</p>
             </Row>
             <Row label="Numéro de lot">
               <input value={form.lot_number} onChange={set("lot_number")}
@@ -282,6 +304,12 @@ function InventoryEditor({ item, onClose, onSaved }) {
           </button>
         </div>
       </form>
+      {scanning && (
+        <BarcodeScannerModal
+          onClose={() => setScanning(false)}
+          onDetected={onScanDetected}
+        />
+      )}
     </div>
   );
 }

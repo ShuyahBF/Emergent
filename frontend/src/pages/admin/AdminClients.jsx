@@ -72,6 +72,11 @@ export default function AdminClients() {
     { role: "moderateur", label: "Modérateurs", color: "#a21caf", bg: "bg-fuchsia-50", ring: "ring-fuchsia-200", text: "text-fuchsia-700" },
     // Iter35h — Demo accounts (limited features, expiration date)
     { role: "demo", label: "Démos", color: "#d97706", bg: "bg-orange-50", ring: "ring-orange-200", text: "text-orange-700" },
+    // Iter42c (2026-02) — Rôles métier pharmaceutiques
+    { role: "regulateur", label: "💊 Régulateurs", color: "#e11d48", bg: "bg-rose-50", ring: "ring-rose-200", text: "text-rose-700" },
+    { role: "pharmacien", label: "💊 Pharmaciens", color: "#0d9488", bg: "bg-teal-50", ring: "ring-teal-200", text: "text-teal-700" },
+    { role: "medecin", label: "⚕️ Médecins", color: "#2563eb", bg: "bg-blue-50", ring: "ring-blue-200", text: "text-blue-700" },
+    { role: "editeur_vidal", label: "📚 Éditeurs VIDAL", color: "#7c3aed", bg: "bg-violet-50", ring: "ring-violet-200", text: "text-violet-700" },
   ], []);
 
   const roleCounts = useMemo(() => {

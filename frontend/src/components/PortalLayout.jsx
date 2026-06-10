@@ -52,6 +52,11 @@ const clientLinks = [
   // via /portal/cash → onglet Reçus + bouton Mobile Money). La route reste
   // active pour les liens directs (emails de confirmation, etc.).
   { to: "/portal/cash", label: "Caisse/Facturation", icon: Banknote, cashOnly: true },
+  // Iter42f (2026-02) — Restauration du lien "Catalogue" retiré par erreur
+  // le 23 mai 2026 lors du regroupement Caisse/Facturation. La route
+  // existe toujours et délègue à CashBilling avec defaultTab="catalog".
+  // Accessible aux admin/superviseur + comptables (cashAdminOnly).
+  { to: "/portal/catalog", label: "Catalogue (produits & analytics)", icon: ShoppingBag, cashAdminOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
   // least one of the three meta_* features is enabled for the tenant.

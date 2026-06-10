@@ -5,6 +5,56 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
+
+## Iter43 (2026-02) — Partage cross-utilisateur (société + rattachement) — AND/OR
+
+### Objectif
+Permettre aux utilisateurs ayant la même **société (`company`)** et/ou même **rattachement (`parent_client_id`)** — selon un mode AND/OR configuré par l'admin du tenant parent — de voir et éventuellement éditer les documents partagés de leurs collègues. **Suppression toujours réservée à l'auteur** (sauf admin/superviseur du tenant).
+
+### Architecture
+- **Helper centralisé** `routes/tenant_sharing.py` :
+  - `get_tenant_sharing_mode(db, user)` → lit `tenant_sharing_mode` (AND|OR) sur la fiche du tenant parent (par défaut AND)
+  - `resolve_visible_owner_ids(db, user)` → liste les owner_ids visibles selon le mode
+  - `build_shared_filter(db, user)` → filtre Mongo `$or` {owner=moi} OU {owner ∈ collègues + shared_with_tenant=True}
+  - `stamp_ownership(doc, user, shared, editable)` → injection des snapshots société/rattachement
+  - `can_edit(doc, user, visible_ids)` / `can_delete(doc, user)` → contrôles d'accès
+- **Champs standards sur tous les documents partageables** :
+  - `owner_id`, `owner_company`, `owner_parent_client_id`
+  - `shared_with_tenant: bool` (défaut False)
+  - `editable_by_tenant: bool` (défaut False)
+
+### Modules câblés (6)
+1. **Contact Groups** (`routes/contact_groups.py`) — déjà câblé (filtre $or {client_id legacy} OU {build_shared_filter})
+2. **Meetings/PV** (`routes/meetings.py`) — déjà câblé
+3. **User Notes/Tasks/Reports/Suivis** (`/me/notes/{kind}` dans server.py) — NEW : étend la clause `$or` de visibilité avec `{owner_id ∈ collègues, shared_with_tenant=True}`; PUT autorisé si `editable_by_tenant=True`
+4. **Support Tickets** (`/me/tickets` GET dans server.py) — NEW : scope $or legacy `_ticket_scope_for_user` + `{owner_id ∈ collègues, shared_with_tenant=True}`; snapshots société/rattachement à la création
+5. **Interventions** (`/me/interventions` GET+POST dans server.py) — NEW : pour non-élevés, filtre $or {client_id legacy} OU {owner ∈ collègues, shared=True}; snapshots à la création
+6. **Tenant settings** (`tenant_sharing_mode` AND|OR sur fiche User parent, formulaire AdminClients déjà en place)
+
+### Frontend
+- **`TenantSharingToggle.jsx`** — composant réutilisable (2 checkboxes : partager + édition collaborative) avec testids `${prefix}-block` / `-shared` / `-editable`
+- **ContactGroups.jsx** : toggle dans le modal d'édition (testid `cg-tenant-sharing-*`)
+- **MeetingMinutes.jsx** : toggle dans l'éditeur de PV (testid `meeting-tenant-sharing-*`)
+- **UserNotes.jsx** : toggle dans le modal de note (testid `note-tenant-sharing-${kind}-*`)
+- **AdminClients.jsx** : radio AND/OR dans le formulaire (testid `tenant-sharing-AND`/`tenant-sharing-OR`)
+
+### Tests
+- **11/11 tests Iter43 verts** (`test_iter43_tenant_sharing.py`) :
+  - Helper AND/OR/stranger
+  - Contact Groups visibilité + delete reservée à l'auteur
+  - User Notes visibilité + édition collaborative + protection
+  - Support Tickets visibilité cross-tenant
+- **Régression complète : 59/59 verts** sur les modules touchés (Iter42d, Officines selfservice, Iter42b, shared_notes, meetings, sign meeting, contact groups bugfix, tickets bubble, ticket reassign)
+
+### Endpoints / payloads
+- `POST/PUT /api/me/contact-groups` — accepte `shared_with_tenant`, `editable_by_tenant`
+- `POST/PUT /api/me/meetings` — idem
+- `POST/PUT /api/me/notes/{kind}` (`notes|tasks|reports|suivis`) — idem
+- `POST /api/me/tickets` — idem
+- `POST /api/me/interventions` — idem
+- `tenant_sharing_mode` sur la fiche tenant via `POST/PUT /api/admin/clients`
+
+
 ## Iter42c-d (2026-02) — Scanner code-barres + Webhook Incidents + Lookup AMM par pays
 
 ### Bug fix

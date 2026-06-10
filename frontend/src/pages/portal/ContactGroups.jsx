@@ -40,21 +40,27 @@ export default function ContactGroups() {
 
   useEffect(() => { loadAll(); }, []);
 
-  const startCreate = () => setEditing({ name: "", color: DEFAULT_COLORS[0], description: "", contact_ids: [] });
-  const startEdit = (g) => setEditing({ id: g.id, name: g.name, color: g.color || DEFAULT_COLORS[0], description: g.description || "" });
+  const startCreate = () => setEditing({ name: "", color: DEFAULT_COLORS[0], description: "", contact_ids: [], shared_with_tenant: false, editable_by_tenant: false });
+  const startEdit = (g) => setEditing({ id: g.id, name: g.name, color: g.color || DEFAULT_COLORS[0], description: g.description || "", shared_with_tenant: !!g.shared_with_tenant, editable_by_tenant: !!g.editable_by_tenant });
 
   const save = async () => {
     if (!editing.name.trim()) { toast.error("Nom requis"); return; }
     try {
+      const sharePayload = {
+        shared_with_tenant: !!editing.shared_with_tenant,
+        editable_by_tenant: !!editing.editable_by_tenant,
+      };
       if (editing.id) {
         await apiClient.put(`/me/contact-groups/${editing.id}`, {
           name: editing.name, color: editing.color, description: editing.description,
+          ...sharePayload,
         });
         toast.success("Groupe mis à jour");
       } else {
         await apiClient.post("/me/contact-groups", {
           name: editing.name, color: editing.color, description: editing.description,
           contact_ids: editing.contact_ids || [],
+          ...sharePayload,
         });
         toast.success("Groupe créé");
       }

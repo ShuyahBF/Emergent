@@ -82,12 +82,17 @@ class GroupCreate(BaseModel):
     description: Optional[str] = Field(default=None, max_length=400)
     color: Optional[str] = Field(default=None, max_length=24)
     contact_ids: List[str] = Field(default_factory=list)
+    # Iter43 — partage tenant
+    shared_with_tenant: bool = False
+    editable_by_tenant: bool = False
 
 
 class GroupUpdate(BaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=80)
     description: Optional[str] = Field(default=None, max_length=400)
     color: Optional[str] = Field(default=None, max_length=24)
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 class AddContactsPayload(BaseModel):
@@ -101,16 +106,27 @@ class ResolvePayload(BaseModel):
 
 def attach_contact_groups_routes(*, api, db, get_current_user):
     """Mount contact group endpoints."""
+    from routes.tenant_sharing import (  # noqa: E402
+        build_shared_filter, stamp_ownership, can_edit, can_delete,
+        resolve_visible_owner_ids,
+    )
 
     @api.get("/me/contact-groups", tags=["Portail Client — Groupes"])
     async def list_groups(user: dict = Depends(get_current_user)):
         cid = _client_scope(user)
+        # Iter43 — partage tenant : OR entre {client_id: cid} (legacy) et
+        # {owner_id in visible_ids + shared_with_tenant=True} (nouveau).
+        shared_flt = await build_shared_filter(db, user)
+        query = {"$or": [{"client_id": cid}, shared_flt]}
         items = await db.contact_groups.find(
-            {"client_id": cid},
-            {"_id": 0},
+            query, {"_id": 0},
         ).sort([("updated_at", -1), ("created_at", -1)]).to_list(500)
         for it in items:
             it["contact_count"] = len(it.get("contact_ids") or [])
+            # Marque visuellement les groupes des collègues
+            it["_is_shared_from_colleague"] = bool(
+                it.get("owner_id") and it.get("owner_id") != user.get("id") and it.get("shared_with_tenant")
+            )
         return items
 
     @api.post("/me/contact-groups", status_code=201, tags=["Portail Client — Groupes"])
@@ -144,12 +160,23 @@ def attach_contact_groups_routes(*, api, db, get_current_user):
             "updated_at": _now(),
             "created_by": user.get("id"),
         }
+        # Iter43 — Stamp ownership pour partage tenant
+        stamp_ownership(doc, user,
+                        shared=bool(payload.shared_with_tenant),
+                        editable=bool(payload.editable_by_tenant))
         await db.contact_groups.insert_one(doc.copy())
         return doc
 
     @api.put("/me/contact-groups/{gid}", tags=["Portail Client — Groupes"])
     async def update_group(gid: str, payload: GroupUpdate = Body(...), user: dict = Depends(get_current_user)):
         cid = _client_scope(user)
+        existing_doc = await db.contact_groups.find_one({"id": gid}, {"_id": 0})
+        if not existing_doc:
+            raise HTTPException(status_code=404, detail="Groupe introuvable")
+        # Iter43 — vérifie permissions (owner OR editable+shared OR admin/sup du tenant)
+        vids = await resolve_visible_owner_ids(db, user)
+        if not can_edit(existing_doc, user, visible_ids=vids):
+            raise HTTPException(status_code=403, detail="Vous ne pouvez pas modifier ce groupe")
         upd: Dict[str, Any] = {"updated_at": _now()}
         if payload.name is not None:
             n = payload.name.strip()
@@ -167,17 +194,23 @@ def attach_contact_groups_routes(*, api, db, get_current_user):
             upd["description"] = (payload.description or "").strip() or None
         if payload.color is not None:
             upd["color"] = (payload.color or "").strip() or "#6366f1"
-        res = await db.contact_groups.update_one({"id": gid, "client_id": cid}, {"$set": upd})
-        if res.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Groupe introuvable")
+        # Iter43 — toggle shared / editable (seul l'auteur peut basculer)
+        if payload.shared_with_tenant is not None and existing_doc.get("owner_id") == user.get("id"):
+            upd["shared_with_tenant"] = bool(payload.shared_with_tenant)
+        if payload.editable_by_tenant is not None and existing_doc.get("owner_id") == user.get("id"):
+            upd["editable_by_tenant"] = bool(payload.editable_by_tenant)
+        await db.contact_groups.update_one({"id": gid}, {"$set": upd})
         return await db.contact_groups.find_one({"id": gid}, {"_id": 0})
 
     @api.delete("/me/contact-groups/{gid}", tags=["Portail Client — Groupes"])
     async def delete_group(gid: str, user: dict = Depends(get_current_user)):
-        cid = _client_scope(user)
-        res = await db.contact_groups.delete_one({"id": gid, "client_id": cid})
-        if res.deleted_count == 0:
+        existing_doc = await db.contact_groups.find_one({"id": gid}, {"_id": 0})
+        if not existing_doc:
             raise HTTPException(status_code=404, detail="Groupe introuvable")
+        # Iter43 — suppression réservée à l'auteur (+ admin/sup du tenant)
+        if not can_delete(existing_doc, user):
+            raise HTTPException(status_code=403, detail="Seul l'auteur (ou un admin du tenant) peut supprimer ce groupe")
+        await db.contact_groups.delete_one({"id": gid})
         return {"ok": True}
 
     @api.post("/me/contact-groups/{gid}/contacts", tags=["Portail Client — Groupes"])

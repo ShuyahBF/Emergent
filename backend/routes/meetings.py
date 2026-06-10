@@ -94,6 +94,9 @@ class MeetingCreate(BaseModel):
     # simples. Liste de user_ids (kind=user) ou tracked_user ids (kind=tracked).
     signers: Optional[List[str]] = Field(default_factory=list)
     participants: Optional[List[str]] = Field(default_factory=list)
+    # Iter43 (2026-02) — Partage tenant
+    shared_with_tenant: bool = False
+    editable_by_tenant: bool = False
 
 
 class MeetingUpdate(BaseModel):
@@ -105,6 +108,8 @@ class MeetingUpdate(BaseModel):
     attendees: Optional[str] = Field(None, max_length=2000)
     signers: Optional[List[str]] = None
     participants: Optional[List[str]] = None
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 def make_router(*, db, get_current_user, signers_notifier=None):
@@ -127,16 +132,28 @@ def make_router(*, db, get_current_user, signers_notifier=None):
         limit: int = Query(100, ge=1, le=500),
         user: dict = Depends(get_current_user),
     ):
+        from routes.tenant_sharing import build_shared_filter  # noqa: E402
         base = await _list_query(user)
+        # Iter43 — Partage tenant : on inclut aussi les PV partagés par les collègues.
+        shared_flt = await build_shared_filter(db, user)
+        # On exclue les soft-deleted dans tous les cas
+        share_or = {"$and": [shared_flt, {"deleted_at": None}]}
         if q:
             qr = q.strip()
-            base["$or"] = [
+            text_or = [
                 {"title": {"$regex": qr, "$options": "i"}},
                 {"numero": {"$regex": qr, "$options": "i"}},
                 {"attendees": {"$regex": qr, "$options": "i"}},
             ]
-        cursor = db.meeting_minutes.find(base, {"_id": 0, "body_html": 0}).sort("meeting_date", -1).limit(limit)
+            query = {"$and": [{"$or": [base, share_or]}, {"$or": text_or}]}
+        else:
+            query = {"$or": [base, share_or]}
+        cursor = db.meeting_minutes.find(query, {"_id": 0, "body_html": 0}).sort("meeting_date", -1).limit(limit)
         items = [m async for m in cursor]
+        for it in items:
+            it["_is_shared_from_colleague"] = bool(
+                it.get("owner_id") and it.get("owner_id") != user.get("id") and it.get("shared_with_tenant")
+            )
         return {"items": items, "count": len(items)}
 
     @router.post("", status_code=201)
@@ -169,6 +186,11 @@ def make_router(*, db, get_current_user, signers_notifier=None):
             "updated_at": _now(),
             "deleted_at": None,
         }
+        # Iter43 — Stamp ownership pour partage tenant
+        from routes.tenant_sharing import stamp_ownership  # noqa: E402
+        stamp_ownership(doc, user,
+                        shared=bool(payload.shared_with_tenant),
+                        editable=bool(payload.editable_by_tenant))
         await db.meeting_minutes.insert_one(doc.copy())
         doc.pop("_id", None)
         # S026 — Notify signataires (email / WA / both / none) based on admin setting
@@ -182,8 +204,13 @@ def make_router(*, db, get_current_user, signers_notifier=None):
 
     @router.get("/{mid}")
     async def get_meeting(mid: str, user: dict = Depends(get_current_user)):
+        from routes.tenant_sharing import build_shared_filter  # noqa: E402
         scope = await _list_query(user)
-        doc = await db.meeting_minutes.find_one({**scope, "id": mid}, {"_id": 0})
+        share_or = await build_shared_filter(db, user)
+        doc = await db.meeting_minutes.find_one(
+            {"$or": [{**scope, "id": mid}, {**share_or, "id": mid, "deleted_at": None}]},
+            {"_id": 0},
+        )
         if not doc:
             raise HTTPException(status_code=404, detail="PV introuvable")
         return doc

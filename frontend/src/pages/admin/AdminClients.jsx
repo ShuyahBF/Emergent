@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -578,6 +578,44 @@ export default function AdminClients() {
                   </span>
                 </span>
               </label>
+            </div>
+
+            {/* Iter43 (2026-02) — Mode de partage entre comptes du tenant */}
+            <div className="rounded-lg border-2 border-indigo-200 bg-indigo-50/40 p-3 space-y-2" data-testid="tenant-sharing-section">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-display font-bold text-indigo-900">🤝 Partage entre comptes de la société</span>
+              </div>
+              <p className="text-[11px] text-indigo-800 mb-2">
+                Définit la règle de visibilité des documents (rapports, suivis, notes, tâches, PV, groupes contacts)
+                marqués « partagés » par leurs auteurs. La règle compare les champs <code>société</code> et <code>rattachement</code>
+                (= « Client lié ») des profils.
+              </p>
+              <div className="grid grid-cols-2 gap-2">
+                <label className={`cursor-pointer rounded ring-2 p-2 text-xs ${form.tenant_sharing_mode !== "OR" ? "ring-indigo-500 bg-white" : "ring-slate-200 bg-white/50 hover:ring-indigo-300"}`}>
+                  <input
+                    type="radio" name="tenant_sharing_mode" value="AND"
+                    checked={form.tenant_sharing_mode !== "OR"}
+                    onChange={() => setForm({ ...form, tenant_sharing_mode: "AND" })}
+                    className="mr-2" data-testid="tenant-sharing-AND"
+                  />
+                  <strong>ET</strong> (strict) — défaut
+                  <span className="block text-[10px] text-slate-500 mt-0.5">
+                    Société <em>ET</em> rattachement doivent correspondre.
+                  </span>
+                </label>
+                <label className={`cursor-pointer rounded ring-2 p-2 text-xs ${form.tenant_sharing_mode === "OR" ? "ring-indigo-500 bg-white" : "ring-slate-200 bg-white/50 hover:ring-indigo-300"}`}>
+                  <input
+                    type="radio" name="tenant_sharing_mode" value="OR"
+                    checked={form.tenant_sharing_mode === "OR"}
+                    onChange={() => setForm({ ...form, tenant_sharing_mode: "OR" })}
+                    className="mr-2" data-testid="tenant-sharing-OR"
+                  />
+                  <strong>OU</strong> (souple)
+                  <span className="block text-[10px] text-slate-500 mt-0.5">
+                    Société <em>OU</em> rattachement suffit — utile multi-succursales.
+                  </span>
+                </label>
+              </div>
             </div>
 
             {/* Iter35h — Demo account configuration */}

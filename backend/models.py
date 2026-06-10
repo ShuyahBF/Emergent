@@ -88,6 +88,11 @@ class UserUpdateAdmin(BaseModel):
     # different canonical "client lié" via dropdown. Empty string clears the
     # link; a UUID points to an existing admin/superviseur/moderateur user.
     link_to_client_id: Optional[str] = None
+    # Iter43 (2026-02) — Mode de partage entre comptes de la même société.
+    # 'AND' (défaut, restrictif) : il faut que `company` ET `parent_client_id`
+    # correspondent pour partager. 'OR' (permissif, multi-succursales) : un
+    # seul des deux suffit. À configurer sur la fiche du tenant (admin client).
+    tenant_sharing_mode: Optional[str] = None  # "AND" | "OR"
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import {
   Loader2, Users, Plus, Trash2, Pencil, Save, X, Search, UserPlus,
 } from "lucide-react";
+import TenantSharingToggle from "@/components/TenantSharingToggle";
 
 const DEFAULT_COLORS = ["#6366f1", "#ec4899", "#10b981", "#f59e0b", "#0ea5e9", "#ef4444", "#8b5cf6"];
 
@@ -196,6 +197,12 @@ export default function ContactGroups() {
                 ))}
               </div>
             </div>
+            <TenantSharingToggle
+              shared={editing.shared_with_tenant}
+              editable={editing.editable_by_tenant}
+              onChange={(next) => setEditing((s) => ({ ...s, ...next }))}
+              testidPrefix="cg-tenant-sharing"
+            />
             <div className="flex justify-end gap-2 pt-2">
               <button onClick={() => setEditing(null)} className="text-xs px-3 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50">Annuler</button>
               <button onClick={save} className="text-xs px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white inline-flex items-center gap-1" data-testid="cg-save-btn">

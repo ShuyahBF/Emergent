@@ -270,6 +270,9 @@ class InterventionCreate(BaseModel):
     # Iter34y/z — Note vocale facultative + transcription Whisper.
     voice_note_url: Optional[str] = None
     voice_note_transcript: Optional[str] = None
+    # Iter43 — Partage tenant cross-utilisateur
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 class InterventionUpdate(BaseModel):
@@ -284,6 +287,9 @@ class InterventionUpdate(BaseModel):
     client_id: Optional[str] = None  # iter34y — permet de re-rattacher l'intervention
     voice_note_url: Optional[str] = None
     voice_note_transcript: Optional[str] = None
+    # Iter43 — Partage tenant cross-utilisateur
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 # ====================================================================
@@ -1009,6 +1015,9 @@ class UserNoteCreate(BaseModel):
     voice_note_transcript: Optional[str] = None  # iter34z — transcription Whisper
     # Iter38r-fix9k — Checklist items (Google Keep style) for kind=tasks
     task_items: Optional[List[TaskItem]] = None
+    # Iter43 — Partage tenant cross-utilisateur (société + rattachement)
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 class UserNoteUpdate(BaseModel):
@@ -1023,6 +1032,9 @@ class UserNoteUpdate(BaseModel):
     voice_note_url: Optional[str] = None
     voice_note_transcript: Optional[str] = None
     task_items: Optional[List[TaskItem]] = None  # Iter38r-fix9k
+    # Iter43 — Partage tenant cross-utilisateur
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 class RatingCreate(BaseModel):

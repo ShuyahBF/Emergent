@@ -3029,7 +3029,20 @@ async def me_interventions(user: dict = Depends(get_current_user)):
         items = await db.interventions.find({}, {"_id": 0}).to_list(2000)
     else:
         effective_client_id = user.get("parent_client_id") or user["id"]
-        items = await db.interventions.find({"client_id": effective_client_id}, {"_id": 0}).to_list(1000)
+        base_q: Dict[str, Any] = {"client_id": effective_client_id}
+        # Iter43 — Cross-tenant share: include interventions created by colleagues
+        # (same société/rattachement) flagged shared_with_tenant=True.
+        try:
+            from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+            visible_owner_ids = await resolve_visible_owner_ids(db, user)
+            colleague_ids = [oid for oid in visible_owner_ids if oid != user["id"]]
+        except Exception:
+            colleague_ids = []
+        if colleague_ids:
+            q = {"$or": [base_q, {"owner_id": {"$in": colleague_ids}, "shared_with_tenant": True}]}
+        else:
+            q = base_q
+        items = await db.interventions.find(q, {"_id": 0}).to_list(1000)
     items = sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
     items = await _maybe_anon_list(user, items, _apply_anon_to_intervention)
     return await _attach_my_rating(items, "interventions", user["id"])
@@ -9206,26 +9219,39 @@ async def me_list_notes(
     #  - target_user_ids contains me   → visible read-only
     #  - is_private == False AND same tenant → visible read-only ("Public")
     # admin/superviseur still see EVERYTHING.
+    # Iter43 — Also include `shared_with_tenant=True` docs from same société/rattachement
     my_tenant = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    # Build cross-company visibility via tenant_sharing helper
+    try:
+        from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+        visible_owner_ids = await resolve_visible_owner_ids(db, user)
+    except Exception:
+        visible_owner_ids = [user["id"]]
+    cross_clause = {
+        "owner_id": {"$in": [oid for oid in visible_owner_ids if oid != user["id"]]},
+        "shared_with_tenant": True,
+    } if len(visible_owner_ids) > 1 else None
     if user.get("role") in ("admin", "superviseur"):
         base: Dict[str, Any] = {}
     elif _is_elevated_creator(user):
-        base = {
-            "$or": [
-                {"is_private": {"$ne": True}},
-                {"owner_id": user["id"]},
-                {"target_user_ids": user["id"]},
-            ],
-        }
+        clauses = [
+            {"is_private": {"$ne": True}},
+            {"owner_id": user["id"]},
+            {"target_user_ids": user["id"]},
+        ]
+        if cross_clause:
+            clauses.append(cross_clause)
+        base = {"$or": clauses}
     else:
         # Tracked users (Consultation/Comptable/etc.) — see own + targeted + public-in-tenant
-        base = {
-            "$or": [
-                {"owner_id": user["id"]},
-                {"target_user_ids": user["id"]},
-                {"is_private": {"$ne": True}, "tenant_id": my_tenant},
-            ]
-        }
+        clauses = [
+            {"owner_id": user["id"]},
+            {"target_user_ids": user["id"]},
+            {"is_private": {"$ne": True}, "tenant_id": my_tenant},
+        ]
+        if cross_clause:
+            clauses.append(cross_clause)
+        base = {"$or": clauses}
     query: Dict[str, Any] = dict(base)
     # Optional scope filter (mine|shared|all) — applies on top of the visibility ACL
     if scope == "mine":
@@ -9316,6 +9342,11 @@ async def me_create_note(
         "owner_email": user["email"],
         "owner_name": user.get("full_name"),
         "owner_role": user.get("tracked_role") or user.get("role"),
+        # Iter43 — Snapshot société/rattachement pour partage cross-utilisateur
+        "owner_company": (user.get("company") or "").strip() or None,
+        "owner_parent_client_id": user.get("parent_client_id"),
+        "shared_with_tenant": bool(payload.shared_with_tenant),
+        "editable_by_tenant": bool(payload.editable_by_tenant),
         # Iter38r-fix9f — tenant scoping for public visibility within tenant
         "tenant_id": user.get("parent_client_id") or user.get("client_id") or user["id"],
         "title": title,
@@ -9368,8 +9399,19 @@ async def me_update_note(
     if not existing:
         raise HTTPException(status_code=404, detail="Note introuvable")
     # Owner OR elevated user can edit
+    # Iter43 — Tenant colleagues can edit if editable_by_tenant=True
+    can_collab_edit = False
     if existing.get("owner_id") != user["id"] and not _is_elevated_creator(user):
-        raise HTTPException(status_code=403, detail="Modification non autorisée")
+        if existing.get("shared_with_tenant") and existing.get("editable_by_tenant"):
+            try:
+                from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+                visible_ids = await resolve_visible_owner_ids(db, user)
+                if existing.get("owner_id") in visible_ids:
+                    can_collab_edit = True
+            except Exception:
+                pass
+        if not can_collab_edit:
+            raise HTTPException(status_code=403, detail="Modification non autorisée")
     # 1h lock from creation (unless admin/superviseur which can always fix)
     if not _is_admin_or_superviseur(user):
         try:
@@ -9934,6 +9976,11 @@ async def me_create_intervention(
         "owner_email": user["email"],
         "owner_name": user.get("full_name"),
         "owner_role": user.get("tracked_role") or user.get("role"),
+        # Iter43 — Snapshot société/rattachement
+        "owner_company": (user.get("company") or "").strip() or None,
+        "owner_parent_client_id": user.get("parent_client_id"),
+        "shared_with_tenant": bool(payload.shared_with_tenant),
+        "editable_by_tenant": bool(payload.editable_by_tenant),
         "ip": _client_ip_from_request(request),
         "created_at": _now(),
         "updated_at": _now(),
@@ -20287,6 +20334,9 @@ class QuickTicketPayload(BaseModel):
     software: Optional[str] = None
     notes: Optional[str] = None
     attach_wa_sms_history: Optional[bool] = False
+    # Iter43 — Partage tenant
+    shared_with_tenant: Optional[bool] = None
+    editable_by_tenant: Optional[bool] = None
 
 
 @api.post("/me/tickets", tags=["Portail Client"])
@@ -20384,6 +20434,12 @@ async def me_create_ticket_quick(
         "opened_at": now_iso,
         "opened_by_id": user["id"],
         "opened_by_label": user.get("full_name") or user.get("email"),
+        # Iter43 — Snapshot société/rattachement + partage tenant
+        "owner_id": user["id"],
+        "owner_company": (user.get("company") or "").strip() or None,
+        "owner_parent_client_id": user.get("parent_client_id"),
+        "shared_with_tenant": bool(payload.shared_with_tenant),
+        "editable_by_tenant": bool(payload.editable_by_tenant),
         "closed_at": None,
         "closed_by_id": None,
         "closed_by_label": None,
@@ -20450,6 +20506,28 @@ async def me_list_tickets(
             q["status"] = {"$in": list(TICKET_OPEN_STATUSES)}
         elif status in TICKET_ALL_STATUSES:
             q["status"] = status
+    # Iter43 — Cross-tenant share: also include tickets created by colleagues
+    # (same société/rattachement) flagged shared_with_tenant=True.
+    try:
+        from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+        visible_owner_ids = await resolve_visible_owner_ids(db, user)
+        colleague_ids = [oid for oid in visible_owner_ids if oid != user["id"]]
+    except Exception:
+        colleague_ids = []
+    if colleague_ids:
+        share_clause = {
+            "owner_id": {"$in": colleague_ids},
+            "shared_with_tenant": True,
+            "archived_at": {"$in": [None, ""]},
+        }
+        if contact_id:
+            share_clause["contact_id"] = contact_id
+        if status:
+            if status == "open_all":
+                share_clause["status"] = {"$in": list(TICKET_OPEN_STATUSES)}
+            elif status in TICKET_ALL_STATUSES:
+                share_clause["status"] = status
+        q = {"$or": [q, share_clause]}
     items = await db.support_tickets.find(q, {"_id": 0}).sort("opened_at", -1).to_list(min(max(limit, 1), 1000))
     # Iter37c — Hide cost fields from non-elevated viewers
     if not _is_elevated_creator(user):

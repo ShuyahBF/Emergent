@@ -12,6 +12,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { getFileIcon } from "@/lib/fileIcons";
+import TenantSharingToggle from "@/components/TenantSharingToggle";
 
 const KIND_META = {
   reports: { label: "Rapports", singular: "rapport", icon: FileText, accent: "#1E90FF" },
@@ -21,7 +22,7 @@ const KIND_META = {
   tasks: { label: "Tâches", singular: "tâche", icon: ClipboardList, accent: "#F59E0B" },
 };
 
-const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false, target_user_ids: [], task_items: [] };
+const empty = { title: "", content_html: "", tags: [], client_id: "", event_date: "", images: [], is_private: false, target_user_ids: [], task_items: [], shared_with_tenant: false, editable_by_tenant: false };
 
 const ELEVATED_TRACKED = new Set(["Moderation", "Administrateur", "Superviseur"]);
 const ADMIN_LEVEL_TRACKED = new Set(["Administrateur", "Superviseur"]);
@@ -143,6 +144,9 @@ export default function UserNotesPage() {
         // Iter35m — Only honored when is_private=true; allows the author to
         // restrict visibility to a specific subset of tracked users / admins.
         target_user_ids: form.is_private ? (form.target_user_ids || []) : [],
+        // Iter43 — Cross-tenant share (société + rattachement)
+        shared_with_tenant: !!form.shared_with_tenant,
+        editable_by_tenant: !!form.editable_by_tenant,
         // Iter38r-fix9k — Checklist items for kind=tasks (Google Keep style)
         ...(kind === "tasks" && form.task_items?.length > 0 ? { task_items: form.task_items } : {}),
         ...(kind === "suivis" ? { client_id: form.client_id, event_date: new Date(form.event_date).toISOString() } : {}),
@@ -362,6 +366,13 @@ export default function UserNotesPage() {
               />
 
               <ImageUploader images={form.images} onChange={(images) => setForm({ ...form, images })} accent={meta.accent} />
+
+              <TenantSharingToggle
+                shared={form.shared_with_tenant}
+                editable={form.editable_by_tenant}
+                onChange={(next) => setForm((s) => ({ ...s, ...next }))}
+                testidPrefix={`note-tenant-sharing-${kind}`}
+              />
 
               <label className="flex items-start gap-3 rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 cursor-pointer hover:bg-slate-100 transition" data-testid="note-privacy-toggle-wrapper">
                 <input

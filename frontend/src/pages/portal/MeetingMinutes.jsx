@@ -10,6 +10,7 @@ import {
 import { RichEditor } from "@/pages/portal/UserNotes";
 import { useNavigate, useParams } from "react-router-dom";
 import PdfViewer from "@/components/PdfViewer";
+import TenantSharingToggle from "@/components/TenantSharingToggle";
 
 function todayDate() {
   const d = new Date();
@@ -39,6 +40,8 @@ const EMPTY = {
   body_html: "",
   signers: [],
   participants: [],
+  shared_with_tenant: false,
+  editable_by_tenant: false,
 };
 
 export default function MeetingMinutes() {
@@ -122,6 +125,8 @@ export default function MeetingMinutes() {
         body_html: r.data.body_html || "",
         signers: r.data.signers || [],
         participants: r.data.participants || [],
+        shared_with_tenant: !!r.data.shared_with_tenant,
+        editable_by_tenant: !!r.data.editable_by_tenant,
       });
       setEditorOpen(true);
     } catch (e) {
@@ -151,6 +156,8 @@ export default function MeetingMinutes() {
           body_html: form.body_html,
           signers: form.signers,
           participants: form.participants,
+          shared_with_tenant: !!form.shared_with_tenant,
+          editable_by_tenant: !!form.editable_by_tenant,
         });
         toast.success(`PV ${r.data.numero || ""} mis à jour`);
       } else {
@@ -162,6 +169,8 @@ export default function MeetingMinutes() {
           body_html: form.body_html,
           signers: form.signers,
           participants: form.participants,
+          shared_with_tenant: !!form.shared_with_tenant,
+          editable_by_tenant: !!form.editable_by_tenant,
         });
         toast.success(`PV ${r.data.numero} créé (heure de fin enregistrée : ${fmtTime(r.data.ended_at)})`);
       }
@@ -481,6 +490,12 @@ export default function MeetingMinutes() {
                 onChange={(html) => setForm((f) => ({ ...f, body_html: html }))}
                 accent="#c026d3"
                 aiEnabled={aiEnabled}
+              />
+              <TenantSharingToggle
+                shared={form.shared_with_tenant}
+                editable={form.editable_by_tenant}
+                onChange={(next) => setForm((f) => ({ ...f, ...next }))}
+                testidPrefix="meeting-tenant-sharing"
               />
               <p className="text-[11px] text-slate-500 inline-flex items-center gap-1 italic">
                 <Clock className="h-3 w-3" />

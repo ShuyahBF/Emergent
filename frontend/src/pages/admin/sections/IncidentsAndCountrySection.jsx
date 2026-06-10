@@ -20,8 +20,18 @@ export default function IncidentsAndCountrySection() {
   const [newPwd, setNewPwd] = useState(null);
   const [busy, setBusy] = useState(false);
   const [country, setCountry] = useState("");
+  // Iter42e — URL publique forcée (optionnel) : permet à l'admin de
+  // surcharger l'URL affichée si le domaine de production diffère du domaine
+  // où l'admin est connecté (rare — CDN/proxy). Par défaut on prend
+  // window.location.origin qui suit toujours le domaine courant.
+  const [publicUrlOverride, setPublicUrlOverride] = useState("");
+  const [savingUrl, setSavingUrl] = useState(false);
 
-  const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+  // Iter42e — Utiliser window.location.origin (= domaine courant du navigateur)
+  // au lieu de REACT_APP_BACKEND_URL qui est fixé au build et peut pointer
+  // vers la preview même en production.
+  const browserOrigin = typeof window !== "undefined" ? window.location.origin.replace(/\/$/, "") : "";
+  const apiBase = (publicUrlOverride || browserOrigin).replace(/\/$/, "");
 
   const load = async () => {
     setLoading(true);
@@ -32,6 +42,7 @@ export default function IncidentsAndCountrySection() {
       ]);
       setInfo(r1.data || { configured: false, url: "/api/public/incidents", recent: [] });
       setCountry((r2.data?.amm_default_country || "").toUpperCase());
+      setPublicUrlOverride(r2.data?.public_app_url || "");
     } catch {
       toast.error("Erreur chargement");
     } finally { setLoading(false); }
@@ -79,6 +90,18 @@ export default function IncidentsAndCountrySection() {
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur");
     } finally { setSaving(false); }
+  };
+
+  const savePublicUrl = async () => {
+    setSavingUrl(true);
+    try {
+      const cleaned = (publicUrlOverride || "").trim().replace(/\/$/, "");
+      await apiClient.put("/admin/settings", { public_app_url: cleaned || null });
+      toast.success(cleaned ? "URL publique enregistrée" : "Override désactivé (domaine courant utilisé)");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setSavingUrl(false); }
   };
 
   if (loading) return (
@@ -149,7 +172,43 @@ export default function IncidentsAndCountrySection() {
         </div>
 
         <div className="space-y-2">
-          <Field label="URL publique">
+          {/* Iter42e — URL publique override (optionnel) */}
+          <div className="bg-slate-50 ring-1 ring-slate-200 rounded p-3 text-xs">
+            <div className="flex items-start gap-2 mb-2">
+              <Globe2 className="h-4 w-4 text-slate-600 mt-0.5" />
+              <div className="flex-1">
+                <p className="font-medium text-slate-700">URL publique du portail (optionnel)</p>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Par défaut on utilise le <strong>domaine courant</strong> de votre navigateur (<code className="bg-white px-1 rounded ring-1 ring-slate-200">{browserOrigin}</code>).
+                  Saisissez ici l&apos;URL exacte de production si vous voulez forcer son affichage dans les exemples ci-dessous.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <input
+                value={publicUrlOverride}
+                onChange={(e) => setPublicUrlOverride(e.target.value)}
+                placeholder="https://votre-domaine.com"
+                className="flex-1 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+                data-testid="public-url-override-input"
+              />
+              <button onClick={savePublicUrl} disabled={savingUrl}
+                      className="text-xs px-3 py-1.5 rounded bg-slate-700 hover:bg-slate-800 text-white inline-flex items-center gap-1 disabled:opacity-60"
+                      data-testid="public-url-override-save">
+                {savingUrl ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Enregistrer
+              </button>
+              {publicUrlOverride && (
+                <button onClick={() => { setPublicUrlOverride(""); savePublicUrl(); }}
+                        className="text-[11px] text-slate-500 hover:text-slate-700 px-2"
+                        title="Vider et utiliser le domaine courant"
+                        data-testid="public-url-override-clear">
+                  Vider
+                </button>
+              )}
+            </div>
+          </div>
+
+          <Field label="URL publique du webhook (à utiliser depuis votre serveur)">
             <div className="flex items-center gap-1">
               <code className="flex-1 bg-slate-50 ring-1 ring-slate-200 rounded px-2 py-1.5 text-[11px] font-mono break-all" data-testid="incidents-webhook-url">{fullUrl}</code>
               <button onClick={() => copy(fullUrl)} className="p-1.5 rounded hover:bg-slate-100" title="Copier l'URL"

@@ -787,6 +787,11 @@ class SettingsUpdate(BaseModel):
     incidents_webhook_password: Optional[str] = None
     incidents_webhook_rotated_at: Optional[str] = None
     incidents_webhook_rotated_by: Optional[str] = None
+    # Iter42e (2026-02) — URL publique du portail (override optionnel).
+    # Utilisé pour afficher l'URL exacte du webhook /api/public/incidents et
+    # autres endpoints publics dans les exemples curl/Python. Si non défini,
+    # le frontend utilise window.location.origin du navigateur courant.
+    public_app_url: Optional[str] = None
 
     # Iter35r — Welcome modal at login (briefing)
     welcome_modal_notes_days: Optional[int] = None  # default 3 — fetch notes created within N days

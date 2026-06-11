@@ -45,12 +45,68 @@ def _next_ticket_number(db) -> Any:  # async-compatible
 
 
 class IncidentWebhookIn(BaseModel):
+    """Format générique (rétro-compatible) — utilisé par Watchdog/Uptime-bot."""
     password: Optional[str] = None  # password peut être passé dans le body OU le header
     title: str = Field(..., min_length=3, max_length=300)
     description: Optional[str] = None
     severity: Optional[str] = Field("medium", pattern="^(low|medium|high|critical)$")
     source: Optional[str] = None  # ex: "server-prod", "watchdog", "uptime-bot"
     metadata: Optional[Dict[str, Any]] = None
+
+
+def _adapt_aizenta_payload(body: Dict[str, Any]) -> Dict[str, Any]:
+    """Iter43 (2026-02) — Adapte un payload Aizenta `{TicketDemnde: {...}}`
+    vers le format générique attendu par IncidentWebhookIn.
+
+    Mapping :
+      - title       ← TypeTicket + CompteClient (fallback : 1ère ligne du Motif)
+      - description ← Motif complet
+      - severity    ← déduit du TypeTicket / Motif (Erreur/Critical → high, sinon medium)
+      - source      ← `{Code_Client}/{CodeApplicatif}` (ex: AMY/WAB)
+      - metadata    ← bloc TicketDemnde entier (pour traçabilité)
+    """
+    td = body.get("TicketDemnde") or {}
+    if not isinstance(td, dict):
+        return body  # pas un payload Aizenta, on laisse tel quel
+
+    type_ticket = (td.get("TypeTicket") or "").strip()
+    compte_client = (td.get("CompteClient") or "").strip()
+    motif = (td.get("Motif") or "").strip()
+    code_client = (td.get("Code_Client") or "").strip()
+    code_applicatif = (td.get("CodeApplicatif") or "").strip()
+    numero_genere = (td.get("Numéro_Généré") or td.get("Numero_Genere") or "").strip()
+
+    # Titre = TypeTicket — CompteClient (ou Numéro Aizenta si dispo)
+    title_parts = [p for p in [type_ticket, compte_client] if p]
+    title = " — ".join(title_parts) or (motif.splitlines()[0] if motif else "Incident Aizenta")
+    if numero_genere:
+        title = f"{numero_genere} — {title}"
+    title = title[:300]
+    if len(title) < 3:
+        title = (title + " (Aizenta)").strip()[:300]
+
+    # Sévérité déduite
+    low_blob = f"{type_ticket} {motif}".lower()
+    if any(k in low_blob for k in ("critical", "fatal", "crash", "stop")):
+        severity = "critical"
+    elif any(k in low_blob for k in ("erreur", "error", "exception", "echec", "échec")):
+        severity = "high"
+    else:
+        severity = "medium"
+
+    source = "/".join(p for p in [code_client, code_applicatif] if p) or "aizenta"
+
+    # On préserve le password si fourni au niveau racine (rare avec Aizenta)
+    out = {
+        "title": title,
+        "description": motif,
+        "severity": severity,
+        "source": source,
+        "metadata": td,
+    }
+    if body.get("password"):
+        out["password"] = body["password"]
+    return out
 
 
 class AmmLookupIn(BaseModel):
@@ -70,14 +126,38 @@ def attach_iter42d_routes(
     @api.post("/public/incidents", tags=["Public — Incidents Webhook"])
     async def public_incidents_webhook(
         request: Request,
-        payload: IncidentWebhookIn = Body(...),
         x_webhook_password: Optional[str] = Header(None, alias="X-Webhook-Password"),
     ):
-        """Reçoit un incident depuis un serveur tiers (Watchdog, Uptime-Bot, etc.).
+        """Reçoit un incident depuis un serveur tiers (Watchdog, Uptime-Bot,
+        Aizenta…).
 
         Auth : mot de passe simple. Le header `X-Webhook-Password` est
         prioritaire sur le champ `password` du body.
+
+        Formats acceptés :
+          1. Générique : `{title, description?, severity?, source?, metadata?}`
+          2. **Aizenta** : `{TicketDemnde: {TypeTicket, Motif, CompteClient, ...}}`
+             (mappé automatiquement vers le format générique).
         """
+        # Lit le body brut pour pouvoir adapter avant la validation Pydantic.
+        try:
+            raw_body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Body JSON invalide")
+        if not isinstance(raw_body, dict):
+            raise HTTPException(status_code=400, detail="Body doit être un objet JSON")
+
+        # Détecte le format Aizenta et adapte si besoin
+        if "TicketDemnde" in raw_body:
+            adapted = _adapt_aizenta_payload(raw_body)
+        else:
+            adapted = raw_body
+
+        # Valide via Pydantic
+        try:
+            payload = IncidentWebhookIn.model_validate(adapted)
+        except Exception as e:  # pydantic.ValidationError
+            raise HTTPException(status_code=422, detail=str(e))
         settings = await db.settings.find_one({"_id": "global"}) or {}
         configured = (settings.get("incidents_webhook_password") or "").strip()
         if not configured:

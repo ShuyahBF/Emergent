@@ -6,6 +6,51 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter43 (2026-03) — Webhook Aizenta/Biolog + Bulk delete + Migration
+
+### Contexte
+L'utilisateur a configuré son logiciel Aizenta sur `/api/public/incidents` au lieu de `/api/errors/ingest`. Résultat : ~469 entrées Aizenta ont atterri dans `support_tickets` au lieu de `error_registry`, et la page « Registre des Erreurs » restait vide. Plus largement, le webhook errors n'acceptait que le format plat (pas les wrappers `{TicketDemnde:{...}}`, `{Erreur:{...}}` etc.).
+
+### Backend
+- **`/api/errors/ingest`** : Refactor pour accepter le body brut + nouvelle fonction `_unwrap_payload()` qui détecte automatiquement un wrapper unique contenant `Motif` + `CodeApplicatif` (couvre Aizenta `TicketDemnde`, Biolog `Erreur`, et tout logiciel suivant la même structure). Le format plat historique reste accepté.
+- **`/api/me/errors/bulk-delete`** (admin/sup) : suppression par liste d'ids
+- **`/api/me/errors/reset`** (admin/sup) : purge TOTALE du registre
+- **`/api/me/tickets/bulk-delete`** (admin/sup) : suppression par liste d'ids
+- **`/api/me/tickets/reset`** (admin/sup) : purge TOTALE des tickets
+- **`/api/admin/error-registry/migrate-from-tickets`** (admin/sup) : rapatrie les `support_tickets` avec `channel=webhook` + `metadata.Motif/IDTicketDemnde` vers `error_registry`. **Idempotent** (basé sur `IDTicketDemnde`).
+- **`/api/public/incidents`** : adapter Aizenta `{TicketDemnde:{...}}` déjà présent (Iter43-incidents).
+
+### Frontend
+- **`ErrorRegistry.jsx`** : 
+  - Multi-sélection (checkbox header `err-select-all` + `err-select-<id>`)
+  - Bandeau bulk `err-bulk-bar` avec bouton `err-bulk-delete`
+  - Boutons header `err-migrate-btn` (rapatrier depuis tickets) et `err-reset-btn` (remise à zéro) — visibles admin/sup uniquement
+  - Détection du rôle via `useAuth()` (au lieu de `/api/me` qui n'existait pas)
+- **`Tickets.jsx`** : 
+  - Multi-sélection (checkbox `tickets-select-all` + `tickets-select-<id>`)
+  - Bandeau bulk `tickets-bulk-bar` avec bouton `tickets-bulk-delete`
+  - Bouton `tickets-reset-btn` (remise à zéro) — admin/sup uniquement
+  - Détection du rôle via `useAuth()`
+- **`AdminSettings → IncidentsAndCountrySection`** : nouvelle carte `errors-webhook-card` (URL + token Bearer + génération aléatoire + bouton migration). Clarifie la différence entre les 2 webhooks.
+
+### Tests
+- **`test_iter43_bulk_and_migration.py`** : 9/9 verts
+  - Format flat, Aizenta wrapper, Biolog wrapper
+  - Bulk delete errors (admin OK, client 403)
+  - Reset all errors (sup)
+  - Bulk delete tickets (admin OK, client 403)
+  - Migration idempotente (2 migrés puis 2 skipped_already)
+- **Régression** : test_iter40_error_registry (3) + test_iter42d (10) + test_iter43_tenant_sharing (11) + test_iter43_bulk_and_migration (9) = **33/33 verts**
+- Frontend retest validé (iteration_55.json) : tous les testids admin visibles.
+
+### Action requise utilisateur
+1. **Redéployer** (Save to Github + Emergent Deploy) — preview validée, prod doit suivre
+2. **En prod**, depuis AdminSettings → « Webhook Registre des Erreurs » → cliquer **« Rapatrier depuis tickets »** pour récupérer les ~469 entrées Aizenta perdues
+3. **Reconfigurer Aizenta** sur la nouvelle URL `https://sawalismartsystems.com/api/errors/ingest` (avec le token Bearer généré)
+4. Optionnel : utiliser **« Remise à zéro »** sur Tickets pour vider la table support_tickets après migration
+
+
+
 ## Iter43 (2026-02) — Partage cross-utilisateur (société + rattachement) — AND/OR
 
 ### Objectif

@@ -469,6 +469,9 @@ class SettingsUpdate(BaseModel):
     # Iter40 (2026-02) — Token Bearer pour le webhook /api/errors/ingest
     errors_webhook_token: Optional[str] = None
 
+    # Iter43-fix (2026-03) — Taux horaire par défaut pour interventions (XOF)
+    default_intervention_hourly_rate_xof: Optional[int] = None
+
     # --- S057 Day 3+ (2026-02) — Habillage complet ---
     # Sidebar (portail) — global SAWALI defaults (tenant peut override via branding)
     sidebar_bg_color: Optional[str] = None        # ex: "#0E1F3D"

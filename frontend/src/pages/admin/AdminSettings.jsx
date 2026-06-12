@@ -732,6 +732,29 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
+      {/* Iter43-fix (2026-03) — Taux horaire global d'intervention */}
+      <Filterable title="🛠️ Interventions — Taux horaire par défaut (XOF)" anchorId="s-intervention-rate">
+        <Section icon={ClipboardList} title="Coût horaire d'intervention">
+          <p className="text-xs text-slate-500 mb-3">
+            Taux horaire utilisé pour calculer le coût total d'une intervention (durée × taux)
+            dans le PDF d'historique. Chaque tenant peut surcharger ce taux dans sa fiche.
+            Si aucun taux n'est défini, la valeur par défaut est <strong>15&nbsp;000 XOF/h</strong>.
+          </p>
+          <div className="grid sm:grid-cols-2 gap-3">
+            <Input
+              label="Taux horaire global (XOF/h)"
+              type="number"
+              value={s.default_intervention_hourly_rate_xof ?? ""}
+              onChange={(v) => upd("default_intervention_hourly_rate_xof", parseInt(v) || 0)}
+              placeholder="15000"
+              testid="intervention-default-hourly-rate"
+            />
+          </div>
+        </Section>
+      </Filterable>
+
+
+
       {/* Iter38r-fix9k — Notes / Tâches : mode strict checklist */}
       <Filterable title="Notes & Tâches — Mode strict (liste à cocher uniquement)" anchorId="s-notes-mode">
         <Section icon={ClipboardList} title="Mode d'édition des tâches">

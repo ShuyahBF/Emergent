@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { X, Ticket, MessageCircle, MessageSquare, MessageSquareText, FileText, Lock, CheckCircle2, TrendingUp, Send, Sparkles, Clock, Banknote, Bot } from "lucide-react";
@@ -25,6 +25,33 @@ const LS_LAST_SEEN = "sawali_portal_last_seen_at";
 export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
+  // Iter43-fix — Le bouton "J'ai lu" n'est actif qu'une fois le contenu lu
+  // jusqu'en bas (ou si le contenu tient sans scroll).
+  const [canAcknowledge, setCanAcknowledge] = useState(false);
+  const scrollRef = useRef(null);
+
+  const checkScrolledBottom = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Si le contenu n'est pas plus grand que le conteneur → pas besoin de scroller
+    if (el.scrollHeight <= el.clientHeight + 4) {
+      setCanAcknowledge(true);
+      return;
+    }
+    // Tolérance de 8px pour absorber les arrondis subpixel / barres de défilement
+    const atBottom = el.scrollTop + el.clientHeight >= el.scrollHeight - 8;
+    if (atBottom) setCanAcknowledge(true);
+  };
+
+  // Quand le contenu vient d'être rendu (après le chargement), on revérifie
+  // si une barre de défilement est nécessaire. Si non, le bouton est libéré.
+  useEffect(() => {
+    if (!loading) {
+      // attendre la prochaine frame pour que le DOM soit mesurable
+      const id = window.requestAnimationFrame(checkScrolledBottom);
+      return () => window.cancelAnimationFrame(id);
+    }
+  }, [loading, data]);
 
   useEffect(() => {
     // Iter36g — pull the saved last_seen stamp BEFORE the request so the
@@ -110,7 +137,12 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
         {loading ? (
           <div className="p-8 text-center text-slate-500">Chargement…</div>
         ) : (
-          <div className="p-6 space-y-4 max-h-[60vh] overflow-y-auto">
+          <div
+            ref={scrollRef}
+            onScroll={checkScrolledBottom}
+            className="p-6 space-y-4 max-h-[60vh] overflow-y-auto"
+            data-testid="welcome-briefing-scroll"
+          >
             {/* Iter38r-fix8b — Synthèse Rapports / Suivis / Notes / Tâches */}
             {hasKpis && (
               <section className="rounded-lg ring-1 ring-indigo-200 bg-gradient-to-br from-indigo-50/60 via-white to-violet-50/40 p-3" data-testid="welcome-notes-kpis">
@@ -529,11 +561,23 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
           </div>
         )}
 
-        <footer className="px-6 py-3 border-t border-slate-200 flex justify-end">
+        <footer className="px-6 py-3 border-t border-slate-200 flex items-center justify-between gap-3">
+          <p
+            className={`text-[11px] transition-opacity ${canAcknowledge ? "opacity-0 pointer-events-none" : "text-slate-500"}`}
+            data-testid="welcome-briefing-scroll-hint"
+          >
+            ↓ Faites défiler jusqu&apos;en bas pour activer le bouton
+          </p>
           <button
             onClick={dismiss}
-            className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white hover:opacity-90 px-4 py-2 text-sm font-medium"
+            disabled={!canAcknowledge}
+            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition ${
+              canAcknowledge
+                ? "bg-sawali-blue text-white hover:opacity-90 cursor-pointer"
+                : "bg-slate-200 text-slate-500 cursor-not-allowed"
+            }`}
             data-testid="welcome-briefing-ack"
+            title={canAcknowledge ? "Marquer comme lu" : "Lisez tout le contenu pour activer"}
           >
             <CheckCircle2 className="h-4 w-4" /> J'ai lu
           </button>

@@ -3048,6 +3048,180 @@ async def me_interventions(user: dict = Depends(get_current_user)):
     return await _attach_my_rating(items, "interventions", user["id"])
 
 
+# Iter43-fix (2026-03) — Historique des interventions : taux horaire + PDF
+DEFAULT_INTERVENTION_HOURLY_RATE_XOF = 15000
+
+
+async def _resolve_hourly_rate_xof(user: dict) -> int:
+    """Iter43-fix — Résout le taux horaire d'intervention pour un utilisateur.
+
+    Ordre de priorité :
+      1. `hourly_rate` sur la fiche du tenant parent (admin client) — champ
+         existant déjà utilisé pour la facturation des tickets
+      2. `default_intervention_hourly_rate_xof` dans settings.global
+      3. 15 000 XOF (constante)
+    """
+    tid = user.get("parent_client_id") or user["id"]
+    parent = await db.users.find_one({"id": tid}, {"_id": 0, "hourly_rate": 1})
+    if parent and parent.get("hourly_rate"):
+        try:
+            r = float(parent["hourly_rate"])
+            if r > 0:
+                return int(r)
+        except (TypeError, ValueError):
+            pass
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "default_intervention_hourly_rate_xof": 1}) or {}
+    if s.get("default_intervention_hourly_rate_xof"):
+        try:
+            return int(s["default_intervention_hourly_rate_xof"])
+        except (TypeError, ValueError):
+            pass
+    return DEFAULT_INTERVENTION_HOURLY_RATE_XOF
+
+
+@api.get("/me/interventions/hourly-rate", tags=["Portail Client"])
+async def me_interventions_hourly_rate(user: dict = Depends(get_current_user)):
+    """Retourne le taux horaire en XOF résolu pour l'utilisateur courant."""
+    rate = await _resolve_hourly_rate_xof(user)
+    return {"hourly_rate_xof": rate}
+
+
+@api.get("/me/interventions/pdf", tags=["Portail Client"])
+async def me_interventions_pdf(
+    request: Request,
+    from_date: Optional[str] = Query(None, alias="from"),
+    to_date: Optional[str] = Query(None, alias="to"),
+    client_id: Optional[str] = None,
+    status: Optional[str] = None,
+    user: dict = Depends(get_current_user),
+):
+    """PDF de l'historique des interventions selon les filtres (date + client + statut).
+
+    Colonnes : Référence, Date, Client, Titre, Statut, Technicien, Durée (h), Coût (XOF).
+    Footer : total durée + total coût (durée × taux horaire résolu).
+    """
+    if _is_elevated_creator(user):
+        items = await db.interventions.find({}, {"_id": 0}).to_list(5000)
+    else:
+        effective_client_id = user.get("parent_client_id") or user["id"]
+        base_q: Dict[str, Any] = {"client_id": effective_client_id}
+        try:
+            from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+            visible_owner_ids = await resolve_visible_owner_ids(db, user)
+            colleague_ids = [oid for oid in visible_owner_ids if oid != user["id"]]
+        except Exception:
+            colleague_ids = []
+        q = {"$or": [base_q, {"owner_id": {"$in": colleague_ids}, "shared_with_tenant": True}]} if colleague_ids else base_q
+        items = await db.interventions.find(q, {"_id": 0}).to_list(5000)
+
+    def _in_range(d_iso: Optional[str]) -> bool:
+        if not (from_date or to_date):
+            return True
+        d = (d_iso or "")[:10]
+        if from_date and d < from_date:
+            return False
+        if to_date and d > to_date:
+            return False
+        return True
+    items = [
+        i for i in items
+        if _in_range(i.get("intervention_date"))
+        and (not client_id or i.get("client_id") == client_id)
+        and (not status or i.get("status") == status)
+    ]
+    items = sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
+    items = await _maybe_anon_list(user, items, _apply_anon_to_intervention)
+
+    client_ids = list({i.get("client_id") for i in items if i.get("client_id")})
+    clients_map: Dict[str, str] = {}
+    if client_ids:
+        async for u in db.users.find({"id": {"$in": client_ids}}, {"_id": 0, "id": 1, "company": 1, "full_name": 1}):
+            clients_map[u["id"]] = u.get("company") or u.get("full_name") or u["id"][:8]
+
+    hourly_rate = await _resolve_hourly_rate_xof(user)
+
+    from reportlab.lib.pagesizes import A4, landscape
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    import io as _io
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=landscape(A4), topMargin=24, bottomMargin=24, leftMargin=24, rightMargin=24, title="Historique des interventions")
+    styles = getSampleStyleSheet()
+    now_str = datetime.now(timezone.utc).strftime("%d/%m/%Y à %H:%M")
+    period_str = ""
+    if from_date or to_date:
+        period_str = f" — Période : {from_date or '…'} → {to_date or '…'}"
+    story = [
+        Paragraph("<b>SAWALI Smart Systems — Historique des interventions</b>", styles["Title"]),
+        Paragraph(
+            f"Généré le {now_str} — {len(items)} intervention(s){period_str} — Taux horaire : "
+            f"{hourly_rate:,} XOF/h".replace(",", " "),
+            styles["Normal"],
+        ),
+        Spacer(1, 10),
+    ]
+    head = ["#", "Référence", "Date", "Client", "Titre", "Statut", "Technicien", "Durée (h)", "Coût (XOF)"]
+    data: List[List[str]] = [head]
+    total_hours = 0.0
+    total_cost = 0
+    STATUS_LABEL = {"planned": "Planifiée", "in_progress": "En cours", "completed": "Terminée", "cancelled": "Annulée"}
+    for idx, i in enumerate(items, start=1):
+        dh = float(i.get("duration_hours") or 0)
+        cost = int(round(dh * hourly_rate))
+        total_hours += dh
+        total_cost += cost
+        iso = (i.get("intervention_date") or "")[:10]
+        date_fmt = ""
+        if iso:
+            try:
+                date_fmt = datetime.fromisoformat(iso).strftime("%d/%m/%Y")
+            except Exception:
+                date_fmt = iso
+        data.append([
+            str(idx),
+            (i.get("intervention_number") or "")[:18],
+            date_fmt,
+            (clients_map.get(i.get("client_id") or "") or "—")[:32],
+            (i.get("title") or "")[:60],
+            STATUS_LABEL.get(i.get("status") or "", i.get("status") or "—"),
+            (i.get("technician") or "—")[:24],
+            f"{dh:.2f}" if dh else "—",
+            f"{cost:,}".replace(",", " ") if cost else "—",
+        ])
+    data.append([
+        "", "", "", "", "", "", "TOTAL",
+        f"{total_hours:.2f}",
+        f"{total_cost:,}".replace(",", " "),
+    ])
+    tbl = Table(data, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E90FF")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 8),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (7, 1), (8, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.whitesmoke, colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("LEFTPADDING", (0, 0), (-1, -1), 4),
+        ("RIGHTPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E0F2FE")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+    ]))
+    story.append(tbl)
+    doc.build(story)
+    body = buf.getvalue()
+    fname = f"interventions-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
+    return Response(content=body, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+
+
 @api.get("/me/users", tags=["Portail Client"])
 async def me_users(user: dict = Depends(get_current_user)):
     items = await db.tracked_users.find({"client_id": user["id"]}, {"_id": 0}).to_list(2000)

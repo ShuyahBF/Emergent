@@ -21197,6 +21197,39 @@ async def me_list_trashed_tickets(
     return items
 
 
+
+# Iter43 (2026-03) — Bulk delete + Reset (multi-sélection UI). Admin/Sup only.
+class TicketBulkIdsPayload(BaseModel):
+    ids: List[str] = Field(default_factory=list, max_length=5000)
+
+
+@api.post("/me/tickets/bulk-delete", tags=["Portail Client"])
+async def me_bulk_delete_tickets(
+    payload: TicketBulkIdsPayload = Body(...),
+    user: dict = Depends(get_current_user),
+):
+    """Hard-delete les tickets sélectionnés par leurs ids. Admin/Sup uniquement."""
+    role = (user.get("role") or "").lower()
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(status_code=403, detail="Suppression réservée Admin/Superviseur")
+    ids = [i for i in (payload.ids or []) if isinstance(i, str) and i]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Aucun id fourni")
+    res = await db.support_tickets.delete_many({"id": {"$in": ids}})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+@api.post("/me/tickets/reset", tags=["Portail Client"])
+async def me_reset_all_tickets(user: dict = Depends(get_current_user)):
+    """Hard-delete TOUS les tickets (remise à zéro complète). Réservé Admin/Superviseur."""
+    role = (user.get("role") or "").lower()
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(status_code=403, detail="Réservé Admin/Superviseur")
+    res = await db.support_tickets.delete_many({})
+    return {"ok": True, "deleted": res.deleted_count}
+
+
+
 # ====================================================================
 # Iter35p — Ticket enhancements:
 #   1) Assignment to a user-suivi (notify via activity_events).

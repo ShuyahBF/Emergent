@@ -33,7 +33,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.error_registry")
@@ -98,11 +98,46 @@ class PurgePayload(BaseModel):
     code_client: Optional[str] = None
 
 
+class BulkIdsPayload(BaseModel):
+    ids: List[str] = Field(default_factory=list, max_length=5000)
+
+
+def _unwrap_payload(body: Any) -> Dict[str, Any]:
+    """Iter43 (2026-03) — Accepte un body « plat » ou imbriqué.
+
+    Détecte automatiquement les wrappers du type :
+      {"TicketDemnde": {Motif, CodeApplicatif, ...}}      (Aizenta)
+      {"Erreur": {Motif, CodeApplicatif, ...}}            (Biolog & autres)
+      {"<n'importe quel wrapper>": {Motif, CodeApplicatif, ...}}
+
+    Si le body racine contient EXACTEMENT 1 clé top-level et que sa valeur
+    est un dict contenant `Motif` ET `CodeApplicatif`, on dépouille (unwrap).
+    Sinon on garde le body tel quel.
+    """
+    if not isinstance(body, dict):
+        return body
+    # Si le body racine contient déjà Motif + CodeApplicatif → format plat
+    if "Motif" in body and "CodeApplicatif" in body:
+        return body
+    # Cherche un wrapper unique contenant un dict avec Motif/CodeApplicatif
+    candidate_keys = [
+        k for k, v in body.items()
+        if isinstance(v, dict) and "Motif" in v and "CodeApplicatif" in v
+    ]
+    if len(candidate_keys) == 1:
+        inner = dict(body[candidate_keys[0]])
+        # Préserve le password racine s'il est fourni
+        if body.get("password") and "password" not in inner:
+            inner["password"] = body["password"]
+        return inner
+    return body
+
+
 def attach_error_registry_routes(*, api, db, get_current_user):
 
     @api.post("/errors/ingest", tags=["Registre des erreurs (Webhook)"])
     async def ingest_error(
-        payload: ErrorPayload = Body(...),
+        request: Request,
         authorization: Optional[str] = Header(default=None),
     ):
         """Public webhook for client software to push exceptions/errors.
@@ -111,6 +146,10 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         token must match `settings.global.errors_webhook_token`. If that
         setting is empty, the webhook accepts unauthenticated calls (dev
         only — admins must set a token in production).
+
+        Iter43 (2026-03) — Accepte les formats imbriqués (Aizenta:
+        `{TicketDemnde: {...}}`, Biolog: `{Erreur: {...}}` etc.) ainsi que
+        le format plat historique. L'unwrap est automatique.
         """
         s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1}) or {}
         expected = (s.get("errors_webhook_token") or "").strip()
@@ -118,6 +157,16 @@ def attach_error_registry_routes(*, api, db, get_current_user):
             got = (authorization or "").replace("Bearer ", "").strip()
             if got != expected:
                 raise HTTPException(status_code=401, detail="Token invalide")
+        # Lecture brute + unwrap auto si imbriqué
+        try:
+            raw_body = await request.json()
+        except Exception:
+            raise HTTPException(status_code=400, detail="Body JSON invalide")
+        adapted = _unwrap_payload(raw_body)
+        try:
+            payload = ErrorPayload.model_validate(adapted)
+        except Exception as exc:  # pydantic.ValidationError
+            raise HTTPException(status_code=422, detail=str(exc))
         doc = payload.model_dump()
         # ID + timestamps
         if not doc.get("IDTicketDemnde"):
@@ -258,6 +307,129 @@ def attach_error_registry_routes(*, api, db, get_current_user):
             raise HTTPException(status_code=400, detail="Au moins un critère requis (from_date, to_date ou code_client)")
         res = await db.error_registry.delete_many(q)
         return {"ok": True, "deleted": res.deleted_count}
+
+    # ================================================================ #
+    # Iter43 (2026-03) — Bulk delete (multi-sélection UI) + Reset total
+    # ================================================================ #
+    @api.post("/me/errors/bulk-delete", tags=["Registre des erreurs"])
+    async def bulk_delete_errors(
+        payload: BulkIdsPayload = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """Hard-delete les erreurs sélectionnées par leurs ids.
+        Admin ou Superviseur uniquement (Modérateur = lecture)."""
+        role = (user.get("role") or "").lower()
+        if role not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Suppression réservée Admin/Superviseur")
+        ids = [i for i in (payload.ids or []) if isinstance(i, str) and i]
+        if not ids:
+            raise HTTPException(status_code=400, detail="Aucun id fourni")
+        res = await db.error_registry.delete_many({"id": {"$in": ids}})
+        return {"ok": True, "deleted": res.deleted_count}
+
+    @api.post("/me/errors/reset", tags=["Registre des erreurs"])
+    async def reset_all_errors(user: dict = Depends(get_current_user)):
+        """Hard-delete TOUTES les erreurs (remise à zéro complète).
+        Réservé Admin/Superviseur."""
+        role = (user.get("role") or "").lower()
+        if role not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé Admin/Superviseur")
+        res = await db.error_registry.delete_many({})
+        return {"ok": True, "deleted": res.deleted_count}
+
+    # ================================================================ #
+    # Iter43 (2026-03) — Migration : récupère les entrées Aizenta qui ont
+    # atterri par erreur dans support_tickets (via /api/public/incidents)
+    # et les rebascule dans error_registry. Idempotent.
+    # ================================================================ #
+    @api.post("/admin/error-registry/migrate-from-tickets", tags=["Admin — Registre des erreurs"])
+    async def migrate_from_tickets(user: dict = Depends(get_current_user)):
+        role = (user.get("role") or "").lower()
+        if role not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé Admin/Superviseur")
+        # Repère les tickets webhook avec un body Aizenta-like dans metadata
+        q = {
+            "channel": "webhook",
+            "$or": [
+                {"metadata.IDTicketDemnde": {"$exists": True, "$ne": None}},
+                {"metadata.Motif": {"$exists": True, "$ne": None}},
+            ],
+        }
+        migrated = 0
+        skipped_already = 0
+        async for tk in db.support_tickets.find(q):
+            md = tk.get("metadata") or {}
+            # Skip si déjà présent dans error_registry (idempotence)
+            existing = None
+            if md.get("IDTicketDemnde"):
+                existing = await db.error_registry.find_one(
+                    {"IDTicketDemnde": md["IDTicketDemnde"]}, {"_id": 0, "id": 1}
+                )
+            if existing:
+                skipped_already += 1
+                continue
+            # Construit le doc error_registry depuis le metadata Aizenta
+            doc = {
+                "id": str(uuid.uuid4()),
+                "IDTicketDemnde": md.get("IDTicketDemnde") or str(uuid.uuid4()),
+                "DateHeure_Création": md.get("DateHeure_Création") or md.get("DateHeure_Creation")
+                or tk.get("created_at") or _now(),
+                "DateHeure_Modification": md.get("DateHeure_Modification") or _now(),
+                "NuméroDemandeur": md.get("NuméroDemandeur") or md.get("NumeroDemandeur"),
+                "Motif": md.get("Motif") or tk.get("description") or tk.get("motif") or "(vide)",
+                "Numéro_Généré": md.get("Numéro_Généré") or md.get("Numero_Genere"),
+                "estActif": md.get("estActif", True),
+                "StatutEnCours": md.get("StatutEnCours") or "exception",
+                "Code_Client": md.get("Code_Client"),
+                "CodeApplicatif": md.get("CodeApplicatif") or "INCONNU",
+                "RefContrat": md.get("RefContrat"),
+                "CoutTicket": md.get("CoutTicket") or 0,
+                "estClos": md.get("estClos", False),
+                "DateHeure_DébutExécution": md.get("DateHeure_DébutExécution"),
+                "DateHeure_FinExécution": md.get("DateHeure_FinExécution"),
+                "DateHeure_Approbation": md.get("DateHeure_Approbation"),
+                "Résultats": md.get("Résultats"),
+                "Recommandations": md.get("Recommandations"),
+                "estFacturé": md.get("estFacturé", False),
+                "NuméroFacture": md.get("NuméroFacture"),
+                "Réalisé_par": md.get("Réalisé_par"),
+                "EvaluationClient": md.get("EvaluationClient"),
+                "CompteClient": md.get("CompteClient"),
+                "TypeTicket": md.get("TypeTicket"),
+                "DateExpiration": md.get("DateExpiration"),
+                "CoutDéplacement": md.get("CoutDéplacement"),
+                "Approuvé_par": md.get("Approuvé_par"),
+                "DateHHeure_Validation": md.get("DateHHeure_Validation"),
+                "estApprouvé": md.get("estApprouvé", False),
+                "SurNomWA": md.get("SurNomWA"),
+                "Autorité": md.get("Autorité"),
+                "created_at": _now(),
+                "deleted_at": None,
+                "acknowledged": False,
+                "migrated_from_ticket_id": tk.get("id"),
+                "migrated_at": _now(),
+            }
+            if not doc["Numéro_Généré"]:
+                year = datetime.now(timezone.utc).year
+                try:
+                    from ._counters import next_seq
+                    seq = await next_seq(db, f"error_registry-{year}")
+                    doc["Numéro_Généré"] = f"ERR-{year}-{str(seq).zfill(5)}"
+                except Exception:
+                    doc["Numéro_Généré"] = f"ERR-{year}-{uuid.uuid4().hex[:6].upper()}"
+            await db.error_registry.insert_one(doc.copy())
+            # Marque le ticket comme migré (on ne supprime PAS — l'utilisateur
+            # pourra ensuite vider via le bouton "Reset" des tickets)
+            await db.support_tickets.update_one(
+                {"id": tk.get("id")},
+                {"$set": {"migrated_to_error_registry": True, "migrated_at": _now()}},
+            )
+            migrated += 1
+        return {
+            "ok": True,
+            "migrated": migrated,
+            "skipped_already": skipped_already,
+        }
 
 
 __all__ = ["attach_error_registry_routes"]

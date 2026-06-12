@@ -1,0 +1,52 @@
+{
+  "summary": "Iter43-bulk-and-migration — Backend 100% OK (9/9 nouveaux tests + 37/40 régression, 3 échecs régression dus à PYTHONPATH des tests existants, pas un bug). Frontend : pages ErrorRegistry et Tickets se chargent mais TOUS les boutons admin (err-migrate-btn, err-reset-btn, err-select-all, err-bulk-bar, tickets-reset-btn, tickets-select-all, tickets-bulk-bar, tickets-trash-btn) sont INVISIBLES car la détection du rôle échoue : ErrorRegistry.jsx:51 et Tickets.jsx:77 appellent GET /api/me qui retourne 404. AdminSettings non testée car bloquée par modal 'Briefing'.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "ErrorRegistry.jsx (ligne 51) + Tickets.jsx (ligne 77)",
+        "issue": "apiClient.get('/me') → 404 sur le backend. userRole reste ''. Conséquence: isAdminOrSup === false → AUCUN bouton admin ne s'affiche (err-migrate-btn, err-reset-btn, err-purge-btn, err-bulk-bar, err-select-all et leurs équivalents tickets). L'utilisateur admin/sup ne peut donc PAS utiliser la fonctionnalité de rapatriement des 469 tickets ni les bulk-delete/reset depuis l'UI.",
+        "selector": "[data-testid='err-migrate-btn'], [data-testid='err-reset-btn'], [data-testid='tickets-reset-btn'], [data-testid='err-select-all'], [data-testid='tickets-select-all']",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Détection rôle admin pour features bulk/migration",
+        "issue": "Endpoint /api/me inexistant côté backend (404). /api/me/account existe et retourne {user:{role}}. Soit ajouter un alias GET /api/me qui renvoie le user courant avec role, soit changer le frontend en const me = await apiClient.get('/me/account'); setUserRole(me.data?.user?.role || '');",
+        "affected_selectors": ["err-migrate-btn", "err-reset-btn", "err-bulk-bar", "tickets-reset-btn", "tickets-bulk-bar"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "AdminSettings",
+        "issues": ["Une modale 'Briefing — Bienvenue' bloque l'accès initial; testing agent n'a pas pu fermer la modal pour vérifier la carte errors-webhook-card (testid présent dans le code IncidentsAndCountrySection.jsx ligne 386, donc présumé OK une fois la modale fermée)"]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_bulk_and_migration.py",
+    "/app/test_reports/pytest/iter43_bulk_results.xml",
+    "/app/test_reports/pytest/iter43_bulk_regression.xml"
+  ],
+  "action_items": [
+    "CRITIQUE: Corriger la détection du rôle dans ErrorRegistry.jsx (ligne 51) et Tickets.jsx (ligne 77). Remplacer apiClient.get('/me') par apiClient.get('/me/account') + me.data?.user?.role, OU créer un endpoint GET /api/me côté backend qui renvoie l'objet user courant. Sans ce fix, le user ne peut pas utiliser le 'Rapatrier depuis tickets' ni les bulk-delete depuis l'UI (alors que les endpoints backend sont fonctionnels).",
+    "Optionnel: Vérifier que la modale 'Briefing' ne bloque pas le clic sur les tabs d'AdminSettings (j'ai vu une dialog modale persistante au chargement)."
+  ],
+  "critical_code_review_comments": [
+    "Backend: les 9 endpoints (ingest unwrap Aizenta/Biolog/flat + bulk-delete + reset + migrate) sont correctement implémentés et idempotents. Aucune régression sur error_registry / incidents / tenant_sharing.",
+    "Frontend: dépendance silencieuse sur /api/me qui n'existe pas. Le .catch(()=>{}) sur Tickets.jsx:77 masque l'erreur. Recommandation : utiliser l'AuthContext (qui a déjà le user en mémoire via sawali_user en localStorage) au lieu d'un appel API redondant — cela élimine le risque et améliore la perf.",
+    "Test test_iter43_tenant_sharing.py: 3 tests qui importent 'routes.tenant_sharing' échouent quand pytest est lancé depuis /app (PYTHONPATH). Ils passent depuis /app/backend. Ajouter conftest.py avec sys.path append ou utiliser un import via 'backend.routes...' pour stabilité."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (9/9 nouveaux + 37/40 régression, 3 échecs PYTHONPATH non bloquants)", "frontend": "30% (pages chargent, mais features admin invisibles)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — Login en 2 étapes: POST /api/auth/login (renvoie session_token+dev_otp), puis POST /api/auth/verify-otp avec {session_token, code: dev_otp} (PAS 'otp'). Token stocké dans localStorage['sawali_token'], user dans localStorage['sawali_user'].",
+  "seed_data_creation": "Aucune donnée de seed créée — toutes les fixtures pytest nettoient après elles.",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Backend 100% OK. Pour retester l'UI : (1) Soit le main agent ajoute GET /api/me, (2) Soit il change ErrorRegistry.jsx:51 et Tickets.jsx:77 pour utiliser /me/account. Puis se connecter en admin via la séquence login→verify-otp (clé 'code', pas 'otp'), injecter localStorage['sawali_token'] et localStorage['sawali_user'], puis visiter /portal/error-registry et /portal/tickets — les testids err-migrate-btn, err-reset-btn, err-select-all, tickets-reset-btn, tickets-select-all doivent apparaître. Pour AdminSettings: fermer d'abord la modale 'Briefing — Bienvenue' (bouton 'J'ai lu') avant de chercher errors-webhook-card.",
+  "rca of the issue": "RCA bug critique frontend: Dans ErrorRegistry.jsx (ligne 51) et Tickets.jsx (ligne 77), le code fait `apiClient.get('/me')` pour récupérer le rôle utilisateur. apiClient.baseURL = REACT_APP_BACKEND_URL + '/api', donc l'appel devient GET /api/me. Or aucun endpoint /api/me n'existe dans server.py — seul /api/me/account existe (qui retourne {user:{...,role}}). L'appel renvoie 404, le .catch silencieux laisse userRole='', isAdminOrSup=false, et tous les boutons admin sont masqués par les conditions {isAdminOrSup && ...} (lignes 177, 185, 241, 262, 295 d'ErrorRegistry et équivalents dans Tickets). Vérifié via curl: `GET /api/me → 404`, `GET /api/me/account → 200 {user:{role:'admin'}}`. Fix recommandé : `const me = await apiClient.get('/me/account'); setUserRole(me.data?.user?.role || '');`"
+}

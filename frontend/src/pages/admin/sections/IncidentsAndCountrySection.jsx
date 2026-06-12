@@ -328,6 +328,160 @@ requests.post(
           )}
         </div>
       </div>
+
+      {/* ============= Webhook Registre des Erreurs (Aizenta, Biolog, etc.) ============= */}
+      <ErrorRegistryWebhookCard apiBase={apiBase} />
+    </div>
+  );
+}
+
+// =====================================================================
+// Iter43 (2026-03) — Section dédiée au webhook /api/errors/ingest pour
+// les logiciels métier (Aizenta, Biolog, etc.). Token Bearer + URL.
+// =====================================================================
+function ErrorRegistryWebhookCard({ apiBase }) {
+  const [token, setToken] = useState("");
+  const [original, setOriginal] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [showToken, setShowToken] = useState(false);
+  const [migrating, setMigrating] = useState(false);
+  useEffect(() => {
+    apiClient.get("/admin/settings").then((r) => {
+      const t = r.data?.errors_webhook_token || "";
+      setToken(t);
+      setOriginal(t);
+    }).catch(() => {});
+  }, []);
+  const dirty = token !== original;
+  const saveToken = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put("/admin/settings", { errors_webhook_token: token });
+      setOriginal(token);
+      toast.success(token ? "Token enregistré" : "Token vidé (auth désactivée)");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+  const regenToken = () => {
+    // génère un token aléatoire 32 bytes hex
+    const bytes = new Uint8Array(32);
+    (window.crypto || window.msCrypto).getRandomValues(bytes);
+    const t = Array.from(bytes).map((b) => b.toString(16).padStart(2, "0")).join("");
+    setToken(t);
+    setShowToken(true);
+  };
+  const migrate = async () => {
+    if (!window.confirm("Rapatrier les erreurs envoyées par erreur sur /api/public/incidents (support_tickets) vers le Registre des Erreurs (collection error_registry) ?\n\nIdempotent — peut être relancé sans risque.")) return;
+    setMigrating(true);
+    try {
+      const r = await apiClient.post("/admin/error-registry/migrate-from-tickets");
+      toast.success(`Migration OK : ${r.data.migrated} migrée(s) · ${r.data.skipped_already} déjà présente(s)`);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur migration");
+    } finally { setMigrating(false); }
+  };
+  const fullErrorsUrl = `${apiBase}/api/errors/ingest`;
+  return (
+    <div className="ring-1 ring-amber-200 rounded-lg p-4 bg-amber-50/30" data-testid="errors-webhook-card">
+      <div className="flex items-start gap-3 mb-3">
+        <div className={`h-10 w-10 rounded-xl flex items-center justify-center ${token ? "bg-amber-100 text-amber-700" : "bg-slate-100 text-slate-500"}`}>
+          <AlertTriangle className="h-5 w-5" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-semibold text-slate-900">Webhook entrant — Registre des Erreurs (logiciels métier)</h3>
+          <p className="text-xs text-slate-600 mt-0.5">
+            Pour <strong>Aizenta, Biolog</strong> et tout logiciel client qui pousse ses exceptions / erreurs.
+            Endpoint distinct du webhook « Incidents serveur » ci-dessus.
+            Accepte les formats <em>plat</em> ou imbriqué (<code className="text-[10px] bg-white px-1 rounded ring-1 ring-slate-200">{`{TicketDemnde:{...}}`}</code> Aizenta, <code className="text-[10px] bg-white px-1 rounded ring-1 ring-slate-200">{`{Erreur:{...}}`}</code> Biolog…).
+          </p>
+        </div>
+        <span className={`text-[10px] uppercase tracking-wider font-medium px-2 py-1 rounded ring-1 self-start ${
+          token ? "bg-amber-100 text-amber-800 ring-amber-300" : "bg-slate-100 text-slate-600 ring-slate-300"
+        }`}>{token ? "Token actif" : "Pas d'auth"}</span>
+      </div>
+
+      <div className="space-y-3">
+        <div className="bg-white ring-1 ring-slate-200 rounded p-3 text-xs space-y-2">
+          <Field label="URL publique de l'endpoint">
+            <div className="flex gap-2">
+              <input readOnly value={fullErrorsUrl}
+                     className="flex-1 px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono bg-slate-50 text-slate-700"
+                     data-testid="errors-webhook-url" />
+              <button onClick={() => { navigator.clipboard.writeText(fullErrorsUrl); toast.success("URL copiée"); }}
+                      className="px-2 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50" data-testid="errors-webhook-copy-url">
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+          </Field>
+          <Field label={`Token Bearer (header Authorization: "Bearer <token>")${token ? "" : " — vide = pas d'auth (DÉCONSEILLÉ en production)"}`}>
+            <div className="flex gap-2">
+              <input value={token}
+                     onChange={(e) => setToken(e.target.value)}
+                     type={showToken ? "text" : "password"}
+                     placeholder="(aucun token configuré)"
+                     className="flex-1 px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+                     data-testid="errors-webhook-token-input" />
+              <button onClick={() => setShowToken((v) => !v)}
+                      className="px-2 py-1.5 rounded ring-1 ring-slate-300 hover:bg-slate-50 text-xs"
+                      data-testid="errors-webhook-token-toggle">
+                {showToken ? "Masquer" : "Afficher"}
+              </button>
+              <button onClick={regenToken}
+                      className="px-2 py-1.5 rounded ring-1 ring-amber-300 bg-amber-100 text-amber-900 hover:bg-amber-200 inline-flex items-center gap-1"
+                      data-testid="errors-webhook-token-regen">
+                <RefreshCw className="h-3 w-3" /> Générer
+              </button>
+              <button onClick={saveToken} disabled={!dirty || saving}
+                      className="px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1 disabled:opacity-50"
+                      data-testid="errors-webhook-token-save">
+                {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Save className="h-3 w-3" />} Enregistrer
+              </button>
+            </div>
+          </Field>
+        </div>
+
+        <details className="text-xs ring-1 ring-amber-200 rounded bg-white">
+          <summary className="cursor-pointer px-3 py-2 font-medium text-amber-900 hover:bg-amber-50">
+            💡 Exemple cURL (format Aizenta)
+          </summary>
+          <pre className="px-3 py-2 text-[10px] bg-slate-900 text-amber-100 overflow-x-auto rounded-b">
+{`curl -X POST "${fullErrorsUrl}" \\
+  -H "Authorization: Bearer ${token || "VOTRE_TOKEN"}" \\
+  -H "Content-Type: application/json" \\
+  -d '{
+    "TicketDemnde": {
+      "Motif": "Erreur d écriture port 1",
+      "CodeApplicatif": "WAB",
+      "Code_Client": "AMY",
+      "CompteClient": "Pharmacie X",
+      "TypeTicket": "Erreur",
+      "StatutEnCours": "exception"
+    }
+  }'`}
+          </pre>
+        </details>
+
+        <div className="bg-sky-50 ring-1 ring-sky-200 rounded p-3">
+          <div className="flex items-start gap-2">
+            <RefreshCw className="h-4 w-4 text-sky-700 mt-0.5 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-xs font-medium text-sky-900">Migration depuis le webhook Incidents</p>
+              <p className="text-[11px] text-sky-800 mt-0.5">
+                Si vous aviez configuré Aizenta par erreur sur <code className="bg-white px-1 rounded ring-1 ring-sky-300">/api/public/incidents</code>,
+                vos erreurs sont allées dans la table des tickets de support.
+                Ce bouton rebalance les entrées « webhook + metadata Aizenta » vers le Registre. <strong>Idempotent</strong>.
+              </p>
+            </div>
+            <button onClick={migrate} disabled={migrating}
+                    className="text-xs px-3 py-1.5 rounded bg-sky-600 hover:bg-sky-700 text-white inline-flex items-center gap-1 disabled:opacity-50 flex-shrink-0"
+                    data-testid="errors-webhook-migrate-btn">
+              {migrating ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+              {migrating ? "Migration…" : "Rapatrier"}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }

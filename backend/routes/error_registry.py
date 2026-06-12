@@ -61,7 +61,7 @@ class ErrorPayload(BaseModel):
     DateHeure_Création: Optional[str] = None
     DateHeure_Modification: Optional[str] = None
     NuméroDemandeur: Optional[str] = Field(default=None, max_length=64)
-    Motif: str = Field(..., min_length=1, max_length=2000)
+    Motif: str = Field(..., min_length=1, max_length=200000)
     Numéro_Généré: Optional[str] = Field(default=None, max_length=64)
     estActif: Optional[bool] = True
     StatutEnCours: Optional[str] = Field(default=None, max_length=40)  # "exception"|"fatale"|...

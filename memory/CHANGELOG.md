@@ -2,6 +2,34 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix6 — Suivi paiement factures interventions
+
+### Contexte
+Demande utilisateur : remplacer la suggestion d'envoi automatique par un suivi du **retard de paiement** calculé à partir de la **date/heure de dépôt** de la facture (par opposition à la date d'émission). Permet de tracer le délai client.
+
+### Backend (`server.py`)
+- `interventions_invoices` étendu avec : `deposited_at` (ISO), `paid_at` (ISO), `due_days` (int, 30 par défaut).
+- **`PUT /api/admin/invoices/from-interventions/{inv_id}`** (admin/sup) — accepte `deposited_at`, `paid_at`, `due_days`, `clear_deposited_at`, `clear_paid_at`. Renvoie la facture enrichie.
+- **`GET /api/me/invoices/from-interventions`** — chaque item enrichi avec `payment_status` (paid|unpaid|cancelled) et `days_overdue` (int ou null).
+- **PDF facture** — affiche maintenant la ligne « Date/heure de dépôt » + tampon vert « PAYÉE le … » ou tampon rouge « EN RETARD DE N JOUR(S) ».
+- Helper `_enrich_invoice_payment(inv)` mutualise le calcul.
+
+### Frontend (`Interventions.jsx`)
+- Nouveau panneau repliable **« Factures émises »** (admin/sup, `data-testid=invoices-panel`) avec badges « N en retard » (rouge), « N payée(s) », « N en attente ».
+- Tableau : N° Facture, Tenant, Total, Dépôt, Échéance, Paiement, Retard, Actions.
+- **EditInvoicePaymentModal** (`invoice-edit-modal`) avec datetime-local pour Dépôt/Paiement, boutons « Maintenant » et « Marquer payée ».
+- Lignes en retard : pastille rouge animée + texte « X j de retard ».
+
+### Bug critique fixé par testing agent
+- MongoDB rejetait l'update simultané `$set: {field: None}` + `$unset: {field: ""}` sur le même champ (WriteError code 40). Correctif : ne pas inclure le champ dans `$set` quand `clear_*=true` ; seul `$unset` reste.
+
+### Tests
+- `/app/backend/tests/test_iter43_fix6_invoice_payment_tracking.py` — **12/12 PASS** + régression iter56 (10/10) = **22/22**.
+- E2E UI : panneau visible, testids conformes, badges et colonnes OK (`iteration_58.json`).
+
+---
+
+
 ## 2026-03 — Iter43-fix5 — UX Registre Erreurs + Tri Contacts
 
 ### Frontend

@@ -107,7 +107,7 @@ class TestLastInteractionAtEnrichment:
                 "created_at": datetime.now(timezone.utc).isoformat(),
             })
             wa_msg_id = str(uuid.uuid4())
-            await db.wa_messages.insert_one({
+            await db.whatsapp_messages.insert_one({
                 "id": wa_msg_id,
                 "from": phone,
                 "to": "+22670000000",
@@ -129,6 +129,6 @@ class TestLastInteractionAtEnrichment:
                 )
             finally:
                 await db.directory_contacts.delete_one({"id": cid})
-                await db.wa_messages.delete_one({"id": wa_msg_id})
+                await db.whatsapp_messages.delete_one({"id": wa_msg_id})
 
         _run(go())

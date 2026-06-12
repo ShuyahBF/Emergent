@@ -13321,9 +13321,11 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     if phone_map:
         last_by_phone: Dict[str, str] = {}
         try:
-            async for msg in db.wa_messages.find(
+            # Iter43-fix7 — collection réelle = `whatsapp_messages` (PAS wa_messages).
+            # Projection ciblée + sort sur index timestamp/created_at pour scan rapide.
+            async for msg in db.whatsapp_messages.find(
                 {}, {"_id": 0, "from": 1, "to": 1, "timestamp": 1, "created_at": 1, "received_at": 1, "sent_at": 1},
-            ).sort("timestamp", -1).limit(20000):
+            ).sort("created_at", -1).limit(10000):
                 ts = msg.get("timestamp") or msg.get("received_at") or msg.get("sent_at") or msg.get("created_at")
                 if not ts:
                     continue
@@ -13338,7 +13340,7 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
         try:
             async for msg in db.sms_messages.find(
                 {}, {"_id": 0, "to": 1, "from": 1, "sent_at": 1, "created_at": 1, "received_at": 1},
-            ).sort("created_at", -1).limit(20000):
+            ).sort("created_at", -1).limit(10000):
                 ts = msg.get("sent_at") or msg.get("received_at") or msg.get("created_at")
                 if not ts:
                     continue
@@ -19782,6 +19784,17 @@ async def on_startup():
     await db.directory_contacts.create_index("client_id")
     await db.directory_contacts.create_index([("client_id", 1), ("owner_id", 1)])
     await db.directory_contacts.create_index("unique_code")
+    # Iter43-fix7 — Indexes message collections pour accélérer last_interaction_at
+    await db.whatsapp_messages.create_index([("created_at", -1)])
+    await db.whatsapp_messages.create_index([("timestamp", -1)])
+    await db.whatsapp_messages.create_index("from")
+    await db.whatsapp_messages.create_index("to")
+    await db.sms_messages.create_index([("created_at", -1)])
+    await db.sms_messages.create_index("from")
+    await db.sms_messages.create_index("to")
+    # Iter43-fix6 — Index sur invoices interventions pour list/sort + lookup tenant
+    await db.interventions_invoices.create_index([("tenant_id", 1), ("created_at", -1)])
+    await db.interventions_invoices.create_index("invoice_number")
     # One-shot backfill: assign a stable unique_code to any pre-existing contact
     # that doesn't have one yet. The code is generated per client/year using
     # the same counter as new contacts so sequencing is preserved.

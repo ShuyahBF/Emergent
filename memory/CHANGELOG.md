@@ -2,6 +2,27 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix7 — Optimisation `last_interaction_at` + bug fix collection
+
+### Bug critique fixé
+- `me_list_contacts` scannait `db.wa_messages` mais la **vraie collection** est `db.whatsapp_messages` (utilisée à 9+ endroits dans server.py pour les inserts WA). Conséquence : le champ `last_interaction_at` retourné en iter43-fix5 était **TOUJOURS null** en production (sauf pour les SMS). 🐛
+- Correctif : changement de collection + même logique d'enrichissement digits-10.
+
+### Optimisations
+- **Limite réduite** de 20 000 → 10 000 messages les plus récents scannés par appel.
+- **Indexes ajoutés** (idempotent, créés au startup) :
+  - `whatsapp_messages` : `created_at` desc, `timestamp` desc, `from`, `to`
+  - `sms_messages` : `created_at` desc, `from`, `to`
+  - `interventions_invoices` : `(tenant_id, created_at desc)`, `invoice_number`
+- **Projection ciblée** : seuls `from/to/timestamp/created_at/received_at/sent_at` sont fetchés.
+
+### Tests
+- `test_iter43_fix5_last_interaction_at.py` mis à jour pour utiliser `whatsapp_messages` (3/3 PASS).
+- Régression sur 25 tests (fix5 + fix6 + iter56) + 34 tests (error_registry + tenant_sharing + bulk + interventions_history) = **59/59 PASS**.
+
+---
+
+
 ## 2026-03 — Iter43-fix6 — Suivi paiement factures interventions
 
 ### Contexte

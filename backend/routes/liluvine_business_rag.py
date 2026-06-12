@@ -38,7 +38,7 @@ from typing import Any, Dict, List, Optional
 logger = logging.getLogger("sawali.liluvine_business_rag")
 
 
-MODULES = ("rdv", "tickets", "hr", "caisse", "payments", "contacts")
+MODULES = ("rdv", "tickets", "hr", "caisse", "payments", "contacts", "errors")
 
 # Patterns d'intention par module (large, casse-insensible)
 INTENT_PATTERNS: Dict[str, re.Pattern] = {
@@ -48,6 +48,10 @@ INTENT_PATTERNS: Dict[str, re.Pattern] = {
     "caisse": re.compile(r"\b(caisse|recettes?|encaissements?|journ[ée]e|chiffre.?d.?affaire|ca\s+du\s+jour)\b", re.IGNORECASE),
     "payments": re.compile(r"\b(paiements?|payments?|pawapay|mobile.?money|stripe|encaiss[ée]s?|r[èe]glements?)\b", re.IGNORECASE),
     "contacts": re.compile(r"\b(contacts?|annuaire|clients?|fiches?)\b", re.IGNORECASE),
+    # Iter43-fix2 (2026-03) — Module "errors" : Liluvine peut interroger le
+    # Registre des Erreurs (erreurs remontées par les logiciels métier
+    # Aizenta, Biolog, etc.).
+    "errors": re.compile(r"\b(erreurs?|exceptions?|crashes?|plantages?|registre.?des.?erreurs?|bugs?|stack.?traces?|fatales?|critiques?)\b", re.IGNORECASE),
 }
 
 
@@ -283,6 +287,63 @@ async def _fetch_contacts(db, tenant_id: str, query: str) -> str:
     return "\n".join(lines)
 
 
+async def _fetch_errors(db, tenant_id: str) -> str:
+    """Iter43-fix2 (2026-03) — Résumé Registre des Erreurs pour Liluvine.
+
+    Le `Code_Client` envoyé par les logiciels métier correspond au tenant
+    Sawali (champ `client_code` ou `company` côté User). On résout les
+    valeurs candidates, puis on récupère les erreurs récentes (30 derniers
+    jours) regroupées par sévérité.
+    """
+    tenant = await db.users.find_one(
+        {"id": tenant_id},
+        {"_id": 0, "client_code": 1, "company": 1, "full_name": 1},
+    )
+    if not tenant:
+        return ""
+    codes = {(tenant.get("client_code") or "").strip().upper(),
+             (tenant.get("company") or "").strip().upper()}
+    codes.discard("")
+    if not codes:
+        return ""
+    since = (datetime.now(timezone.utc) - timedelta(days=30)).isoformat()
+    q = {
+        "deleted_at": None,
+        "Code_Client": {"$in": list(codes)},
+        "DateHeure_Création": {"$gte": since},
+    }
+    total = await db.error_registry.count_documents(q)
+    if total == 0:
+        return f"**Registre des Erreurs (30j)** : aucune erreur pour {tenant.get('company') or tenant_id}."
+    # Compteurs par sévérité (mapped_severity OU heuristique sur StatutEnCours)
+    crit = await db.error_registry.count_documents({**q, "$or": [
+        {"mapped_severity": "critical"},
+        {"mapped_severity": {"$exists": False}, "StatutEnCours": {"$regex": "^(fatale|fatal|critical|critique)$", "$options": "i"}},
+    ]})
+    high = await db.error_registry.count_documents({**q, "$or": [
+        {"mapped_severity": "high"},
+        {"mapped_severity": {"$exists": False}, "StatutEnCours": {"$regex": "^(exception|erreur|error)$", "$options": "i"}},
+    ]})
+    unack = await db.error_registry.count_documents({**q, "acknowledged": {"$ne": True}, "estActif": True})
+    # Top 5 récentes
+    cur = db.error_registry.find(q, {"_id": 0, "DateHeure_Création": 1, "CodeApplicatif": 1, "StatutEnCours": 1, "Motif": 1, "Numéro_Généré": 1, "mapped_severity": 1}).sort("DateHeure_Création", -1).limit(5)
+    rows = await cur.to_list(5)
+    lines = [
+        f"**Registre des Erreurs — 30 derniers jours pour {tenant.get('company') or tenant_id}** :",
+        f"- Total : {total} · 🔴 Critical : {crit} · 🟠 High : {high} · 🔔 Non lues : {unack}",
+        "Dernières erreurs :",
+    ]
+    for r in rows:
+        d = (r.get("DateHeure_Création") or "")[:16].replace("T", " ")
+        motif = (r.get("Motif") or "").splitlines()[0][:120]
+        sev = (r.get("mapped_severity") or r.get("StatutEnCours") or "—")
+        app = r.get("CodeApplicatif") or "?"
+        num = r.get("Numéro_Généré") or ""
+        lines.append(f"- {d} · [{app}] · {sev} · {num} · {motif}")
+    return "\n".join(lines)
+
+
+
 # ============================================================
 # Build the full RAG context for a given phone+query
 # ============================================================
@@ -330,6 +391,9 @@ async def build_business_rag_context(
                 snip = await _fetch_contacts(db, tenant_id, query)
                 if snip:
                     snippets.append(snip)
+            elif module == "errors":
+                # Iter43-fix2 — Liluvine accède au Registre des Erreurs
+                snippets.append(await _fetch_errors(db, tenant_id))
         except Exception:  # noqa: BLE001
             logger.exception("[business_rag.%s] fetch failed", module)
     snippets = [s for s in snippets if s]

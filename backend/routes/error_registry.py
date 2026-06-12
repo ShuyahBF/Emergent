@@ -223,6 +223,7 @@ def attach_error_registry_routes(*, api, db, get_current_user):
     async def list_errors(
         code_client: Optional[str] = Query(default=None),
         status: Optional[str] = Query(default=None),
+        severity: Optional[str] = Query(default=None),  # Iter43-fix2 — low|medium|high|critical
         active_only: Optional[bool] = Query(default=None),
         search: Optional[str] = Query(default=None),
         date_window: Optional[str] = Query(default=None),  # "today" | "7d" | "30d"
@@ -236,7 +237,43 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         if code_client:
             q["Code_Client"] = code_client
         if status:
-            q["StatutEnCours"] = status
+            # Iter43-fix2 — match case-insensitive (les logiciels métier
+            # envoient "Fatale", "fatale", "FATALE" indifféremment).
+            import re as _re
+            q["StatutEnCours"] = {"$regex": f"^{_re.escape(status)}$", "$options": "i"}
+        if severity:
+            sev_lc = (severity or "").strip().lower()
+            if sev_lc in ("low", "medium", "high", "critical"):
+                # Match soit sur le mapped_severity persisté soit sur l'heuristique
+                # de secours pour les entrées legacy.
+                heur_map = {
+                    "critical": ["fatale", "fatal", "critical", "critique"],
+                    "high": ["exception", "erreur", "error"],
+                    "medium": ["warning", "avertissement"],
+                }
+                legacy_terms = heur_map.get(sev_lc, [])
+                clauses = [{"mapped_severity": sev_lc}]
+                if legacy_terms:
+                    import re as _re
+                    pattern = "^(" + "|".join(_re.escape(t) for t in legacy_terms) + ")$"
+                    clauses.append({
+                        "mapped_severity": {"$exists": False},
+                        "StatutEnCours": {"$regex": pattern, "$options": "i"},
+                    })
+                if sev_lc == "low":
+                    # Low = catch-all : entrées sans mapped_severity ET dont le
+                    # StatutEnCours ne matche aucune heuristique high/critical/medium.
+                    clauses.append({
+                        "mapped_severity": {"$exists": False},
+                        "$nor": [
+                            {"StatutEnCours": {"$regex": "^(fatale|fatal|critical|critique|exception|erreur|error|warning|avertissement)$", "$options": "i"}},
+                        ],
+                    })
+                # Combine avec le reste via $and pour préserver les autres filtres
+                existing_or = q.pop("$or", None)
+                q.setdefault("$and", []).append({"$or": clauses})
+                if existing_or:
+                    q["$and"].append({"$or": existing_or})
         if active_only is not None:
             q["estActif"] = active_only
         if search:
@@ -260,6 +297,37 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         total = await db.error_registry.count_documents(q)
         cursor = db.error_registry.find(q, {"_id": 0}).sort("DateHeure_Création", -1).skip(skip).limit(limit)
         items = await cursor.to_list(limit)
+        # Iter43-fix2 (2026-03) — Point 4 : Code_Client envoyé par les logiciels
+        # métier correspond à un tenant Sawali. On résout le nom (company)
+        # pour chaque entrée en un seul lookup.
+        codes = {(i.get("Code_Client") or "").strip().upper() for i in items if i.get("Code_Client")}
+        codes.discard("")
+        if codes:
+            tenant_map: Dict[str, Dict[str, Any]] = {}
+            # Match insensible à la casse : on charge tous les tenants candidats
+            # (admin/sup) ayant ces codes.
+            async for u in db.users.find(
+                {
+                    "role": {"$in": ["admin", "superviseur", "client"]},
+                    "$or": [
+                        {"client_code": {"$in": list(codes)}},
+                        {"company": {"$in": list(codes)}},
+                    ],
+                },
+                {"_id": 0, "id": 1, "company": 1, "full_name": 1, "client_code": 1, "email": 1},
+            ):
+                ccode = (u.get("client_code") or u.get("company") or "").strip().upper()
+                if ccode:
+                    tenant_map[ccode] = {
+                        "tenant_id": u.get("id"),
+                        "tenant_name": u.get("company") or u.get("full_name") or u.get("email"),
+                    }
+            for it in items:
+                cc = (it.get("Code_Client") or "").strip().upper()
+                t = tenant_map.get(cc)
+                if t:
+                    it["tenant_id"] = t["tenant_id"]
+                    it["tenant_name"] = t["tenant_name"]
         return {"items": items, "total": total}
 
     @api.get("/me/errors/stats", tags=["Registre des erreurs"])
@@ -301,6 +369,35 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         if res.matched_count == 0:
             raise HTTPException(status_code=404, detail="Erreur introuvable")
         return {"ok": True}
+
+    # Iter43-fix2 (2026-03) — Bulk acknowledge (multi-sélection UI)
+    @api.post("/me/errors/bulk-acknowledge", tags=["Registre des erreurs"])
+    async def bulk_acknowledge(payload: BulkIdsPayload = Body(...), user: dict = Depends(get_current_user)):
+        if not _can_access(user):
+            raise HTTPException(status_code=403, detail="Accès réservé")
+        ids = [i for i in (payload.ids or []) if isinstance(i, str) and i]
+        if not ids:
+            raise HTTPException(status_code=400, detail="Aucun id fourni")
+        res = await db.error_registry.update_many(
+            {"id": {"$in": ids}, "acknowledged": {"$ne": True}},
+            {"$set": {"acknowledged": True, "acknowledged_at": _now(), "acknowledged_by": user.get("email")}},
+        )
+        return {"ok": True, "acknowledged": res.modified_count}
+
+    # Iter43-fix2 — Acknowledge ALL unread (visible) errors. Idempotent.
+    @api.post("/me/errors/acknowledge-all", tags=["Registre des erreurs"])
+    async def acknowledge_all(user: dict = Depends(get_current_user)):
+        """Marque comme lues TOUTES les erreurs non lues, indépendamment des
+        filtres actuels et de la pagination. Réservé Admin/Superviseur (le
+        Modérateur peut lire mais pas tout marquer en masse)."""
+        role = (user.get("role") or "").lower()
+        if role not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé Admin/Superviseur")
+        res = await db.error_registry.update_many(
+            {"deleted_at": None, "acknowledged": {"$ne": True}},
+            {"$set": {"acknowledged": True, "acknowledged_at": _now(), "acknowledged_by": user.get("email"), "acknowledged_bulk": True}},
+        )
+        return {"ok": True, "acknowledged": res.modified_count}
 
     @api.get("/me/errors/{eid}", tags=["Registre des erreurs"])
     async def get_error(eid: str, user: dict = Depends(get_current_user)):

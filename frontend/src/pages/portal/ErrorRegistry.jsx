@@ -35,14 +35,17 @@ export default function ErrorRegistry() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [severityFilter, setSeverityFilter] = useState(""); // Iter43-fix2 — low|medium|high|critical
   const [codeClient, setCodeClient] = useState("");
   const [dateWindow, setDateWindow] = useState("");
   const [activeOnly, setActiveOnly] = useState(false);
   const [skip, setSkip] = useState(0);
+  const [pageSize, setPageSize] = useState(PAGE_SIZE);  // Iter43-fix2 — taille de page configurable
+  const [gotoInput, setGotoInput] = useState("");
   const [detail, setDetail] = useState(null);
   const [purgeOpen, setPurgeOpen] = useState(false);
   const [userRole, setUserRole] = useState("");
-  // Iter43 — multi-sélection pour bulk delete
+  // Iter43 — multi-sélection pour bulk delete + acknowledge
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [migrating, setMigrating] = useState(false);
   const { user: authUser } = useAuth();
@@ -53,9 +56,10 @@ export default function ErrorRegistry() {
   const load = async () => {
     setLoading(true);
     try {
-      const params = { limit: PAGE_SIZE, skip };
+      const params = { limit: pageSize, skip };
       if (search.trim()) params.search = search.trim();
       if (statusFilter) params.status = statusFilter;
+      if (severityFilter) params.severity = severityFilter;
       if (codeClient.trim()) params.code_client = codeClient.trim();
       if (dateWindow) params.date_window = dateWindow;
       if (activeOnly) params.active_only = true;
@@ -76,7 +80,10 @@ export default function ErrorRegistry() {
   useEffect(() => {
     const t = setTimeout(() => { load(); }, search ? 350 : 0);
     return () => clearTimeout(t);
-  }, [skip, statusFilter, codeClient, dateWindow, activeOnly, search]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [skip, pageSize, statusFilter, severityFilter, codeClient, dateWindow, activeOnly, search]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Iter43-fix2 — Reset skip si on change un filtre (sinon on peut tomber sur une page vide)
+  useEffect(() => { setSkip(0); }, [statusFilter, severityFilter, codeClient, dateWindow, activeOnly, search, pageSize]);
 
   const openDetail = useCallback(async (id) => {
     try {
@@ -128,6 +135,32 @@ export default function ErrorRegistry() {
     try {
       const r = await apiClient.post("/me/errors/bulk-delete", { ids: Array.from(selectedIds) });
       toast.success(`${r.data.deleted} erreur(s) supprimée(s)`);
+      clearSelection();
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  // Iter43-fix2 — Mark as read (sélection) + Tout marquer comme lu
+  const bulkAcknowledge = async () => {
+    if (selectedIds.size === 0) return;
+    try {
+      const r = await apiClient.post("/me/errors/bulk-acknowledge", { ids: Array.from(selectedIds) });
+      toast.success(`${r.data.acknowledged} erreur(s) marquée(s) comme lue(s)`);
+      clearSelection();
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  const acknowledgeAll = async () => {
+    const u = stats.unacknowledged || 0;
+    if (!u) {
+      toast.info("Aucune erreur non lue.");
+      return;
+    }
+    if (!window.confirm(`Marquer comme lues les ${u} erreur(s) non lues (TOUTES, hors filtres) ?`)) return;
+    try {
+      const r = await apiClient.post("/me/errors/acknowledge-all");
+      toast.success(`${r.data.acknowledged} erreur(s) marquée(s) comme lue(s)`);
       clearSelection();
       load();
     } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
@@ -218,12 +251,20 @@ export default function ErrorRegistry() {
                  className="w-full pl-7 pr-2 py-1.5 text-xs rounded ring-1 ring-slate-300"
                  data-testid="err-search" />
         </div>
-        <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
-                className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300" data-testid="err-status-filter">
-          <option value="">Tous statuts</option>
-          <option value="exception">Exception</option>
-          <option value="fatale">Fatale</option>
+        {/* Iter43-fix2 — Filtre par Sévérité (low/medium/high/critical) */}
+        <select value={severityFilter} onChange={(e) => setSeverityFilter(e.target.value)}
+                className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300" data-testid="err-severity-filter"
+                title="Sévérité résolue depuis le mapping admin">
+          <option value="">Toutes sévérités</option>
+          <option value="critical">🔴 Critical</option>
+          <option value="high">🟠 High</option>
+          <option value="medium">🟡 Medium</option>
+          <option value="low">⚪ Low</option>
         </select>
+        <input value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
+               placeholder="Statut exact (ex: fatale)"
+               className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 w-40" data-testid="err-status-filter"
+               title="Filtre case-insensitive sur le StatutEnCours envoyé par le logiciel" />
         <input value={codeClient} onChange={(e) => setCodeClient(e.target.value)}
                placeholder="Code Client…"
                className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 w-32" data-testid="err-code-client" />
@@ -238,6 +279,15 @@ export default function ErrorRegistry() {
           <input type="checkbox" checked={activeOnly} onChange={(e) => setActiveOnly(e.target.checked)} className="h-3.5 w-3.5" data-testid="err-active-only" />
           Actives seulement
         </label>
+        {/* Iter43-fix2 — Bouton "Tout marquer comme lu" (admin/sup) */}
+        {isAdminOrSup && (stats.unacknowledged || 0) > 0 && (
+          <button onClick={acknowledgeAll}
+                  className="text-xs px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1"
+                  data-testid="err-ack-all-btn"
+                  title={`Marquer comme lues les ${stats.unacknowledged} erreur(s) non lues (toutes)`}>
+            <CheckCircle2 className="h-3 w-3" /> Tout marquer comme lu ({stats.unacknowledged})
+          </button>
+        )}
       </div>
 
       {/* Iter43 — Bulk action bar (visible quand sélection non vide) */}
@@ -249,6 +299,9 @@ export default function ErrorRegistry() {
           <div className="flex gap-2">
             <button onClick={clearSelection} className="text-xs px-2 py-1 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-50" data-testid="err-bulk-clear">
               Annuler
+            </button>
+            <button onClick={bulkAcknowledge} className="text-xs px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1" data-testid="err-bulk-acknowledge">
+              <CheckCircle2 className="h-3 w-3" /> Marquer la sélection comme lue
             </button>
             <button onClick={bulkDelete} className="text-xs px-3 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white inline-flex items-center gap-1" data-testid="err-bulk-delete">
               <Trash2 className="h-3 w-3" /> Supprimer la sélection
@@ -311,7 +364,16 @@ export default function ErrorRegistry() {
                       <Icon className="h-2.5 w-2.5" /> {b.label}
                     </span>
                   </td>
-                  <td className="px-2 py-1.5">{e.Code_Client || "—"}</td>
+                  <td className="px-2 py-1.5" title={e.tenant_name ? `Tenant Sawali : ${e.tenant_name}` : undefined}>
+                    {e.tenant_name ? (
+                      <span className="inline-flex items-center gap-1">
+                        <span className="font-mono text-[10px] text-slate-500">{e.Code_Client}</span>
+                        <span className="text-[11px] text-emerald-700 bg-emerald-50 ring-1 ring-emerald-200 rounded px-1.5 py-0.5">
+                          {e.tenant_name}
+                        </span>
+                      </span>
+                    ) : (e.Code_Client || "—")}
+                  </td>
                   <td className="px-2 py-1.5"><code className="text-[10px]">{e.CodeApplicatif}</code></td>
                   <td className="px-2 py-1.5 max-w-md truncate" title={e.Motif}>{e.Motif}</td>
                   <td className="px-2 py-1.5">{e.SurNomWA || "—"}</td>
@@ -329,14 +391,16 @@ export default function ErrorRegistry() {
         </table>
       </div>
 
-      {/* Pagination */}
-      <div className="flex items-center justify-between text-xs text-slate-500">
-        <span>{total} erreur(s) au total · {Math.min(skip + PAGE_SIZE, total)} affichées</span>
-        <div className="flex gap-1">
-          <button disabled={skip === 0} onClick={() => setSkip(Math.max(0, skip - PAGE_SIZE))} className="px-2 py-1 ring-1 ring-slate-300 rounded disabled:opacity-50">←</button>
-          <button disabled={skip + PAGE_SIZE >= total} onClick={() => setSkip(skip + PAGE_SIZE)} className="px-2 py-1 ring-1 ring-slate-300 rounded disabled:opacity-50">→</button>
-        </div>
-      </div>
+      {/* Iter43-fix2 — Pagination complète (First/Prev/N/Next/Last + Go-to + page size) */}
+      <Pagination
+        total={total}
+        skip={skip}
+        pageSize={pageSize}
+        onSkipChange={setSkip}
+        onPageSizeChange={setPageSize}
+        gotoInput={gotoInput}
+        onGotoInputChange={setGotoInput}
+      />
 
       {/* Detail modal */}
       {detail && (
@@ -444,3 +508,83 @@ function PurgeModal({ onClose, onDone }) {
     </div>
   );
 }
+
+// =====================================================================
+// Iter43-fix2 (2026-03) — Composant Pagination réutilisable
+// (First / Prev / page numbers windowed / Next / Last + Go-to + page size)
+// =====================================================================
+function Pagination({ total, skip, pageSize, onSkipChange, onPageSizeChange, gotoInput, onGotoInputChange }) {
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const currentPage = Math.floor(skip / pageSize) + 1;
+  const goTo = (p) => {
+    const clamped = Math.max(1, Math.min(totalPages, p | 0));
+    onSkipChange((clamped - 1) * pageSize);
+  };
+  const onSubmitGoto = (e) => {
+    e?.preventDefault?.();
+    const n = parseInt(gotoInput, 10);
+    if (!isNaN(n)) goTo(n);
+    onGotoInputChange("");
+  };
+  // Window de 5 pages autour de la page courante
+  const windowSize = 5;
+  let start = Math.max(1, currentPage - Math.floor(windowSize / 2));
+  let end = Math.min(totalPages, start + windowSize - 1);
+  if (end - start + 1 < windowSize) start = Math.max(1, end - windowSize + 1);
+  const pages = [];
+  for (let i = start; i <= end; i++) pages.push(i);
+
+  if (total === 0) return null;
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-600" data-testid="err-pagination">
+      <div>
+        <span data-testid="err-pagination-info">
+          {(total || 0).toLocaleString("fr-FR")} erreur(s) au total · Page <strong>{currentPage}</strong> / {totalPages.toLocaleString("fr-FR")} · {Math.min(skip + pageSize, total).toLocaleString("fr-FR")} affichées
+        </span>
+      </div>
+      <div className="flex items-center gap-1">
+        <label className="inline-flex items-center gap-1 mr-2">
+          <span className="text-slate-500">Lignes/page :</span>
+          <select value={pageSize} onChange={(e) => onPageSizeChange(parseInt(e.target.value, 10))}
+                  className="px-1 py-1 rounded ring-1 ring-slate-300 bg-white"
+                  data-testid="err-page-size">
+            {[25, 50, 100, 200, 500].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+        <button disabled={currentPage === 1} onClick={() => goTo(1)}
+                className="px-2 py-1 ring-1 ring-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40"
+                title="Première page" data-testid="err-page-first">«</button>
+        <button disabled={currentPage === 1} onClick={() => goTo(currentPage - 1)}
+                className="px-2 py-1 ring-1 ring-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40"
+                title="Précédente" data-testid="err-page-prev">‹</button>
+        {start > 1 && <span className="px-1 text-slate-400">…</span>}
+        {pages.map((p) => (
+          <button key={p} onClick={() => goTo(p)}
+                  className={`px-2 py-1 ring-1 rounded min-w-[28px] ${p === currentPage ? "bg-indigo-600 text-white ring-indigo-600 font-semibold" : "bg-white ring-slate-300 hover:bg-slate-50"}`}
+                  data-testid={`err-page-${p}`}>
+            {p}
+          </button>
+        ))}
+        {end < totalPages && <span className="px-1 text-slate-400">…</span>}
+        <button disabled={currentPage === totalPages} onClick={() => goTo(currentPage + 1)}
+                className="px-2 py-1 ring-1 ring-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40"
+                title="Suivante" data-testid="err-page-next">›</button>
+        <button disabled={currentPage === totalPages} onClick={() => goTo(totalPages)}
+                className="px-2 py-1 ring-1 ring-slate-300 rounded bg-white hover:bg-slate-50 disabled:opacity-40"
+                title="Dernière page" data-testid="err-page-last">»</button>
+        {totalPages > windowSize && (
+          <form onSubmit={onSubmitGoto} className="inline-flex items-center gap-1 ml-2">
+            <span className="text-slate-500">Aller à :</span>
+            <input value={gotoInput} onChange={(e) => onGotoInputChange(e.target.value)}
+                   placeholder={`1-${totalPages}`}
+                   className="w-20 px-1.5 py-1 rounded ring-1 ring-slate-300 bg-white"
+                   data-testid="err-page-goto-input" />
+            <button type="submit" className="px-2 py-1 ring-1 ring-slate-300 rounded bg-white hover:bg-slate-50"
+                    data-testid="err-page-goto-btn">OK</button>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+

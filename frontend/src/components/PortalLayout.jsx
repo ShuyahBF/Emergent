@@ -21,6 +21,7 @@ import BrowserNotifications from "@/components/BrowserNotifications";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
+import { useErrorRegistryNotifier } from "@/hooks/useErrorRegistryNotifier";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import WelcomeBriefing, { shouldShowWelcomeBriefing } from "@/components/WelcomeBriefing";
 
@@ -244,6 +245,8 @@ export default function PortalLayout({ admin = false }) {
   useActivityFeedNotifier(!!user);
   // Iter36b — toasts + son sur nouveaux tickets / changements de statut
   useTicketNotifier(!!user);
+  // Iter43-fix2 — Notifications dédiées au Registre des Erreurs
+  useErrorRegistryNotifier(!!user);
 
   // Access log every page change for any logged-in portal user
   useEffect(() => {

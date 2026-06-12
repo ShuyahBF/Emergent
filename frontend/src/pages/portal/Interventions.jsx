@@ -87,6 +87,9 @@ export default function ClientInterventions() {
 
   const formatXof = (n) => (Number(n) || 0).toLocaleString("fr-FR").replaceAll(",", " ");
 
+  // Iter43-fix — Admin/Sup uniquement : voient les coûts + peuvent imprimer
+  const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
+
   const printPdf = async () => {
     setPrinting(true);
     try {
@@ -128,20 +131,25 @@ export default function ClientInterventions() {
         <div>
           <h1 className="text-2xl font-display font-bold">Historique de nos interventions</h1>
           <p className="text-sm text-slate-500">Détail de toutes les interventions réalisées — filtrez par client, statut ou période.</p>
-          <p className="text-[11px] text-slate-500 mt-1">
-            Taux horaire appliqué : <strong className="text-slate-700">{formatXof(hourlyRate)} XOF/h</strong>
-          </p>
+          {isAdminOrSup && (
+            <p className="text-[11px] text-slate-500 mt-1">
+              Taux horaire appliqué : <strong className="text-slate-700">{formatXof(hourlyRate)} XOF/h</strong>
+            </p>
+          )}
         </div>
         <div className="flex gap-2 flex-wrap">
           <button onClick={load} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm disabled:opacity-60" data-testid="interventions-refresh">
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} /> Actualiser
           </button>
-          <button onClick={printPdf} disabled={printing || loading}
-                  className="inline-flex items-center gap-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 text-sm disabled:opacity-60"
-                  data-testid="interventions-print-btn">
-            <Printer className={`h-4 w-4 ${printing ? "animate-pulse" : ""}`} />
-            {printing ? "Génération…" : "Imprimer (PDF)"}
-          </button>
+          {isAdminOrSup && (
+            <button onClick={printPdf} disabled={printing || loading}
+                    className="inline-flex items-center gap-2 rounded-lg bg-slate-800 hover:bg-slate-900 text-white px-3 py-2 text-sm disabled:opacity-60"
+                    data-testid="interventions-print-btn"
+                    title="Génère un PDF avec colonne Coût et total cumulé">
+              <Printer className={`h-4 w-4 ${printing ? "animate-pulse" : ""}`} />
+              {printing ? "Génération…" : "Imprimer (PDF)"}
+            </button>
+          )}
           {elevated && (
             <button onClick={() => setShowCreate(true)} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="interventions-create-btn">
               <Plus className="h-4 w-4" /> Nouvelle intervention
@@ -183,8 +191,10 @@ export default function ClientInterventions() {
         <div className="ml-auto text-xs text-slate-700">
           <span className="text-slate-500">Total affiché :</span>{" "}
           <strong className="text-slate-900" data-testid="interventions-total-count">{filtered.length}</strong> intervention(s) ·{" "}
-          <strong className="text-slate-900" data-testid="interventions-total-hours">{totals.hours.toFixed(2)} h</strong> ·{" "}
-          <strong className="text-emerald-700" data-testid="interventions-total-cost">{formatXof(totals.cost)} XOF</strong>
+          <strong className="text-slate-900" data-testid="interventions-total-hours">{totals.hours.toFixed(2)} h</strong>
+          {isAdminOrSup && (
+            <> · <strong className="text-emerald-700" data-testid="interventions-total-cost">{formatXof(totals.cost)} XOF</strong></>
+          )}
         </div>
       </div>
 
@@ -215,21 +225,19 @@ export default function ClientInterventions() {
               <th className="text-left px-4 py-3">Date</th>
               <th className="text-left px-4 py-3">Technicien</th>
               <th className="text-right px-4 py-3" data-testid="interventions-col-duration">Durée (h)</th>
-              <th className="text-right px-4 py-3" data-testid="interventions-col-cost">Coût (XOF)</th>
               <th className="text-left px-4 py-3">Statut</th>
               <th className="text-left px-4 py-3">Note vocale</th>
               {deletable && <th className="text-right px-4 py-3">Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
+            {loading && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={10} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
             )}
             {filtered.map((i) => {
               const status = STATUSES.find((s) => s.value === i.status) || { label: i.status, color: "bg-slate-100 text-slate-700" };
               const dh = Number(i.duration_hours) || 0;
-              const cost = Math.round(dh * (Number(hourlyRate) || 0));
               return (
                 <tr key={i.id} className="border-t border-slate-100 hover:bg-sky-50/60" data-testid={`intervention-row-${i.id}`}>
                   <td className="px-4 py-3 text-xs font-mono text-slate-500">{i.intervention_number || "—"}</td>
@@ -246,9 +254,6 @@ export default function ClientInterventions() {
                   <td className="px-4 py-3 text-slate-600">{i.technician || "-"}</td>
                   <td className="px-4 py-3 text-right text-slate-700 font-mono text-xs" data-testid={`intervention-duration-${i.id}`}>
                     {dh > 0 ? dh.toFixed(2) : "—"}
-                  </td>
-                  <td className="px-4 py-3 text-right text-emerald-700 font-mono text-xs" data-testid={`intervention-cost-${i.id}`}>
-                    {cost > 0 ? formatXof(cost) : "—"}
                   </td>
                   <td className="px-4 py-3"><span className={`text-xs px-2 py-1 rounded ${status.color}`}>{status.label}</span></td>
                   <td className="px-4 py-3">

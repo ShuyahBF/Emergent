@@ -472,6 +472,12 @@ class SettingsUpdate(BaseModel):
     # Iter43-fix (2026-03) — Taux horaire par défaut pour interventions (XOF)
     default_intervention_hourly_rate_xof: Optional[int] = None
 
+    # Iter43-fix (2026-03) — Mapping des sévérités logiciel → sévérité plateforme.
+    # Permet à l'admin d'associer chaque valeur StatutEnCours envoyée par les
+    # logiciels métier à une sévérité interne (low/medium/high/critical).
+    # Format: { "exception": "high", "fatale": "critical", "warning": "medium", ... }
+    error_severity_mapping: Optional[Dict[str, str]] = None
+
     # --- S057 Day 3+ (2026-02) — Habillage complet ---
     # Sidebar (portail) — global SAWALI defaults (tenant peut override via branding)
     sidebar_bg_color: Optional[str] = None        # ex: "#0E1F3D"

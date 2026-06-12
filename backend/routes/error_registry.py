@@ -151,7 +151,7 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         `{TicketDemnde: {...}}`, Biolog: `{Erreur: {...}}` etc.) ainsi que
         le format plat historique. L'unwrap est automatique.
         """
-        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1}) or {}
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "errors_webhook_token": 1, "error_severity_mapping": 1}) or {}
         expected = (s.get("errors_webhook_token") or "").strip()
         if expected:
             got = (authorization or "").replace("Bearer ", "").strip()
@@ -168,6 +168,33 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         except Exception as exc:  # pydantic.ValidationError
             raise HTTPException(status_code=422, detail=str(exc))
         doc = payload.model_dump()
+        # Iter43-fix — Sévérité interne dérivée du mapping admin
+        try:
+            mapping = (s.get("error_severity_mapping") or {}) if isinstance(s, dict) else {}
+            if not mapping:
+                s2 = await db.settings.find_one({"_id": "global"}, {"_id": 0, "error_severity_mapping": 1}) or {}
+                mapping = s2.get("error_severity_mapping") or {}
+            statut = (doc.get("StatutEnCours") or "").strip().lower()
+            # Recherche case-insensitive
+            mapped = None
+            for k, v in (mapping or {}).items():
+                if (k or "").strip().lower() == statut and v in ("low", "medium", "high", "critical"):
+                    mapped = v
+                    break
+            if mapped:
+                doc["mapped_severity"] = mapped
+            else:
+                # Heuristique de secours sur le statut
+                if statut in ("fatale", "fatal", "critical", "critique"):
+                    doc["mapped_severity"] = "critical"
+                elif statut in ("exception", "erreur", "error"):
+                    doc["mapped_severity"] = "high"
+                elif statut in ("warning", "avertissement"):
+                    doc["mapped_severity"] = "medium"
+                else:
+                    doc["mapped_severity"] = "low"
+        except Exception:
+            doc["mapped_severity"] = "low"
         # ID + timestamps
         if not doc.get("IDTicketDemnde"):
             doc["IDTicketDemnde"] = str(uuid.uuid4())
@@ -256,6 +283,11 @@ def attach_error_registry_routes(*, api, db, get_current_user):
             "exception": by_status.get("exception", 0),
             "fatale": by_status.get("fatale", 0) + by_status.get("fatal", 0),
             "other": sum(v for k, v in by_status.items() if k not in ("exception", "fatale", "fatal")),
+            # Iter43-fix — Liste détaillée pour la section AdminSettings (mapping)
+            "by_status": [
+                {"value": k, "count": v}
+                for k, v in sorted(by_status.items(), key=lambda kv: kv[1], reverse=True)
+            ],
         }
 
     @api.post("/me/errors/{eid}/acknowledge", tags=["Registre des erreurs"])

@@ -3099,7 +3099,12 @@ async def me_interventions_pdf(
 
     Colonnes : Référence, Date, Client, Titre, Statut, Technicien, Durée (h), Coût (XOF).
     Footer : total durée + total coût (durée × taux horaire résolu).
+
+    Iter43-fix — Réservé Admin/Superviseur (la colonne Coût est confidentielle).
     """
+    role = (user.get("role") or "").lower()
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(status_code=403, detail="PDF réservé Admin/Superviseur")
     if _is_elevated_creator(user):
         items = await db.interventions.find({}, {"_id": 0}).to_list(5000)
     else:

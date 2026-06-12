@@ -31,21 +31,50 @@ export default function LlmBudgetTestButton() {
     }
   };
 
+  // Iter43-fix (2026-03) — Bouton de reset des valeurs figées par une ancienne
+  // erreur Emergent « Budget exceeded ». À utiliser quand le banner reste
+  // bloqué à 100% après une recharge.
+  const [resetting, setResetting] = useState(false);
+  const resetStale = async () => {
+    if (!window.confirm("Réinitialiser le compteur Universal Key Emergent ?\n\nCela efface les valeurs `current_cost` et `max_budget` figées par une ancienne erreur, et relance un probe. À utiliser uniquement si vous venez de recharger votre solde et que le banner reste à 100%.")) return;
+    setResetting(true);
+    setError(null);
+    try {
+      const r = await apiClient.post("/admin/llm-health/reset-stale");
+      setResult(r.data);
+    } catch (e) {
+      setError(e?.response?.data?.detail || e?.message || "Erreur réseau");
+    } finally { setResetting(false); }
+  };
+
   const lvl = result?.status_level;
   const badge = lvl ? LEVEL_BADGE[lvl] : null;
 
   return (
     <div className="space-y-3">
-      <button
-        type="button"
-        onClick={runTest}
-        disabled={loading}
-        className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-fuchsia-600 hover:from-indigo-700 hover:to-fuchsia-700 text-white text-sm font-semibold shadow-md disabled:opacity-50"
-        data-testid="llm-budget-test-now-btn"
-      >
-        {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
-        {loading ? "Test en cours..." : "Tester maintenant"}
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={runTest}
+          disabled={loading || resetting}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gradient-to-r from-indigo-600 to-fuchsia-600 hover:from-indigo-700 hover:to-fuchsia-700 text-white text-sm font-semibold shadow-md disabled:opacity-50"
+          data-testid="llm-budget-test-now-btn"
+        >
+          {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <FlaskConical className="h-4 w-4" />}
+          {loading ? "Test en cours..." : "Tester maintenant"}
+        </button>
+        <button
+          type="button"
+          onClick={resetStale}
+          disabled={loading || resetting}
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-lg ring-1 ring-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 text-sm font-medium disabled:opacity-50"
+          data-testid="llm-budget-reset-stale-btn"
+          title="Efface les valeurs figées par une ancienne erreur « Budget exceeded »"
+        >
+          {resetting ? <Loader2 className="h-4 w-4 animate-spin" /> : <AlertCircle className="h-4 w-4" />}
+          {resetting ? "Reset en cours..." : "Réinitialiser après recharge"}
+        </button>
+      </div>
 
       {error && (
         <div className="text-xs px-3 py-2 rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-200 inline-flex items-center gap-2" data-testid="llm-budget-test-error">

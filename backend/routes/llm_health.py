@@ -31,7 +31,7 @@ import logging
 import os
 import re
 from datetime import datetime, timezone, timedelta
-from typing import Optional, Callable, Awaitable
+from typing import Optional, Callable, Awaitable, Any, Dict
 
 from fastapi import APIRouter, Depends, HTTPException
 
@@ -78,8 +78,14 @@ async def record_llm_outcome(
     now_dt = datetime.now(timezone.utc)
     now = now_dt.isoformat()
     update = {"last_checked_at": now}
+    unset_stale = None
     if ok:
         update.update({"status": "ok", "last_error_message": None})
+        # Iter43-fix (2026-03) — Effacer les `current_cost` / `max_budget`
+        # capturés depuis une ancienne erreur Emergent « Budget exceeded »,
+        # sinon le banner reste bloqué à 100% après une recharge tant que les
+        # valeurs locales du cumul mensuel sont inférieures à la valeur stale.
+        unset_stale = {"current_cost": "", "max_budget": ""}
     else:
         msg = (error or "")[:600]
         update["last_error_message"] = msg
@@ -96,8 +102,11 @@ async def record_llm_outcome(
         else:
             update["status"] = "unknown_error"
     try:
+        ops: Dict[str, Any] = {"$set": update}
+        if unset_stale:
+            ops["$unset"] = unset_stale
         await db.llm_health_state.update_one(
-            {"_id": "current"}, {"$set": update}, upsert=True,
+            {"_id": "current"}, ops, upsert=True,
         )
     except Exception:  # noqa: BLE001
         logger.exception("[llm_health] failed to persist outcome")
@@ -273,6 +282,30 @@ def make_router(*, db, get_current_user, send_email):
         if not _is_admin_or_sup(user):
             raise HTTPException(status_code=403, detail="Accès refusé")
         await ping_emergent_llm(db)
+        return await _build_response(user)
+
+    @router.post("/reset-stale")
+    async def reset_stale(user: dict = Depends(get_current_user)):
+        """Iter43-fix (2026-03) — Efface manuellement les `current_cost` /
+        `max_budget` figés par une ancienne erreur Emergent « Budget exceeded ».
+        À utiliser quand le banner reste bloqué à 100% après une recharge
+        et qu'aucun probe ne parvient à débloquer l'état.
+        """
+        if not _is_admin_or_sup(user):
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        await db.llm_health_state.update_one(
+            {"_id": "current"},
+            {
+                "$set": {"status": "ok", "last_error_message": None, "last_reset_at": _now_iso()},
+                "$unset": {"current_cost": "", "max_budget": ""},
+            },
+            upsert=True,
+        )
+        # Lance aussi un probe pour valider que le LLM répond bien
+        try:
+            await ping_emergent_llm(db)
+        except Exception:  # noqa: BLE001
+            logger.exception("[llm_health] probe after reset failed")
         return await _build_response(user)
 
     @router.post("/test-summary")

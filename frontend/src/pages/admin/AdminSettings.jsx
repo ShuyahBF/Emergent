@@ -21,6 +21,7 @@ import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOff
 import WaOtpTester from "@/pages/admin/sections/WaOtpTester";
 import TemplatesOtpSection from "@/pages/admin/sections/TemplatesOtpSection";
 import IncidentsAndCountrySection from "@/pages/admin/sections/IncidentsAndCountrySection";
+import ErrorSeverityMappingSection from "@/pages/admin/sections/ErrorSeverityMappingSection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
@@ -751,6 +752,13 @@ export default function AdminSettings() {
             />
           </div>
         </Section>
+      </Filterable>
+
+
+
+      {/* Iter43-fix (2026-03) — Mapping sévérités logiciel → plateforme */}
+      <Filterable title="🎯 Registre des Erreurs — Mapping sévérités logiciel" anchorId="s-error-severity-mapping">
+        <ErrorSeverityMappingSection settings={s} onChange={upd} />
       </Filterable>
 
 

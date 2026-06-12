@@ -1756,6 +1756,7 @@ export default function AdminSettings() {
         <Input label="System User Access Token (permanent)" type="password" value={s.wa_access_token || ""} onChange={(v) => upd("wa_access_token", v)} placeholder={s.wa_access_token === "********" ? "(défini — cliquer pour modifier)" : "EAAxxxxxxxxxxxx…"} testid="wa-access-token" />
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
         <WaTestPanel />
+        <WaTokenHealthPanel />
         <WaWebhookLogsPanel />
         <WaSilenceAlertPanel s={s} upd={upd} />
 
@@ -5551,6 +5552,106 @@ const WaTestPanel = () => {
 // Iter35a — Webhook payloads inspector. Show the last N raw payloads Meta
 // has pushed to /api/whatsapp/webhook so the admin can debug "I'm not
 // receiving messages" without server log access. Each row is collapsible
+
+
+// Iter43-fix3 (2026-03) — Diagnostic du token WhatsApp Cloud API.
+// Pattern « marche 2 jours puis ne marche plus » = token utilisateur 24h.
+const WaTokenHealthPanel = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const run = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/whatsapp/token-health");
+      setData(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  };
+  useEffect(() => { run(); }, []);
+
+  const colorByStatus = () => {
+    if (!data) return "bg-slate-50 ring-slate-200";
+    if (data.ok) return "bg-emerald-50 ring-emerald-200";
+    return "bg-rose-50 ring-rose-200";
+  };
+  return (
+    <div className={`rounded-xl ring-1 p-4 space-y-2 ${colorByStatus()}`} data-testid="wa-token-health-panel">
+      <div className="flex items-center justify-between">
+        <p className="text-sm font-semibold text-slate-800">🔐 Diagnostic du token WhatsApp</p>
+        <button onClick={run} disabled={loading}
+                className="text-xs px-3 py-1 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+                data-testid="wa-token-health-refresh">
+          {loading ? "Diagnostic…" : "Vérifier maintenant"}
+        </button>
+      </div>
+      {!data && !loading && (
+        <p className="text-xs text-slate-500">Cliquez sur « Vérifier maintenant »</p>
+      )}
+      {data && (
+        <div className="text-xs grid sm:grid-cols-2 gap-2">
+          <div>
+            <span className="text-slate-500">État :</span>{" "}
+            {data.ok
+              ? <span className="text-emerald-700 font-semibold">✅ Token valide</span>
+              : <span className="text-rose-700 font-semibold">❌ Token invalide / configuration incorrecte</span>}
+          </div>
+          <div>
+            <span className="text-slate-500">Type :</span>{" "}
+            <strong className={data.token_type === "SYSTEM_USER" ? "text-emerald-700" : "text-amber-700"}>
+              {data.token_type || "—"}
+            </strong>
+            {data.token_type === "USER" && <span className="ml-1 text-amber-600">⚠️ recommandé : SYSTEM_USER</span>}
+          </div>
+          <div>
+            <span className="text-slate-500">Expiration :</span>{" "}
+            {data.expires_at
+              ? <span className={data.days_to_expiry < 7 ? "text-rose-700 font-semibold" : "text-slate-700"}>
+                  {new Date(data.expires_at).toLocaleString("fr-FR")} ({data.days_to_expiry} j)
+                </span>
+              : <span className="text-emerald-700">Permanent (n'expire pas)</span>}
+          </div>
+          <div>
+            <span className="text-slate-500">App ID :</span>{" "}
+            <code className="font-mono text-slate-700">{data.app_id || "—"}</code>
+          </div>
+          {data.phone_check && (
+            <div className="sm:col-span-2 bg-white/60 ring-1 ring-slate-200 rounded p-2 mt-1">
+              <p className="font-semibold text-slate-700 mb-0.5">Test fonctionnel sur le Phone Number ID</p>
+              {data.phone_check.ok ? (
+                <p className="text-emerald-700">
+                  ✅ {data.phone_check.display_phone_number} — {data.phone_check.verified_name}
+                  {data.phone_check.quality_rating && <span className="ml-2 text-[10px]">Quality : <strong>{data.phone_check.quality_rating}</strong></span>}
+                </p>
+              ) : (
+                <p className="text-rose-700">❌ {data.phone_check.error} {data.phone_check.error_code && `(code ${data.phone_check.error_code})`}</p>
+              )}
+            </div>
+          )}
+          {data.warning && (
+            <div className="sm:col-span-2 rounded-lg ring-1 ring-amber-300 bg-amber-50 p-2 text-amber-900">
+              {data.warning}
+            </div>
+          )}
+          {data.message && (
+            <div className="sm:col-span-2 rounded-lg ring-1 ring-rose-300 bg-rose-50 p-2 text-rose-900">
+              <strong>Erreur Meta :</strong> {data.message}
+            </div>
+          )}
+          {data.scopes?.length > 0 && (
+            <div className="sm:col-span-2 text-[11px] text-slate-500">
+              <strong>Scopes :</strong> {data.scopes.join(", ")}
+            </div>
+          )}
+          <div className="sm:col-span-2 mt-2 rounded-lg ring-1 ring-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">
+            💡 <strong>Pour éviter les coupures :</strong> utilisez un <strong>System User token permanent</strong> (Meta Business Manager → Paramètres business → Utilisateurs système → Générer un nouveau token → cocher <code>whatsapp_business_messaging</code> + <code>whatsapp_business_management</code> → <strong>SANS expiration</strong>). Les tokens copiés depuis le dashboard Developers expirent en 24 h.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // and shows the parsed JSON.
 const WaWebhookLogsPanel = () => {
   const [items, setItems] = useState([]);

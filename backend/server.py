@@ -16654,6 +16654,104 @@ async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
         return {"configured": True, "items": [], "error": str(exc)[:200]}
 
 
+@api.get("/admin/whatsapp/token-health", tags=["Admin"])
+async def admin_wa_token_health(_: dict = Depends(get_current_admin)):
+    """Iter43-fix3 (2026-03) — Diagnostic du token WhatsApp Cloud API.
+
+    Le pattern « marche 2 jours puis brusquement plus rien » est typique des
+    tokens **utilisateur courts** (24 h) générés depuis le dashboard Meta.
+    Cet endpoint appelle `/debug_token` pour révéler :
+      - validité actuelle (`is_valid`)
+      - date d'expiration (`expires_at`, `data_access_expires_at`)
+      - type (USER vs SYSTEM_USER → seul SYSTEM_USER ne peut pas expirer)
+      - scopes accordés
+      - app id propriétaire
+    Plus un test fonctionnel sur le `phone_number_id` configuré.
+
+    Réponse :
+      {
+        "ok": bool, "token_type": "USER"|"SYSTEM_USER", "is_valid": bool,
+        "expires_at": "2026-03-31T...Z" | null,
+        "days_to_expiry": float | null,
+        "scopes": [...], "app_id": str | null,
+        "phone_check": {"ok": bool, "display_phone_number": "...", "verified_name": "..."}
+      }
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = (s.get("wa_access_token") or "").strip()
+    phone_number_id = (s.get("wa_phone_number_id") or "").strip()
+    app_secret = (s.get("meta_app_secret") or "").strip()
+    if not access_token:
+        return {"ok": False, "reason": "no_token", "message": "wa_access_token vide dans Settings"}
+    out: Dict[str, Any] = {"ok": False, "token_type": None, "is_valid": None,
+                            "expires_at": None, "days_to_expiry": None,
+                            "scopes": [], "app_id": None, "phone_check": None,
+                            "message": None}
+    # 1) Diagnostic du token via /debug_token (requiert app_token: app_id|app_secret)
+    try:
+        async with httpx.AsyncClient(timeout=8) as http:
+            # Meta accepte access_token=<user_token> en input_token + le même user
+            # comme caller (introspection self) si pas d'app_secret configuré.
+            params = {"input_token": access_token}
+            app_id = (s.get("meta_app_id") or "").strip()
+            if app_id and app_secret:
+                params["access_token"] = f"{app_id}|{app_secret}"
+            else:
+                # Auto-introspection (Meta autorise un user token à s'inspecter lui-même)
+                params["access_token"] = access_token
+            r = await http.get(f"https://graph.facebook.com/{WA_GRAPH_VERSION}/debug_token", params=params)
+            d = r.json() if r.status_code < 500 else {}
+            data = (d or {}).get("data") or {}
+            if r.status_code >= 300 or not data:
+                out["message"] = (d.get("error") or {}).get("message") or f"HTTP {r.status_code}"
+            else:
+                out["is_valid"] = bool(data.get("is_valid"))
+                out["token_type"] = data.get("type")  # USER | SYSTEM_USER | PAGE
+                out["app_id"] = data.get("app_id")
+                out["scopes"] = data.get("scopes") or []
+                exp = data.get("expires_at")  # epoch seconds, 0 = never
+                if exp and exp > 0:
+                    from datetime import datetime as _dt, timezone as _tz
+                    dt = _dt.fromtimestamp(exp, tz=_tz.utc)
+                    out["expires_at"] = dt.isoformat()
+                    delta = (dt - _dt.now(_tz.utc)).total_seconds() / 86400
+                    out["days_to_expiry"] = round(delta, 2)
+                else:
+                    out["expires_at"] = None
+                    out["days_to_expiry"] = None  # never expires
+    except Exception as exc:  # noqa: BLE001
+        out["message"] = f"debug_token exception: {exc}"
+
+    # 2) Test fonctionnel sur le phone_number_id
+    if phone_number_id and access_token:
+        try:
+            async with httpx.AsyncClient(timeout=8) as http:
+                r = await http.get(
+                    f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{phone_number_id}",
+                    params={"fields": "display_phone_number,verified_name,quality_rating,name_status"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if r.status_code < 300:
+                    out["phone_check"] = {"ok": True, **r.json()}
+                else:
+                    err = (r.json().get("error") or {}) if r.headers.get("content-type", "").startswith("application/json") else {}
+                    out["phone_check"] = {"ok": False, "error": err.get("message") or f"HTTP {r.status_code}", "error_code": err.get("code")}
+        except Exception as exc:  # noqa: BLE001
+            out["phone_check"] = {"ok": False, "error": str(exc)[:200]}
+
+    # Verdict global
+    out["ok"] = bool(out.get("is_valid")) and (out.get("phone_check") or {}).get("ok") in (True, None)
+    if out["token_type"] == "USER" and out.get("days_to_expiry") is not None:
+        # Avertir avant expiration (typique : 24-60 jours)
+        if out["days_to_expiry"] < 7:
+            out["warning"] = f"⚠️ Token utilisateur expire dans {out['days_to_expiry']} jour(s) — passez à un token SYSTEM_USER permanent."
+    elif out["token_type"] == "USER":
+        out["warning"] = "⚠️ Token de type USER : risque d'expiration inopinée. Utilisez un token SYSTEM_USER permanent pour la production."
+    return out
+
+
+
+
 # ---------- Admin-managed template notes (index by name) ----------
 async def _load_template_notes_map() -> Dict[str, Dict[str, Any]]:
     docs = await db.wa_template_notes.find({}, {"_id": 0}).to_list(1000)
@@ -19700,6 +19798,71 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=300,
             )
+
+            # Iter43-fix3 (2026-03) — Surveillance quotidienne du token WhatsApp.
+            # Alerte par email les admins quand le token expire dans <7 jours ou
+            # quand le test fonctionnel échoue (token révoqué, phone suspendu…).
+            async def _scheduled_wa_token_health():
+                try:
+                    s = await db.settings.find_one({"_id": "global"}) or {}
+                    access_token = (s.get("wa_access_token") or "").strip()
+                    if not access_token:
+                        return
+                    # Réutilise la logique de admin_wa_token_health en mode interne
+                    waba_diag: Dict[str, Any] = {}
+                    try:
+                        async with httpx.AsyncClient(timeout=8) as http:
+                            params = {"input_token": access_token,
+                                      "access_token": access_token}
+                            app_id = (s.get("meta_app_id") or "").strip()
+                            app_secret = (s.get("meta_app_secret") or "").strip()
+                            if app_id and app_secret:
+                                params["access_token"] = f"{app_id}|{app_secret}"
+                            r = await http.get(
+                                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/debug_token",
+                                params=params,
+                            )
+                            waba_diag = (r.json() or {}).get("data") or {}
+                    except Exception:
+                        return
+                    is_valid = bool(waba_diag.get("is_valid"))
+                    token_type = waba_diag.get("type")
+                    exp = waba_diag.get("expires_at") or 0
+                    days_left = None
+                    if exp and exp > 0:
+                        from datetime import datetime as _dt, timezone as _tz
+                        days_left = (_dt.fromtimestamp(exp, tz=_tz.utc) - _dt.now(_tz.utc)).total_seconds() / 86400
+                    alert = None
+                    if not is_valid:
+                        alert = "❌ Token WhatsApp INVALIDE — les envois échouent en ce moment."
+                    elif token_type == "USER" and days_left is not None and days_left < 7:
+                        alert = f"⚠️ Token WhatsApp expire dans {days_left:.1f} jour(s). Régénérez un token SYSTEM_USER permanent."
+                    if alert:
+                        try:
+                            admins = await db.users.find(
+                                {"role": "admin", "account_status": "active"},
+                                {"_id": 0, "email": 1},
+                            ).to_list(20)
+                            for a in admins:
+                                if a.get("email"):
+                                    await send_email(
+                                        a["email"],
+                                        "[SAWALI] Token WhatsApp à renouveler",
+                                        f"<h2>Diagnostic WhatsApp</h2><p>{alert}</p><p>Connectez-vous à AdminSettings → WhatsApp → « Diagnostic du token » pour plus d'infos.</p>",
+                                    )
+                        except Exception as exc:
+                            logger.warning("[scheduler:wa_token_alert] email send failed: %s", exc)
+                except Exception as exc:
+                    logger.warning("[scheduler:wa_token_health] %s", exc)
+            _scheduler.add_job(
+                _scheduled_wa_token_health,
+                CronTrigger(hour=7, minute=30, timezone="Africa/Abidjan"),
+                id="wa_token_health_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+
+
 
             async def _scheduled_liluvine_weekly_digest():
                 try:

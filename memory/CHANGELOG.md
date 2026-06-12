@@ -2,6 +2,62 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix3 — Diagnostic & Monitoring WhatsApp
+
+### Contexte
+L'utilisateur reporte un pattern récurrent : *« les templates WhatsApp marchent 2 jours puis brusquement plus rien ne donne »*. Cause probable : **token utilisateur 24 h** copié depuis le dashboard Developers Meta (au lieu d'un token System User permanent).
+
+### Backend
+- **`GET /api/admin/whatsapp/token-health`** (admin) — appelle `debug_token` Meta + test fonctionnel sur le `phone_number_id`. Retourne :
+  - `token_type` (USER vs **SYSTEM_USER**)
+  - `expires_at` + `days_to_expiry` (null = permanent)
+  - `is_valid`, scopes, app_id
+  - `phone_check` : display_phone_number, verified_name, **quality_rating**
+  - `warning` ergonomique si USER < 7 jours ou type USER tout court
+- **Cron quotidien** (07:30 Africa/Abidjan) — `wa_token_health_daily` : envoie un email à TOUS les admins actifs si le token est invalide OU expire dans <7 jours.
+
+### Frontend
+- **AdminSettings → section WhatsApp** : nouveau `WaTokenHealthPanel` (testid `wa-token-health-panel`) — diagnostic visuel coloré (vert/rouge/ambre), tip pédagogique permanent pour passer en System User.
+
+### Résultat attendu
+L'admin sait à tout moment si le token va expirer, et est alerté par email 7 jours avant la coupure.
+
+---
+
+## 2026-03 — Iter43-fix2 — Registre des Erreurs UX & Notifications
+
+### Backend
+- **Filtre `status` désormais case-insensitive** (regex `^...$` /i) — corrige le bug où « Fatale » ≠ « fatale » ne matchait pas
+- **Nouveau filtre `severity`** (`low|medium|high|critical`) basé sur `mapped_severity` + heuristique de secours sur StatutEnCours pour les entrées legacy
+- **`POST /api/me/errors/bulk-acknowledge`** — marque une sélection comme lue (admin/sup)
+- **`POST /api/me/errors/acknowledge-all`** — marque TOUTES les non-lues (admin/sup), indépendamment des filtres
+- **Résolution Tenant** : pour chaque entrée listée, le backend lookup `Code_Client` dans `users.client_code` ou `users.company` et expose `tenant_id` + `tenant_name`
+- **Liluvine PRO accède au Registre des Erreurs** : nouveau module `errors` dans `liluvine_business_rag.py`, détecté par les mots-clés (erreurs, exceptions, crashes, plantages, registre, fatales, critiques, bugs, stack traces). Snippet contextuel : compteurs Critical/High/Non-lues 30j + 5 dernières entrées.
+- **Compteurs notifications mis à jour** : `errors_high` + `errors_critical` basés sur `mapped_severity` ; aliases `errors_exception` + `errors_fatale` conservés pour rétro-compat.
+
+### Frontend
+- **Composant Pagination réutilisable** : `« ‹ 1 2 3 4 5 › »` + page-size (25/50/100/200/500) + saut direct à la page N
+- **Filtre Sévérité** dans la barre de filtres (🔴 Critical / 🟠 High / 🟡 Medium / ⚪ Low) — aligné avec les badges de la sidebar
+- **Boutons Mark-as-Read** : bandeau de sélection + bouton header « Tout marquer comme lu (N) »
+- **Colonne Code Client** : affiche le `Code_Client` + badge vert avec le **nom du tenant Sawali** résolu automatiquement
+- **Hook `useErrorRegistryNotifier`** (poll 20 s) — toast + son d'alarme dédié (4 tons SOS pour critical, 3 tons descendants pour high) — distinct des tickets/WhatsApp ; respecte les flags `sawali_wa_notif_sound` / `..._desktop`
+
+### Tests
+- 50/50 tests verts (régression intacte)
+- Tests live preview : severity=critical OK, severity=high OK, status=Fatale (ci) OK, bulk-acknowledge OK, acknowledge-all OK
+
+---
+
+## 2026-03 — Iter43-fix — Welcome Briefing scroll gate + PV PDF auth + Motif length
+
+- **WelcomeBriefing** : bouton « J'ai lu » désactivé tant que l'utilisateur n'a pas scrollé jusqu'en bas (auto-activé si contenu sans scroll)
+- **PV de réunion PDF** : `MeetingMinutes.jsx` télécharge désormais le PDF via `apiClient` (responseType blob) au lieu d'ouvrir l'URL nue → résout l'erreur « Token manquant » + « Impossible de charger le PDF »
+- **ErrorPayload.Motif** : `max_length` passé de 2 000 à 200 000 caractères pour absorber les stack traces complètes Aizenta
+
+---
+
+
+
 > 🔁 **Auto-sync vers Admin Settings** (Iter38f) — Chaque section `## IterXXX (YYYY-MM-DD) — Title`
 > est automatiquement scannée. Chaque sous-section `### emoji N) Title` est convertie en action
 > `ACT-CL-IterXXX-NN` dans **Admin Settings → Suivi des actions**. Pour qu'une nouvelle entrée

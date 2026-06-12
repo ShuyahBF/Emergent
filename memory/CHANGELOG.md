@@ -2,6 +2,36 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix4 — Facturation des Interventions
+
+### Contexte
+Demande utilisateur : permettre aux Admin/Superviseur (1) de corriger une intervention (tenant, durée, …), (2) sélectionner plusieurs interventions et générer une facture PDF groupée par tenant, (3) verrouiller (griser) les interventions facturées avec colonne « N° Facture ».
+
+### Backend (`server.py`)
+- **`POST /api/me/invoices/from-interventions`** (admin/sup) — groupe par `client_id`, auto-numérote `INV-YYYY-NNNNN`, calcule total au taux horaire tenant (fallback `settings.global.default_intervention_hourly_rate_xof`), insère dans `db.interventions_invoices`, verrouille les interventions avec `invoiced=True / invoice_id / invoice_number`. Devise **XOF** sans TVA.
+- **`GET /api/me/invoices/from-interventions`** — admin voit tout (filtre `tenant_id` optionnel) ; tenant voit seulement les siennes.
+- **`GET /api/me/invoices/from-interventions/{id}/pdf`** — PDF SAWALI Standard (en-tête, motif, taux horaire, tableau lignes, total, mention « ANNULÉE » si statut cancelled).
+- **`PUT /api/admin/interventions/{id}`** — édition admin (tenant/durée/titre/statut/tech/date). Renvoie **409** si déjà facturée.
+- **`POST /api/admin/interventions/{id}/unlock-invoice`** — déverrouille l'intervention (la facture reste valide).
+
+### Frontend (`pages/portal/Interventions.jsx`)
+- Colonne checkbox + master checkbox (`interventions-select-all`, `intervention-select-{id}`) — visibles admin/sup, désactivées sur lignes facturées.
+- Bouton **« Générer facture(s) »** vert (`interventions-invoice-btn`) avec compteur dynamique → confirm → POST → téléchargement auto de chaque PDF → reload.
+- Nouvelle colonne **« N° Facture »** : badge cliquable (`intervention-invoice-link-{id}`) re-télécharge le PDF.
+- Lignes facturées **grisées** (`bg-slate-50 text-slate-400`), checkbox + boutons Modifier/Supprimer masqués, bouton **Déverrouiller** (`intervention-unlock-{id}`) visible.
+- **EditInterventionModal** (`intervention-edit-modal`) admin/sup — édite tenant, titre, description, date, statut, technicien, durée. Save → PUT `/admin/interventions/{id}`.
+
+### Tests
+- `/app/backend/tests/test_iter56_intervention_invoicing.py` — **10/10 PASS** (403 client, 400 vide, 409 toutes facturées, génération multi-tenant, PDF, list, edit OK, edit 409 sur facturée, unlock, regression).
+- E2E UI validé : login admin → Interventions → sélection 2 interventions de 2 tenants → 2 factures (INV-2026-00006/00007) → PDFs téléchargés → badges UI + boutons Déverrouiller affichés correctement.
+
+### Modèle DB
+- Collection nouvelle : `interventions_invoices` (id, invoice_number, tenant_id, tenant_name, motif, hourly_rate_xof, lines[], total_xof, currency='XOF', status, intervention_ids[], created_at, created_by_*).
+- `interventions` : nouveaux champs `invoiced`, `invoice_id`, `invoice_number`, `invoiced_at`, `invoiced_by`, `unlocked_at`, `unlocked_by`.
+
+---
+
+
 ## 2026-03 — Iter43-fix3 — Diagnostic & Monitoring WhatsApp
 
 ### Contexte

@@ -6,6 +6,32 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter43-fix4 (2026-03) — Facturation des Interventions ✅
+
+**Statut** : LIVRÉ + testé (10/10 pytest, E2E UI validé — `iteration_56.json`).
+
+### Fonctionnalités
+- Admin/Sup peuvent **modifier** une intervention non facturée (tenant, durée, statut, etc.) via modale.
+- **Multi-sélection** + bouton « Générer facture(s) » → 1 facture PDF par tenant, auto-numérotée `INV-YYYY-NNNNN`.
+- **Verrouillage visuel** : lignes facturées grisées, checkbox + Modifier/Supprimer désactivés.
+- **Colonne « N° Facture »** : badge cliquable pour re-télécharger le PDF.
+- **Bouton Déverrouiller** (admin) — la facture reste valide, l'intervention redevient modifiable.
+
+### Backend endpoints
+- `POST /api/me/invoices/from-interventions` (admin/sup)
+- `GET  /api/me/invoices/from-interventions[?tenant_id=]`
+- `GET  /api/me/invoices/from-interventions/{id}/pdf`
+- `PUT  /api/admin/interventions/{id}` (renvoie 409 si facturée)
+- `POST /api/admin/interventions/{id}/unlock-invoice`
+
+### Modèles
+- Collection nouvelle : `interventions_invoices`.
+- `interventions` : champs `invoiced`, `invoice_id`, `invoice_number`, `invoiced_at`, `invoiced_by`, `unlocked_at`, `unlocked_by`.
+- Devise **XOF** (sans TVA). Taux : `users.hourly_rate` → fallback `settings.global.default_intervention_hourly_rate_xof`.
+
+---
+
+
 ## Iter43 (2026-03) — Webhook Aizenta/Biolog + Bulk delete + Migration
 
 ### Contexte

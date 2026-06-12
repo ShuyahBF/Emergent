@@ -2,6 +2,25 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix5 — UX Registre Erreurs + Tri Contacts
+
+### Frontend
+- **ErrorRegistry.jsx** — Les lignes non-lues (`acknowledged=false`) sont maintenant affichées en **rouge vif gras** (`text-rose-700 font-semibold`) avec une **pastille rouge** devant la date ; les lignes lues sont en **italique gris** (`italic text-slate-500`). Attribut `data-read="unread"|"read"` ajouté pour les tests.
+- **Contacts.jsx** — Nouveau sélecteur de tri (`data-testid=contact-sort`) avec 3 options : **Interaction (plus récente) [défaut]**, Nom A→Z, Nom Z→A. Les contacts sans interaction tombent en fin de liste en mode interaction_desc.
+
+### Backend
+- **`GET /api/me/contacts`** — Enrichi avec un champ `last_interaction_at` calculé à partir de `wa_messages` + `sms_messages` (match sur les 10 derniers chiffres du numéro WA/téléphone). Null pour les contacts sans aucun message.
+
+### Tests
+- `test_iter43_fix5_last_interaction_at.py` — 3/3 PASS (field present, null fallback, populated for matched contact).
+- Frontend E2E validé (iteration_57.json).
+
+### À surveiller (commentaire test agent)
+- Le scan complet `db.wa_messages.find({}).limit(20000)` à chaque appel `/me/contacts` peut devenir lent à grande échelle. Optimisation possible : pré-match sur les digits10 visibles via aggregate.
+
+---
+
+
 ## 2026-03 — Iter43-fix4 — Facturation des Interventions
 
 ### Contexte

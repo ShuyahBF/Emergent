@@ -108,7 +108,11 @@ export default function ClientInterventions() {
   const formatXof = (n) => (Number(n) || 0).toLocaleString("fr-FR").replaceAll(",", " ");
 
   // Iter43-fix — Admin/Sup uniquement : voient les coûts + peuvent imprimer
-  const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur";
+  // Iter43-fix4 — Admin/Sup uniquement : voient les coûts + peuvent imprimer
+  // Iter43-fix8 — Élargi aux tracked-users ayant le rôle "Administrateur" ou
+  // "Superviseur" côté tenant (canDelete couvre ce cas) afin qu'ils puissent
+  // également éditer/facturer les interventions de leur organisation.
+  const isAdminOrSup = user?.role === "admin" || user?.role === "superviseur" || ADMIN_LEVEL.has(user?.tracked_role);
 
   const printPdf = async () => {
     setPrinting(true);

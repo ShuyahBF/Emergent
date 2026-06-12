@@ -3419,7 +3419,7 @@ class InvoicePaymentUpdate(BaseModel):
 async def admin_update_intervention_invoice_payment(
     inv_id: str,
     payload: InvoicePaymentUpdate,
-    _: dict = Depends(get_current_admin),
+    _: dict = Depends(get_admin_or_supervisor),
 ):
     """Iter43-fix6 — Renseigne la date/heure de dépôt OU de paiement d'une
     facture. Permet de calculer le retard de règlement.
@@ -7724,7 +7724,7 @@ async def admin_create_intervention(
 
 @api.put("/admin/interventions/{int_id}", tags=["Admin"])
 async def admin_update_intervention(
-    int_id: str, payload: InterventionUpdate, _: dict = Depends(get_current_admin)
+    int_id: str, payload: InterventionUpdate, _: dict = Depends(get_admin_or_supervisor)
 ):
     # Iter43-fix4 (2026-03) — Verrou facturation
     existing = await db.interventions.find_one({"id": int_id}, {"_id": 0, "invoiced": 1, "invoice_number": 1})
@@ -7744,8 +7744,8 @@ async def admin_update_intervention(
 
 
 @api.post("/admin/interventions/{int_id}/unlock-invoice", tags=["Admin"])
-async def admin_unlock_intervention(int_id: str, user: dict = Depends(get_current_admin)):
-    """Iter43-fix4 — Force unlock d'une intervention facturée (admin uniquement).
+async def admin_unlock_intervention(int_id: str, user: dict = Depends(get_admin_or_supervisor)):
+    """Iter43-fix4 — Force unlock d'une intervention facturée (admin OU superviseur).
     NB : la facture associée n'est pas modifiée. Si elle doit être annulée,
     voir /admin/invoices/{invoice_id}/cancel."""
     res = await db.interventions.update_one(

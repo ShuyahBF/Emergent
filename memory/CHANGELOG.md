@@ -2,6 +2,25 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix8 — Élargissement des droits d'édition Interventions
+
+### Demande utilisateur
+> « Pour /portal/interventions il faut que l'admin (en plus du superviseur) puisse aussi modifier la fiche d'intervention. »
+
+### Backend
+- `PUT /admin/interventions/{int_id}` → `get_admin_or_supervisor` (au lieu de `get_current_admin`).
+- `POST /admin/interventions/{int_id}/unlock-invoice` → `get_admin_or_supervisor`.
+- `PUT /admin/invoices/from-interventions/{inv_id}` (paiement) → `get_admin_or_supervisor`.
+
+### Frontend
+- `isAdminOrSup` dans `Interventions.jsx` étendu à `user.role in ('admin','superviseur')` **OU** `user.tracked_role in ('Administrateur','Superviseur')` (couvre les tracked-users promus admin/sup côté tenant).
+
+### Tests
+- Régression : 25/25 pytest PASS sur iter56 + iter43-fix6 + iter43-fix5.
+
+---
+
+
 ## 2026-03 — Iter43-fix7 — Optimisation `last_interaction_at` + bug fix collection
 
 ### Bug critique fixé

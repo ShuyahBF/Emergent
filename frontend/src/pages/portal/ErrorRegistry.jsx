@@ -3,6 +3,7 @@
 // Motif et SurNomWA. Superviseur peut purger.
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   AlertOctagon, Search, RefreshCw, Filter, Eye, Trash2, X, AlertTriangle, ShieldAlert, CheckCircle2,
@@ -44,12 +45,14 @@ export default function ErrorRegistry() {
   // Iter43 — multi-sélection pour bulk delete
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [migrating, setMigrating] = useState(false);
+  const { user: authUser } = useAuth();
+  useEffect(() => {
+    setUserRole(authUser?.role || "");
+  }, [authUser]);
 
   const load = async () => {
     setLoading(true);
     try {
-      const me = await apiClient.get("/me");
-      setUserRole(me.data?.role || "");
       const params = { limit: PAGE_SIZE, skip };
       if (search.trim()) params.search = search.trim();
       if (statusFilter) params.status = statusFilter;

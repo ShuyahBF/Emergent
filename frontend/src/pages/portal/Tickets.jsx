@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
+import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
 import {
   Ticket, RefreshCw, X, Check, Clock, AlertCircle, PauseCircle, Ban,
@@ -73,9 +74,10 @@ export default function Tickets() {
   // Iter43 — Multi-sélection (Admin/Sup) pour bulk delete
   const [userRole, setUserRole] = useState("");
   const [selectedIds, setSelectedIds] = useState(new Set());
+  const { user: authUser } = useAuth();
   useEffect(() => {
-    apiClient.get("/me").then((r) => setUserRole(r.data?.role || "")).catch(() => {});
-  }, []);
+    setUserRole(authUser?.role || "");
+  }, [authUser]);
   const openTrash = async () => {
     setTrashOpen(true);
     setTrashLoading(true);

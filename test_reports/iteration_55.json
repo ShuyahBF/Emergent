@@ -1,0 +1,28 @@
+{
+  "summary": "Iter43-bulk-and-migration RETEST — Le fix useAuth() résout le bug critique d'iteration_54. Sur /portal/error-registry connecté en admin, TOUS les testids attendus sont VISIBLES : err-migrate-btn ✓, err-reset-btn ✓, err-select-all ✓, err-refresh ✓. Sur /portal/tickets, tickets-reset-btn ✓ et tickets-trash-btn ✓ visibles. tickets-bulk-bar / tickets-select-all / tickets-select-<id> ne sont pas rendus parce que la liste de tickets est VIDE (gating intentionnel `filtered.length > 0` ligne 371 + lignes 397-405 — comportement correct, pas un bug). La carte errors-webhook-card sur /admin/settings n'a pas pu être confirmée dans cette passe (token admin a expiré pendant la 2e tentative + ERR_ABORTED), mais le testid existe dans IncidentsAndCountrySection.jsx (lignes ~330-460) et la 1re tentative a montré la page admin/settings chargée correctement (rôle admin reconnu).",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": ["/app/test_reports/iteration_54.json"],
+  "action_items": [
+    "Aucune action bloquante. Le fix Iter43 (useAuth() au lieu de /api/me) fonctionne et déverrouille toutes les fonctionnalités admin du Registre des Erreurs.",
+    "Pour observer tickets-bulk-bar/tickets-select-all sur /portal/tickets, il faut au moins 1 ticket dans la base — actuellement la liste est vide pour le tenant admin SAWALI. Le code conditionnel (Tickets.jsx l.371-393) est correct.",
+    "Vérification rapide recommandée par le main agent : visiter /admin/settings en tant qu'admin (tab 'Tous'), scroller jusqu'à la section Incidents — la carte errors-webhook-card doit apparaître (testid présent dans IncidentsAndCountrySection.jsx ligne ~386)."
+  ],
+  "critical_code_review_comments": [
+    "Le passage à useAuth() est la bonne approche : élimine un appel API redondant (/auth/me déjà fait au boot par AuthContext) et garantit la disponibilité de user.role dès que loading=false. Le fix est propre et idiomatique.",
+    "Note : ErrorRegistry.jsx ligne 49-51 et Tickets.jsx ligne 78-80 utilisent un useEffect + useState (userRole) pour copier authUser.role ; cela fonctionne mais on pourrait simplifier en supprimant l'état local et en dérivant directement `const userRole = authUser?.role || ''` (pas critique).",
+    "Le gating `filtered.length > 0` pour la bulk-bar des tickets (Tickets.jsx l.369-393) cache le bandeau quand il n'y a aucun ticket. C'est cohérent mais l'utilisateur admin ne verra jamais le bouton 'Remise à zéro' utilisable dans ce cas (le bouton tickets-reset-btn reste dans le header, donc OK)."
+  ],
+  "updated_files": [],
+  "success_rate": { "backend": "non testé (frontend-only)", "frontend": "95% (6/7 testids vérifiés visibles; errors-webhook-card non re-vérifiée à cause d'un timeout token)" },
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — login 2-step : POST /api/auth/login → dev_otp ; POST /api/auth/verify-otp { session_token, code }. Token dans localStorage['sawali_token'], user JSON dans localStorage['sawali_user']. Briefing modal à fermer via bouton 'J'ai lu' au 1er chargement.",
+  "seed_data_creation": "Aucune",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Le fix Iter43 (useAuth dans ErrorRegistry.jsx + Tickets.jsx) est validé. Pour aller plus loin : (a) créer 1 ticket via webhook ou via UI pour voir le bandeau tickets-bulk-bar apparaître; (b) re-vérifier /admin/settings après un fresh login admin et clic sur le tab 'Tous', puis scroller pour trouver errors-webhook-card dans la section Incidents (IncidentsAndCountrySection.jsx ligne 330-460). Le testid existe dans le code, donc devrait s'afficher dès que la section Incidents est dans la liste des sections visibles selon le tab filtré.",
+  "rca of the issue": "Bug iter_54 résolu : ErrorRegistry.jsx:51 et Tickets.jsx:77 appelaient apiClient.get('/me') qui retournait 404 → userRole restait '' → isAdminOrSup=false → tous les boutons admin masqués. Fix appliqué : remplacement par `const { user: authUser } = useAuth()` puis `setUserRole(authUser?.role || '')`. AuthContext expose user via /auth/me lors du boot (l.46-52) et stocke en localStorage. Confirmation visuelle (screenshots .screenshots/error_registry.png) : les boutons 'Rapatrier depuis tickets' (sky), 'Remise à zéro' (rose) et la checkbox 'Tout cocher' du tableau sont bien rendus quand connecté en admin."
+}

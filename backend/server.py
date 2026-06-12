@@ -3335,6 +3335,10 @@ async def me_create_invoices_from_interventions(
             "created_by_id": user["id"],
             "created_by_label": user.get("full_name") or user.get("email"),
             "cancelled_at": None,
+            # Iter43-fix6 — Suivi de paiement
+            "deposited_at": None,   # Date/heure de dépôt physique de la facture (renseigne le délai)
+            "paid_at": None,        # Date/heure du règlement
+            "due_days": 30,         # Délai d'échéance par défaut (jours après dépôt)
         }
         await db.interventions_invoices.insert_one(invoice.copy())
         # Verrouille les interventions
@@ -3367,7 +3371,105 @@ async def me_list_intervention_invoices(
     else:
         q["tenant_id"] = user.get("parent_client_id") or user["id"]
     items = await db.interventions_invoices.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 2000)).to_list(min(limit, 2000))
+    # Iter43-fix6 — Enrichit chaque facture avec days_overdue (positif = en retard)
+    for inv in items:
+        _enrich_invoice_payment(inv)
     return items
+
+
+def _enrich_invoice_payment(inv: Dict[str, Any]) -> None:
+    """Iter43-fix6 — Calcule en place `days_overdue` et `payment_status` :
+    - payment_status: 'unpaid' | 'paid' | 'cancelled'
+    - days_overdue: int (jours écoulés depuis l'échéance ; 0 si pas encore en retard)
+                    None si la facture n'a pas encore été déposée OU si payée/annulée.
+    """
+    if inv.get("status") == "cancelled":
+        inv["payment_status"] = "cancelled"
+        inv["days_overdue"] = None
+        return
+    if inv.get("paid_at"):
+        inv["payment_status"] = "paid"
+        inv["days_overdue"] = None
+        return
+    inv["payment_status"] = "unpaid"
+    dep = inv.get("deposited_at")
+    due_days = int(inv.get("due_days") or 30)
+    if not dep:
+        inv["days_overdue"] = None
+        return
+    try:
+        dt = datetime.fromisoformat(str(dep).replace("Z", "+00:00"))
+    except (ValueError, TypeError):
+        inv["days_overdue"] = None
+        return
+    now = datetime.now(timezone.utc)
+    diff_days = (now - dt).days - due_days
+    inv["days_overdue"] = max(0, diff_days)
+
+
+class InvoicePaymentUpdate(BaseModel):
+    deposited_at: Optional[str] = None      # ISO datetime ou null pour effacer
+    paid_at: Optional[str] = None           # ISO datetime ou null
+    due_days: Optional[int] = None          # délai d'échéance (jours)
+    clear_deposited_at: bool = False        # True pour reset deposited_at à None
+    clear_paid_at: bool = False             # True pour reset paid_at à None
+
+
+@api.put("/admin/invoices/from-interventions/{inv_id}", tags=["Admin"])
+async def admin_update_intervention_invoice_payment(
+    inv_id: str,
+    payload: InvoicePaymentUpdate,
+    _: dict = Depends(get_current_admin),
+):
+    """Iter43-fix6 — Renseigne la date/heure de dépôt OU de paiement d'une
+    facture. Permet de calculer le retard de règlement.
+
+    Règles :
+    - `deposited_at` accepte une string ISO (validée) ; passer `clear_deposited_at=True` pour reset.
+    - `paid_at` accepte une string ISO ; passer `clear_paid_at=True` pour reset.
+    - `due_days` permet de surcharger le délai (par défaut 30).
+    """
+    inv = await db.interventions_invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+
+    update: Dict[str, Any] = {}
+    unset: Dict[str, str] = {}
+
+    if payload.clear_deposited_at:
+        unset["deposited_at"] = ""
+    elif payload.deposited_at is not None:
+        try:
+            datetime.fromisoformat(payload.deposited_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="deposited_at: format ISO invalide")
+        update["deposited_at"] = payload.deposited_at
+
+    if payload.clear_paid_at:
+        unset["paid_at"] = ""
+    elif payload.paid_at is not None:
+        try:
+            datetime.fromisoformat(payload.paid_at.replace("Z", "+00:00"))
+        except ValueError:
+            raise HTTPException(status_code=400, detail="paid_at: format ISO invalide")
+        update["paid_at"] = payload.paid_at
+
+    if payload.due_days is not None:
+        if payload.due_days < 0 or payload.due_days > 365:
+            raise HTTPException(status_code=400, detail="due_days doit être entre 0 et 365")
+        update["due_days"] = int(payload.due_days)
+
+    if not update and not unset:
+        raise HTTPException(status_code=400, detail="Aucune modification fournie")
+
+    mongo_update: Dict[str, Any] = {"$set": {**update, "updated_at": _now()}}
+    if unset:
+        mongo_update["$unset"] = unset
+    await db.interventions_invoices.update_one({"id": inv_id}, mongo_update)
+    fresh = await db.interventions_invoices.find_one({"id": inv_id}, {"_id": 0})
+    if fresh:
+        _enrich_invoice_payment(fresh)
+    return {"ok": True, "invoice": fresh}
 
 
 @api.get("/me/invoices/from-interventions/{inv_id}/pdf", tags=["Portail Client"])
@@ -3394,6 +3496,9 @@ async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_curr
     fmt_date = lambda iso: (datetime.fromisoformat(iso[:10]).strftime("%d/%m/%Y") if iso else "")
 
     created_dt = inv.get("created_at", "")[:16].replace("T", " ")
+    deposited_dt = (inv.get("deposited_at") or "")[:16].replace("T", " ")
+    paid_dt = (inv.get("paid_at") or "")[:16].replace("T", " ")
+    due_days = int(inv.get("due_days") or 30)
     story = [
         Paragraph("<b>SAWALI Smart Systems</b>", styles["Title"]),
         Paragraph(f"<b>FACTURE {inv['invoice_number']}</b>", styles["Heading2"]),
@@ -3402,6 +3507,11 @@ async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_curr
         Paragraph(f"<b>Client :</b> {inv.get('tenant_name') or '—'}", styles["Normal"]),
         Paragraph(f"<b>Motif :</b> {inv.get('motif', '')}", styles["Normal"]),
         Paragraph(f"<b>Taux horaire appliqué :</b> {fmt_xof(inv.get('hourly_rate_xof', 0))} XOF/h", styles["Normal"]),
+        Paragraph(
+            f"<b>Date/heure de dépôt :</b> {deposited_dt or '<i>non renseignée</i>'} "
+            f"· <b>Échéance :</b> {due_days} jours après dépôt",
+            styles["Normal"],
+        ),
         Spacer(1, 12),
     ]
     data: List[List[str]] = [["#", "Date", "N° Intervention", "Intitulé", "Technicien", "Durée (h)", "Sous-total (XOF)"]]
@@ -3440,6 +3550,19 @@ async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_curr
     if inv.get("status") == "cancelled":
         story.append(Spacer(1, 6))
         story.append(Paragraph("<font color='red'><b>FACTURE ANNULÉE</b></font>", styles["Normal"]))
+    elif paid_dt:
+        story.append(Spacer(1, 6))
+        story.append(Paragraph(f"<font color='green'><b>PAYÉE le {paid_dt}</b></font>", styles["Normal"]))
+    else:
+        # Calcule retard si dépôt renseigné
+        _enrich_invoice_payment(inv)
+        od = inv.get("days_overdue")
+        if isinstance(od, int) and od > 0:
+            story.append(Spacer(1, 6))
+            story.append(Paragraph(
+                f"<font color='red'><b>EN RETARD DE {od} JOUR(S)</b></font>",
+                styles["Normal"],
+            ))
     doc.build(story)
     body = buf.getvalue()
     fname = f"{inv['invoice_number']}.pdf"

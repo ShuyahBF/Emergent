@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer, Pencil, ReceiptText, Download, Unlock, Lock, AlertTriangle } from "lucide-react";
+import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer, Pencil, ReceiptText, Download, Unlock, Lock, AlertTriangle, ChevronDown, ChevronUp, CalendarClock, CheckCircle2, Banknote } from "lucide-react";
 import { toast } from "sonner";
 
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
@@ -43,6 +43,11 @@ export default function ClientInterventions() {
   const [generating, setGenerating] = useState(false);
   const [editing, setEditing] = useState(null);
   const [unlockBusy, setUnlockBusy] = useState(null);
+  // Iter43-fix6 — Liste des factures émises + suivi paiement
+  const [invoices, setInvoices] = useState([]);
+  const [showInvoices, setShowInvoices] = useState(false);
+  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  const [editingInvoice, setEditingInvoice] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -62,6 +67,16 @@ export default function ClientInterventions() {
       const r = await apiClient.get("/me/clients");
       setClients(r.data || []);
     } catch { /* noop */ }
+  };
+  // Iter43-fix6 — Charge les factures émises (admin/sup voient tout, tenant voit les siennes)
+  const loadInvoices = async () => {
+    setInvoicesLoading(true);
+    try {
+      const r = await apiClient.get("/me/invoices/from-interventions", { params: { limit: 500 } });
+      setInvoices(r.data || []);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur chargement factures");
+    } finally { setInvoicesLoading(false); }
   };
   useEffect(() => { load(); loadClients(); }, []);
 
@@ -158,14 +173,16 @@ export default function ClientInterventions() {
     setGenerating(true);
     try {
       const r = await apiClient.post("/me/invoices/from-interventions", { intervention_ids: ids });
-      const invoices = r.data?.invoices || [];
-      toast.success(`${invoices.length} facture(s) générée(s) — téléchargement…`);
+      const newInvoices = r.data?.invoices || [];
+      toast.success(`${newInvoices.length} facture(s) générée(s) — téléchargement…`);
       // Télécharge automatiquement chaque facture
-      for (const inv of invoices) {
+      for (const inv of newInvoices) {
         await downloadInvoicePdf(inv);
       }
       setSelected(new Set());
       await load();
+      await loadInvoices();
+      setShowInvoices(true);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur génération facture");
     } finally { setGenerating(false); }
@@ -431,6 +448,31 @@ export default function ClientInterventions() {
           clients={clients}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
+
+      {/* Iter43-fix6 — Section repliable : Factures émises + suivi paiement */}
+      {isAdminOrSup && (
+        <InvoicesPanel
+          open={showInvoices}
+          onToggle={() => {
+            const next = !showInvoices;
+            setShowInvoices(next);
+            if (next && invoices.length === 0) loadInvoices();
+          }}
+          invoices={invoices}
+          loading={invoicesLoading}
+          onRefresh={loadInvoices}
+          onEdit={(inv) => setEditingInvoice(inv)}
+          onDownload={downloadInvoicePdf}
+        />
+      )}
+
+      {editingInvoice && (
+        <EditInvoicePaymentModal
+          invoice={editingInvoice}
+          onClose={() => setEditingInvoice(null)}
+          onSaved={() => { setEditingInvoice(null); loadInvoices(); }}
         />
       )}
 
@@ -853,3 +895,273 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
     </div>
   );
 };
+
+// ============================================================
+// Iter43-fix6 — Panneau "Factures émises" + édition dépôt/paiement
+// ============================================================
+const fmtXof = (n) => (Number(n) || 0).toLocaleString("fr-FR").replaceAll(",", " ");
+const fmtIsoDateTime = (iso) => {
+  if (!iso) return "—";
+  try { return new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }); }
+  catch { return iso; }
+};
+
+const InvoicesPanel = ({ open, onToggle, invoices, loading, onRefresh, onEdit, onDownload }) => {
+  const overdueCount = invoices.filter((i) => (i.days_overdue ?? 0) > 0).length;
+  const paidCount = invoices.filter((i) => i.payment_status === "paid").length;
+  const unpaidCount = invoices.filter((i) => i.payment_status === "unpaid").length;
+  return (
+    <div className="rounded-xl border border-slate-200 bg-white" data-testid="invoices-panel">
+      <button type="button"
+              onClick={onToggle}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-slate-50"
+              data-testid="invoices-panel-toggle">
+        <div className="flex items-center gap-2">
+          <ReceiptText className="h-4 w-4 text-sawali-blue" />
+          <span className="font-semibold text-slate-800">Factures émises</span>
+          <span className="text-xs text-slate-500">({invoices.length})</span>
+          {overdueCount > 0 && (
+            <span className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-full bg-rose-100 text-rose-700 ring-1 ring-rose-300 font-semibold"
+                  data-testid="invoices-overdue-badge">
+              <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500" />
+              {overdueCount} en retard
+            </span>
+          )}
+          {paidCount > 0 && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">
+              {paidCount} payée(s)
+            </span>
+          )}
+          {unpaidCount > 0 && (
+            <span className="text-[11px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-800 ring-1 ring-amber-200">
+              {unpaidCount} en attente
+            </span>
+          )}
+        </div>
+        {open ? <ChevronUp className="h-4 w-4 text-slate-500" /> : <ChevronDown className="h-4 w-4 text-slate-500" />}
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 p-3">
+          <div className="flex justify-end mb-2">
+            <button onClick={onRefresh} disabled={loading}
+                    className="inline-flex items-center gap-2 text-xs rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-1.5 disabled:opacity-60"
+                    data-testid="invoices-refresh">
+              <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm min-w-[820px]">
+              <thead className="bg-slate-50 text-xs uppercase text-slate-600">
+                <tr>
+                  <th className="text-left px-3 py-2">N° Facture</th>
+                  <th className="text-left px-3 py-2">Tenant</th>
+                  <th className="text-right px-3 py-2">Total (XOF)</th>
+                  <th className="text-left px-3 py-2">Dépôt</th>
+                  <th className="text-left px-3 py-2">Échéance</th>
+                  <th className="text-left px-3 py-2">Paiement</th>
+                  <th className="text-left px-3 py-2">Retard</th>
+                  <th className="text-right px-3 py-2">Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loading && (
+                  <tr><td colSpan={8} className="text-center py-6 text-slate-400">Chargement…</td></tr>
+                )}
+                {!loading && invoices.length === 0 && (
+                  <tr><td colSpan={8} className="text-center py-6 text-slate-400 italic">Aucune facture émise.</td></tr>
+                )}
+                {!loading && invoices.map((inv) => {
+                  const od = inv.days_overdue;
+                  const paid = inv.payment_status === "paid";
+                  const isOverdue = (od ?? 0) > 0 && !paid;
+                  return (
+                    <tr key={inv.id}
+                        className={`border-t border-slate-100 ${isOverdue ? "bg-rose-50/40" : ""} ${paid ? "text-slate-500" : ""}`}
+                        data-testid={`invoice-row-${inv.id}`}>
+                      <td className="px-3 py-2 font-mono text-xs">
+                        <button type="button" onClick={() => onDownload(inv)}
+                                className="inline-flex items-center gap-1 text-emerald-700 hover:underline"
+                                data-testid={`invoice-download-${inv.id}`}
+                                title="Télécharger PDF">
+                          {inv.invoice_number}
+                          <Download className="h-3 w-3" />
+                        </button>
+                      </td>
+                      <td className="px-3 py-2 text-xs">{inv.tenant_name || "—"}</td>
+                      <td className="px-3 py-2 text-right font-mono text-xs">{fmtXof(inv.total_xof)}</td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap">
+                        {inv.deposited_at ? (
+                          <span className="inline-flex items-center gap-1 text-slate-700">
+                            <CalendarClock className="h-3 w-3" /> {fmtIsoDateTime(inv.deposited_at)}
+                          </span>
+                        ) : <span className="italic text-amber-600" title="Renseigner pour activer le suivi du délai de paiement">non renseigné</span>}
+                      </td>
+                      <td className="px-3 py-2 text-xs">{inv.due_days ?? 30} j</td>
+                      <td className="px-3 py-2 text-xs whitespace-nowrap">
+                        {paid ? (
+                          <span className="inline-flex items-center gap-1 text-emerald-700 font-medium">
+                            <CheckCircle2 className="h-3 w-3" /> {fmtIsoDateTime(inv.paid_at)}
+                          </span>
+                        ) : <span className="italic text-slate-400">non payée</span>}
+                      </td>
+                      <td className="px-3 py-2 text-xs">
+                        {paid ? (
+                          <span className="text-emerald-600">—</span>
+                        ) : od === null || od === undefined ? (
+                          <span className="text-slate-400">—</span>
+                        ) : od > 0 ? (
+                          <span className="inline-flex items-center gap-1 text-rose-700 font-semibold" data-testid={`invoice-overdue-${inv.id}`}>
+                            <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500 animate-pulse" />
+                            {od} j de retard
+                          </span>
+                        ) : (
+                          <span className="text-slate-500">En cours</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-right">
+                        <button onClick={() => onEdit(inv)}
+                                className="inline-flex items-center gap-1 text-xs text-sawali-blue hover:underline"
+                                data-testid={`invoice-edit-${inv.id}`}>
+                          <Pencil className="h-3 w-3" /> Saisir / Modifier
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ISO datetime helpers — converts between <input type="datetime-local"> and ISO UTC.
+const isoToLocalInput = (iso) => {
+  if (!iso) return "";
+  try {
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    const off = d.getTimezoneOffset() * 60_000;
+    return new Date(d.getTime() - off).toISOString().slice(0, 16);
+  } catch { return ""; }
+};
+const localInputToIso = (local) => {
+  if (!local) return null;
+  try {
+    const d = new Date(local);
+    if (isNaN(d.getTime())) return null;
+    return d.toISOString();
+  } catch { return null; }
+};
+
+const EditInvoicePaymentModal = ({ invoice, onClose, onSaved }) => {
+  const [deposited, setDeposited] = useState(isoToLocalInput(invoice.deposited_at));
+  const [paid, setPaid] = useState(isoToLocalInput(invoice.paid_at));
+  const [dueDays, setDueDays] = useState(invoice.due_days ?? 30);
+  const [saving, setSaving] = useState(false);
+
+  const setDepositedNow = () => setDeposited(isoToLocalInput(new Date().toISOString()));
+  const setPaidNow = () => setPaid(isoToLocalInput(new Date().toISOString()));
+
+  const submit = async () => {
+    setSaving(true);
+    try {
+      const payload = {
+        due_days: Number(dueDays) || 30,
+      };
+      if (deposited) payload.deposited_at = localInputToIso(deposited);
+      else payload.clear_deposited_at = true;
+      if (paid) payload.paid_at = localInputToIso(paid);
+      else payload.clear_paid_at = true;
+      await apiClient.put(`/admin/invoices/from-interventions/${invoice.id}`, payload);
+      toast.success("Facture mise à jour");
+      onSaved();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+         onClick={(e) => e.target === e.currentTarget && onClose()}
+         data-testid="invoice-edit-modal">
+      <div className="w-full max-w-md rounded-2xl bg-white shadow-2xl p-6 space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+            <Banknote className="h-5 w-5 text-sawali-blue" />
+            <span>Facture {invoice.invoice_number}</span>
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="invoice-edit-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="rounded-lg bg-slate-50 p-3 text-xs space-y-1">
+          <p><span className="text-slate-500">Tenant :</span> <strong>{invoice.tenant_name || "—"}</strong></p>
+          <p><span className="text-slate-500">Total :</span> <strong>{fmtXof(invoice.total_xof)} XOF</strong></p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
+            <CalendarClock className="h-3 w-3 text-amber-600" /> Date / heure de dépôt
+          </label>
+          <div className="flex items-center gap-2">
+            <input type="datetime-local"
+                   value={deposited}
+                   onChange={(e) => setDeposited(e.target.value)}
+                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                   data-testid="invoice-edit-deposited-at" />
+            <button type="button" onClick={setDepositedNow}
+                    className="text-xs px-2 py-2 rounded ring-1 ring-slate-300 bg-white hover:bg-slate-100"
+                    data-testid="invoice-edit-deposited-now"
+                    title="Renseigner la date actuelle">
+              Maintenant
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">Le retard de paiement se calcule à partir de cette date + l'échéance.</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1">Échéance (jours après dépôt)</label>
+          <input type="number" min="0" max="365"
+                 value={dueDays}
+                 onChange={(e) => setDueDays(e.target.value)}
+                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                 data-testid="invoice-edit-due-days" />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
+            <CheckCircle2 className="h-3 w-3 text-emerald-600" /> Date / heure de paiement
+          </label>
+          <div className="flex items-center gap-2">
+            <input type="datetime-local"
+                   value={paid}
+                   onChange={(e) => setPaid(e.target.value)}
+                   className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                   data-testid="invoice-edit-paid-at" />
+            <button type="button" onClick={setPaidNow}
+                    className="text-xs px-2 py-2 rounded ring-1 ring-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700"
+                    data-testid="invoice-edit-paid-now"
+                    title="Marquer comme payée maintenant">
+              Marquer payée
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">Laisser vide tant que la facture n'a pas été réglée.</p>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
+          <button onClick={submit} disabled={saving}
+                  className="text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50"
+                  data-testid="invoice-edit-save">
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+

@@ -347,7 +347,7 @@ export default function ErrorRegistry() {
               const unack = !e.acknowledged;
               const isSel = selectedIds.has(e.id);
               return (
-                <tr key={e.id} className={`hover:bg-slate-50 ${unack ? "bg-amber-50/30" : ""} ${isSel ? "bg-rose-50" : ""}`} data-testid={`err-row-${e.id}`}>
+                <tr key={e.id} className={`hover:bg-slate-50 ${unack ? "bg-rose-50/40 text-rose-700 font-semibold" : "text-slate-500 italic"} ${isSel ? "ring-1 ring-rose-300" : ""}`} data-testid={`err-row-${e.id}`} data-read={unack ? "unread" : "read"}>
                   {isAdminOrSup && (
                     <td className="px-2 py-1.5">
                       <input type="checkbox"
@@ -357,7 +357,10 @@ export default function ErrorRegistry() {
                              data-testid={`err-select-${e.id}`} />
                     </td>
                   )}
-                  <td className="px-2 py-1.5 whitespace-nowrap">{fmtDateTime(e.DateHeure_Création)}</td>
+                  <td className="px-2 py-1.5 whitespace-nowrap">
+                    {unack && <span className="inline-block h-1.5 w-1.5 rounded-full bg-rose-500 mr-1.5 align-middle" title="Non lu" />}
+                    {fmtDateTime(e.DateHeure_Création)}
+                  </td>
                   <td className="px-2 py-1.5 font-mono text-[10px]">{e.Numéro_Généré}</td>
                   <td className="px-2 py-1.5">
                     <span className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full ring-1 ${b.cls}`}>

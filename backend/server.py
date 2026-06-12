@@ -13169,6 +13169,10 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     this bridges historical client_id misalignments without forcing a manual
     realign. RGPD: per-client anonymization flags still apply for non-
     privileged roles, regardless of who owns the contact.
+
+    Iter43-fix5 — Enrichit chaque contact d'un champ `last_interaction_at`
+    (max des timestamps WA + SMS pour les digits-10 du numéro WA/téléphone).
+    Permet au frontend de trier par date d'interaction décroissante par défaut.
     """
     client_ids = await _resolve_visible_client_ids(user)
     items = await db.directory_contacts.find(
@@ -13177,6 +13181,56 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     flags = await _resolve_anon_flags(user)
     if any(flags.values()):
         items = [_apply_anon_to_contact(c, flags) for c in items]
+
+    # Iter43-fix5 — Calcule last_interaction_at via match digits10 sur WA/SMS
+    import re as _re_li
+
+    def _digits10(s: Optional[str]) -> str:
+        d = _re_li.sub(r"\D", "", s or "")
+        return d[-10:] if len(d) >= 10 else d
+
+    phone_map: Dict[str, List[Dict[str, Any]]] = {}
+    for c in items:
+        d10 = _digits10(c.get("whatsapp") or c.get("phone"))
+        if d10:
+            phone_map.setdefault(d10, []).append(c)
+
+    if phone_map:
+        last_by_phone: Dict[str, str] = {}
+        try:
+            async for msg in db.wa_messages.find(
+                {}, {"_id": 0, "from": 1, "to": 1, "timestamp": 1, "created_at": 1, "received_at": 1, "sent_at": 1},
+            ).sort("timestamp", -1).limit(20000):
+                ts = msg.get("timestamp") or msg.get("received_at") or msg.get("sent_at") or msg.get("created_at")
+                if not ts:
+                    continue
+                for k in ("from", "to"):
+                    d10 = _digits10(msg.get(k))
+                    if d10 in phone_map:
+                        s = str(ts)
+                        if d10 not in last_by_phone or s > last_by_phone[d10]:
+                            last_by_phone[d10] = s
+        except Exception:
+            pass
+        try:
+            async for msg in db.sms_messages.find(
+                {}, {"_id": 0, "to": 1, "from": 1, "sent_at": 1, "created_at": 1, "received_at": 1},
+            ).sort("created_at", -1).limit(20000):
+                ts = msg.get("sent_at") or msg.get("received_at") or msg.get("created_at")
+                if not ts:
+                    continue
+                for k in ("from", "to"):
+                    d10 = _digits10(msg.get(k))
+                    if d10 in phone_map:
+                        s = str(ts)
+                        if d10 not in last_by_phone or s > last_by_phone[d10]:
+                            last_by_phone[d10] = s
+        except Exception:
+            pass
+        for d10, contacts in phone_map.items():
+            ts = last_by_phone.get(d10)
+            for c in contacts:
+                c["last_interaction_at"] = ts
     return items
 
 

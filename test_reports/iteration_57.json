@@ -1,0 +1,27 @@
+{
+  "summary": "Iter43-fix5 validation: (A) Backend /api/me/contacts enrichit chaque contact d'un champ `last_interaction_at` (3 pytest passent — field present, null for no-message contact, populated for WA-matched contact). (B) Frontend /portal/contacts : sélecteur data-testid=contact-sort présent avec 3 options exactes et valeur par défaut 'interaction_desc'. (C) Frontend /portal/error-registry (login admin) : lignes non-lues ont 'text-rose-700 font-semibold' + data-read='unread' + pastille rouge ; après acknowledge via Eye + reload, ligne devient data-read='read' avec 'italic text-slate-500'.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix5_last_interaction_at.py",
+    "/app/test_reports/pytest/iter43_fix5.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py:13201 — db.wa_messages.find({}) sans filtre client_id : scan complet de la collection limité à 20000 docs. Pour un grand volume, ce calcul à chaque appel /me/contacts peut devenir lent (et fuite cross-tenant possible sur les noms si sms_messages contient des numéros communs entre clients). Envisager un agrégat avec match préalable sur les digits10 présents ou pré-calcul en cache.",
+    "Contacts.jsx : la liste 'phone_map' inclut un fallback sur c.phone — OK, mais le tri 'interaction_desc' tombe en alphabétique pour les contacts sans interaction (bon) ; vérifier que l'ordre est stable côté UX si plusieurs contacts ont le même timestamp."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter43_fix5_last_interaction_at.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp dans la réponse de /api/auth/login, exposé dans l'UI via data-testid=login-dev-otp)",
+  "seed_data_creation": "Test contacts & WA message créés/supprimés in-test ; 1 erreur de test ingérée via /api/errors/ingest et supprimée à la fin (db.errors_registry.delete_many Motif regex 'TEST iter43').",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Pour tester /portal/error-registry il faut être admin/superviseur ET avoir au moins une erreur dans la collection errors_registry. Si vide, ingérer une erreur via POST /api/errors/ingest?source=manual avec body {TicketDemande:{CodeApplicatif,Motif,Code_Client}, Erreur:{Code_Erreur,Description}}. Le toast 'Briefing' (J'ai lu) peut bloquer les clics — fermer avant chaque interaction. Login : 2 étapes credentials → otp ; lire dev_otp depuis [data-testid=login-dev-otp] (NE PAS faire un fetch préalable car cela invaliderait l'OTP affiché)."
+}

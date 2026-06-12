@@ -236,6 +236,8 @@ export default function Contacts() {
 
   // Iter34r — Quick share-filter pill: tous / partagés / privés / non-lus
   const [shareFilter, setShareFilter] = useState("all");
+  // Iter43-fix5 — Tri configurable. Par défaut : date d'interaction décroissante.
+  const [sortBy, setSortBy] = useState("interaction_desc"); // interaction_desc | name_asc | name_desc
   // Iter35r — Auto-open on "Non-lus" tab when there are unread inbound messages.
   // Only triggered once (when the unread count crosses 0) to avoid overriding
   // the user's manual tab choice afterwards.
@@ -257,6 +259,28 @@ export default function Contacts() {
     return [c.name, c.phone, c.whatsapp, c.email, c.company, (c.tags || []).join(" ")]
       .some((v) => (v || "").toLowerCase().includes(q));
   });
+
+  // Iter43-fix5 — Tri appliqué après filtres. Le champ `last_interaction_at`
+  // est calculé côté backend depuis wa_messages + sms_messages (digits-10).
+  const sorted = useMemo(() => {
+    const arr = filtered.slice();
+    if (sortBy === "name_asc") {
+      arr.sort((a, b) => (a.name || "").localeCompare(b.name || "", "fr", { sensitivity: "base" }));
+    } else if (sortBy === "name_desc") {
+      arr.sort((a, b) => (b.name || "").localeCompare(a.name || "", "fr", { sensitivity: "base" }));
+    } else {
+      // interaction_desc (défaut) — contacts sans interaction passent en fin de liste
+      arr.sort((a, b) => {
+        const ta = a.last_interaction_at || "";
+        const tb = b.last_interaction_at || "";
+        if (ta && !tb) return -1;
+        if (!ta && tb) return 1;
+        if (!ta && !tb) return (a.name || "").localeCompare(b.name || "", "fr", { sensitivity: "base" });
+        return tb.localeCompare(ta);
+      });
+    }
+    return arr;
+  }, [filtered, sortBy]);
 
   // Live counts for the pills (respect company + search filters, ignore the
   // share filter itself so the counts reflect "what's available to switch to").
@@ -340,6 +364,17 @@ export default function Contacts() {
           <option value="">Tous les clients</option>
           {companyOptions.map((o) => <option key={o.label} value={o.value}>{o.label}</option>)}
         </select>
+        <select
+          value={sortBy}
+          onChange={(e) => setSortBy(e.target.value)}
+          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm min-w-[200px]"
+          data-testid="contact-sort"
+          title="Choisir l'ordre d'affichage"
+        >
+          <option value="interaction_desc">Interaction (plus récente)</option>
+          <option value="name_asc">Nom A → Z</option>
+          <option value="name_desc">Nom Z → A</option>
+        </select>
         <span className="text-xs text-slate-500">{filtered.length} contact(s)</span>
       </div>
 
@@ -383,7 +418,7 @@ export default function Contacts() {
 
       {loading ? (
         <div className="text-center text-slate-500 py-10">Chargement…</div>
-      ) : filtered.length === 0 ? (
+      ) : sorted.length === 0 ? (
         <div className="text-center text-slate-400 py-10 italic text-sm">
           Aucun contact. Créez-en un avec "Nouveau contact".
         </div>
@@ -402,7 +437,7 @@ export default function Contacts() {
               </tr>
             </thead>
             <tbody>
-              {filtered.map((c) => (
+              {sorted.map((c) => (
                 <ContactRow
                   key={c.id}
                   c={c}

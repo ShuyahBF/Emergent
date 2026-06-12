@@ -298,8 +298,10 @@ export default function PortalLayout({ admin = false }) {
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges }) => {
           const count = module ? (badges[module] || 0) : 0;
           const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
-          const errorException = showBadges ? (badges.errors_exception || 0) : 0;
-          const errorFatale = showBadges ? (badges.errors_fatale || 0) : 0;
+          // Iter43-fix (2026-03) — Lit `errors_critical` + `errors_high` en priorité,
+          // avec fallback sur les anciens noms `errors_fatale` / `errors_exception`.
+          const errorHigh = showBadges ? (badges.errors_high ?? badges.errors_exception ?? 0) : 0;
+          const errorCritical = showBadges ? (badges.errors_critical ?? badges.errors_fatale ?? 0) : 0;
           const featureDisabled = featureGate && !tenantFeatures[featureGate];
           // S046 — translate label if a tKey is provided
           // Iter41 Phase 4b — strip parenthetical hints from sidebar labels
@@ -365,22 +367,22 @@ export default function PortalLayout({ admin = false }) {
                   {liveCount > 99 ? "99+" : liveCount}
                 </span>
               )}
-              {showBadges && errorException > 0 && (
+              {showBadges && errorHigh > 0 && (
                 <span
-                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D]"
-                  data-testid="badge-errors-exception"
-                  title={`${errorException} exception(s) non lues`}
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-orange-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D]"
+                  data-testid="badge-errors-high"
+                  title={`${errorHigh} erreur(s) High non lues`}
                 >
-                  {errorException > 99 ? "99+" : errorException}
+                  {errorHigh > 99 ? "99+" : errorHigh}
                 </span>
               )}
-              {showBadges && errorFatale > 0 && (
+              {showBadges && errorCritical > 0 && (
                 <span
                   className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-rose-600 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] animate-pulse"
-                  data-testid="badge-errors-fatale"
-                  title={`${errorFatale} erreur(s) fatale(s) non lues`}
+                  data-testid="badge-errors-critical"
+                  title={`${errorCritical} erreur(s) Critical non lues`}
                 >
-                  {errorFatale > 99 ? "99+" : errorFatale}
+                  {errorCritical > 99 ? "99+" : errorCritical}
                 </span>
               )}
             </NavLink>

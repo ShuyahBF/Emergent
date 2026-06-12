@@ -12563,21 +12563,54 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
             counts["admin_profile_requests"] = 0
     except Exception:
         counts["admin_profile_requests"] = 0
-    # Iter40 (2026-02) — Registre des erreurs : 2 badges (exception + fatale)
+    # Iter40 (2026-02) → Iter43-fix (2026-03) — Registre des erreurs :
+    # 2 badges (high + critical) basés sur le nouveau champ `mapped_severity`
+    # (Iter43-fix). Fallback heuristique sur StatutEnCours pour les anciennes
+    # entrées sans mapped_severity (pré-Iter43).
     try:
         from routes.error_registry import ALLOWED_ROLES as _ER_ALLOWED
         role_ok = (user.get("role") or "").lower() in _ER_ALLOWED
         if role_ok:
             base_q = {"deleted_at": None, "acknowledged": False, "estActif": True}
             counts["errors_unack"] = await db.error_registry.count_documents(base_q)
-            counts["errors_exception"] = await db.error_registry.count_documents({**base_q, "StatutEnCours": {"$regex": "^exception$", "$options": "i"}})
-            counts["errors_fatale"] = await db.error_registry.count_documents({**base_q, "StatutEnCours": {"$regex": "^fatal", "$options": "i"}})
+            # Récupère la table de mapping admin pour traduire les anciennes entrées
+            s_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0, "error_severity_mapping": 1}) or {}
+            mapping_lc = {k.lower(): v for k, v in (s_doc.get("error_severity_mapping") or {}).items()}
+            # Branche A — entrées avec mapped_severity déjà résolu
+            mapped_high = await db.error_registry.count_documents({**base_q, "mapped_severity": "high"})
+            mapped_critical = await db.error_registry.count_documents({**base_q, "mapped_severity": "critical"})
+            # Branche B — entrées legacy (pas de mapped_severity) — on applique
+            # l'heuristique sur StatutEnCours pour chaque entrée pertinente.
+            legacy_high = 0
+            legacy_critical = 0
+            legacy_filter = {**base_q, "mapped_severity": {"$exists": False}}
+            async for d in db.error_registry.find(legacy_filter, {"_id": 0, "StatutEnCours": 1}):
+                statut = ((d.get("StatutEnCours") or "")).strip().lower()
+                mapped = mapping_lc.get(statut)
+                if not mapped:
+                    if statut in ("fatale", "fatal", "critical", "critique"):
+                        mapped = "critical"
+                    elif statut in ("exception", "erreur", "error"):
+                        mapped = "high"
+                if mapped == "high":
+                    legacy_high += 1
+                elif mapped == "critical":
+                    legacy_critical += 1
+            counts["errors_high"] = mapped_high + legacy_high
+            counts["errors_critical"] = mapped_critical + legacy_critical
+            # Backward compat — alias avec les anciens noms (sidebar pré-fix)
+            counts["errors_exception"] = counts["errors_high"]
+            counts["errors_fatale"] = counts["errors_critical"]
         else:
             counts["errors_unack"] = 0
+            counts["errors_high"] = 0
+            counts["errors_critical"] = 0
             counts["errors_exception"] = 0
             counts["errors_fatale"] = 0
     except Exception:
         counts["errors_unack"] = 0
+        counts["errors_high"] = 0
+        counts["errors_critical"] = 0
         counts["errors_exception"] = 0
         counts["errors_fatale"] = 0
     return {"counts": counts, "generated_at": _now()}

@@ -3226,6 +3226,229 @@ async def me_interventions_pdf(
 
 
 
+# =====================================================================
+# Iter43-fix4 (2026-03) — Facturation depuis l'historique des interventions
+# =====================================================================
+class InterventionInvoicePayload(BaseModel):
+    intervention_ids: List[str] = Field(default_factory=list, max_length=500)
+
+
+async def _next_invoice_number(year: int) -> str:
+    """Auto-numérotation INV-YYYY-00001."""
+    from routes._counters import next_seq
+    seq = await next_seq(db, f"interventions_invoices-{year}")
+    return f"INV-{year}-{str(seq).zfill(5)}"
+
+
+@api.post("/me/invoices/from-interventions", tags=["Portail Client"])
+async def me_create_invoices_from_interventions(
+    payload: InterventionInvoicePayload = Body(...),
+    user: dict = Depends(get_current_user),
+):
+    """Génère 1 facture par tenant à partir d'interventions sélectionnées.
+
+    - Filtre : interventions existantes ET non encore facturées
+    - Groupe par `client_id` (tenant)
+    - Pour chaque groupe : facture auto-numérotée, motif « Intervention(s) n°<liste> »
+    - Lignes : date, n°, technicien, durée, sous-total = durée × taux horaire résolu
+    - Marque chaque intervention `invoiced=True` + `invoice_id` + `invoice_number`
+    - Réservé Admin/Superviseur
+    """
+    role = (user.get("role") or "").lower()
+    if role not in ("admin", "superviseur"):
+        raise HTTPException(status_code=403, detail="Réservé Admin/Superviseur")
+    ids = [i for i in (payload.intervention_ids or []) if isinstance(i, str) and i]
+    if not ids:
+        raise HTTPException(status_code=400, detail="Aucune intervention sélectionnée")
+    # Récupère seulement les non-facturées
+    cursor = db.interventions.find(
+        {"id": {"$in": ids}, "invoiced": {"$ne": True}},
+        {"_id": 0},
+    )
+    items = await cursor.to_list(len(ids))
+    if not items:
+        raise HTTPException(status_code=409, detail="Toutes les interventions sélectionnées sont déjà facturées")
+    # Groupe par tenant (client_id) — interventions sans client_id sont rejetées
+    by_tenant: Dict[str, List[Dict[str, Any]]] = {}
+    for i in items:
+        cid = i.get("client_id")
+        if not cid:
+            continue
+        by_tenant.setdefault(cid, []).append(i)
+    if not by_tenant:
+        raise HTTPException(status_code=400, detail="Aucune intervention rattachée à un tenant")
+
+    # Résout les noms tenants en un lookup
+    tenants = await db.users.find(
+        {"id": {"$in": list(by_tenant.keys())}},
+        {"_id": 0, "id": 1, "company": 1, "full_name": 1, "email": 1, "hourly_rate": 1, "phone": 1, "whatsapp": 1},
+    ).to_list(len(by_tenant))
+    tenants_map = {t["id"]: t for t in tenants}
+    global_settings = await db.settings.find_one({"_id": "global"}, {"_id": 0, "default_intervention_hourly_rate_xof": 1}) or {}
+    global_default = global_settings.get("default_intervention_hourly_rate_xof") or DEFAULT_INTERVENTION_HOURLY_RATE_XOF
+
+    year = datetime.now(timezone.utc).year
+    created: List[Dict[str, Any]] = []
+    for cid, interv_list in by_tenant.items():
+        t = tenants_map.get(cid) or {}
+        # Résout le taux horaire spécifique au tenant
+        try:
+            rate = int(float(t.get("hourly_rate") or 0))
+        except (TypeError, ValueError):
+            rate = 0
+        if rate <= 0:
+            rate = int(global_default)
+        # Construit les lignes (triées par date)
+        sorted_iv = sorted(interv_list, key=lambda x: x.get("intervention_date") or "")
+        lines = []
+        total = 0
+        for iv in sorted_iv:
+            dh = float(iv.get("duration_hours") or 0)
+            subtotal = int(round(dh * rate))
+            total += subtotal
+            lines.append({
+                "intervention_id": iv["id"],
+                "intervention_number": iv.get("intervention_number") or "—",
+                "intervention_date": iv.get("intervention_date") or "",
+                "title": iv.get("title") or "",
+                "technician": iv.get("technician") or "—",
+                "duration_hours": dh,
+                "hourly_rate_xof": rate,
+                "subtotal_xof": subtotal,
+            })
+        num = await _next_invoice_number(year)
+        numbers_list = ", ".join(l["intervention_number"] for l in lines if l["intervention_number"] != "—")
+        invoice = {
+            "id": _uuid(),
+            "invoice_number": num,
+            "tenant_id": cid,
+            "tenant_name": t.get("company") or t.get("full_name") or t.get("email"),
+            "tenant_phone": t.get("phone") or t.get("whatsapp"),
+            "motif": f"Intervention(s) n° {numbers_list}" if numbers_list else "Interventions",
+            "hourly_rate_xof": rate,
+            "lines": lines,
+            "total_xof": total,
+            "currency": "XOF",
+            "status": "draft",
+            "intervention_ids": [iv["id"] for iv in sorted_iv],
+            "created_at": _now(),
+            "created_by_id": user["id"],
+            "created_by_label": user.get("full_name") or user.get("email"),
+            "cancelled_at": None,
+        }
+        await db.interventions_invoices.insert_one(invoice.copy())
+        # Verrouille les interventions
+        await db.interventions.update_many(
+            {"id": {"$in": invoice["intervention_ids"]}},
+            {"$set": {
+                "invoiced": True, "invoice_id": invoice["id"],
+                "invoice_number": num, "invoiced_at": _now(),
+                "invoiced_by": user.get("email"),
+            }},
+        )
+        invoice.pop("_id", None)
+        created.append(invoice)
+    return {"ok": True, "invoices": created, "count": len(created)}
+
+
+@api.get("/me/invoices/from-interventions", tags=["Portail Client"])
+async def me_list_intervention_invoices(
+    user: dict = Depends(get_current_user),
+    tenant_id: Optional[str] = None,
+    limit: int = 500,
+):
+    """Liste des factures interventions (admin/sup voient tout, client voit
+    uniquement les siennes via tenant_id résolu)."""
+    role = (user.get("role") or "").lower()
+    q: Dict[str, Any] = {}
+    if role in ("admin", "superviseur"):
+        if tenant_id:
+            q["tenant_id"] = tenant_id
+    else:
+        q["tenant_id"] = user.get("parent_client_id") or user["id"]
+    items = await db.interventions_invoices.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 2000)).to_list(min(limit, 2000))
+    return items
+
+
+@api.get("/me/invoices/from-interventions/{inv_id}/pdf", tags=["Portail Client"])
+async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_current_user)):
+    """PDF de la facture (admin/sup OU le tenant propriétaire)."""
+    inv = await db.interventions_invoices.find_one({"id": inv_id}, {"_id": 0})
+    if not inv:
+        raise HTTPException(status_code=404, detail="Facture introuvable")
+    role = (user.get("role") or "").lower()
+    if role not in ("admin", "superviseur"):
+        user_tid = user.get("parent_client_id") or user["id"]
+        if inv.get("tenant_id") != user_tid:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib import colors
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet
+    import io as _io
+    buf = _io.BytesIO()
+    doc = SimpleDocTemplate(buf, pagesize=A4, topMargin=28, bottomMargin=28, leftMargin=28, rightMargin=28, title=f"Facture {inv['invoice_number']}")
+    styles = getSampleStyleSheet()
+    fmt_xof = lambda n: f"{int(n):,}".replace(",", " ")
+    fmt_date = lambda iso: (datetime.fromisoformat(iso[:10]).strftime("%d/%m/%Y") if iso else "")
+
+    created_dt = inv.get("created_at", "")[:16].replace("T", " ")
+    story = [
+        Paragraph("<b>SAWALI Smart Systems</b>", styles["Title"]),
+        Paragraph(f"<b>FACTURE {inv['invoice_number']}</b>", styles["Heading2"]),
+        Paragraph(f"Émise le {created_dt}", styles["Normal"]),
+        Spacer(1, 12),
+        Paragraph(f"<b>Client :</b> {inv.get('tenant_name') or '—'}", styles["Normal"]),
+        Paragraph(f"<b>Motif :</b> {inv.get('motif', '')}", styles["Normal"]),
+        Paragraph(f"<b>Taux horaire appliqué :</b> {fmt_xof(inv.get('hourly_rate_xof', 0))} XOF/h", styles["Normal"]),
+        Spacer(1, 12),
+    ]
+    data: List[List[str]] = [["#", "Date", "N° Intervention", "Intitulé", "Technicien", "Durée (h)", "Sous-total (XOF)"]]
+    for idx, l in enumerate(inv.get("lines", []), start=1):
+        data.append([
+            str(idx),
+            fmt_date(l.get("intervention_date")),
+            l.get("intervention_number", "—"),
+            (l.get("title") or "")[:48],
+            (l.get("technician") or "—")[:24],
+            f"{float(l.get('duration_hours') or 0):.2f}",
+            fmt_xof(l.get("subtotal_xof", 0)),
+        ])
+    data.append(["", "", "", "", "", "TOTAL", fmt_xof(inv.get("total_xof", 0))])
+    tbl = Table(data, repeatRows=1)
+    tbl.setStyle(TableStyle([
+        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1E90FF")),
+        ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+        ("FONTNAME", (0, 0), (-1, 0), "Helvetica-Bold"),
+        ("FONTSIZE", (0, 0), (-1, -1), 9),
+        ("ALIGN", (0, 0), (0, -1), "RIGHT"),
+        ("ALIGN", (5, 1), (6, -1), "RIGHT"),
+        ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ("ROWBACKGROUNDS", (0, 1), (-1, -2), [colors.whitesmoke, colors.white]),
+        ("GRID", (0, 0), (-1, -1), 0.25, colors.lightgrey),
+        ("BACKGROUND", (0, -1), (-1, -1), colors.HexColor("#E0F2FE")),
+        ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
+        ("FONTSIZE", (0, -1), (-1, -1), 11),
+    ]))
+    story.append(tbl)
+    story.append(Spacer(1, 16))
+    story.append(Paragraph(
+        f"<i>Document généré par SAWALI Smart Systems · Total à régler : <b>{fmt_xof(inv.get('total_xof', 0))} XOF</b></i>",
+        styles["Normal"],
+    ))
+    if inv.get("status") == "cancelled":
+        story.append(Spacer(1, 6))
+        story.append(Paragraph("<font color='red'><b>FACTURE ANNULÉE</b></font>", styles["Normal"]))
+    doc.build(story)
+    body = buf.getvalue()
+    fname = f"{inv['invoice_number']}.pdf"
+    return Response(content=body, media_type="application/pdf",
+                    headers={"Content-Disposition": f'attachment; filename="{fname}"'})
+
+
+
+
 
 @api.get("/me/users", tags=["Portail Client"])
 async def me_users(user: dict = Depends(get_current_user)):
@@ -7380,6 +7603,13 @@ async def admin_create_intervention(
 async def admin_update_intervention(
     int_id: str, payload: InterventionUpdate, _: dict = Depends(get_current_admin)
 ):
+    # Iter43-fix4 (2026-03) — Verrou facturation
+    existing = await db.interventions.find_one({"id": int_id}, {"_id": 0, "invoiced": 1, "invoice_number": 1})
+    if existing and existing.get("invoiced"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Intervention déjà facturée ({existing.get('invoice_number') or '—'}). Utilisez /admin/interventions/{int_id}/unlock-invoice avant de modifier.",
+        )
     update = {k: v for k, v in payload.model_dump().items() if v is not None}
     update["updated_at"] = _now()
     await db.interventions.update_one({"id": int_id}, {"$set": update})
@@ -7388,6 +7618,23 @@ async def admin_update_intervention(
     if doc:
         webhook_result = await _fire_intervention_webhook("updated", doc)
     return {"ok": True, "webhook_result": webhook_result}
+
+
+@api.post("/admin/interventions/{int_id}/unlock-invoice", tags=["Admin"])
+async def admin_unlock_intervention(int_id: str, user: dict = Depends(get_current_admin)):
+    """Iter43-fix4 — Force unlock d'une intervention facturée (admin uniquement).
+    NB : la facture associée n'est pas modifiée. Si elle doit être annulée,
+    voir /admin/invoices/{invoice_id}/cancel."""
+    res = await db.interventions.update_one(
+        {"id": int_id},
+        {
+            "$set": {"updated_at": _now(), "unlocked_at": _now(), "unlocked_by": user.get("email")},
+            "$unset": {"invoiced": "", "invoice_id": "", "invoice_number": ""},
+        },
+    )
+    if res.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Intervention introuvable")
+    return {"ok": True}
 
 
 @api.delete("/admin/interventions/{int_id}", tags=["Admin"])

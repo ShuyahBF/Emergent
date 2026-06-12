@@ -1,0 +1,30 @@
+{
+  "summary": "Intervention Invoicing feature (SAWALI Iter43-fix4 / Jan 2026) — Validation complète backend + frontend. 10/10 tests pytest passent (test_iter56_intervention_invoicing.py). E2E API+UI validé en bout-à-bout : POST /api/me/invoices/from-interventions a généré 2 factures (INV-2026-00006 et 00007) pour 2 tenants différents en un seul appel, PDF (application/pdf, 2770 bytes, en-tête %PDF) téléchargé, GET liste OK, unlock-invoice OK, et après reload la page /portal/interventions affiche correctement : badges N° Facture cliquables, rangées grisées (bg-slate-50 text-slate-400), boutons 'Déverrouiller' (intervention-unlock-{id}), bouton 'Modifier' masqué sur lignes facturées. UI elements présents et fonctionnels : interventions-invoice-btn (label dynamique 'Générer facture(s) (N)'), interventions-select-all, 96 intervention-select-{id}, 96 intervention-edit-{id}, EditInterventionModal s'ouvre avec intervention-edit-field-client/duration/save. Colonne 'N° Facture' présente entre Statut et Note vocale. Devise XOF (Taux horaire : 15 000 XOF/h affiché). UI en français conforme.",
+  "backend_issues": { "critical": [], "minor": [] },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter56_intervention_invoicing.py",
+    "/app/test_reports/pytest/iter56_invoicing.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Interventions.jsx ligne 157 : utilisation de window.confirm() native — fonctionne pour vrais utilisateurs mais bloque les tests Playwright automatisés (le handler page.on('dialog') ne s'accroche pas systématiquement). Si vous voulez automatiser un test e2e cliquant sur 'Générer facture(s)', envisagez de remplacer window.confirm par un Dialog Radix/shadcn (déjà présent dans la stack). Non bloquant.",
+    "Le bouton 'Générer facture(s)' utilise un design vert avec icône File — bonne UX. Le label dynamique (N) met correctement à jour selon selectedCount.",
+    "Backend POST /me/invoices/from-interventions (server.py:3243) — bonne séparation : 403 rôle client, 400 liste vide, 409 toutes déjà facturées. Le groupement par tenant et la résolution du taux horaire (tenant.hourly_rate → settings.global.default_intervention_hourly_rate_xof → 15000) fonctionnent correctement.",
+    "PUT /admin/interventions/{id} (server.py:7602) renvoie bien 409 lorsque invoiced=True avec un message d'aide pointant vers /unlock-invoice. Bonne UX d'erreur."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter56_intervention_invoicing.py (nouveau)"
+  ],
+  "success_rate": { "backend": "100% (10/10)", "frontend": "100% (toutes les data-testid attendues présentes ; flow e2e validé via API + reload UI)" },
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — 2-step OTP via dev_otp field.",
+  "seed_data_creation": "Tests créent des users iter56_* et interventions iter56_iv_* avec cleanup automatique. 2 factures e2e (INV-2026-00006/00007) supprimées manuellement après validation.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Toutes les endpoints invoicing fonctionnent. Le seul point d'attention pour futurs tests Playwright : window.confirm dans generateInvoices/unlockIntervention/del — utiliser page.evaluate('window.confirm = () => true;') AVANT chaque clic ou remplacer par Dialog Radix. Le flow complet a été validé via fetch direct dans la page (avec token localStorage), et la mise à jour UI après reload a été confirmée visuellement (badges INV-... + boutons Déverrouiller).",
+  "rca of the issue": "Aucun bug à diagnostiquer. La feature fonctionne. Le seul faux-positif rencontré était lié à l'environnement de test Playwright : window.confirm() est invoqué synchroniquement et le handler page.on('dialog') ne s'attache pas toujours assez vite. Le contournement (override window.confirm via evaluate) fonctionne, ou tester directement via fetch comme ce rapport l'a fait."
+}

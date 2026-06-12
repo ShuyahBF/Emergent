@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
-import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer } from "lucide-react";
+import { Plus, X, RefreshCw, Trash2, Wrench, Mic, MicOff, Square, Play, Pause, Building2, FileText, Printer, Pencil, ReceiptText, Download, Unlock, Lock, AlertTriangle } from "lucide-react";
 import { toast } from "sonner";
 
 const ELEVATED = new Set(["Moderation", "Administrateur", "Superviseur"]);
@@ -38,6 +38,11 @@ export default function ClientInterventions() {
   const [statusFilter, setStatusFilter] = useState("all");
   const [hourlyRate, setHourlyRate] = useState(15000);
   const [printing, setPrinting] = useState(false);
+  // Iter43-fix4 — Facturation des interventions
+  const [selected, setSelected] = useState(() => new Set());
+  const [generating, setGenerating] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [unlockBusy, setUnlockBusy] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -107,6 +112,77 @@ export default function ClientInterventions() {
     } finally { setPrinting(false); }
   };
 
+  // Iter43-fix4 — Sélection multi + génération facture(s) groupées par tenant
+  const toggleSelect = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+  const selectableIds = useMemo(() => filtered.filter((i) => !i.invoiced).map((i) => i.id), [filtered]);
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      if (allSelected) return new Set();
+      return new Set(selectableIds);
+    });
+  };
+  const selectedCount = selected.size;
+
+  const downloadInvoicePdf = async (invoice) => {
+    try {
+      const r = await apiClient.get(`/me/invoices/from-interventions/${invoice.id}/pdf`, { responseType: "blob" });
+      const blobUrl = URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = blobUrl;
+      a.download = `${invoice.invoice_number || "facture"}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 8000);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossible de télécharger la facture");
+    }
+  };
+
+  const downloadInvoiceByIdNumber = async (intervention) => {
+    if (!intervention?.invoice_id) return;
+    await downloadInvoicePdf({ id: intervention.invoice_id, invoice_number: intervention.invoice_number });
+  };
+
+  const generateInvoices = async () => {
+    if (selected.size === 0) { toast.error("Sélectionnez au moins une intervention"); return; }
+    const ids = Array.from(selected);
+    if (!window.confirm(`Générer la/les facture(s) pour ${ids.length} intervention(s) ?\n\nLes interventions seront verrouillées (grisées) et regroupées par client.`)) return;
+    setGenerating(true);
+    try {
+      const r = await apiClient.post("/me/invoices/from-interventions", { intervention_ids: ids });
+      const invoices = r.data?.invoices || [];
+      toast.success(`${invoices.length} facture(s) générée(s) — téléchargement…`);
+      // Télécharge automatiquement chaque facture
+      for (const inv of invoices) {
+        await downloadInvoicePdf(inv);
+      }
+      setSelected(new Set());
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur génération facture");
+    } finally { setGenerating(false); }
+  };
+
+  const unlockIntervention = async (i) => {
+    if (!window.confirm(`Déverrouiller l'intervention « ${i.title} » ?\n\nNB : la facture ${i.invoice_number || ""} reste valide ; déverrouillez uniquement pour corriger une erreur.`)) return;
+    setUnlockBusy(i.id);
+    try {
+      await apiClient.post(`/admin/interventions/${i.id}/unlock-invoice`);
+      toast.success("Intervention déverrouillée");
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur déverrouillage");
+    } finally { setUnlockBusy(null); }
+  };
+
   const distinctClientIds = useMemo(() => {
     const set = new Set();
     items.forEach((i) => i.client_id && set.add(i.client_id));
@@ -148,6 +224,15 @@ export default function ClientInterventions() {
                     title="Génère un PDF avec colonne Coût et total cumulé">
               <Printer className={`h-4 w-4 ${printing ? "animate-pulse" : ""}`} />
               {printing ? "Génération…" : "Imprimer (PDF)"}
+            </button>
+          )}
+          {isAdminOrSup && (
+            <button onClick={generateInvoices} disabled={generating || selectedCount === 0}
+                    className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 text-sm disabled:opacity-50"
+                    data-testid="interventions-invoice-btn"
+                    title="Génère une facture par client à partir des interventions sélectionnées">
+              <ReceiptText className={`h-4 w-4 ${generating ? "animate-pulse" : ""}`} />
+              {generating ? "Génération…" : `Générer facture(s)${selectedCount > 0 ? ` (${selectedCount})` : ""}`}
             </button>
           )}
           {elevated && (
@@ -199,9 +284,17 @@ export default function ClientInterventions() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[860px]">
+        <table className="w-full text-sm min-w-[960px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
+              {isAdminOrSup && (
+                <th className="px-3 py-3 w-10">
+                  <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+                         className="h-4 w-4 rounded border-slate-300 cursor-pointer"
+                         data-testid="interventions-select-all"
+                         title={allSelected ? "Tout désélectionner" : "Tout sélectionner (non-facturées)"} />
+                </th>
+              )}
               <th className="text-left px-4 py-3">Référence</th>
               <th className="text-left px-4 py-3">Titre</th>
               <th className="text-left px-4 py-3">
@@ -226,36 +319,65 @@ export default function ClientInterventions() {
               <th className="text-left px-4 py-3">Technicien</th>
               <th className="text-right px-4 py-3" data-testid="interventions-col-duration">Durée (h)</th>
               <th className="text-left px-4 py-3">Statut</th>
+              <th className="text-left px-4 py-3">N° Facture</th>
               <th className="text-left px-4 py-3">Note vocale</th>
-              {deletable && <th className="text-right px-4 py-3">Actions</th>}
+              {(deletable || isAdminOrSup) && <th className="text-right px-4 py-3">Actions</th>}
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
+            {loading && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
+              <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
             )}
             {filtered.map((i) => {
               const status = STATUSES.find((s) => s.value === i.status) || { label: i.status, color: "bg-slate-100 text-slate-700" };
               const dh = Number(i.duration_hours) || 0;
+              const invoiced = !!i.invoiced;
+              const isChecked = selected.has(i.id);
               return (
-                <tr key={i.id} className="border-t border-slate-100 hover:bg-sky-50/60" data-testid={`intervention-row-${i.id}`}>
+                <tr key={i.id}
+                    className={`border-t border-slate-100 ${invoiced ? "bg-slate-50 text-slate-400" : "hover:bg-sky-50/60"}`}
+                    data-testid={`intervention-row-${i.id}`}>
+                  {isAdminOrSup && (
+                    <td className="px-3 py-3 w-10">
+                      <input type="checkbox" checked={isChecked} onChange={() => toggleSelect(i.id)}
+                             disabled={invoiced}
+                             className="h-4 w-4 rounded border-slate-300 cursor-pointer disabled:cursor-not-allowed"
+                             data-testid={`intervention-select-${i.id}`}
+                             title={invoiced ? "Déjà facturée — déverrouillez d'abord" : "Sélectionner"} />
+                    </td>
+                  )}
                   <td className="px-4 py-3 text-xs font-mono text-slate-500">{i.intervention_number || "—"}</td>
-                  <td className="px-4 py-3 font-medium text-slate-800">
+                  <td className={`px-4 py-3 font-medium ${invoiced ? "" : "text-slate-800"}`}>
                     {i.title}
                     {i.description && <p className="text-xs text-slate-500 font-normal mt-0.5 line-clamp-1">{i.description}</p>}
                   </td>
-                  <td className="px-4 py-3 text-slate-600 text-xs">
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 text-emerald-700 px-2 py-0.5 ring-1 ring-emerald-200" data-testid={`intervention-client-${i.id}`}>
+                  <td className="px-4 py-3 text-xs">
+                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 ring-1 ${invoiced ? "bg-slate-100 text-slate-500 ring-slate-200" : "bg-emerald-50 text-emerald-700 ring-emerald-200"}`}
+                          data-testid={`intervention-client-${i.id}`}>
                       <Building2 className="h-3 w-3" /> {clientLabel(i.client_id)}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-slate-600">{i.intervention_date && new Date(i.intervention_date).toLocaleDateString("fr-FR")}</td>
-                  <td className="px-4 py-3 text-slate-600">{i.technician || "-"}</td>
-                  <td className="px-4 py-3 text-right text-slate-700 font-mono text-xs" data-testid={`intervention-duration-${i.id}`}>
+                  <td className="px-4 py-3">{i.intervention_date && new Date(i.intervention_date).toLocaleDateString("fr-FR")}</td>
+                  <td className="px-4 py-3">{i.technician || "-"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-xs" data-testid={`intervention-duration-${i.id}`}>
                     {dh > 0 ? dh.toFixed(2) : "—"}
                   </td>
                   <td className="px-4 py-3"><span className={`text-xs px-2 py-1 rounded ${status.color}`}>{status.label}</span></td>
+                  <td className="px-4 py-3">
+                    {invoiced ? (
+                      <button type="button" onClick={() => downloadInvoiceByIdNumber(i)}
+                              className="inline-flex items-center gap-1 text-[11px] font-mono px-2 py-1 rounded ring-1 ring-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                              data-testid={`intervention-invoice-link-${i.id}`}
+                              title="Télécharger la facture (PDF)">
+                        <Lock className="h-3 w-3" />
+                        {i.invoice_number || "—"}
+                        <Download className="h-3 w-3" />
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-slate-400">—</span>
+                    )}
+                  </td>
                   <td className="px-4 py-3">
                     {i.voice_note_url ? (
                       <div className="space-y-1">
@@ -268,11 +390,32 @@ export default function ClientInterventions() {
                       </div>
                     ) : <span className="text-[10px] text-slate-400">—</span>}
                   </td>
-                  {deletable && (
+                  {(deletable || isAdminOrSup) && (
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => del(i.id)} className="inline-flex items-center gap-1 text-xs text-rose-600 hover:underline" data-testid={`intervention-delete-${i.id}`}>
-                        <Trash2 className="h-3.5 w-3.5" /> Supprimer
-                      </button>
+                      <div className="inline-flex items-center gap-2 justify-end flex-wrap">
+                        {isAdminOrSup && !invoiced && (
+                          <button onClick={() => setEditing(i)}
+                                  className="inline-flex items-center gap-1 text-xs text-sky-700 hover:underline"
+                                  data-testid={`intervention-edit-${i.id}`}
+                                  title="Modifier (tenant / durée / etc.)">
+                            <Pencil className="h-3.5 w-3.5" /> Modifier
+                          </button>
+                        )}
+                        {isAdminOrSup && invoiced && (
+                          <button onClick={() => unlockIntervention(i)}
+                                  disabled={unlockBusy === i.id}
+                                  className="inline-flex items-center gap-1 text-xs text-amber-700 hover:underline disabled:opacity-50"
+                                  data-testid={`intervention-unlock-${i.id}`}
+                                  title="Déverrouille l'intervention (la facture reste valide)">
+                            <Unlock className="h-3.5 w-3.5" /> {unlockBusy === i.id ? "…" : "Déverrouiller"}
+                          </button>
+                        )}
+                        {deletable && !invoiced && (
+                          <button onClick={() => del(i.id)} className="inline-flex items-center gap-1 text-xs text-rose-600 hover:underline" data-testid={`intervention-delete-${i.id}`}>
+                            <Trash2 className="h-3.5 w-3.5" /> Supprimer
+                          </button>
+                        )}
+                      </div>
                     </td>
                   )}
                 </tr>
@@ -288,6 +431,15 @@ export default function ClientInterventions() {
           clients={clients}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); load(); }}
+        />
+      )}
+
+      {editing && (
+        <EditInterventionModal
+          intervention={editing}
+          clients={clients}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); load(); }}
         />
       )}
     </div>
@@ -558,3 +710,146 @@ function VoiceNoteRecorder({ value, transcript, onChange, onTranscriptChange }) 
     </div>
   );
 }
+
+
+// ============================================================
+// Iter43-fix4 — Modale d'édition Admin/Superviseur d'une intervention
+// Permet de corriger : client (tenant), titre, statut, date, technicien,
+// durée. Les interventions facturées sont rejetées par le backend (409)
+// et le bouton « Modifier » est masqué côté UI dans ce cas.
+// ============================================================
+const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
+  const [form, setForm] = useState({
+    client_id: intervention.client_id || "",
+    title: intervention.title || "",
+    description: intervention.description || "",
+    status: intervention.status || "completed",
+    intervention_date: (intervention.intervention_date || "").slice(0, 10),
+    technician: intervention.technician || "",
+    duration_hours: intervention.duration_hours ?? "",
+  });
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    if (!form.client_id) { toast.error("Client lié requis"); return; }
+    if (!form.title.trim()) { toast.error("Titre requis"); return; }
+    setSaving(true);
+    try {
+      const payload = {
+        client_id: form.client_id,
+        title: form.title.trim(),
+        description: form.description || null,
+        status: form.status,
+        intervention_date: form.intervention_date ? new Date(form.intervention_date).toISOString() : null,
+        technician: form.technician || null,
+        duration_hours: form.duration_hours === "" || form.duration_hours === null
+          ? null
+          : Number(form.duration_hours),
+      };
+      await apiClient.put(`/admin/interventions/${intervention.id}`, payload);
+      toast.success("Intervention mise à jour");
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors de la mise à jour");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+         onClick={(e) => e.target === e.currentTarget && onClose()}
+         data-testid="intervention-edit-modal">
+      <div className="w-full max-w-lg rounded-2xl bg-white shadow-2xl p-6 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-display font-bold inline-flex items-center gap-2">
+            <Pencil className="h-5 w-5 text-sawali-blue" /> Modifier intervention
+            {intervention.intervention_number && (
+              <span className="text-xs font-mono text-slate-500">· {intervention.intervention_number}</span>
+            )}
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="intervention-edit-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
+            <Building2 className="h-3 w-3 text-sawali-blue" /> Client lié *
+          </label>
+          <select value={form.client_id}
+                  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  data-testid="intervention-edit-field-client">
+            <option value="">— Sélectionnez un client —</option>
+            {clients.map((c) => (
+              <option key={c.id} value={c.id}>{c.company || c.full_name}{c.client_code ? ` · ${c.client_code}` : ""}</option>
+            ))}
+          </select>
+          <p className="text-[10px] text-slate-500 mt-1">Le tenant détermine le taux horaire appliqué lors de la facturation.</p>
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1">Titre *</label>
+          <input value={form.title}
+                 onChange={(e) => setForm({ ...form, title: e.target.value })}
+                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                 data-testid="intervention-edit-field-title" />
+        </div>
+
+        <div>
+          <label className="block text-xs font-semibold mb-1">Description</label>
+          <textarea value={form.description}
+                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    rows={3}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="intervention-edit-field-description" />
+        </div>
+
+        <div className="grid sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs font-semibold mb-1">Date</label>
+            <input type="date" value={form.intervention_date}
+                   onChange={(e) => setForm({ ...form, intervention_date: e.target.value })}
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                   data-testid="intervention-edit-field-date" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Statut</label>
+            <select value={form.status}
+                    onChange={(e) => setForm({ ...form, status: e.target.value })}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="intervention-edit-field-status">
+              {STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Technicien</label>
+            <input value={form.technician}
+                   onChange={(e) => setForm({ ...form, technician: e.target.value })}
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                   data-testid="intervention-edit-field-technician" />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold mb-1">Durée (heures)</label>
+            <input type="number" step="0.25" min="0"
+                   value={form.duration_hours}
+                   onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
+                   placeholder="2.5"
+                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                   data-testid="intervention-edit-field-duration" />
+          </div>
+        </div>
+
+        <div className="flex justify-end gap-2 pt-2">
+          <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">
+            Annuler
+          </button>
+          <button onClick={submit} disabled={saving}
+                  className="text-sm rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-4 py-2 disabled:opacity-50"
+                  data-testid="intervention-edit-save">
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};

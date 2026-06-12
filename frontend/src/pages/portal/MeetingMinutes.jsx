@@ -219,17 +219,34 @@ export default function MeetingMinutes() {
   };
 
   const openPdf = async (m) => {
-    const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
-    setPdfDoc({
-      src: `${apiBase}/api/me/meetings/${m.id}/pdf`,
-      title: `${m.numero} — ${m.title}`,
-    });
+    try {
+      // Iter43-fix — Le PDF est protégé par JWT. On le télécharge en blob
+      // via apiClient (qui ajoute le header Authorization), puis on crée un
+      // Object URL pour le passer à PdfViewer / window.open.
+      const r = await apiClient.get(`/me/meetings/${m.id}/pdf`, { responseType: "blob" });
+      const blobUrl = URL.createObjectURL(r.data);
+      setPdfDoc({ src: blobUrl, title: `${m.numero} — ${m.title}`, _revoke: blobUrl });
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossible de charger le PDF");
+    }
   };
 
-  const printDoc = (m) => {
-    const apiBase = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
-    window.open(`${apiBase}/api/me/meetings/${m.id}/pdf`, "_blank", "noopener");
+  const printDoc = async (m) => {
+    try {
+      const r = await apiClient.get(`/me/meetings/${m.id}/pdf`, { responseType: "blob" });
+      const blobUrl = URL.createObjectURL(r.data);
+      const w = window.open(blobUrl, "_blank", "noopener");
+      // Révoque l'URL après ouverture (5 s) pour libérer la mémoire
+      if (w) setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossible d'ouvrir le PDF");
+    }
   };
+
+  // Révoque l'Object URL quand le viewer est fermé
+  useEffect(() => () => {
+    if (pdfDoc?._revoke) URL.revokeObjectURL(pdfDoc._revoke);
+  }, [pdfDoc?._revoke]);
 
   // --- VIEW MODE ---
   if (viewing) {

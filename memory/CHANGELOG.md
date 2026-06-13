@@ -2,6 +2,27 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix9a — Bug fix import CSV Officines (en-tête optionnelle)
+
+### Bug rapporté
+> Utilisateur fournit un fichier CSV réel (extrait pharmacies Ouagadougou) **sans ligne d'en-tête**. L'import était rejeté avec « En-tête CSV invalide ».
+
+### Root cause
+La validation de l'en-tête était stricte : la 1ère ligne devait obligatoirement matcher `Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre`. Or l'utilisateur avait supprimé manuellement la ligne d'en-tête (cf. nom du fichier « sans ligne Extrait »).
+
+### Fix (`routes/officines_portal.py`)
+- **Auto-détection de l'en-tête** : si la 1ère ligne contient au moins 2 cellules ressemblant à un libellé connu (insensible aux accents et à la casse, accepte `Nom`, `Pharmacie`, `Telephone`, `Tel`, `Phone`, `Ville`, `City`, `Indications`, `Localisation`, `Adresse`, `Ordre`, etc.) → traite comme en-tête. Sinon → traite la 1ère ligne comme donnée.
+- Réponse enrichie avec `header_detected: bool`.
+- Frontend : message d'aide mis à jour (« ✅ La ligne d'en-tête est optionnelle ») et badge dans le rapport indique si en-tête a été détectée ou non.
+
+### Tests
+- Test `test_400_invalid_headers` réécrit (devenu `test sans en-tête → tout est traité comme donnée`).
+- Nouveau test `test_import_user_file_no_header_with_spaces_in_phone` — reproduit exactement le fichier utilisateur (3 lignes, pas d'en-tête, téléphones avec espaces, indications vide pour ligne 2).
+- **36/36 pytest PASS** (iter43-fix9 + iter42 + iter50).
+
+---
+
+
 ## 2026-03 — Iter43-fix9 — Registre des Officines : CSV + édition fiche + import contacts
 
 ### Demande utilisateur

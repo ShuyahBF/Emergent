@@ -579,6 +579,7 @@ function CsvImportModal({ onClose, onDone }) {
               Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre
             </code>
             <p className="mt-2 text-[11px]">
+              ✅ La ligne d'en-tête est <strong>optionnelle</strong> — si elle est absente, toutes les lignes sont traitées comme des données.<br />
               Le « Nom de la pharmacie » est également utilisé comme code. Les lignes
               sont importées avec le statut <strong>En attente</strong>.
             </p>
@@ -595,6 +596,11 @@ function CsvImportModal({ onClose, onDone }) {
             <div className="rounded-lg bg-slate-50 p-3 ring-1 ring-slate-200 max-h-60 overflow-y-auto" data-testid="csv-import-report">
               <p className="text-sm font-semibold text-slate-800">
                 Résultat : {report.created} créée(s) · {report.skipped} ignorée(s)
+                {report.header_detected !== undefined && (
+                  <span className="ml-2 text-[11px] font-normal text-slate-500">
+                    {report.header_detected ? "(en-tête détectée)" : "(pas d'en-tête — toutes lignes traitées comme données)"}
+                  </span>
+                )}
               </p>
               {report.results?.length > 0 && (
                 <ul className="mt-2 space-y-1 text-[11px]">

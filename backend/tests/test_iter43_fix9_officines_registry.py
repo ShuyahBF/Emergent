@@ -72,15 +72,29 @@ class TestCsvImport:
                           headers=admin_ctx["headers"])
         assert r.status_code == 400, r.text
 
-    def test_400_invalid_headers(self, admin_ctx):
+    def test_400_invalid_headers(self, admin_ctx, cleanup):
+        """Iter43-fix9a — En-tête optionnelle. Si la 1ère ligne ne ressemble
+        pas à un en-tête, elle est traitée comme une ligne de données. Donc
+        ici la ligne 'Foo;Bar;Baz;Qux;Quux' devient une officine valide (nom=Foo)
+        et 'A;B;C;D;E' devient une 2nde officine (nom=A)."""
         csv = "Foo;Bar;Baz;Qux;Quux\nA;B;C;D;E\n".encode("utf-8")
         r = requests.post(
             f"{API}/admin/officines-registry/import-csv",
             headers=admin_ctx["headers"],
-            files={"file": ("bad.csv", csv, "text/csv")},
+            files={"file": ("nohdr.csv", csv, "text/csv")},
         )
-        assert r.status_code == 400
-        assert "en-tête" in r.json()["detail"].lower() or "header" in r.json()["detail"].lower()
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["header_detected"] is False
+        assert body["created"] == 2
+        # Cleanup : les 2 officines créées
+        from pymongo import MongoClient
+        import os
+        sync = MongoClient(os.environ["MONGO_URL"])[os.environ["DB_NAME"]]
+        sync.officines.delete_many({"name": {"$in": ["Foo", "A"]}})
+        ids = [d["officine_id"] for d in (body.get("results") or []) if d.get("officine_id")]
+        if ids:
+            sync.officine_audit_log.delete_many({"officine_id": {"$in": ids}})
 
     def test_400_invalid_encoding(self, admin_ctx):
         # Bytes invalides à la fois pour utf-8 et latin-1: latin-1 décode tout en fait
@@ -139,9 +153,47 @@ class TestCsvImport:
         assert doc["city"] == "Abidjan"
         assert doc["location_hint"] == "Près de la mairie"
         assert doc["numero_ordre"] == f"ORD-{uniq}"
-        # phone_digits = digits only
-        assert doc["phone_digits"] == "22506070809" + "10"[:0] + "10"  # "2250607080910"
-        assert doc["phone"].startswith("+")
+
+    def test_import_user_file_no_header_with_spaces_in_phone(self, db, admin_ctx, cleanup):
+        """Iter43-fix9a — Reproduit le fichier utilisateur réel :
+        - pas de ligne d'en-tête
+        - téléphones avec espaces : `+226 79 20 01 83`
+        - cellule 'Indications de localisation' éventuellement vide
+        """
+        uniq = uuid.uuid4().hex[:6]
+        csv_text = (
+            f"Archanges {uniq};+226 79 20 01 83;Ouagadougou;"
+            "Pissy Face station OTAM Croisement rue 17.619 Boassa cote Ecole Adventiste Elysee.;1\n"
+            f"Baani {uniq};+226 77 52 00 36;Ouagadougou;;2\n"
+            f"Avenir {uniq};+226 25 65 10 71;Ouagadougou;"
+            "1296 av. BABANGUIDA face station Total;3\n"
+        )
+        r = requests.post(
+            f"{API}/admin/officines-registry/import-csv",
+            headers=admin_ctx["headers"],
+            files={"file": ("user_file.csv", csv_text.encode("utf-8"), "text/csv")},
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["ok"] is True
+        assert body["header_detected"] is False
+        assert body["created"] == 3
+        # Vérifie qu'on retrouve bien Archanges avec téléphone normalisé
+        archanges = db.officines.find_one({"name": f"Archanges {uniq}"}, {"_id": 0})
+        assert archanges is not None
+        cleanup["ids"].extend([
+            archanges["id"],
+            db.officines.find_one({"name": f"Baani {uniq}"})["id"],
+            db.officines.find_one({"name": f"Avenir {uniq}"})["id"],
+        ])
+        # Espaces retirés des digits
+        assert archanges["phone_digits"] == "22679200183"
+        assert archanges["phone"] == "+22679200183"
+        assert archanges["city"] == "Ouagadougou"
+        assert archanges["numero_ordre"] == "1"
+        # Indications vide doit donner None
+        baani = db.officines.find_one({"name": f"Baani {uniq}"}, {"_id": 0})
+        assert baani["location_hint"] is None
 
 
 # ============================================================================

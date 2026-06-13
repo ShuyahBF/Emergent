@@ -920,26 +920,45 @@ def attach_officines_portal_admin_routes(
             except Exception as exc:  # noqa: BLE001
                 raise HTTPException(status_code=400, detail=f"Encodage non supporté : {exc}") from exc
         reader = csv.reader(io.StringIO(text), delimiter=";")
-        header_row = next(reader, None)
-        if not header_row:
+        first_row = next(reader, None)
+        if not first_row:
             raise HTTPException(status_code=400, detail="CSV vide")
-        # Headers reconnus (case-insensitive, accents/espaces tolérés)
+
+        # Iter43-fix9a — Auto-détection d'en-tête.
+        # On considère que la 1ère ligne est un EN-TÊTE si au moins 2 des 5
+        # premières cellules matchent les libellés attendus (insensible à la
+        # casse / aux accents). Sinon on traite la 1ère ligne comme donnée.
         def _norm(s: str) -> str:
-            return (s or "").strip().lower().replace("é", "e").replace("è", "e").replace("'", "'")
-        headers_norm = [_norm(h) for h in header_row]
-        expected = ["nom de la pharmacie", "telephone", "ville", "indications de localisation", "numero d'ordre"]
-        if headers_norm[:5] != expected:
-            raise HTTPException(
-                status_code=400,
-                detail=(
-                    "En-tête CSV invalide. Colonnes attendues (dans cet ordre, séparateur `;`) : "
-                    "Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre"
-                ),
+            return (
+                (s or "").strip().lower()
+                .replace("é", "e").replace("è", "e").replace("ê", "e")
+                .replace("ô", "o").replace("î", "i").replace("'", "'")
+                .replace("â", "a").replace("à", "a")
             )
+        expected_tokens = {
+            "nom de la pharmacie", "nom", "pharmacie",
+            "telephone", "tel", "phone",
+            "ville", "city",
+            "indications de localisation", "indications", "localisation", "adresse",
+            "numero d'ordre", "numero ordre", "ordre", "n° d'ordre", "n d'ordre",
+        }
+        first_norm = [_norm(c) for c in first_row[:5]]
+        header_matches = sum(1 for c in first_norm if c in expected_tokens)
+        has_header = header_matches >= 2
+
+        # Reset reader if first row was data (no header)
+        if not has_header:
+            data_iter = iter([first_row] + list(reader))
+            first_data_row = 1
+        else:
+            data_iter = reader
+            first_data_row = 2
+
         results: List[Dict[str, Any]] = []
         created = 0
         skipped = 0
-        for row_idx, row in enumerate(reader, start=2):
+        for offset, row in enumerate(data_iter):
+            row_idx = first_data_row + offset
             if not row or not any((c or "").strip() for c in row):
                 continue
             row = (row + ["", "", "", "", ""])[:5]
@@ -995,7 +1014,13 @@ def attach_officines_portal_admin_routes(
             })
             created += 1
             results.append({"row": row_idx, "officine_id": oid, "name": nom})
-        return {"ok": True, "created": created, "skipped": skipped, "results": results}
+        return {
+            "ok": True,
+            "created": created,
+            "skipped": skipped,
+            "header_detected": has_header,
+            "results": results,
+        }
 
     @api.put("/admin/officines-registry/{officine_id}", tags=["Admin — Officines Registry"])
     async def update_officine(

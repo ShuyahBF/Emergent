@@ -2,6 +2,52 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix10 — Story Studio (Phase 1 MVP)
+
+### Demande utilisateur
+> « Créer des stories WhatsApp via AI vidéo. Multi-tenant pour monétisation auprès de mes clients. Sora 2 + Fal.ai + cross-posting IG/FB/TikTok. »
+
+### Réalité technique (confirmée)
+- ❌ **Aucune API officielle** pour publier sur WhatsApp Status / Channels ni Facebook Stories.
+- ✅ Génération AI vidéo (Sora 2, Fal.ai) + publication Instagram Stories / Facebook Feed / TikTok via leurs APIs respectives.
+- Solution WhatsApp : **partage manuel-assisté** (deep link mobile, 2 clics pour publier).
+
+### Phase 1 livrée (MVP)
+**Backend** (`routes/story_studio.py`, 426 lignes) :
+- `GET /admin/story-studio/settings` — config globale avec masquage des secrets (last 4 chars)
+- `PUT /admin/story-studio/settings` — saisie Fal.ai key, Meta App ID/Secret, TikTok keys (masque retransmis = pas d'écrasement)
+- `POST /admin/story-studio/generate/text-to-video` — Sora 2 (via Universal Key) ou Fal.ai (Kling/Veo/Sora)
+- `POST /admin/story-studio/generate/text-to-image` — Nano Banana 9:16
+- `GET /admin/story-studio/library` — bibliothèque scopée tenant
+- `PUT/DELETE /admin/story-studio/library/{id}` — éditer/supprimer assets
+- `GET /admin/story-studio/library/{id}/whatsapp-share` — deep link `whatsapp://send?text=...` + fallback web
+- `GET/POST/DELETE /admin/story-studio/social-accounts(/manual)` — scaffolding tokens manuels (mode dev)
+- `POST /admin/story-studio/library/{id}/publish` — **STUB MOCKED** (Phase 2)
+
+**Frontend** (`StoryStudio.jsx`, 530+ lignes) :
+- Onglets : Créer, Bibliothèque, Comptes sociaux, Paramètres
+- Formulaire génération : moteur (sora-2 / sora-2-pro / fal), durée, format 9:16/1:1/16:9
+- Bibliothèque : cards avec preview vidéo/image, boutons Télécharger / Partager WhatsApp / Supprimer
+- Modale « Partager WhatsApp » : deep link mobile + URL copyable + instructions step-by-step
+- Settings : 3 sections (Fal.ai, Meta IG/FB, TikTok) avec masquage des secrets
+- Banner Phase 2 visible : publication auto IG/FB/TikTok à venir
+
+**DB collections nouvelles** : `story_assets`, `social_accounts`, `story_posts`.
+
+**Dépendances** : `fal-client` ajouté à requirements.txt.
+
+### À venir
+- **Phase 2** : OAuth flows Meta (IG + FB) + TikTok + publication réelle via Graph API
+- **Phase 3** : Cron scheduler pour publication planifiée
+- **Phase 4** : Analytics (impressions, engagement via Insights API)
+
+### Tests
+- `test_iter43_fix10_story_studio.py` — **12/12 PASS** (settings masquage, social manual, library scoping, WhatsApp deep link, delete, publish stub).
+- Régression sur 52 tests Story Studio + Officines + Invoicing — **52/52 PASS**.
+
+---
+
+
 ## 2026-03 — Iter43-fix9a — Bug fix import CSV Officines (en-tête optionnelle)
 
 ### Bug rapporté

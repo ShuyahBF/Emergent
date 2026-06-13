@@ -22904,6 +22904,15 @@ _attach_iter42d(
     get_current_officine=_make_get_current_officine(db=db, jwt_secret=_JWT_SECRET, jwt_algorithm=_JWT_ALGO),
 )
 
+# Iter43-fix10 (2026-03) — Story Studio (AI video generation + WhatsApp share)
+from routes.story_studio import attach_story_studio_routes as _attach_story_studio  # noqa: E402
+_attach_story_studio(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    get_admin_or_supervisor=get_admin_or_supervisor,
+)
+
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)

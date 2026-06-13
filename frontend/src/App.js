@@ -153,6 +153,7 @@ import OfficineInventory from "@/pages/officines/Inventory";
 import OfficineSecret from "@/pages/officines/Secret";
 import OfficineHistory from "@/pages/officines/History";
 import AdminOfficinesRegistry from "@/pages/admin/AdminOfficinesRegistry";
+import StoryStudio from "@/pages/admin/StoryStudio";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
@@ -333,6 +334,7 @@ export default function App() {
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites) */}
             <Route path="officines-registry" element={<AdminOfficinesRegistry />} />
+            <Route path="story-studio" element={<StoryStudio />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -797,16 +797,24 @@ def attach_officines_portal_admin_routes(
 
     @api.post("/admin/officines-registry/{officine_id}/approve", tags=["Admin — Officines Registry"])
     async def approve(officine_id: str, user: dict = Depends(get_current_admin)):
+        # Iter43-fix9 — Distingue "date d'activation" (activated_at) de "date d'inscription".
+        # validated_at est conservé pour rétro-compatibilité avec les tests existants.
+        now = _now()
         r = await db.officines.update_one(
             {"id": officine_id, "status": {"$ne": "active"}},
-            {"$set": {"status": "active", "validated_at": _now(), "validated_by": user.get("email")}},
+            {"$set": {
+                "status": "active",
+                "validated_at": now, "validated_by": user.get("email"),
+                "activated_at": now, "activated_by": user.get("email"),
+                "activated_via": "admin",
+            }},
         )
         if r.matched_count == 0:
             raise HTTPException(status_code=404, detail="Officine introuvable ou déjà active")
         await db.officine_audit_log.insert_one({
             "id": str(uuid.uuid4()), "officine_id": officine_id,
             "action": "approve", "actor": user.get("email"),
-            "details": {}, "created_at": _now(),
+            "details": {"via": "admin"}, "created_at": _now(),
         })
         return {"ok": True, "status": "active"}
 
@@ -880,6 +888,323 @@ def attach_officines_portal_admin_routes(
             "details": {}, "created_at": _now(),
         })
         return {"ok": True}
+
+    # =====================================================================
+    # Iter43-fix9 (2026-03) — CSV import / fiche edit / logo / import-to-contacts
+    # =====================================================================
+    @api.post("/admin/officines-registry/import-csv", tags=["Admin — Officines Registry"])
+    async def import_csv(
+        request: Request,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Import en masse des officines depuis un fichier CSV.
+
+        Format attendu (séparateur `;`) :
+            Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre
+
+        Le « Nom de la pharmacie » sert également de code (champ `name`). Les
+        lignes sont créées avec status='pending' et un email/phone provisoires
+        si non fournis (l'admin pourra compléter via la modale d'édition).
+        """
+        from fastapi import UploadFile
+        form = await request.form()
+        upload: Optional[UploadFile] = form.get("file")  # type: ignore[assignment]
+        if upload is None:
+            raise HTTPException(status_code=400, detail="Fichier CSV manquant (champ `file`)")
+        raw = await upload.read()
+        try:
+            text = raw.decode("utf-8-sig")
+        except UnicodeDecodeError:
+            try:
+                text = raw.decode("latin-1")
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=400, detail=f"Encodage non supporté : {exc}") from exc
+        reader = csv.reader(io.StringIO(text), delimiter=";")
+        header_row = next(reader, None)
+        if not header_row:
+            raise HTTPException(status_code=400, detail="CSV vide")
+        # Headers reconnus (case-insensitive, accents/espaces tolérés)
+        def _norm(s: str) -> str:
+            return (s or "").strip().lower().replace("é", "e").replace("è", "e").replace("'", "'")
+        headers_norm = [_norm(h) for h in header_row]
+        expected = ["nom de la pharmacie", "telephone", "ville", "indications de localisation", "numero d'ordre"]
+        if headers_norm[:5] != expected:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    "En-tête CSV invalide. Colonnes attendues (dans cet ordre, séparateur `;`) : "
+                    "Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre"
+                ),
+            )
+        results: List[Dict[str, Any]] = []
+        created = 0
+        skipped = 0
+        for row_idx, row in enumerate(reader, start=2):
+            if not row or not any((c or "").strip() for c in row):
+                continue
+            row = (row + ["", "", "", "", ""])[:5]
+            nom, tel, ville, indications, ordre = [(c or "").strip() for c in row]
+            if not nom:
+                results.append({"row": row_idx, "skipped": True, "reason": "Nom de la pharmacie manquant"})
+                skipped += 1
+                continue
+            phone_digits = _digits(tel)
+            # Anti-doublon : sur le code (=name) OU phone_digits
+            existing = await db.officines.find_one({
+                "$or": ([{"name": nom}] + ([{"phone_digits": phone_digits}] if phone_digits else []))
+            })
+            if existing:
+                results.append({"row": row_idx, "skipped": True, "reason": "Doublon (nom ou téléphone)", "officine_id": existing.get("id")})
+                skipped += 1
+                continue
+            oid = str(uuid.uuid4())
+            doc = {
+                "id": oid,
+                "name": nom,                           # = code (par contrat utilisateur)
+                "code": nom,                           # alias explicite
+                "intitule": None,                      # rempli ensuite via fiche
+                "email": None,
+                "phone": (f"+{phone_digits}" if phone_digits else None),
+                "phone_digits": phone_digits or None,
+                "whatsapp": None,
+                "whatsapp_digits": None,
+                "address": None,
+                "city": ville or None,
+                "country": None,
+                "location_hint": indications or None,
+                "numero_ordre": ordre or None,
+                "contact_name": None,
+                "logo_url": None,
+                "latitude": None,
+                "longitude": None,
+                "linked_client_id": None,
+                "linked_client_email": None,
+                "status": "pending",
+                "created_at": _now(),
+                "created_via": "csv_import",
+                "validated_at": None, "validated_by": None,
+                "activated_at": None, "activated_by": None, "activated_via": None,
+                "last_login_at": None,
+            }
+            await db.officines.insert_one(doc.copy())
+            await db.officine_audit_log.insert_one({
+                "id": str(uuid.uuid4()), "officine_id": oid,
+                "action": "csv_import", "actor": user.get("email"),
+                "details": {"row": row_idx, "filename": getattr(upload, "filename", None)},
+                "created_at": _now(),
+            })
+            created += 1
+            results.append({"row": row_idx, "officine_id": oid, "name": nom})
+        return {"ok": True, "created": created, "skipped": skipped, "results": results}
+
+    @api.put("/admin/officines-registry/{officine_id}", tags=["Admin — Officines Registry"])
+    async def update_officine(
+        officine_id: str,
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Mise à jour d'une fiche officine. Champs autorisés : name (=code),
+        intitule, email, phone, whatsapp, address, city, country, location_hint,
+        numero_ordre, contact_name, logo_url, latitude, longitude."""
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+        allowed = {
+            "name", "code", "intitule", "email", "phone", "whatsapp",
+            "address", "city", "country", "location_hint",
+            "numero_ordre", "contact_name", "logo_url",
+            "latitude", "longitude",
+        }
+        update: Dict[str, Any] = {}
+        for k, v in (payload or {}).items():
+            if k not in allowed:
+                continue
+            if v == "":
+                update[k] = None
+            else:
+                update[k] = v
+        # Synchronise phone_digits / whatsapp_digits si phone ou whatsapp changent
+        if "phone" in update:
+            update["phone_digits"] = _digits(update["phone"] or "") or None
+        if "whatsapp" in update:
+            update["whatsapp_digits"] = _digits(update["whatsapp"] or "") or None
+        # `name` est aussi le code par contrat utilisateur
+        if "name" in update and "code" not in update:
+            update["code"] = update["name"]
+        # Validation lat/lng
+        for fld in ("latitude", "longitude"):
+            if fld in update and update[fld] is not None:
+                try:
+                    update[fld] = float(update[fld])
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail=f"{fld} doit être numérique")
+        if not update:
+            raise HTTPException(status_code=400, detail="Aucun champ valide à mettre à jour")
+        update["updated_at"] = _now()
+        update["updated_by"] = user.get("email")
+        await db.officines.update_one({"id": officine_id}, {"$set": update})
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": officine_id,
+            "action": "edit", "actor": user.get("email"),
+            "details": {"fields": list(update.keys())}, "created_at": _now(),
+        })
+        fresh = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        return {"ok": True, "officine": fresh}
+
+    @api.post("/admin/officines-registry/{officine_id}/upload-logo", tags=["Admin — Officines Registry"])
+    async def upload_logo(
+        officine_id: str,
+        request: Request,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Upload du logo d'une officine. Stocke le fichier sous /uploads/officines/.
+        Le champ `logo_url` est mis à jour sur la fiche."""
+        from fastapi import UploadFile
+        from pathlib import Path
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+        form = await request.form()
+        upload: Optional[UploadFile] = form.get("file")  # type: ignore[assignment]
+        if upload is None:
+            raise HTTPException(status_code=400, detail="Fichier manquant (champ `file`)")
+        raw = await upload.read()
+        if len(raw) > 5 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Logo trop volumineux (max 5 Mo)")
+        ext = (upload.filename or "logo.png").rsplit(".", 1)[-1].lower()[:5] or "png"
+        if ext not in {"png", "jpg", "jpeg", "webp", "svg", "gif"}:
+            raise HTTPException(status_code=400, detail="Format non supporté (png/jpg/webp/svg)")
+        # Use the global UPLOAD_DIR; default to /tmp/uploads if not exposed.
+        try:
+            from server import UPLOAD_DIR as _UPLOAD_DIR  # type: ignore
+            upload_dir = Path(_UPLOAD_DIR) / "officines"
+        except Exception:
+            upload_dir = Path("/tmp/uploads/officines")
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        fname = f"officine_{officine_id[:8]}_{int(_now().timestamp())}.{ext}"
+        full = upload_dir / fname
+        full.write_bytes(raw)
+        rel_url = f"/uploads/officines/{fname}"
+        await db.officines.update_one(
+            {"id": officine_id},
+            {"$set": {"logo_url": rel_url, "updated_at": _now(), "updated_by": user.get("email")}},
+        )
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": officine_id,
+            "action": "upload_logo", "actor": user.get("email"),
+            "details": {"filename": fname, "size_bytes": len(raw)}, "created_at": _now(),
+        })
+        return {"ok": True, "logo_url": rel_url}
+
+    @api.post("/admin/officines-registry/import-to-contacts", tags=["Admin — Officines Registry"])
+    async def import_to_contacts(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Importe une sélection d'officines dans le répertoire de contacts du
+        client_scope de l'utilisateur (admin SAWALI) et les ajoute à un
+        groupe « Officine » (créé si nécessaire).
+
+        Body : { officine_ids: [str, ...], group_name?: str (défaut 'Officines') }
+        """
+        officine_ids = [x for x in (payload.get("officine_ids") or []) if isinstance(x, str) and x]
+        if not officine_ids:
+            raise HTTPException(status_code=400, detail="Aucune officine sélectionnée")
+        group_name = (payload.get("group_name") or "Officines").strip() or "Officines"
+
+        officines = await db.officines.find({"id": {"$in": officine_ids}}, {"_id": 0}).to_list(len(officine_ids))
+        if not officines:
+            raise HTTPException(status_code=404, detail="Aucune officine trouvée pour ces ids")
+
+        # Scope contacts = client_id de l'admin (= son own id par défaut)
+        client_scope = user.get("parent_client_id") or user["id"]
+
+        # Récupère/crée le groupe
+        existing_group = await db.contact_groups.find_one(
+            {"client_id": client_scope, "name": group_name}, {"_id": 0},
+        )
+        if existing_group:
+            group = existing_group
+        else:
+            group = {
+                "id": str(uuid.uuid4()),
+                "client_id": client_scope,
+                "name": group_name,
+                "description": "Importé automatiquement depuis le Registre des Officines",
+                "color": "#0EA5E9",
+                "contact_ids": [],
+                "created_at": _now(),
+                "updated_at": _now(),
+                "created_by": user.get("id"),
+                "owner_user_id": user.get("id"),
+                "owner_user_email": user.get("email"),
+                "shared_with_tenant": True,
+                "editable_by_tenant": True,
+            }
+            await db.contact_groups.insert_one(group.copy())
+
+        created_contact_ids: List[str] = []
+        existing_contact_ids: List[str] = []
+        for off in officines:
+            phone = off.get("phone") or ""
+            phone_digits = off.get("phone_digits") or ""
+            whatsapp = off.get("whatsapp") or off.get("phone") or ""
+            # Dédoublonnage : sur (client_scope, name) ou phone_digits
+            dup = None
+            if phone_digits:
+                dup = await db.directory_contacts.find_one(
+                    {"client_id": client_scope, "$or": [
+                        {"name": off.get("name")},
+                        {"phone": {"$regex": phone_digits + "$"}},
+                    ]},
+                    {"_id": 0, "id": 1},
+                )
+            else:
+                dup = await db.directory_contacts.find_one(
+                    {"client_id": client_scope, "name": off.get("name")},
+                    {"_id": 0, "id": 1},
+                )
+            if dup:
+                existing_contact_ids.append(dup["id"])
+                continue
+            cid = str(uuid.uuid4())
+            doc = {
+                "id": cid,
+                "client_id": client_scope,
+                "owner_user_id": user.get("id"),
+                "owner_user_email": user.get("email"),
+                "name": off.get("intitule") or off.get("name") or "",
+                "phone": phone,
+                "whatsapp": whatsapp,
+                "email": off.get("email") or "",
+                "company": off.get("name") or "",
+                "notes": f"Officine SAWALI • Code: {off.get('name')} • Ordre: {off.get('numero_ordre') or '—'} • Ville: {off.get('city') or '—'}",
+                "tags": ["Officine"],
+                "shared": True,
+                "shared_with_tenant": True,
+                "editable_by_tenant": True,
+                "officine_id": off["id"],
+                "photo_url": off.get("logo_url"),
+                "created_at": _now(),
+            }
+            await db.directory_contacts.insert_one(doc.copy())
+            created_contact_ids.append(cid)
+
+        # Met à jour le groupe avec les nouveaux contacts
+        all_contact_ids = list(set((group.get("contact_ids") or []) + created_contact_ids + existing_contact_ids))
+        await db.contact_groups.update_one(
+            {"id": group["id"]},
+            {"$set": {"contact_ids": all_contact_ids, "updated_at": _now()}},
+        )
+
+        return {
+            "ok": True,
+            "group_id": group["id"],
+            "group_name": group["name"],
+            "created": len(created_contact_ids),
+            "already_existing": len(existing_contact_ids),
+            "total_in_group": len(all_contact_ids),
+        }
 
     logger.info("[officines_portal] admin registry routes mounted")
 

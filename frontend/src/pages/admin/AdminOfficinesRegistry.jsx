@@ -468,15 +468,15 @@ function EditOfficineModal({ officine, onClose, onSaved }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Nom (= code)" required value={form.name} onChange={onChange("name")} testid="edit-name" />
             <Field label="Intitulé" value={form.intitule} onChange={onChange("intitule")} testid="edit-intitule" placeholder="Libellé commercial" />
-            <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact-name" />
+            <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact_name" />
             <Field label="Email" type="email" value={form.email} onChange={onChange("email")} testid="edit-email" />
             <Field label="Téléphone" value={form.phone} onChange={onChange("phone")} testid="edit-phone" placeholder="+22670…" />
             <Field label="WhatsApp" value={form.whatsapp} onChange={onChange("whatsapp")} testid="edit-whatsapp" placeholder="+22670…" />
             <Field label="Adresse" value={form.address} onChange={onChange("address")} testid="edit-address" />
             <Field label="Ville" value={form.city} onChange={onChange("city")} testid="edit-city" />
             <Field label="Pays" value={form.country} onChange={onChange("country")} testid="edit-country" />
-            <Field label="N° d'ordre" value={form.numero_ordre} onChange={onChange("numero_ordre")} testid="edit-ordre" />
-            <Field label="Indications de localisation" value={form.location_hint} onChange={onChange("location_hint")} testid="edit-location-hint" wide />
+            <Field label="N° d'ordre" value={form.numero_ordre} onChange={onChange("numero_ordre")} testid="edit-numero_ordre" />
+            <Field label="Indications de localisation" value={form.location_hint} onChange={onChange("location_hint")} testid="edit-location_hint" wide />
           </div>
 
           {/* Géolocalisation */}

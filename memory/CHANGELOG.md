@@ -2,6 +2,35 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix9 — Registre des Officines : CSV + édition fiche + import contacts
+
+### Demande utilisateur
+> « Pour /admin/officines-registry permettre l'import CSV (séparateur ;), nouveau champ Intitulé, séparer date de création de date d'activation, éditer chaque fiche (logo, intitulé, responsable, téléphone, WA séparé, email, géoloc), nouvelles colonnes, et importer une sélection en contacts groupe 'Officines'. »
+
+### Backend (`routes/officines_portal.py`)
+- **`POST /admin/officines-registry/import-csv`** (multipart `file`) — parse CSV `;` avec en-tête `Nom de la pharmacie;Téléphone;Ville;Indications de localisation;Numéro d'ordre`. Création avec `status='pending'`, `code=name`, anti-doublon sur nom OU phone_digits.
+- **`PUT /admin/officines-registry/{id}`** — édite 13 champs (name, intitule, contact_name, email, phone, whatsapp, address, city, country, location_hint, numero_ordre, logo_url, latitude, longitude). Sync phone_digits/whatsapp_digits auto. Audit log.
+- **`POST /admin/officines-registry/{id}/upload-logo`** (multipart) — stocke sous `/uploads/officines/`, met à jour `logo_url`. Max 5 Mo, formats png/jpg/webp/svg/gif.
+- **`POST /admin/officines-registry/import-to-contacts`** — crée/réutilise le groupe « Officines » + insère contacts dédoublonnés avec tags=['Officine'], `officine_id` croisé. Renvoie créés / déjà existants / total.
+- **`approve`** modifié : pose désormais `activated_at`/`activated_by`/`activated_via` EN PLUS de `validated_at` (rétro-compat).
+
+### Frontend (`AdminOfficinesRegistry.jsx` réécrit)
+- Bouton « Importer CSV » → `CsvImportModal` avec input fichier + rapport ligne par ligne (créées/ignorées).
+- Multi-sélection (checkbox header + par ligne) + bouton « Importer N → Contacts (groupe Officines) ».
+- Bouton « Modifier » par ligne → `EditOfficineModal` avec : logo upload, 13 champs (nom/intitulé/responsable/email/tél/WA/adresse/ville/pays/ordre/indications/lat/lng), « Détecter ma position » (géoloc navigateur), lien Google Maps.
+- Tableau 12 colonnes : checkbox, Officine (avec logo + N° ordre), **Intitulé**, Email, Téléphone, **WA** (séparé), Ville, Statut, Client CRM, Créée, **Activée** (check vert + date), Actions.
+
+### Champs ajoutés sur `officines`
+`code`, `intitule`, `whatsapp`, `whatsapp_digits`, `location_hint`, `numero_ordre`, `logo_url`, `latitude`, `longitude`, `activated_at`, `activated_by`, `activated_via`, `created_via`, `updated_at`, `updated_by`.
+
+### Tests
+- `test_iter43_fix9_officines_registry.py` — **17/17 PASS**.
+- Régression iter42 + iter50 — **18/18 PASS**. Total : **35/35**.
+- E2E UI validé (`iteration_59.json`).
+
+---
+
+
 ## 2026-03 — Iter43-fix8 — Élargissement des droits d'édition Interventions
 
 ### Demande utilisateur

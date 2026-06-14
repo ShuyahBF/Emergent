@@ -126,9 +126,12 @@ def attach_story_studio_routes(
 ):
     """Monte tous les endpoints Story Studio sur l'api router fourni."""
 
-    UPLOAD_ROOT = Path(os.environ.get("UPLOAD_DIR", "/tmp/uploads"))
+    # Iter43-fix10a — Utiliser STRICTEMENT le même UPLOAD_DIR que server.py
+    # (par défaut /app/backend/uploads, override possible via UPLOAD_DIR env).
+    UPLOAD_ROOT = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
     STORY_DIR = UPLOAD_ROOT / "stories"
     STORY_DIR.mkdir(parents=True, exist_ok=True)
+    logger.info(f"[story_studio] media dir = {STORY_DIR}")
 
     # ========================================================================
     # SETTINGS (admin only)
@@ -247,12 +250,15 @@ def attach_story_studio_routes(
                 raise RuntimeError("Génération vidéo : aucun fichier produit")
 
             file_size = Path(video_path).stat().st_size
-            rel_url = f"/uploads/stories/{Path(video_path).name}"
+            # Iter43-fix10a — URL via endpoint streaming dédié (les fichiers ne sont PAS
+            # exposés via static mount sur ce déploiement Kubernetes).
+            rel_url = f"/admin/story-studio/library/{asset_id}/media"
             await db.story_assets.update_one(
                 {"id": asset_id},
                 {"$set": {
                     "status": "ready",
                     "url": rel_url,
+                    "file_path": video_path,  # chemin disque pour le streamer
                     "file_size": file_size,
                     "updated_at": _now_iso(),
                 }},
@@ -274,20 +280,47 @@ def attach_story_studio_routes(
         key = os.environ.get("EMERGENT_LLM_KEY")
         if not key:
             raise HTTPException(status_code=500, detail="EMERGENT_LLM_KEY manquant côté serveur")
+        # Iter43-fix10a — Sora 2 contraintes : tailles supportées limitées.
+        # Modèle 'sora-2' supporte : 1280x720, 720x1280
+        # Modèle 'sora-2-pro' supporte : 1280x720, 720x1280, 1024x1792, 1792x1024
+        # Mapping intelligent vers la taille la plus proche acceptée.
+        engine = payload.engine
+        size = payload.size
+        if engine == "sora-2":
+            # Seul 720p autorisé pour sora-2
+            if "x" in size:
+                w, h = [int(x) for x in size.split("x")]
+                size = "720x1280" if h > w else "1280x720"  # portrait si vertical sinon paysage
+            else:
+                size = "720x1280"
+        elif engine == "sora-2-pro":
+            allowed = {"1280x720", "720x1280", "1024x1792", "1792x1024"}
+            if size not in allowed:
+                # Sélectionne la résolution acceptée la plus proche selon orientation
+                try:
+                    w, h = [int(x) for x in size.split("x")]
+                    size = "1024x1792" if h > w else "1792x1024"
+                except Exception:  # noqa: BLE001
+                    size = "720x1280"
+        logger.info(f"[story_studio] sora generation : engine={engine} size={size} duration={payload.duration_seconds}s")
         out_path = str(STORY_DIR / f"sora_{asset_id}.mp4")
         # On exécute dans un thread car la lib est bloquante
         def _run() -> Optional[bytes]:
             gen = OpenAIVideoGeneration(api_key=key)
             return gen.text_to_video(
                 prompt=payload.prompt,
-                model=payload.engine,  # 'sora-2' ou 'sora-2-pro'
-                size=payload.size,
+                model=engine,  # 'sora-2' ou 'sora-2-pro'
+                size=size,
                 duration=payload.duration_seconds,
                 max_wait_time=900,
             )
         video_bytes = await asyncio.to_thread(_run)
         if not video_bytes:
-            raise RuntimeError("Sora 2 : aucune vidéo retournée")
+            raise RuntimeError(
+                f"Sora 2 ({engine}) : aucune vidéo retournée (size={size}, duration={payload.duration_seconds}s). "
+                f"Vérifiez le solde Universal Key sur le profil. "
+                f"Prompt rejeté possible si contenu non conforme aux règles OpenAI."
+            )
         Path(out_path).write_bytes(video_bytes)
         return out_path
 
@@ -368,10 +401,11 @@ def attach_story_studio_routes(
                 raise RuntimeError("Nano Banana : aucune image retournée")
             out_path = STORY_DIR / f"img_{asset_id}.png"
             out_path.write_bytes(img_bytes)
-            rel_url = f"/uploads/stories/{out_path.name}"
+            rel_url = f"/admin/story-studio/library/{asset_id}/media"
             await db.story_assets.update_one(
                 {"id": asset_id},
-                {"$set": {"status": "ready", "url": rel_url, "file_size": len(img_bytes), "updated_at": _now_iso()}},
+                {"$set": {"status": "ready", "url": rel_url, "file_path": str(out_path),
+                          "file_size": len(img_bytes), "updated_at": _now_iso()}},
             )
             fresh = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
             return {"ok": True, "asset": fresh}
@@ -402,6 +436,12 @@ def attach_story_studio_routes(
         if kind in ("video", "image"):
             q["kind"] = kind
         items = await db.story_assets.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500)).to_list(min(limit, 500))
+        # Iter43-fix10a — Migration douce : si l'URL est l'ancienne forme
+        # `/uploads/stories/...`, on la remplace par l'endpoint streaming.
+        for it in items:
+            url = it.get("url") or ""
+            if url.startswith("/uploads/"):
+                it["url"] = f"/admin/story-studio/library/{it['id']}/media"
         return {"items": items, "count": len(items)}
 
     @api.put("/admin/story-studio/library/{asset_id}", tags=["Admin — Story Studio"])
@@ -429,15 +469,56 @@ def attach_story_studio_routes(
         if not doc:
             raise HTTPException(status_code=404, detail="Asset introuvable")
         # Supprime le fichier physique
-        if doc.get("url"):
+        fpath = doc.get("file_path")
+        if fpath:
             try:
-                fpath = UPLOAD_ROOT / doc["url"].lstrip("/").removeprefix("uploads/")
-                if fpath.exists():
-                    fpath.unlink()
+                p = Path(fpath)
+                if p.exists():
+                    p.unlink()
             except Exception:  # noqa: BLE001
-                logger.warning("[story_studio] failed to unlink %s", doc.get("url"))
+                logger.warning("[story_studio] failed to unlink %s", fpath)
         await db.story_assets.delete_one({"id": asset_id})
         return {"ok": True}
+
+    # ========================================================================
+    # MEDIA STREAMING — Iter43-fix10a
+    # Sert le fichier vidéo/image généré (auth requise = admin OR sup).
+    # ========================================================================
+    @api.get("/admin/story-studio/library/{asset_id}/media", tags=["Admin — Story Studio"])
+    async def stream_asset_media(
+        asset_id: str,
+        user: dict = Depends(get_admin_or_supervisor),
+    ):
+        from fastapi.responses import FileResponse
+        doc = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Asset introuvable")
+        if doc.get("status") != "ready":
+            raise HTTPException(status_code=400, detail=f"Asset non prêt (statut: {doc.get('status')})")
+        fpath = doc.get("file_path")
+        # Iter43-fix10a — Backward-compat : reconstruit le path depuis l'id
+        # pour les assets créés avant ce fix (file_path absent).
+        if not fpath:
+            kind = doc.get("kind")
+            engine = doc.get("engine") or ""
+            if kind == "video":
+                prefix = "fal_" if engine == "fal" else "sora_"
+                guess = STORY_DIR / f"{prefix}{asset_id}.mp4"
+            else:
+                guess = STORY_DIR / f"img_{asset_id}.png"
+            if guess.exists():
+                fpath = str(guess)
+                # Persiste pour les prochains accès
+                await db.story_assets.update_one({"id": asset_id}, {"$set": {"file_path": fpath}})
+        if not fpath or not Path(fpath).exists():
+            logger.error("[story_studio] file missing on disk: %s (asset=%s)", fpath, asset_id)
+            raise HTTPException(status_code=410, detail="Fichier introuvable sur le disque")
+        media_type = "video/mp4" if doc.get("kind") == "video" else "image/png"
+        return FileResponse(
+            fpath,
+            media_type=media_type,
+            headers={"Cache-Control": "private, max-age=3600"},
+        )
 
     # ========================================================================
     # SHARE WHATSAPP (deep link mobile)
@@ -457,24 +538,35 @@ def attach_story_studio_routes(
             raise HTTPException(status_code=404, detail="Asset introuvable")
         if not doc.get("url"):
             raise HTTPException(status_code=400, detail="Asset non encore prêt")
-        # Construit l'URL publique du média
-        public_base = os.environ.get("PUBLIC_BACKEND_URL") or os.environ.get("REACT_APP_BACKEND_URL") or ""
-        media_url = f"{public_base}{doc['url']}"
+        # Construit l'URL publique du média. Le doc.url commence par /admin/...
+        # (sans /api/) car les clients utilisent apiClient avec baseURL=BACKEND/api.
+        # Pour un partage externe (WhatsApp), il faut une URL complète absolue.
+        public_base = (
+            os.environ.get("PUBLIC_BACKEND_URL")
+            or os.environ.get("REACT_APP_BACKEND_URL")
+            or ""
+        )
+        rel = doc["url"]
+        if not rel.startswith("/api/"):
+            rel = "/api" + rel if rel.startswith("/") else "/api/" + rel
+        media_url = f"{public_base}{rel}"
         caption = doc.get("caption") or doc.get("title") or "Nouvelle Story SAWALI ✨"
-        text = f"{caption}\n\n{media_url}"
-        wa_link = f"whatsapp://send?text={urllib.parse.quote(text)}"
-        # Lien web fallback (ouvre WhatsApp Web puis bascule sur app si installée)
-        web_fallback = f"https://wa.me/?text={urllib.parse.quote(text)}"
+        # Iter43-fix10a — Le deep link contient SEULEMENT la légende (pas le
+        # media_url qui requiert une auth Bearer). L'admin télécharge la
+        # vidéo séparément puis l'attache dans WhatsApp.
+        wa_link = f"whatsapp://send?text={urllib.parse.quote(caption)}"
+        web_fallback = f"https://wa.me/?text={urllib.parse.quote(caption)}"
         return {
             "ok": True,
             "deep_link": wa_link,
             "web_fallback": web_fallback,
-            "media_url": media_url,
+            "media_url": media_url,  # informatif uniquement (auth requise)
             "caption": caption,
             "instructions": (
-                "Sur mobile : cliquez sur le lien → WhatsApp s'ouvre → "
-                "appuyez sur 'Status' (icône paperclip) ou utilisez 'Partager' "
-                "depuis la galerie après avoir téléchargé la vidéo."
+                "1) Téléchargez la vidéo via le bouton « Télécharger » de la "
+                "bibliothèque. 2) Ouvrez WhatsApp sur votre mobile → onglet "
+                "« Status » → caméra → sélectionnez la vidéo téléchargée → "
+                "collez la légende → Publier."
             ),
         }
 

@@ -109,9 +109,16 @@ function GenerateTab({ settings, onCreated }) {
   const [engine, setEngine] = React.useState("sora-2");
   const [prompt, setPrompt] = React.useState("");
   const [duration, setDuration] = React.useState(8);
-  const [size, setSize] = React.useState("1024x1792");
+  const [size, setSize] = React.useState("720x1280");  // défaut sora-2 (720p)
   const [title, setTitle] = React.useState("");
   const [busy, setBusy] = React.useState(false);
+
+  // Iter43-fix10a — Auto-adjust size selon engine (Sora 2 standard limité à 720p)
+  React.useEffect(() => {
+    if (engine === "sora-2") setSize("720x1280");
+    else if (engine === "sora-2-pro") setSize("1024x1792");
+    else setSize("1024x1792");
+  }, [engine]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -219,10 +226,27 @@ function GenerateTab({ settings, onCreated }) {
             <select value={size} onChange={(e) => setSize(e.target.value)}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     data-testid="generate-size">
-              <option value="1024x1792">9:16 vertical (Stories)</option>
-              <option value="1024x1024">1:1 carré (Feed)</option>
-              <option value="1792x1024">16:9 horizontal</option>
-              <option value="1280x720">16:9 HD</option>
+              {/* Sora 2 standard ne supporte que 720p. Sora 2 Pro et Fal supportent plus. */}
+              {engine === "sora-2" ? (
+                <>
+                  <option value="720x1280">9:16 vertical 720p (Stories)</option>
+                  <option value="1280x720">16:9 horizontal 720p</option>
+                </>
+              ) : engine === "sora-2-pro" ? (
+                <>
+                  <option value="1024x1792">9:16 vertical HD (Stories) — recommandé</option>
+                  <option value="1792x1024">16:9 horizontal HD</option>
+                  <option value="720x1280">9:16 vertical 720p</option>
+                  <option value="1280x720">16:9 horizontal 720p</option>
+                </>
+              ) : (
+                <>
+                  <option value="1024x1792">9:16 vertical (Stories)</option>
+                  <option value="1024x1024">1:1 carré (Feed)</option>
+                  <option value="1792x1024">16:9 horizontal</option>
+                  <option value="1280x720">16:9 HD</option>
+                </>
+              )}
             </select>
           </label>
         </div>
@@ -274,17 +298,58 @@ function AssetCard({ asset, onShare, onDelete }) {
   const isReady = asset.status === "ready";
   const isProcessing = asset.status === "processing";
   const isFailed = asset.status === "failed";
-  const backendBase = process.env.REACT_APP_BACKEND_URL || "";
-  const fullUrl = asset.url ? `${backendBase}${asset.url}` : null;
+  const [blobUrl, setBlobUrl] = React.useState(null);
+  const [blobLoading, setBlobLoading] = React.useState(false);
+
+  // Iter43-fix10a — Charge le média via apiClient (auth) puis blob URL.
+  React.useEffect(() => {
+    let cancel = false;
+    let createdUrl = null;
+    if (isReady && asset.url) {
+      setBlobLoading(true);
+      apiClient.get(asset.url, { responseType: "blob" })
+        .then((r) => {
+          if (cancel) return;
+          createdUrl = URL.createObjectURL(r.data);
+          setBlobUrl(createdUrl);
+        })
+        .catch(() => { /* silent — empty preview */ })
+        .finally(() => { if (!cancel) setBlobLoading(false); });
+    }
+    return () => {
+      cancel = true;
+      if (createdUrl) URL.revokeObjectURL(createdUrl);
+    };
+  }, [asset.id, asset.url, isReady]);
+
+  const downloadAsset = async () => {
+    try {
+      const r = await apiClient.get(asset.url, { responseType: "blob" });
+      const blob = new Blob([r.data], { type: isVideo ? "video/mp4" : "image/png" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${asset.title || "story"}.${isVideo ? "mp4" : "png"}`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 8000);
+    } catch (e) {
+      toast.error("Échec téléchargement");
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 overflow-hidden" data-testid={`asset-card-${asset.id}`}>
       <div className="aspect-[9/16] bg-slate-100 flex items-center justify-center relative">
-        {isReady && fullUrl ? (
+        {isReady && blobUrl ? (
           isVideo ? (
-            <video src={fullUrl} controls className="w-full h-full object-cover" data-testid={`asset-video-${asset.id}`} />
+            <video src={blobUrl} controls className="w-full h-full object-cover" data-testid={`asset-video-${asset.id}`} />
           ) : (
-            <img src={fullUrl} alt={asset.title} className="w-full h-full object-cover" data-testid={`asset-image-${asset.id}`} />
+            <img src={blobUrl} alt={asset.title} className="w-full h-full object-cover" data-testid={`asset-image-${asset.id}`} />
           )
+        ) : isReady && blobLoading ? (
+          <div className="text-center"><Loader2 className="h-6 w-6 animate-spin text-slate-400 mx-auto" /><p className="text-xs text-slate-400 mt-2">Chargement…</p></div>
         ) : isProcessing ? (
           <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-violet-600 mx-auto" /><p className="text-xs text-slate-500 mt-2">Génération…</p></div>
         ) : isFailed ? (
@@ -300,11 +365,11 @@ function AssetCard({ asset, onShare, onDelete }) {
         <div className="flex items-center gap-1 flex-wrap pt-1">
           {isReady && (
             <>
-              <a href={fullUrl} download
+              <button onClick={downloadAsset}
                  className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700"
                  data-testid={`asset-download-${asset.id}`}>
                 <Download className="h-3 w-3" /> Télécharger
-              </a>
+              </button>
               <button onClick={() => onShare(asset)}
                       className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
                       data-testid={`asset-share-${asset.id}`}>

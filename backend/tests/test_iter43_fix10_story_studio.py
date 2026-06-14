@@ -181,6 +181,63 @@ class TestLibrary:
         ids2 = [x["id"] for x in r2.json()["items"]]
         assert aid2 in ids2 and aid1 not in ids2
 
+    def test_stream_media_404(self, admin_ctx):
+        r = requests.get(f"{API}/admin/story-studio/library/unknown_fix10a/media", headers=admin_ctx["headers"])
+        assert r.status_code == 404
+
+    def test_stream_media_410_when_file_missing(self, admin_ctx, db, cleanup):
+        aid = f"iter43f10a_asset_{uuid.uuid4().hex[:8]}"
+        cleanup["assets"].append(aid)
+        db.story_assets.insert_one({
+            "id": aid, "tenant_id": "t1", "kind": "video", "engine": "sora-2",
+            "prompt": "p", "title": "x", "status": "ready",
+            "url": f"/admin/story-studio/library/{aid}/media",
+            "file_path": "/nonexistent/path.mp4",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        r = requests.get(f"{API}/admin/story-studio/library/{aid}/media", headers=admin_ctx["headers"])
+        assert r.status_code == 410
+
+    def test_stream_media_returns_file(self, admin_ctx, db, cleanup, tmp_path):
+        aid = f"iter43f10a_asset_{uuid.uuid4().hex[:8]}"
+        cleanup["assets"].append(aid)
+        # Crée un faux fichier mp4 sur disque
+        from pathlib import Path as _P
+        upload_dir = _P(os.environ.get("UPLOAD_DIR", "/app/backend/uploads")) / "stories"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        fpath = upload_dir / f"sora_{aid}.mp4"
+        fpath.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+        try:
+            db.story_assets.insert_one({
+                "id": aid, "tenant_id": "t1", "kind": "video", "engine": "sora-2",
+                "prompt": "p", "title": "x", "status": "ready",
+                "url": f"/admin/story-studio/library/{aid}/media",
+                "file_path": str(fpath),
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            r = requests.get(f"{API}/admin/story-studio/library/{aid}/media", headers=admin_ctx["headers"])
+            assert r.status_code == 200
+            assert r.headers["content-type"].startswith("video/mp4")
+            assert len(r.content) == 12  # len(b"\x00\x00\x00\x18ftypmp42")
+        finally:
+            if fpath.exists():
+                fpath.unlink()
+
+    def test_library_migrates_old_uploads_url(self, admin_ctx, db, cleanup):
+        """L'ancienne URL `/uploads/stories/...` doit être migrée à la lecture."""
+        aid = f"iter43f10a_oldurl_{uuid.uuid4().hex[:8]}"
+        cleanup["assets"].append(aid)
+        db.story_assets.insert_one({
+            "id": aid, "tenant_id": "t1", "kind": "video", "engine": "sora-2-pro",
+            "prompt": "p", "title": "old", "status": "ready",
+            "url": "/uploads/stories/sora_old.mp4",  # ancienne forme
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        r = requests.get(f"{API}/admin/story-studio/library", headers=admin_ctx["headers"])
+        item = next((x for x in r.json()["items"] if x["id"] == aid), None)
+        assert item is not None
+        assert item["url"] == f"/admin/story-studio/library/{aid}/media"
+
     def test_whatsapp_share_link(self, admin_ctx, db, cleanup):
         aid = f"iter43f10_asset_{uuid.uuid4().hex[:8]}"
         cleanup["assets"].append(aid)

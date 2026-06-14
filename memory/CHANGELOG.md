@@ -2,6 +2,38 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix10a — Hotfix Story Studio (vidéos invisibles)
+
+### Bug rapporté en production
+> « Sora 2 génère une erreur, Sora 2 Pro finit mais on ne voit pas la vidéo. »
+
+### Root causes (3)
+1. **Pas de route HTTP servant les fichiers** : les vidéos étaient stockées sur disque (`/app/backend/uploads/stories/`) mais aucune route FastAPI ne les exposait. Le `<video src="/uploads/stories/x.mp4">` retournait 404.
+2. **Path mismatch** : story_studio.py utilisait `/tmp/uploads` en fallback alors que server.py utilise `/app/backend/uploads`. Les fichiers n'arrivaient pas dans le même dossier.
+3. **Sora 2 erreur** : le modèle `sora-2` (standard, non-Pro) ne supporte QUE le 720p (`1280x720` / `720x1280`). Je passais des résolutions HD non supportées (`1024x1792`), d'où l'erreur OpenAI.
+
+### Fix
+- **Nouvelle route streaming** : `GET /api/admin/story-studio/library/{id}/media` (auth admin/sup) qui sert le fichier via FileResponse avec le bon content-type.
+- **Frontend** : `<video src>` chargé via `apiClient` → `Blob` → `URL.createObjectURL()` (résout le problème d'auth Bearer).
+- **Path unifié** : `UPLOAD_DIR=/app/backend/uploads` par défaut, cohérent avec server.py.
+- **Sora 2 mapping intelligent des tailles** :
+  - `sora-2` → 720p uniquement (720x1280 portrait / 1280x720 paysage)
+  - `sora-2-pro` → HD (1024x1792 / 1792x1024 + 720p)
+  - Mapping automatique côté backend si une taille non supportée est demandée
+- **Dropdown UI** : options dynamiques selon le moteur (les tailles invalides ne sont plus affichables).
+- **Auto-adjust size** quand l'utilisateur change de moteur.
+- **WhatsApp share** : caption SEULE dans le deep link (l'URL média requérait auth Bearer et ne marchait pas pour le destinataire). Instructions clarifiées : télécharger d'abord → attacher dans WhatsApp Status.
+- **Migration douce** : la liste de bibliothèque réécrit les anciennes URLs `/uploads/stories/...` vers `/admin/story-studio/library/{id}/media` à la lecture (pas besoin de migration DB).
+- **Backward-compat streaming** : si `file_path` absent (ancien asset), reconstruit le chemin depuis l'id pour récupérer le fichier.
+- **Messages d'erreur Sora 2** enrichis (budget LLM épuisé, prompt rejeté…).
+
+### Tests
+- `test_iter43_fix10_story_studio.py` enrichi avec 4 nouveaux tests (streaming 200/404/410, migration URL).
+- **16/16 PASS**.
+
+---
+
+
 ## 2026-03 — Iter43-fix10 — Story Studio (Phase 1 MVP)
 
 ### Demande utilisateur

@@ -4,6 +4,36 @@
 Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux (ordinateur PC, tablettes et téléphone). Site professionnel de SAWALI SMART SYSTEMS avec accès public (missions, expérience, spécialisation, catalogue, demande de RDV, contact) et espace professionnel (login, mot de passe, captcha, OTP mobile, état du compte, RDV, documentation logiciels, historique interventions, suivi utilisateurs).
 
 
+
+## Iter43-fix16 (2026-06) — WhatsApp Webhook Subscription Diagnostic + OpenAPI fix ✅
+
+**Statut** : LIVRÉ + testé (9/9 pytest = 6 docs/openapi + 3 webhook-subscription).
+
+### Bug critique résolu — OpenAPI/Swagger
+- `/api/openapi.json` crashait avec `PydanticUndefinedAnnotation: CheckoutPayload`.
+- Cause : `CheckoutPayload` défini **dans** `setup_stripe_routes()` combiné à `from __future__ import annotations` → ForwardRef irrésolvable.
+- Fix : remonté à portée module et renommé `StripeCheckoutPayload` pour éviter collision avec `ad_banners.CheckoutPayload`.
+- Résultat : `/api/openapi.json` (725 paths), `/api/docs`, `/api/redoc` répondent 200 → page `/documentation` fonctionnelle.
+
+### Symptôme utilisateur — Liluvine PRO ne reçoit plus de WhatsApp depuis le 10 juin 2026
+- Diagnostic par tests live : Liluvine PRO chat web fonctionne (`/me/liluvine-pro/chat` + stream OK, Claude Haiku 4.5 répond).
+- **Cause réelle** : webhook Meta `messages` désabonné côté Meta (l'app n'apparaît plus dans `subscribed_apps` du WABA). Outbound fonctionne (token OK) mais inbound silencieux → Liluvine ne reçoit rien donc ne répond rien.
+
+### Nouveaux endpoints + UI ajoutés
+- `GET /api/admin/whatsapp/webhook-subscription` → diagnostic Meta : liste les apps abonnées au WABA + détecte si le champ `messages` est présent. Retourne `ok=False` + message clair si la souscription est vide.
+- `POST /api/admin/whatsapp/webhook-subscribe` → action en 1 clic pour re-souscrire l'app au WABA (POST `/{waba_id}/subscribed_apps`). Idempotent.
+- Panel UI `📡 Diagnostic souscription Webhook Meta` ajouté dans **Admin → Paramètres → WhatsApp** entre le diagnostic du token et les logs webhook.
+- Bouton « 🔁 Re-souscrire le webhook » visible uniquement quand la souscription est cassée.
+- Lien direct vers Meta Business Suite si la re-souscription en 1 clic échoue.
+
+### Action utilisateur (Production)
+1. Pousser le code Preview en Production via **"Save to Github"** (fixes Iter43-fix16 indispensables).
+2. Aller sur `sawalismartsystems.com/admin/settings` → WhatsApp.
+3. Cliquer **"Vérifier la souscription"** dans le nouveau panel.
+4. Si vide → cliquer **"🔁 Re-souscrire le webhook"**.
+5. Envoyer un WA test → vérifier que `/admin/whatsapp/webhook-logs` enregistre l'appel et que Liluvine répond.
+
+
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
 ## Iter43-fix13 + Iter43-fix14 (2026-03) — Story Studio Phase 3 + 4 + Cron + Analytics ✅

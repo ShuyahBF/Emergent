@@ -1757,6 +1757,7 @@ export default function AdminSettings() {
         <Input label="Webhook Verify Token (secret partagé)" type="password" value={s.wa_verify_token || ""} onChange={(v) => upd("wa_verify_token", v)} placeholder={s.wa_verify_token === "********" ? "(défini — cliquer pour modifier)" : "Jeton aléatoire à inscrire aussi côté Meta"} testid="wa-verify-token" />
         <WaTestPanel />
         <WaTokenHealthPanel />
+        <WaWebhookSubscriptionPanel />
         <WaWebhookLogsPanel />
         <WaSilenceAlertPanel s={s} upd={upd} />
 
@@ -5645,6 +5646,149 @@ const WaTokenHealthPanel = () => {
           )}
           <div className="sm:col-span-2 mt-2 rounded-lg ring-1 ring-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">
             💡 <strong>Pour éviter les coupures :</strong> utilisez un <strong>System User token permanent</strong> (Meta Business Manager → Paramètres business → Utilisateurs système → Générer un nouveau token → cocher <code>whatsapp_business_messaging</code> + <code>whatsapp_business_management</code> → <strong>SANS expiration</strong>). Les tokens copiés depuis le dashboard Developers expirent en 24 h.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Iter43-fix16 (2026-06) — Diagnostic + bouton de re-souscription du webhook Meta.
+// Symptôme : « les messages WA sortants partent mais on ne reçoit plus rien
+// depuis X jours » → Meta a retiré la souscription `messages` de l'app.
+const WaWebhookSubscriptionPanel = () => {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [resubLoading, setResubLoading] = useState(false);
+
+  const check = async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/whatsapp/webhook-subscription");
+      setData(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur diagnostic souscription");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const resubscribe = async () => {
+    if (!window.confirm(
+      "Re-souscrire l'application Meta au webhook ?\n\n"
+      + "Action sûre, idempotente. Meta recommencera à envoyer les messages "
+      + "entrants vers /api/whatsapp/webhook dans les secondes qui suivent."
+    )) return;
+    setResubLoading(true);
+    try {
+      const r = await apiClient.post("/admin/whatsapp/webhook-subscribe");
+      if (r.data?.ok) {
+        toast.success(r.data.message || "Souscription rétablie");
+      } else {
+        toast.error(r.data?.message || "Échec de la re-souscription");
+      }
+      // Rafraîchir le diagnostic
+      await check();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur lors de la re-souscription");
+    } finally {
+      setResubLoading(false);
+    }
+  };
+
+  const colorByStatus = () => {
+    if (!data) return "ring-slate-200 bg-slate-50";
+    if (data.ok) return "ring-emerald-200 bg-emerald-50";
+    return "ring-rose-200 bg-rose-50";
+  };
+
+  return (
+    <div className={`rounded-xl ring-1 p-4 space-y-2 ${colorByStatus()}`} data-testid="wa-webhook-subscription-panel">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <p className="text-sm font-semibold text-slate-800">📡 Diagnostic souscription Webhook Meta</p>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={check}
+            disabled={loading}
+            className="text-xs px-3 py-1 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-50 disabled:opacity-50"
+            data-testid="wa-webhook-subscription-check"
+          >
+            {loading ? "Vérification…" : "Vérifier la souscription"}
+          </button>
+          {data && !data.ok && (
+            <button
+              onClick={resubscribe}
+              disabled={resubLoading}
+              className="text-xs px-3 py-1 rounded bg-amber-600 text-white font-semibold hover:brightness-110 disabled:opacity-50"
+              data-testid="wa-webhook-subscription-resubscribe"
+            >
+              {resubLoading ? "Re-souscription…" : "🔁 Re-souscrire le webhook"}
+            </button>
+          )}
+        </div>
+      </div>
+      <p className="text-[11px] text-slate-600">
+        Vérifie côté Meta si l'app est toujours abonnée aux événements <code>messages</code> du WABA.
+        Cause typique du « plus aucun message entrant depuis X jours alors que l'envoi fonctionne ».
+      </p>
+      {!data && !loading && (
+        <p className="text-xs text-slate-500">Cliquez sur « Vérifier la souscription »</p>
+      )}
+      {data && (
+        <div className="text-xs space-y-1">
+          <div>
+            <span className="text-slate-500">État :</span>{" "}
+            {data.ok ? (
+              <span className="text-emerald-700 font-semibold">✅ Souscription active</span>
+            ) : (
+              <span className="text-rose-700 font-semibold">❌ Aucune souscription / problème</span>
+            )}
+          </div>
+          {data.waba_id && (
+            <div>
+              <span className="text-slate-500">WABA ID :</span>{" "}
+              <code className="text-[11px]">{data.waba_id}</code>
+            </div>
+          )}
+          <div>
+            <span className="text-slate-500">Apps abonnées :</span>{" "}
+            <strong>{(data.subscribed_apps || []).length}</strong>
+            {(data.subscribed_apps || []).length === 0 && (
+              <span className="ml-1 text-rose-700">→ ⚠️ critique, Meta ne vous appellera plus</span>
+            )}
+          </div>
+          {(data.subscribed_apps || []).length > 0 && (
+            <ul className="ml-4 list-disc text-slate-600 text-[11px]">
+              {(data.subscribed_apps || []).map((a, i) => (
+                <li key={i}>
+                  <code>{a.whatsapp_business_api_data?.id || a.name || a.id || "(app)"}</code>
+                  {a.whatsapp_business_api_data?.name && (
+                    <span className="ml-1 text-slate-500">— {a.whatsapp_business_api_data.name}</span>
+                  )}
+                </li>
+              ))}
+            </ul>
+          )}
+          {data.message && (
+            <div className={`mt-1 p-2 rounded text-[11px] ${data.ok ? "bg-white text-slate-700" : "bg-rose-100 text-rose-900"}`}>
+              {data.message}
+            </div>
+          )}
+          {data.error_code && (
+            <div className="text-[11px] text-slate-500">
+              Code Meta : <code>{data.error_code}</code> · Type : <code>{data.error_type || "—"}</code>
+            </div>
+          )}
+          {data.note && (
+            <div className="text-[11px] text-slate-600 italic">{data.note}</div>
+          )}
+          <div className="mt-2 rounded-lg ring-1 ring-sky-200 bg-sky-50 p-2 text-[11px] text-sky-900">
+            💡 Si « Re-souscrire » échoue ou ne suffit pas, ouvrez
+            {" "}<a href="https://business.facebook.com/wa/manage/home/" target="_blank" rel="noreferrer"
+                    className="underline font-semibold">Meta Business Suite</a>{" "}
+            → WhatsApp → Configuration → Webhooks → vérifiez l'URL
+            {" "}<code>https://sawalismartsystems.com/api/whatsapp/webhook</code>{" "}
+            et que le champ <strong>messages</strong> est bien coché.
           </div>
         </div>
       )}

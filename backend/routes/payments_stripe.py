@@ -48,6 +48,15 @@ def _safe_amount(value: float) -> float:
         return 0.0
 
 
+# Iter43-fix16 (2026-06) — Module-scoped Pydantic model.
+# Previously declared inside `setup_stripe_routes()` which broke
+# FastAPI OpenAPI schema generation when combined with
+# `from __future__ import annotations` (ForwardRef could not be
+# resolved → /api/openapi.json returned 500).
+class StripeCheckoutPayload(BaseModel):
+    origin_url: str = Field(..., min_length=8, max_length=500)
+
+
 def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
     api_key = os.environ.get("STRIPE_API_KEY")
     if not api_key:
@@ -68,12 +77,9 @@ def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
     except Exception:
         _mark_public_order_paid = None
 
-    class CheckoutPayload(BaseModel):
-        origin_url: str = Field(..., min_length=8, max_length=500)
-
     @api.post("/me/formations/{fid}/stripe/checkout", tags=["Portail Client"])
     async def create_formation_checkout(
-        fid: str, payload: CheckoutPayload, request: Request,
+        fid: str, payload: StripeCheckoutPayload, request: Request,
         user: dict = Depends(get_current_user),
     ):
         """Crée une session Stripe Checkout pour une formation payante."""

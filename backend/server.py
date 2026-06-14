@@ -17186,6 +17186,156 @@ async def admin_wa_token_health(_: dict = Depends(get_current_admin)):
     return out
 
 
+@api.get("/admin/whatsapp/webhook-subscription", tags=["Admin"])
+async def admin_wa_webhook_subscription(_: dict = Depends(get_current_admin)):
+    """Iter43-fix16 (2026-06) — Diagnostic de la souscription du webhook Meta.
+
+    Symptôme couvert : « les messages sortants partent bien mais plus aucun
+    message entrant n'arrive depuis X jours ». Cause type : Meta a retiré
+    l'application du WABA (révision en cours, app paused, expiration de la
+    permission, etc.) → la souscription `messages` est perdue côté Meta.
+
+    Appelle GET /{waba_id}/subscribed_apps pour lister les apps actuellement
+    abonnées + leurs `subscribed_fields`. Vérifie qu'au moins une app contient
+    le champ `messages`. Retourne aussi le `messaging_product` et le statut
+    du numéro.
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = (s.get("wa_access_token") or "").strip()
+    waba_id = (s.get("wa_business_account_id") or "").strip()
+    phone_number_id = (s.get("wa_phone_number_id") or "").strip()
+    if not access_token or not waba_id:
+        return {
+            "ok": False,
+            "reason": "missing_config",
+            "message": "wa_access_token ou wa_business_account_id vide dans Settings.",
+            "configured": {
+                "access_token": bool(access_token),
+                "waba_id": bool(waba_id),
+                "phone_number_id": bool(phone_number_id),
+            },
+        }
+    out: Dict[str, Any] = {
+        "ok": False,
+        "waba_id": waba_id,
+        "phone_number_id": phone_number_id or None,
+        "subscribed_apps": [],
+        "messages_subscribed": False,
+        "message": None,
+    }
+    try:
+        async with httpx.AsyncClient(timeout=10) as http:
+            r = await http.get(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/subscribed_apps",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code >= 300:
+                err = {}
+                try:
+                    err = (r.json() or {}).get("error") or {}
+                except Exception:  # noqa: BLE001
+                    pass
+                out["message"] = err.get("message") or f"HTTP {r.status_code}"
+                out["error_code"] = err.get("code")
+                out["error_type"] = err.get("type")
+                return out
+            data = r.json() or {}
+            apps = data.get("data") or []
+            out["subscribed_apps"] = apps
+            # Meta peut renvoyer chaque app avec `subscribed_fields` ou pas selon
+            # le scope du token. On considère qu'au moins UNE app abonnée
+            # correspond probablement à notre app si elle est listée — la liste
+            # vide est le signal critique du bug (aucune souscription).
+            has_messages = False
+            for a in apps:
+                fields = a.get("subscribed_fields") or []
+                if isinstance(fields, list) and any(
+                    (f.get("name") if isinstance(f, dict) else str(f)) == "messages"
+                    for f in fields
+                ):
+                    has_messages = True
+                    break
+            # Si l'API ne renvoie pas `subscribed_fields` (token sans scope),
+            # on se contente de la présence d'une app abonnée.
+            if not has_messages and apps:
+                has_messages = True
+                out["note"] = (
+                    "Souscription présente mais Meta n'a pas renvoyé `subscribed_fields` "
+                    "(token sans scope `whatsapp_business_management` étendu). "
+                    "Le compte est probablement OK."
+                )
+            out["messages_subscribed"] = has_messages
+            out["ok"] = has_messages
+            if not apps:
+                out["message"] = (
+                    "❌ Aucune app abonnée à ce WABA — Meta n'enverra plus jamais "
+                    "de webhook tant que vous n'aurez pas re-souscrit l'app. "
+                    "Cliquez sur « Re-souscrire le webhook » ci-dessous ou allez "
+                    "dans Meta Business Suite → WhatsApp → Configuration → "
+                    "Webhooks."
+                )
+    except Exception as exc:  # noqa: BLE001
+        out["message"] = f"subscribed_apps exception: {str(exc)[:200]}"
+    return out
+
+
+@api.post("/admin/whatsapp/webhook-subscribe", tags=["Admin"])
+async def admin_wa_webhook_subscribe(_: dict = Depends(get_current_admin)):
+    """Iter43-fix16 — Re-souscrire l'app Meta au WABA pour rétablir le
+    flux des webhooks entrants. Equivalent à POST /{waba_id}/subscribed_apps.
+
+    À utiliser quand le diagnostic `webhook-subscription` renvoie
+    `subscribed_apps: []`. Requiert que le token actuel ait au moins
+    `whatsapp_business_management` (ce qui est le cas pour un token capable
+    d'envoyer des messages).
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    access_token = (s.get("wa_access_token") or "").strip()
+    waba_id = (s.get("wa_business_account_id") or "").strip()
+    if not access_token or not waba_id:
+        raise HTTPException(status_code=400, detail="wa_access_token ou wa_business_account_id manquant")
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
+            r = await http.post(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/subscribed_apps",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            if r.status_code >= 300:
+                err = {}
+                try:
+                    err = (r.json() or {}).get("error") or {}
+                except Exception:  # noqa: BLE001
+                    pass
+                return {
+                    "ok": False,
+                    "status": r.status_code,
+                    "message": err.get("message") or f"HTTP {r.status_code}",
+                    "error_code": err.get("code"),
+                    "error_type": err.get("type"),
+                    "fbtrace_id": err.get("fbtrace_id"),
+                    "hint": (
+                        "Si l'erreur dit 'permission denied' ou 'app does not have permission', "
+                        "ouvrez Meta Business Suite → Paramètres → Comptes WhatsApp → "
+                        "votre WABA → Apps connectées, et vérifiez que l'app est bien associée."
+                    ),
+                }
+            body = r.json() or {}
+            return {
+                "ok": True,
+                "status": r.status_code,
+                "response": body,
+                "message": (
+                    "✅ Souscription re-créée. Meta devrait recommencer à appeler "
+                    "votre webhook dans les prochaines secondes. Envoyez un message WA "
+                    "depuis un téléphone vers votre numéro Business pour confirmer."
+                ),
+            }
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "message": f"subscribe exception: {str(exc)[:200]}"}
+
+
+
+
 
 
 # ---------- Admin-managed template notes (index by name) ----------

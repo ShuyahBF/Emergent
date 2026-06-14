@@ -764,13 +764,17 @@ def attach_officines_portal_admin_routes(
     @api.get("/admin/officines-registry", tags=["Admin — Officines Registry"])
     async def list_registry(
         status: Optional[str] = Query(None, pattern="^(pending|active|suspended)$"),
+        activite: Optional[str] = Query(None),
         q: Optional[str] = Query(None),
-        limit: int = Query(200, ge=1, le=1000),
+        limit: int = Query(500, ge=1, le=2000),
         user: dict = Depends(get_current_admin),
     ):
         query: Dict[str, Any] = {}
         if status:
             query["status"] = status
+        # Iter43-fix12 (2026-03) — filtre par activité principale
+        if activite:
+            query["activite_principale"] = activite
         if q:
             query["$or"] = [
                 {"name": {"$regex": q, "$options": "i"}},
@@ -778,8 +782,21 @@ def attach_officines_portal_admin_routes(
                 {"phone_digits": {"$regex": q}},
                 {"city": {"$regex": q, "$options": "i"}},
             ]
-        cur = db.officines.find(query, {"_id": 0}).sort("created_at", -1).limit(limit)
+        # Iter43-fix12 (2026-03) — tri alphabétique ASC sur le nom (insensible casse)
+        cur = db.officines.find(query, {"_id": 0}).collation(
+            {"locale": "fr", "strength": 1}
+        ).sort("name", 1).limit(limit)
         items = await cur.to_list(limit)
+        # Iter43-fix12 — enrichit chaque item avec products_count
+        if items:
+            officine_ids = [it["id"] for it in items]
+            agg = db.officine_products.aggregate([
+                {"$match": {"officine_id": {"$in": officine_ids}}},
+                {"$group": {"_id": "$officine_id", "n": {"$sum": 1}}},
+            ])
+            counts_map: Dict[str, int] = {d["_id"]: int(d.get("n") or 0) async for d in agg}
+            for it in items:
+                it["products_count"] = counts_map.get(it["id"], 0)
         # Counts by status (utile pour le dashboard)
         counts = {"pending": 0, "active": 0, "suspended": 0}
         async for d in db.officines.aggregate([{"$group": {"_id": "$status", "n": {"$sum": 1}}}]):
@@ -1041,6 +1058,8 @@ def attach_officines_portal_admin_routes(
             "address", "city", "country", "location_hint",
             "numero_ordre", "contact_name", "logo_url",
             "latitude", "longitude",
+            # Iter43-fix12 (2026-03)
+            "activite_principale",
         }
         update: Dict[str, Any] = {}
         for k, v in (payload or {}).items():
@@ -1273,6 +1292,401 @@ def attach_officines_portal_admin_routes(
             "already_existing": len(existing_contact_ids),
             "total_in_group": len(all_contact_ids),
         }
+
+    # =====================================================================
+    # Iter43-fix12 (2026-03) — Activités principales (Task 3)
+    # NB: path "/admin/officine-activities" et non "/admin/officines-registry/activities"
+    # pour éviter le shadowing par la route paramétrée "/{officine_id}".
+    # =====================================================================
+    DEFAULT_ACTIVITES = ["Pharmacie", "Grossiste", "Dépôt", "Distributeur"]
+
+    @api.get("/admin/officine-activities", tags=["Admin — Officines Registry"])
+    async def list_activities(_: dict = Depends(get_current_admin)):
+        doc = await db.settings.find_one({"_id": "global"}) or {}
+        acts = doc.get("officines_activities")
+        if not acts or not isinstance(acts, list):
+            acts = DEFAULT_ACTIVITES
+        return {"activities": acts}
+
+    @api.put("/admin/officine-activities", tags=["Admin — Officines Registry"])
+    async def update_activities(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        raw = payload.get("activities")
+        if not isinstance(raw, list):
+            raise HTTPException(status_code=400, detail="`activities` doit être une liste")
+        cleaned: List[str] = []
+        seen = set()
+        for x in raw:
+            s = str(x or "").strip()
+            if not s or len(s) > 60:
+                continue
+            key = s.lower()
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(s)
+        if not cleaned:
+            raise HTTPException(status_code=400, detail="Au moins une activité requise")
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"officines_activities": cleaned, "officines_activities_updated_at": _now(),
+                      "officines_activities_updated_by": user.get("email")}},
+            upsert=True,
+        )
+        return {"ok": True, "activities": cleaned}
+
+    # =====================================================================
+    # Iter43-fix12 (2026-03) — Produits par officine (Tasks 1 & 2)
+    # =====================================================================
+    def _norm_key(s: Any) -> str:
+        """Clé de normalisation pour unicité (lower + trim + espaces collapsés)."""
+        if s is None:
+            return ""
+        return " ".join(str(s).strip().lower().split())
+
+    def _detect_csv_delimiter(text: str) -> str:
+        first_line = (text.split("\n", 1)[0] or "")
+        return ";" if first_line.count(";") > first_line.count(",") else ","
+
+    def _normalize_header(h: str) -> str:
+        """Mappe les en-têtes CSV vers nos champs canoniques."""
+        h_low = (h or "").strip().lower()
+        # Suppression des accents pour matching
+        import unicodedata
+        h_low = "".join(
+            c for c in unicodedata.normalize("NFD", h_low)
+            if unicodedata.category(c) != "Mn"
+        )
+        if h_low in {"code officine", "code", "officine"}:
+            return "officine_code"
+        if h_low in {"produit", "nom produit", "nom du produit", "designation",
+                     "designation produit", "libelle", "libelle produit"}:
+            return "product_name"
+        if h_low in {"conditionnement", "cond", "presentation", "forme"}:
+            return "conditionnement"
+        if h_low in {"cip", "code cip", "cip13", "cip7", "cip-13", "cip-7"}:
+            return "cip"
+        if h_low in {"stock", "quantite", "qte", "qty", "qt"}:
+            return "stock"
+        return h_low.replace(" ", "_")
+
+    def _flatten_json_products(data: Any) -> List[Dict[str, Any]]:
+        """Aplatit n'importe quelle structure JSON imbriquée vers une liste de
+        produits. Cherche les dicts qui ressemblent à un produit (champ
+        product_name OU produit OU designation présent).
+
+        Exemples acceptés :
+        - [{"Produit": "Doliprane", "CIP": "...", "Stock": 10}, ...]
+        - {"produits": [...]}
+        - {"officine": "X", "items": {"medicaments": [...]}}
+        - {"data": {"results": [{"Produit": ...}]}}
+        """
+        out: List[Dict[str, Any]] = []
+
+        def _looks_like_product(d: Dict[str, Any]) -> bool:
+            keys_lower = {str(k).strip().lower() for k in d.keys()}
+            return bool(
+                keys_lower & {"produit", "product_name", "nom produit", "nom du produit",
+                              "designation", "libelle", "libelle produit"}
+            )
+
+        def _walk(node: Any):
+            if isinstance(node, list):
+                for x in node:
+                    _walk(x)
+            elif isinstance(node, dict):
+                if _looks_like_product(node):
+                    out.append(node)
+                else:
+                    for v in node.values():
+                        _walk(v)
+        _walk(data)
+        return out
+
+    @api.post("/admin/officines-registry/{officine_id}/products/import",
+              tags=["Admin — Officines Registry"])
+    async def import_products(
+        officine_id: str,
+        request: Request,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Import en masse de produits pour une officine (CSV ou JSON).
+
+        Format CSV (séparateur auto `,` ou `;`) :
+            Code Officine,Produit,Conditionnement,CIP,Stock
+        Format JSON : liste plate OU structure imbriquée (auto-aplatie).
+        Mode : `replace` (vide + ré-importe) OU `append` (ajoute sans toucher).
+        Clé d'unicité : (officine_id, product_name, conditionnement) en minuscules.
+        """
+        from fastapi import UploadFile
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+
+        form = await request.form()
+        upload: Optional[UploadFile] = form.get("file")  # type: ignore[assignment]
+        mode = (str(form.get("mode") or "replace")).lower()
+        if mode not in {"replace", "append"}:
+            raise HTTPException(status_code=400, detail="mode invalide (replace|append)")
+        if upload is None:
+            raise HTTPException(status_code=400, detail="Fichier manquant (champ `file`)")
+        raw = await upload.read()
+        if not raw:
+            raise HTTPException(status_code=400, detail="Fichier vide")
+        if len(raw) > 20 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 20 Mo)")
+
+        filename = (upload.filename or "").lower()
+        is_json = filename.endswith(".json") or raw.lstrip().startswith((b"{", b"["))
+
+        rows: List[Dict[str, Any]] = []
+        header_detected = False
+        if is_json:
+            import json
+            try:
+                data = json.loads(raw.decode("utf-8", errors="replace"))
+            except json.JSONDecodeError as exc:
+                raise HTTPException(status_code=400, detail=f"JSON invalide : {exc}")
+            flat = _flatten_json_products(data)
+            for d in flat:
+                norm = {_normalize_header(k): v for k, v in d.items()}
+                rows.append(norm)
+        else:
+            text = raw.decode("utf-8-sig", errors="replace")
+            delim = _detect_csv_delimiter(text)
+            reader = csv.reader(io.StringIO(text), delimiter=delim)
+            all_rows = [r for r in reader if any((c or "").strip() for c in r)]
+            if not all_rows:
+                raise HTTPException(status_code=400, detail="Aucune ligne exploitable")
+            # Détection en-tête : si la 1re ligne contient au moins un mot-clé connu
+            head_norm = [_normalize_header(h) for h in all_rows[0]]
+            known = {"officine_code", "product_name", "conditionnement", "cip", "stock"}
+            if any(h in known for h in head_norm):
+                header_detected = True
+                headers = head_norm
+                data_rows = all_rows[1:]
+            else:
+                # Format positionnel : Code Officine, Produit, Conditionnement, CIP, Stock
+                headers = ["officine_code", "product_name", "conditionnement", "cip", "stock"]
+                data_rows = all_rows
+            for r in data_rows:
+                d = {headers[i]: r[i] if i < len(r) else "" for i in range(min(len(headers), len(r)))}
+                rows.append(d)
+
+        # Mode replace : vide la collection pour cette officine
+        if mode == "replace":
+            await db.officine_products.delete_many({"officine_id": officine_id})
+
+        # Officine code (utilisé si la colonne est absente)
+        default_code = existing.get("code") or existing.get("name") or ""
+
+        created = 0
+        updated = 0
+        skipped = 0
+        errors: List[Dict[str, Any]] = []
+        seen_keys = set()  # pour anti-doublons intra-fichier
+        bulk_docs: List[Dict[str, Any]] = []
+
+        for idx, row in enumerate(rows, start=2 if header_detected else 1):
+            product_name = str(row.get("product_name") or row.get("produit") or "").strip()
+            if not product_name:
+                skipped += 1
+                if len(errors) < 50:
+                    errors.append({"row": idx, "reason": "Nom de produit manquant"})
+                continue
+            conditionnement = str(row.get("conditionnement") or "").strip()
+            cip = str(row.get("cip") or "").strip() or None
+            officine_code = str(row.get("officine_code") or default_code).strip()
+            stock_raw = row.get("stock")
+            try:
+                stock = int(str(stock_raw).strip()) if stock_raw not in (None, "", "—") else 0
+            except (TypeError, ValueError):
+                stock = 0
+
+            key = (_norm_key(product_name), _norm_key(conditionnement))
+            if key in seen_keys:
+                skipped += 1
+                if len(errors) < 50:
+                    errors.append({"row": idx, "reason": f"Doublon intra-fichier : {product_name}"})
+                continue
+            seen_keys.add(key)
+
+            now = _now().isoformat()
+            doc = {
+                "id": str(uuid.uuid4()),
+                "officine_id": officine_id,
+                "officine_code": officine_code,
+                "product_name": product_name,
+                "product_name_norm": _norm_key(product_name),
+                "conditionnement": conditionnement,
+                "conditionnement_norm": _norm_key(conditionnement),
+                "cip": cip,
+                "stock": stock,
+                "created_at": now,
+                "updated_at": now,
+                "imported_by": user.get("email"),
+            }
+
+            if mode == "replace":
+                bulk_docs.append(doc)
+                created += 1
+            else:
+                # Mode append : upsert basé sur la clé d'unicité
+                r = await db.officine_products.update_one(
+                    {"officine_id": officine_id,
+                     "product_name_norm": doc["product_name_norm"],
+                     "conditionnement_norm": doc["conditionnement_norm"]},
+                    {"$set": {
+                        "product_name": product_name,
+                        "conditionnement": conditionnement,
+                        "cip": cip,
+                        "stock": stock,
+                        "officine_code": officine_code,
+                        "updated_at": now,
+                        "updated_by": user.get("email"),
+                    },
+                     "$setOnInsert": {
+                         "id": doc["id"], "officine_id": officine_id,
+                         "product_name_norm": doc["product_name_norm"],
+                         "conditionnement_norm": doc["conditionnement_norm"],
+                         "created_at": now,
+                         "imported_by": user.get("email"),
+                     }},
+                    upsert=True,
+                )
+                if r.upserted_id:
+                    created += 1
+                elif r.matched_count:
+                    updated += 1
+
+        # Insert en bulk pour le mode replace
+        if mode == "replace" and bulk_docs:
+            BATCH = 1000
+            for i in range(0, len(bulk_docs), BATCH):
+                await db.officine_products.insert_many(bulk_docs[i:i + BATCH])
+
+        # Index pour requêtes rapides (idempotent)
+        try:
+            await db.officine_products.create_index([("officine_id", 1), ("product_name_norm", 1)])
+            await db.officine_products.create_index([("officine_id", 1), ("conditionnement_norm", 1)])
+        except Exception:  # noqa: BLE001
+            pass
+
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": officine_id,
+            "action": "products_import",
+            "actor": user.get("email"),
+            "details": {
+                "mode": mode, "format": "json" if is_json else "csv",
+                "created": created, "updated": updated, "skipped": skipped,
+                "filename": filename,
+            },
+            "created_at": _now(),
+        })
+
+        return {
+            "ok": True,
+            "mode": mode,
+            "format": "json" if is_json else "csv",
+            "header_detected": header_detected,
+            "created": created,
+            "updated": updated,
+            "skipped": skipped,
+            "errors": errors,
+        }
+
+    @api.get("/admin/officines-registry/{officine_id}/products",
+             tags=["Admin — Officines Registry"])
+    async def list_products(
+        officine_id: str,
+        q: Optional[str] = Query(None),
+        offset: int = Query(0, ge=0),
+        limit: int = Query(100, ge=1, le=500),
+        sort: str = Query("product_name", pattern="^(product_name|cip|stock|conditionnement|created_at)$"),
+        order: str = Query("asc", pattern="^(asc|desc)$"),
+        _: dict = Depends(get_current_admin),
+    ):
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0, "id": 1, "name": 1})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+        query: Dict[str, Any] = {"officine_id": officine_id}
+        if q:
+            qstr = q.strip()
+            query["$or"] = [
+                {"product_name": {"$regex": qstr, "$options": "i"}},
+                {"cip": {"$regex": qstr}},
+                {"conditionnement": {"$regex": qstr, "$options": "i"}},
+            ]
+        total = await db.officine_products.count_documents(query)
+        sort_dir = 1 if order == "asc" else -1
+        cur = (
+            db.officine_products.find(query, {"_id": 0})
+            .sort(sort, sort_dir)
+            .skip(offset)
+            .limit(limit)
+        )
+        items = await cur.to_list(limit)
+        return {
+            "items": items,
+            "total": total,
+            "offset": offset,
+            "limit": limit,
+            "officine": {"id": existing["id"], "name": existing.get("name")},
+        }
+
+    @api.delete("/admin/officines-registry/{officine_id}/products",
+                tags=["Admin — Officines Registry"])
+    async def clear_products(officine_id: str, user: dict = Depends(get_current_admin)):
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+        r = await db.officine_products.delete_many({"officine_id": officine_id})
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": officine_id,
+            "action": "products_clear",
+            "actor": user.get("email"),
+            "details": {"deleted": int(r.deleted_count or 0)},
+            "created_at": _now(),
+        })
+        return {"ok": True, "deleted": int(r.deleted_count or 0)}
+
+    @api.get("/admin/officines-registry/{officine_id}/products/export.csv",
+             tags=["Admin — Officines Registry"])
+    async def export_products_csv(officine_id: str, _: dict = Depends(get_current_admin)):
+        existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+
+        async def _stream():
+            buf = io.StringIO()
+            writer = csv.writer(buf, delimiter=",")
+            writer.writerow(["Code Officine", "Produit", "Conditionnement", "CIP", "Stock"])
+            yield buf.getvalue()
+            buf.seek(0)
+            buf.truncate(0)
+            async for doc in db.officine_products.find({"officine_id": officine_id}, {"_id": 0}).sort("product_name", 1):
+                writer.writerow([
+                    doc.get("officine_code") or "",
+                    doc.get("product_name") or "",
+                    doc.get("conditionnement") or "",
+                    doc.get("cip") or "",
+                    str(doc.get("stock") or 0),
+                ])
+                if buf.tell() > 8192:
+                    yield buf.getvalue()
+                    buf.seek(0)
+                    buf.truncate(0)
+            if buf.tell():
+                yield buf.getvalue()
+
+        safe_name = (existing.get("name") or officine_id).replace(" ", "_")
+        return StreamingResponse(
+            _stream(),
+            media_type="text/csv; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="produits_{safe_name}.csv"'},
+        )
 
     logger.info("[officines_portal] admin registry routes mounted")
 

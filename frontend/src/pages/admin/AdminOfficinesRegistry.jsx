@@ -1,12 +1,15 @@
 // Iter43-fix9 (2026-03) — Admin Registre des Officines
 // Ajouts : import CSV (séparateur ;), édition fiche complète (logo/intitulé/responsable/WA/géoloc),
 // multi-sélection + import contacts (groupe "Officines"), colonnes Intitulé, WA, Activée.
+// Iter43-fix12 (2026-03) — Tri alphabétique, colonnes Activité + Nb produits,
+// import produits CSV/JSON, modale produits, gestion activités principales.
 import React from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   CheckCircle, XCircle, RefreshCw, Link as LinkIcon, Unlink, Search, Building2,
   Upload, Pencil, FileSpreadsheet, UserPlus, X, MapPin, Image as ImageIcon,
+  Eye, Package, Tags, Download, Plus, Trash2, FileJson,
 } from "lucide-react";
 
 const STATUS_LABEL = {
@@ -40,6 +43,8 @@ export default function AdminOfficinesRegistry() {
   const [items, setItems] = React.useState([]);
   const [counts, setCounts] = React.useState({ pending: 0, active: 0, suspended: 0 });
   const [filter, setFilter] = React.useState("pending");
+  const [filterActivite, setFilterActivite] = React.useState(""); // Iter43-fix12
+  const [activities, setActivities] = React.useState([]); // Iter43-fix12
   const [q, setQ] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [linkingFor, setLinkingFor] = React.useState(null);
@@ -47,20 +52,33 @@ export default function AdminOfficinesRegistry() {
   const [importingCsv, setImportingCsv] = React.useState(false);
   const [selected, setSelected] = React.useState(() => new Set());
   const [importingContacts, setImportingContacts] = React.useState(false);
+  // Iter43-fix12 — Produits + activités
+  const [viewingProductsFor, setViewingProductsFor] = React.useState(null);
+  const [importingProductsFor, setImportingProductsFor] = React.useState(null);
+  const [managingActivities, setManagingActivities] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (filter !== "all") params.status = filter;
+      if (filterActivite) params.activite = filterActivite;
       if (q) params.q = q;
       const r = await apiClient.get("/admin/officines-registry", { params });
       setItems(r.data?.items || []);
       setCounts(r.data?.counts || {});
     } finally { setLoading(false); }
-  }, [filter, q]);
+  }, [filter, filterActivite, q]);
+
+  const loadActivities = React.useCallback(async () => {
+    try {
+      const r = await apiClient.get("/admin/officine-activities");
+      setActivities(r.data?.activities || []);
+    } catch { /* noop */ }
+  }, []);
 
   React.useEffect(() => { load(); }, [load]);
+  React.useEffect(() => { loadActivities(); }, [loadActivities]);
 
   const doAction = async (oid, action, label) => {
     if (!window.confirm(`Confirmer : ${label} ?`)) return;
@@ -154,6 +172,25 @@ export default function AdminOfficinesRegistry() {
             className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
             data-testid="registry-search" />
         </div>
+        {/* Iter43-fix12 — Filtre par activité principale */}
+        <select
+          value={filterActivite}
+          onChange={(e) => setFilterActivite(e.target.value)}
+          className="text-xs px-3 py-2 rounded-lg ring-1 ring-slate-200 bg-white text-slate-700 hover:bg-slate-50"
+          data-testid="filter-activite"
+          title="Filtrer par activité principale"
+        >
+          <option value="">Toutes les activités</option>
+          {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+        </select>
+        <button
+          onClick={() => setManagingActivities(true)}
+          className="text-xs px-3 py-2 rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
+          data-testid="manage-activities-btn"
+          title="Gérer les activités principales"
+        >
+          <Tags className="h-3.5 w-3.5" /> Gérer
+        </button>
         <button onClick={() => setFilter("all")} className={`text-xs px-3 py-2 rounded-lg ring-1 ${filter === "all" ? "bg-sawali-blue text-white ring-sawali-blue" : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"}`} data-testid="filter-all">
           Tous
         </button>
@@ -175,10 +212,12 @@ export default function AdminOfficinesRegistry() {
                 </th>
                 <th className="px-3 py-2 font-medium">Officine</th>
                 <th className="px-3 py-2 font-medium">Intitulé</th>
+                <th className="px-3 py-2 font-medium">Activité</th>
                 <th className="px-3 py-2 font-medium">Email</th>
                 <th className="px-3 py-2 font-medium">Téléphone</th>
                 <th className="px-3 py-2 font-medium">WA</th>
                 <th className="px-3 py-2 font-medium">Ville</th>
+                <th className="px-3 py-2 font-medium">Produits</th>
                 <th className="px-3 py-2 font-medium">Statut</th>
                 <th className="px-3 py-2 font-medium">Client CRM</th>
                 <th className="px-3 py-2 font-medium">Créée</th>
@@ -187,9 +226,9 @@ export default function AdminOfficinesRegistry() {
               </tr>
             </thead>
             <tbody data-testid="registry-table-body">
-              {loading && <tr><td colSpan={12} className="px-3 py-6 text-center text-slate-400">Chargement…</td></tr>}
+              {loading && <tr><td colSpan={14} className="px-3 py-6 text-center text-slate-400">Chargement…</td></tr>}
               {!loading && items.length === 0 && (
-                <tr><td colSpan={12} className="px-3 py-6 text-center text-slate-400">Aucune officine.</td></tr>
+                <tr><td colSpan={14} className="px-3 py-6 text-center text-slate-400">Aucune officine.</td></tr>
               )}
               {items.map((it) => {
                 const st = STATUS_LABEL[it.status] || { text: it.status, color: "bg-slate-50" };
@@ -220,10 +259,30 @@ export default function AdminOfficinesRegistry() {
                       </div>
                     </td>
                     <td className="px-3 py-2 text-slate-700 text-xs">{it.intitule || <span className="italic text-slate-400">—</span>}</td>
+                    <td className="px-3 py-2 text-xs">
+                      {it.activite_principale ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" data-testid={`activite-${it.id}`}>
+                          {it.activite_principale}
+                        </span>
+                      ) : <span className="italic text-slate-400">—</span>}
+                    </td>
                     <td className="px-3 py-2 text-slate-600 text-xs">{it.email || "—"}</td>
                     <td className="px-3 py-2 text-slate-600 text-xs font-mono">{it.phone || "—"}</td>
                     <td className="px-3 py-2 text-slate-600 text-xs font-mono">{it.whatsapp || <span className="italic text-slate-400">—</span>}</td>
                     <td className="px-3 py-2 text-slate-600 text-xs">{it.city || "—"}</td>
+                    <td className="px-3 py-2 text-xs">
+                      <button
+                        onClick={() => setViewingProductsFor(it)}
+                        className="inline-flex items-center gap-1 px-2 py-0.5 rounded ring-1 hover:bg-slate-50 transition"
+                        title={`Voir les ${it.products_count || 0} produit(s)`}
+                        data-testid={`view-products-${it.id}`}
+                      >
+                        <span className="tabular-nums font-semibold text-slate-700">
+                          {it.products_count ?? 0}
+                        </span>
+                        <Eye className="h-3 w-3 text-sky-600" />
+                      </button>
+                    </td>
                     <td className="px-3 py-2">
                       <span className={`text-[10px] uppercase tracking-wider font-medium px-2 py-1 rounded ring-1 ${st.color}`}>
                         {st.text}
@@ -254,6 +313,12 @@ export default function AdminOfficinesRegistry() {
                                 data-testid={`edit-${it.id}`}
                                 title="Modifier la fiche">
                           <Pencil className="h-3 w-3" />
+                        </button>
+                        <button onClick={() => setImportingProductsFor(it)}
+                                className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-violet-50 hover:bg-violet-100 text-violet-700 ring-1 ring-violet-200"
+                                data-testid={`import-products-${it.id}`}
+                                title="Importer la liste des produits (CSV ou JSON)">
+                          <Package className="h-3 w-3" />
                         </button>
                         {it.status === "pending" && (
                           <button onClick={() => doAction(it.id, "approve", "Activer")}
@@ -303,10 +368,36 @@ export default function AdminOfficinesRegistry() {
         <LinkClientModal officine={linkingFor} onClose={() => setLinkingFor(null)} onDone={() => { setLinkingFor(null); load(); }} />
       )}
       {editingFor && (
-        <EditOfficineModal officine={editingFor} onClose={() => setEditingFor(null)} onSaved={() => { setEditingFor(null); load(); }} />
+        <EditOfficineModal
+          officine={editingFor}
+          activities={activities}
+          onClose={() => setEditingFor(null)}
+          onSaved={() => { setEditingFor(null); load(); }}
+        />
       )}
       {importingCsv && (
         <CsvImportModal onClose={() => setImportingCsv(false)} onDone={() => { setImportingCsv(false); load(); }} />
+      )}
+      {viewingProductsFor && (
+        <ProductsModal
+          officine={viewingProductsFor}
+          onClose={() => setViewingProductsFor(null)}
+          onImport={() => { setViewingProductsFor(null); setImportingProductsFor(viewingProductsFor); }}
+        />
+      )}
+      {importingProductsFor && (
+        <ImportProductsModal
+          officine={importingProductsFor}
+          onClose={() => setImportingProductsFor(null)}
+          onDone={() => { setImportingProductsFor(null); load(); }}
+        />
+      )}
+      {managingActivities && (
+        <ManageActivitiesModal
+          activities={activities}
+          onClose={() => setManagingActivities(false)}
+          onSaved={(next) => { setActivities(next); setManagingActivities(false); load(); }}
+        />
       )}
     </div>
   );
@@ -368,7 +459,7 @@ function LinkClientModal({ officine, onClose, onDone }) {
 // ============================================================
 // Iter43-fix9 — Édition fiche officine complète
 // ============================================================
-function EditOfficineModal({ officine, onClose, onSaved }) {
+function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
   const [form, setForm] = React.useState({
     name: officine.name || "",
     intitule: officine.intitule || "",
@@ -383,6 +474,7 @@ function EditOfficineModal({ officine, onClose, onSaved }) {
     numero_ordre: officine.numero_ordre || "",
     latitude: officine.latitude ?? "",
     longitude: officine.longitude ?? "",
+    activite_principale: officine.activite_principale || "",
   });
   const [logoUrl, setLogoUrl] = React.useState(officine.logo_url || "");
   const [logoBusy, setLogoBusy] = React.useState(false);
@@ -483,6 +575,22 @@ function EditOfficineModal({ officine, onClose, onSaved }) {
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <Field label="Nom (= code)" required value={form.name} onChange={onChange("name")} testid="edit-name" />
             <Field label="Intitulé" value={form.intitule} onChange={onChange("intitule")} testid="edit-intitule" placeholder="Libellé commercial" />
+            <label className="block text-sm">
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Activité principale</span>
+              <select
+                value={form.activite_principale}
+                onChange={onChange("activite_principale")}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                data-testid="edit-activite_principale"
+              >
+                <option value="">— Non définie —</option>
+                {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+                {/* Affiche aussi l'actuelle même si elle a été supprimée de la liste */}
+                {form.activite_principale && !activities.includes(form.activite_principale) && (
+                  <option value={form.activite_principale}>{form.activite_principale} (obsolète)</option>
+                )}
+              </select>
+            </label>
             <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact_name" />
             <Field label="Email" type="email" value={form.email} onChange={onChange("email")} testid="edit-email" />
             <Field label="Téléphone" value={form.phone} onChange={onChange("phone")} testid="edit-phone" placeholder="+22670…" />
@@ -651,6 +759,420 @@ function CsvImportModal({ onClose, onDone }) {
           )}
         </div>
       </form>
+    </div>
+  );
+}
+
+
+// ============================================================================
+// Iter43-fix12 — Modale : Liste des produits d'une officine
+// Pagination serveur (jusqu'à 10 000 produits par officine).
+// ============================================================================
+function ProductsModal({ officine, onClose, onImport }) {
+  const [rows, setRows] = React.useState([]);
+  const [total, setTotal] = React.useState(0);
+  const [offset, setOffset] = React.useState(0);
+  const [limit] = React.useState(100);
+  const [q, setQ] = React.useState("");
+  const [sort, setSort] = React.useState("product_name");
+  const [order, setOrder] = React.useState("asc");
+  const [loading, setLoading] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = { offset, limit, sort, order };
+      if (q) params.q = q;
+      const r = await apiClient.get(`/admin/officines-registry/${officine.id}/products`, { params });
+      setRows(r.data?.items || []);
+      setTotal(r.data?.total || 0);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur chargement produits");
+    } finally { setLoading(false); }
+  }, [officine.id, offset, limit, q, sort, order]);
+
+  React.useEffect(() => { load(); }, [load]);
+
+  const downloadCsv = async () => {
+    try {
+      const r = await apiClient.get(
+        `/admin/officines-registry/${officine.id}/products/export.csv`,
+        { responseType: "blob" },
+      );
+      const url = window.URL.createObjectURL(r.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `produits_${(officine.name || officine.id).replace(/\s+/g, "_")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur export");
+    }
+  };
+
+  const onClearAll = async () => {
+    if (!window.confirm(`Supprimer tous les ${total} produits de « ${officine.name} » ?\nCette action est irréversible.`)) return;
+    try {
+      await apiClient.delete(`/admin/officines-registry/${officine.id}/products`);
+      toast.success("Produits supprimés");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const onSort = (col) => {
+    if (sort === col) setOrder(order === "asc" ? "desc" : "asc");
+    else { setSort(col); setOrder("asc"); }
+    setOffset(0);
+  };
+
+  const totalPages = Math.max(1, Math.ceil(total / limit));
+  const page = Math.floor(offset / limit) + 1;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-4" data-testid="products-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[92vh] flex flex-col">
+        <div className="px-5 py-3 border-b flex items-center justify-between sticky top-0 bg-white z-10">
+          <div className="min-w-0">
+            <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+              <Package className="h-4 w-4 text-sawali-blue" /> Produits de l'officine
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5 truncate">
+              <span className="font-medium">{officine.name}</span> · <span className="tabular-nums">{total}</span> produit(s)
+            </p>
+          </div>
+          <div className="flex items-center gap-1 shrink-0">
+            <button onClick={onImport}
+                    className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded bg-violet-600 text-white hover:bg-violet-700"
+                    data-testid="products-modal-import">
+              <Upload className="h-3 w-3" /> Importer
+            </button>
+            {total > 0 && (
+              <button onClick={downloadCsv}
+                      className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                      data-testid="products-modal-export">
+                <Download className="h-3 w-3" /> CSV
+              </button>
+            )}
+            {total > 0 && (
+              <button onClick={onClearAll}
+                      className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 ring-1 ring-rose-200"
+                      data-testid="products-modal-clear" title="Tout supprimer">
+                <Trash2 className="h-3 w-3" />
+              </button>
+            )}
+            <button onClick={onClose} className="text-slate-500 hover:text-slate-900 px-2" data-testid="products-modal-close">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <div className="px-5 py-2 border-b bg-slate-50 flex items-center gap-2">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-2.5 top-2 h-3.5 w-3.5 text-slate-400" />
+            <input
+              value={q}
+              onChange={(e) => { setQ(e.target.value); setOffset(0); }}
+              placeholder="Rechercher par produit, CIP ou conditionnement…"
+              className="w-full pl-8 pr-3 py-1.5 border rounded text-sm"
+              data-testid="products-modal-search"
+            />
+          </div>
+          <span className="text-[11px] text-slate-500 ml-auto">
+            Page {page}/{totalPages} · {offset + 1}–{Math.min(offset + limit, total)} / {total}
+          </span>
+          <button
+            disabled={offset === 0}
+            onClick={() => setOffset(Math.max(0, offset - limit))}
+            className="text-xs px-2 py-1 rounded bg-white ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-40"
+            data-testid="products-modal-prev"
+          >‹ Préc.</button>
+          <button
+            disabled={offset + limit >= total}
+            onClick={() => setOffset(offset + limit)}
+            className="text-xs px-2 py-1 rounded bg-white ring-1 ring-slate-200 hover:bg-slate-50 disabled:opacity-40"
+            data-testid="products-modal-next"
+          >Suiv. ›</button>
+        </div>
+        <div className="overflow-y-auto flex-1">
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-left sticky top-0">
+              <tr>
+                <SortHeader col="product_name" current={sort} order={order} onClick={onSort}>Produit</SortHeader>
+                <SortHeader col="conditionnement" current={sort} order={order} onClick={onSort}>Conditionnement</SortHeader>
+                <SortHeader col="cip" current={sort} order={order} onClick={onSort}>CIP</SortHeader>
+                <SortHeader col="stock" current={sort} order={order} onClick={onSort} align="right">Stock</SortHeader>
+              </tr>
+            </thead>
+            <tbody data-testid="products-modal-tbody">
+              {loading && <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400">Chargement…</td></tr>}
+              {!loading && rows.length === 0 && (
+                <tr><td colSpan={4} className="px-3 py-6 text-center text-slate-400 italic">
+                  {q ? "Aucun produit pour cette recherche." : "Aucun produit. Cliquez sur « Importer » pour ajouter des produits."}
+                </td></tr>
+              )}
+              {rows.map((p) => (
+                <tr key={p.id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`product-row-${p.id}`}>
+                  <td className="px-3 py-2 text-slate-900">{p.product_name}</td>
+                  <td className="px-3 py-2 text-slate-600 text-xs">{p.conditionnement || <span className="italic text-slate-400">—</span>}</td>
+                  <td className="px-3 py-2 text-slate-600 text-xs font-mono">{p.cip || <span className="italic text-slate-400">—</span>}</td>
+                  <td className="px-3 py-2 text-right tabular-nums font-semibold text-slate-700">{p.stock ?? 0}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function SortHeader({ col, current, order, onClick, children, align = "left" }) {
+  const active = col === current;
+  return (
+    <th
+      className={`px-3 py-2 font-medium cursor-pointer select-none ${active ? "text-sawali-blue" : "hover:text-slate-900"} text-${align}`}
+      onClick={() => onClick(col)}
+    >
+      {children} {active && (order === "asc" ? "▲" : "▼")}
+    </th>
+  );
+}
+
+// ============================================================================
+// Iter43-fix12 — Modale : Import des produits CSV/JSON
+// ============================================================================
+function ImportProductsModal({ officine, onClose, onDone }) {
+  const [file, setFile] = React.useState(null);
+  const [mode, setMode] = React.useState("replace"); // replace | append
+  const [busy, setBusy] = React.useState(false);
+  const [report, setReport] = React.useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    if (!file) { toast.error("Sélectionnez un fichier"); return; }
+    setBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("mode", mode);
+      const r = await apiClient.post(
+        `/admin/officines-registry/${officine.id}/products/import`,
+        fd,
+        { headers: { "Content-Type": "multipart/form-data" } },
+      );
+      setReport(r.data);
+      toast.success(`${r.data?.created || 0} créés · ${r.data?.updated || 0} mis à jour · ${r.data?.skipped || 0} ignorés`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec import");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-4" data-testid="import-products-modal">
+      <form onSubmit={submit} className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[92vh] overflow-y-auto">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <div>
+            <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+              <Package className="h-4 w-4 text-violet-600" /> Importer les produits
+            </h3>
+            <p className="text-[11px] text-slate-500 mt-0.5">Officine : <span className="font-medium">{officine.name}</span></p>
+          </div>
+          <button type="button" onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="import-products-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="rounded-lg bg-sky-50 ring-1 ring-sky-200 p-3 text-xs text-sky-900">
+            <p className="font-semibold mb-1 inline-flex items-center gap-1">
+              <FileSpreadsheet className="h-3.5 w-3.5" /> Format attendu
+            </p>
+            <p>
+              <strong>CSV</strong> (séparateur <code>,</code> ou <code>;</code> auto-détecté) :
+            </p>
+            <code className="block bg-white rounded px-2 py-1 mt-1 text-[10px] font-mono break-all">
+              Code Officine,Produit,Conditionnement,CIP,Stock
+            </code>
+            <p className="mt-1.5 inline-flex items-center gap-1">
+              <FileJson className="h-3.5 w-3.5" /> <strong>JSON</strong> : liste plate OU structure imbriquée (aplatie automatiquement).
+            </p>
+            <p className="mt-1 text-[10px] text-sky-700">
+              ℹ️ Clé d'unicité : <code>(officine, produit, conditionnement)</code>. Le CIP est optionnel.
+            </p>
+          </div>
+
+          <label className="block">
+            <span className="block text-xs font-semibold text-slate-700 mb-1">Fichier CSV ou JSON</span>
+            <input
+              type="file"
+              accept=".csv,.json,.txt,text/csv,application/json"
+              onChange={(e) => setFile(e.target.files?.[0] || null)}
+              className="block w-full text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded file:border-0 file:bg-violet-50 file:text-violet-700 hover:file:bg-violet-100"
+              data-testid="import-products-file"
+            />
+            {file && <p className="text-[11px] text-slate-500 mt-1">📄 {file.name} ({Math.round(file.size / 1024)} Ko)</p>}
+          </label>
+
+          <div>
+            <span className="block text-xs font-semibold text-slate-700 mb-1">Mode d'import</span>
+            <div className="grid grid-cols-2 gap-2">
+              <button type="button"
+                      onClick={() => setMode("replace")}
+                      className={`text-xs px-3 py-2 rounded ring-1 text-left ${mode === "replace" ? "bg-violet-600 text-white ring-violet-700" : "bg-white ring-slate-200 hover:bg-slate-50"}`}
+                      data-testid="import-products-mode-replace">
+                <div className="font-semibold inline-flex items-center gap-1">
+                  <Trash2 className="h-3 w-3" /> Remplacer
+                </div>
+                <div className={`text-[10px] mt-0.5 ${mode === "replace" ? "text-white/80" : "text-slate-500"}`}>
+                  Vide la liste puis ré-importe (recommandé)
+                </div>
+              </button>
+              <button type="button"
+                      onClick={() => setMode("append")}
+                      className={`text-xs px-3 py-2 rounded ring-1 text-left ${mode === "append" ? "bg-violet-600 text-white ring-violet-700" : "bg-white ring-slate-200 hover:bg-slate-50"}`}
+                      data-testid="import-products-mode-append">
+                <div className="font-semibold inline-flex items-center gap-1">
+                  <Plus className="h-3 w-3" /> Ajouter
+                </div>
+                <div className={`text-[10px] mt-0.5 ${mode === "append" ? "text-white/80" : "text-slate-500"}`}>
+                  Ajoute / met à jour les doublons (upsert)
+                </div>
+              </button>
+            </div>
+          </div>
+
+          {report && (
+            <div className="rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-3 text-xs space-y-1" data-testid="import-products-report">
+              <p className="font-semibold text-emerald-900">✅ Import terminé</p>
+              <p><strong>{report.created}</strong> créés · <strong>{report.updated}</strong> mis à jour · <strong>{report.skipped}</strong> ignorés</p>
+              <p className="text-[10px] text-emerald-700">Format : {report.format} · Mode : {report.mode}</p>
+              {report.errors?.length > 0 && (
+                <details className="mt-1">
+                  <summary className="cursor-pointer text-rose-700">⚠️ {report.errors.length} avertissements</summary>
+                  <ul className="mt-1 space-y-0.5 max-h-32 overflow-y-auto">
+                    {report.errors.slice(0, 20).map((e, i) => (
+                      <li key={i} className="text-rose-700 text-[10px]">
+                        Ligne {e.row} : {e.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button type="button" onClick={onClose}
+                  className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
+            Fermer
+          </button>
+          {report ? (
+            <button type="button" onClick={onDone}
+                    className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700"
+                    data-testid="import-products-done">
+              Voir les produits
+            </button>
+          ) : (
+            <button type="submit" disabled={busy || !file}
+                    className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+                    data-testid="import-products-submit">
+              {busy ? "Import en cours…" : "Lancer l'import"}
+            </button>
+          )}
+        </div>
+      </form>
+    </div>
+  );
+}
+
+// ============================================================================
+// Iter43-fix12 — Modale : Gestion des activités principales
+// ============================================================================
+function ManageActivitiesModal({ activities, onClose, onSaved }) {
+  const [list, setList] = React.useState(() => [...activities]);
+  const [input, setInput] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const add = () => {
+    const v = input.trim();
+    if (!v) return;
+    if (list.some((a) => a.toLowerCase() === v.toLowerCase())) {
+      toast.error("Activité déjà présente");
+      return;
+    }
+    setList([...list, v]);
+    setInput("");
+  };
+
+  const remove = (a) => setList(list.filter((x) => x !== a));
+
+  const save = async () => {
+    if (list.length === 0) { toast.error("Au moins une activité requise"); return; }
+    setBusy(true);
+    try {
+      const r = await apiClient.put("/admin/officine-activities", { activities: list });
+      toast.success("Activités mises à jour");
+      onSaved(r.data?.activities || list);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-4" data-testid="manage-activities-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-y-auto">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2">
+            <Tags className="h-4 w-4 text-indigo-600" /> Activités principales
+          </h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="manage-activities-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-3">
+          <p className="text-xs text-slate-500">
+            Cette liste alimente le champ « Activité principale » de chaque fiche officine et le filtre du tableau.
+          </p>
+          <div className="space-y-2">
+            {list.map((a) => (
+              <div key={a} className="flex items-center gap-2 p-2 rounded ring-1 ring-slate-200 bg-slate-50" data-testid={`activity-item-${a}`}>
+                <Tags className="h-3.5 w-3.5 text-indigo-500" />
+                <span className="text-sm flex-1">{a}</span>
+                <button onClick={() => remove(a)} className="text-rose-600 hover:bg-rose-50 p-1 rounded" data-testid={`remove-activity-${a}`}>
+                  <Trash2 className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            ))}
+            {list.length === 0 && <p className="text-xs text-slate-400 italic text-center py-3">Aucune activité.</p>}
+          </div>
+          <div className="flex gap-2">
+            <input
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+              placeholder="Nouvelle activité (ex: Hôpital)"
+              className="flex-1 px-3 py-2 border rounded-lg text-sm"
+              data-testid="new-activity-input"
+            />
+            <button onClick={add} className="inline-flex items-center gap-1 px-3 py-2 rounded bg-indigo-600 text-white text-sm hover:bg-indigo-700"
+                    data-testid="add-activity-btn">
+              <Plus className="h-3 w-3" /> Ajouter
+            </button>
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
+            Annuler
+          </button>
+          <button onClick={save} disabled={busy}
+                  className="px-3 py-2 rounded text-sm bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
+                  data-testid="manage-activities-save">
+            {busy ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

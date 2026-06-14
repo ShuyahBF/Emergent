@@ -12262,17 +12262,22 @@ async def list_api_routes():
         path = getattr(r, "path", "")
         if not path.startswith("/api"):
             continue
-        methods = sorted(list(getattr(r, "methods", []) - {"HEAD", "OPTIONS"}))
+        # Bug-fix iter43-fix12 (2026-03) : certaines routes (Mount, WebSocket) ont
+        # `methods` en list, pas en set → `list - set` lève TypeError.
+        raw_methods = getattr(r, "methods", None) or set()
+        methods = sorted(list(set(raw_methods) - {"HEAD", "OPTIONS"}))
         if not methods:
             continue
         tags = list(getattr(r, "tags", []) or [])
+        endpoint = getattr(r, "endpoint", None)
+        doc = (endpoint.__doc__ or "") if endpoint else ""
         routes.append(
             {
                 "path": path,
                 "methods": methods,
                 "name": getattr(r, "name", ""),
                 "tags": tags,
-                "summary": getattr(r, "summary", "") or (r.endpoint.__doc__ or "").strip().split("\n")[0],
+                "summary": getattr(r, "summary", "") or doc.strip().split("\n")[0],
             }
         )
     routes.sort(key=lambda r: (r["tags"][0] if r["tags"] else "", r["path"]))

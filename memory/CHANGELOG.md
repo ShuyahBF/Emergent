@@ -2,6 +2,51 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix12 — Officines Registry : Produits + Activités + Bug /api-routes
+
+### Tâche 1 — Import produits CSV/JSON par officine
+- Nouvelle collection `officine_products` avec index `(officine_id, product_name_norm)` et `(officine_id, conditionnement_norm)`.
+- Endpoint `POST /api/admin/officines-registry/{id}/products/import` (multipart) :
+  - Accepte **CSV** (séparateur auto-détecté `,` ou `;`, avec ou sans en-tête).
+  - Accepte **JSON** (liste plate ou structure imbriquée — flatten automatique via `_flatten_json_products`).
+  - En-têtes tolérants : Code Officine / Produit / Conditionnement / CIP / Stock (et leurs variantes accentuées).
+  - Mode `replace` (vide + ré-importe) ou `append` (upsert).
+  - Clé d'unicité : `(officine_id, product_name_norm, conditionnement_norm)` — CIP optionnel.
+  - Anti-doublons intra-fichier.
+  - Audit log dans `officine_audit_log`.
+- Endpoints associés :
+  - `GET /api/admin/officines-registry/{id}/products` (pagination serveur, search, sort).
+  - `DELETE /api/admin/officines-registry/{id}/products` (clear all).
+  - `GET /api/admin/officines-registry/{id}/products/export.csv` (StreamingResponse).
+
+### Tâche 2 — Liste alphabétique + nombre de produits + modale produits
+- `GET /admin/officines-registry` :
+  - Tri ASC par `name` avec collation FR (au lieu de `created_at` DESC).
+  - Filtre `?activite=Pharmacie`.
+  - Chaque item enrichi avec `products_count` (aggregate `$group` sur `officine_products`).
+- Frontend : colonne « Produits » avec bouton eye → ouvre `ProductsModal` (pagination 100/page, recherche, tri, export CSV, suppression de masse).
+
+### Tâche 3 — Activité principale (filtrable + liste éditable)
+- Champ `activite_principale` ajouté à l'`update_officine` (allowed fields).
+- Stockage de la liste éditable : `settings.global.officines_activities`.
+- Endpoints : `GET/PUT /api/admin/officine-activities` (path littéral séparé pour éviter le shadowing par `{officine_id}`).
+- Frontend :
+  - Dropdown filtre dans la barre d'outils.
+  - Modale `ManageActivitiesModal` (ajout/suppression).
+  - Champ select dans `EditOfficineModal`.
+  - Colonne « Activité » dans le tableau (badge indigo).
+
+### Bug fix — Page /documentation vide
+- `/api/api-routes` levait `TypeError: list - set` car certaines routes (Mount/WebSocket) ont `methods` en list.
+- Fix : `set(raw_methods or set())` avant la soustraction.
+- 859 routes désormais correctement listées.
+
+### Tests
+- **`test_iter43_fix12_officines_products.py`** : 20 tests (sorting, products_count, activities CRUD/filtre, CSV `,`/`;`/positional, JSON flat/imbriqué, replace/append upsert, anti-doublons, pagination/search/sort, export CSV, clear, edge cases 404/400, bug-fix `/api-routes`).
+- **107/107** verts en régression Iter43.
+
+
+
 ## 2026-03 — Iter43-fix11 — Story Studio Phase 2 (Meta OAuth + Publishing)
 
 ### Objectif

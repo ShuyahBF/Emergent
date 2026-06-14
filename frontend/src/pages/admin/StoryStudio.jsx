@@ -5,20 +5,24 @@
 // Phase 2 ajoutera : OAuth Meta/TikTok + publication automatique IG/FB/TikTok.
 
 import React from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Sparkles, Video, Image as ImageIcon, Loader2, Download, Share2,
   Trash2, RefreshCw, Wand2, Settings as SettingsIcon, AlertTriangle,
-  Smartphone, Copy, X, Clock,
+  Smartphone, Copy, X, Clock, Send, Instagram, Facebook, CheckCircle2,
+  Plug, PlugZap, Eye, History as HistoryIcon,
 } from "lucide-react";
 
 export default function StoryStudio() {
-  const [tab, setTab] = React.useState("generate"); // generate | library | settings | social
+  const [tab, setTab] = React.useState("generate"); // generate | library | social | history | settings
   const [library, setLibrary] = React.useState([]);
   const [libraryLoading, setLibraryLoading] = React.useState(false);
   const [settings, setSettings] = React.useState(null);
   const [shareModal, setShareModal] = React.useState(null);
+  const [publishModal, setPublishModal] = React.useState(null);
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const loadLibrary = React.useCallback(async () => {
     setLibraryLoading(true);
@@ -38,6 +42,28 @@ export default function StoryStudio() {
 
   React.useEffect(() => { loadLibrary(); loadSettings(); }, [loadLibrary, loadSettings]);
 
+  // Iter43-fix11 — Handle OAuth callback return (redirect from Meta)
+  React.useEffect(() => {
+    const oauth = searchParams.get("meta_oauth");
+    if (oauth === "connected") {
+      const pages = searchParams.get("pages") || "?";
+      toast.success(`Meta connecté ! ${pages} Page(s) découverte(s).`);
+      setTab("social");
+      // Clean URL
+      searchParams.delete("meta_oauth");
+      searchParams.delete("social_account_id");
+      searchParams.delete("pages");
+      setSearchParams(searchParams, { replace: true });
+    } else if (oauth === "error") {
+      const reason = searchParams.get("reason") || "Erreur inconnue";
+      toast.error(`Connexion Meta échouée : ${reason}`);
+      setTab("social");
+      searchParams.delete("meta_oauth");
+      searchParams.delete("reason");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
   return (
     <div className="space-y-5" data-testid="story-studio">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -46,14 +72,15 @@ export default function StoryStudio() {
             <Sparkles className="h-6 w-6 text-violet-600" /> Story Studio
           </h1>
           <p className="text-sm text-slate-600 mt-1">
-            Génération AI de vidéos & images au format Story (9:16) + partage WhatsApp manuel-assisté.
+            Génération AI de vidéos + publication automatique IG/FB + partage WhatsApp.
           </p>
         </div>
-        <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+        <div className="flex gap-1 rounded-lg bg-slate-100 p-1 flex-wrap">
           {[
             { v: "generate", label: "Créer", icon: Wand2 },
             { v: "library", label: "Bibliothèque", icon: Video },
-            { v: "social", label: "Comptes sociaux", icon: Share2 },
+            { v: "social", label: "Comptes Meta", icon: PlugZap },
+            { v: "history", label: "Historique", icon: HistoryIcon },
             { v: "settings", label: "Paramètres", icon: SettingsIcon },
           ].map((t) => (
             <button key={t.v} onClick={() => setTab(t.v)}
@@ -66,13 +93,13 @@ export default function StoryStudio() {
         </div>
       </div>
 
-      {/* Banner Phase 2 */}
-      <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900 flex items-start gap-2" data-testid="phase2-banner">
-        <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+      {/* Banner Phase 2 — désormais activée */}
+      <div className="rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-3 text-xs text-emerald-900 flex items-start gap-2" data-testid="phase2-banner">
+        <CheckCircle2 className="h-4 w-4 flex-shrink-0 mt-0.5" />
         <div>
-          <strong>Phase 1 MVP active</strong> — La génération IA et le partage WhatsApp manuel-assisté fonctionnent.
-          La publication automatique IG/FB/TikTok arrive en Phase 2 (OAuth Meta + TikTok Content Posting API).
-          En attendant, partagez via le bouton WhatsApp ou téléchargez le média pour publier vous-même.
+          <strong>Phase 2 active</strong> — Publication automatique Instagram Stories/Reels + Facebook Page Feed
+          via OAuth Meta. TikTok arrive en Phase 4. Connectez votre compte Meta dans l'onglet « Comptes Meta »
+          pour activer la publication.
         </div>
       </div>
 
@@ -83,6 +110,7 @@ export default function StoryStudio() {
           loading={libraryLoading}
           onRefresh={loadLibrary}
           onShare={setShareModal}
+          onPublish={setPublishModal}
           onDelete={async (id) => {
             if (!window.confirm("Supprimer définitivement cet asset ?")) return;
             try {
@@ -93,10 +121,18 @@ export default function StoryStudio() {
           }}
         />
       )}
-      {tab === "social" && <SocialAccountsTab />}
+      {tab === "social" && <SocialAccountsTab settings={settings} />}
+      {tab === "history" && <PostsHistoryTab />}
       {tab === "settings" && <SettingsTab settings={settings} onSaved={loadSettings} />}
 
       {shareModal && <ShareWhatsAppModal asset={shareModal} onClose={() => setShareModal(null)} />}
+      {publishModal && (
+        <PublishModal
+          asset={publishModal}
+          onClose={() => setPublishModal(null)}
+          onPublished={() => { setPublishModal(null); loadLibrary(); }}
+        />
+      )}
     </div>
   );
 }
@@ -270,7 +306,7 @@ function GenerateTab({ settings, onCreated }) {
 // ============================================================
 // TAB : Bibliothèque
 // ============================================================
-function LibraryTab({ items, loading, onRefresh, onShare, onDelete }) {
+function LibraryTab({ items, loading, onRefresh, onShare, onPublish, onDelete }) {
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
@@ -286,14 +322,14 @@ function LibraryTab({ items, loading, onRefresh, onShare, onDelete }) {
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {items.map((it) => <AssetCard key={it.id} asset={it} onShare={onShare} onDelete={onDelete} />)}
+          {items.map((it) => <AssetCard key={it.id} asset={it} onShare={onShare} onPublish={onPublish} onDelete={onDelete} />)}
         </div>
       )}
     </div>
   );
 }
 
-function AssetCard({ asset, onShare, onDelete }) {
+function AssetCard({ asset, onShare, onPublish, onDelete }) {
   const isVideo = asset.kind === "video";
   const isReady = asset.status === "ready";
   const isProcessing = asset.status === "processing";
@@ -370,6 +406,13 @@ function AssetCard({ asset, onShare, onDelete }) {
                  data-testid={`asset-download-${asset.id}`}>
                 <Download className="h-3 w-3" /> Télécharger
               </button>
+              {isVideo && (
+                <button onClick={() => onPublish(asset)}
+                        className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-violet-600 text-white hover:bg-violet-700"
+                        data-testid={`asset-publish-${asset.id}`}>
+                  <Send className="h-3 w-3" /> Publier IG/FB
+                </button>
+              )}
               <button onClick={() => onShare(asset)}
                       className="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded bg-emerald-600 text-white hover:bg-emerald-700"
                       data-testid={`asset-share-${asset.id}`}>
@@ -471,64 +514,460 @@ function ShareWhatsAppModal({ asset, onClose }) {
 }
 
 // ============================================================
-// TAB : Comptes sociaux (scaffolding Phase 2)
+// TAB : Comptes Meta — Iter43-fix11 Phase 2 (OAuth)
 // ============================================================
-function SocialAccountsTab() {
+function SocialAccountsTab({ settings }) {
   const [accounts, setAccounts] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
+  const [connecting, setConnecting] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const r = await apiClient.get("/admin/story-studio/social-accounts");
       setAccounts(r.data?.items || []);
-    } catch { /* noop */ }
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur chargement"); }
     finally { setLoading(false); }
   }, []);
   React.useEffect(() => { load(); }, [load]);
 
+  const connectMeta = async () => {
+    if (!settings?.meta_app_id || !settings?.meta_app_secret_set) {
+      toast.error("Configurez d'abord Meta App ID + Secret dans Paramètres.");
+      return;
+    }
+    setConnecting(true);
+    try {
+      const r = await apiClient.get("/admin/story-studio/oauth/meta/start", {
+        params: { return_to: "/admin/story-studio" },
+      });
+      // Redirect the user to Meta
+      window.location.href = r.data.auth_url;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur démarrage OAuth");
+      setConnecting(false);
+    }
+  };
+
+  const refreshAccount = async (accId) => {
+    try {
+      await apiClient.post(`/admin/story-studio/social-accounts/${accId}/refresh`);
+      toast.success("Pages rafraîchies");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  const disconnect = async (accId) => {
+    if (!window.confirm("Déconnecter ce compte Meta ? Les tokens seront supprimés.")) return;
+    try {
+      await apiClient.delete(`/admin/story-studio/social-accounts/${accId}`);
+      toast.success("Compte déconnecté");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  const togglePage = async (accId, pageId, isActive) => {
+    try {
+      await apiClient.put(`/admin/story-studio/social-accounts/${accId}/pages/${pageId}`, { is_active: isActive });
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  const credsConfigured = settings?.meta_app_id && settings?.meta_app_secret_set;
+  const metaAccounts = accounts.filter((a) => a.provider === "meta");
+
   return (
-    <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 p-5 space-y-4" data-testid="social-accounts-tab">
-      <div className="flex items-center justify-between">
+    <div className="space-y-4" data-testid="social-accounts-tab">
+      <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 p-5 space-y-3">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-semibold inline-flex items-center gap-2">
+              <PlugZap className="h-4 w-4 text-blue-600" /> Comptes Meta (Facebook + Instagram)
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Connectez les comptes Meta Business de vos clients. Le SAWALI Meta App configuré dans
+              Paramètres sert d'intermédiaire OAuth pour tous les tenants.
+            </p>
+          </div>
+          <button
+            onClick={connectMeta}
+            disabled={connecting || !credsConfigured}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
+            data-testid="connect-meta-btn"
+            title={!credsConfigured ? "Configurez Meta App ID + Secret dans Paramètres" : ""}
+          >
+            {connecting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Facebook className="h-4 w-4" />}
+            Connecter un compte Meta
+          </button>
+        </div>
+        {!credsConfigured && (
+          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900" data-testid="creds-missing-warning">
+            <strong>⚠️ Meta App non configuré.</strong> Allez dans <em>Paramètres → Meta</em>, renseignez
+            votre Meta App ID + App Secret obtenus sur <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer" className="underline">developers.facebook.com</a>,
+            puis ajoutez l'URI de redirection dans la configuration OAuth de votre application Meta.
+          </div>
+        )}
+      </div>
+
+      {loading ? (
+        <div className="text-center py-8 text-slate-400">Chargement…</div>
+      ) : metaAccounts.length === 0 ? (
+        <div className="text-center py-12 text-slate-400 italic bg-white rounded-xl ring-1 ring-slate-200" data-testid="no-accounts">
+          Aucun compte Meta connecté. Cliquez sur « Connecter un compte Meta » pour commencer.
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {metaAccounts.map((a) => (
+            <MetaAccountCard
+              key={a.id}
+              account={a}
+              onRefresh={() => refreshAccount(a.id)}
+              onDisconnect={() => disconnect(a.id)}
+              onTogglePage={(pid, active) => togglePage(a.id, pid, active)}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MetaAccountCard({ account, onRefresh, onDisconnect, onTogglePage }) {
+  const pages = account.pages || [];
+  const expiresAt = account.long_lived_user_token_expires_at;
+  const expDate = expiresAt ? new Date(expiresAt) : null;
+  const daysLeft = expDate ? Math.round((expDate - new Date()) / (1000 * 60 * 60 * 24)) : null;
+  const expSoon = daysLeft !== null && daysLeft < 7;
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 p-4" data-testid={`meta-account-${account.id}`}>
+      <div className="flex items-start justify-between flex-wrap gap-2">
         <div>
-          <h2 className="text-base font-semibold inline-flex items-center gap-2">
-            <Share2 className="h-4 w-4 text-sky-600" /> Comptes sociaux connectés
-          </h2>
-          <p className="text-xs text-slate-500 mt-1">Phase 2 — OAuth en cours d'implémentation</p>
+          <p className="font-semibold text-slate-900 inline-flex items-center gap-2">
+            <Facebook className="h-4 w-4 text-blue-600" /> {account.meta_user_name || account.account_label}
+          </p>
+          <p className="text-[11px] text-slate-500 mt-0.5">
+            {account.meta_user_email && <>📧 {account.meta_user_email} · </>}
+            {pages.length} Page(s)
+            {daysLeft !== null && (
+              <span className={`ml-2 px-1.5 py-0.5 rounded ${expSoon ? "bg-amber-100 text-amber-800" : "bg-emerald-50 text-emerald-700"}`}>
+                Token : {daysLeft > 0 ? `${daysLeft}j restants` : "expiré"}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex gap-1">
+          <button onClick={onRefresh} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100 hover:bg-slate-200" data-testid={`refresh-${account.id}`}>
+            <RefreshCw className="h-3 w-3" /> Rafraîchir
+          </button>
+          <button onClick={onDisconnect} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded text-rose-600 hover:bg-rose-50" data-testid={`disconnect-${account.id}`}>
+            <Trash2 className="h-3 w-3" /> Déconnecter
+          </button>
         </div>
       </div>
 
-      <div className="rounded-lg bg-sky-50 ring-1 ring-sky-200 p-3 text-xs text-sky-900">
-        <strong>🚧 Phase 2 — OAuth automatique en développement.</strong>
-        <p className="mt-1">En attendant, vous pouvez ajouter un token manuellement (mode dev) pour tester. Les tokens long-lived peuvent être obtenus via Graph API Explorer (Meta) ou TikTok Developer Portal.</p>
-      </div>
-
-      <table className="w-full text-sm">
-        <thead className="bg-slate-50 text-xs uppercase text-slate-600">
-          <tr>
-            <th className="text-left px-3 py-2">Tenant</th>
-            <th className="text-left px-3 py-2">Réseau</th>
-            <th className="text-left px-3 py-2">Compte</th>
-            <th className="text-left px-3 py-2">Statut</th>
-            <th className="text-left px-3 py-2">Ajouté</th>
-          </tr>
-        </thead>
-        <tbody>
-          {loading && <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-400">Chargement…</td></tr>}
-          {!loading && accounts.length === 0 && (
-            <tr><td colSpan={5} className="px-3 py-4 text-center text-slate-400 italic">Aucun compte connecté.</td></tr>
-          )}
-          {accounts.map((a) => (
-            <tr key={a.id} className="border-t border-slate-100">
-              <td className="px-3 py-2 text-xs">{a.tenant_id?.slice(0, 8)}</td>
-              <td className="px-3 py-2 text-xs capitalize">{a.provider}</td>
-              <td className="px-3 py-2 text-xs">{a.account_label}</td>
-              <td className="px-3 py-2"><span className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200">{a.status}</span></td>
-              <td className="px-3 py-2 text-[11px] text-slate-500">{a.created_at?.slice(0, 16).replace("T", " ")}</td>
-            </tr>
+      {pages.length === 0 ? (
+        <p className="text-xs text-slate-400 italic mt-3">Aucune Page rattachée. L'utilisateur Meta n'administre aucune Page Facebook.</p>
+      ) : (
+        <div className="mt-3 space-y-1.5">
+          {pages.map((p) => (
+            <div key={p.page_id} className="flex items-center gap-2 text-sm p-2 rounded bg-slate-50" data-testid={`page-${p.page_id}`}>
+              <input type="checkbox" checked={p.is_active !== false}
+                     onChange={(e) => onTogglePage(p.page_id, e.target.checked)}
+                     className="rounded"
+                     data-testid={`page-toggle-${p.page_id}`} />
+              <Facebook className="h-3.5 w-3.5 text-blue-500" />
+              <span className="font-medium text-slate-800 flex-1">{p.page_name}</span>
+              {p.ig_business_account_id ? (
+                <span className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-pink-100 text-pink-700">
+                  <Instagram className="h-2.5 w-2.5" /> @{p.ig_username || p.ig_business_account_id}
+                </span>
+              ) : (
+                <span className="text-[10px] text-slate-400 italic">Pas d'IG lié</span>
+              )}
+            </div>
           ))}
-        </tbody>
-      </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// MODAL : Publier sur IG/FB — Iter43-fix11 Phase 2
+// ============================================================
+function PublishModal({ asset, onClose, onPublished }) {
+  const [accounts, setAccounts] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [caption, setCaption] = React.useState(asset.caption || asset.title || "");
+  const [mode, setMode] = React.useState("immediate"); // immediate | draft
+  const [targets, setTargets] = React.useState([]); // [{social_account_id, page_id, target, label}]
+  const [publishing, setPublishing] = React.useState(false);
+  const [results, setResults] = React.useState(null);
+
+  React.useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiClient.get("/admin/story-studio/social-accounts");
+        setAccounts((r.data?.items || []).filter((a) => a.provider === "meta" && a.status === "connected"));
+      } catch { /* noop */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  const toggleTarget = (acc, page, kind) => {
+    const id = `${acc.id}::${page.page_id}::${kind}`;
+    setTargets((prev) => {
+      const exists = prev.find((t) => t._key === id);
+      if (exists) return prev.filter((t) => t._key !== id);
+      return [
+        ...prev,
+        {
+          _key: id,
+          social_account_id: acc.id,
+          page_id: page.page_id,
+          target: kind,
+          _label: `${page.page_name} · ${kind === "fb_feed" ? "Facebook Feed" : kind === "ig_story" ? "Instagram Story" : "Instagram Reel"}`,
+        },
+      ];
+    });
+  };
+
+  const isSelected = (acc, page, kind) =>
+    !!targets.find((t) => t._key === `${acc.id}::${page.page_id}::${kind}`);
+
+  const submit = async () => {
+    if (targets.length === 0) {
+      toast.error("Sélectionnez au moins une cible");
+      return;
+    }
+    setPublishing(true);
+    setResults(null);
+    try {
+      const cleanTargets = targets.map((t) => ({
+        social_account_id: t.social_account_id,
+        page_id: t.page_id,
+        target: t.target,
+      }));
+      const r = await apiClient.post(`/admin/story-studio/library/${asset.id}/publish`, {
+        targets: cleanTargets,
+        caption: caption.trim(),
+        mode,
+      });
+      setResults(r.data);
+      if (r.data.ok) {
+        toast.success(mode === "draft" ? "Brouillon enregistré" : "Publication réussie");
+        if (mode === "draft") onPublished();
+      } else if (r.data.status === "partial") {
+        toast.warning("Publication partielle — voir détails");
+      } else {
+        toast.error("Échec de la publication — voir détails");
+      }
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur lors de la publication");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-4"
+         onClick={(e) => e.target === e.currentTarget && !publishing && onClose()}
+         data-testid="publish-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <h3 className="font-display font-semibold inline-flex items-center gap-2">
+            <Send className="h-4 w-4 text-violet-600" /> Publier sur Instagram + Facebook
+          </h3>
+          <button onClick={onClose} disabled={publishing} className="text-slate-500 hover:text-slate-900 disabled:opacity-30">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 space-y-4">
+          {loading ? (
+            <div className="text-center py-6"><Loader2 className="h-6 w-6 animate-spin text-violet-600 mx-auto" /></div>
+          ) : accounts.length === 0 ? (
+            <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900">
+              <strong>Aucun compte Meta connecté.</strong> Allez dans l'onglet « Comptes Meta » pour en connecter un.
+            </div>
+          ) : (
+            <>
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Cibles</label>
+                <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
+                  {accounts.map((acc) => (
+                    <div key={acc.id} className="rounded-lg border border-slate-200 p-3">
+                      <p className="text-xs font-semibold text-slate-700 mb-2">{acc.meta_user_name}</p>
+                      {(acc.pages || []).filter((p) => p.is_active !== false).map((p) => (
+                        <div key={p.page_id} className="ml-2 space-y-1 mb-2">
+                          <p className="text-[11px] text-slate-600 font-medium">{p.page_name}</p>
+                          <div className="flex flex-wrap gap-1.5 ml-2">
+                            <button onClick={() => toggleTarget(acc, p, "fb_feed")}
+                                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "fb_feed") ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                    data-testid={`target-fb-${p.page_id}`}>
+                              <Facebook className="h-3 w-3" /> Facebook Feed
+                            </button>
+                            {p.ig_business_account_id && (
+                              <>
+                                <button onClick={() => toggleTarget(acc, p, "ig_story")}
+                                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_story") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                        data-testid={`target-ig-story-${p.page_id}`}>
+                                  <Instagram className="h-3 w-3" /> IG Story
+                                </button>
+                                <button onClick={() => toggleTarget(acc, p, "ig_reel")}
+                                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_reel") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                        data-testid={`target-ig-reel-${p.page_id}`}>
+                                  <Instagram className="h-3 w-3" /> IG Reel
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <label className="block">
+                <span className="block text-xs font-semibold text-slate-700 mb-1">Légende</span>
+                <textarea value={caption} onChange={(e) => setCaption(e.target.value)} rows={3}
+                          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                          data-testid="publish-caption" />
+                <p className="text-[10px] text-slate-500 mt-1">
+                  ℹ️ Les Instagram Stories n'affichent pas de légende. Les Reels et Facebook l'utilisent.
+                </p>
+              </label>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Mode</label>
+                <div className="flex gap-2">
+                  <button onClick={() => setMode("immediate")}
+                          className={`flex-1 text-xs px-3 py-2 rounded ${mode === "immediate" ? "bg-violet-600 text-white" : "bg-slate-100"}`}
+                          data-testid="mode-immediate">
+                    🚀 Publier maintenant
+                  </button>
+                  <button onClick={() => setMode("draft")}
+                          className={`flex-1 text-xs px-3 py-2 rounded ${mode === "draft" ? "bg-violet-600 text-white" : "bg-slate-100"}`}
+                          data-testid="mode-draft">
+                    📝 Enregistrer brouillon
+                  </button>
+                </div>
+              </div>
+
+              {results && (
+                <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-1" data-testid="publish-results">
+                  <p className="text-xs font-semibold text-slate-700">Résultats :</p>
+                  {(results.results || []).map((r, i) => (
+                    <p key={i} className="text-[11px]">
+                      {r.ok ? "✅" : "❌"} {r.target} →{" "}
+                      {r.ok ? <span className="text-emerald-700">Publié (id: {r.channel_id})</span>
+                            : <span className="text-rose-700">{r.error}</span>}
+                    </p>
+                  ))}
+                  {results.ok && mode === "immediate" && (
+                    <button onClick={onPublished} className="mt-2 text-xs px-3 py-1 rounded bg-emerald-600 text-white">Fermer</button>
+                  )}
+                </div>
+              )}
+
+              <button onClick={submit} disabled={publishing || targets.length === 0}
+                      className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+                      data-testid="publish-submit">
+                {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                {publishing ? "Publication…" : (mode === "draft" ? "Enregistrer le brouillon" : `Publier sur ${targets.length} cible(s)`)}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ============================================================
+// TAB : Historique des publications — Iter43-fix11 Phase 2
+// ============================================================
+function PostsHistoryTab() {
+  const [posts, setPosts] = React.useState([]);
+  const [loading, setLoading] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/story-studio/posts", { params: { limit: 100 } });
+      setPosts(r.data?.items || []);
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const publishNow = async (postId) => {
+    try {
+      await apiClient.post(`/admin/story-studio/posts/${postId}/publish-now`);
+      toast.success("Publication lancée");
+      load();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
+  };
+
+  return (
+    <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 p-5" data-testid="posts-history">
+      <div className="flex items-center justify-between mb-3">
+        <h2 className="text-base font-semibold inline-flex items-center gap-2">
+          <HistoryIcon className="h-4 w-4 text-slate-600" /> Historique des publications
+        </h2>
+        <button onClick={load} className="text-xs inline-flex items-center gap-1 px-2 py-1 rounded bg-slate-100">
+          <RefreshCw className={`h-3 w-3 ${loading ? "animate-spin" : ""}`} /> Actualiser
+        </button>
+      </div>
+      {loading && posts.length === 0 ? (
+        <div className="text-center py-8 text-slate-400">Chargement…</div>
+      ) : posts.length === 0 ? (
+        <div className="text-center py-8 text-slate-400 italic">Aucune publication.</div>
+      ) : (
+        <div className="space-y-2">
+          {posts.map((p) => (
+            <div key={p.id} className="text-xs p-3 rounded ring-1 ring-slate-200 bg-slate-50" data-testid={`post-${p.id}`}>
+              <div className="flex justify-between items-start flex-wrap gap-2">
+                <div className="flex-1">
+                  <p className="font-medium text-slate-800 line-clamp-2">{p.caption || "(sans légende)"}</p>
+                  <p className="text-[10px] text-slate-500 mt-1">
+                    {p.created_at?.slice(0, 16).replace("T", " ")} · {(p.targets || []).length} cible(s)
+                  </p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[10px] px-2 py-0.5 rounded ${
+                    p.status === "published" ? "bg-emerald-50 text-emerald-700" :
+                    p.status === "draft" ? "bg-slate-200 text-slate-700" :
+                    p.status === "partial" ? "bg-amber-50 text-amber-800" :
+                    p.status === "failed" ? "bg-rose-50 text-rose-700" :
+                    "bg-blue-50 text-blue-700"
+                  }`}>{p.status}</span>
+                  {(p.status === "draft" || p.status === "failed") && (
+                    <button onClick={() => publishNow(p.id)} className="text-[10px] px-2 py-0.5 rounded bg-violet-600 text-white hover:bg-violet-700">
+                      Publier maintenant
+                    </button>
+                  )}
+                </div>
+              </div>
+              {p.results?.length > 0 && (
+                <details className="mt-2">
+                  <summary className="cursor-pointer text-[10px] text-slate-600">Détails par cible</summary>
+                  <div className="mt-1 space-y-0.5 ml-2">
+                    {p.results.map((r, i) => (
+                      <p key={i} className="text-[10px]">
+                        {r.ok ? "✅" : "❌"} {r.target} →{" "}
+                        {r.ok ? <span className="text-emerald-700">id={r.channel_id}</span>
+                              : <span className="text-rose-700">{r.error}</span>}
+                      </p>
+                    ))}
+                  </div>
+                </details>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -605,6 +1044,20 @@ function SettingsTab({ settings, onSaved }) {
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold text-blue-700">📘 Meta (Instagram Stories + Facebook)</legend>
         <p className="text-[11px] text-slate-500">App SAWALI utilisée par tous les tenants. Vos clients connecteront leurs comptes via OAuth.</p>
+        <div className="rounded-lg bg-blue-50 ring-1 ring-blue-200 p-3 text-[11px] text-blue-900" data-testid="meta-setup-help">
+          <p className="font-semibold mb-1">📋 Configuration Meta Developer App</p>
+          <ol className="list-decimal list-inside space-y-0.5">
+            <li>Créez une App sur <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer" className="underline">developers.facebook.com/apps</a> (type « Business »).</li>
+            <li>Ajoutez les produits <strong>Facebook Login for Business</strong> et <strong>Instagram</strong>.</li>
+            <li>Dans <em>Facebook Login → Settings</em>, ajoutez cette URI dans « Valid OAuth Redirect URIs » :
+              <code className="block mt-1 p-1 bg-white rounded font-mono text-[10px] break-all">
+                {window.location.origin}/api/admin/story-studio/oauth/meta/callback
+              </code>
+            </li>
+            <li>Demandez l'App Review pour les permissions : <code>instagram_content_publish</code>, <code>pages_manage_posts</code>, <code>business_management</code>.</li>
+            <li>Renseignez l'App ID + Secret ci-dessous.</li>
+          </ol>
+        </div>
         <label className="block">
           <span className="block text-xs font-semibold text-slate-700 mb-1">Meta App ID</span>
           <input value={form.meta_app_id || ""} onChange={update("meta_app_id")}
@@ -618,10 +1071,11 @@ function SettingsTab({ settings, onSaved }) {
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-meta-app-secret" />
         </label>
         <label className="block">
-          <span className="block text-xs font-semibold text-slate-700 mb-1">Meta Redirect URI</span>
+          <span className="block text-xs font-semibold text-slate-700 mb-1">Meta Redirect URI <span className="text-slate-400 font-normal">(laisser vide pour auto-détection)</span></span>
           <input value={form.meta_redirect_uri || ""} onChange={update("meta_redirect_uri")}
-                 placeholder="https://sawalismartsystems.com/admin/story-studio/oauth/meta/callback"
+                 placeholder={`${window.location.origin}/api/admin/story-studio/oauth/meta/callback`}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="settings-meta-redirect" />
+          <p className="text-[10px] text-slate-500 mt-1">Cette URI doit être strictement identique à celle déclarée dans votre app Meta.</p>
         </label>
       </fieldset>
 

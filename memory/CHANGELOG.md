@@ -2,6 +2,96 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix11 — Story Studio Phase 2 (Meta OAuth + Publishing)
+
+### Objectif
+Activer la publication automatique des vidéos générées par Sora 2 (et Fal.ai) vers
+**Instagram Stories/Reels** + **Facebook Page Feed**, via OAuth Meta v23.0 multi-tenant.
+
+### Architecture
+- **Meta App partagée** (SAWALI) configurée par l'admin global dans `settings.global.story_studio.meta_app_id/secret`.
+- Chaque tenant connecte son propre compte Meta Business via le flow OAuth — leur token long-lived (~60 jours) est stocké chiffré (Fernet dérivé de JWT_SECRET) dans la collection `social_accounts` scopée par `tenant_id`.
+- Les Pages Facebook + comptes Instagram Business liés sont auto-découverts via `/me/accounts?fields=…,instagram_business_account{id,username}`.
+- L'admin peut activer/désactiver chaque Page individuellement (`pages[].is_active`).
+
+### Backend (`routes/story_studio.py` — +500 lignes)
+**Helpers module-level :**
+- `_get_fernet()` — clé Fernet dérivée déterministe de JWT_SECRET (pas d'env var supplémentaire).
+- `_enc(plain)` / `_dec(enc)` — encryption symétrique des tokens.
+- `_oauth_state_encode/decode` — JWT signé pour le state OAuth (CSRF + tenant_id + return_to + caller_email), TTL 15 min.
+- `_signed_media_token` / `_verify_signed_media_token` — URL publique temporaire pour Meta (Stories/Reels nécessitent un `video_url`), TTL 60 min.
+- `_meta_get` / `_meta_post` — wrappers httpx avec parsing d'erreur Meta.
+
+**Helpers closure (db) :**
+- `_get_meta_app_credentials(db)` — lit app_id/secret depuis settings.
+- `_resolve_meta_redirect_uri(db)` — priorité setting > `PUBLIC_BASE_URL`.
+- `_publish_single_target(...)` — dispatcher FB/IG.
+- `_publish_facebook_video(...)` — POST multipart vers `graph-video.facebook.com/{page_id}/videos`.
+- `_publish_instagram_video(...)` — création container `media_type=STORIES|REELS` avec `video_url` signé → polling status (5 min max) → `/media_publish`.
+
+**Endpoints nouveaux :**
+- `GET /api/admin/story-studio/oauth/meta/start?tenant_id=&return_to=` (admin) — renvoie `{auth_url}`.
+- `GET /api/admin/story-studio/oauth/meta/callback?code=&state=` (PUBLIC, appelé par Meta) — exchange code → long-lived token → fetch Pages+IG → persiste social_accounts → redirige vers `{frontend}/admin/story-studio?meta_oauth=connected|error`.
+- `POST /api/admin/story-studio/social-accounts/{id}/refresh` — re-fetch Pages (préserve `is_active`).
+- `PUT /api/admin/story-studio/social-accounts/{id}/pages/{page_id}` — toggle `is_active`.
+- `GET /api/admin/story-studio/library/{asset_id}/signed-media?token=` (PUBLIC, signé) — sert le mp4 à Meta lors de la création du container IG.
+- `GET /api/admin/story-studio/posts` — historique publications avec scoping tenant.
+- `POST /api/admin/story-studio/posts/{post_id}/publish-now` — relance un brouillon ou un échec.
+
+**Endpoint modifié :**
+- `POST /api/admin/story-studio/library/{asset_id}/publish` — body `{targets: [{social_account_id, page_id, target}], caption, mode: 'immediate'|'draft'}`. Plus de "MOCKED" — appelle réellement Graph API. Échecs partiels OK (status `partial` / `published` / `failed` / `draft`).
+
+### Frontend (`pages/admin/StoryStudio.jsx`)
+- **Nouvel onglet « Comptes Meta »** avec bouton « Connecter un compte Meta », liste des comptes connectés (cards), pages cochables avec badge IG, expiration du token, boutons Rafraîchir/Déconnecter.
+- **Nouvel onglet « Historique »** — liste des `story_posts` avec statut par cible + bouton « Publier maintenant » pour les brouillons/échecs.
+- **Nouveau `PublishModal`** sur chaque carte vidéo de la bibliothèque — sélection multi-cibles (FB Feed / IG Story / IG Reel), légende éditable, mode immédiat ou brouillon, résultats par cible.
+- **`SettingsTab`** — section Meta enrichie avec instructions pas-à-pas pour configurer l'app Meta Developer + URI de redirection auto-générée affichée pour copy-paste.
+- **Redirect handling** — `useSearchParams` détecte `?meta_oauth=connected|error` et affiche un toast + bascule sur l'onglet Comptes Meta.
+
+### Tests
+- **`test_iter43_fix11_meta_oauth.py`** (14 tests verts) — OAuth start (400 sans creds + auth_url shape), callback error redirect, publish (image rejetée, not_ready rejeté, no targets 400, draft mode persistant, immediate avec compte inconnu = échec par cible), refresh 404, toggle page works/404, posts history scope admin, signed media token rejet.
+- **`test_iter43_fix10_story_studio.py`** mis à jour — remplace l'ancien test "MOCKED warning" par 2 tests Phase 2 (`test_publish_no_targets_400`, `test_publish_draft_mode_persists_post`).
+- **31/31 verts** sur les 2 suites Story Studio. **56/56 verts** régression Iter43.
+
+### Action utilisateur requise (production)
+1. Créer une app Meta Developer (Business type) sur https://developers.facebook.com/apps/
+2. Ajouter les produits **Facebook Login for Business** + **Instagram**
+3. Dans Facebook Login → Settings → Valid OAuth Redirect URIs : ajouter `https://sawalismartsystems.com/api/admin/story-studio/oauth/meta/callback`
+4. Demander l'App Review pour `instagram_content_publish`, `pages_manage_posts`, `business_management`
+5. Renseigner App ID + Secret dans Story Studio → Paramètres → Meta
+6. Tester via Story Studio → Comptes Meta → Connecter un compte Meta
+
+
+
+## 2026-03 — Iter43-fix10b — Hotfix Logo Officines + Plan Phase 2
+
+### Bug rapporté
+> « Module officines : quand on charge un logo, l'image n'apparait pas (comme un lien brisé). »
+
+### Root cause
+Même bug que Story Studio iter43-fix10a : le logo était stocké sur disque (`UPLOAD_DIR/officines/...`) mais aucune route HTTP ne l'exposait. Le `<img src="/uploads/officines/x.png">` renvoyait 404. Mon fallback `/tmp/uploads` était également incohérent avec le path canonique de `server.py`.
+
+### Fix (`routes/officines_portal.py`)
+- **Nouvelle route publique** `GET /api/officines-registry/{officine_id}/logo` qui sert l'image avec le bon Content-Type (PNG/JPG/WEBP/SVG/GIF). Pas d'auth (les logos sont publics par nature).
+- Stockage du chemin disque dans `logo_path` + extension dans `logo_ext` sur le doc officine. `logo_url` devient l'URL relative `/officines-registry/{id}/logo`.
+- **Path unifié** : utilise `UPLOAD_DIR=/app/backend/uploads` (cohérent avec server.py et StoryStudio).
+- **Backward-compat** : si une fiche a encore un ancien `logo_url=/uploads/officines/x.png`, l'endpoint reconstruit le path depuis le filename et migre `logo_path` en DB à la lecture.
+- **Cache HTTP** : `Cache-Control: public, max-age=86400` (1 jour).
+
+### Frontend (`AdminOfficinesRegistry.jsx`)
+- Helper `logoSrc(logoUrl)` qui préfixe automatiquement `${BACKEND_URL}/api`.
+- Utilisé dans 2 endroits : preview dans le tableau + preview dans la modale d'édition.
+
+### Tests
+- `test_iter43_fix9_officines_registry.py` enrichi avec 3 tests : public no-auth (200), 404 unknown, 404 no file.
+- **49/49 PASS** (officines + story studio + iter42).
+
+### Phase 2 Story Studio — Planifiée
+Le playbook Meta OAuth (token short→long, Pages discovery, IG Business Account, media container + publish) est récolté. La mise en œuvre complète (OAuth flow + endpoints publish réels IG/FB + cron scheduler) requiert un budget de contexte dédié ; sera livrée en session suivante.
+
+---
+
+
 ## 2026-03 — Iter43-fix10a — Hotfix Story Studio (vidéos invisibles)
 
 ### Bug rapporté en production

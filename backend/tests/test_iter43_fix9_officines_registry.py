@@ -339,12 +339,59 @@ class TestUploadLogo:
         assert r.status_code == 200, r.text
         body = r.json()
         assert body["ok"] is True
-        assert body["logo_url"].startswith("/uploads/officines/officine_")
-        assert body["logo_url"].endswith(".png")
+        assert body["logo_url"].startswith("/officines-registry/") and body["logo_url"].endswith("/logo")
+        # Le fichier .png est stocké sur disque, vérifiable via logo_path en DB
         doc = db.officines.find_one({"id": oid})
         assert doc["logo_url"] == body["logo_url"]
+        assert doc.get("logo_ext") == "png"
+        assert doc.get("logo_path", "").endswith(".png")
         assert db.officine_audit_log.count_documents(
             {"officine_id": oid, "action": "upload_logo"}) >= 1
+
+    def test_get_logo_public_no_auth(self, db):
+        """Iter43-fix10b — Le logo est servi via endpoint PUBLIC (pas d'auth)."""
+        oid = f"iter43f10b_off_{uuid.uuid4().hex[:8]}"
+        # Crée fichier sur disque
+        from pathlib import Path as _P
+        upload_dir = _P(os.environ.get("UPLOAD_DIR", "/app/backend/uploads")) / "officines"
+        upload_dir.mkdir(parents=True, exist_ok=True)
+        fpath = upload_dir / f"officine_{oid[:8]}_test.png"
+        # PNG minimal valide
+        fpath.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 20)
+        try:
+            db.officines.insert_one({
+                "id": oid, "name": "TestLogoPublic", "code": "TestLogoPublic",
+                "status": "pending", "logo_path": str(fpath), "logo_ext": "png",
+                "logo_url": f"/officines-registry/{oid}/logo",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            # Pas de headers Authorization
+            r = requests.get(f"{API}/officines-registry/{oid}/logo")
+            assert r.status_code == 200, r.text
+            assert r.headers["content-type"] == "image/png"
+            assert r.content.startswith(b"\x89PNG")
+        finally:
+            db.officines.delete_one({"id": oid})
+            if fpath.exists():
+                fpath.unlink()
+
+    def test_get_logo_404_unknown(self):
+        r = requests.get(f"{API}/officines-registry/unknown_iter43f10b/logo")
+        assert r.status_code == 404
+
+    def test_get_logo_404_no_file(self, db):
+        oid = f"iter43f10b_off_{uuid.uuid4().hex[:8]}"
+        try:
+            db.officines.insert_one({
+                "id": oid, "name": "NoFile", "status": "pending",
+                "logo_path": "/nonexistent/x.png", "logo_ext": "png",
+                "logo_url": f"/officines-registry/{oid}/logo",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+            r = requests.get(f"{API}/officines-registry/{oid}/logo")
+            assert r.status_code == 404
+        finally:
+            db.officines.delete_one({"id": oid})
 
 
 # ============================================================================

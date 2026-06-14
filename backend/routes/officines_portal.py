@@ -42,10 +42,12 @@ import hashlib
 import hmac
 import io
 import logging
+import os
 import random
 import secrets as pysecrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 import jwt as pyjwt
@@ -1085,7 +1087,6 @@ def attach_officines_portal_admin_routes(
         """Upload du logo d'une officine. Stocke le fichier sous /uploads/officines/.
         Le champ `logo_url` est mis à jour sur la fiche."""
         from fastapi import UploadFile
-        from pathlib import Path
         existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
         if not existing:
             raise HTTPException(status_code=404, detail="Officine introuvable")
@@ -1099,20 +1100,28 @@ def attach_officines_portal_admin_routes(
         ext = (upload.filename or "logo.png").rsplit(".", 1)[-1].lower()[:5] or "png"
         if ext not in {"png", "jpg", "jpeg", "webp", "svg", "gif"}:
             raise HTTPException(status_code=400, detail="Format non supporté (png/jpg/webp/svg)")
-        # Use the global UPLOAD_DIR; default to /tmp/uploads if not exposed.
+        # Iter43-fix10b — Aligne avec server.py (par défaut /app/backend/uploads).
+        # Stocke le chemin DISQUE dans `logo_path`, sert ensuite via endpoint dédié.
         try:
             from server import UPLOAD_DIR as _UPLOAD_DIR  # type: ignore
             upload_dir = Path(_UPLOAD_DIR) / "officines"
         except Exception:
-            upload_dir = Path("/tmp/uploads/officines")
+            upload_dir = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads")) / "officines"
         upload_dir.mkdir(parents=True, exist_ok=True)
         fname = f"officine_{officine_id[:8]}_{int(_now().timestamp())}.{ext}"
         full = upload_dir / fname
         full.write_bytes(raw)
-        rel_url = f"/uploads/officines/{fname}"
+        # URL pointe vers l'endpoint streaming public (logos sont publics)
+        rel_url = f"/officines-registry/{officine_id}/logo"
         await db.officines.update_one(
             {"id": officine_id},
-            {"$set": {"logo_url": rel_url, "updated_at": _now(), "updated_by": user.get("email")}},
+            {"$set": {
+                "logo_url": rel_url,
+                "logo_path": str(full),
+                "logo_ext": ext,
+                "updated_at": _now(),
+                "updated_by": user.get("email"),
+            }},
         )
         await db.officine_audit_log.insert_one({
             "id": str(uuid.uuid4()), "officine_id": officine_id,
@@ -1120,6 +1129,40 @@ def attach_officines_portal_admin_routes(
             "details": {"filename": fname, "size_bytes": len(raw)}, "created_at": _now(),
         })
         return {"ok": True, "logo_url": rel_url}
+
+    # Iter43-fix10b — Streaming public du logo (lecture seule, pas d'auth)
+    @api.get("/officines-registry/{officine_id}/logo", tags=["Officines Registry — Public"])
+    async def get_officine_logo(officine_id: str):
+        from fastapi.responses import FileResponse
+        doc = await db.officines.find_one({"id": officine_id}, {"_id": 0, "logo_path": 1, "logo_ext": 1, "logo_url": 1})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Officine introuvable")
+        # Backward-compat : si logo_path absent mais logo_url ancien format
+        logo_path = doc.get("logo_path")
+        if not logo_path and doc.get("logo_url", "").startswith("/uploads/officines/"):
+            try:
+                from server import UPLOAD_DIR as _U
+            except Exception:
+                _U = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads"))
+            fname = doc["logo_url"].rsplit("/", 1)[-1]
+            cand = Path(_U) / "officines" / fname
+            if cand.exists():
+                logo_path = str(cand)
+                # Persiste pour les prochains accès
+                await db.officines.update_one(
+                    {"id": officine_id},
+                    {"$set": {"logo_path": logo_path, "logo_url": f"/officines-registry/{officine_id}/logo"}},
+                )
+        if not logo_path or not Path(logo_path).exists():
+            raise HTTPException(status_code=404, detail="Logo introuvable")
+        ext = doc.get("logo_ext") or logo_path.rsplit(".", 1)[-1].lower()
+        media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                     "webp": "image/webp", "svg": "image/svg+xml", "gif": "image/gif"}
+        return FileResponse(
+            logo_path,
+            media_type=media_map.get(ext, "application/octet-stream"),
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
 
     @api.post("/admin/officines-registry/import-to-contacts", tags=["Admin — Officines Registry"])
     async def import_to_contacts(

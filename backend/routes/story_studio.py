@@ -31,21 +31,160 @@ Phase 2/3 (à venir) :
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import hmac
+import json
 import os
 import uuid
 import logging
 import urllib.parse
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import HTTPException, Depends, Body
+import httpx
+import jwt as _pyjwt
+from cryptography.fernet import Fernet, InvalidToken
+from fastapi import HTTPException, Depends, Body, Query, Request
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
 load_dotenv()
 
 logger = logging.getLogger("sawali.story_studio")
+
+
+# ----------------------------------------------------------------------------
+# Iter43-fix11 (2026-03) — Phase 2 Meta OAuth helpers
+# ----------------------------------------------------------------------------
+# Constants
+GRAPH_API_VERSION = "v23.0"  # latest stable as of Feb 2026
+GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
+GRAPH_VIDEO_BASE = f"https://graph-video.facebook.com/{GRAPH_API_VERSION}"
+RUPLOAD_IG_BASE = f"https://rupload.facebook.com/ig-api-upload/{GRAPH_API_VERSION}"
+
+# Default scopes requested when connecting a Meta Business account.
+META_OAUTH_SCOPES = [
+    "public_profile",
+    "email",
+    "pages_show_list",
+    "pages_read_engagement",
+    "pages_manage_posts",
+    "pages_manage_engagement",
+    "instagram_basic",
+    "instagram_content_publish",
+    "business_management",
+]
+
+
+def _get_fernet() -> Fernet:
+    """Derive a stable Fernet key from JWT_SECRET (no extra env var to manage).
+
+    Tokens stored in `social_accounts.*_token_encrypted` use Fernet for symmetric
+    encryption at rest. Key material is derived deterministically so server
+    restarts don't break previously stored tokens.
+    """
+    secret = os.environ.get("JWT_SECRET") or "fallback-insecure-jwt"
+    # SHA-256 of secret -> 32 bytes -> base64-urlsafe -> 44-char Fernet key
+    digest = hashlib.sha256(f"sawali-story-studio-meta::{secret}".encode()).digest()
+    return Fernet(base64.urlsafe_b64encode(digest))
+
+
+def _enc(plain: Optional[str]) -> Optional[str]:
+    if not plain:
+        return None
+    return _get_fernet().encrypt(plain.encode()).decode()
+
+
+def _dec(enc: Optional[str]) -> Optional[str]:
+    if not enc:
+        return None
+    try:
+        return _get_fernet().decrypt(enc.encode()).decode()
+    except (InvalidToken, Exception):  # noqa: BLE001
+        logger.warning("[story_studio] failed to decrypt token (possibly migrated/corrupted)")
+        return None
+
+
+def _oauth_state_encode(payload: Dict[str, Any]) -> str:
+    """JWT-encoded state for CSRF protection. TTL ~10 min."""
+    secret = os.environ.get("JWT_SECRET") or "fallback-insecure-jwt"
+    claims = {
+        **payload,
+        "iat": int(datetime.now(timezone.utc).timestamp()),
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=15)).timestamp()),
+        "nonce": uuid.uuid4().hex,
+    }
+    return _pyjwt.encode(claims, secret + "-story-meta-state", algorithm="HS256")
+
+
+def _oauth_state_decode(state: str) -> Dict[str, Any]:
+    secret = os.environ.get("JWT_SECRET") or "fallback-insecure-jwt"
+    try:
+        return _pyjwt.decode(state, secret + "-story-meta-state", algorithms=["HS256"])
+    except _pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=400, detail="OAuth state expiré (relancez la connexion Meta)")
+    except _pyjwt.InvalidTokenError as exc:
+        raise HTTPException(status_code=400, detail=f"OAuth state invalide : {exc}")
+
+
+def _signed_media_token(asset_id: str, ttl_minutes: int = 60) -> str:
+    """Short-lived signed URL token for public media access (used by Meta Graph
+    API when it has to fetch the video via `video_url`)."""
+    secret = os.environ.get("JWT_SECRET") or "fallback-insecure-jwt"
+    claims = {
+        "asset_id": asset_id,
+        "purpose": "meta-publish",
+        "iat": int(datetime.now(timezone.utc).timestamp()),
+        "exp": int((datetime.now(timezone.utc) + timedelta(minutes=ttl_minutes)).timestamp()),
+    }
+    return _pyjwt.encode(claims, secret + "-signed-media", algorithm="HS256")
+
+
+def _verify_signed_media_token(token: str) -> str:
+    secret = os.environ.get("JWT_SECRET") or "fallback-insecure-jwt"
+    try:
+        claims = _pyjwt.decode(token, secret + "-signed-media", algorithms=["HS256"])
+        return claims["asset_id"]
+    except _pyjwt.ExpiredSignatureError:
+        raise HTTPException(status_code=410, detail="Lien expiré")
+    except _pyjwt.InvalidTokenError:
+        raise HTTPException(status_code=400, detail="Lien invalide")
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
+
+
+async def _meta_get(client: httpx.AsyncClient, url: str, params: Dict[str, Any]) -> Dict[str, Any]:
+    r = await client.get(url, params=params)
+    if r.status_code >= 400:
+        try:
+            err = r.json().get("error", {})
+            raise HTTPException(
+                status_code=502,
+                detail=f"Meta Graph API erreur {err.get('code')}: {err.get('message') or r.text}",
+            )
+        except (ValueError, KeyError):
+            raise HTTPException(status_code=502, detail=f"Meta Graph API erreur HTTP {r.status_code}")
+    return r.json()
+
+
+async def _meta_post(client: httpx.AsyncClient, url: str, params: Optional[Dict[str, Any]] = None,
+                     data: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    r = await client.post(url, params=params or {}, data=data or {})
+    if r.status_code >= 400:
+        try:
+            err = r.json().get("error", {})
+            raise HTTPException(
+                status_code=502,
+                detail=f"Meta Graph API erreur {err.get('code')}: {err.get('message') or r.text}",
+            )
+        except (ValueError, KeyError):
+            raise HTTPException(status_code=502, detail=f"Meta Graph API erreur HTTP {r.status_code}")
+    return r.json()
 
 
 # ----------------------------------------------------------------------------
@@ -110,10 +249,32 @@ class SocialAccountManualToken(BaseModel):
 
 
 # ----------------------------------------------------------------------------
+# Iter43-fix11 (2026-03) — Phase 2 publish models
+# ----------------------------------------------------------------------------
+class PublishTarget(BaseModel):
+    social_account_id: str
+    page_id: str  # FB page id (also used to derive IG account via stored mapping)
+    target: str  # 'fb_feed' | 'ig_story' | 'ig_reel'
+
+
+class PublishRequest(BaseModel):
+    targets: List[PublishTarget] = Field(default_factory=list)
+    caption: Optional[str] = None
+    mode: str = "immediate"  # 'immediate' | 'draft'
+    scheduled_at: Optional[str] = None  # ISO datetime (future use)
+
+
+class PageActivationUpdate(BaseModel):
+    page_id: str
+    is_active: bool
+
+
+# ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
+def _now_iso_dup() -> str:
+    """Kept for backward-compat — use module-level `_now_iso` introduced above."""
+    return _now_iso()
 
 
 def attach_story_studio_routes(
@@ -357,6 +518,164 @@ def attach_story_studio_routes(
         return str(out_path)
 
     # ========================================================================
+    # Iter43-fix11 — Meta credentials & publishing helpers (closure over `db`)
+    # ========================================================================
+    async def _get_meta_app_credentials(db_) -> tuple[Optional[str], Optional[str]]:
+        doc = await db_.settings.find_one({"_id": "global"}) or {}
+        st = doc.get("story_studio") or {}
+        return st.get("meta_app_id"), st.get("meta_app_secret")
+
+    async def _resolve_meta_redirect_uri(db_) -> str:
+        """Return the redirect URI to use in the OAuth flow.
+
+        Priority: setting `meta_redirect_uri` > derived from PUBLIC_BASE_URL.
+        Whatever value is returned MUST be registered in the Meta Developer App
+        valid OAuth redirect URIs."""
+        doc = await db_.settings.find_one({"_id": "global"}) or {}
+        st = doc.get("story_studio") or {}
+        configured = st.get("meta_redirect_uri")
+        if configured:
+            return configured
+        base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        if not base:
+            raise HTTPException(
+                status_code=500,
+                detail="PUBLIC_BASE_URL non défini et meta_redirect_uri non configuré",
+            )
+        return f"{base}/api/admin/story-studio/oauth/meta/callback"
+
+    async def _publish_single_target(
+        *, db_, asset_doc: Dict[str, Any], target: PublishTarget,
+        caption: str, asset_id: str,
+    ) -> Dict[str, Any]:
+        """Publie l'asset vers UNE cible. Renvoie {ok, channel_id?, error?}."""
+        try:
+            acc = await db_.social_accounts.find_one({"id": target.social_account_id})
+            if not acc:
+                return {"ok": False, "error": "Compte social introuvable"}
+            if acc.get("provider") != "meta":
+                return {"ok": False, "error": "Cible non Meta non supportée"}
+            page = next((p for p in (acc.get("pages") or []) if p.get("page_id") == target.page_id), None)
+            if not page:
+                return {"ok": False, "error": "Page non trouvée dans ce compte"}
+            page_token = _dec(page.get("page_access_token_encrypted"))
+            user_token = _dec(acc.get("long_lived_user_token_encrypted"))
+            if not page_token:
+                return {"ok": False, "error": "Token de Page indisponible — relancez Rafraîchir"}
+
+            file_path = asset_doc.get("file_path")
+            if not file_path or not Path(file_path).exists():
+                return {"ok": False, "error": "Fichier vidéo introuvable"}
+
+            if target.target == "fb_feed":
+                return await _publish_facebook_video(
+                    page_id=target.page_id, page_token=page_token,
+                    file_path=file_path, caption=caption,
+                )
+            elif target.target in ("ig_story", "ig_reel"):
+                ig_id = page.get("ig_business_account_id")
+                if not ig_id:
+                    return {"ok": False, "error": "Aucun compte Instagram Business lié à cette Page"}
+                if not user_token:
+                    return {"ok": False, "error": "Token utilisateur indisponible — reconnectez Meta"}
+                return await _publish_instagram_video(
+                    ig_user_id=ig_id, user_token=user_token,
+                    asset_id=asset_id, caption=caption,
+                    media_type=("STORIES" if target.target == "ig_story" else "REELS"),
+                )
+            else:
+                return {"ok": False, "error": f"Cible inconnue: {target.target}"}
+        except HTTPException as exc:
+            return {"ok": False, "error": str(exc.detail)}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[story_studio] publish target failed")
+            return {"ok": False, "error": str(exc)}
+
+    async def _publish_facebook_video(
+        *, page_id: str, page_token: str, file_path: str, caption: str,
+    ) -> Dict[str, Any]:
+        """Upload + publication d'une vidéo dans le feed d'une Page FB.
+
+        Utilise l'endpoint historique non-resumable (POST multipart) qui reste
+        supporté pour les vidéos < 1 Go — suffisant pour des vidéos Sora 2 de
+        4 à 12 sec (typiquement < 50 Mo)."""
+        url = f"{GRAPH_VIDEO_BASE}/{page_id}/videos"
+        async with httpx.AsyncClient(timeout=600.0) as client:
+            with open(file_path, "rb") as fh:
+                files = {"source": (Path(file_path).name, fh, "video/mp4")}
+                data = {
+                    "access_token": page_token,
+                    "description": caption,
+                    "published": "true",
+                }
+                r = await client.post(url, data=data, files=files)
+            if r.status_code >= 400:
+                try:
+                    err = r.json().get("error", {})
+                    return {"ok": False, "error": f"FB error {err.get('code')}: {err.get('message') or r.text[:200]}"}
+                except (ValueError, KeyError):
+                    return {"ok": False, "error": f"FB HTTP {r.status_code}: {r.text[:200]}"}
+            video_id = r.json().get("id")
+            return {"ok": True, "channel_id": video_id, "platform": "facebook"}
+
+    async def _publish_instagram_video(
+        *, ig_user_id: str, user_token: str, asset_id: str, caption: str, media_type: str,
+    ) -> Dict[str, Any]:
+        """Publie une vidéo en STORIES ou REELS sur Instagram.
+
+        Stratégie: on génère une URL publique signée court terme pour notre
+        vidéo locale, et on passe `video_url=` à Meta. Meta télécharge et
+        traite. On poll le statut du container puis on publie."""
+        base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        if not base:
+            return {"ok": False, "error": "PUBLIC_BASE_URL non défini, IG publication impossible"}
+        token = _signed_media_token(asset_id, ttl_minutes=60)
+        video_url = f"{base}/api/admin/story-studio/library/{asset_id}/signed-media?token={token}"
+
+        params: Dict[str, Any] = {
+            "media_type": media_type,
+            "video_url": video_url,
+            "access_token": user_token,
+        }
+        if media_type == "REELS":
+            params["caption"] = caption
+        # NB: For STORIES, Meta ignores caption (no captions on Stories video).
+
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            # 1) Create container
+            create = await _meta_post(client, f"{GRAPH_BASE}/{ig_user_id}/media", params=params)
+            container_id = create.get("id")
+            if not container_id:
+                return {"ok": False, "error": f"Pas de container_id : {create!r:.200}"}
+
+            # 2) Poll container status until FINISHED
+            status_url = f"{GRAPH_BASE}/{container_id}"
+            for _ in range(60):  # max 5 min (60 * 5s)
+                st = await _meta_get(client, status_url, {
+                    "fields": "status_code,status",
+                    "access_token": user_token,
+                })
+                code_ = st.get("status_code")
+                if code_ == "FINISHED":
+                    break
+                if code_ == "ERROR":
+                    return {"ok": False, "error": f"IG processing error: {st.get('status') or st!r:.200}"}
+                await asyncio.sleep(5)
+            else:
+                return {"ok": False, "error": "Timeout traitement IG (>5 min)"}
+
+            # 3) Publish
+            pub = await _meta_post(client, f"{GRAPH_BASE}/{ig_user_id}/media_publish", params={
+                "creation_id": container_id,
+                "access_token": user_token,
+            })
+            media_id = pub.get("id")
+            if not media_id:
+                return {"ok": False, "error": f"Pas de media_id à la publication : {pub!r:.200}"}
+            return {"ok": True, "channel_id": media_id, "platform": "instagram",
+                    "ig_target": media_type.lower()}
+
+    # ========================================================================
     # GÉNÉRATION TEXT-TO-IMAGE (Nano Banana) - format Story 1080x1920
     # ========================================================================
     @api.post("/admin/story-studio/generate/text-to-image", tags=["Admin — Story Studio"])
@@ -454,9 +773,12 @@ def attach_story_studio_routes(
         if not doc:
             raise HTTPException(status_code=404, detail="Asset introuvable")
         update_set: Dict[str, Any] = {}
-        if payload.title is not None: update_set["title"] = payload.title
-        if payload.caption is not None: update_set["caption"] = payload.caption
-        if payload.tags is not None: update_set["tags"] = payload.tags
+        if payload.title is not None:
+            update_set["title"] = payload.title
+        if payload.caption is not None:
+            update_set["caption"] = payload.caption
+        if payload.tags is not None:
+            update_set["tags"] = payload.tags
         if not update_set:
             raise HTTPException(status_code=400, detail="Aucun champ")
         update_set["updated_at"] = _now_iso()
@@ -581,7 +903,16 @@ def attach_story_studio_routes(
         q: Dict[str, Any] = {}
         if tenant_id:
             q["tenant_id"] = tenant_id
-        items = await db.social_accounts.find(q, {"_id": 0, "access_token": 0}).sort("created_at", -1).to_list(500)
+        # NB: exclude raw tokens but keep encrypted page tokens (still encrypted)
+        items = await db.social_accounts.find(
+            q,
+            {"_id": 0, "access_token": 0,
+             "long_lived_user_token_encrypted": 0},
+        ).sort("created_at", -1).to_list(500)
+        # Strip page-level encrypted tokens (frontend never needs them)
+        for it in items:
+            for p in (it.get("pages") or []):
+                p.pop("page_access_token_encrypted", None)
         return {"items": items}
 
     @api.post("/admin/story-studio/social-accounts/manual", tags=["Admin — Story Studio"])
@@ -618,47 +949,373 @@ def attach_story_studio_routes(
         return {"ok": True}
 
     # ========================================================================
-    # PUBLICATION STUB (Phase 2 — log only pour l'instant)
+    # PUBLICATION RÉELLE (Iter43-fix11 — Phase 2)
+    # Publie un asset vidéo vers IG Story / IG Reel / FB Page Feed.
     # ========================================================================
     @api.post("/admin/story-studio/library/{asset_id}/publish", tags=["Admin — Story Studio"])
-    async def publish_asset_stub(
+    async def publish_asset(
         asset_id: str,
-        payload: Dict[str, Any] = Body(...),
+        payload: PublishRequest,
         user: dict = Depends(get_admin_or_supervisor),
     ):
-        """Phase 2 — Publication automatique IG/FB/TikTok.
+        """Publie une vidéo générée vers les réseaux sociaux sélectionnés.
 
-        STATUT ACTUEL : **MOCKED**. La publication ne fait que journaliser la
-        requête. Le flow OAuth Meta + l'appel Graph API seront ajoutés en
-        itération suivante. Pour Phase 1, utilisez `whatsapp-share` pour le
-        partage manuel ou téléchargez l'asset et publiez via vos canaux."""
+        - `mode=draft` enregistre l'intent sans appel Meta (utile pour planifier).
+        - `mode=immediate` appelle l'API Graph pour chaque target.
+        Chaque target reçoit son propre statut dans la réponse — un échec
+        partiel n'empêche pas les autres canaux d'aboutir.
+        """
         doc = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Asset introuvable")
-        channels = payload.get("channels") or []
-        scheduled_at = payload.get("scheduled_at")
+        if doc.get("kind") != "video":
+            raise HTTPException(status_code=400, detail="Seules les vidéos sont publiables actuellement")
+        if doc.get("status") != "ready":
+            raise HTTPException(status_code=400, detail="Asset non prêt (génération en cours ou échouée)")
+        if not payload.targets:
+            raise HTTPException(status_code=400, detail="Aucune cible sélectionnée")
+
         post_id = str(uuid.uuid4())
-        await db.story_posts.insert_one({
+        post_doc: Dict[str, Any] = {
             "id": post_id,
             "asset_id": asset_id,
             "tenant_id": doc.get("tenant_id"),
-            "channels": channels,  # ['instagram', 'facebook', 'tiktok']
-            "caption": payload.get("caption") or doc.get("caption"),
-            "scheduled_at": scheduled_at,
-            "status": "scheduled" if scheduled_at else "queued",
+            "caption": payload.caption or doc.get("caption") or doc.get("title") or "",
+            "mode": payload.mode,
+            "scheduled_at": payload.scheduled_at,
+            "status": "draft" if payload.mode == "draft" else "publishing",
+            "targets": [t.model_dump() for t in payload.targets],
+            "results": [],
             "created_at": _now_iso(),
             "created_by": user.get("email"),
-            "note": "MOCKED — Phase 2 ajoutera la publication réelle via OAuth",
-        })
-        return {
-            "ok": True,
-            "post_id": post_id,
-            "status": "queued",
-            "warning": (
-                "Publication automatique IG/FB/TikTok non encore opérationnelle "
-                "(Phase 2). Utilisez le bouton 'Partager WhatsApp' ou téléchargez "
-                "le média et publiez manuellement."
-            ),
         }
+
+        # Mode brouillon : aucune action Meta, juste persiste.
+        if payload.mode == "draft":
+            await db.story_posts.insert_one(post_doc.copy())
+            return {"ok": True, "post_id": post_id, "status": "draft",
+                    "message": "Brouillon enregistré. Publiez-le plus tard depuis la bibliothèque."}
+
+        # Mode immédiat : appel Meta Graph API pour chaque cible.
+        results: List[Dict[str, Any]] = []
+        for tgt in payload.targets:
+            res = await _publish_single_target(
+                db_=db, asset_doc=doc, target=tgt,
+                caption=post_doc["caption"], asset_id=asset_id,
+            )
+            results.append({**tgt.model_dump(), **res})
+
+        any_failed = any(not r.get("ok") for r in results)
+        any_success = any(r.get("ok") for r in results)
+        post_doc["results"] = results
+        post_doc["status"] = (
+            "failed" if not any_success else ("partial" if any_failed else "published")
+        )
+        post_doc["completed_at"] = _now_iso()
+        await db.story_posts.insert_one(post_doc.copy())
+
+        return {
+            "ok": any_success,
+            "post_id": post_id,
+            "status": post_doc["status"],
+            "results": results,
+        }
+
+    # Publish a draft (mode=immediate) later
+    @api.post("/admin/story-studio/posts/{post_id}/publish-now", tags=["Admin — Story Studio"])
+    async def publish_draft_now(post_id: str, user: dict = Depends(get_admin_or_supervisor)):
+        post = await db.story_posts.find_one({"id": post_id}, {"_id": 0})
+        if not post:
+            raise HTTPException(status_code=404, detail="Post introuvable")
+        if post.get("status") not in ("draft", "failed"):
+            raise HTTPException(status_code=400, detail=f"Post déjà en état '{post.get('status')}'")
+        asset = await db.story_assets.find_one({"id": post["asset_id"]}, {"_id": 0})
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset associé introuvable")
+        targets = [PublishTarget(**t) for t in post.get("targets", [])]
+        results: List[Dict[str, Any]] = []
+        for tgt in targets:
+            res = await _publish_single_target(
+                db_=db, asset_doc=asset, target=tgt,
+                caption=post.get("caption") or "", asset_id=asset["id"],
+            )
+            results.append({**tgt.model_dump(), **res})
+        any_failed = any(not r.get("ok") for r in results)
+        any_success = any(r.get("ok") for r in results)
+        new_status = "failed" if not any_success else ("partial" if any_failed else "published")
+        await db.story_posts.update_one(
+            {"id": post_id},
+            {"$set": {"status": new_status, "results": results, "completed_at": _now_iso()}},
+        )
+        return {"ok": any_success, "status": new_status, "results": results}
+
+    # List posts history
+    @api.get("/admin/story-studio/posts", tags=["Admin — Story Studio"])
+    async def list_posts(
+        tenant_id: Optional[str] = None,
+        limit: int = 100,
+        user: dict = Depends(get_admin_or_supervisor),
+    ):
+        q: Dict[str, Any] = {}
+        if (user.get("role") or "").lower() != "admin":
+            q["tenant_id"] = user.get("parent_client_id") or user["id"]
+        elif tenant_id:
+            q["tenant_id"] = tenant_id
+        items = await db.story_posts.find(q, {"_id": 0}).sort("created_at", -1).limit(min(limit, 500)).to_list(min(limit, 500))
+        return {"items": items, "count": len(items)}
+
+    # ========================================================================
+    # OAUTH META — Phase 2
+    # ========================================================================
+    @api.get("/admin/story-studio/oauth/meta/start", tags=["Admin — Story Studio"])
+    async def meta_oauth_start(
+        tenant_id: Optional[str] = Query(None),
+        return_to: Optional[str] = Query(None),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Génère l'URL d'autorisation Meta. Le front l'utilise pour rediriger.
+
+        Le `state` est un JWT signé qui transporte le tenant_id cible + l'admin
+        appelant. Meta nous renverra sur le callback backend qui décodera ce
+        state pour rattacher le compte au bon tenant."""
+        app_id, app_secret = await _get_meta_app_credentials(db)
+        if not app_id or not app_secret:
+            raise HTTPException(
+                status_code=400,
+                detail="Meta App ID/Secret non configurés. Renseignez-les dans Paramètres → Meta.",
+            )
+        redirect_uri = await _resolve_meta_redirect_uri(db)
+        tenant = tenant_id or user.get("parent_client_id") or user["id"]
+        state = _oauth_state_encode({
+            "tenant_id": tenant,
+            "caller_id": user["id"],
+            "caller_email": user.get("email"),
+            "return_to": return_to or "/admin/story-studio",
+        })
+        scope = ",".join(META_OAUTH_SCOPES)
+        auth_url = (
+            "https://www.facebook.com/" + GRAPH_API_VERSION + "/dialog/oauth"
+            f"?client_id={urllib.parse.quote(app_id)}"
+            f"&redirect_uri={urllib.parse.quote(redirect_uri)}"
+            f"&state={urllib.parse.quote(state)}"
+            f"&scope={urllib.parse.quote(scope)}"
+            "&response_type=code"
+        )
+        logger.info(f"[story_studio] oauth meta start tenant={tenant} caller={user.get('email')}")
+        return {"auth_url": auth_url, "redirect_uri": redirect_uri}
+
+    @api.get("/admin/story-studio/oauth/meta/callback", tags=["Admin — Story Studio"])
+    async def meta_oauth_callback(
+        request: Request,
+        code: Optional[str] = Query(None),
+        state: Optional[str] = Query(None),
+        error: Optional[str] = Query(None),
+        error_description: Optional[str] = Query(None),
+    ):
+        """Endpoint PUBLIC appelé par Meta après authentification utilisateur.
+
+        Décode le state, échange le code contre un token court → long-lived,
+        récupère les Pages + IG accounts, persiste le tout en `social_accounts`
+        (tokens encryptés), puis redirige vers le front."""
+        # Resolve frontend redirect base for both success & error
+        frontend_base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        return_to = "/admin/story-studio"
+        try:
+            if state:
+                try:
+                    st = _oauth_state_decode(state)
+                    return_to = st.get("return_to") or "/admin/story-studio"
+                except HTTPException:
+                    pass
+
+            if error:
+                msg = error_description or error
+                logger.warning(f"[story_studio] meta oauth error from Meta: {msg}")
+                return RedirectResponse(url=f"{frontend_base}{return_to}?meta_oauth=error&reason={urllib.parse.quote(msg)}")
+
+            if not code or not state:
+                raise HTTPException(status_code=400, detail="Paramètres OAuth manquants")
+
+            st = _oauth_state_decode(state)
+            tenant_id = st["tenant_id"]
+            caller_email = st.get("caller_email")
+
+            app_id, app_secret = await _get_meta_app_credentials(db)
+            if not app_id or not app_secret:
+                raise HTTPException(status_code=500, detail="Meta App credentials manquants côté serveur")
+            redirect_uri = await _resolve_meta_redirect_uri(db)
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                # 1) Exchange code -> short-lived user access token
+                token_data = await _meta_get(client, f"{GRAPH_BASE}/oauth/access_token", {
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "redirect_uri": redirect_uri,
+                    "code": code,
+                })
+                short_token = token_data.get("access_token")
+                if not short_token:
+                    raise HTTPException(status_code=502, detail=f"Pas de access_token dans la réponse Meta: {token_data!r:.300}")
+
+                # 2) Exchange for long-lived user token (~60 days)
+                long_data = await _meta_get(client, f"{GRAPH_BASE}/oauth/access_token", {
+                    "grant_type": "fb_exchange_token",
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "fb_exchange_token": short_token,
+                })
+                long_token = long_data.get("access_token") or short_token
+                expires_in = int(long_data.get("expires_in") or 60 * 24 * 3600)
+
+                # 3) Fetch FB user info
+                me = await _meta_get(client, f"{GRAPH_BASE}/me", {
+                    "fields": "id,name,email",
+                    "access_token": long_token,
+                })
+
+                # 4) List Pages
+                pages_resp = await _meta_get(client, f"{GRAPH_BASE}/me/accounts", {
+                    "fields": "id,name,access_token,category,instagram_business_account{id,username,name}",
+                    "access_token": long_token,
+                    "limit": 100,
+                })
+                pages = []
+                for p in pages_resp.get("data", []):
+                    ig = p.get("instagram_business_account") or {}
+                    pages.append({
+                        "page_id": p["id"],
+                        "page_name": p.get("name"),
+                        "category": p.get("category"),
+                        "page_access_token_encrypted": _enc(p.get("access_token")),
+                        "ig_business_account_id": ig.get("id"),
+                        "ig_username": ig.get("username"),
+                        "ig_name": ig.get("name"),
+                        "is_active": True,  # active by default; admin can toggle
+                    })
+
+            expires_at = (datetime.now(timezone.utc) + timedelta(seconds=expires_in)).isoformat()
+            existing = await db.social_accounts.find_one({
+                "tenant_id": tenant_id,
+                "provider": "meta",
+                "meta_user_id": me.get("id"),
+            })
+
+            doc = {
+                "tenant_id": tenant_id,
+                "provider": "meta",
+                "status": "connected",
+                "meta_user_id": me.get("id"),
+                "meta_user_name": me.get("name"),
+                "meta_user_email": me.get("email"),
+                "long_lived_user_token_encrypted": _enc(long_token),
+                "long_lived_user_token_expires_at": expires_at,
+                "pages": pages,
+                "updated_at": _now_iso(),
+                "connected_by_email": caller_email,
+            }
+            if existing:
+                await db.social_accounts.update_one({"id": existing["id"]}, {"$set": doc})
+                account_id = existing["id"]
+            else:
+                doc["id"] = str(uuid.uuid4())
+                doc["created_at"] = _now_iso()
+                doc["account_label"] = f"Meta — {me.get('name') or me.get('id')}"
+                doc["account_id"] = me.get("id")
+                await db.social_accounts.insert_one(doc.copy())
+                account_id = doc["id"]
+
+            success_url = (
+                f"{frontend_base}{return_to}"
+                f"?meta_oauth=connected"
+                f"&social_account_id={urllib.parse.quote(account_id)}"
+                f"&pages={len(pages)}"
+            )
+            logger.info(f"[story_studio] meta oauth success tenant={tenant_id} pages={len(pages)} user={me.get('name')}")
+            return RedirectResponse(url=success_url)
+
+        except HTTPException as exc:
+            logger.warning(f"[story_studio] meta oauth callback error: {exc.detail}")
+            return RedirectResponse(
+                url=f"{frontend_base}{return_to}?meta_oauth=error&reason={urllib.parse.quote(str(exc.detail))}"
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[story_studio] meta oauth callback unexpected error")
+            return RedirectResponse(
+                url=f"{frontend_base}{return_to}?meta_oauth=error&reason={urllib.parse.quote(str(exc))}"
+            )
+
+    @api.post("/admin/story-studio/social-accounts/{account_id}/refresh", tags=["Admin — Story Studio"])
+    async def refresh_meta_account(account_id: str, _: dict = Depends(get_current_admin)):
+        """Re-fetch les Pages et IG accounts d'un compte Meta connecté."""
+        acc = await db.social_accounts.find_one({"id": account_id})
+        if not acc:
+            raise HTTPException(status_code=404, detail="Compte introuvable")
+        if acc.get("provider") != "meta":
+            raise HTTPException(status_code=400, detail="Pas un compte Meta")
+        token = _dec(acc.get("long_lived_user_token_encrypted"))
+        if not token:
+            raise HTTPException(status_code=400, detail="Token utilisateur indisponible — reconnectez le compte")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            pages_resp = await _meta_get(client, f"{GRAPH_BASE}/me/accounts", {
+                "fields": "id,name,access_token,category,instagram_business_account{id,username,name}",
+                "access_token": token,
+                "limit": 100,
+            })
+        # Preserve `is_active` flags from existing pages
+        prev_active = {p["page_id"]: p.get("is_active", True) for p in (acc.get("pages") or [])}
+        pages = []
+        for p in pages_resp.get("data", []):
+            ig = p.get("instagram_business_account") or {}
+            pages.append({
+                "page_id": p["id"],
+                "page_name": p.get("name"),
+                "category": p.get("category"),
+                "page_access_token_encrypted": _enc(p.get("access_token")),
+                "ig_business_account_id": ig.get("id"),
+                "ig_username": ig.get("username"),
+                "ig_name": ig.get("name"),
+                "is_active": prev_active.get(p["id"], True),
+            })
+        await db.social_accounts.update_one(
+            {"id": account_id},
+            {"$set": {"pages": pages, "updated_at": _now_iso(), "status": "connected"}},
+        )
+        return {"ok": True, "pages_count": len(pages)}
+
+    @api.put("/admin/story-studio/social-accounts/{account_id}/pages/{page_id}", tags=["Admin — Story Studio"])
+    async def toggle_page_active(
+        account_id: str, page_id: str,
+        payload: Dict[str, Any] = Body(...),
+        _: dict = Depends(get_current_admin),
+    ):
+        """Active/désactive une Page (page reste connue mais ignorée des publications)."""
+        is_active = bool(payload.get("is_active", True))
+        r = await db.social_accounts.update_one(
+            {"id": account_id, "pages.page_id": page_id},
+            {"$set": {"pages.$.is_active": is_active, "updated_at": _now_iso()}},
+        )
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Page non trouvée")
+        return {"ok": True, "is_active": is_active}
+
+    # ========================================================================
+    # MEDIA SIGNED PUBLIC URL (pour les API Meta qui ont besoin d'un video_url)
+    # ========================================================================
+    @api.get("/admin/story-studio/library/{asset_id}/signed-media", tags=["Admin — Story Studio"])
+    async def signed_public_media(asset_id: str, token: str):
+        """Endpoint PUBLIC (signé par JWT court terme) — utilisé par Meta pour
+        télécharger la vidéo lors d'un appel `video_url`."""
+        verified_id = _verify_signed_media_token(token)
+        if verified_id != asset_id:
+            raise HTTPException(status_code=403, detail="Token / asset mismatch")
+        from fastapi.responses import FileResponse
+        doc = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Asset introuvable")
+        fpath = doc.get("file_path")
+        if not fpath or not Path(fpath).exists():
+            raise HTTPException(status_code=410, detail="Fichier introuvable")
+        media_type = "video/mp4" if doc.get("kind") == "video" else "image/png"
+        return FileResponse(fpath, media_type=media_type)
 
     logger.info("[story_studio] routes mounted (Phase 1 MVP)")

@@ -1,0 +1,40 @@
+{
+  "summary": "Iter43-fix11 / Phase 2 Story Studio — Meta OAuth + Publishing IG/FB. Backend pytest 34/34 PASS (31 existing Phase 1+2 tests in test_iter43_fix10_story_studio.py + test_iter43_fix11_meta_oauth.py, plus 3 new extras in test_iter60_p2_extras.py couvrant: no-token-leak dans social-accounts (top + pages), publish-now relance brouillon, publish-now 404). Frontend (Playwright, admin@sawalismartsystems.com): 5 onglets (tab-generate/library/social/history/settings) tous visibles avec data-testids conformes, phase2-banner émeraude OK ('Phase 2 active — Publication automatique...'), connect-meta-btn présent et activé (creds Meta déjà configurés en DB par les tests pytest précédents), section meta-setup-help présente avec 491 chars d'instructions + URL de callback dynamique sawali-portal.preview.emergentagent.com/api/admin/story-studio/oauth/meta/callback. Settings affiche les 3 champs Meta (app-id/secret/redirect). Onglet Historique (posts-history) chargé. PublishModal NON ouvrable en UI (library vide — 0 asset video ready) mais flow backend entièrement couvert par 8 pytest cases (image rejected, not-ready rejected, no-targets 400, draft mode, immediate failed per target, etc.).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/admin/story-studio", "issues": ["La bannière supérieure orange 'Universal Key Emergent ÉPUISÉE' chevauche le haut de page et réduit la zone utile (déjà signalé dans iter précédentes — hors scope Phase 2)."]},
+      {"screen": "/admin/story-studio (briefing modal)", "issues": ["Le briefing modal 'Bienvenue' bloque les interactions au premier load (84% loader visible) — toujours présent, attendu. Tester en cliquant 'J'ai lu' avant d'interagir."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix11_meta_oauth.py",
+    "/app/backend/tests/test_iter43_fix10_story_studio.py",
+    "/app/backend/tests/test_iter60_p2_extras.py",
+    "/app/test_reports/pytest/iter60_storystudio_p2.xml",
+    "/app/test_reports/pytest/iter60_extras.xml"
+  ],
+  "action_items": [
+    "(LOW / cosmétique) Une erreur d'hydration React est loggée dans la console PortalLayout.jsx ('In HTML, <span> cannot be a child of <option>') — déjà préexistant, hors scope Phase 2, à corriger plus tard. Ne casse rien fonctionnellement.",
+    "(NICE-TO-HAVE) Pour faciliter les tests futurs du PublishModal en UI, le main agent pourrait fournir un endpoint dev-seed pour créer un asset vidéo ready + un social_account fake. Sinon, tests Playwright du modal nécessitent insertion directe en DB."
+  ],
+  "critical_code_review_comments": [
+    "story_studio.py: state JWT signé via JWT_SECRET — la longueur de 28 bytes émet un InsecureKeyLengthWarning pytest. RFC 7518 recommande >=32 bytes pour HS256. À envisager un JWT_SECRET plus long pour production.",
+    "story_studio.py:oauth/meta/start — bonne pratique : state JWT contient {tenant_id, return_to, nonce, exp}. Vérification dans /callback OK. Pas de risque CSRF.",
+    "story_studio.py:publish_asset — la gestion d'erreur par cible (results[].ok=False) est robuste : 1 target ko → status='failed' ; mixte → 'partial' ; tous ok → 'published'. Bien.",
+    "social_accounts.list — vérifié explicitement qu'AUCUN champ access_token / long_lived_user_token_encrypted / page_access_token_encrypted n'est exposé (top-level + pages[]). Test dédié iter60.",
+    "publish_now endpoint — relance correctement un draft (vérifié : status passe de draft → failed/published). Permet réessai après échec Meta API.",
+    "signed_media token — refuse correctement les JWT invalides (400) et missing token (422). Bien protégé.",
+    "Frontend StoryStudio.jsx : tous les data-testid kebab-case attendus présents (tab-*, phase2-banner, connect-meta-btn, creds-missing-warning, meta-setup-help, asset-publish-{id}, publish-modal, publish-submit, publish-caption, mode-immediate/draft, posts-history, etc.). Aucun écart vs spec du review_request."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter60_p2_extras.py (nouveau, 3 tests)"],
+  "success_rate": {"backend": "100% (34/34)", "frontend": "100% des assertions testables ; PublishModal UI skip (library vide), modal-content vérifié par grep + pytest backend"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via [data-testid=login-dev-otp])",
+  "seed_data_creation": "Aucune persistante. Toutes données pytest préfixées iter43f11_* / iter60_* nettoyées par fixture cleanup. Pendant les tests, le doc settings global a été modifié pour fixer meta_app_id=1234567890 / meta_app_secret=fake_secret_iter43f11 — reste en DB après la run (innocuous pour tests futurs, peut être nettoyé manuellement si nécessaire).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "1) Le briefing modal 'Bienvenue' bloque les clics dès le 1er login admin — toujours cliquer button:has-text(\"J'ai lu\") avant d'interagir avec /admin/story-studio. 2) Les onglets de StoryStudio.jsx rendent leur contenu de manière conditionnelle (pas tab-panel hidden) — il faut click(force=True) sur le data-testid de l'onglet puis wait_for_timeout(800-1500) avant d'attendre du contenu. 3) Les credentials Meta (meta_app_id) sont déjà configurés en DB suite aux pytest — donc connect-meta-btn est ACTIVÉ et creds-missing-warning MASQUÉ. Pour tester le mode 'disabled', il faut d'abord clear settings.story_studio.meta_app_id + meta_app_secret en DB. 4) Library actuellement vide (aucun video asset ready) → impossible d'ouvrir PublishModal via UI sans insérer directement en DB. La couverture backend (8 pytest cases) est exhaustive. 5) NE PAS suivre la vraie redirection facebook.com — utiliser fetch() pour vérifier juste le auth_url retourné par /api/admin/story-studio/oauth/meta/start.",
+  "rca_of_the_issue": "Pas de bug. Phase 2 Story Studio (OAuth Meta + publication IG/FB) entièrement opérationnelle : backend 34/34 tests verts incluant no-token-leak vérifié explicitement, frontend tous testids et flow visuel conformes. Le seul test 'skip' (PublishModal en UI) est dû à library vide — flow backend exhaustivement couvert. Aucune action critique requise."
+}

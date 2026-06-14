@@ -15,6 +15,21 @@ const STATUS_LABEL = {
   suspended: { text: "Suspendue", color: "bg-rose-50 text-rose-700 ring-rose-200" },
 };
 
+const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+// Iter43-fix10b — Construit l'URL complète d'un logo (endpoint public).
+// Accepte les anciennes URLs `/uploads/officines/...` et les nouvelles
+// `/officines-registry/{id}/logo`.
+const logoSrc = (logoUrl) => {
+  if (!logoUrl) return null;
+  if (logoUrl.startsWith("http")) return logoUrl;
+  if (logoUrl.startsWith("/officines-registry/")) return `${BACKEND_URL}/api${logoUrl}`;
+  if (logoUrl.startsWith("/uploads/")) {
+    // Ancien format - le backend a une route de migration
+    return `${BACKEND_URL}/api${logoUrl}`;
+  }
+  return `${BACKEND_URL}${logoUrl}`;
+};
+
 const fmtDate = (iso) => {
   if (!iso) return "—";
   try { return new Date(iso).toLocaleDateString("fr-FR"); }
@@ -191,7 +206,7 @@ export default function AdminOfficinesRegistry() {
                     <td className="px-3 py-2">
                       <div className="flex items-center gap-2">
                         {it.logo_url ? (
-                          <img src={it.logo_url} alt="" className="h-7 w-7 rounded object-cover ring-1 ring-slate-200" />
+                          <img src={logoSrc(it.logo_url)} alt="" className="h-7 w-7 rounded object-cover ring-1 ring-slate-200" />
                         ) : (
                           <div className="h-7 w-7 rounded bg-slate-100 ring-1 ring-slate-200 flex items-center justify-center">
                             <Building2 className="h-3.5 w-3.5 text-slate-400" />
@@ -450,7 +465,7 @@ function EditOfficineModal({ officine, onClose, onSaved }) {
             </label>
             <div className="flex items-center gap-3">
               {logoUrl ? (
-                <img src={logoUrl} alt="" className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200" data-testid="edit-officine-logo-preview" />
+                <img src={logoSrc(logoUrl)} alt="" className="h-16 w-16 rounded-lg object-cover ring-1 ring-slate-200" data-testid="edit-officine-logo-preview" />
               ) : (
                 <div className="h-16 w-16 rounded-lg bg-white ring-1 ring-slate-200 flex items-center justify-center">
                   <ImageIcon className="h-6 w-6 text-slate-300" />

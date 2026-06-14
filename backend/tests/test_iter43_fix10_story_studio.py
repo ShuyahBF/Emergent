@@ -274,7 +274,7 @@ class TestLibrary:
 
 
 class TestPublishStub:
-    def test_publish_returns_mocked_warning(self, admin_ctx, db, cleanup):
+    def test_publish_no_targets_400(self, admin_ctx, db, cleanup):
         aid = f"iter43f10_asset_{uuid.uuid4().hex[:8]}"
         cleanup["assets"].append(aid)
         db.story_assets.insert_one({
@@ -282,13 +282,41 @@ class TestPublishStub:
             "prompt": "p", "title": "to-publish", "status": "ready", "url": "/x.mp4",
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
+        # Phase 2: empty targets must be rejected.
         r = requests.post(
             f"{API}/admin/story-studio/library/{aid}/publish",
             headers={**admin_ctx["headers"], "Content-Type": "application/json"},
-            json={"channels": ["instagram", "facebook"], "caption": "Test pub"},
+            json={"targets": [], "caption": "Test"},
+        )
+        assert r.status_code == 400, r.text
+        assert "cible" in r.text.lower()
+
+    def test_publish_draft_mode_persists_post(self, admin_ctx, db, cleanup):
+        aid = f"iter43f10_asset_{uuid.uuid4().hex[:8]}"
+        cleanup["assets"].append(aid)
+        db.story_assets.insert_one({
+            "id": aid, "tenant_id": "t1", "kind": "video", "engine": "sora-2",
+            "prompt": "p", "title": "draft", "status": "ready",
+            "url": f"/admin/story-studio/library/{aid}/media",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        r = requests.post(
+            f"{API}/admin/story-studio/library/{aid}/publish",
+            headers={**admin_ctx["headers"], "Content-Type": "application/json"},
+            json={
+                "mode": "draft",
+                "caption": "Brouillon test",
+                "targets": [
+                    {"social_account_id": "fake-acc-id", "page_id": "fake-page",
+                     "target": "fb_feed"}
+                ],
+            },
         )
         assert r.status_code == 200, r.text
         d = r.json()
-        assert d["ok"] is True
-        assert "MOCKED" in d.get("warning", "") or "Phase 2" in d.get("warning", "")
+        assert d["status"] == "draft"
         cleanup["posts"].append(d["post_id"])
+        # Vérifie en DB
+        post = db.story_posts.find_one({"id": d["post_id"]})
+        assert post["status"] == "draft"
+        assert post["caption"] == "Brouillon test"

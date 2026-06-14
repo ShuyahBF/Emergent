@@ -6,6 +6,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter43-fix13 + Iter43-fix14 (2026-03) — Story Studio Phase 3 + 4 + Cron + Analytics ✅
+
+**Statut** : LIVRÉ + testé (22/22 nouveaux + 34/34 régression = 56/56 ; testing_agent_v3_fork OK — `iteration_62.json`).
+
+### Phase 3 — Multi-tenant monétisation (XOF)
+- Tarif par tenant configurable (4 cibles : fb_feed, ig_story, ig_reel, tiktok).
+- 3 modes : `credits_first` (recommandé), `credits_only` (bloque si 0 solde, 402), `invoice_only`.
+- Crédits prépayés + facture mensuelle auto (status open/paid/cancelled).
+- Le tenant facturé = propriétaire du `social_account` ciblé.
+- Facturation **succès uniquement** (échec publish = pas de débit).
+- 9 endpoints : config, topup, ledger, invoices, summary, tenants list.
+- Onglet « Facturation » avec vue d'ensemble (KPIs + top 10) + détail tenant.
+
+### Phase 4 — TikTok Content Posting API
+- OAuth 2.0 v2 (auth + refresh automatique). Tokens chiffrés Fernet.
+- Direct Post FILE_UPLOAD (`privacy_level=SELF_ONLY` pour sandbox-safe).
+- Section dédiée dans onglet « Comptes Meta » + paramètres avec instructions pas-à-pas.
+- Cible `tiktok` ajoutée au PublishModal.
+
+### P2 Cron Scheduler
+- `POST /api/admin/story-studio/scheduler/tick` (admin) à appeler par cron externe (every 5min recommandé).
+- Sélectionne drafts avec `scheduled_at <= now`, idempotent, supports `?dry_run=true`.
+- Gère asset manquant (failed), solde insuffisant (blocked_credits), futurs ignorés.
+
+### P2 Analytics IG/FB
+- `GET /api/admin/story-studio/posts/{id}/insights`
+- IG : impressions/reach/replies (Stories) ou likes/plays/shares/saved (Reels)
+- FB : views/likes/comments/shares
+- Cache dans `story_posts.insights` + `insights_fetched_at`
+
+### Action utilisateur (TikTok prod)
+1. developers.tiktok.com → Connect an app (Business)
+2. Activer Login Kit + Content Posting API
+3. Scopes : video.upload, video.publish, user.info.basic
+4. Redirect URI : `https://sawalismartsystems.com/api/admin/story-studio/oauth/tiktok/callback`
+5. Démarrer en Sandbox, puis Submit pour production
+6. Renseigner Client Key + Secret dans `/admin/story-studio` → Paramètres → TikTok
+
 ## Iter43-fix12 (2026-03) — Officines Registry : Produits + Activités + Bug /api-routes ✅
 
 **Statut** : LIVRÉ + testé (20/20 pytest ; 107/107 régression ; testing_agent_v3_fork 100% UI — `iteration_61.json`).

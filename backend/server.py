@@ -227,8 +227,13 @@ app = FastAPI(
     description=(
         "API officielle pour le site web de SAWALI SMART SYSTEMS. "
         "Tous les endpoints sont préfixés par /api. "
-        "Documentation interactive : /docs (Swagger) et /redoc."
+        "Documentation interactive : /api/docs (Swagger) et /api/redoc."
     ),
+    # Iter43-fix15 (2026-03) — Swagger/Redoc/OpenAPI doivent être sous /api/*
+    # pour passer par l'ingress Kubernetes (sinon 404 en production).
+    docs_url="/api/docs",
+    redoc_url="/api/redoc",
+    openapi_url="/api/openapi.json",
 )
 api = APIRouter(prefix="/api")
 
@@ -853,7 +858,7 @@ async def health():
 
 @api.get("/version", tags=["Santé"])
 async def version():
-    """Iter35n — Public version stamp. Surfaced on the login page so users
+    """Iter35n — Tag de version public. Affiché sur la page de connexion pour que les utilisateurs
     can confirm which build they are about to authenticate against. Always
     returns 200 (never auth-protected); contains no secrets."""
     return {
@@ -1233,7 +1238,7 @@ class AdminRemoteLinkRequest(BaseModel):
 
 @api.post("/admin/liluvine/remote-link", tags=["Admin"])
 async def admin_liluvine_remote_link(payload: AdminRemoteLinkRequest, request: Request, user: dict = Depends(get_current_admin)):
-    """Generate a long-lived signed link to control Liluvine threshold + level
+    """Génère un lien signé longue durée pour contrôler le seuil et le niveau Liluvine
     from a phone bookmark — without going through the login screen."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     secret = _liluvine_secret(s)
@@ -1265,7 +1270,7 @@ class RemoteSupportUpdate(BaseModel):
 
 @api.get("/public/remote/support/{token}", tags=["Public"])
 async def public_remote_support_state(token: str):
-    """Inspect the current support load + Liluvine config — gated by HMAC token."""
+    """Inspecte la charge support actuelle + la config Liluvine — protégé par jeton HMAC."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     secret = _liluvine_secret(s)
     if not _liluvine_verify(secret, token):
@@ -1489,7 +1494,7 @@ async def _check_slot_available(scheduled_at: str, duration_min: int, exclude_id
 
 @api.get("/availability", tags=["Public"])
 async def availability(date: str = Query(..., description="YYYY-MM-DD")):
-    """Return list of free/busy slots for a given date."""
+    """Renvoie la liste des créneaux libres/occupés pour une date donnée."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     open_t = s.get("business_open_time", "09:00")
     close_t = s.get("business_close_time", "18:00")
@@ -1676,7 +1681,7 @@ async def me_account_detail(user: dict = Depends(get_current_user)):
 
 @api.post("/me/profile-update-request", tags=["Portail Client"])
 async def me_request_profile_update(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
-    """Iter34k — Submit a free-form request to the admin to correct identity,
+    """Iter34k — Soumet une demande libre à l'admin pour corriger l'identité,
     surname spelling, birth date, phone numbers, etc. Stored in
     `db.profile_update_requests` for admin review; admin sees them in
     `/admin/settings` (separate section in a follow-up iter)."""
@@ -1715,7 +1720,7 @@ async def admin_profile_requests_list(
     limit: int = 200,
     _: dict = Depends(get_current_admin),
 ):
-    """Iter34l — List user-submitted requests to update their own profile.
+    """Iter34l — Liste les demandes de mise à jour de profil soumises par les utilisateurs.
     `status` = pending | processed | all. Newest first."""
     q: Dict[str, Any] = {}
     if status in ("pending", "processed"):
@@ -1731,7 +1736,7 @@ async def admin_profile_requests_update(
     payload: Dict[str, Any] = Body(...),
     admin: dict = Depends(get_current_admin),
 ):
-    """Iter34l — Mark a profile-update request as processed (or back to pending)
+    """Iter34l — Marque une demande de mise à jour de profil comme traitée (ou en attente)
     and optionally attach an admin note."""
     existing = await db.profile_update_requests.find_one({"id": req_id})
     if not existing:
@@ -2256,7 +2261,7 @@ def _frontend_origin_from_request(request: Request) -> Optional[str]:
 
 @api.get("/me/payments", tags=["Portail Client"])
 async def me_list_payments(user: dict = Depends(get_current_user)):
-    """List the calling user's recent payments. Admin/superviseur see all.
+    """Liste les paiements récents de l'utilisateur appelant. Admin/superviseur voient tout.
     Plain users see only their own (privacy : amounts can be sensitive)."""
     if user.get("role") in ("admin", "superviseur"):
         items = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
@@ -2433,7 +2438,7 @@ async def webhook_pawapay(secret: str, request: Request):
 
 @api.get("/admin/pawapay/callback-urls", tags=["Admin"])
 async def admin_pawapay_callback_urls(request: Request, _: dict = Depends(get_current_admin)):
-    """Iter38r-fix2 — Returns the 2 callback URLs to paste into the PawaPay
+    """Iter38r-fix2 — Renvoie les 2 URLs de callback à coller dans le dashboard PawaPay
     dashboard. Auto-generates `pawapay_callback_secret` if missing so the
     URLs are always usable. The base host is derived from the incoming
     request so admins on preview get preview URLs and admins on production
@@ -3581,7 +3586,7 @@ async def me_users(user: dict = Depends(get_current_user)):
 
 @api.get("/me/clients", tags=["Portail Client"])
 async def me_clients_light(user: dict = Depends(get_current_user)):
-    """Minimal client list for elevated users (used in suivis/intervention forms).
+    """Liste client minimale pour utilisateurs élevés (utilisée dans les formulaires suivis/intervention).
     Non-elevated users only see their own client record."""
     if _is_elevated_creator(user):
         cursor = db.users.find({"role": {"$in": ["client", "superviseur"]}}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "client_code": 1})
@@ -4166,7 +4171,7 @@ async def admin_update_client_features(client_id: str, payload: ClientFeaturesUp
 
 @api.get("/admin/rgpd-preview/{client_id}", tags=["Admin"])
 async def admin_rgpd_preview(client_id: str, _: dict = Depends(get_current_admin)):
-    """Preview what a non-privileged user of `client_id` would see in their
+    """Prévisualise ce qu'un utilisateur non-privilégié de `client_id` verrait dans son
     portal — applies the parent client's anon flags to a sample of records
     from each anonymized collection (contacts, appointments, interventions,
     documents). Admins use this to audit the RGPD setup without having to
@@ -4208,7 +4213,7 @@ async def admin_rgpd_preview(client_id: str, _: dict = Depends(get_current_admin
 
 @api.get("/me/features", tags=["Portail Client"])
 async def me_get_features(user: dict = Depends(get_current_user)):
-    """Resolve the SMART Communications feature flags for the calling user.
+    """Résout les feature flags SMART Communications pour l'utilisateur appelant.
     Admin & superviseur always have everything enabled. Tracked users inherit
     from their parent client. Plain client users read from their own doc."""
     # Iter38r-fix9k — Global tenant settings exposed via /me/features
@@ -4559,7 +4564,7 @@ async def admin_user_activity(
     limit: int = 10,
     _: dict = Depends(get_current_admin),
 ):
-    """Returns:
+    """Renvoie :
       - last_logins[]: { user_email, user_name, role, company, last_seen_at, hits, last_page }
       - top_pages[]:   { module, page, hits, unique_users }
       - totals: { hits, unique_users, unique_companies }
@@ -4693,7 +4698,7 @@ async def admin_user_activity_heatmap(
     company: Optional[str] = None,
     _: dict = Depends(get_current_admin),
 ):
-    """Returns a 7×24 grid of hit counts (rows = weekdays 0..6 Mon→Sun,
+    """Renvoie une grille 7×24 des compteurs de hits (lignes = jours de semaine 0..6 Lun→Dim,
     cols = hours 0..23 UTC). Useful for identifying peak activity windows.
     Period accepts: today | week | month | quarter | year | days=N (1..365)."""
     period_norm = (period or "month").lower()
@@ -4759,7 +4764,7 @@ async def admin_user_activity_heatmap(
 
 @api.get("/admin/migrate-orphan-data", tags=["Admin"])
 async def admin_inspect_orphan_data(_: dict = Depends(get_current_admin)):
-    """Inspect what the iter28 orphan-data migration WOULD do (no writes).
+    """Inspecte ce que la migration iter28 des données orphelines FERAIT (sans écritures).
     Returns per-user and per-collection counts. Use the POST variant below to
     actually apply the migration."""
     return await _migrate_orphan_client_data(dry_run=True)
@@ -4767,7 +4772,7 @@ async def admin_inspect_orphan_data(_: dict = Depends(get_current_admin)):
 
 @api.post("/admin/migrate-orphan-data", tags=["Admin"])
 async def admin_run_orphan_data_migration(_: dict = Depends(get_current_admin)):
-    """Apply the iter28 orphan-data migration. Idempotent — re-running won't
+    """Applique la migration iter28 des données orphelines. Idempotent — relancer ne
     re-migrate already-migrated rows (guarded by `client_id_legacy` presence).
     """
     return await _migrate_orphan_client_data(dry_run=False)
@@ -4993,7 +4998,7 @@ async def _apply_snapshot(payload: dict, mode: str, dry_run: bool = False) -> di
 
 @api.get("/admin/snapshots", tags=["Admin"])
 async def admin_list_snapshots(_: dict = Depends(get_current_admin)):
-    """List all snapshots ordered by created_at desc."""
+    """Liste tous les instantanés triés par created_at décroissant."""
     docs = [r async for r in db.db_snapshots.find({}, {"_id": 0}).sort("created_at", -1)]
     return {"snapshots": docs, "count": len(docs)}
 
@@ -5030,7 +5035,7 @@ async def _create_snapshot_record(comment: str, mask_secrets: bool, author_id: O
 
 @api.post("/admin/snapshots", tags=["Admin"])
 async def admin_create_snapshot(payload: Dict[str, Any] = Body(default={}), user: dict = Depends(get_current_admin)):
-    """Create a new snapshot of all business collections.
+    """Crée un nouvel instantané de toutes les collections métier.
     Body: {comment?: str, mask_secrets?: bool=True}
     """
     comment = (payload.get("comment") or "").strip()[:500]
@@ -5570,7 +5575,7 @@ async def _sync_roadmap_from_changelog() -> Dict[str, int]:
 
 @api.get("/admin/roadmap-actions", tags=["Admin"])
 async def admin_list_roadmap_actions(_: dict = Depends(get_current_admin)):
-    """List every roadmap action ordered by code asc. Seeds on first call.
+    """Liste toutes les actions de la roadmap triées par code croissant. Initialisée au 1er appel.
     Iter34j: One-shot backfill of `status` for rows that pre-date the field.
     Iter38f: Auto-syncs CHANGELOG.md entries on every call (idempotent)."""
     await _seed_roadmap_actions()
@@ -5902,7 +5907,7 @@ async def admin_import_snapshot(
     comment: str = Form(""),
     user: dict = Depends(get_current_admin),
 ):
-    """Import a snapshot file. mode = 'replace' | 'merge'. dry_run='true' to
+    """Importe un fichier instantané. mode = 'replace' | 'merge'. dry_run='true' pour
     preview what would happen. Always logs into db.db_snapshots with
     kind='import'.
 
@@ -6124,7 +6129,7 @@ def _vault_decrypt(envelope: dict, password: str) -> bytes:
 
 @api.get("/admin/secrets/keys", tags=["Admin"])
 async def admin_list_vault_keys(_: dict = Depends(get_current_admin)):
-    """List the settings keys saved by the vault, and which of them are
+    """Liste les clés de paramètres sauvegardées par le coffre, et lesquelles sont
     currently populated (without revealing values)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     out = []
@@ -6509,7 +6514,7 @@ async def admin_realign_user_to_client(
     payload: Dict[str, Any] = Body(...),
     _: dict = Depends(get_current_admin),
 ):
-    """Apply the realign_plan returned by /admin/client-data-diagnostic.
+    """Applique le realign_plan renvoyé par /admin/client-data-diagnostic.
 
     Body: ``{"email": "user@example.com", "dry_run": false}``.
     The endpoint re-runs the diagnostic, then applies the proposed actions
@@ -6798,7 +6803,7 @@ async def _scan_clients_consistency() -> Dict[str, Any]:
 
 @api.get("/admin/clients-consistency", tags=["Admin"])
 async def admin_clients_consistency(_: dict = Depends(get_current_admin)):
-    """Panoramic view of every multi-user company and whether all its members
+    """Vue panoramique de chaque entreprise multi-utilisateur et indique si tous ses membres
     share the same canonical client_id. Read-only; pair with
     /admin/realign-user-to-client to fix outliers."""
     return await _scan_clients_consistency()
@@ -6866,7 +6871,7 @@ async def admin_realign_all(payload: _RealignAllPayload = Body(...), admin: dict
 # ============================================================
 @api.get("/admin/resolve-company", tags=["Admin"])
 async def admin_resolve_company(company: str, _: dict = Depends(get_current_admin)):
-    """Resolve the canonical client for a given company name.
+    """Résout le client canonique pour un nom d'entreprise donné.
 
     Returns ``{found: bool, canonical_user, member_count}``. The frontend uses
     this to offer auto-link when creating a new user with a known company.
@@ -7041,7 +7046,7 @@ async def admin_set_client_wa_cost(
     payload: Dict[str, Any],
     _: dict = Depends(get_current_admin),
 ):
-    """Update the WhatsApp unit cost (per outbound message) for a client.
+    """Met à jour le coût WhatsApp unitaire (par message sortant) pour un client.
     Accepts {wa_unit_cost: number, wa_currency: str}."""
     update: Dict[str, Any] = {}
     if "wa_unit_cost" in payload:
@@ -8077,7 +8082,7 @@ async def admin_delete_deployment(dep_id: str, _: dict = Depends(get_current_adm
 
 @api.get("/deployments", tags=["Public"])
 async def public_deployments():
-    """Public list, grouped by country, with all solutions and total installations.
+    """Liste publique, groupée par pays, avec toutes les solutions et le total d'installations.
     Returns: [{country, total_installations, solutions: [{name, installations, city, created_at, updated_at}]}]
     """
     items = await db.deployments.find({}, {"_id": 0}).to_list(2000)
@@ -8247,7 +8252,7 @@ def _policy_path(slot: str) -> Path:
 
 @api.get("/admin/policies", tags=["Admin"])
 async def admin_list_policies(request: Request, _: dict = Depends(get_current_admin)):
-    """Return the 3 fixed policy slots with metadata + public share URL."""
+    """Renvoie les 3 slots de politique fixes avec leurs métadonnées + URL de partage public."""
     items = []
     for slot, label in POLICY_SLOTS.items():
         meta = await db.policies.find_one({"slot": slot}, {"_id": 0})
@@ -8522,7 +8527,7 @@ async def serve_file(request: Request, file_id: str):
 
 @api.get("/admin/document-logs", tags=["Admin"])
 async def admin_document_logs(file_id: Optional[str] = None, _: dict = Depends(get_current_admin)):
-    """Returns combined upload + download history. Admin only."""
+    """Renvoie l'historique combiné upload + download. Admin uniquement."""
     query = {}
     if file_id:
         query["file_id"] = file_id
@@ -8539,7 +8544,7 @@ async def me_media_library(
     source: Optional[str] = None,  # Iter35n — filter by `source` (e.g. "whatsapp_inbound")
     user: dict = Depends(get_current_user),
 ):
-    """All media items uploaded by users of the same client. Shared bank.
+    """Tous les médias téléversés par les utilisateurs du même client. Banque partagée.
 
     Iter35n — `source` query filter narrows the listing (typically
     `?source=whatsapp_inbound` to isolate WhatsApp re-saved media).
@@ -8992,7 +8997,7 @@ async def me_ai_summarize(payload: AiSummaryRequest, user: dict = Depends(get_cu
 
 @api.get("/me/ai/summaries", tags=["Portail Client"])
 async def me_list_ai_summaries(limit: int = 50, user: dict = Depends(get_current_user)):
-    """List the calling user's saved AI summaries (admins see everything,
+    """Liste les résumés IA sauvegardés de l'utilisateur appelant (les admins voient tout,
     sorted by created_at desc). Capped at 200 per request to keep UI snappy."""
     cap = min(max(limit, 1), 200)
     if user.get("role") == "admin":
@@ -9025,7 +9030,7 @@ class AiSummaryToReport(BaseModel):
 
 @api.post("/me/ai/summaries/{sid}/to-report", tags=["Portail Client"])
 async def me_summary_to_report(sid: str, payload: AiSummaryToReport, request: Request, user: dict = Depends(get_current_user)):
-    """Convert a saved AI summary into a Report (or a Suivi if a client_id is
+    """Convertit un résumé IA sauvegardé en Rapport (ou en Suivi si un client_id est
     provided alongside an event_date built from the summary date). The body of
     the report contains the rendered summary plus a tiny attribution footer."""
     if not _is_elevated_creator(user):
@@ -9082,7 +9087,7 @@ async def me_summary_to_report(sid: str, payload: AiSummaryToReport, request: Re
 
 @api.get("/me/clients-roster", tags=["Portail Client"])
 async def me_clients_roster(user: dict = Depends(get_current_user)):
-    """Returns a public-safe roster of clients used to populate the company dropdown
+    """Renvoie une liste publique-sûre de clients servant à peupler le dropdown entreprise
     when editing a contact. Includes id, full_name, company, and client_code (ACME)."""
     items = await db.users.find(
         {"role": {"$in": ["client", "superviseur", "admin"]}},
@@ -9100,7 +9105,7 @@ _BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
 
 @api.get("/version", tags=["Public"])
 async def get_version():
-    """Returns the running build's version + last-restart time.
+    """Renvoie la version du build en cours + l'horodatage du dernier redémarrage.
 
     Iter34i: The minor version auto-bumps from the count of delivered
     roadmap actions stored in `db.roadmap_actions`. Manual major releases
@@ -9512,7 +9517,7 @@ async def admin_set_tracked_password(
     payload: TrackedUserSetPassword,
     _: dict = Depends(get_current_admin),
 ):
-    """Provision (or reset) a login for a tracked user.
+    """Provisionne (ou réinitialise) un identifiant pour un utilisateur suivi.
 
     Creates/updates a row in `users` (role=client, account_status=active) bridged via
     `tracked_user_id`. The tracked user can then log in with their email + this password
@@ -9718,7 +9723,7 @@ async def admin_delete_blacklist(ip_id: str, _: dict = Depends(get_current_admin
 # ====================================================================
 @api.get("/me/branding", tags=["Portail Client"])
 async def me_branding(user: dict = Depends(get_current_user)):
-    """Return branding to display in the connected portal sidebar.
+    """Renvoie le branding à afficher dans la sidebar du portail connecté.
     Tracked-users inherit from their client_id; clients/superviseurs use their own logo."""
     logo_url = None
     company = user.get("company")
@@ -10335,7 +10340,7 @@ async def admin_retry_failed_note_service(
 
 @api.get("/me/notes-targets", tags=["Portail Client"])
 async def me_notes_targets(user: dict = Depends(get_current_user)):
-    """Iter35m — Return the list of users that a note/task can be addressed to
+    """Iter35m — Renvoie la liste des utilisateurs auxquels une note/tâche peut être adressée
     when `is_private=True`. The list always starts with "Moi-même" (the caller),
     followed by every other user that shares the same effective client_id —
     i.e. the linked client + every tracked user / admin / superviseur attached
@@ -10410,7 +10415,7 @@ async def me_notes_targets(user: dict = Depends(get_current_user)):
 
 @api.get("/me/notes-summary", tags=["Portail Client"])
 async def me_notes_summary(user: dict = Depends(get_current_user)):
-    """Returns counts and last update timestamps to display dashboard buttons.
+    """Renvoie les compteurs et timestamps de dernière mise à jour pour afficher les boutons du dashboard.
     Elevated users see global counts (all notes); others see only their own.
 
     Iter35g — extended with "notes" and "tasks" kinds (personal user notes/tasks,
@@ -10684,7 +10689,7 @@ async def me_save_contact_as_tracked(
     payload: SaveContactAsTrackedUser,
     user: dict = Depends(get_current_user),
 ):
-    """Same as /admin/contacts/{id}/save-as-tracked-user but also auto-generates a password,
+    """Identique à /admin/contacts/{id}/save-as-tracked-user mais auto-génère aussi un mot de passe,
     creates a bridged users row, optionally emails the credentials, and returns the password.
     """
     if not _is_elevated_creator(user):
@@ -10845,7 +10850,7 @@ async def me_log_access(
     payload: AccessLogCreate,
     user: dict = Depends(get_current_user),
 ):
-    """Records a portal page access. Called by the SPA on each route change."""
+    """Enregistre un accès à une page du portail. Appelé par la SPA à chaque changement de route."""
     await db.access_logs.insert_one({
         "id": _uuid(),
         "user_id": user["id"],
@@ -11603,7 +11608,7 @@ async def admin_health_uptime_stats(window_hours: int = 168, user: dict = Depend
 
 @api.get("/public/status", tags=["Public"])
 async def public_status(window_hours: int = 168):
-    """Public status page data (anyone can fetch). Only public-flagged probes."""
+    """Données de la page de statut publique (accessible à tous). Uniquement les sondes flag public."""
     window_hours = max(1, min(int(window_hours or 168), 24 * 30))
     stats = await _build_uptime_stats(window_hours, public_only=True)
     s = await db.settings.find_one({"_id": "global"}) or {}
@@ -12046,7 +12051,7 @@ async def _send_secret_audit_email(recipient: str, entries: list, actor_email: s
 
 @api.get("/public/incidents", tags=["Public"])
 async def public_list_incidents(limit: int = 30):
-    """Public timeline of incidents (resolved + ongoing). Used by /uptime page."""
+    """Timeline publique des incidents (résolus + en cours). Utilisé par la page /uptime."""
     items = await db.incidents.find(
         {},
         {"_id": 0, "id": 1, "severity": 1, "message": 1, "link_url": 1, "link_label": 1,
@@ -13286,7 +13291,7 @@ async def me_export_contacts_pdf(user: dict = Depends(get_current_user)):
 
 @api.get("/me/contacts", tags=["Portail Client"])
 async def me_list_contacts(user: dict = Depends(get_current_user)):
-    """List ALL contacts of the user's client scope.
+    """Liste TOUS les contacts dans le scope du client de l'utilisateur.
 
     Sharing model (iter29 onward, refined iter34): every contact created by
     ANY user of a client is visible to every other user of the same client
@@ -13612,7 +13617,7 @@ async def me_contact_wa_sync(cid: str, user: dict = Depends(get_current_user)):
 
 @api.get("/me/wa-pending-imports", tags=["Portail Client"])
 async def me_list_wa_pending_imports(user: dict = Depends(get_current_user)):
-    """List unknown phone numbers that have written to our WhatsApp Business
+    """Liste les numéros de téléphone inconnus ayant écrit à notre WhatsApp Business
     line but aren't yet in the directory. Sorted by last_seen_at desc."""
     client_scope = (user.get("client_id") or user.get("id"))
     q = {} if user.get("role") == "admin" else {"client_id": client_scope}
@@ -13634,7 +13639,7 @@ class WaImportByPhoneRequest(BaseModel):
 
 @api.post("/me/wa-import-by-phone", tags=["Portail Client"])
 async def me_wa_import_by_phone(payload: WaImportByPhoneRequest, user: dict = Depends(get_current_user)):
-    """Create a directory contact directly from a phone number (used by the
+    """Crée un contact d'annuaire directement depuis un numéro de téléphone (utilisé par
     Dashboard's "Top expéditeurs" card when the user clicks Import on a sender
     that's not yet in the directory)."""
     digits = "".join(ch for ch in (payload.phone_digits or "") if ch.isdigit())
@@ -14324,7 +14329,7 @@ class WhatsAppSendTextRequest(BaseModel):
 
 @api.post("/me/whatsapp/send-text", tags=["Portail Client"])
 async def me_whatsapp_send_text(payload: WhatsAppSendTextRequest, user: dict = Depends(get_current_user)):
-    """Send a free-form text WhatsApp message — only allowed within the Meta 24h
+    """Envoie un message texte WhatsApp libre — autorisé uniquement dans la fenêtre Meta de 24h
     customer service window (i.e. the contact has written to us in the last 24h)."""
     allowed = (
         user.get("role") in ("client", "admin", "demo")
@@ -14432,7 +14437,7 @@ async def me_whatsapp_send_media(
     file: UploadFile = File(...),
     user: dict = Depends(get_current_user),
 ):
-    """Send a free-form WhatsApp media message inside the Meta 24h window."""
+    """Envoie un message média WhatsApp libre dans la fenêtre Meta de 24h."""
     allowed = (
         user.get("role") in ("client", "admin", "demo")
         or _is_elevated_creator(user)
@@ -14718,7 +14723,7 @@ async def me_wa_media_summary(
     days: int = Query(default=7, ge=1, le=365),
     user: dict = Depends(get_current_user),
 ):
-    """Return a synthesis of WhatsApp inbound media received in the last `days`.
+    """Renvoie une synthèse des médias WhatsApp entrants reçus durant les `days` derniers jours.
 
     Shape:
       {
@@ -14858,7 +14863,7 @@ async def me_wa_reply_stats(
     days: int = Query(default=7, ge=1, le=365),
     user: dict = Depends(get_current_user),
 ):
-    """Return per-user WhatsApp reply-time aggregates for the trailing window.
+    """Renvoie les agrégats de temps de réponse WhatsApp par utilisateur sur la fenêtre courante.
 
     Shape:
       {
@@ -14926,7 +14931,7 @@ async def me_wa_reply_stats(
 # ---------- Unread inbound counters + mark-read ----------
 @api.get("/me/whatsapp/unread", tags=["Portail Client"])
 async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
-    """Return per-contact unread counts plus a global total of inbound WA messages
+    """Renvoie les compteurs de non-lus par contact + un total global des messages WA entrants
     where `read_by_us_at` is null. Used by the sidebar badge and per-contact pastille.
 
     Iter34p — Uses _resolve_visible_client_ids so pastilles stay accurate
@@ -14952,7 +14957,7 @@ async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
 
 @api.post("/me/contacts/{cid}/messages/mark-read", tags=["Portail Client"])
 async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_current_user)):
-    """Mark all inbound WA messages of a given contact as read (sets read_by_us_at)."""
+    """Marque tous les messages WA entrants d'un contact donné comme lus (fixe read_by_us_at)."""
     # Iter34p — Use the visible-scope resolution so we find the contact even
     # when its client_id is one of the historical/peer values (rabo.f-style
     # data is now legitimately accessed via the company bridge).
@@ -15829,7 +15834,7 @@ def _can_send_wa(user: dict) -> bool:
 
 @api.get("/me/messaging/schedules", tags=["Portail Client"])
 async def me_list_schedules(user: dict = Depends(get_current_user)):
-    """List the user's WhatsApp scheduled sends. Admins see everything; portal users
+    """Liste les envois WhatsApp programmés de l'utilisateur. Les admins voient tout ; les utilisateurs portail
     see schedules they created (created_by_id=user.id)."""
     if not _can_send_wa(user):
         raise HTTPException(status_code=403, detail="Rôle non autorisé")
@@ -15904,7 +15909,7 @@ class MeWaBulkRequest(BaseModel):
 
 @api.post("/me/whatsapp/bulk", tags=["Portail Client"])
 async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_current_user)):
-    """Send a Meta-approved WhatsApp template to many CRM contacts at once,
+    """Envoie un modèle WhatsApp approuvé par Meta à plusieurs contacts CRM en une fois,
     with per-contact variable personalization (`{{name}}`, `{{company}}`,
     `{{phone}}`, `{{email}}`, `{{client_code}}` = contact's unique_code, etc).
     Optional `scheduled_at` defers execution to the cron runner.
@@ -16153,7 +16158,7 @@ async def me_delete_schedule(sid: str, user: dict = Depends(get_current_user)):
 
 @api.get("/me/whatsapp/templates", tags=["Portail Client"])
 async def me_list_wa_templates(user: dict = Depends(get_current_user)):
-    """Portal users: list APPROVED templates + only those marked as available.
+    """Utilisateurs portail : liste les modèles APPROUVÉS + uniquement ceux marqués disponibles.
     Attaches the admin-maintained description note."""
     if user.get("role") not in ("client", "admin") and not _is_elevated_creator(user):
         raise HTTPException(status_code=403, detail="Rôle non autorisé")
@@ -16187,7 +16192,7 @@ async def me_list_wa_templates(user: dict = Depends(get_current_user)):
 
 @api.get("/me/contacts/{cid}/messages", tags=["Portail Client"])
 async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
-    """Return the full WhatsApp conversation for a contact of the directory.
+    """Renvoie la conversation WhatsApp complète pour un contact de l'annuaire.
     Includes outbound messages (sent via /me/whatsapp/send), inbound messages
     captured by the Meta webhook, and the status-update timeline
     (sent/delivered/read/failed) with timestamps.
@@ -17049,7 +17054,7 @@ async def admin_list_wa_silence_alerts(
     limit: int = Query(default=50, ge=1, le=200),
     _: dict = Depends(get_current_admin),
 ):
-    """List past silence alerts (audit trail)."""
+    """Liste les alertes de silence passées (piste d'audit)."""
     items = await db.wa_silence_alerts.find({}, {"_id": 0}).sort("fired_at", -1).to_list(limit)
     return {"items": items, "count": len(items)}
 
@@ -17059,7 +17064,7 @@ async def admin_list_wa_silence_alerts(
 
 @api.get("/admin/whatsapp/templates", tags=["Admin"])
 async def admin_list_wa_templates(_: dict = Depends(get_current_admin)):
-    """List all templates from the configured WABA + merge admin notes (description + availability)."""
+    """Liste tous les modèles du WABA configuré + fusionne les notes admin (description + disponibilité)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
     waba_id = s.get("wa_business_account_id")
@@ -17321,7 +17326,7 @@ async def admin_create_wa_template(payload: WaTemplateCreate, _: dict = Depends(
 
 @api.delete("/admin/whatsapp/templates/{name}", tags=["Admin"])
 async def admin_delete_wa_template(name: str, _: dict = Depends(get_current_admin)):
-    """Delete a template by name (deletes ALL languages of this name on the WABA)."""
+    """Supprime un modèle par nom (supprime TOUTES les langues de ce nom sur le WABA)."""
     s = await db.settings.find_one({"_id": "global"}) or {}
     access_token = s.get("wa_access_token")
     waba_id = s.get("wa_business_account_id")
@@ -17573,7 +17578,7 @@ async def admin_messaging_bulk_send(
     payload: AdminBulkSendRequest,
     admin_user: dict = Depends(get_current_admin),
 ):
-    """Send the same WhatsApp template to a list of recipients. Returns a per-recipient result."""
+    """Envoie le même modèle WhatsApp à une liste de destinataires. Renvoie un résultat par destinataire."""
     if not payload.recipients:
         raise HTTPException(status_code=400, detail="Aucun destinataire")
     if not payload.template_name:
@@ -17693,7 +17698,7 @@ async def admin_messaging_history(
 
 @api.get("/admin/messaging/variable-tokens", tags=["Admin"])
 async def admin_messaging_variable_tokens(_: dict = Depends(get_current_admin)):
-    """List of substitution tokens the admin can insert into template variables.
+    """Liste des tokens de substitution que l'admin peut insérer dans les variables de modèle.
     Resolved per-recipient at send time from the client or tracked-user profile."""
     return _wa_variable_tokens()
 
@@ -18385,7 +18390,7 @@ async def _require_owner_or_admin(form: dict, user: dict) -> None:
 
 @api.get("/me/forms", tags=["Formulaires"])
 async def me_list_forms(user: dict = Depends(get_current_user)):
-    """List forms: all of the user's client + all public forms from other clients."""
+    """Liste les formulaires : tous ceux du client de l'utilisateur + tous les formulaires publics d'autres clients."""
     client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else None
     if user.get("role") == "admin":
         query = {}
@@ -18563,7 +18568,7 @@ class SubmissionSave(BaseModel):
 
 @api.get("/me/forms/{form_id}/submission", tags=["Formulaires"])
 async def me_get_my_submission(form_id: str, user: dict = Depends(get_current_user)):
-    """Return the current user's submission for the form (or an empty stub)."""
+    """Renvoie la soumission de l'utilisateur courant pour le formulaire (ou un stub vide)."""
     sub = await db.form_submissions.find_one(
         {"form_id": form_id, "user_id": user["id"]}, {"_id": 0}
     )
@@ -18664,7 +18669,7 @@ async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict =
 
 @api.get("/me/forms/{form_id}/submissions", tags=["Formulaires"])
 async def me_list_form_submissions(form_id: str, user: dict = Depends(get_current_user)):
-    """List all submissions for a form — owner/admin only."""
+    """Liste toutes les soumissions d'un formulaire — propriétaire/admin uniquement."""
     form = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not form:
         raise HTTPException(status_code=404, detail="Formulaire introuvable")
@@ -18683,7 +18688,7 @@ class PublicSubmissionRequest(BaseModel):
 
 @api.get("/public/forms/{form_id}", tags=["Public"])
 async def public_get_form(form_id: str):
-    """Fetch a public form anonymously — only works when `is_public=True`."""
+    """Récupère un formulaire public en anonyme — fonctionne uniquement si `is_public=True`."""
     form = await db.forms.find_one(
         {"id": form_id, "is_public": True},
         {"_id": 0, "id": 1, "number": 1, "title": 1, "description": 1, "pages": 1, "client_code": 1},
@@ -18809,7 +18814,7 @@ async def me_forms_analytics_global(
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
 ):
-    """Global analytics across all forms the user can see.
+    """Analyses globales sur tous les formulaires visibles par l'utilisateur.
     - Admin : tous les formulaires.
     - Client : tous ses formulaires.
     """
@@ -19103,7 +19108,7 @@ class BuildLinkRequest(BaseModel):
 
 @api.get("/integrations/link-actions", tags=["Admin"])
 async def integrations_link_actions(_: dict = Depends(get_current_admin)):
-    """List the supported deep-link actions for the admin UI dropdown."""
+    """Liste les actions deep-link supportées pour le dropdown admin UI."""
     return [{"value": k, "label": v} for k, v in LINK_ACTIONS.items()]
 
 
@@ -19140,7 +19145,7 @@ async def integrations_build_link(request: Request, payload: BuildLinkRequest, _
 
 @api.get("/integrations/resolve-link", tags=["Public"])
 async def integrations_resolve_link(t: str):
-    """Public endpoint — decode a link token, return its claims so the SPA
+    """Endpoint public — décode un jeton de lien, renvoie ses claims pour que la SPA
     can redirect the user to the right route. Never raises on bad tokens;
     returns {valid: false, reason}."""
     try:
@@ -19635,7 +19640,7 @@ async def me_visit_module(fid: str, mid: str, request: Request, user: dict = Dep
 
 @api.post("/me/formations/{fid}/modules/{mid}/visit/{visit_id}/close", tags=["Portail Client"])
 async def me_close_visit(fid: str, mid: str, visit_id: str, user: dict = Depends(get_current_user)):
-    """Records the duration once the user leaves the module."""
+    """Enregistre la durée une fois que l'utilisateur quitte le module."""
     visit = await db.formation_visits.find_one({"id": visit_id, "user_id": user["id"]}, {"_id": 0})
     if not visit:
         return {"ok": True}  # silently ignore
@@ -19660,7 +19665,7 @@ async def me_close_visit(fid: str, mid: str, visit_id: str, user: dict = Depends
 
 @api.post("/me/formations/{fid}/modules/{mid}/ask", tags=["Portail Client"])
 async def me_module_ask(fid: str, mid: str, payload: FormationModuleQuestion, user: dict = Depends(get_current_user)):
-    """Forwards the user's question to the module's external REST API as configured by the admin."""
+    """Transmet la question de l'utilisateur à l'API REST externe du module configurée par l'admin."""
     if not _is_tracked_user(user):
         raise HTTPException(status_code=403, detail="Réservé aux utilisateurs suivis")
     module = await db.formation_modules.find_one({"id": mid, "formation_id": fid}, {"_id": 0})
@@ -20623,7 +20628,7 @@ async def admin_list_subscription_orders(user: dict = Depends(get_current_admin)
 
 @api.get("/public/subscriptions", tags=["Public"])
 async def public_list_subscriptions():
-    """Public: returns active plans grouped by category (max 4 categories)."""
+    """Public : renvoie les plans actifs groupés par catégorie (max 4 catégories)."""
     cats = await db.subscription_categories.find({}, {"_id": 0}).sort("position", 1).to_list(4)
     plans = await db.subscription_plans.find({"active": True}, {"_id": 0, "automation_url": 0, "whatsapp_notify_to": 0}).sort("created_at", 1).to_list(100)
     return {"categories": cats, "plans": plans}
@@ -21384,7 +21389,7 @@ async def me_list_tickets(
 
 @api.get("/me/tickets/pending-count", tags=["Portail Client"])
 async def me_tickets_pending_count(user: dict = Depends(get_current_user)):
-    """Return the number of non-closed tickets in the user's scope.
+    """Renvoie le nombre de tickets non-clos dans le scope de l'utilisateur.
     Used by the sidebar/dashboard badges."""
     scope_filter = await _ticket_scope_for_user(user)
     # Iter38q — exclude archived tickets from counters
@@ -23016,7 +23021,7 @@ async def _migrate_ad_banner_absolute_urls():
 
 @api.get("/files/{file_path:path}", tags=["Files"])
 async def proxy_file_download(file_path: str, request: Request):
-    """Iter38r-fix8 — Proxy endpoint serving files from Emergent Object Storage.
+    """Iter38r-fix8 — Endpoint proxy servant les fichiers depuis Emergent Object Storage.
     Path matches the value `save_and_log()` returned. Public by default for
     most assets (catalog images, avatars, AI media that are already accessible
     by URL); private files would add an auth check here in the future."""

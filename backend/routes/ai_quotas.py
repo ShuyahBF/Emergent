@@ -218,7 +218,7 @@ async def track_ai_usage(
 ) -> Dict[str, Any]:
     """Append a usage event AND increment the monthly rollup.
 
-    Returns:
+    Renvoie :
       {
         "allowed": bool,         # False only when block_on_limit AND already over
         "reason": str | None,    # human-readable blocking reason

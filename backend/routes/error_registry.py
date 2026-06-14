@@ -140,7 +140,7 @@ def attach_error_registry_routes(*, api, db, get_current_user):
         request: Request,
         authorization: Optional[str] = Header(default=None),
     ):
-        """Public webhook for client software to push exceptions/errors.
+        """Webhook public utilisé par les logiciels clients pour pousser des exceptions/erreurs.
 
         Authentication : Bearer token in the `Authorization` header. The
         token must match `settings.global.errors_webhook_token`. If that

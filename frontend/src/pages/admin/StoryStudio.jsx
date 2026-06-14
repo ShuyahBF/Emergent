@@ -418,6 +418,20 @@ function AssetCard({ asset, onShare, onPublish, onDelete }) {
       <div className="p-3 space-y-2">
         <p className="text-sm font-medium text-slate-900 line-clamp-1" title={asset.title}>{asset.title || "Sans titre"}</p>
         <p className="text-[11px] text-slate-500 line-clamp-2">{asset.prompt}</p>
+        {/* Iter43-fix15 — Consommation tokens / coût estimé */}
+        {asset.usage_estimate?.estimated && (
+          <div className="text-[10px] inline-flex items-center gap-1 px-2 py-0.5 rounded bg-violet-50 text-violet-700 ring-1 ring-violet-200"
+               data-testid={`asset-usage-${asset.id}`}
+               title={`${asset.usage_estimate.engine_label} · ${asset.usage_estimate.quantity} ${asset.usage_estimate.unit}(s) × ${asset.usage_estimate.unit_cost_usd}$`}>
+            <Coins className="h-3 w-3" />
+            <span className="font-semibold">
+              {asset.usage_estimate.estimated_cost_xof} XOF
+            </span>
+            <span className="text-violet-500">
+              (~${asset.usage_estimate.estimated_cost_usd?.toFixed(3)})
+            </span>
+          </div>
+        )}
         <div className="flex items-center gap-1 flex-wrap pt-1">
           {isReady && (
             <>

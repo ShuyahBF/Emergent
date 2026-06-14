@@ -1703,7 +1703,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         limit: int = 100,
         user: dict = Depends(get_current_user),
     ):
-        """List the screenshots that clients sent to Liluvine PRO via the
+        """Liste les captures d'écran envoyées par les clients à Liluvine PRO via
         /chat-with-image endpoint. Each entry includes the sender, the
         original client screenshot URL, the Vision analysis (OCR + summary),
         and the top SAWALI matches that Liluvine proposed."""
@@ -2138,7 +2138,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         phone: str,
         user: dict = Depends(get_current_user),
     ):
-        """Search a phone number across ALL tenants. Returns sanitized
+        """Recherche un numéro de téléphone à travers TOUS les tenants. Renvoie une fiche
         contact cards (name, phone, whatsapp, email, company, tags only —
         no client_id, owner_id, internal flags). Available to every
         authenticated user (the leak risk is bounded : caller must already
@@ -2205,7 +2205,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         payload: CrossTenantImportPayload,
         user: dict = Depends(get_current_user),
     ):
-        """Create a contact row in the caller's tenant scope from any
+        """Crée un contact dans le scope du tenant de l'appelant depuis n'importe quel
         matching cross-tenant record. By default only the contact card
         is copied. Admin/superviseur may set `include_messages=True` to
         also pull the WhatsApp history (RGPD-controlled)."""
@@ -2423,7 +2423,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         limit: int = 50,
         user: dict = Depends(get_current_user),
     ):
-        """Return user-image messages where the best Qdrant match is below
+        """Renvoie les messages image utilisateur dont le meilleur match Qdrant est sous
         `min_score` (or no matches at all). These are gaps in the KB:
         clients asked about something the KB doesn't cover. Each entry
         keeps the client image, the Vision analysis, and the user's text

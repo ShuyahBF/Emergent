@@ -585,7 +585,7 @@ def make_router(*, db, get_current_user, decode_token):
     async def me_chat_mark_thread_read(
         client_id: str, thread_key: str, user: dict = Depends(get_current_user)
     ):
-        """Bulk mark every message of a thread as read for current user."""
+        """Marque en masse tous les messages d'un thread comme lus pour l'utilisateur courant."""
         await _ensure_member(user, client_id)
         q: Dict[str, Any] = {"client_id": client_id, "read_by": {"$nin": [user["id"]]}}
         if thread_key == "general":

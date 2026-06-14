@@ -735,7 +735,7 @@ def make_router(*, db, get_current_user):
 
     @router.patch("/collections/{name}")
     async def r_patch(name: str, payload: dict = Body(...), user: dict = Depends(get_current_user)):
-        """Update collection metadata (enabled_for_liluvine, description)."""
+        """Met à jour les métadonnées de la collection (enabled_for_liluvine, description)."""
         _gate(user)
         upd = {}
         if "enabled_for_liluvine" in payload:

@@ -265,7 +265,7 @@ def make_router(*, db, get_current_user, get_current_admin, compute_payslip):
 
     @router.get("/admin/payroll-webhooks/outbound/preview")
     async def preview_outbound(month: str, user: dict = Depends(get_current_admin)):
-        """Returns the JSON that would be sent — useful for review before dispatch."""
+        """Renvoie le JSON qui serait envoyé — utile pour revue avant expédition."""
         if not (month and len(month) == 7 and month[4] == "-"):
             raise HTTPException(status_code=400, detail="Format mois: YYYY-MM")
         return await _build_outbound_payload(user, month)

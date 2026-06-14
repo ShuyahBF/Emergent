@@ -453,6 +453,13 @@ def attach_story_studio_routes(
                 raise RuntimeError("Génération vidéo : aucun fichier produit")
 
             file_size = Path(video_path).stat().st_size
+            # Iter43-fix15 — Estimation de la consommation (tokens/USD/XOF)
+            usage_estimate = _compute_usage_estimate(
+                engine=engine,
+                duration_seconds=payload.duration_seconds,
+                size=payload.size,
+                kind="video",
+            )
             # Iter43-fix10a — URL via endpoint streaming dédié (les fichiers ne sont PAS
             # exposés via static mount sur ce déploiement Kubernetes).
             rel_url = f"/admin/story-studio/library/{asset_id}/media"
@@ -463,6 +470,7 @@ def attach_story_studio_routes(
                     "url": rel_url,
                     "file_path": video_path,  # chemin disque pour le streamer
                     "file_size": file_size,
+                    "usage_estimate": usage_estimate,
                     "updated_at": _now_iso(),
                 }},
             )
@@ -475,6 +483,64 @@ def attach_story_studio_routes(
                 {"$set": {"status": "failed", "error": str(exc), "updated_at": _now_iso()}},
             )
             raise HTTPException(status_code=500, detail=f"Génération échouée : {exc}") from exc
+
+    # ========================================================================
+    # Iter43-fix15 (2026-03) — Estimation de consommation tokens / coût générateur
+    # ========================================================================
+    # Tarifs publics indicatifs (USD) au moment du livrable. Sont stockés tels
+    # quels au moment de la génération pour rester historiquement justes même
+    # si les prix changent. Source : documentation OpenAI/Gemini publique.
+    USAGE_PRICING_USD = {
+        # Video — Sora 2
+        "sora-2": {"unit": "second", "price_per_unit_usd": 0.10,
+                   "label": "Sora 2 (720p)"},
+        "sora-2-pro": {"unit": "second", "price_per_unit_usd": 0.30,
+                       "label": "Sora 2 Pro (1080p)"},
+        # Video — Fal.ai (Kling Master)
+        "kling-master": {"unit": "second", "price_per_unit_usd": 0.28,
+                          "label": "Fal.ai Kling 2.1 Master"},
+        # Image — Nano Banana (Gemini)
+        "nano-banana": {"unit": "image", "price_per_unit_usd": 0.0395,
+                        "label": "Nano Banana (Gemini 3)"},
+    }
+    USD_TO_XOF = 620  # taux d'approximation CFA
+
+    def _compute_usage_estimate(
+        *, engine: str, duration_seconds: Optional[int] = None,
+        size: Optional[str] = None, kind: str = "video",
+    ) -> Dict[str, Any]:
+        """Calcule une estimation de la consommation pour un asset.
+
+        Renvoie un dict structuré inséré dans l'asset MongoDB pour affichage UI."""
+        # Normalisation du moteur
+        key = (engine or "").lower()
+        if key.startswith("fal-ai/kling"):
+            key = "kling-master"
+        pricing = USAGE_PRICING_USD.get(key)
+        if not pricing:
+            return {
+                "engine": engine, "estimated": False,
+                "note": "Tarif non répertorié pour ce moteur",
+            }
+        if kind == "image":
+            qty = 1
+        else:
+            qty = int(duration_seconds or 0) or 0
+        unit_cost = float(pricing["price_per_unit_usd"])
+        total_usd = round(unit_cost * qty, 4)
+        total_xof = int(round(total_usd * USD_TO_XOF))
+        return {
+            "engine": engine,
+            "engine_label": pricing["label"],
+            "unit": pricing["unit"],
+            "quantity": qty,
+            "unit_cost_usd": unit_cost,
+            "estimated_cost_usd": total_usd,
+            "estimated_cost_xof": total_xof,
+            "estimated": True,
+            "size": size,
+            "estimated_at": _now_iso(),
+        }
 
     async def _generate_with_sora(payload: StoryGenerateText2Video, asset_id: str) -> str:
         """Sora 2 via Universal Key Emergent (emergentintegrations)."""
@@ -901,10 +967,16 @@ def attach_story_studio_routes(
             out_path = STORY_DIR / f"img_{asset_id}.png"
             out_path.write_bytes(img_bytes)
             rel_url = f"/admin/story-studio/library/{asset_id}/media"
+            # Iter43-fix15 — Estimation de la consommation (1 image Nano Banana)
+            usage_estimate = _compute_usage_estimate(
+                engine="nano-banana", size="1024x1536", kind="image",
+            )
             await db.story_assets.update_one(
                 {"id": asset_id},
                 {"$set": {"status": "ready", "url": rel_url, "file_path": str(out_path),
-                          "file_size": len(img_bytes), "updated_at": _now_iso()}},
+                          "file_size": len(img_bytes),
+                          "usage_estimate": usage_estimate,
+                          "updated_at": _now_iso()}},
             )
             fresh = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
             return {"ok": True, "asset": fresh}

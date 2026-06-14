@@ -60,7 +60,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
 
     @api.get("/me/inbox/unified", tags=["Portail Client — Inbox"])
     async def unified_inbox(limit: int = Query(40, ge=1, le=200), user: dict = Depends(get_current_user)):
-        """Return up to `limit` threads from WhatsApp + Messenger, recency-sorted.
+        """Renvoie jusqu'à `limit` threads depuis WhatsApp + Messenger, triés par récence.
 
         Each thread groups messages by:
           - WhatsApp: phone number (`to_number` for outbound, `from` for inbound)
@@ -400,7 +400,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
         payload: Dict[str, Any] = Body(...),
         user: dict = Depends(get_current_user),
     ):
-        """Create a contact from an inbox thread that has no matching contact
+        """Crée un contact à partir d'un thread inbox qui n'a aucun contact correspondant
         yet. For WhatsApp channels, also try to pull the public profile (name,
         profile picture URL) via Meta Graph API as a best-effort sync."""
         import uuid

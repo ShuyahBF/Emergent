@@ -590,7 +590,7 @@ def setup_voice_notifications_routes(app, db, get_current_user):
     # ---------------- Manual trigger (auth-gated) ----------------
     @api.post("/voice-notifications/trigger", tags=["Voice Notifications"])
     async def manual_trigger(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
-        """Used by tracked users or admin to dispatch a voice notification
+        """Utilisé par les utilisateurs suivis ou l'admin pour envoyer une notification vocale
         explicitly (e.g. button in the UI). The rule must be enabled."""
         tid = _tenant_id(user)
         event_key = (payload.get("event_key") or "").strip()

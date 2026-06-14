@@ -76,7 +76,7 @@ def setup_stripe_routes(*, db, api, get_current_user, send_email_fn=None):
         fid: str, payload: CheckoutPayload, request: Request,
         user: dict = Depends(get_current_user),
     ):
-        """Create a Stripe Checkout Session for a paid formation."""
+        """Crée une session Stripe Checkout pour une formation payante."""
         formation = await db.formations.find_one({"id": fid}, {"_id": 0})
         if not formation:
             raise HTTPException(status_code=404, detail="Formation introuvable")

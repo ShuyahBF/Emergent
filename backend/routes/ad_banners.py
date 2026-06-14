@@ -923,7 +923,7 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
 
     @api.get("/public/ads-report/{slug}", tags=["Public — Ad Banners"])
     async def public_ads_report(slug: str, token: str = Query(..., min_length=1)):
-        """Iter38r-fix9y — Public live report for an advertiser. Requires the
+        """Iter38r-fix9y — Rapport public en direct pour un annonceur. Nécessite le
         slug + share_token couple (set when the banner is created and
         invalidatable via /admin/ad-banners/{id}/rotate-token). Returns only
         the fields safe to share with the advertiser (no costs the admin paid,
@@ -1065,7 +1065,7 @@ def setup_ad_banners_routes(app, db, get_current_user, wa_send_text=None):
 
     @api.post("/public/ads-report/{slug}/checkout", tags=["Public — Ad Banners"])
     async def public_create_checkout(slug: str, payload: CheckoutPayload, token: str = Query(..., min_length=1)):
-        """Create a Stripe Checkout Session for renewing the campaign.
+        """Crée une session Stripe Checkout pour le renouvellement de la campagne.
 
         Idempotent w.r.t. session_id (returned to the caller). On success
         webhook/poll-status will extend the banner expiration_date by

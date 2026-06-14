@@ -813,7 +813,7 @@ def make_router(*, db, get_current_user):
 
     @router.post("/absences/{aid}/approve")
     async def approve_absence(aid: str, user: dict = Depends(get_current_user)):
-        """Iter40 — Approve an absence (typically a !absence WA request).
+        """Iter40 — Approuve une absence (typiquement une requête !absence WA).
         Sets status='approved' and re-activates the requesting user."""
         if not _can_access_hr(user):
             raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
@@ -845,7 +845,7 @@ def make_router(*, db, get_current_user):
 
     @router.post("/absences/{aid}/reject")
     async def reject_absence(aid: str, user: dict = Depends(get_current_user)):
-        """Iter40 — Reject a pending absence : remove + re-activate user."""
+        """Iter40 — Refuse une absence en attente : suppression + réactivation de l'utilisateur."""
         if not _can_access_hr(user):
             raise HTTPException(status_code=403, detail="Accès réservé au module GRH")
         scope = await _scoped(user)
@@ -1479,7 +1479,7 @@ def make_router(*, db, get_current_user):
         country: Optional[str] = Query(None, min_length=2, max_length=4),
         user: dict = Depends(get_current_user),
     ):
-        """Import known fixed-date holidays for the given year/country.
+        """Importe les jours fériés à date fixe connus pour l'année/pays donnés.
         Country code defaults to the tenant's configured default (BF if none).
         Returns {created, skipped, items: [...]}.
         Mobile religious holidays (Aïd, Mawlid) must be added manually."""
@@ -1764,7 +1764,7 @@ def make_router(*, db, get_current_user):
         bonus_month: Optional[str] = Form(None),
         user: dict = Depends(get_current_user),
     ):
-        """0-3 — Apply a catalog template to an employee. For allowances,
+        """0-3 — Applique un modèle de catalogue à un employé. Pour les indemnités,
         creates a hr_allowances row; for bonuses, creates a hr_bonuses row
         (bonus_month required). The amount can be overridden via the
         `amount` form field, otherwise uses default_amount from catalog."""

@@ -37,7 +37,7 @@ def attach_vidal_dashboard_routes(*, api, db, get_current_admin):
         days: int = Query(30, ge=1, le=365),
         user: dict = Depends(get_current_admin),
     ):
-        """Return aggregated VIDAL usage for the last `days` days."""
+        """Renvoie l'usage VIDAL agrégé pour les `days` derniers jours."""
         cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).date().isoformat()
         # 1. Daily totals (sum over all users per day)
         daily_pipeline = [
@@ -107,7 +107,7 @@ def attach_vidal_dashboard_routes(*, api, db, get_current_admin):
         days: int = Query(30, ge=1, le=365),
         user: dict = Depends(get_current_admin),
     ):
-        """Return officines API usage : top searches, public !aizenta consumption."""
+        """Renvoie l'usage de l'API officines : top recherches, consommation publique !aizenta."""
         cutoff_dt = datetime.now(timezone.utc) - timedelta(days=days)
         cutoff_iso = cutoff_dt.date().isoformat()
 

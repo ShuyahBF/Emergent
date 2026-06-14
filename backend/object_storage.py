@@ -182,7 +182,7 @@ async def save_and_log(
 ) -> Dict[str, Any]:
     """Uploads `data` and logs the reference in `stored_objects`.
 
-    Returns:
+    Renvoie :
       {
         "path": <remote path>,
         "url":  <proxy URL the frontend can use: /api/files/{path}>,

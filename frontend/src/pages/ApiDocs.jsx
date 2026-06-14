@@ -19,7 +19,11 @@ export default function ApiDocs() {
     (acc[key] = acc[key] || []).push(r);
     return acc;
   }, {});
-  const backend = process.env.REACT_APP_BACKEND_URL;
+  // Iter43-fix15 (2026-03) — utilise window.location.origin (runtime) plutôt que
+  // process.env.REACT_APP_BACKEND_URL (build-time) pour que les liens Swagger/Redoc
+  // pointent vers le domaine actuel (preview ou production) et non vers l'URL
+  // capturée au moment du build.
+  const backend = typeof window !== "undefined" ? window.location.origin : (process.env.REACT_APP_BACKEND_URL || "");
 
   return (
     <div className="min-h-screen bg-slate-50" data-testid="api-docs-page">
@@ -29,13 +33,13 @@ export default function ApiDocs() {
           <h1 className="mt-3 text-4xl font-display font-bold">Documentation de l'API SAWALI</h1>
           <p className="mt-3 text-slate-300 max-w-2xl">Tous les endpoints GET / POST / PUT / DELETE disponibles, regroupés par section.</p>
           <div className="mt-6 flex flex-wrap gap-3 text-sm">
-            <a href={`${backend}/docs`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue px-4 py-2 hover:bg-sawali-blue-light">
+            <a href={`${backend}/api/docs`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue px-4 py-2 hover:bg-sawali-blue-light">
               <ExternalLink className="h-4 w-4" /> Swagger UI interactif
             </a>
-            <a href={`${backend}/redoc`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 hover:bg-white/5">
+            <a href={`${backend}/api/redoc`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 hover:bg-white/5">
               <Code2 className="h-4 w-4" /> ReDoc
             </a>
-            <a href={`${backend}/openapi.json`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 hover:bg-white/5">
+            <a href={`${backend}/api/openapi.json`} target="_blank" rel="noreferrer" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-4 py-2 hover:bg-white/5">
               <Database className="h-4 w-4" /> openapi.json
             </a>
           </div>
@@ -44,7 +48,7 @@ export default function ApiDocs() {
 
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8 py-12 space-y-10">
         <p className="text-sm text-slate-600">
-          <strong>Base URL :</strong> <code className="bg-slate-100 px-2 py-1 rounded text-sawali-blue">{backend}</code>.
+          <strong>Base URL :</strong> <code className="bg-slate-100 px-2 py-1 rounded text-sawali-blue">{backend}/api</code>.
           Authentification via token JWT (header <code>Authorization: Bearer &lt;token&gt;</code>) pour les routes <code>/me/*</code> et <code>/admin/*</code>.
         </p>
         {Object.entries(grouped).map(([tag, list]) => (

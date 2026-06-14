@@ -288,7 +288,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
 
     @api.get("/i18n/translations", tags=["i18n"])
     async def i18n_public_dictionary(lang: str = "fr"):
-        """Return {key: text} for the requested language. Falls back to FR
+        """Renvoie {key: text} pour la langue demandée. Bascule sur FR
         when the row has an empty value for that language."""
         if lang not in LANG_CODES:
             raise HTTPException(status_code=400, detail=f"Langue non supportée : {lang}")
@@ -309,7 +309,7 @@ def attach_i18n_routes(api: APIRouter, *, db: Any, get_current_user: Any) -> Non
     # ----------------------------------------------------------
     @api.get("/i18n/detect", tags=["i18n"])
     async def i18n_detect_region(request: Request):
-        """Return {"suggested_lang": "fr|en|ar"} based on Cloudflare / CDN
+        """Renvoie {"suggested_lang": "fr|en|ar"} basé sur les en-têtes Cloudflare / CDN
         country headers or `Accept-Language`. Best-effort — defaults to FR."""
         country = (
             request.headers.get("cf-ipcountry")

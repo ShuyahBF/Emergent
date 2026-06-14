@@ -65,6 +65,15 @@ GRAPH_BASE = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
 GRAPH_VIDEO_BASE = f"https://graph-video.facebook.com/{GRAPH_API_VERSION}"
 RUPLOAD_IG_BASE = f"https://rupload.facebook.com/ig-api-upload/{GRAPH_API_VERSION}"
 
+# Iter43-fix14 — TikTok Content Posting API (v2)
+TIKTOK_AUTH_URL = "https://www.tiktok.com/v2/auth/authorize/"
+TIKTOK_TOKEN_URL = "https://open.tiktokapis.com/v2/oauth/token/"
+TIKTOK_REVOKE_URL = "https://open.tiktokapis.com/v2/oauth/revoke/"
+TIKTOK_USERINFO_URL = "https://open.tiktokapis.com/v2/user/info/"
+TIKTOK_DIRECT_POST_INIT_URL = "https://open.tiktokapis.com/v2/post/publish/video/init/"
+TIKTOK_STATUS_FETCH_URL = "https://open.tiktokapis.com/v2/post/publish/status/fetch/"
+TIKTOK_OAUTH_SCOPES = ["video.upload", "video.publish", "user.info.basic"]
+
 # Default scopes requested when connecting a Meta Business account.
 META_OAUTH_SCOPES = [
     "public_profile",
@@ -270,11 +279,44 @@ class PageActivationUpdate(BaseModel):
 
 
 # ----------------------------------------------------------------------------
+# Iter43-fix13 (2026-03) — Phase 3 multi-tenant monétisation
+# Tarif par tenant + crédits prépayés + facture mensuelle
+# ----------------------------------------------------------------------------
+class TenantPublishPricing(BaseModel):
+    fb_feed: int = Field(200, ge=0, description="XOF par publication Facebook Feed")
+    ig_story: int = Field(300, ge=0, description="XOF par publication Instagram Story")
+    ig_reel: int = Field(500, ge=0, description="XOF par publication Instagram Reel")
+    tiktok: int = Field(500, ge=0, description="XOF par publication TikTok (Phase 4)")
+
+
+class TenantPublishConfigUpsert(BaseModel):
+    pricing: TenantPublishPricing = Field(default_factory=TenantPublishPricing)
+    currency: str = Field("XOF", min_length=3, max_length=8)
+    billing_mode: str = Field("credits_first",
+                              pattern="^(credits_first|invoice_only|credits_only)$")
+    monthly_invoice_day: int = Field(1, ge=1, le=28,
+                                      description="Jour du mois pour clôturer la facture (1-28)")
+    notes: Optional[str] = None
+
+
+class CreditTopupRequest(BaseModel):
+    amount_xof: int = Field(..., ge=100, description="Montant à créditer en XOF")
+    reason: str = Field("admin_topup", max_length=100)
+    note: Optional[str] = None
+
+
+# ----------------------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------------------
 def _now_iso_dup() -> str:
     """Kept for backward-compat — use module-level `_now_iso` introduced above."""
     return _now_iso()
+
+
+def _period_yyyymm(dt: Optional[datetime] = None) -> str:
+    """'202603' format pour facturation mensuelle."""
+    d = dt or datetime.now(timezone.utc)
+    return f"{d.year:04d}{d.month:02d}"
 
 
 def attach_story_studio_routes(
@@ -553,6 +595,21 @@ def attach_story_studio_routes(
             acc = await db_.social_accounts.find_one({"id": target.social_account_id})
             if not acc:
                 return {"ok": False, "error": "Compte social introuvable"}
+
+            file_path = asset_doc.get("file_path")
+            if not file_path or not Path(file_path).exists():
+                return {"ok": False, "error": "Fichier vidéo introuvable"}
+
+            # TikTok : pas de notion de Page, on appelle directement
+            if target.target == "tiktok":
+                if acc.get("provider") != "tiktok":
+                    return {"ok": False, "error": "Le compte social n'est pas un compte TikTok"}
+                return await _publish_tiktok_video(
+                    account_id=target.social_account_id,
+                    file_path=file_path, caption=caption,
+                )
+
+            # Meta : nécessite Page + token
             if acc.get("provider") != "meta":
                 return {"ok": False, "error": "Cible non Meta non supportée"}
             page = next((p for p in (acc.get("pages") or []) if p.get("page_id") == target.page_id), None)
@@ -562,10 +619,6 @@ def attach_story_studio_routes(
             user_token = _dec(acc.get("long_lived_user_token_encrypted"))
             if not page_token:
                 return {"ok": False, "error": "Token de Page indisponible — relancez Rafraîchir"}
-
-            file_path = asset_doc.get("file_path")
-            if not file_path or not Path(file_path).exists():
-                return {"ok": False, "error": "Fichier vidéo introuvable"}
 
             if target.target == "fb_feed":
                 return await _publish_facebook_video(
@@ -674,6 +727,133 @@ def attach_story_studio_routes(
                 return {"ok": False, "error": f"Pas de media_id à la publication : {pub!r:.200}"}
             return {"ok": True, "channel_id": media_id, "platform": "instagram",
                     "ig_target": media_type.lower()}
+
+    # ========================================================================
+    # Iter43-fix13 — Phase 3 multi-tenant billing helpers (closure over db)
+    # ========================================================================
+    DEFAULT_PRICING = {"fb_feed": 200, "ig_story": 300, "ig_reel": 500, "tiktok": 500}
+
+    async def _get_tenant_billing_config(tenant_id: str) -> Dict[str, Any]:
+        if not tenant_id:
+            return {
+                "tenant_id": "", "pricing": DEFAULT_PRICING.copy(),
+                "currency": "XOF", "billing_mode": "credits_first",
+                "credits_balance": 0, "monthly_invoice_day": 1,
+            }
+        doc = await db.tenant_publish_config.find_one({"tenant_id": tenant_id}, {"_id": 0})
+        if not doc:
+            return {
+                "tenant_id": tenant_id, "pricing": DEFAULT_PRICING.copy(),
+                "currency": "XOF", "billing_mode": "credits_first",
+                "credits_balance": 0, "monthly_invoke_day": 1, "monthly_invoice_day": 1,
+            }
+        merged = DEFAULT_PRICING.copy()
+        merged.update(doc.get("pricing") or {})
+        doc["pricing"] = merged
+        return doc
+
+    async def _resolve_billing_tenant(post_doc: Dict[str, Any], targets: List[PublishTarget]) -> Optional[str]:
+        """Le tenant facturé = celui qui possède le 1er social_account ciblé."""
+        if not targets:
+            return post_doc.get("tenant_id")
+        first = targets[0]
+        acc = await db.social_accounts.find_one(
+            {"id": first.social_account_id}, {"_id": 0, "tenant_id": 1},
+        )
+        return (acc or {}).get("tenant_id") or post_doc.get("tenant_id")
+
+    async def _charge_publication(
+        *, tenant_id: str, post_id: str, target: PublishTarget,
+        success: bool, asset_id: str, channel_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Facture (succès uniquement) : débit crédits OU provision facture mensuelle."""
+        if not tenant_id or not success:
+            return {"cost": 0, "currency": "XOF", "mode": "free", "billed": False}
+        cfg = await _get_tenant_billing_config(tenant_id)
+        cost = int(cfg["pricing"].get(target.target, 0))
+        currency = cfg["currency"]
+        billing_mode = cfg["billing_mode"]
+        balance = int(cfg.get("credits_balance") or 0)
+
+        debit_credits = 0
+        invoice_debit = 0
+        if cost == 0:
+            settlement = "free"
+        elif billing_mode == "credits_only":
+            if balance < cost:
+                settlement = "unbilled_no_credits"
+                invoice_debit = cost
+            else:
+                debit_credits = cost
+                settlement = "credits"
+        elif billing_mode == "invoice_only":
+            invoice_debit = cost
+            settlement = "invoice"
+        else:  # credits_first
+            if balance >= cost:
+                debit_credits = cost
+                settlement = "credits"
+            else:
+                debit_credits = balance
+                invoice_debit = cost - balance
+                settlement = "mixed" if debit_credits else "invoice"
+
+        new_balance = balance - debit_credits
+        if debit_credits > 0:
+            await db.tenant_publish_config.update_one(
+                {"tenant_id": tenant_id},
+                {"$inc": {"credits_balance": -debit_credits},
+                 "$set": {"updated_at": _now_iso()}},
+                upsert=True,
+            )
+
+        await db.tenant_publish_ledger.insert_one({
+            "id": str(uuid.uuid4()), "tenant_id": tenant_id,
+            "type": "publish_charge", "post_id": post_id, "asset_id": asset_id,
+            "target": target.target, "social_account_id": target.social_account_id,
+            "channel_id": channel_id, "cost": cost, "currency": currency,
+            "debit_credits": debit_credits, "invoice_debit": invoice_debit,
+            "balance_after": new_balance, "settlement": settlement,
+            "period": _period_yyyymm(), "created_at": _now_iso(),
+        })
+
+        if invoice_debit > 0:
+            period = _period_yyyymm()
+            await db.tenant_publish_invoices.update_one(
+                {"tenant_id": tenant_id, "period": period},
+                {"$setOnInsert": {
+                    "id": str(uuid.uuid4()), "tenant_id": tenant_id,
+                    "period": period, "currency": currency,
+                    "status": "open", "created_at": _now_iso(),
+                },
+                 "$inc": {"amount_due": invoice_debit, "publications_count": 1},
+                 "$set": {"updated_at": _now_iso()}},
+                upsert=True,
+            )
+
+        return {
+            "cost": cost, "currency": currency, "mode": settlement, "billed": True,
+            "debit_credits": debit_credits, "invoice_debit": invoice_debit,
+            "balance_after": new_balance,
+        }
+
+    async def _check_credits_before_publish(
+        tenant_id: str, targets: List[PublishTarget],
+    ) -> Optional[str]:
+        """Pre-flight (mode credits_only uniquement)."""
+        if not tenant_id or not targets:
+            return None
+        cfg = await _get_tenant_billing_config(tenant_id)
+        if cfg["billing_mode"] != "credits_only":
+            return None
+        total = sum(int(cfg["pricing"].get(t.target, 0)) for t in targets)
+        balance = int(cfg.get("credits_balance") or 0)
+        if balance < total:
+            return (
+                f"Crédits insuffisants : {balance} {cfg['currency']} disponibles, "
+                f"{total} {cfg['currency']} requis."
+            )
+        return None
 
     # ========================================================================
     # GÉNÉRATION TEXT-TO-IMAGE (Nano Banana) - format Story 1080x1920
@@ -990,24 +1170,47 @@ def attach_story_studio_routes(
             "created_by": user.get("email"),
         }
 
+        # Iter43-fix13 — Phase 3 : déterminer le tenant facturé
+        billing_tenant_id = await _resolve_billing_tenant(post_doc, payload.targets)
+        post_doc["billing_tenant_id"] = billing_tenant_id
+
         # Mode brouillon : aucune action Meta, juste persiste.
         if payload.mode == "draft":
             await db.story_posts.insert_one(post_doc.copy())
             return {"ok": True, "post_id": post_id, "status": "draft",
                     "message": "Brouillon enregistré. Publiez-le plus tard depuis la bibliothèque."}
 
+        # Iter43-fix13 — pré-flight check credits si billing_mode=credits_only
+        credit_err = await _check_credits_before_publish(billing_tenant_id, payload.targets)
+        if credit_err:
+            post_doc["status"] = "blocked_credits"
+            post_doc["completed_at"] = _now_iso()
+            post_doc["billing_error"] = credit_err
+            await db.story_posts.insert_one(post_doc.copy())
+            raise HTTPException(status_code=402, detail=credit_err)
+
         # Mode immédiat : appel Meta Graph API pour chaque cible.
         results: List[Dict[str, Any]] = []
+        billing_summary: List[Dict[str, Any]] = []
         for tgt in payload.targets:
             res = await _publish_single_target(
                 db_=db, asset_doc=doc, target=tgt,
                 caption=post_doc["caption"], asset_id=asset_id,
             )
-            results.append({**tgt.model_dump(), **res})
+            # Iter43-fix13 — Facturation succès uniquement
+            charge = await _charge_publication(
+                tenant_id=billing_tenant_id or "", post_id=post_id, target=tgt,
+                success=bool(res.get("ok")), asset_id=asset_id,
+                channel_id=res.get("channel_id"),
+            )
+            billing_summary.append({**tgt.model_dump(), **charge})
+            results.append({**tgt.model_dump(), **res, "billing": charge})
 
         any_failed = any(not r.get("ok") for r in results)
         any_success = any(r.get("ok") for r in results)
         post_doc["results"] = results
+        post_doc["billing_summary"] = billing_summary
+        post_doc["total_cost"] = sum(int(b.get("cost") or 0) for b in billing_summary if b.get("billed"))
         post_doc["status"] = (
             "failed" if not any_success else ("partial" if any_failed else "published")
         )
@@ -1019,6 +1222,8 @@ def attach_story_studio_routes(
             "post_id": post_id,
             "status": post_doc["status"],
             "results": results,
+            "total_cost": post_doc["total_cost"],
+            "currency": "XOF",
         }
 
     # Publish a draft (mode=immediate) later
@@ -1027,27 +1232,251 @@ def attach_story_studio_routes(
         post = await db.story_posts.find_one({"id": post_id}, {"_id": 0})
         if not post:
             raise HTTPException(status_code=404, detail="Post introuvable")
-        if post.get("status") not in ("draft", "failed"):
+        if post.get("status") not in ("draft", "failed", "blocked_credits"):
             raise HTTPException(status_code=400, detail=f"Post déjà en état '{post.get('status')}'")
         asset = await db.story_assets.find_one({"id": post["asset_id"]}, {"_id": 0})
         if not asset:
             raise HTTPException(status_code=404, detail="Asset associé introuvable")
         targets = [PublishTarget(**t) for t in post.get("targets", [])]
+
+        # Iter43-fix13 — re-check billing
+        billing_tenant_id = post.get("billing_tenant_id") or await _resolve_billing_tenant(post, targets)
+        credit_err = await _check_credits_before_publish(billing_tenant_id, targets)
+        if credit_err:
+            await db.story_posts.update_one(
+                {"id": post_id},
+                {"$set": {"status": "blocked_credits", "billing_error": credit_err,
+                          "completed_at": _now_iso()}},
+            )
+            raise HTTPException(status_code=402, detail=credit_err)
+
         results: List[Dict[str, Any]] = []
+        billing_summary: List[Dict[str, Any]] = []
         for tgt in targets:
             res = await _publish_single_target(
                 db_=db, asset_doc=asset, target=tgt,
                 caption=post.get("caption") or "", asset_id=asset["id"],
             )
-            results.append({**tgt.model_dump(), **res})
+            charge = await _charge_publication(
+                tenant_id=billing_tenant_id or "", post_id=post_id, target=tgt,
+                success=bool(res.get("ok")), asset_id=asset["id"],
+                channel_id=res.get("channel_id"),
+            )
+            billing_summary.append({**tgt.model_dump(), **charge})
+            results.append({**tgt.model_dump(), **res, "billing": charge})
         any_failed = any(not r.get("ok") for r in results)
         any_success = any(r.get("ok") for r in results)
         new_status = "failed" if not any_success else ("partial" if any_failed else "published")
+        total_cost = sum(int(b.get("cost") or 0) for b in billing_summary if b.get("billed"))
         await db.story_posts.update_one(
             {"id": post_id},
-            {"$set": {"status": new_status, "results": results, "completed_at": _now_iso()}},
+            {"$set": {
+                "status": new_status, "results": results,
+                "billing_summary": billing_summary, "total_cost": total_cost,
+                "billing_tenant_id": billing_tenant_id,
+                "completed_at": _now_iso(),
+            }},
         )
-        return {"ok": any_success, "status": new_status, "results": results}
+        return {"ok": any_success, "status": new_status, "results": results,
+                "total_cost": total_cost, "currency": "XOF"}
+
+    # ========================================================================
+    # Iter43-fix13 — Phase 3 multi-tenant monétisation (endpoints)
+    # ========================================================================
+    @api.get("/admin/story-studio/billing/tenants/{tenant_id}/config",
+             tags=["Admin — Story Studio Billing"])
+    async def get_tenant_billing_config(tenant_id: str, _: dict = Depends(get_current_admin)):
+        return await _get_tenant_billing_config(tenant_id)
+
+    @api.put("/admin/story-studio/billing/tenants/{tenant_id}/config",
+             tags=["Admin — Story Studio Billing"])
+    async def update_tenant_billing_config(
+        tenant_id: str,
+        payload: TenantPublishConfigUpsert,
+        user: dict = Depends(get_current_admin),
+    ):
+        existing = await db.tenant_publish_config.find_one({"tenant_id": tenant_id}) or {}
+        update_doc = {
+            "tenant_id": tenant_id,
+            "pricing": payload.pricing.model_dump(),
+            "currency": payload.currency,
+            "billing_mode": payload.billing_mode,
+            "monthly_invoice_day": payload.monthly_invoice_day,
+            "notes": payload.notes,
+            "updated_at": _now_iso(),
+            "updated_by": user.get("email"),
+        }
+        if not existing:
+            update_doc["id"] = str(uuid.uuid4())
+            update_doc["credits_balance"] = 0
+            update_doc["created_at"] = _now_iso()
+        await db.tenant_publish_config.update_one(
+            {"tenant_id": tenant_id}, {"$set": update_doc}, upsert=True,
+        )
+        return await _get_tenant_billing_config(tenant_id)
+
+    @api.post("/admin/story-studio/billing/tenants/{tenant_id}/credits/topup",
+              tags=["Admin — Story Studio Billing"])
+    async def topup_credits(
+        tenant_id: str,
+        payload: CreditTopupRequest,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Ajoute des crédits manuellement (admin only). Pour un topup via
+        Stripe/PawaPay, créer d'abord la session de paiement côté CRM, puis
+        appeler cet endpoint dans le webhook de confirmation."""
+        cfg = await _get_tenant_billing_config(tenant_id)
+        new_balance = int(cfg.get("credits_balance") or 0) + int(payload.amount_xof)
+        await db.tenant_publish_config.update_one(
+            {"tenant_id": tenant_id},
+            {"$set": {"credits_balance": new_balance, "updated_at": _now_iso(),
+                      "updated_by": user.get("email")},
+             "$setOnInsert": {
+                 "id": str(uuid.uuid4()), "tenant_id": tenant_id,
+                 "pricing": DEFAULT_PRICING.copy(),
+                 "currency": "XOF", "billing_mode": "credits_first",
+                 "monthly_invoice_day": 1, "created_at": _now_iso(),
+             }},
+            upsert=True,
+        )
+        # Ledger entry
+        await db.tenant_publish_ledger.insert_one({
+            "id": str(uuid.uuid4()), "tenant_id": tenant_id, "type": "topup",
+            "amount": int(payload.amount_xof), "currency": cfg["currency"],
+            "balance_after": new_balance,
+            "reason": payload.reason, "note": payload.note,
+            "actor": user.get("email"),
+            "period": _period_yyyymm(), "created_at": _now_iso(),
+        })
+        return {"ok": True, "tenant_id": tenant_id, "balance": new_balance,
+                "currency": cfg["currency"]}
+
+    @api.get("/admin/story-studio/billing/tenants/{tenant_id}/ledger",
+             tags=["Admin — Story Studio Billing"])
+    async def get_tenant_ledger(
+        tenant_id: str,
+        limit: int = Query(100, ge=1, le=500),
+        offset: int = Query(0, ge=0),
+        type_filter: Optional[str] = Query(None, alias="type"),
+        _: dict = Depends(get_current_admin),
+    ):
+        q: Dict[str, Any] = {"tenant_id": tenant_id}
+        if type_filter:
+            q["type"] = type_filter
+        total = await db.tenant_publish_ledger.count_documents(q)
+        items = await (
+            db.tenant_publish_ledger.find(q, {"_id": 0})
+            .sort("created_at", -1).skip(offset).limit(limit).to_list(limit)
+        )
+        return {"items": items, "total": total, "offset": offset, "limit": limit}
+
+    @api.get("/admin/story-studio/billing/tenants/{tenant_id}/invoices",
+             tags=["Admin — Story Studio Billing"])
+    async def list_tenant_invoices(tenant_id: str, _: dict = Depends(get_current_admin)):
+        items = await db.tenant_publish_invoices.find(
+            {"tenant_id": tenant_id}, {"_id": 0},
+        ).sort("period", -1).to_list(200)
+        return {"items": items}
+
+    @api.put("/admin/story-studio/billing/invoices/{invoice_id}/status",
+             tags=["Admin — Story Studio Billing"])
+    async def update_invoice_status(
+        invoice_id: str,
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Marque une facture comme payée / annulée / en attente."""
+        new_status = (payload.get("status") or "").lower()
+        if new_status not in {"open", "paid", "cancelled"}:
+            raise HTTPException(status_code=400, detail="Statut invalide (open|paid|cancelled)")
+        r = await db.tenant_publish_invoices.update_one(
+            {"id": invoice_id},
+            {"$set": {"status": new_status, "updated_at": _now_iso(),
+                      "updated_by": user.get("email"),
+                      **({"paid_at": _now_iso()} if new_status == "paid" else {})}},
+        )
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Facture introuvable")
+        return {"ok": True, "status": new_status}
+
+    @api.get("/admin/story-studio/billing/summary",
+             tags=["Admin — Story Studio Billing"])
+    async def billing_summary(_: dict = Depends(get_current_admin)):
+        """Vue agrégée : total crédits en circulation, factures du mois, top consommateurs."""
+        period = _period_yyyymm()
+        total_credits_agg = await db.tenant_publish_config.aggregate([
+            {"$group": {"_id": None, "total": {"$sum": "$credits_balance"}}}
+        ]).to_list(1)
+        total_credits = int(total_credits_agg[0]["total"]) if total_credits_agg else 0
+
+        current_invoices = await db.tenant_publish_invoices.find(
+            {"period": period}, {"_id": 0},
+        ).to_list(500)
+        current_total = sum(int(d.get("amount_due") or 0) for d in current_invoices)
+        open_count = sum(1 for d in current_invoices if d.get("status") == "open")
+
+        top_consumers = await db.tenant_publish_ledger.aggregate([
+            {"$match": {"type": "publish_charge", "period": period}},
+            {"$group": {
+                "_id": "$tenant_id",
+                "total_cost": {"$sum": "$cost"},
+                "publications": {"$sum": 1},
+            }},
+            {"$sort": {"total_cost": -1}},
+            {"$limit": 10},
+        ]).to_list(10)
+
+        return {
+            "period": period,
+            "currency": "XOF",
+            "total_credits_in_circulation": total_credits,
+            "current_period_invoices_total": current_total,
+            "current_period_open_invoices": open_count,
+            "top_consumers": [
+                {"tenant_id": d["_id"], "total_cost": int(d.get("total_cost") or 0),
+                 "publications": int(d.get("publications") or 0)}
+                for d in top_consumers
+            ],
+        }
+
+    @api.get("/admin/story-studio/billing/tenants",
+             tags=["Admin — Story Studio Billing"])
+    async def list_tenants_with_billing(_: dict = Depends(get_current_admin)):
+        """Liste tous les tenants ayant déjà une config billing OU au moins un social_account."""
+        # Tenants ayant un config
+        cfg_tenants = await db.tenant_publish_config.find({}, {"_id": 0}).to_list(500)
+        cfg_map = {c["tenant_id"]: c for c in cfg_tenants}
+
+        # Tenants ayant des social_accounts
+        sa_tenants_cur = db.social_accounts.distinct("tenant_id")
+        sa_tenants = await sa_tenants_cur
+        for tid in sa_tenants:
+            if tid and tid not in cfg_map:
+                cfg_map[tid] = {
+                    "tenant_id": tid, "pricing": DEFAULT_PRICING.copy(),
+                    "currency": "XOF", "billing_mode": "credits_first",
+                    "credits_balance": 0, "monthly_invoice_day": 1,
+                }
+        # Enrichir avec stats du mois courant
+        period = _period_yyyymm()
+        items = list(cfg_map.values())
+        for it in items:
+            tid = it["tenant_id"]
+            ledger_agg = await db.tenant_publish_ledger.aggregate([
+                {"$match": {"tenant_id": tid, "type": "publish_charge", "period": period}},
+                {"$group": {"_id": None, "total": {"$sum": "$cost"},
+                            "count": {"$sum": 1}}},
+            ]).to_list(1)
+            it["current_period_total"] = int(ledger_agg[0]["total"]) if ledger_agg else 0
+            it["current_period_publications"] = int(ledger_agg[0]["count"]) if ledger_agg else 0
+            # User info enrich (si possible)
+            user = await db.users.find_one({"id": tid}, {"_id": 0, "email": 1, "name": 1, "company": 1})
+            if user:
+                it["tenant_email"] = user.get("email")
+                it["tenant_label"] = user.get("name") or user.get("company") or user.get("email")
+        items.sort(key=lambda x: x.get("current_period_total", 0), reverse=True)
+        return {"items": items, "period": period}
+
 
     # List posts history
     @api.get("/admin/story-studio/posts", tags=["Admin — Story Studio"])
@@ -1317,5 +1746,409 @@ def attach_story_studio_routes(
             raise HTTPException(status_code=410, detail="Fichier introuvable")
         media_type = "video/mp4" if doc.get("kind") == "video" else "image/png"
         return FileResponse(fpath, media_type=media_type)
+
+    # ========================================================================
+    # Iter43-fix14 — Phase 4 TikTok OAuth 2.0 + Direct Post API
+    # ========================================================================
+    async def _get_tiktok_credentials() -> tuple[Optional[str], Optional[str]]:
+        doc = await db.settings.find_one({"_id": "global"}) or {}
+        st = doc.get("story_studio") or {}
+        return st.get("tiktok_client_key"), st.get("tiktok_client_secret")
+
+    async def _resolve_tiktok_redirect_uri() -> str:
+        doc = await db.settings.find_one({"_id": "global"}) or {}
+        st = doc.get("story_studio") or {}
+        configured = st.get("tiktok_redirect_uri")
+        if configured:
+            return configured
+        base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        if not base:
+            raise HTTPException(status_code=500, detail="PUBLIC_BASE_URL non défini")
+        return f"{base}/api/admin/story-studio/oauth/tiktok/callback"
+
+    async def _get_valid_tiktok_token(account_id: str) -> str:
+        """Retourne un access_token valide, en rafraîchissant si nécessaire."""
+        acc = await db.social_accounts.find_one({"id": account_id})
+        if not acc or acc.get("provider") != "tiktok":
+            raise HTTPException(status_code=404, detail="Compte TikTok introuvable")
+        now = datetime.now(timezone.utc)
+        # Si l'access token est encore valide > 5min
+        exp_str = acc.get("access_token_expires_at")
+        if exp_str:
+            exp_dt = datetime.fromisoformat(exp_str.replace("Z", "+00:00"))
+            if (exp_dt - now).total_seconds() > 300:
+                tok = _dec(acc.get("access_token_encrypted"))
+                if tok:
+                    return tok
+        # Refresh
+        refresh_tok = _dec(acc.get("refresh_token_encrypted"))
+        if not refresh_tok:
+            raise HTTPException(status_code=401, detail="Refresh token indisponible — reconnectez TikTok")
+        client_key, client_secret = await _get_tiktok_credentials()
+        if not client_key or not client_secret:
+            raise HTTPException(status_code=500, detail="TikTok credentials manquants")
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            r = await client.post(TIKTOK_TOKEN_URL, data={
+                "client_key": client_key, "client_secret": client_secret,
+                "grant_type": "refresh_token", "refresh_token": refresh_tok,
+            }, headers={"Content-Type": "application/x-www-form-urlencoded"})
+        if r.status_code >= 400:
+            raise HTTPException(status_code=502, detail=f"TikTok refresh erreur : {r.text[:200]}")
+        data = r.json().get("data") or r.json()
+        new_access = data["access_token"]
+        new_refresh = data.get("refresh_token", refresh_tok)
+        expires_in = int(data.get("expires_in") or 86400)
+        refresh_expires_in = int(data.get("refresh_expires_in") or 31536000)
+        await db.social_accounts.update_one(
+            {"id": account_id},
+            {"$set": {
+                "access_token_encrypted": _enc(new_access),
+                "refresh_token_encrypted": _enc(new_refresh),
+                "access_token_expires_at": (now + timedelta(seconds=expires_in)).isoformat(),
+                "refresh_token_expires_at": (now + timedelta(seconds=refresh_expires_in)).isoformat(),
+                "updated_at": _now_iso(),
+            }},
+        )
+        return new_access
+
+    @api.get("/admin/story-studio/oauth/tiktok/start", tags=["Admin — Story Studio"])
+    async def tiktok_oauth_start(
+        tenant_id: Optional[str] = Query(None),
+        return_to: Optional[str] = Query(None),
+        user: dict = Depends(get_current_admin),
+    ):
+        ck, cs = await _get_tiktok_credentials()
+        if not ck or not cs:
+            raise HTTPException(
+                status_code=400,
+                detail="TikTok Client Key/Secret non configurés. Renseignez-les dans Paramètres → TikTok.",
+            )
+        redirect_uri = await _resolve_tiktok_redirect_uri()
+        tenant = tenant_id or user.get("parent_client_id") or user["id"]
+        state = _oauth_state_encode({
+            "tenant_id": tenant, "caller_id": user["id"],
+            "caller_email": user.get("email"),
+            "return_to": return_to or "/admin/story-studio",
+            "provider": "tiktok",
+        })
+        scope = ",".join(TIKTOK_OAUTH_SCOPES)
+        params = {
+            "client_key": ck, "response_type": "code", "scope": scope,
+            "redirect_uri": redirect_uri, "state": state,
+        }
+        auth_url = f"{TIKTOK_AUTH_URL}?{urllib.parse.urlencode(params)}"
+        return {"auth_url": auth_url, "redirect_uri": redirect_uri}
+
+    @api.get("/admin/story-studio/oauth/tiktok/callback", tags=["Admin — Story Studio"])
+    async def tiktok_oauth_callback(
+        request: Request,
+        code: Optional[str] = Query(None),
+        state: Optional[str] = Query(None),
+        error: Optional[str] = Query(None),
+        error_description: Optional[str] = Query(None),
+    ):
+        frontend_base = (os.environ.get("PUBLIC_BASE_URL") or "").rstrip("/")
+        return_to = "/admin/story-studio"
+        try:
+            if state:
+                try:
+                    st = _oauth_state_decode(state)
+                    return_to = st.get("return_to") or "/admin/story-studio"
+                except HTTPException:
+                    pass
+            if error:
+                msg = error_description or error
+                return RedirectResponse(url=f"{frontend_base}{return_to}?tiktok_oauth=error&reason={urllib.parse.quote(msg)}")
+            if not code or not state:
+                raise HTTPException(status_code=400, detail="Paramètres manquants")
+            st = _oauth_state_decode(state)
+            tenant_id = st["tenant_id"]
+            ck, cs = await _get_tiktok_credentials()
+            if not ck or not cs:
+                raise HTTPException(status_code=500, detail="TikTok credentials manquants")
+            redirect_uri = await _resolve_tiktok_redirect_uri()
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                tok_resp = await client.post(TIKTOK_TOKEN_URL, data={
+                    "client_key": ck, "client_secret": cs, "code": code,
+                    "grant_type": "authorization_code", "redirect_uri": redirect_uri,
+                }, headers={"Content-Type": "application/x-www-form-urlencoded"})
+                if tok_resp.status_code >= 400:
+                    raise HTTPException(status_code=502, detail=f"TikTok token erreur : {tok_resp.text[:300]}")
+                token_data = tok_resp.json().get("data") or tok_resp.json()
+                access_token = token_data["access_token"]
+                refresh_token = token_data["refresh_token"]
+                expires_in = int(token_data.get("expires_in") or 86400)
+                refresh_expires_in = int(token_data.get("refresh_expires_in") or 31536000)
+                open_id = token_data.get("open_id")
+
+                # Get user info
+                ui_resp = await client.get(
+                    TIKTOK_USERINFO_URL,
+                    params={"fields": "open_id,union_id,avatar_url,display_name"},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                user_info = (ui_resp.json().get("data") or {}).get("user") or {}
+
+            now = datetime.now(timezone.utc)
+            doc = {
+                "tenant_id": tenant_id, "provider": "tiktok", "status": "connected",
+                "tiktok_open_id": open_id or user_info.get("open_id"),
+                "tiktok_display_name": user_info.get("display_name"),
+                "tiktok_avatar_url": user_info.get("avatar_url"),
+                "access_token_encrypted": _enc(access_token),
+                "refresh_token_encrypted": _enc(refresh_token),
+                "access_token_expires_at": (now + timedelta(seconds=expires_in)).isoformat(),
+                "refresh_token_expires_at": (now + timedelta(seconds=refresh_expires_in)).isoformat(),
+                "scopes": TIKTOK_OAUTH_SCOPES,
+                "updated_at": _now_iso(),
+                "connected_by_email": st.get("caller_email"),
+            }
+            existing = await db.social_accounts.find_one({
+                "tenant_id": tenant_id, "provider": "tiktok",
+                "tiktok_open_id": doc["tiktok_open_id"],
+            })
+            if existing:
+                await db.social_accounts.update_one({"id": existing["id"]}, {"$set": doc})
+                account_id = existing["id"]
+            else:
+                doc["id"] = str(uuid.uuid4())
+                doc["created_at"] = _now_iso()
+                doc["account_label"] = f"TikTok — {user_info.get('display_name') or 'compte'}"
+                doc["account_id"] = doc["tiktok_open_id"]
+                await db.social_accounts.insert_one(doc.copy())
+                account_id = doc["id"]
+            return RedirectResponse(
+                url=f"{frontend_base}{return_to}?tiktok_oauth=connected&social_account_id={account_id}",
+            )
+        except HTTPException as exc:
+            return RedirectResponse(
+                url=f"{frontend_base}{return_to}?tiktok_oauth=error&reason={urllib.parse.quote(str(exc.detail))}",
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[story_studio] tiktok oauth callback error")
+            return RedirectResponse(
+                url=f"{frontend_base}{return_to}?tiktok_oauth=error&reason={urllib.parse.quote(str(exc))}",
+            )
+
+    async def _publish_tiktok_video(*, account_id: str, file_path: str, caption: str) -> Dict[str, Any]:
+        """Publie une vidéo via Direct Post (FILE_UPLOAD, single chunk)."""
+        access_token = await _get_valid_tiktok_token(account_id)
+        try:
+            file_bytes = Path(file_path).read_bytes()
+        except OSError as exc:
+            return {"ok": False, "error": f"Fichier illisible : {exc}"}
+        total_size = len(file_bytes)
+        if total_size == 0:
+            return {"ok": False, "error": "Fichier vide"}
+
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            # 1) Init Direct Post
+            init_body = {
+                "post_info": {
+                    "title": caption[:150],
+                    "privacy_level": "SELF_ONLY",  # SELF_ONLY garanti pour sandbox; en prod, on peut passer PUBLIC_TO_EVERYONE
+                    "disable_duet": False,
+                    "disable_comment": False,
+                    "disable_stitch": False,
+                },
+                "source_info": {
+                    "source": "FILE_UPLOAD",
+                    "video_size": total_size,
+                    "chunk_size": total_size,
+                    "total_chunk_count": 1,
+                },
+            }
+            init_resp = await client.post(
+                TIKTOK_DIRECT_POST_INIT_URL,
+                json=init_body,
+                headers={"Authorization": f"Bearer {access_token}",
+                         "Content-Type": "application/json; charset=utf-8"},
+            )
+            if init_resp.status_code >= 400:
+                return {"ok": False, "error": f"TikTok init {init_resp.status_code}: {init_resp.text[:200]}"}
+            init_data = init_resp.json().get("data") or init_resp.json()
+            upload_url = init_data.get("upload_url")
+            publish_id = init_data.get("publish_id")
+            if not upload_url:
+                return {"ok": False, "error": f"Pas d'upload_url : {init_data!r:.200}"}
+
+            # 2) Binary upload (single chunk)
+            upload_resp = await client.put(
+                upload_url, content=file_bytes,
+                headers={
+                    "Content-Type": "video/mp4",
+                    "Content-Length": str(total_size),
+                    "Content-Range": f"bytes 0-{total_size - 1}/{total_size}",
+                },
+            )
+            if upload_resp.status_code not in (200, 201, 204):
+                return {"ok": False, "error": f"TikTok upload {upload_resp.status_code}: {upload_resp.text[:200]}"}
+
+            return {"ok": True, "channel_id": publish_id, "platform": "tiktok"}
+
+    # ========================================================================
+    # Iter43-fix14 — Phase 2 Cron Scheduler (drafts scheduled_at → publish)
+    # ========================================================================
+    @api.post("/admin/story-studio/scheduler/tick", tags=["Admin — Story Studio"])
+    async def scheduler_tick(
+        max_posts: int = Query(20, ge=1, le=200),
+        dry_run: bool = Query(False),
+        _: dict = Depends(get_current_admin),
+    ):
+        """Endpoint à appeler par un cron externe (ex: every 5min) qui passe les
+        posts `draft` avec `scheduled_at <= now` en `publishing` puis les exécute.
+
+        Idempotent : ne traite que les posts pas encore exécutés."""
+        now_iso = _now_iso()
+        candidates = await db.story_posts.find({
+            "mode": "draft",
+            "status": "draft",
+            "scheduled_at": {"$lte": now_iso, "$ne": None},
+        }, {"_id": 0}).sort("scheduled_at", 1).limit(max_posts).to_list(max_posts)
+
+        if dry_run:
+            return {"would_process": len(candidates), "candidates": [
+                {"id": p["id"], "scheduled_at": p.get("scheduled_at"),
+                 "asset_id": p.get("asset_id")}
+                for p in candidates
+            ]}
+
+        processed: List[Dict[str, Any]] = []
+        for post in candidates:
+            asset = await db.story_assets.find_one({"id": post["asset_id"]}, {"_id": 0})
+            if not asset:
+                await db.story_posts.update_one(
+                    {"id": post["id"]},
+                    {"$set": {"status": "failed", "billing_error": "Asset introuvable",
+                              "completed_at": now_iso}},
+                )
+                processed.append({"id": post["id"], "status": "failed", "reason": "asset_missing"})
+                continue
+            targets = [PublishTarget(**t) for t in post.get("targets", [])]
+            billing_tenant_id = post.get("billing_tenant_id") or await _resolve_billing_tenant(post, targets)
+            credit_err = await _check_credits_before_publish(billing_tenant_id, targets)
+            if credit_err:
+                await db.story_posts.update_one(
+                    {"id": post["id"]},
+                    {"$set": {"status": "blocked_credits", "billing_error": credit_err,
+                              "completed_at": now_iso}},
+                )
+                processed.append({"id": post["id"], "status": "blocked_credits"})
+                continue
+            results = []
+            billing_summary = []
+            for tgt in targets:
+                res = await _publish_single_target(
+                    db_=db, asset_doc=asset, target=tgt,
+                    caption=post.get("caption") or "", asset_id=asset["id"],
+                )
+                charge = await _charge_publication(
+                    tenant_id=billing_tenant_id or "", post_id=post["id"], target=tgt,
+                    success=bool(res.get("ok")), asset_id=asset["id"],
+                    channel_id=res.get("channel_id"),
+                )
+                billing_summary.append({**tgt.model_dump(), **charge})
+                results.append({**tgt.model_dump(), **res, "billing": charge})
+            any_failed = any(not r.get("ok") for r in results)
+            any_success = any(r.get("ok") for r in results)
+            new_status = "failed" if not any_success else ("partial" if any_failed else "published")
+            await db.story_posts.update_one(
+                {"id": post["id"]},
+                {"$set": {"status": new_status, "results": results,
+                          "billing_summary": billing_summary,
+                          "total_cost": sum(int(b.get("cost") or 0) for b in billing_summary if b.get("billed")),
+                          "completed_at": now_iso,
+                          "executed_by_scheduler": True}},
+            )
+            processed.append({"id": post["id"], "status": new_status})
+
+        return {"processed": len(processed), "results": processed}
+
+    # ========================================================================
+    # Iter43-fix14 — Phase 2 Analytics IG/FB Insights
+    # ========================================================================
+    @api.get("/admin/story-studio/posts/{post_id}/insights",
+             tags=["Admin — Story Studio"])
+    async def fetch_post_insights(post_id: str, _: dict = Depends(get_current_admin)):
+        """Récupère likes/reach/impressions pour chaque cible d'un post publié.
+
+        - IG : utilise /v23.0/{ig_media_id}/insights
+        - FB : utilise /v23.0/{video_id}/video_insights (ou /insights selon disponibilité)
+        - TikTok : non encore supporté (Phase 5)
+        """
+        post = await db.story_posts.find_one({"id": post_id}, {"_id": 0})
+        if not post:
+            raise HTTPException(status_code=404, detail="Post introuvable")
+        if post.get("status") not in ("published", "partial"):
+            raise HTTPException(status_code=400, detail=f"Post non publié (status={post.get('status')})")
+
+        results: List[Dict[str, Any]] = []
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            for r in (post.get("results") or []):
+                if not r.get("ok"):
+                    continue
+                target = r.get("target")
+                channel_id = r.get("channel_id")
+                if not channel_id:
+                    continue
+
+                # Trouve le compte social et son token
+                acc = await db.social_accounts.find_one({"id": r.get("social_account_id")})
+                if not acc:
+                    results.append({"target": target, "channel_id": channel_id,
+                                    "error": "Compte social introuvable"})
+                    continue
+
+                try:
+                    if target in ("ig_story", "ig_reel"):
+                        user_token = _dec(acc.get("long_lived_user_token_encrypted"))
+                        if not user_token:
+                            raise ValueError("Token IG indisponible")
+                        # IG Insights métriques (varient selon le type)
+                        metrics = (
+                            "impressions,reach,replies"
+                            if target == "ig_story"
+                            else "comments,likes,plays,reach,total_interactions,shares,saved"
+                        )
+                        ins = await _meta_get(client, f"{GRAPH_BASE}/{channel_id}/insights", {
+                            "metric": metrics, "access_token": user_token,
+                        })
+                        kv = {d["name"]: d.get("values", [{}])[0].get("value") for d in ins.get("data", [])}
+                        results.append({"target": target, "channel_id": channel_id, "platform": "instagram",
+                                        "metrics": kv})
+                    elif target == "fb_feed":
+                        # FB Page Video : besoin du page_token
+                        page_id = r.get("page_id")
+                        page = next((p for p in (acc.get("pages") or [])
+                                     if p.get("page_id") == page_id), None)
+                        page_token = _dec((page or {}).get("page_access_token_encrypted"))
+                        if not page_token:
+                            raise ValueError("Token de Page FB indisponible")
+                        ins = await _meta_get(client, f"{GRAPH_BASE}/{channel_id}", {
+                            "fields": "views,likes.summary(true),comments.summary(true),shares",
+                            "access_token": page_token,
+                        })
+                        results.append({"target": target, "channel_id": channel_id, "platform": "facebook",
+                                        "metrics": {
+                                            "views": ins.get("views"),
+                                            "likes": (ins.get("likes") or {}).get("summary", {}).get("total_count"),
+                                            "comments": (ins.get("comments") or {}).get("summary", {}).get("total_count"),
+                                            "shares": (ins.get("shares") or {}).get("count"),
+                                        }})
+                    elif target == "tiktok":
+                        results.append({"target": target, "channel_id": channel_id,
+                                        "error": "TikTok insights non encore supporté"})
+                except HTTPException as exc:
+                    results.append({"target": target, "channel_id": channel_id, "error": str(exc.detail)})
+                except Exception as exc:  # noqa: BLE001
+                    results.append({"target": target, "channel_id": channel_id, "error": str(exc)})
+
+        # Cache dans le post pour évite re-fetch
+        await db.story_posts.update_one(
+            {"id": post_id},
+            {"$set": {"insights": results, "insights_fetched_at": _now_iso()}},
+        )
+        return {"post_id": post_id, "insights": results}
 
     logger.info("[story_studio] routes mounted (Phase 1 MVP)")

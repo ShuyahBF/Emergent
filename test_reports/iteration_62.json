@@ -1,0 +1,58 @@
+{
+  "summary": "Iter43-fix13 (Phase 3 Billing) + fix14 (Phase 4 TikTok + Cron + Analytics) end-to-end backend testing — 22/22 NEW pytest GREEN + 34/34 REGRESSION GREEN (test_iter43_fix10_story_studio + test_iter43_fix11_meta_oauth + test_iter60_p2_extras). All required UI testids verified present in source via grep (tab-billing, billing-tab-summary, billing-tab-tenants, billing-summary, stat-credits-circulation, stat-invoices-current, stat-top-consumers, tenants-list, view-tenant-{id}, edit-config-btn, config-edit-modal, billing-mode-select, pricing-{fb_feed/ig_story/ig_reel/tiktok}, topup-credits-btn, topup-modal, topup-amount, topup-submit, mark-paid-{id}, connect-tiktok-btn, tiktok-creds-missing, tiktok-setup-help, settings-tiktok-client-key, settings-tiktok-client-secret, settings-tiktok-redirect, target-tiktok-{accId}).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix13_billing.py",
+    "/app/backend/tests/test_iter43_fix14_tiktok_cron_analytics.py",
+    "/app/test_reports/pytest/iter62_phase3_4.xml"
+  ],
+  "tests_executed": {
+    "iter43_fix13_billing": "12/12 PASSED (config defaults XOF/credits_first/200-300-500-500/balance 0 ; PUT persist pricing+mode+notes ; topup +ledger 2 entries cumulatives ; topup<100 → 422 ; credits_only sans balance → 402+blocked_credits ; échec publish ne décrémente PAS ; invoice paid_at populé ; status invalide → 400 ; invoice 404 ; summary contient credits_in_circulation+top_consumers ; tenants list avec current_period_total+publications ; ledger pagination + filtre type)",
+    "iter43_fix14_tiktok_cron_analytics": "10/10 PASSED (OAuth start 400 sans creds ; auth_url tiktok.com/v2/auth/authorize/ avec scopes video.publish+video.upload+state ; callback ?error=access_denied → 302/307 + ?tiktok_oauth=error ; settings masque tiktok_client_secret + expose *_set=true ; scheduler dry_run liste les drafts passés sans exécuter ; asset manquant → failed ; drafts futurs ignorés ; insights 404 si post inconnu ; insights 400 si draft ; publish target=tiktok sur compte Meta → results[].error mentionne 'TikTok')",
+    "regression": "test_iter43_fix10 + fix11 + iter60_p2 = 34/34 PASSED en 0.44s"
+  },
+  "ui_testids_verified_in_source": [
+    "StoryStudio.jsx ligne 102+107 : tab-billing (Wallet icon, label 'Facturation')",
+    "ligne 1298 billing-tab + 1302 billing-tab-summary + 1307 billing-tab-tenants",
+    "ligne 1346 billing-summary + StatCard testid 'stat-credits-circulation' (1352), 'stat-invoices-current' (1359), 'stat-top-consumers' (1366)",
+    "ligne 1439 tenants-list ; ligne 1475 view-tenant-${tenant_id}",
+    "ligne 1533 topup-credits-btn + 1546 edit-config-btn",
+    "ligne 1588 mark-paid-${invoice_id}",
+    "ligne 1675 config-edit-modal + 1688 billing-mode-select + 1704 pricing-${k} (k ∈ fb_feed/ig_story/ig_reel/tiktok)",
+    "ligne 1756 topup-modal + 1771 topup-amount + 1788 topup-submit",
+    "ligne 667 connect-tiktok-btn + 675 tiktok-creds-missing (warning amber affiché si pas de credentials)",
+    "ligne 1210 tiktok-setup-help (section pink) + 1232 settings-tiktok-client-key + 1238 settings-tiktok-client-secret + 1244/1267 settings-tiktok-redirect",
+    "ligne 897 target-tiktok-${acc.id} dans PublishModal"
+  ],
+  "ui_live_testing_status": "BLOCKED (test harness limitation, NOT a product bug). Le login UI exige password + OTP (dev_otp), or chaque nouveau appel /api/auth/login régénère un nouveau session_token+OTP et invalide le précédent. Tentatives via form submission + /api/auth/verify-otp ont rencontré des 422/race-conditions sur le harness Playwright. Note pour main agent : la régression backend complète (22 nouveaux + 34 régression) couvre 100 % des endpoints listés ; les testids requis sont prouvés présents par grep source. Le main agent peut self-test en manuel (login admin + OTP réel + onglet Facturation).",
+  "action_items": [
+    "Aucune action backend nécessaire — Phase 3 + Phase 4 + Cron + Analytics opérationnels (22/22 + 34/34 régression).",
+    "Recommandation main agent : valider manuellement en navigateur l'ouverture des modales config-edit-modal et topup-modal après login OTP, puisque le harness Playwright a buté sur le flow OTP (limitation purement test, pas un bug applicatif).",
+    "OPTION future : exposer un endpoint dev-only /api/auth/dev-login (admin-only via JWT_SECRET) pour faciliter l'automation UI sans OTP (utile pour Playwright CI)."
+  ],
+  "critical_code_review_comments": [
+    "StoryStudio.jsx fait 1797 lignes — au-dessus du seuil 700 lignes recommandé. À séparer en sous-modules : GenerateTab, LibraryTab, SocialAccountsTab, PostsHistoryTab, BillingTab (avec BillingSummary, TenantsList, TenantBillingDetail, ConfigEditModal, TopupModal), SettingsTab, PublishModal, ShareWhatsAppModal. Maintenance difficile en l'état.",
+    "Bonne pratique observée : le testid 'top-consumer-${tenant_id}' est correctement présent (ligne 1382) bien que non explicitement listé dans la review_request — utile pour Playwright.",
+    "Phase 3 backend (helpers _resolve_billing_tenant, _charge_publication, _check_credits_before_publish) et Phase 4 (OAuth tiktok start/callback + cron tick + analytics) sont bien isolés dans /app/backend/routes/story_studio.py — pattern propre. Couverture pytest exhaustive : XOF, credits_first/credits_only/invoice_only, ledger pagination+filter, invoice CRUD/404/400, summary aggregation, tenants list aggregation, OAuth state, masking secret, dry_run/asset-missing/future-ignored, insights 404/400, TikTok guard sur Meta-account.",
+    "Sécurité : tiktok_client_secret correctement masqué dans GET /admin/story-studio/settings (Phase 4 test_tiktok_secret_masked passe). Idem Meta secret vérifié en iter43_fix11."
+  ],
+  "updated_files": [],
+  "success_rate": {
+    "backend": "100% (22/22 nouveaux + 34/34 régression = 56/56)",
+    "frontend": "100% des testids requis vérifiés au niveau code (source grep). Test UI live bloqué par OTP automation harness (limitation testing, pas bug produit)."
+  },
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 + OTP via dev_otp dans /api/auth/login response (note: chaque appel régénère un nouveau OTP — utiliser le tout dernier)",
+  "seed_data_creation": "Tests pytest créent tenants iter43f13_t_* / iter43f14_p_* / iter43f14_a_* / iter43f14_sa_* + collections tenant_publish_config/ledger/invoices + story_assets/posts/social_accounts — nettoyés en teardown par fixture cleanup. Settings TikTok client_key/secret restaurés à 'aw_test_iter43f14' / 'real-secret-iter43f14' en fin de test (non nettoyés, à reset par main agent si besoin).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Phase 3 (multi-tenant monétisation XOF credits_first/credits_only/invoice_only + ledger + invoices + summary) et Phase 4 (TikTok OAuth + secret masking + scheduler tick dry_run/normal + analytics insights + TikTok guard sur Meta-account) sont 100% verts côté backend. Frontend testids présents en source. Le harness Playwright a buté sur l'OTP flow (race-conditions /api/auth/login régénère OTP). Pour automation UI complète : ajouter endpoint dev-login ou patcher l'OTP via mock settings. Aucun blocker fonctionnel détecté. Cron tick est un endpoint manuel POST /api/admin/story-studio/scheduler/tick (paramètre ?dry_run=true) — pas de scheduler interne automatique (volontaire, voir agent_to_agent_context_note).",
+  "rca of the issue": "N/A — aucun bug détecté."
+}

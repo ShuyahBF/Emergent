@@ -13,7 +13,11 @@ import {
   Trash2, RefreshCw, Wand2, Settings as SettingsIcon, AlertTriangle,
   Smartphone, Copy, X, Clock, Send, Instagram, Facebook, CheckCircle2,
   Plug, PlugZap, Eye, History as HistoryIcon,
+  Wallet, FileText as FileTextIcon, TrendingUp, Coins,
 } from "lucide-react";
+
+// Helper formatter pour montants XOF
+const fmtXOF = (n) => `${Number(n || 0).toLocaleString("fr-FR")} XOF`;
 
 export default function StoryStudio() {
   const [tab, setTab] = React.useState("generate"); // generate | library | social | history | settings
@@ -42,14 +46,14 @@ export default function StoryStudio() {
 
   React.useEffect(() => { loadLibrary(); loadSettings(); }, [loadLibrary, loadSettings]);
 
-  // Iter43-fix11 — Handle OAuth callback return (redirect from Meta)
+  // Iter43-fix11 — Handle OAuth callback return (redirect from Meta/TikTok)
   React.useEffect(() => {
     const oauth = searchParams.get("meta_oauth");
+    const tiktok = searchParams.get("tiktok_oauth");
     if (oauth === "connected") {
       const pages = searchParams.get("pages") || "?";
       toast.success(`Meta connecté ! ${pages} Page(s) découverte(s).`);
       setTab("social");
-      // Clean URL
       searchParams.delete("meta_oauth");
       searchParams.delete("social_account_id");
       searchParams.delete("pages");
@@ -59,6 +63,20 @@ export default function StoryStudio() {
       toast.error(`Connexion Meta échouée : ${reason}`);
       setTab("social");
       searchParams.delete("meta_oauth");
+      searchParams.delete("reason");
+      setSearchParams(searchParams, { replace: true });
+    }
+    if (tiktok === "connected") {
+      toast.success("TikTok connecté !");
+      setTab("social");
+      searchParams.delete("tiktok_oauth");
+      searchParams.delete("social_account_id");
+      setSearchParams(searchParams, { replace: true });
+    } else if (tiktok === "error") {
+      const reason = searchParams.get("reason") || "Erreur inconnue";
+      toast.error(`Connexion TikTok échouée : ${reason}`);
+      setTab("social");
+      searchParams.delete("tiktok_oauth");
       searchParams.delete("reason");
       setSearchParams(searchParams, { replace: true });
     }
@@ -81,6 +99,7 @@ export default function StoryStudio() {
             { v: "library", label: "Bibliothèque", icon: Video },
             { v: "social", label: "Comptes Meta", icon: PlugZap },
             { v: "history", label: "Historique", icon: HistoryIcon },
+            { v: "billing", label: "Facturation", icon: Wallet },
             { v: "settings", label: "Paramètres", icon: SettingsIcon },
           ].map((t) => (
             <button key={t.v} onClick={() => setTab(t.v)}
@@ -123,6 +142,7 @@ export default function StoryStudio() {
       )}
       {tab === "social" && <SocialAccountsTab settings={settings} />}
       {tab === "history" && <PostsHistoryTab />}
+      {tab === "billing" && <BillingTab />}
       {tab === "settings" && <SettingsTab settings={settings} onSaved={loadSettings} />}
 
       {shareModal && <ShareWhatsAppModal asset={shareModal} onClose={() => setShareModal(null)} />}
@@ -520,6 +540,7 @@ function SocialAccountsTab({ settings }) {
   const [accounts, setAccounts] = React.useState([]);
   const [loading, setLoading] = React.useState(false);
   const [connecting, setConnecting] = React.useState(false);
+  const [connectingTiktok, setConnectingTiktok] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -541,11 +562,27 @@ function SocialAccountsTab({ settings }) {
       const r = await apiClient.get("/admin/story-studio/oauth/meta/start", {
         params: { return_to: "/admin/story-studio" },
       });
-      // Redirect the user to Meta
       window.location.href = r.data.auth_url;
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur démarrage OAuth");
       setConnecting(false);
+    }
+  };
+
+  const connectTiktok = async () => {
+    if (!settings?.tiktok_client_key || !settings?.tiktok_client_secret_set) {
+      toast.error("Configurez d'abord TikTok Client Key + Secret dans Paramètres.");
+      return;
+    }
+    setConnectingTiktok(true);
+    try {
+      const r = await apiClient.get("/admin/story-studio/oauth/tiktok/start", {
+        params: { return_to: "/admin/story-studio" },
+      });
+      window.location.href = r.data.auth_url;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur démarrage OAuth TikTok");
+      setConnectingTiktok(false);
     }
   };
 
@@ -574,7 +611,9 @@ function SocialAccountsTab({ settings }) {
   };
 
   const credsConfigured = settings?.meta_app_id && settings?.meta_app_secret_set;
+  const tiktokConfigured = settings?.tiktok_client_key && settings?.tiktok_client_secret_set;
   const metaAccounts = accounts.filter((a) => a.provider === "meta");
+  const tiktokAccounts = accounts.filter((a) => a.provider === "tiktok");
 
   return (
     <div className="space-y-4" data-testid="social-accounts-tab">
@@ -605,6 +644,50 @@ function SocialAccountsTab({ settings }) {
             <strong>⚠️ Meta App non configuré.</strong> Allez dans <em>Paramètres → Meta</em>, renseignez
             votre Meta App ID + App Secret obtenus sur <a href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer" className="underline">developers.facebook.com</a>,
             puis ajoutez l'URI de redirection dans la configuration OAuth de votre application Meta.
+          </div>
+        )}
+      </div>
+
+      {/* Iter43-fix14 — Phase 4 TikTok section */}
+      <div className="bg-white rounded-xl shadow-sm ring-1 ring-slate-200 p-5 space-y-3">
+        <div className="flex items-start justify-between flex-wrap gap-2">
+          <div>
+            <h2 className="text-base font-semibold inline-flex items-center gap-2">
+              <Video className="h-4 w-4 text-pink-600" /> Comptes TikTok
+            </h2>
+            <p className="text-xs text-slate-500 mt-1">
+              Publication directe via TikTok Content Posting API (sandbox/production).
+              En mode sandbox, les posts restent privés.
+            </p>
+          </div>
+          <button
+            onClick={connectTiktok}
+            disabled={connectingTiktok || !tiktokConfigured}
+            className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-pink-600 text-white text-sm font-semibold hover:bg-pink-700 disabled:opacity-50"
+            data-testid="connect-tiktok-btn"
+            title={!tiktokConfigured ? "Configurez TikTok Client Key + Secret dans Paramètres" : ""}
+          >
+            {connectingTiktok ? <Loader2 className="h-4 w-4 animate-spin" /> : <Video className="h-4 w-4" />}
+            Connecter un compte TikTok
+          </button>
+        </div>
+        {!tiktokConfigured && (
+          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900" data-testid="tiktok-creds-missing">
+            <strong>⚠️ TikTok App non configuré.</strong> Suivez les instructions dans <em>Paramètres → TikTok</em>.
+          </div>
+        )}
+        {tiktokAccounts.length > 0 && (
+          <div className="space-y-2 mt-2">
+            {tiktokAccounts.map((a) => (
+              <div key={a.id} className="flex items-center gap-3 p-2 rounded ring-1 ring-slate-200" data-testid={`tiktok-account-${a.id}`}>
+                {a.tiktok_avatar_url && <img src={a.tiktok_avatar_url} alt="" className="h-8 w-8 rounded-full" />}
+                <div className="flex-1">
+                  <p className="font-semibold text-sm">{a.tiktok_display_name || a.account_label}</p>
+                  <p className="text-[10px] text-slate-500 font-mono">{a.tiktok_open_id}</p>
+                </div>
+                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-50 text-emerald-700">{a.status}</span>
+              </div>
+            ))}
           </div>
         )}
       </div>
@@ -709,14 +792,14 @@ function PublishModal({ asset, onClose, onPublished }) {
     (async () => {
       try {
         const r = await apiClient.get("/admin/story-studio/social-accounts");
-        setAccounts((r.data?.items || []).filter((a) => a.provider === "meta" && a.status === "connected"));
+        setAccounts((r.data?.items || []).filter((a) => a.status === "connected"));
       } catch { /* noop */ }
       finally { setLoading(false); }
     })();
   }, []);
 
   const toggleTarget = (acc, page, kind) => {
-    const id = `${acc.id}::${page.page_id}::${kind}`;
+    const id = `${acc.id}::${page?.page_id || "tiktok"}::${kind}`;
     setTargets((prev) => {
       const exists = prev.find((t) => t._key === id);
       if (exists) return prev.filter((t) => t._key !== id);
@@ -725,16 +808,21 @@ function PublishModal({ asset, onClose, onPublished }) {
         {
           _key: id,
           social_account_id: acc.id,
-          page_id: page.page_id,
+          page_id: page?.page_id || "tiktok",
           target: kind,
-          _label: `${page.page_name} · ${kind === "fb_feed" ? "Facebook Feed" : kind === "ig_story" ? "Instagram Story" : "Instagram Reel"}`,
+          _label: `${page?.page_name || acc.tiktok_display_name || acc.account_label} · ${
+            kind === "fb_feed" ? "Facebook Feed"
+            : kind === "ig_story" ? "Instagram Story"
+            : kind === "ig_reel" ? "Instagram Reel"
+            : "TikTok"
+          }`,
         },
       ];
     });
   };
 
   const isSelected = (acc, page, kind) =>
-    !!targets.find((t) => t._key === `${acc.id}::${page.page_id}::${kind}`);
+    !!targets.find((t) => t._key === `${acc.id}::${page?.page_id || "tiktok"}::${kind}`);
 
   const submit = async () => {
     if (targets.length === 0) {
@@ -795,37 +883,57 @@ function PublishModal({ asset, onClose, onPublished }) {
               <div>
                 <label className="block text-xs font-semibold text-slate-700 mb-1">Cibles</label>
                 <div className="space-y-3 max-h-64 overflow-y-auto pr-1">
-                  {accounts.map((acc) => (
-                    <div key={acc.id} className="rounded-lg border border-slate-200 p-3">
-                      <p className="text-xs font-semibold text-slate-700 mb-2">{acc.meta_user_name}</p>
-                      {(acc.pages || []).filter((p) => p.is_active !== false).map((p) => (
-                        <div key={p.page_id} className="ml-2 space-y-1 mb-2">
-                          <p className="text-[11px] text-slate-600 font-medium">{p.page_name}</p>
+                  {accounts.map((acc) => {
+                    if (acc.provider === "tiktok") {
+                      return (
+                        <div key={acc.id} className="rounded-lg border border-slate-200 p-3">
+                          <p className="text-xs font-semibold text-slate-700 mb-2 inline-flex items-center gap-1">
+                            <Video className="h-3 w-3 text-pink-600" />
+                            TikTok — {acc.tiktok_display_name || acc.account_label}
+                          </p>
                           <div className="flex flex-wrap gap-1.5 ml-2">
-                            <button onClick={() => toggleTarget(acc, p, "fb_feed")}
-                                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "fb_feed") ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
-                                    data-testid={`target-fb-${p.page_id}`}>
-                              <Facebook className="h-3 w-3" /> Facebook Feed
+                            <button onClick={() => toggleTarget(acc, null, "tiktok")}
+                                    className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, null, "tiktok") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                    data-testid={`target-tiktok-${acc.id}`}>
+                              <Video className="h-3 w-3" /> TikTok (Direct Post)
                             </button>
-                            {p.ig_business_account_id && (
-                              <>
-                                <button onClick={() => toggleTarget(acc, p, "ig_story")}
-                                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_story") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
-                                        data-testid={`target-ig-story-${p.page_id}`}>
-                                  <Instagram className="h-3 w-3" /> IG Story
-                                </button>
-                                <button onClick={() => toggleTarget(acc, p, "ig_reel")}
-                                        className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_reel") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
-                                        data-testid={`target-ig-reel-${p.page_id}`}>
-                                  <Instagram className="h-3 w-3" /> IG Reel
-                                </button>
-                              </>
-                            )}
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  ))}
+                      );
+                    }
+                    // Meta
+                    return (
+                      <div key={acc.id} className="rounded-lg border border-slate-200 p-3">
+                        <p className="text-xs font-semibold text-slate-700 mb-2">{acc.meta_user_name}</p>
+                        {(acc.pages || []).filter((p) => p.is_active !== false).map((p) => (
+                          <div key={p.page_id} className="ml-2 space-y-1 mb-2">
+                            <p className="text-[11px] text-slate-600 font-medium">{p.page_name}</p>
+                            <div className="flex flex-wrap gap-1.5 ml-2">
+                              <button onClick={() => toggleTarget(acc, p, "fb_feed")}
+                                      className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "fb_feed") ? "bg-blue-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                      data-testid={`target-fb-${p.page_id}`}>
+                                <Facebook className="h-3 w-3" /> Facebook Feed
+                              </button>
+                              {p.ig_business_account_id && (
+                                <>
+                                  <button onClick={() => toggleTarget(acc, p, "ig_story")}
+                                          className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_story") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                          data-testid={`target-ig-story-${p.page_id}`}>
+                                    <Instagram className="h-3 w-3" /> IG Story
+                                  </button>
+                                  <button onClick={() => toggleTarget(acc, p, "ig_reel")}
+                                          className={`inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded ${isSelected(acc, p, "ig_reel") ? "bg-pink-600 text-white" : "bg-slate-100 hover:bg-slate-200"}`}
+                                          data-testid={`target-ig-reel-${p.page_id}`}>
+                                    <Instagram className="h-3 w-3" /> IG Reel
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
 
@@ -857,11 +965,28 @@ function PublishModal({ asset, onClose, onPublished }) {
 
               {results && (
                 <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 space-y-1" data-testid="publish-results">
-                  <p className="text-xs font-semibold text-slate-700">Résultats :</p>
+                  <p className="text-xs font-semibold text-slate-700 flex items-center justify-between">
+                    <span>Résultats :</span>
+                    {results.total_cost > 0 && (
+                      <span className="text-violet-700 inline-flex items-center gap-1">
+                        <Coins className="h-3 w-3" /> Coût total : {fmtXOF(results.total_cost)}
+                      </span>
+                    )}
+                  </p>
                   {(results.results || []).map((r, i) => (
                     <p key={i} className="text-[11px]">
                       {r.ok ? "✅" : "❌"} {r.target} →{" "}
-                      {r.ok ? <span className="text-emerald-700">Publié (id: {r.channel_id})</span>
+                      {r.ok ? <span className="text-emerald-700">
+                        Publié (id: {r.channel_id})
+                        {r.billing?.billed && (
+                          <span className="ml-1 text-violet-700">
+                            · {fmtXOF(r.billing.cost)}
+                            {r.billing.mode === "credits" && " (crédits)"}
+                            {r.billing.mode === "invoice" && " (facture)"}
+                            {r.billing.mode === "mixed" && " (mixte)"}
+                          </span>
+                        )}
+                      </span>
                             : <span className="text-rose-700">{r.error}</span>}
                     </p>
                   ))}
@@ -1079,6 +1204,47 @@ function SettingsTab({ settings, onSaved }) {
         </label>
       </fieldset>
 
+      {/* Iter43-fix14 — Phase 4 TikTok Settings */}
+      <fieldset className="space-y-3">
+        <legend className="text-sm font-semibold text-pink-700">🎵 TikTok (Content Posting API)</legend>
+        <div className="rounded-lg bg-pink-50 ring-1 ring-pink-200 p-3 text-[11px] text-pink-900" data-testid="tiktok-setup-help">
+          <p className="font-semibold mb-1">📋 Configuration TikTok Developer App</p>
+          <ol className="list-decimal list-inside space-y-0.5">
+            <li>Créez un compte sur <a href="https://developers.tiktok.com/" target="_blank" rel="noopener noreferrer" className="underline">developers.tiktok.com</a></li>
+            <li>Allez dans <em>Manage apps</em> → <strong>Connect an app</strong>. Choisissez "Business" et associez à une Organization.</li>
+            <li>Dans <em>Add products</em>, ajoutez <strong>Login Kit</strong> et <strong>Content Posting API</strong>.</li>
+            <li>Dans <em>Scopes</em>, activez : <code>video.upload</code>, <code>video.publish</code>, <code>user.info.basic</code>.</li>
+            <li>Dans <em>App settings → Login Kit → Redirect URI</em>, ajoutez :
+              <code className="block mt-1 p-1 bg-white rounded font-mono text-[10px] break-all">
+                {window.location.origin}/api/admin/story-studio/oauth/tiktok/callback
+              </code>
+            </li>
+            <li>Démarrez avec une <strong>Sandbox</strong> (Mode → Sandbox) pour tester. Les posts sandbox sont privés.</li>
+            <li>Une fois validé, soumettez l'app à <em>Review</em> pour passer en production publique.</li>
+            <li>Récupérez le <strong>Client Key</strong> et <strong>Client Secret</strong> et collez-les ci-dessous.</li>
+          </ol>
+          <p className="mt-2 text-[10px]"><strong>📌 Tokens</strong> : access_token = 24h (refresh auto), refresh_token = 365j.</p>
+        </div>
+        <label className="block">
+          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Client Key</span>
+          <input value={form.tiktok_client_key || ""} onChange={update("tiktok_client_key")}
+                 placeholder="aw_xxxxxxxxxxxxxx"
+                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-tiktok-client-key" />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Client Secret {settings.tiktok_client_secret_set && <span className="text-[10px] text-emerald-600 ml-1">✓ configuré</span>}</span>
+          <input type="password" value={form.tiktok_client_secret || ""} onChange={update("tiktok_client_secret")}
+                 placeholder={settings.tiktok_client_secret_set ? "Laisser vide pour conserver" : "Client secret"}
+                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-tiktok-client-secret" />
+        </label>
+        <label className="block">
+          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Redirect URI <span className="text-slate-400 font-normal">(laisser vide pour auto-détection)</span></span>
+          <input value={form.tiktok_redirect_uri || ""} onChange={update("tiktok_redirect_uri")}
+                 placeholder={`${window.location.origin}/api/admin/story-studio/oauth/tiktok/callback`}
+                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="settings-tiktok-redirect" />
+        </label>
+      </fieldset>
+
       <fieldset className="space-y-3">
         <legend className="text-sm font-semibold text-pink-700">🎵 TikTok</legend>
         <label className="block">
@@ -1120,3 +1286,511 @@ function SettingsTab({ settings, onSaved }) {
     </form>
   );
 }
+
+// ============================================================
+// Iter43-fix13 — TAB : Facturation (multi-tenant)
+// ============================================================
+function BillingTab() {
+  const [tab, setTab] = React.useState("summary"); // summary | tenants | tenant_detail
+  const [selectedTenant, setSelectedTenant] = React.useState(null);
+
+  return (
+    <div className="space-y-4" data-testid="billing-tab">
+      <div className="flex gap-1 rounded-lg bg-slate-100 p-1">
+        <button onClick={() => { setTab("summary"); setSelectedTenant(null); }}
+                className={`text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded ${tab === "summary" ? "bg-white shadow text-violet-700" : "text-slate-600 hover:text-slate-900"}`}
+                data-testid="billing-tab-summary">
+          <TrendingUp className="h-3 w-3" /> Vue d'ensemble
+        </button>
+        <button onClick={() => { setTab("tenants"); setSelectedTenant(null); }}
+                className={`text-xs inline-flex items-center gap-1.5 px-3 py-1.5 rounded ${tab === "tenants" ? "bg-white shadow text-violet-700" : "text-slate-600 hover:text-slate-900"}`}
+                data-testid="billing-tab-tenants">
+          <Wallet className="h-3 w-3" /> Tenants
+        </button>
+      </div>
+
+      {tab === "summary" && <BillingSummary />}
+      {tab === "tenants" && !selectedTenant && (
+        <TenantsList onSelect={(t) => { setSelectedTenant(t); setTab("tenant_detail"); }} />
+      )}
+      {tab === "tenant_detail" && selectedTenant && (
+        <TenantBillingDetail
+          tenantId={selectedTenant.tenant_id}
+          tenantLabel={selectedTenant.tenant_label || selectedTenant.tenant_id}
+          onBack={() => { setSelectedTenant(null); setTab("tenants"); }}
+        />
+      )}
+    </div>
+  );
+}
+
+function BillingSummary() {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/story-studio/billing/summary");
+      setData(r.data);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="text-center py-8 text-slate-400">Chargement…</div>;
+  if (!data) return null;
+
+  return (
+    <div className="space-y-4" data-testid="billing-summary">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <StatCard
+          icon={Coins} color="emerald"
+          label="Crédits en circulation"
+          value={fmtXOF(data.total_credits_in_circulation)}
+          testid="stat-credits-circulation"
+        />
+        <StatCard
+          icon={FileTextIcon} color="amber"
+          label={`Factures ${data.period} (à payer)`}
+          value={fmtXOF(data.current_period_invoices_total)}
+          sub={`${data.current_period_open_invoices} ouverte(s)`}
+          testid="stat-invoices-current"
+        />
+        <StatCard
+          icon={TrendingUp} color="violet"
+          label="Top consommateurs"
+          value={`${data.top_consumers.length}`}
+          sub="ce mois-ci"
+          testid="stat-top-consumers"
+        />
+      </div>
+      {data.top_consumers.length > 0 && (
+        <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <h3 className="text-sm font-semibold mb-3">Top 10 consommateurs ({data.period})</h3>
+          <table className="w-full text-sm">
+            <thead className="bg-slate-50 text-slate-600 text-xs">
+              <tr>
+                <th className="text-left px-2 py-1.5">Tenant</th>
+                <th className="text-right px-2 py-1.5">Publications</th>
+                <th className="text-right px-2 py-1.5">Total facturé</th>
+              </tr>
+            </thead>
+            <tbody>
+              {data.top_consumers.map((c) => (
+                <tr key={c.tenant_id} className="border-t border-slate-100" data-testid={`top-consumer-${c.tenant_id}`}>
+                  <td className="px-2 py-1.5 font-mono text-xs">{c.tenant_id.slice(0, 12)}…</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums">{c.publications}</td>
+                  <td className="px-2 py-1.5 text-right tabular-nums font-semibold text-violet-700">{fmtXOF(c.total_cost)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function StatCard({ icon: Icon, color, label, value, sub, testid }) {
+  const colors = {
+    emerald: "from-emerald-50 to-white ring-emerald-200 text-emerald-700",
+    amber: "from-amber-50 to-white ring-amber-200 text-amber-700",
+    violet: "from-violet-50 to-white ring-violet-200 text-violet-700",
+  }[color] || "from-slate-50 to-white ring-slate-200 text-slate-700";
+  return (
+    <div className={`rounded-xl bg-gradient-to-br ${colors} ring-1 p-4`} data-testid={testid}>
+      <div className="flex items-start justify-between">
+        <p className="text-[11px] uppercase tracking-wider opacity-80">{label}</p>
+        <Icon className="h-4 w-4 opacity-70" />
+      </div>
+      <p className="text-2xl font-bold tabular-nums mt-2">{value}</p>
+      {sub && <p className="text-[11px] opacity-70 mt-1">{sub}</p>}
+    </div>
+  );
+}
+
+function TenantsList({ onSelect }) {
+  const [items, setItems] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/story-studio/billing/tenants");
+      setItems(r.data?.items || []);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  if (loading) return <div className="text-center py-8 text-slate-400">Chargement…</div>;
+  if (items.length === 0) {
+    return (
+      <div className="text-center py-12 text-slate-400 italic bg-white rounded-xl ring-1 ring-slate-200" data-testid="no-tenants">
+        Aucun tenant facturable. Les tenants apparaissent ici dès qu'ils connectent un compte Meta ou reçoivent un crédit.
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white rounded-xl ring-1 ring-slate-200 overflow-hidden" data-testid="tenants-list">
+      <table className="w-full text-sm">
+        <thead className="bg-slate-50 text-slate-600 text-xs">
+          <tr>
+            <th className="text-left px-3 py-2">Tenant</th>
+            <th className="text-left px-3 py-2">Mode</th>
+            <th className="text-right px-3 py-2">Crédits</th>
+            <th className="text-right px-3 py-2">Pub. ce mois</th>
+            <th className="text-right px-3 py-2">Total ce mois</th>
+            <th className="text-right px-3 py-2"></th>
+          </tr>
+        </thead>
+        <tbody>
+          {items.map((t) => (
+            <tr key={t.tenant_id} className="border-t border-slate-100 hover:bg-slate-50" data-testid={`tenant-row-${t.tenant_id}`}>
+              <td className="px-3 py-2">
+                <p className="font-medium text-slate-900">{t.tenant_label || <span className="font-mono text-xs">{t.tenant_id.slice(0, 16)}</span>}</p>
+                {t.tenant_email && <p className="text-[10px] text-slate-500">{t.tenant_email}</p>}
+              </td>
+              <td className="px-3 py-2">
+                <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                  {t.billing_mode === "credits_first" ? "Crédits puis facture"
+                    : t.billing_mode === "credits_only" ? "Crédits uniquement"
+                    : "Facture uniquement"}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums font-semibold">
+                <span className={t.credits_balance > 0 ? "text-emerald-700" : "text-slate-400"}>
+                  {fmtXOF(t.credits_balance)}
+                </span>
+              </td>
+              <td className="px-3 py-2 text-right tabular-nums">{t.current_period_publications || 0}</td>
+              <td className="px-3 py-2 text-right tabular-nums font-semibold text-violet-700">{fmtXOF(t.current_period_total)}</td>
+              <td className="px-3 py-2 text-right">
+                <button onClick={() => onSelect(t)}
+                        className="text-[11px] px-2 py-1 rounded bg-violet-50 text-violet-700 hover:bg-violet-100"
+                        data-testid={`view-tenant-${t.tenant_id}`}>
+                  Détails →
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function TenantBillingDetail({ tenantId, tenantLabel, onBack }) {
+  const [cfg, setCfg] = React.useState(null);
+  const [ledger, setLedger] = React.useState([]);
+  const [invoices, setInvoices] = React.useState([]);
+  const [loading, setLoading] = React.useState(true);
+  const [editing, setEditing] = React.useState(false);
+  const [topupOpen, setTopupOpen] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const [r1, r2, r3] = await Promise.all([
+        apiClient.get(`/admin/story-studio/billing/tenants/${tenantId}/config`),
+        apiClient.get(`/admin/story-studio/billing/tenants/${tenantId}/ledger`, { params: { limit: 50 } }),
+        apiClient.get(`/admin/story-studio/billing/tenants/${tenantId}/invoices`),
+      ]);
+      setCfg(r1.data);
+      setLedger(r2.data?.items || []);
+      setInvoices(r3.data?.items || []);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur chargement");
+    } finally { setLoading(false); }
+  }, [tenantId]);
+  React.useEffect(() => { load(); }, [load]);
+
+  const markPaid = async (invId) => {
+    if (!window.confirm("Marquer cette facture comme payée ?")) return;
+    try {
+      await apiClient.put(`/admin/story-studio/billing/invoices/${invId}/status`, { status: "paid" });
+      toast.success("Facture marquée payée");
+      load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  if (loading || !cfg) return <div className="text-center py-8 text-slate-400">Chargement…</div>;
+
+  return (
+    <div className="space-y-4" data-testid="tenant-billing-detail">
+      <div className="flex items-center justify-between">
+        <button onClick={onBack} className="text-xs text-slate-600 hover:text-slate-900" data-testid="back-to-tenants">
+          ← Retour à la liste
+        </button>
+        <button onClick={() => setTopupOpen(true)}
+                className="text-xs inline-flex items-center gap-1 px-3 py-1.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                data-testid="topup-credits-btn">
+          <Coins className="h-3 w-3" /> Créditer
+        </button>
+      </div>
+
+      <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+        <div className="flex items-start justify-between mb-3">
+          <div>
+            <h3 className="font-semibold">{tenantLabel}</h3>
+            <p className="text-[10px] font-mono text-slate-400">{tenantId}</p>
+          </div>
+          <button onClick={() => setEditing(true)}
+                  className="text-xs px-2 py-1 rounded bg-sky-50 text-sky-700 hover:bg-sky-100"
+                  data-testid="edit-config-btn">
+            Modifier les tarifs
+          </button>
+        </div>
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+          <KV label="Mode" value={cfg.billing_mode} />
+          <KV label="Solde crédits" value={<span className="font-bold text-emerald-700">{fmtXOF(cfg.credits_balance)}</span>} />
+          <KV label="Devise" value={cfg.currency} />
+          <KV label="Jour facture" value={cfg.monthly_invoice_day} />
+        </div>
+        <div className="mt-3 pt-3 border-t border-slate-100">
+          <p className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">Tarifs unitaires</p>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <PricingChip icon={Facebook} label="FB Feed" value={fmtXOF(cfg.pricing.fb_feed)} />
+            <PricingChip icon={Instagram} label="IG Story" value={fmtXOF(cfg.pricing.ig_story)} />
+            <PricingChip icon={Instagram} label="IG Reel" value={fmtXOF(cfg.pricing.ig_reel)} />
+            <PricingChip icon={Video} label="TikTok" value={fmtXOF(cfg.pricing.tiktok)} />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <h3 className="text-sm font-semibold mb-2 inline-flex items-center gap-1.5">
+            <FileTextIcon className="h-4 w-4 text-amber-600" /> Factures mensuelles
+          </h3>
+          {invoices.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">Aucune facture.</p>
+          ) : (
+            <div className="space-y-1.5">
+              {invoices.map((i) => (
+                <div key={i.id} className="flex items-center gap-2 p-2 rounded bg-slate-50 text-xs" data-testid={`invoice-${i.id}`}>
+                  <span className="font-mono text-[10px]">{i.period}</span>
+                  <span className="flex-1 tabular-nums font-semibold">{fmtXOF(i.amount_due)}</span>
+                  <span className="text-slate-500">{i.publications_count} pub.</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded ${
+                    i.status === "paid" ? "bg-emerald-50 text-emerald-700" :
+                    i.status === "cancelled" ? "bg-slate-200 text-slate-600" :
+                    "bg-amber-100 text-amber-800"
+                  }`}>{i.status}</span>
+                  {i.status === "open" && (
+                    <button onClick={() => markPaid(i.id)} className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-600 text-white hover:bg-emerald-700"
+                            data-testid={`mark-paid-${i.id}`}>
+                      Marquer payée
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="bg-white rounded-xl ring-1 ring-slate-200 p-4">
+          <h3 className="text-sm font-semibold mb-2 inline-flex items-center gap-1.5">
+            <HistoryIcon className="h-4 w-4 text-slate-600" /> Journal (50 dernières lignes)
+          </h3>
+          {ledger.length === 0 ? (
+            <p className="text-xs text-slate-400 italic">Aucune entrée.</p>
+          ) : (
+            <div className="space-y-1 max-h-80 overflow-y-auto">
+              {ledger.map((l) => (
+                <div key={l.id} className="flex items-center gap-2 text-[11px] p-1.5 rounded hover:bg-slate-50" data-testid={`ledger-${l.id}`}>
+                  <span className="text-[9px] text-slate-400 font-mono">{l.created_at?.slice(11, 16)}</span>
+                  <span className={`text-[9px] px-1 py-0.5 rounded ${l.type === "topup" ? "bg-emerald-100 text-emerald-700" : "bg-violet-100 text-violet-700"}`}>
+                    {l.type === "topup" ? "+CR" : "PUB"}
+                  </span>
+                  <span className="flex-1 truncate">
+                    {l.type === "topup"
+                      ? `Crédit (${l.reason || "manuel"})`
+                      : `${l.target} → ${l.settlement}`}
+                  </span>
+                  <span className={`tabular-nums font-semibold ${l.type === "topup" ? "text-emerald-700" : "text-rose-700"}`}>
+                    {l.type === "topup" ? "+" : "−"}{fmtXOF(l.type === "topup" ? l.amount : l.cost)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
+
+      {editing && <ConfigEditModal cfg={cfg} tenantId={tenantId} onClose={() => setEditing(false)} onSaved={() => { setEditing(false); load(); }} />}
+      {topupOpen && <TopupModal tenantId={tenantId} currency={cfg.currency} onClose={() => setTopupOpen(false)} onDone={() => { setTopupOpen(false); load(); }} />}
+    </div>
+  );
+}
+
+function KV({ label, value }) {
+  return (
+    <div>
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function PricingChip({ icon: Icon, label, value }) {
+  return (
+    <div className="flex items-center gap-1.5 p-2 rounded bg-slate-50 ring-1 ring-slate-100">
+      <Icon className="h-3 w-3 text-slate-500" />
+      <span className="text-[10px] text-slate-600">{label}</span>
+      <span className="ml-auto font-semibold tabular-nums text-xs">{value}</span>
+    </div>
+  );
+}
+
+function ConfigEditModal({ cfg, tenantId, onClose, onSaved }) {
+  const [form, setForm] = React.useState({
+    pricing: { ...cfg.pricing },
+    currency: cfg.currency || "XOF",
+    billing_mode: cfg.billing_mode || "credits_first",
+    monthly_invoice_day: cfg.monthly_invoice_day || 1,
+    notes: cfg.notes || "",
+  });
+  const [saving, setSaving] = React.useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setSaving(true);
+    try {
+      await apiClient.put(`/admin/story-studio/billing/tenants/${tenantId}/config`, form);
+      toast.success("Configuration sauvegardée");
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-4" data-testid="config-edit-modal">
+      <form onSubmit={submit} className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <h3 className="font-display font-semibold inline-flex items-center gap-1.5">
+            <SettingsIcon className="h-4 w-4 text-sky-600" /> Tarifs et facturation
+          </h3>
+          <button type="button" onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Mode de facturation</span>
+            <select value={form.billing_mode}
+                    onChange={(e) => setForm({ ...form, billing_mode: e.target.value })}
+                    className="w-full px-3 py-2 border rounded text-sm" data-testid="billing-mode-select">
+              <option value="credits_first">Crédits puis facture (recommandé)</option>
+              <option value="credits_only">Crédits uniquement (bloque si vide)</option>
+              <option value="invoice_only">Facture mensuelle uniquement</option>
+            </select>
+          </label>
+          <div>
+            <p className="text-xs font-semibold mb-2">Tarifs unitaires (XOF)</p>
+            <div className="grid grid-cols-2 gap-2">
+              {[["fb_feed", "FB Feed"], ["ig_story", "IG Story"], ["ig_reel", "IG Reel"], ["tiktok", "TikTok"]].map(([k, lbl]) => (
+                <label key={k} className="block text-xs">
+                  <span className="text-slate-600">{lbl}</span>
+                  <input type="number" min={0}
+                         value={form.pricing[k] ?? 0}
+                         onChange={(e) => setForm({ ...form, pricing: { ...form.pricing, [k]: Number(e.target.value) || 0 } })}
+                         className="w-full px-2 py-1 border rounded mt-0.5 text-sm"
+                         data-testid={`pricing-${k}`} />
+                </label>
+              ))}
+            </div>
+          </div>
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Jour de clôture facture (1-28)</span>
+            <input type="number" min={1} max={28}
+                   value={form.monthly_invoice_day}
+                   onChange={(e) => setForm({ ...form, monthly_invoice_day: Number(e.target.value) || 1 })}
+                   className="w-full px-3 py-2 border rounded text-sm" data-testid="invoice-day-input" />
+          </label>
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Notes</span>
+            <textarea rows={2} value={form.notes}
+                      onChange={(e) => setForm({ ...form, notes: e.target.value })}
+                      className="w-full px-3 py-2 border rounded text-sm" />
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300">Annuler</button>
+          <button type="submit" disabled={saving}
+                  className="px-3 py-2 rounded text-sm bg-sky-600 text-white hover:bg-sky-700 disabled:opacity-50"
+                  data-testid="config-save-btn">
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+function TopupModal({ tenantId, currency, onClose, onDone }) {
+  const [amount, setAmount] = React.useState(5000);
+  const [reason, setReason] = React.useState("admin_topup");
+  const [note, setNote] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const r = await apiClient.post(`/admin/story-studio/billing/tenants/${tenantId}/credits/topup`,
+        { amount_xof: Number(amount), reason, note });
+      toast.success(`Crédité — nouveau solde : ${fmtXOF(r.data.balance)}`);
+      onDone();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4" data-testid="topup-modal">
+      <form onSubmit={submit} className="bg-white rounded-xl shadow-2xl w-full max-w-sm">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <h3 className="font-display font-semibold inline-flex items-center gap-1.5">
+            <Coins className="h-4 w-4 text-emerald-600" /> Créditer le tenant
+          </h3>
+          <button type="button" onClick={onClose} className="text-slate-500"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-5 space-y-3">
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Montant ({currency})</span>
+            <input type="number" min={100} step={100}
+                   value={amount}
+                   onChange={(e) => setAmount(e.target.value)}
+                   className="w-full px-3 py-2 border rounded text-sm font-mono"
+                   data-testid="topup-amount" required />
+          </label>
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Motif</span>
+            <input value={reason} onChange={(e) => setReason(e.target.value)}
+                   className="w-full px-3 py-2 border rounded text-sm" data-testid="topup-reason" />
+          </label>
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold mb-1">Note (optionnelle)</span>
+            <textarea rows={2} value={note} onChange={(e) => setNote(e.target.value)}
+                      className="w-full px-3 py-2 border rounded text-sm" />
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button type="button" onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200">Annuler</button>
+          <button type="submit" disabled={busy}
+                  className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  data-testid="topup-submit">
+            {busy ? "Crédit en cours…" : "Créditer"}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+

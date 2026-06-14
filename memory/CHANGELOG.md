@@ -2,6 +2,69 @@
 
 Historique détaillé des iters récents. Voir `PRD.md` pour la spec statique.
 
+## 2026-03 — Iter43-fix13 + Iter43-fix14 — Story Studio Phase 3+4 + Cron + Analytics
+
+### Phase 3 — Multi-tenant monétisation (Iter43-fix13)
+**Modèle économique** : tarif par tenant configurable (XOF), 3 modes de facturation (`credits_first`, `credits_only`, `invoice_only`). Le tenant facturé = celui qui possède le `social_account` utilisé.
+
+**Collections** :
+- `tenant_publish_config` : `{tenant_id, pricing: {fb_feed, ig_story, ig_reel, tiktok}, currency, billing_mode, credits_balance, monthly_invoice_day}`
+- `tenant_publish_ledger` (append-only) : tous les débits crédits + topups, scopé par `period=YYYYMM`
+- `tenant_publish_invoices` : factures mensuelles auto-créées par `(tenant_id, period)`, statut `open|paid|cancelled`
+
+**Endpoints** :
+- `GET/PUT /api/admin/story-studio/billing/tenants/{tenant_id}/config`
+- `POST /api/admin/story-studio/billing/tenants/{tenant_id}/credits/topup`
+- `GET /api/admin/story-studio/billing/tenants/{tenant_id}/ledger?type=&offset=&limit=`
+- `GET /api/admin/story-studio/billing/tenants/{tenant_id}/invoices`
+- `PUT /api/admin/story-studio/billing/invoices/{id}/status` (open|paid|cancelled)
+- `GET /api/admin/story-studio/billing/summary` (total crédits, factures mois courant, top consumers)
+- `GET /api/admin/story-studio/billing/tenants` (liste enrichie stats du mois)
+
+**Modifications publish** :
+- `_resolve_billing_tenant` : trouve le tenant du 1er social_account ciblé
+- `_check_credits_before_publish` : pré-flight en mode `credits_only` (rejet 402 si insuffisant)
+- `_charge_publication` : débit crédits / provision facture (facturation **succès uniquement**)
+- Le post est marqué `blocked_credits` si rejet pré-flight
+- Réponse de publish inclut `total_cost`, `currency`, et `billing` par target
+
+**Frontend** : nouvel onglet « Facturation » avec sous-onglets « Vue d'ensemble » (KPIs + top 10) et « Tenants » (liste + détail avec config edit, ledger, invoices, topup modal).
+
+### Phase 4 — TikTok Content Posting API (Iter43-fix14)
+- OAuth 2.0 TikTok v2 (`/v2/auth/authorize/` + `/v2/oauth/token/`)
+- Scopes : `video.upload`, `video.publish`, `user.info.basic`
+- Tokens chiffrés (Fernet, comme Meta) + refresh automatique
+- Direct Post (FILE_UPLOAD, single chunk) avec `privacy_level=SELF_ONLY` (sandbox-safe)
+- Frontend : section TikTok dans Comptes Meta tab + section Paramètres avec instructions pas-à-pas
+- Cible `tiktok` ajoutée au PublishModal (bouton spécifique car TikTok n'a pas de Pages)
+
+### Phase 2 — Cron Scheduler (Iter43-fix14)
+- Endpoint `POST /api/admin/story-studio/scheduler/tick?dry_run=&max_posts=` à appeler par un cron externe
+- Sélectionne `story_posts` avec `mode=draft`, `status=draft`, `scheduled_at <= now()`
+- Idempotent (passe à `failed` si asset manquant, `blocked_credits` si solde insuffisant)
+- `dry_run=true` retourne les candidats sans les exécuter
+
+### Phase 2 — Analytics IG/FB (Iter43-fix14)
+- `GET /api/admin/story-studio/posts/{post_id}/insights`
+- IG : impressions/reach/replies (Stories) ou likes/plays/shares/saved (Reels)
+- FB : views/likes/comments/shares
+- Cache dans `story_posts.insights` + `insights_fetched_at`
+
+### Tests
+- **`test_iter43_fix13_billing.py`** : 12 tests (config CRUD, topup, ledger, invoices, summary, tenants list)
+- **`test_iter43_fix14_tiktok_cron_analytics.py`** : 10 tests (TikTok OAuth start/callback + secret mask + scheduler dry/run/missing-asset/future + analytics 404/400 + publish guard)
+- **129/129** verts régression Iter43
+
+### Configuration TikTok Developer App (utilisateur)
+1. https://developers.tiktok.com → Connect an app (Business)
+2. Add products : Login Kit + Content Posting API
+3. Activer scopes : `video.upload`, `video.publish`, `user.info.basic`
+4. Login Kit → Redirect URI : `https://sawalismartsystems.com/api/admin/story-studio/oauth/tiktok/callback`
+5. Démarrer en Sandbox (posts privés). Submit pour passer en production.
+6. Renseigner Client Key + Secret dans `/admin/story-studio` → Paramètres → TikTok.
+
+
+
 ## 2026-03 — Iter43-fix12 — Officines Registry : Produits + Activités + Bug /api-routes
 
 ### Tâche 1 — Import produits CSV/JSON par officine

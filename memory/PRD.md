@@ -6,6 +6,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter43-fix11 (2026-03) — Story Studio Phase 2 — Meta OAuth + Publishing ✅
+
+**Statut** : LIVRÉ + testé (34/34 pytest ; testing agent v3 frontend OK — `iteration_60.json`).
+
+### Fonctionnalités
+- **OAuth Meta v23.0** multi-tenant : chaque tenant connecte son compte Meta Business via l'app SAWALI partagée. Tokens long-lived (60j) chiffrés au repos (Fernet dérivé de JWT_SECRET).
+- **Publication automatique** depuis la bibliothèque : Instagram Stories, Instagram Reels, Facebook Page Feed (multi-cibles en un clic).
+- **Modes** : Publication immédiate OU brouillon (relançable depuis l'onglet Historique).
+- **Auto-découverte** Pages FB + comptes IG Business via `/me/accounts?fields=…,instagram_business_account{id,username}`.
+- **Gestion d'erreurs partielles** : 1 cible échoue → status `partial` ; toutes ko → `failed` ; toutes ok → `published`.
+- **UI Comptes Meta** : connect/refresh/disconnect, toggle Page is_active, badge expiration token.
+
+### Backend endpoints
+- `GET /api/admin/story-studio/oauth/meta/start` (admin)
+- `GET /api/admin/story-studio/oauth/meta/callback` (public, appelé par Meta)
+- `POST /api/admin/story-studio/social-accounts/{id}/refresh`
+- `PUT  /api/admin/story-studio/social-accounts/{id}/pages/{page_id}`
+- `GET  /api/admin/story-studio/library/{asset_id}/signed-media?token=` (public, JWT signé 60min)
+- `POST /api/admin/story-studio/library/{asset_id}/publish` (replace stub)
+- `POST /api/admin/story-studio/posts/{post_id}/publish-now`
+- `GET  /api/admin/story-studio/posts`
+
+### Modèles
+- Collection `social_accounts` enrichie : `meta_user_id`, `meta_user_name`, `long_lived_user_token_encrypted`, `long_lived_user_token_expires_at`, `pages[{page_id, page_name, page_access_token_encrypted, ig_business_account_id, ig_username, is_active}]`.
+- Collection `story_posts` enrichie : `targets[{social_account_id, page_id, target}]`, `results[]`, `mode`, statuts `draft|publishing|published|partial|failed`.
+
+### Action utilisateur requise pour activer en prod
+1. Créer app sur https://developers.facebook.com/apps/ (type Business)
+2. Activer Facebook Login for Business + Instagram
+3. Ajouter Valid OAuth Redirect URI : `https://sawalismartsystems.com/api/admin/story-studio/oauth/meta/callback`
+4. App Review : `instagram_content_publish`, `pages_manage_posts`, `business_management`
+5. Renseigner App ID + Secret dans `/admin/story-studio` → Paramètres → Meta
+6. Tester : `/admin/story-studio` → Comptes Meta → Connecter un compte Meta
+
+
 ## Iter43-fix4 (2026-03) — Facturation des Interventions ✅
 
 **Statut** : LIVRÉ + testé (10/10 pytest, E2E UI validé — `iteration_56.json`).

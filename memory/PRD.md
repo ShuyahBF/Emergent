@@ -6,6 +6,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 _⚠️ Historique récent (Iter35a → Iter38c) déplacé dans `/app/memory/CHANGELOG.md`._
 
+## Iter43-fix12 (2026-03) — Officines Registry : Produits + Activités + Bug /api-routes ✅
+
+**Statut** : LIVRÉ + testé (20/20 pytest ; 107/107 régression ; testing_agent_v3_fork 100% UI — `iteration_61.json`).
+
+### Tâche 1 — Import produits par officine (CSV/JSON)
+- Collection `officine_products` + index `(officine_id, product_name_norm)` + `(officine_id, conditionnement_norm)`.
+- `POST /api/admin/officines-registry/{id}/products/import` (multipart) : CSV (`,` ou `;`, avec/sans en-tête) OU JSON (plat OU imbriqué auto-aplati).
+- Mode `replace` ou `append` (upsert). Clé d'unicité : `(officine, produit, conditionnement)` — CIP optionnel.
+- Anti-doublons intra-fichier + audit log.
+- Endpoints associés : list paginée, clear all, export CSV streamé.
+
+### Tâche 2 — Liste alphabétique + nb produits + modale produits
+- `GET /admin/officines-registry` trié ASC par `name` (collation FR), enrichi avec `products_count`.
+- Frontend : colonne « Produits » + bouton eye → `ProductsModal` paginée 100/page, search, sort, export CSV, clear.
+
+### Tâche 3 — Activité principale filtrable + liste éditable
+- Champ `activite_principale` sur la fiche.
+- `GET/PUT /api/admin/officine-activities` (settings.global.officines_activities).
+- Frontend : dropdown filtre + `ManageActivitiesModal` (add/remove) + champ select dans `EditOfficineModal`.
+
+### Bug fix — Page /documentation vide
+- `/api/api-routes` retournait 500 (TypeError list - set) → corrigé. 859 routes listées correctement.
+
 ## Iter43-fix11 (2026-03) — Story Studio Phase 2 — Meta OAuth + Publishing ✅
 
 **Statut** : LIVRÉ + testé (34/34 pytest ; testing agent v3 frontend OK — `iteration_60.json`).

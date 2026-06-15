@@ -5,19 +5,22 @@ import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import NewsletterForm from "@/components/NewsletterForm";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
+import { useI18n } from "@/contexts/I18nContext";
 
 export default function MarketingFooter() {
+  const { t } = useI18n();
   const [info, setInfo] = useState(null);
   useEffect(() => {
     apiClient.get("/company-info").then((r) => setInfo(r.data)).catch(() => {});
   }, []);
+  const year = new Date().getFullYear();
   return (
     <footer className="bg-[#050b18] text-slate-300 border-t border-white/10" data-testid="marketing-footer">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-10 border-b border-white/5">
         <div className="grid lg:grid-cols-2 gap-6 items-center">
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Newsletter</p>
-            <h3 className="mt-2 font-display font-bold text-white text-xl">Restez à la pointe de l'ingénierie logicielle.</h3>
+            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.footer.newsletter_kicker", "Newsletter")}</p>
+            <h3 className="mt-2 font-display font-bold text-white text-xl">{t("public.footer.newsletter_title", "Restez à la pointe de l'ingénierie logicielle.")}</h3>
           </div>
           <NewsletterForm />
         </div>
@@ -32,36 +35,35 @@ export default function MarketingFooter() {
             </div>
           </div>
           <p className="text-sm leading-relaxed">
-            Société d'ingénierie logicielle. Conception, déploiement et maintenance
-            de solutions métiers sur-mesure.
+            {t("public.footer.tagline", "Société d'ingénierie logicielle. Conception, déploiement et maintenance de solutions métiers sur-mesure.")}
           </p>
           <div className="mt-3">
             <TeamPresenceBadge tone="dark" />
           </div>
         </div>
         <div>
-          <p className="font-display font-semibold text-white mb-3">Navigation</p>
+          <p className="font-display font-semibold text-white mb-3">{t("public.footer.col_navigation", "Navigation")}</p>
           <ul className="space-y-2 text-sm">
-            <li><Link to="/missions" className="hover:text-sawali-blue-light">Missions</Link></li>
-            <li><Link to="/specialisations" className="hover:text-sawali-blue-light">Spécialisations</Link></li>
-            <li><Link to="/catalogue" className="hover:text-sawali-blue-light">Catalogue</Link></li>
-            <li><Link to="/etudes-de-cas" className="hover:text-sawali-blue-light">Études de cas</Link></li>
-            <li><Link to="/subscriptions" className="hover:text-sawali-blue-light">Abonnements</Link></li>
-            <li><Link to="/temoignages" className="hover:text-sawali-blue-light">Témoignages</Link></li>
-            <li><Link to="/rdv" className="hover:text-sawali-blue-light">Demande de RDV</Link></li>
+            <li><Link to="/missions" className="hover:text-sawali-blue-light">{t("public.footer.link_missions", "Missions")}</Link></li>
+            <li><Link to="/specialisations" className="hover:text-sawali-blue-light">{t("public.footer.link_specs", "Spécialisations")}</Link></li>
+            <li><Link to="/catalogue" className="hover:text-sawali-blue-light">{t("public.footer.link_catalogue", "Catalogue")}</Link></li>
+            <li><Link to="/etudes-de-cas" className="hover:text-sawali-blue-light">{t("public.footer.link_case_studies", "Études de cas")}</Link></li>
+            <li><Link to="/subscriptions" className="hover:text-sawali-blue-light">{t("public.footer.link_subscriptions", "Abonnements")}</Link></li>
+            <li><Link to="/temoignages" className="hover:text-sawali-blue-light">{t("public.footer.link_testimonials", "Témoignages")}</Link></li>
+            <li><Link to="/rdv" className="hover:text-sawali-blue-light">{t("public.footer.link_rdv", "Demande de RDV")}</Link></li>
           </ul>
         </div>
         <div>
-          <p className="font-display font-semibold text-white mb-3">Espaces</p>
+          <p className="font-display font-semibold text-white mb-3">{t("public.footer.col_spaces", "Espaces")}</p>
           <ul className="space-y-2 text-sm">
-            <li><Link to="/login" className="hover:text-sawali-blue-light">Connexion client</Link></li>
-            <li><Link to="/contact" className="hover:text-sawali-blue-light">Contact</Link></li>
-            <li><Link to="/documentation" className="hover:text-sawali-blue-light">Documentation API</Link></li>
-            <li><Link to="/uptime" className="hover:text-sawali-blue-light">État des services</Link></li>
+            <li><Link to="/login" className="hover:text-sawali-blue-light">{t("public.footer.link_client_login", "Connexion client")}</Link></li>
+            <li><Link to="/contact" className="hover:text-sawali-blue-light">{t("public.footer.link_contact", "Contact")}</Link></li>
+            <li><Link to="/documentation" className="hover:text-sawali-blue-light">{t("public.footer.link_docs", "Documentation API")}</Link></li>
+            <li><Link to="/uptime" className="hover:text-sawali-blue-light">{t("public.footer.link_uptime", "État des services")}</Link></li>
           </ul>
         </div>
         <div>
-          <p className="font-display font-semibold text-white mb-3">Contact</p>
+          <p className="font-display font-semibold text-white mb-3">{t("public.footer.col_contact", "Contact")}</p>
           <ul className="space-y-2 text-sm">
             <li className="flex items-center gap-2"><Mail className="h-4 w-4 text-sawali-blue-light" /> {info?.email || "..."}</li>
             <li className="flex items-center gap-2"><Phone className="h-4 w-4 text-sawali-blue-light" /> {info?.phone || "..."}</li>
@@ -74,13 +76,13 @@ export default function MarketingFooter() {
       </div>
       <div className="border-t border-white/5 py-5 text-center text-xs text-slate-500">
         <div className="flex items-center justify-center gap-3 mb-2 flex-wrap" data-testid="footer-policy-links">
-          <a href="/privacy" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-privacy-link">Politique de Confidentialité</a>
+          <a href="/privacy" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-privacy-link">{t("public.footer.policy_privacy", "Politique de Confidentialité")}</a>
           <span className="text-slate-700">·</span>
-          <a href="/politiques/services" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">Politique de services</a>
+          <a href="/politiques/services" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">{t("public.footer.policy_services", "Politique de services")}</a>
           <span className="text-slate-700">·</span>
-          <a href="/politiques/suppression" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-deletion">Politique de suppression</a>
+          <a href="/politiques/suppression" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-deletion">{t("public.footer.policy_cookies", "Politique de Cookies")}</a>
         </div>
-        © {new Date().getFullYear()} SAWALI SMART SYSTEMS. Tous droits réservés.
+        {t("public.footer.copyright", "© {year} SAWALI SMART SYSTEMS. Tous droits réservés.").replace("{year}", String(year))}
       </div>
     </footer>
   );

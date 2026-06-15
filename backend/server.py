@@ -23071,11 +23071,37 @@ async def _inbox_sms_send_helper(user: dict, msisdn: str, text: str) -> dict:  #
 
 INBOX_SMS_HELPER_DEFINED = True
 
+
+# Iter43-fix24b — Bird SMS sender adapter pour l'inbox unifiée
+async def _inbox_bird_send_helper(to: str, text: str) -> dict:  # noqa: ANN001
+    """Wrapper async qui appelle send_bird_sms et persiste dans bird_sms_messages."""
+    try:
+        from routes.bird_sms import send_bird_sms as _send_bird
+        res = await _send_bird(db, to=to, text=text)
+        await db.bird_sms_messages.insert_one({
+            "id": _uuid(),
+            "direction": "outbound",
+            "from": "portal",
+            "to": to,
+            "phone_digits": "".join(ch for ch in to if ch.isdigit()),
+            "text": text,
+            "bird_response": res,
+            "provider": "bird",
+            "created_at": _now().isoformat(),
+        })
+        return {"ok": True, "id": res.get("id") or "", "response": res}
+    except HTTPException as he:
+        raise he
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:200]}
+
+
 _setup_inbox_routes(
     db=db, api=api, get_current_user=get_current_user,
     _normalize_features=_normalize_features,
     wa_send_text=_wa_send_text,
     sms_send_text=_inbox_sms_send_helper,
+    bird_send_text=_inbox_bird_send_helper,
 )
 
 # =====================================================================

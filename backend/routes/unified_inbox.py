@@ -21,13 +21,13 @@ logger = logging.getLogger("sawali.inbox")
 
 
 class InboxSendPayload(BaseModel):
-    channel: str = Field(..., pattern="^(whatsapp|sms|messenger)$")
+    channel: str = Field(..., pattern="^(whatsapp|sms|sms_bird|messenger)$")
     thread_id: str = Field(..., min_length=1)
     text: str = Field(..., min_length=1, max_length=4000)
     page_id: Optional[str] = None  # required for messenger
 
 
-def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, sms_send_text=None, meta_get_meta_settings=None):
+def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, sms_send_text=None, meta_get_meta_settings=None, bird_send_text=None):
     """Mount the unified inbox endpoints on the provided `api` router.
 
     Optional integrations:
@@ -147,6 +147,74 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             slot["total_count"] += 1
         threads.extend(sms_by_peer.values())
 
+        # ---- Iter43-fix24b — SMS Bird (canal distinct du SMS OVH/Orange) ----
+        # Aggregate les messages bidirectionnels stockés dans `bird_sms_messages`
+        # par numéro de l'utilisateur final. En mode admin on voit tous les
+        # threads ; en mode tenant on ne voit que ses propres conversations
+        # (matchées via le numéro WA ou phone du compte client).
+        try:
+            bird_query: Dict[str, Any] = {"provider": "bird"}
+            if user.get("role") != "admin":
+                # Tenant: limiter aux numéros liés à son compte
+                u = await db.users.find_one({"id": tid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "phone_digits": 1})
+                allowed_digits: List[str] = []
+                for k in ("phone", "whatsapp_number"):
+                    if u and u.get(k):
+                        d = _digits(u[k])
+                        if d:
+                            allowed_digits.append(d)
+                if u and u.get("phone_digits"):
+                    allowed_digits.append(u["phone_digits"])
+                if not allowed_digits:
+                    # Pas de numéro lié → aucun thread Bird visible côté tenant
+                    bird_msgs = []
+                else:
+                    bird_query["phone_digits"] = {"$in": list(set(allowed_digits))}
+                    bird_msgs = await db.bird_sms_messages.find(
+                        bird_query,
+                        {"_id": 0, "direction": 1, "from": 1, "to": 1, "phone_digits": 1,
+                         "text": 1, "created_at": 1, "ai_generated": 1, "provider": 1},
+                    ).sort("created_at", -1).to_list(500)
+            else:
+                bird_msgs = await db.bird_sms_messages.find(
+                    bird_query,
+                    {"_id": 0, "direction": 1, "from": 1, "to": 1, "phone_digits": 1,
+                     "text": 1, "created_at": 1, "ai_generated": 1, "provider": 1},
+                ).sort("created_at", -1).to_list(500)
+
+            bird_by_peer: Dict[str, Dict[str, Any]] = {}
+            for m in bird_msgs:
+                # Pour inbound, le peer est `from` ; pour outbound, c'est `to`
+                peer = m.get("from") if m.get("direction") == "inbound" else m.get("to")
+                if not peer or peer in ("liluvine", "admin", "unknown"):
+                    peer = m.get("phone_digits") or "unknown"
+                digits = _digits(peer)
+                matched = contact_index.get(digits) or (digits and contact_index.get(digits.lstrip("0")))
+                slot = bird_by_peer.setdefault(peer, {
+                    "channel": "sms_bird",
+                    "peer_id": peer,
+                    "peer_name": (matched or {}).get("name") or (f"+{digits}" if digits else peer),
+                    "peer_phone": digits and f"+{digits}",
+                    "peer_photo_url": (matched or {}).get("photo_url"),
+                    "peer_code": (matched or {}).get("code"),
+                    "contact_id": (matched or {}).get("id"),
+                    "preview": (m.get("text") or "")[:120],
+                    "last_at": _ts_to_iso(m.get("created_at")),
+                    "unread_count": 0, "total_count": 0,
+                    "ai_replies_count": 0,
+                    "provider": "bird",
+                })
+                slot["total_count"] += 1
+                if m.get("ai_generated"):
+                    slot["ai_replies_count"] += 1
+                if m.get("direction") == "inbound":
+                    # Pour Bird on n'a pas encore de notion `read_by_us_at` → on
+                    # marque comme non-lu jusqu'à ce que l'utilisateur ouvre le thread.
+                    pass
+            threads.extend(bird_by_peer.values())
+        except Exception:  # noqa: BLE001
+            logger.exception("[unified_inbox] bird aggregation failed")
+
         # ---- Messenger ----
         if feats.get("meta_messenger"):
             mg_msgs = await db.meta_messenger_messages.find(
@@ -188,12 +256,14 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             "channels_enabled": {
                 "whatsapp": True,
                 "sms": True,
+                "sms_bird": True,  # Iter43-fix24b
                 "messenger": bool(feats.get("meta_messenger")),
             },
             "totals": {
                 "unread": sum(t.get("unread_count", 0) for t in threads),
                 "whatsapp": sum(1 for t in threads if t["channel"] == "whatsapp"),
                 "sms": sum(1 for t in threads if t["channel"] == "sms"),
+                "sms_bird": sum(1 for t in threads if t["channel"] == "sms_bird"),  # Iter43-fix24b
                 "messenger": sum(1 for t in threads if t["channel"] == "messenger"),
             },
         }
@@ -281,7 +351,45 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "status": m.get("status"), "provider": m.get("provider"),
                 } for m in msgs
             ]}
-        raise HTTPException(status_code=400, detail="Canal inconnu (whatsapp | sms | messenger)")
+        # Iter43-fix24b — SMS Bird (bidirectionnel)
+        if channel == "sms_bird":
+            digits = "".join(ch for ch in thread_id if ch.isdigit())
+            q: Dict[str, Any] = {
+                "provider": "bird",
+                "$or": [
+                    {"phone_digits": digits},
+                    {"from": thread_id},
+                    {"to": thread_id},
+                ],
+            }
+            # En mode tenant, restreindre aux numéros du compte
+            if user.get("role") != "admin":
+                u = await db.users.find_one({"id": tid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "phone_digits": 1})
+                allowed = set()
+                for k in ("phone", "whatsapp_number"):
+                    if u and u.get(k):
+                        allowed.add("".join(ch for ch in u[k] if ch.isdigit()))
+                if u and u.get("phone_digits"):
+                    allowed.add(u["phone_digits"])
+                if digits not in allowed:
+                    raise HTTPException(status_code=403, detail="Conversation hors périmètre.")
+            msgs = await db.bird_sms_messages.find(
+                q, {"_id": 0, "id": 1, "direction": 1, "from": 1, "to": 1,
+                    "text": 1, "created_at": 1, "ai_generated": 1, "ai_source": 1,
+                    "provider_message_id": 1},
+            ).sort("created_at", 1).to_list(limit)
+            return {"channel": "sms_bird", "thread_id": thread_id, "messages": [
+                {
+                    "id": m.get("id", ""),
+                    "direction": m.get("direction") or "outbound",
+                    "text": m.get("text") or "",
+                    "at": _ts_to_iso(m.get("created_at")),
+                    "provider": "bird",
+                    "ai_generated": bool(m.get("ai_generated")),
+                    "ai_source": m.get("ai_source"),
+                } for m in msgs
+            ]}
+        raise HTTPException(status_code=400, detail="Canal inconnu (whatsapp | sms | sms_bird | messenger)")
 
     # =========================================================================
     # Iter38j — Send a message from the unified inbox.
@@ -321,6 +429,13 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             if not r.get("ok"):
                 raise HTTPException(status_code=502, detail=r.get("error") or "Échec SMS")
             return {"ok": True, "message_id": r.get("id"), "channel": "sms"}
+
+        # ---- Iter43-fix24b — SMS Bird ----
+        if payload.channel == "sms_bird":
+            if bird_send_text is None:
+                raise HTTPException(status_code=503, detail="Bird SMS non configuré.")
+            r = await bird_send_text(payload.thread_id, payload.text)
+            return {"ok": True, "message_id": r.get("id"), "channel": "sms_bird", "response": r}
 
         # ---- Messenger ----
         if payload.channel == "messenger":

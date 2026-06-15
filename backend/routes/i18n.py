@@ -245,6 +245,28 @@ SEED_KEYS: List[Dict[str, str]] = [
     {"key": "public.home.cta.title", "fr": "Un projet en tête ? Parlons-en.", "en": "Got a project in mind? Let's talk.", "ar": "هل لديك مشروع في ذهنك؟ لنتحدث."},
     {"key": "public.home.cta.body", "fr": "Réservez un rendez-vous gratuit avec notre équipe d'ingénierie.", "en": "Book a free meeting with our engineering team.", "ar": "احجز اجتماعًا مجانيًا مع فريق الهندسة لدينا."},
     {"key": "public.home.cta.button", "fr": "Prendre rendez-vous", "en": "Book a meeting", "ar": "حجز موعد"},
+    # Iter43-fix24c (2026-06) — Footer (MarketingFooter.jsx)
+    {"key": "public.footer.newsletter_kicker", "fr": "Newsletter", "en": "Newsletter", "ar": "النشرة الإخبارية"},
+    {"key": "public.footer.newsletter_title", "fr": "Restez à la pointe de l'ingénierie logicielle.", "en": "Stay at the forefront of software engineering.", "ar": "ابقَ في طليعة هندسة البرمجيات."},
+    {"key": "public.footer.tagline", "fr": "Société d'ingénierie logicielle. Conception, déploiement et maintenance de solutions métiers sur-mesure.", "en": "Software engineering company. Design, deployment and maintenance of tailor-made business solutions.", "ar": "شركة هندسة برمجيات. تصميم ونشر وصيانة حلول أعمال مخصصة."},
+    {"key": "public.footer.col_navigation", "fr": "Navigation", "en": "Navigation", "ar": "التنقل"},
+    {"key": "public.footer.col_spaces", "fr": "Espaces", "en": "Spaces", "ar": "الفضاءات"},
+    {"key": "public.footer.col_contact", "fr": "Contact", "en": "Contact", "ar": "اتصل بنا"},
+    {"key": "public.footer.link_missions", "fr": "Missions", "en": "Missions", "ar": "المهام"},
+    {"key": "public.footer.link_specs", "fr": "Spécialisations", "en": "Specialisations", "ar": "التخصصات"},
+    {"key": "public.footer.link_catalogue", "fr": "Catalogue", "en": "Catalogue", "ar": "الكتالوج"},
+    {"key": "public.footer.link_case_studies", "fr": "Études de cas", "en": "Case studies", "ar": "دراسات الحالة"},
+    {"key": "public.footer.link_subscriptions", "fr": "Abonnements", "en": "Subscriptions", "ar": "الاشتراكات"},
+    {"key": "public.footer.link_testimonials", "fr": "Témoignages", "en": "Testimonials", "ar": "الشهادات"},
+    {"key": "public.footer.link_rdv", "fr": "Demande de RDV", "en": "Book appointment", "ar": "حجز موعد"},
+    {"key": "public.footer.link_client_login", "fr": "Connexion client", "en": "Client login", "ar": "تسجيل دخول العميل"},
+    {"key": "public.footer.link_contact", "fr": "Contact", "en": "Contact", "ar": "اتصل بنا"},
+    {"key": "public.footer.link_docs", "fr": "Documentation API", "en": "API Documentation", "ar": "وثائق API"},
+    {"key": "public.footer.link_uptime", "fr": "État des services", "en": "Service status", "ar": "حالة الخدمات"},
+    {"key": "public.footer.policy_privacy", "fr": "Politique de Confidentialité", "en": "Privacy Policy", "ar": "سياسة الخصوصية"},
+    {"key": "public.footer.policy_services", "fr": "Politique de services", "en": "Service Policy", "ar": "سياسة الخدمات"},
+    {"key": "public.footer.policy_cookies", "fr": "Politique de Cookies", "en": "Cookies Policy", "ar": "سياسة ملفات الارتباط"},
+    {"key": "public.footer.copyright", "fr": "© {year} SAWALI SMART SYSTEMS. Tous droits réservés.", "en": "© {year} SAWALI SMART SYSTEMS. All rights reserved.", "ar": "© {year} SAWALI SMART SYSTEMS. كل الحقوق محفوظة."},
 ]
 
 

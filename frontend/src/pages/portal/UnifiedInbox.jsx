@@ -11,6 +11,7 @@ import { toast } from "sonner";
 const channelMeta = {
   whatsapp: { label: "WA", color: "bg-emerald-100 text-emerald-700 ring-emerald-200", Icon: MessageCircle },
   sms: { label: "SMS", color: "bg-amber-100 text-amber-700 ring-amber-200", Icon: Smartphone },
+  sms_bird: { label: "SMS Bird", color: "bg-sky-100 text-sky-700 ring-sky-200", Icon: Smartphone }, // Iter43-fix24b
   messenger: { label: "MSG", color: "bg-blue-100 text-blue-700 ring-blue-200", Icon: Facebook },
 };
 
@@ -114,7 +115,7 @@ export default function UnifiedInbox() {
           <div>
             <h1 className="text-2xl font-display font-bold">Inbox unifiée</h1>
             <p className="text-sm text-slate-500">
-              Tous vos canaux (WhatsApp{channelsEnabled.messenger ? " + Messenger" : ""}) en un seul écran.
+              Tous vos canaux (WhatsApp{channelsEnabled.sms_bird ? " + SMS Bird" : ""}{channelsEnabled.messenger ? " + Messenger" : ""}) en un seul écran.
               {totals.unread > 0 && <span className="ml-2 inline-flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full text-xs font-medium">{totals.unread} non-lu(s)</span>}
             </p>
           </div>
@@ -128,6 +129,7 @@ export default function UnifiedInbox() {
             <option value="all">Tous canaux ({threads.length})</option>
             <option value="whatsapp">WhatsApp ({totals.whatsapp || 0})</option>
             <option value="sms">SMS ({totals.sms || 0})</option>
+            {channelsEnabled.sms_bird && <option value="sms_bird">SMS Bird ({totals.sms_bird || 0})</option>}
             {channelsEnabled.messenger && <option value="messenger">Messenger ({totals.messenger || 0})</option>}
           </select>
           <button onClick={load} className="inline-flex items-center gap-1 px-3 py-1.5 bg-slate-100 hover:bg-slate-200 rounded-lg text-sm" data-testid="inbox-refresh-btn">

@@ -5,6 +5,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24b/c (2026-06-15) — Inbox SMS Bird + Footer i18n ✅
+
+**Statut** : LIVRÉ + testé (14/14 pytest, screenshot Footer EN OK).
+
+### Bird SMS dans /portal/inbox (fix24b)
+Canal **`sms_bird`** ajouté à l'inbox unifiée (distinct du canal `sms` OVH/Orange) :
+- **Backend** `unified_inbox.py` :
+  - Agrégation des `bird_sms_messages` par numéro peer (admin = tous, tenant = numéros liés au compte uniquement)
+  - Endpoint `GET /api/me/inbox/unified/sms_bird/{thread_id}` retourne les messages bidirectionnels
+  - Envoi via `POST /api/me/inbox/send` avec `channel="sms_bird"` (utilise `_inbox_bird_send_helper`)
+  - `channels_enabled.sms_bird` et `totals.sms_bird` exposés
+- **Frontend** `UnifiedInbox.jsx` :
+  - `channelMeta.sms_bird` (badge sky bleu, icône Smartphone)
+  - Option de filtre "SMS Bird ({totals.sms_bird || 0})"
+  - Sous-titre dynamique inclut "+ SMS Bird" quand activé
+- **server.py** : `_inbox_bird_send_helper(to, text)` wrappe `send_bird_sms` et persiste l'outbound dans `bird_sms_messages`.
+
+### Footer i18n (fix24c)
+21 nouvelles clés `public.footer.*` en FR/EN/AR :
+- Newsletter (kicker + title)
+- Tagline (3 colonnes : Navigation / Espaces / Contact)
+- 7 liens Navigation, 4 liens Espaces
+- 3 liens Politiques (Privacy, Services, Cookies)
+- Copyright avec placeholder `{year}` interpolé côté JSX
+
+### Tests
+- `/app/backend/tests/test_iter43_fix24b_inbox_bird.py` : 3 tests (canal, messages, envoi sans config → 503).
+- Total backend Iter43 fix23+24 : **14 tests, 100%**.
+
+### Compteurs i18n (état actuel)
+- **155 clés FR + EN + AR** (21 footer + 34 home + 100 historiques)
+- Gulmancema (lg1) et Mooré (lg2) → traduisibles via Admin → i18n → "Traduire avec IA"
+
+
+
 ## Iter43-fix24 (2026-06-15) — i18n extension Home publique (FR/EN/AR/RTL) ✅
 
 **Statut** : LIVRÉ + testé (screenshots EN + AR-RTL OK).

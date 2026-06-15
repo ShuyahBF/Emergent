@@ -18,6 +18,7 @@ import LiluvineLiveToast from "@/components/LiluvineLiveToast";
 import LanguageSelector from "@/components/LanguageSelector";
 import { useT } from "@/contexts/I18nContext";
 import BrowserNotifications from "@/components/BrowserNotifications";
+import WeatherWidget from "@/components/WeatherWidget";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
@@ -297,6 +298,9 @@ export default function PortalLayout({ admin = false }) {
       </Link>
       <div className="px-2 mb-6 flex justify-end" data-testid="sidebar-language-row">
         <LanguageSelector compact />
+      </div>
+      <div className="px-2 mb-3" data-testid="sidebar-weather-row">
+        <WeatherWidget variant="compact" placement="portal" className="w-full justify-start" />
       </div>
       <nav className="space-y-1">
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges }) => {

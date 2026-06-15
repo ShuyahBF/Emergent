@@ -989,6 +989,13 @@ class SettingsUpdate(BaseModel):
     auto_relance_grace_days: Optional[int] = None  # default 30
     auto_relance_email_report_to: Optional[str] = None  # admin email for HTML report
 
+    # Iter43-fix20 (2026-06) — Weather widget (Open-Meteo).
+    weather_widget_enabled: Optional[bool] = None        # master toggle
+    weather_widget_show_public: Optional[bool] = None    # afficher sur site public
+    weather_widget_show_portal: Optional[bool] = None    # afficher dans le portail
+    weather_widget_default_city: Optional[str] = None    # fallback (ex: "Ouagadougou")
+    weather_widget_default_country: Optional[str] = None  # code ISO 2 lettres (ex: "BF")
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

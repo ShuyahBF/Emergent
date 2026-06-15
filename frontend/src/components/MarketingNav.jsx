@@ -8,6 +8,7 @@ import { useUIFlags } from "@/lib/useUIFlags";
 import LanguageSelector from "@/components/LanguageSelector";
 import SupportLoadGauge from "@/components/SupportLoadGauge";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
+import WeatherWidget from "@/components/WeatherWidget";
 
 const links = [
   { to: "/", label: "Accueil", tKey: "public.nav.home" },
@@ -74,6 +75,7 @@ export default function MarketingNav() {
           </nav>
 
           <div className="flex items-center gap-2 shrink-0">
+            <WeatherWidget variant="compact" placement="public" className="hidden md:inline-flex" />
             <LanguageSelector compact />
             <TeamPresenceBadge tone="dark" compact className="hidden md:inline-flex" />
             <button

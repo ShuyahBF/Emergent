@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardList, Sparkles, X, Copy, Loader2, RefreshCw, FileDown, MessageCircle as MessageCircleIcon, Ticket, Eye, UserPlus, MessageSquare, CreditCard, AlertTriangle } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import BrochuresWidget from "@/components/BrochuresWidget";
+import WeatherWidget from "@/components/WeatherWidget";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -99,6 +100,9 @@ export default function ClientDashboard() {
         <StatCard icon={FileText} label="Documents" value={s.documents} testid="stat-documents" />
         <StatCard icon={CheckCircle2} label="Statut" value={data.user.account_status === "active" ? "Actif" : "Inactif"} testid="stat-status" />
       </div>
+
+      {/* Iter43-fix20 — Widget météo détaillé dans le dashboard portail */}
+      <WeatherWidget variant="detailed" placement="portal" />
 
       {/* Iter38r-fix8b — Notes & Tâches s'affichent toujours, Rapports/Suivis selon feature flag */}
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4" data-testid="dashboard-notes-section">

@@ -154,3 +154,33 @@ html {
 @layer base {
   [data-debug-wrapper="true"] { display: contents !important; }
 }
+
+/* Iter43-fix20 — Weather widget animations */
+.weather-icon-sun {
+  animation: weather-sun-rotate 16s linear infinite;
+  transform-origin: center;
+  filter: drop-shadow(0 0 6px rgba(250, 204, 21, 0.45));
+}
+@keyframes weather-sun-rotate {
+  from { transform: rotate(0deg); }
+  to   { transform: rotate(360deg); }
+}
+.weather-icon-moon {
+  filter: drop-shadow(0 0 6px rgba(226, 232, 240, 0.5));
+}
+.weather-icon-rain {
+  animation: weather-rain-bob 2.2s ease-in-out infinite;
+}
+@keyframes weather-rain-bob {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(2px); }
+}
+.weather-icon-storm {
+  animation: weather-storm-flash 1.8s ease-in-out infinite;
+}
+@keyframes weather-storm-flash {
+  0%, 60%, 100% { opacity: 1; filter: drop-shadow(0 0 4px rgba(250, 204, 21, 0.5)); }
+  62%           { opacity: 0.5; }
+  64%           { opacity: 1; filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.9)); }
+  68%           { opacity: 0.6; }
+}

@@ -23088,6 +23088,10 @@ _CATALOG_ANALYTICS = _setup_catalog_analytics(
 from routes.payments_stripe import setup_stripe_routes as _setup_stripe_routes  # noqa: E402
 _setup_stripe_routes(db=db, api=api, get_current_user=get_current_user, send_email_fn=send_email)
 
+# Iter43-fix20 (2026-06) — Météo widget (Open-Meteo + IP geolocation).
+from routes.weather import setup_weather_routes as _setup_weather_routes  # noqa: E402
+_setup_weather_routes(db=db, api=api)
+
 # Iter38r-fix5 — AI Quotas & Usage Tracking per Client Lié.
 from routes.ai_quotas import setup_ai_quotas_routes as _setup_ai_quotas_routes, track_ai_usage as _track_ai_usage  # noqa: E402, F401
 _setup_ai_quotas_routes(

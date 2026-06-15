@@ -9,6 +9,7 @@ import HeroVideoSection from "@/components/HeroVideoSection";
 import HomeStatsTicker from "@/components/HomeStatsTicker";
 import TeamPresenceBadge from "@/components/TeamPresenceBadge";
 import AdBannerSlot from "@/components/AdBannerSlot";
+import WeatherWidget from "@/components/WeatherWidget";
 
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
@@ -99,6 +100,10 @@ export default function Home() {
           </div>
 
           <div className="lg:col-span-5 grid grid-cols-2 gap-4 self-end">
+            {/* Iter43-fix20 — Weather widget détaillé (placement hero) */}
+            <div className="col-span-2">
+              <WeatherWidget variant="detailed" placement="public" />
+            </div>
             {(metrics.length ? metrics : [
               { label: "Années d'expérience", value: "10+" },
               { label: "Projets livrés", value: "50+" },

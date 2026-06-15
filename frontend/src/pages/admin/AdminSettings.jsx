@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
+import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
@@ -104,6 +105,7 @@ const TABS = [
   { key: "comms",       label: "Communications",      emoji: "📨" },
   { key: "rh",          label: "GRH & Personnel",     emoji: "👥" },
   { key: "modules",     label: "Modules & Bonus",     emoji: "✨" },
+  { key: "meteo",       label: "Météo",               emoji: "🌤️" },
   { key: "diagnostics", label: "Diagnostics & Logs",  emoji: "🛠️" },
 ];
 
@@ -114,6 +116,7 @@ function categoryOf(title = "") {
     return "ia";
   }
   if (/whatsapp|wa\b|facebook|messenger|meta\b|approbation/i.test(title)) return "meta";
+  if (/météo|meteo|weather/i.test(title)) return "meteo";
   if (/stripe|paywall|pawapay|coupon|paiement|caisse|facture|abonnement/i.test(title)) return "paiements";
   if (/email|sms|smtp|otp|notification|alexa|note de service|template|digest|pv de réunion/i.test(title)) return "comms";
   if (/grh|paie|salaire|personnel|webhook paie/i.test(title)) return "rh";
@@ -627,6 +630,11 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />
+      </Filterable>
+
+      {/* Iter43-fix20 — Widget météo (Open-Meteo, gratuit, sans clé) */}
+      <Filterable title="🌤️ Widget Météo (Open-Meteo)" anchorId="s-weather-widget">
+        <WeatherWidgetSection />
       </Filterable>
 
       <Filterable title="Coupons de réduction (Stripe Checkout)" anchorId="s-coupons-stripe">

@@ -190,7 +190,50 @@ async def autoreply_to_inbound(
         except Exception:  # noqa: BLE001
             logger.exception("[wa_autoreply] persist exclamation failed")
     if (text.startswith("!") or text.startswith("/")) and not is_public_cmd:
-        return {"ok": False, "reason": "command_prefix"}
+        # Iter43-fix24h (2026-06) — Catch-all fallback : pour toute exclamation `!xxx`
+        # inconnue (ex. `!Aizenta`, `!status`, etc.), envoie au moins « … » pour que
+        # l'utilisateur sache que le message a bien été reçu et que Liluvine n'a pas
+        # de handler pour cette commande. Réponse personnalisable via le réglage
+        # `liluvine_wa_unknown_cmd_reply` (Admin Settings).
+        if not bool(settings_doc.get("liluvine_wa_autoreply_enabled")):
+            return {"ok": False, "reason": "disabled"}
+        deny_list = _norm_phones(settings_doc.get("liluvine_wa_autoreply_deny_phones"))
+        if phone_digits in deny_list:
+            return {"ok": False, "reason": "denylisted"}
+        fallback_reply = (settings_doc.get("liluvine_wa_unknown_cmd_reply") or "…").strip() or "…"
+        to_e164_fb = inbound_doc.get("from") or f"+{phone_digits}"
+        try:
+            send_res_fb = await wa_send_text(
+                to_e164_fb, fallback_reply, reply_to_message_id=inbound_doc.get("wa_message_id"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[wa_autoreply][fallback] send failed: %s", exc)
+            send_res_fb = {"ok": False, "error": str(exc)}
+        try:
+            await db.whatsapp_messages.insert_one({
+                "id": uuid.uuid4().hex, "direction": "outbound",
+                "to": to_e164_fb, "phone_digits": phone_digits,
+                "body": fallback_reply, "client_id": inbound_doc.get("client_id"),
+                "wa_message_id": (send_res_fb or {}).get("message_id"),
+                "auto_reply": True, "command": "unknown_fallback",
+                "created_at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        try:
+            await db.liluvine_exclamations.update_one(
+                {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
+                {"$set": {
+                    "handled": True,
+                    "reply": fallback_reply[:500],
+                    "handled_at": _now_iso(),
+                    "send_ok": bool((send_res_fb or {}).get("ok") if isinstance(send_res_fb, dict) else True),
+                    "fallback": True,
+                }},
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "command": "unknown_fallback", "send": send_res_fb}
 
     decision = await should_autoreply(
         db, settings=settings_doc, phone_digits=phone_digits, text=text, contact=contact
@@ -231,10 +274,24 @@ async def autoreply_to_inbound(
     # Pas besoin de feature gate `ai_liluvine_pro` puisque ce sont des
     # commandes utilitaires (annuaire / météo), pas de l'IA.
     if is_public_cmd:
-        if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
-            reply = await _build_garde_reply(db)
-        else:
-            reply = await _build_meteo_reply(db, cmd_lower, phone_digits)
+        # Iter43-fix24h (2026-06) — Sécuriser les handlers builtin : même si
+        # `_build_garde_reply` ou `_build_meteo_reply` lève une exception
+        # (DB down, API météo HS, ville inconnue, etc.), on envoie toujours
+        # une réponse — sinon l'utilisateur a l'impression que Liluvine est
+        # cassée.
+        try:
+            if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
+                reply = await _build_garde_reply(db)
+            else:
+                reply = await _build_meteo_reply(db, cmd_lower, phone_digits)
+            if not reply or not str(reply).strip():
+                reply = "…"
+        except Exception as exc:  # noqa: BLE001, F841
+            logger.exception("[wa_autoreply][cmd] builder failed for %s", cmd_lower)
+            reply = (
+                "⚠️ Désolé, je n'arrive pas à traiter cette commande pour le moment. "
+                "Réessayez dans quelques instants."
+            )
         # Send back via the provided sender
         to_e164 = inbound_doc.get("from") or f"+{phone_digits}"
         try:

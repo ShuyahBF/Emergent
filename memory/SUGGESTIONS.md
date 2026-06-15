@@ -513,6 +513,86 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Note** : certains heros illustrés (ex : carte d'Afrique sur la page d'accueil) ont leur propre visuel illustratif et continuent de se superposer au fond global. Le fond personnalisé sera plus dominant sur les pages sans hero illustratif (Missions, Contact, Catalogue, Policies, etc.) et sur tout le portail.
 - **Tests** : 4 tests pytest (`test_iter40_bg_theming.py`) : exposition des 8 champs, set/get public color, set/get portal image avec position, normalisation chaînes vides → null. **4/4 PASS**.
 
+## S058 — Commandes WhatsApp publiques `!Garde` et `!Météo` (sans LLM)
+- **Demande utilisateur** : 2026-06 — « Quand un client WhatsApp envoie !Garde il doit recevoir la liste des officines de garde de la semaine. !Meteo doit retourner les prévisions »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix22
+- **Détail** : Court-circuit Claude dans `liluvine_wa_autoreply.py` — détection par prefix `!garde`/`!pharmacie`/`!meteo`/`!météo`, dispatch direct vers `_build_garde_reply(db)` ou `_build_meteo_reply(db, cmd, phone)`. La météo utilise Open-Meteo API (geocoding + forecast) sans clé. Le planning de garde lit `db.garde_planning` + `db.officines` (collection groupe_garde).
+- **Bénéfice** : économie tokens LLM (~3 c$/commande), réponse instantanée (~300 ms vs ~2 s LLM).
+- **Fichiers** : `routes/liluvine_wa_autoreply.py` lignes 230-266 + 521-684.
+
+## S059 — Audit des `!commandes` inconnues + bouton "Générer handler IA"
+- **Demande utilisateur** : 2026-06 — « Quand quelqu'un envoie une commande inconnue (ex. !Aizenta) il faut qu'on sache combien de fois cela arrive et qu'on puisse y répondre. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24d + fix24e
+- **Détail** :
+  - Nouvelle collection `liluvine_exclamations` qui stocke TOUTE exclamation `!xxx` (connue ou non) avec body, command, args, contact, timestamp
+  - Page admin `/admin/liluvine-pro/requests` regroupe par commande et par fréquence
+  - Bouton "Auto-générer handler IA" qui appelle Claude Sonnet (via emergent_llm_key) pour proposer du code Python drop-in respectant le pattern `_build_<cmd>_reply(db, args)`
+  - 3 exemples concrets reçus sont injectés dans le prompt système
+- **Fichiers** : `routes/liluvine_wa_requests.py`, `pages/admin/AdminLiluvineWaRequests.jsx`
+
+## S060 — Migration SMS bidirectionnels d'Africa's Talking vers Bird.com
+- **Demande utilisateur** : 2026-06 — « Je voudrais utiliser Bird au lieu d'Africa's Talking pour les SMS entrants/sortants. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24a/b/c
+- **Détail** :
+  - Suppression du SDK Africa's Talking
+  - Nouvelle route `routes/bird_sms.py` avec `send_bird_sms(db, to, text, sender)` (Bird Channels API direct via httpx + AccessKey)
+  - Webhook `POST /api/webhooks/bird/incoming-sms` pour réceptionner les SMS entrants
+  - Intégration au Unified Inbox (`/portal/inbox`) avec channel `sms_bird` + threading par numéro
+  - Settings Admin : 5 champs éditables (bird_api_base_url, bird_workspace_id, bird_channel_id, bird_access_key, bird_default_sender)
+- **Fichiers** : `routes/bird_sms.py`, `routes/unified_inbox.py`
+
+## S061 — Page de coût SMS Bird (chart historique)
+- **Demande utilisateur** : 2026-06 — « Combien j'ai dépensé en SMS sur Bird ? Faut un graphique sur 7/30/90 jours. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24f
+- **Détail** : Page admin `/admin/bird-cost` avec 5 KPI cards (aujourd'hui / hier / 7j / 30j / total) + graphique barres horizontales CSS pur (pas de lib). Endpoint backend `GET /api/admin/bird/cost-daily-series?days=1-365`. Aujourd'hui mis en avant en sky-600.
+- **Fichiers** : `pages/admin/AdminBirdCost.jsx`, `server.py` (endpoint cost-daily-series).
+
+## S062 — Page admin Handler Suggestions (historique du code IA)
+- **Demande utilisateur** : 2026-06 — « Je veux voir tout l'historique des handlers que l'IA a générés, leur statut (appliqué/en attente), avec notes éditables. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24f
+- **Détail** : Page `/admin/handler-suggestions` avec table filtrable (par commande + par statut), modal `CodeViewerModal` pour visualiser le code Python généré, notes éditables inline, bouton "Appliqué"/"En attente", suppression avec confirmation. 3 endpoints backend (GET liste, PATCH toggle/notes, DELETE).
+- **Fichiers** : `pages/admin/AdminHandlerSuggestions.jsx`, `routes/liluvine_wa_requests.py` lignes 252-305.
+
+## S063 — Bird.com comme provider SMS sélectionnable dans le portail
+- **Demande utilisateur** : 2026-06 — « Dans la liste déroulante 'Fournisseur' de /portal/sms, 'SMS Bird' est absent »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24g
+- **Détail** :
+  - Backend `_sms_active_providers(s)` retourne maintenant `'bird'` quand `bird_enabled=true` ET `bird_workspace_id`, `bird_channel_id`, `bird_access_key` sont tous non-vides
+  - `_sms_dispatch` route automatiquement vers `routes/bird_sms.send_bird_sms` quand `cfg["kind"] == "bird"` (persiste dans `bird_sms_messages` pour cohérence avec l'inbox)
+  - Frontend `SmsBulk.jsx`, `Contacts.jsx`, `WaBulk.jsx` : option `📡 Bird.com` visible dans les dropdowns SMS provider quand Bird est configuré
+  - `LiluvinePro.jsx` : nouveau filtre channel `📡 Bird` + badge orange pour sessions `sms:bird:*`
+- **Bénéfice** : un opérateur peut désormais choisir Bird comme provider d'envoi pour ses campagnes SMS bulk ou ses envois individuels, en plus d'Orange/Telecel/Moov/OVH.
+- **Tests** : 3 tests pytest `test_iter43_fix24g_bird_provider.py`. **3/3 PASS**.
+
+## S064 — Bouton "Tester en dry-run" (sandbox) sur les handlers générés
+- **Demande utilisateur** : 2026-06 — « Implémenter un bouton 'Tester ce handler en dry-run' sur /admin/handler-suggestions. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24g
+- **Détail** :
+  - Backend `POST /api/admin/liluvine-pro/handler-suggestions/{id}/dry-run` qui extrait le bloc ```python contenant `async def _build_<cmd>_reply`, compile + exec dans un sandbox restreint (builtins minimaux ~30 noms, `__import__` whitelisté sur 17 modules safe : datetime/asyncio/json/math/re/typing/uuid/hashlib/base64/calendar/collections/itertools/functools/statistics/decimal/html/urllib.parse).
+  - Timeout configurable 0,5 à 15 s (default 5 s) via `asyncio.wait_for`
+  - Logue chaque exécution dans `liluvine_handler_dry_runs` (audit)
+  - Frontend : panneau pliable dans `CodeViewerModal` avec input args + bouton "Exécuter le dry-run" + affichage du résultat (vert si OK + reply / rouge si erreur)
+- **Bénéfice** : on peut valider le comportement d'un handler généré par Claude SANS avoir à le copier-coller dans `liluvine_wa_autoreply.py` ni redéployer. Cycle de validation : génération IA → dry-run → ajustement notes → marquer "appliqué" → push code → redeploy.
+- **Tests** : 8 tests pytest `test_iter43_fix24g_dry_run.py` (happy path, args vides, SyntaxError, timeout, import bloqué, fonction manquante, 404, log audit). **8/8 PASS**.
+
+## S065 — Catch-all `…` pour toute `!commande` inconnue (WhatsApp)
+- **Demande utilisateur** : 2026-06 — « Quand j'envoie !garde ou !meteo il n'y a aucune réponse. Toujours répondre au moins '...' même si elle ne comprend rien. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24h
+- **Détail** :
+  - Avant : pour toute exclamation `!xxx` non reconnue (ex. `!Aizenta`), `maybe_handle_liluvine_wa_command` retournait silencieusement `{"ok": False, "reason": "command_prefix"}` — l'utilisateur n'avait aucun feedback.
+  - Maintenant : envoie systématiquement une réponse de fallback (`…` par défaut, personnalisable via le nouveau réglage `liluvine_wa_unknown_cmd_reply`) en respectant le gate `enabled` + `denylist`. Marque l'exclamation comme `handled=True, fallback=True` dans `liluvine_exclamations`.
+  - En plus : les handlers `_build_garde_reply` et `_build_meteo_reply` sont désormais wrappés dans un try/except — si le builder lève (DB down, API météo HS, etc.) on envoie `⚠️ Désolé, je n'arrive pas à traiter cette commande pour le moment.` au lieu d'un silence.
+- **Bénéfice** : Liluvine ne paraît jamais "muette" sur WhatsApp. L'utilisateur sait toujours que son message a été reçu, et l'admin peut suivre les commandes inconnues pour décider lesquelles automatiser ensuite.
+- **Fichiers** : `routes/liluvine_wa_autoreply.py` lignes 192-238 + 233-251.
+
 ---
 
 ## Comment référencer une suggestion

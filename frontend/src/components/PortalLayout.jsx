@@ -130,7 +130,8 @@ const adminLinks = [
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
-  { to: "/admin/liluvine-wa-requests", label: "Interrogations WhatsApp", icon: Inbox, moderatorPlus: true },
+  // Iter43-fix23 — Renommé "EXCLAM_Liluvine" pour différencier des autres requêtes Liluvine PRO.
+  { to: "/admin/liluvine-wa-requests", label: "EXCLAM_Liluvine", icon: Inbox, moderatorPlus: true },
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];

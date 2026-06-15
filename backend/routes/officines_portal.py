@@ -781,6 +781,7 @@ def attach_officines_portal_admin_routes(
     async def list_registry(
         status: Optional[str] = Query(None, pattern="^(pending|active|suspended)$"),
         activite: Optional[str] = Query(None),
+        role: Optional[str] = Query(None),
         q: Optional[str] = Query(None),
         limit: int = Query(500, ge=1, le=2000),
         user: dict = Depends(get_current_admin),
@@ -791,12 +792,17 @@ def attach_officines_portal_admin_routes(
         # Iter43-fix12 (2026-03) — filtre par activité principale
         if activite:
             query["activite_principale"] = activite
+        # Iter43-fix23 (2026-06) — filtre par rôle (remplace activité dans l'UI)
+        if role:
+            query["role"] = role
         if q:
             query["$or"] = [
                 {"name": {"$regex": q, "$options": "i"}},
                 {"email": {"$regex": q, "$options": "i"}},
                 {"phone_digits": {"$regex": q}},
                 {"city": {"$regex": q, "$options": "i"}},
+                # Iter43-fix23 — Recherche aussi par rôle (regex insensible casse)
+                {"role": {"$regex": q, "$options": "i"}},
             ]
         # Iter43-fix12 (2026-03) — tri alphabétique ASC sur le nom (insensible casse)
         cur = db.officines.find(query, {"_id": 0}).collation(
@@ -1204,6 +1210,107 @@ def attach_officines_portal_admin_routes(
             "header_detected": has_header,
             "results": results,
         }
+
+    # Iter43-fix23 (2026-06) — Création manuelle d'une officine depuis l'UI Admin
+    @api.post("/admin/officines-registry", tags=["Admin — Officines Registry"])
+    async def create_officine(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Création manuelle d'une officine.
+
+        Champs requis : `name` (sert aussi de `code`).
+        Champs optionnels : tous les autres (intitule, email, phone, whatsapp,
+        address, city, country, location_hint, numero_ordre, contact_name,
+        latitude, longitude, role, groupe_garde, activite_principale).
+        """
+        name = (payload.get("name") or "").strip()
+        if not name:
+            raise HTTPException(status_code=400, detail="`name` requis")
+        # Anti-doublon : vérifie sur le name (= code) ou phone_digits
+        phone = (payload.get("phone") or "").strip()
+        phone_digits = _digits(phone) or None
+        wa = (payload.get("whatsapp") or "").strip()
+        wa_digits = _digits(wa) or None
+        or_filters: List[Dict[str, Any]] = [{"name": name}]
+        if phone_digits:
+            or_filters.append({"phone_digits": phone_digits})
+        dupe = await db.officines.find_one({"$or": or_filters}, {"_id": 0, "id": 1, "name": 1})
+        if dupe:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Doublon détecté : une officine existe déjà avec ce nom ou ce téléphone ({dupe.get('name')}).",
+            )
+        # Validation rôle si fourni
+        role_val = (payload.get("role") or "").strip() or None
+        if role_val:
+            roles_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0, "officine_roles": 1}) or {}
+            roles = roles_doc.get("officine_roles") or _DEFAULT_OFFICINE_ROLES
+            if role_val not in roles:
+                raise HTTPException(status_code=400, detail=f"Rôle '{role_val}' inconnu. Définissez-le d'abord dans Gérer les rôles.")
+        # Validation groupe_garde si fourni
+        gg = payload.get("groupe_garde")
+        if gg is not None and gg != "":
+            try:
+                gg = int(gg)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="groupe_garde doit être un entier")
+            if gg < 1 or gg > 100:
+                raise HTTPException(status_code=400, detail="groupe_garde doit être entre 1 et 100")
+        else:
+            gg = None
+        # Lat/lng numériques
+        def _num(v):
+            if v in (None, ""):
+                return None
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="latitude/longitude doivent être numériques")
+
+        oid = str(uuid.uuid4())
+        doc = {
+            "id": oid,
+            "name": name,
+            "code": name,
+            "intitule": (payload.get("intitule") or "").strip() or None,
+            "email": (payload.get("email") or "").strip() or None,
+            "phone": (f"+{phone_digits}" if phone_digits else None),
+            "phone_digits": phone_digits,
+            "whatsapp": (f"+{wa_digits}" if wa_digits else None),
+            "whatsapp_digits": wa_digits,
+            "address": (payload.get("address") or "").strip() or None,
+            "city": (payload.get("city") or "").strip() or None,
+            "country": (payload.get("country") or "").strip() or None,
+            "location_hint": (payload.get("location_hint") or "").strip() or None,
+            "numero_ordre": (payload.get("numero_ordre") or "").strip() or None,
+            "contact_name": (payload.get("contact_name") or "").strip() or None,
+            "logo_url": None,
+            "latitude": _num(payload.get("latitude")),
+            "longitude": _num(payload.get("longitude")),
+            "linked_client_id": None,
+            "linked_client_email": None,
+            "status": (payload.get("status") or "pending").strip().lower(),
+            "role": role_val,
+            "groupe_garde": gg,
+            "activite_principale": (payload.get("activite_principale") or "").strip() or None,
+            "created_at": _now(),
+            "created_by": user.get("email"),
+            "created_via": "admin_manual",
+            "validated_at": None, "validated_by": None,
+            "activated_at": None, "activated_by": None, "activated_via": None,
+            "last_login_at": None,
+        }
+        if doc["status"] not in ("pending", "active", "suspended"):
+            doc["status"] = "pending"
+        await db.officines.insert_one(doc.copy())
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": oid,
+            "action": "create_manual", "actor": user.get("email"),
+            "details": {"fields": list(payload.keys())}, "created_at": _now(),
+        })
+        doc.pop("_id", None)
+        return {"ok": True, "officine": doc}
 
     @api.put("/admin/officines-registry/{officine_id}", tags=["Admin — Officines Registry"])
     async def update_officine(

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef, useCallback, createContext
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -2325,6 +2325,122 @@ export default function AdminSettings() {
           </select>
           <p className="text-[10px] text-slate-500 mt-1">
             Utilisé quand le portail/Admin n'impose pas explicitement un fournisseur. Mode « auto » privilégie l'opérateur local Burkina pour les numéros +226, sinon bascule sur OVH.
+          </p>
+        </div>
+      </Section>
+
+      {/* Iter43-fix23 (2026-06) — Africa's Talking Two-Way SMS */}
+      <Section icon={MessageSquare} title="📱 Africa's Talking — SMS Bidirectionnel (offline Liluvine)" anchorId="s-africas-talking">
+        <p className="text-xs text-slate-500">
+          Permet aux clients en zones à faible couverture internet (Burkina Faso) d'envoyer un SMS à Liluvine
+          et de recevoir une réponse IA. Le shortcode/sender ID Africa's Talking est requis (à provisionner via
+          <a href="https://account.africastalking.com" target="_blank" rel="noreferrer" className="text-sawali-blue underline mx-1">account.africastalking.com</a>).
+          Configurez les Callback URLs côté Africa's Talking → SMS → SMS Callback URLs (Incoming + Delivery Reports).
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Toggle label="Activer Africa's Talking SMS" value={!!s.africas_talking_enabled} onChange={(v) => upd("africas_talking_enabled", v)} testid="africas-talking-enabled" />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Environnement</label>
+            <select
+              value={s.africas_talking_env || "sandbox"}
+              onChange={(e) => upd("africas_talking_env", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="africas-talking-env"
+            >
+              <option value="sandbox">Sandbox (test, gratuit)</option>
+              <option value="live">Live (production)</option>
+            </select>
+          </div>
+        </div>
+        <Input
+          label="Username Africa's Talking"
+          value={s.africas_talking_username || ""}
+          onChange={(v) => upd("africas_talking_username", v)}
+          placeholder="sandbox (en Sandbox) ou votre app username (en Live)"
+          testid="africas-talking-username"
+        />
+        <Input
+          label="API Key"
+          type="password"
+          value={s.africas_talking_api_key || ""}
+          onChange={(v) => upd("africas_talking_api_key", v)}
+          placeholder={s.africas_talking_api_key === "********" ? "(défini)" : "atsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
+          testid="africas-talking-api-key"
+        />
+        <Input
+          label="Shortcode / Sender ID"
+          value={s.africas_talking_shortcode || ""}
+          onChange={(v) => upd("africas_talking_shortcode", v)}
+          placeholder="ex. 15555 (sandbox) ou votre shortcode BF (live)"
+          testid="africas-talking-shortcode"
+        />
+        <Input
+          label="Signature (ajoutée à chaque réponse)"
+          value={s.africas_talking_signature || ""}
+          onChange={(v) => upd("africas_talking_signature", v)}
+          placeholder="ex. — Liluvine / SAWALI"
+          testid="africas-talking-signature"
+        />
+        <Toggle
+          label="Router les SMS entrants vers Liluvine (réponse IA automatique)"
+          value={s.africas_talking_use_liluvine !== false}
+          onChange={(v) => upd("africas_talking_use_liluvine", v)}
+          testid="africas-talking-use-liluvine"
+        />
+        <Input
+          label="Secret webhook (optionnel — anti-spoof)"
+          type="password"
+          value={s.africas_talking_webhook_secret || ""}
+          onChange={(v) => upd("africas_talking_webhook_secret", v)}
+          placeholder={s.africas_talking_webhook_secret === "********" ? "(défini)" : "Si défini, le webhook exige ?secret=..."}
+          testid="africas-talking-webhook-secret"
+        />
+        <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3 space-y-2">
+          <p className="text-xs font-semibold text-slate-700">📌 URLs à configurer dans Africa's Talking → SMS → Callback URLs :</p>
+          <CopyableUrl
+            label="Incoming Messages (SMS entrants → Liluvine)"
+            path="/api/webhooks/africas-talking/incoming-sms"
+            secret={s.africas_talking_webhook_secret}
+          />
+          <CopyableUrl
+            label="Delivery Reports (rapports de livraison)"
+            path="/api/webhooks/africas-talking/delivery-report"
+            secret={s.africas_talking_webhook_secret}
+          />
+          <p className="text-[10px] text-slate-500 mt-2">
+            💡 En Sandbox, créez un Short Code dans le dashboard AT, ouvrez le Simulator,
+            envoyez un SMS depuis un numéro virtuel vers votre shortcode et observez la réponse de Liluvine.
+          </p>
+        </div>
+      </Section>
+
+      {/* Iter43-fix23 (2026-06) — Webhook d'inventaire officines (Bearer) */}
+      <Section icon={Package} title="📦 Webhook Inventaire Officines (Bearer)" anchorId="s-officines-inventory-webhook">
+        <p className="text-xs text-slate-500">
+          Endpoint REST POST qui reçoit l'inventaire d'une officine via Bearer token, en complément
+          des modes CSV/JSON existants. Communiquez le token aux SI partenaires des officines.
+        </p>
+        <Input
+          label="Bearer Token (partagé entre SI officines)"
+          type="password"
+          value={s.officines_inventory_webhook_token || ""}
+          onChange={(v) => upd("officines_inventory_webhook_token", v)}
+          placeholder={s.officines_inventory_webhook_token === "********" ? "(défini)" : "Générer un token long (≥ 32 chars)"}
+          testid="officines-inventory-webhook-token"
+        />
+        <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3 space-y-2">
+          <p className="text-xs font-semibold text-slate-700">📌 Endpoint :</p>
+          <CopyableUrl
+            label="POST inventaire (avec Authorization: Bearer ...)"
+            path="/api/webhooks/officines/inventory"
+          />
+          <CopyableUrl
+            label="Documentation intégrateurs (JSON)"
+            path="/api/webhooks/officines/inventory/docs"
+          />
+          <p className="text-[10px] text-slate-500 mt-2">
+            Le payload accepte les clés JSON (product_name, cip, quantity, …) OU les clés CSV françaises
+            (Nom du produit, CIP, Quantité, …). Voir <code>/api/webhooks/officines/inventory/docs</code> pour le schéma complet.
           </p>
         </div>
       </Section>
@@ -5499,6 +5615,36 @@ const Input = ({ label, value, onChange, type = "text", placeholder, testid }) =
       <input type={type} value={value} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={testid} />
     )}
   </div>
+  );
+};
+
+// Iter43-fix23 — Affiche une URL complète (origine + path + secret optionnel) avec bouton Copier.
+const CopyableUrl = ({ label, path, secret }) => {
+  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
+  const fullUrl = `${BACKEND_URL}${path}${secret && secret !== "********" ? `?secret=${encodeURIComponent(secret)}` : ""}`;
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] text-slate-600">{label}</p>
+      <div className="flex items-stretch gap-1">
+        <input
+          readOnly
+          value={fullUrl}
+          className="flex-1 px-2 py-1 text-xs font-mono bg-white border border-slate-300 rounded text-slate-700"
+          onClick={(e) => e.target.select()}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            navigator.clipboard.writeText(fullUrl);
+            toast.success("URL copiée");
+          }}
+          className="px-2 py-1 rounded bg-sawali-blue text-white text-xs hover:bg-sawali-blue/90 inline-flex items-center gap-1"
+          title="Copier l'URL"
+        >
+          <Copy className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
   );
 };
 // Panel that lets the admin probe Meta Graph API live to validate WA config.

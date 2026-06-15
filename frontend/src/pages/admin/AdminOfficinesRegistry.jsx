@@ -43,8 +43,10 @@ export default function AdminOfficinesRegistry() {
   const [items, setItems] = React.useState([]);
   const [counts, setCounts] = React.useState({ pending: 0, active: 0, suspended: 0 });
   const [filter, setFilter] = React.useState("pending");
-  const [filterActivite, setFilterActivite] = React.useState(""); // Iter43-fix12
+  const [filterActivite, setFilterActivite] = React.useState(""); // Iter43-fix12 (déprécié dans l'UI)
+  const [filterRole, setFilterRole] = React.useState(""); // Iter43-fix23 — Filtre par rôle (remplace activité)
   const [activities, setActivities] = React.useState([]); // Iter43-fix12
+  const [roles, setRoles] = React.useState([]); // Iter43-fix23 — liste des rôles disponibles
   const [q, setQ] = React.useState("");
   const [loading, setLoading] = React.useState(true);
   const [linkingFor, setLinkingFor] = React.useState(null);
@@ -59,19 +61,21 @@ export default function AdminOfficinesRegistry() {
   // Iter43-fix21 — Bulk-assign + gestion rôles
   const [showBulkAssign, setShowBulkAssign] = React.useState(false);
   const [showRolesAdmin, setShowRolesAdmin] = React.useState(false);
+  // Iter43-fix23 — Création manuelle d'une officine
+  const [showCreate, setShowCreate] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
       const params = {};
       if (filter !== "all") params.status = filter;
-      if (filterActivite) params.activite = filterActivite;
+      if (filterRole) params.role = filterRole;
       if (q) params.q = q;
       const r = await apiClient.get("/admin/officines-registry", { params });
       setItems(r.data?.items || []);
       setCounts(r.data?.counts || {});
     } finally { setLoading(false); }
-  }, [filter, filterActivite, q]);
+  }, [filter, filterRole, q]);
 
   const loadActivities = React.useCallback(async () => {
     try {
@@ -80,8 +84,15 @@ export default function AdminOfficinesRegistry() {
     } catch { /* noop */ }
   }, []);
 
+  const loadRoles = React.useCallback(async () => {
+    try {
+      const r = await apiClient.get("/admin/officines-registry/roles");
+      setRoles(r.data?.roles || []);
+    } catch { /* noop */ }
+  }, []);
+
   React.useEffect(() => { load(); }, [load]);
-  React.useEffect(() => { loadActivities(); }, [loadActivities]);
+  React.useEffect(() => { loadActivities(); loadRoles(); }, [loadActivities, loadRoles]);
 
   const doAction = async (oid, action, label) => {
     if (!window.confirm(`Confirmer : ${label} ?`)) return;
@@ -144,6 +155,11 @@ export default function AdminOfficinesRegistry() {
           </p>
         </div>
         <div className="flex gap-2 flex-wrap">
+          <button onClick={() => setShowCreate(true)}
+                  className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700"
+                  data-testid="create-officine-btn">
+            <Plus className="h-4 w-4" /> Nouvelle officine
+          </button>
           <button onClick={() => setImportingCsv(true)}
                   className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-sawali-blue text-white hover:bg-sawali-blue/90"
                   data-testid="csv-import-btn">
@@ -191,24 +207,24 @@ export default function AdminOfficinesRegistry() {
             className="w-full pl-9 pr-3 py-2 border rounded-lg text-sm"
             data-testid="registry-search" />
         </div>
-        {/* Iter43-fix12 — Filtre par activité principale */}
+        {/* Iter43-fix23 (2026-06) — Filtre par rôle (remplace activité principale) */}
         <select
-          value={filterActivite}
-          onChange={(e) => setFilterActivite(e.target.value)}
+          value={filterRole}
+          onChange={(e) => setFilterRole(e.target.value)}
           className="text-xs px-3 py-2 rounded-lg ring-1 ring-slate-200 bg-white text-slate-700 hover:bg-slate-50"
-          data-testid="filter-activite"
-          title="Filtrer par activité principale"
+          data-testid="filter-role"
+          title="Filtrer par rôle"
         >
-          <option value="">Toutes les activités</option>
-          {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+          <option value="">Tous les rôles</option>
+          {roles.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
         <button
-          onClick={() => setManagingActivities(true)}
+          onClick={() => setShowRolesAdmin(true)}
           className="text-xs px-3 py-2 rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
-          data-testid="manage-activities-btn"
-          title="Gérer les activités principales"
+          data-testid="manage-roles-inline-btn"
+          title="Gérer les rôles d'officines"
         >
-          <Tags className="h-3.5 w-3.5" /> Gérer
+          <Tag className="h-3.5 w-3.5" /> Gérer rôles
         </button>
         <button onClick={() => setFilter("all")} className={`text-xs px-3 py-2 rounded-lg ring-1 ${filter === "all" ? "bg-sawali-blue text-white ring-sawali-blue" : "bg-white text-slate-700 ring-slate-200 hover:bg-slate-50"}`} data-testid="filter-all">
           Tous
@@ -231,7 +247,7 @@ export default function AdminOfficinesRegistry() {
                 </th>
                 <th className="px-3 py-2 font-medium">Officine</th>
                 <th className="px-3 py-2 font-medium">Intitulé</th>
-                <th className="px-3 py-2 font-medium">Activité</th>
+                <th className="px-3 py-2 font-medium">Rôle</th>
                 <th className="px-3 py-2 font-medium">Email</th>
                 <th className="px-3 py-2 font-medium">Téléphone</th>
                 <th className="px-3 py-2 font-medium">WA</th>
@@ -279,9 +295,9 @@ export default function AdminOfficinesRegistry() {
                     </td>
                     <td className="px-3 py-2 text-slate-700 text-xs">{it.intitule || <span className="italic text-slate-400">—</span>}</td>
                     <td className="px-3 py-2 text-xs">
-                      {it.activite_principale ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 ring-1 ring-indigo-200" data-testid={`activite-${it.id}`}>
-                          {it.activite_principale}
+                      {it.role ? (
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-violet-50 text-violet-700 ring-1 ring-violet-200" data-testid={`role-${it.id}`}>
+                          <Tag className="h-3 w-3" /> {it.role}
                         </span>
                       ) : <span className="italic text-slate-400">—</span>}
                     </td>
@@ -396,6 +412,15 @@ export default function AdminOfficinesRegistry() {
       )}
       {importingCsv && (
         <CsvImportModal onClose={() => setImportingCsv(false)} onDone={() => { setImportingCsv(false); load(); }} />
+      )}
+      {/* Iter43-fix23 — Création manuelle d'une nouvelle officine */}
+      {showCreate && (
+        <CreateOfficineModal
+          roles={roles}
+          activities={activities}
+          onClose={() => setShowCreate(false)}
+          onCreated={() => { setShowCreate(false); load(); }}
+        />
       )}
       {viewingProductsFor && (
         <ProductsModal
@@ -1518,6 +1543,176 @@ function ManageActivitiesModal({ activities, onClose, onSaved }) {
                   className="px-3 py-2 rounded text-sm bg-indigo-600 text-white hover:bg-indigo-700 disabled:opacity-50"
                   data-testid="manage-activities-save">
             {busy ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+
+// Iter43-fix23 — Modal de création d'une nouvelle officine (depuis Registre)
+function CreateOfficineModal({ roles = [], activities = [], onClose, onCreated }) {
+  const [name, setName] = React.useState("");
+  const [intitule, setIntitule] = React.useState("");
+  const [email, setEmail] = React.useState("");
+  const [phone, setPhone] = React.useState("");
+  const [whatsapp, setWhatsapp] = React.useState("");
+  const [city, setCity] = React.useState("");
+  const [country, setCountry] = React.useState("BF");
+  const [address, setAddress] = React.useState("");
+  const [locationHint, setLocationHint] = React.useState("");
+  const [numeroOrdre, setNumeroOrdre] = React.useState("");
+  const [contactName, setContactName] = React.useState("");
+  const [role, setRole] = React.useState("");
+  const [groupeGarde, setGroupeGarde] = React.useState("");
+  const [activite, setActivite] = React.useState("");
+  const [status, setStatus] = React.useState("pending");
+  const [busy, setBusy] = React.useState(false);
+
+  const submit = async () => {
+    if (!name.trim()) { toast.error("Le nom de l'officine est requis"); return; }
+    setBusy(true);
+    try {
+      const payload = {
+        name: name.trim(),
+        intitule: intitule.trim() || null,
+        email: email.trim() || null,
+        phone: phone.trim() || null,
+        whatsapp: whatsapp.trim() || null,
+        city: city.trim() || null,
+        country: country.trim() || null,
+        address: address.trim() || null,
+        location_hint: locationHint.trim() || null,
+        numero_ordre: numeroOrdre.trim() || null,
+        contact_name: contactName.trim() || null,
+        role: role || null,
+        groupe_garde: groupeGarde ? parseInt(groupeGarde, 10) : null,
+        activite_principale: activite || null,
+        status,
+      };
+      const r = await apiClient.post("/admin/officines-registry", payload);
+      toast.success(`Officine « ${r.data?.officine?.name} » créée`);
+      onCreated();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec création");
+    } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6" data-testid="create-officine-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-full overflow-auto">
+        <div className="px-5 py-3 border-b bg-slate-50 flex items-center justify-between sticky top-0 z-10">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Building2 className="h-4 w-4 text-emerald-600" /> Nouvelle officine
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700" data-testid="create-officine-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="p-5 grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
+          <label className="block">
+            <span className="text-xs text-slate-600">Nom (= code) *</span>
+            <input value={name} onChange={(e) => setName(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-name"
+                   placeholder="Ex. Pharmacie du Centre" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Intitulé long</span>
+            <input value={intitule} onChange={(e) => setIntitule(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-intitule" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Email</span>
+            <input value={email} onChange={(e) => setEmail(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" type="email"
+                   data-testid="create-officine-email" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Téléphone</span>
+            <input value={phone} onChange={(e) => setPhone(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" placeholder="+22670000000"
+                   data-testid="create-officine-phone" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">WhatsApp</span>
+            <input value={whatsapp} onChange={(e) => setWhatsapp(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" placeholder="+22670000000"
+                   data-testid="create-officine-whatsapp" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Ville</span>
+            <input value={city} onChange={(e) => setCity(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-city" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Pays</span>
+            <input value={country} onChange={(e) => setCountry(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-country" />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="text-xs text-slate-600">Adresse</span>
+            <input value={address} onChange={(e) => setAddress(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-address" />
+          </label>
+          <label className="block sm:col-span-2">
+            <span className="text-xs text-slate-600">Indications de localisation</span>
+            <input value={locationHint} onChange={(e) => setLocationHint(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg"
+                   placeholder="Ex. À côté du marché central"
+                   data-testid="create-officine-location-hint" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Numéro d'ordre</span>
+            <input value={numeroOrdre} onChange={(e) => setNumeroOrdre(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-numero-ordre" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Responsable</span>
+            <input value={contactName} onChange={(e) => setContactName(e.target.value)}
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-contact-name" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Rôle</span>
+            <select value={role} onChange={(e) => setRole(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border rounded-lg bg-white" data-testid="create-officine-role">
+              <option value="">— Aucun —</option>
+              {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Groupe de garde</span>
+            <input value={groupeGarde} onChange={(e) => setGroupeGarde(e.target.value)}
+                   type="number" min="1" max="100"
+                   className="mt-1 w-full px-3 py-2 border rounded-lg" data-testid="create-officine-groupe-garde" />
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Activité (legacy)</span>
+            <select value={activite} onChange={(e) => setActivite(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border rounded-lg bg-white" data-testid="create-officine-activite">
+              <option value="">— Aucune —</option>
+              {activities.map((a) => <option key={a} value={a}>{a}</option>)}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-slate-600">Statut</span>
+            <select value={status} onChange={(e) => setStatus(e.target.value)}
+                    className="mt-1 w-full px-3 py-2 border rounded-lg bg-white" data-testid="create-officine-status">
+              <option value="pending">En attente</option>
+              <option value="active">Active</option>
+              <option value="suspended">Suspendue</option>
+            </select>
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2 sticky bottom-0">
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700"
+                  data-testid="create-officine-cancel">
+            Annuler
+          </button>
+          <button onClick={submit} disabled={busy || !name.trim()}
+                  className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50 inline-flex items-center gap-1"
+                  data-testid="create-officine-submit">
+            <Plus className="h-3 w-3" /> {busy ? "Création…" : "Créer l'officine"}
           </button>
         </div>
       </div>

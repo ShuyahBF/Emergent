@@ -101,7 +101,12 @@ export default function AdminLiluvineWaRequests() {
     <div className="p-6 max-w-7xl mx-auto" data-testid="liluvine-wa-requests-page">
       <header className="flex items-center gap-3 mb-4">
         <Inbox className="h-6 w-6 text-sawali-blue" />
-        <h1 className="text-2xl font-display font-bold">Interrogations WhatsApp à Liluvine</h1>
+        <div>
+          <h1 className="text-2xl font-display font-bold">EXCLAM_Liluvine</h1>
+          <p className="text-xs text-slate-500">
+            Interrogations WhatsApp uniquement (ne contient pas les autres requêtes Liluvine PRO).
+          </p>
+        </div>
       </header>
 
       <div className="grid sm:grid-cols-3 gap-3 mb-5">

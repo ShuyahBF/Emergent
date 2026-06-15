@@ -996,6 +996,19 @@ class SettingsUpdate(BaseModel):
     weather_widget_default_city: Optional[str] = None    # fallback (ex: "Ouagadougou")
     weather_widget_default_country: Optional[str] = None  # code ISO 2 lettres (ex: "BF")
 
+    # Iter43-fix23 (2026-06) — Africa's Talking Two-Way SMS Integration
+    africas_talking_enabled: Optional[bool] = None        # toggle maître
+    africas_talking_env: Optional[str] = None             # "sandbox" | "live"
+    africas_talking_username: Optional[str] = None        # "sandbox" en sandbox, ou app username en live
+    africas_talking_api_key: Optional[str] = None         # sensible — masqué en GET
+    africas_talking_shortcode: Optional[str] = None       # shortcode (ex. 15555 en sandbox)
+    africas_talking_signature: Optional[str] = None       # signature ajoutée à chaque réponse
+    africas_talking_use_liluvine: Optional[bool] = None   # route les SMS vers Liluvine pour réponse IA
+    africas_talking_webhook_secret: Optional[str] = None  # secret optionnel pour valider les webhooks
+
+    # Iter43-fix23 (2026-06) — Bearer token pour le webhook d'inventaire officines
+    officines_inventory_webhook_token: Optional[str] = None  # sensible — masqué en GET
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

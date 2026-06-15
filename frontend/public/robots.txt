@@ -1,0 +1,9 @@
+User-agent: *
+Allow: /
+Disallow: /admin
+Disallow: /portal
+Disallow: /officines
+Disallow: /api/admin
+Disallow: /remote/support
+
+Sitemap: https://sawalismartsystems.com/api/sitemap.xml

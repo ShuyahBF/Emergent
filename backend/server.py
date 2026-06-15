@@ -12494,15 +12494,138 @@ async def admin_request_feedback(appt_id: str, _: dict = Depends(get_current_adm
 
 
 # ====================================================================
+# Iter43-fix18 (2026-06) — Dynamic sitemap.xml + robots.txt support
+# ====================================================================
+@api.get("/sitemap.xml", tags=["Public"], response_class=Response)
+async def public_sitemap(request: Request):
+    """Génère un sitemap XML dynamique conforme au protocole sitemaps.org.
+
+    Inclut :
+      - Pages publiques statiques (accueil, missions, spécialisations,
+        catalogue, contact, RDV, témoignages, blog, études de cas,
+        abonnements, documentation, politiques, privacy).
+      - Articles de blog publiés (`/blog/:slug`).
+      - Études de cas publiées (`/etudes-de-cas/:slug`).
+      - Pages politiques (`/politiques/:slug`).
+
+    L'URL de base est résolue dans cet ordre :
+      1. Header `Origin`/`Host` de la requête (≈ domaine d'accès actuel).
+      2. Settings DB `public_base_url`.
+      3. Variable d'env `PUBLIC_BASE_URL`.
+    """
+    base = _public_base_url(request) or "https://sawalismartsystems.com"
+    base = base.rstrip("/")
+    now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    # --- Pages statiques publiques ---
+    static_pages = [
+        ("/", 1.0, "weekly"),
+        ("/missions", 0.8, "monthly"),
+        ("/specialisations", 0.8, "monthly"),
+        ("/catalogue", 0.9, "weekly"),
+        ("/etudes-de-cas", 0.8, "weekly"),
+        ("/blog", 0.8, "weekly"),
+        ("/temoignages", 0.7, "monthly"),
+        ("/subscriptions", 0.8, "monthly"),
+        ("/rdv", 0.7, "monthly"),
+        ("/contact", 0.7, "monthly"),
+        ("/documentation", 0.5, "monthly"),
+        ("/politiques", 0.4, "yearly"),
+        ("/politiques/confidentialite", 0.5, "yearly"),
+        ("/politiques/services", 0.4, "yearly"),
+        ("/politiques/suppression", 0.4, "yearly"),
+        ("/privacy", 0.5, "yearly"),
+        ("/uptime", 0.3, "weekly"),
+    ]
+
+    urls: List[Dict[str, Any]] = []
+    for path, prio, freq in static_pages:
+        urls.append({"loc": f"{base}{path}", "lastmod": now_iso, "changefreq": freq, "priority": prio})
+
+    # --- Blog posts publiés ---
+    try:
+        posts = await db.blog_posts.find(
+            {"is_published": True},
+            {"_id": 0, "slug": 1, "updated_at": 1, "published_at": 1, "created_at": 1},
+        ).to_list(2000)
+        for p in posts:
+            slug = p.get("slug")
+            if not slug:
+                continue
+            lm = (p.get("updated_at") or p.get("published_at") or p.get("created_at") or now_iso)[:10]
+            urls.append({"loc": f"{base}/blog/{slug}", "lastmod": lm, "changefreq": "monthly", "priority": 0.6})
+    except Exception:  # noqa: BLE001
+        logger.warning("[sitemap] failed to load blog posts", exc_info=True)
+
+    # --- Études de cas publiées ---
+    try:
+        cases = await db.case_studies.find(
+            {"is_published": True},
+            {"_id": 0, "slug": 1, "updated_at": 1, "created_at": 1},
+        ).to_list(2000)
+        for c in cases:
+            slug = c.get("slug")
+            if not slug:
+                continue
+            lm = (c.get("updated_at") or c.get("created_at") or now_iso)[:10]
+            urls.append({"loc": f"{base}/etudes-de-cas/{slug}", "lastmod": lm, "changefreq": "monthly", "priority": 0.7})
+    except Exception:  # noqa: BLE001
+        logger.warning("[sitemap] failed to load case studies", exc_info=True)
+
+    # --- Build XML ---
+    from xml.sax.saxutils import escape as _xml_escape
+    lines = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">',
+    ]
+    for u in urls:
+        lines.append("  <url>")
+        lines.append(f"    <loc>{_xml_escape(u['loc'])}</loc>")
+        if u.get("lastmod"):
+            lines.append(f"    <lastmod>{u['lastmod']}</lastmod>")
+        if u.get("changefreq"):
+            lines.append(f"    <changefreq>{u['changefreq']}</changefreq>")
+        if u.get("priority") is not None:
+            lines.append(f"    <priority>{u['priority']:.1f}</priority>")
+        lines.append("  </url>")
+    lines.append("</urlset>")
+    xml = "\n".join(lines)
+    return Response(
+        content=xml,
+        media_type="application/xml",
+        headers={"Cache-Control": "public, max-age=3600"},
+    )
+
+
+@api.get("/robots.txt", tags=["Public"], response_class=PlainTextResponse)
+async def public_robots(request: Request):
+    """Robots.txt dynamique pointant vers le sitemap.xml généré côté backend.
+    Note : un fichier statique `/app/frontend/public/robots.txt` est également
+    servi par le frontend (utile car Google va le chercher à la racine du
+    domaine, hors préfixe `/api`). Les deux ont le même contenu pour cohérence.
+    """
+    base = _public_base_url(request) or "https://sawalismartsystems.com"
+    base = base.rstrip("/")
+    body = (
+        "User-agent: *\n"
+        "Allow: /\n"
+        "Disallow: /admin\n"
+        "Disallow: /portal\n"
+        "Disallow: /officines\n"
+        "Disallow: /api/admin\n"
+        "Disallow: /remote/support\n"
+        f"\nSitemap: {base}/api/sitemap.xml\n"
+    )
+    return PlainTextResponse(body, media_type="text/plain")
+
+
+# ====================================================================
 # CASE STUDIES (Études de cas)
 # ====================================================================
 @api.get("/case-studies", tags=["Public"])
 async def list_case_studies():
     items = await db.case_studies.find({"is_published": True}, {"_id": 0}).to_list(500)
-    return sorted(items, key=lambda x: (not x.get("featured"), x.get("created_at", "")), reverse=False)
-
-
-@api.get("/case-studies/{slug}", tags=["Public"])
+    return sorted(items, key=lambda x: (not x.get("featured"), x.get("created_at", "")), reverse=False)@api.get("/case-studies/{slug}", tags=["Public"])
 async def get_case_study(slug: str):
     item = await db.case_studies.find_one({"slug": slug, "is_published": True}, {"_id": 0})
     if not item:

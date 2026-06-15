@@ -3,12 +3,14 @@ import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { Calendar as CalendarIcon, Clock, ArrowRight, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/contexts/I18nContext";
 
 const formatDate = (d) => d.toISOString().slice(0, 10);
 const dayLabel = (d) =>
   d.toLocaleDateString("fr-FR", { weekday: "short", day: "2-digit", month: "short" });
 
 export default function RDV() {
+  const { t } = useI18n();
   const [params] = useSearchParams();
   const [days, setDays] = useState([]);
   const [selectedDate, setSelectedDate] = useState(null);
@@ -58,7 +60,7 @@ export default function RDV() {
 
   const submit = async (e) => {
     e.preventDefault();
-    if (!selectedSlot) return toast.error("Choisissez un créneau horaire");
+    if (!selectedSlot) return toast.error(t("public.rdv.error_no_slot", "Choisissez un créneau horaire"));
     setSending(true);
     try {
       const r = await apiClient.post("/appointments/public", {
@@ -67,9 +69,9 @@ export default function RDV() {
         duration_min: 30,
       });
       setSuccess(r.data.appointment);
-      toast.success("RDV demandé. Confirmation à venir par email.");
+      toast.success(t("public.rdv.success_toast", "RDV demandé. Confirmation à venir par email."));
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur lors de la prise de RDV");
+      toast.error(err?.response?.data?.detail || t("public.rdv.error_generic", "Erreur lors de la prise de RDV"));
     } finally { setSending(false); }
   };
 
@@ -80,14 +82,14 @@ export default function RDV() {
           <div className="mx-auto h-16 w-16 rounded-full bg-emerald-400/15 border border-emerald-400/40 flex items-center justify-center">
             <CheckCircle2 className="h-8 w-8 text-emerald-300" />
           </div>
-          <h1 className="mt-6 text-3xl sm:text-4xl font-display font-bold text-white">Rendez-vous enregistré !</h1>
+          <h1 className="mt-6 text-3xl sm:text-4xl font-display font-bold text-white">{t("public.rdv.success_title", "Rendez-vous enregistré !")}</h1>
           <p className="mt-4 text-slate-300">
-            Nous avons bien reçu votre demande pour le{" "}
+            {t("public.rdv.success_body_1", "Nous avons bien reçu votre demande pour le")}{" "}
             <strong className="text-sawali-blue-light">
               {new Date(success.scheduled_at).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}
             </strong>.
           </p>
-          <p className="mt-2 text-slate-400 text-sm">Référence : {success.id}</p>
+          <p className="mt-2 text-slate-400 text-sm">{t("public.rdv.success_ref", "Référence :")} {success.id}</p>
         </div>
       </section>
     );
@@ -96,9 +98,9 @@ export default function RDV() {
   return (
     <section className="py-20" data-testid="rdv-page">
       <div className="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Prise de rendez-vous</p>
-        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">Réserver un créneau</h1>
-        <p className="mt-3 text-slate-300 max-w-2xl">Choisissez une date et un horaire disponibles, puis renseignez vos coordonnées.</p>
+        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.rdv.kicker", "Prise de rendez-vous")}</p>
+        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{t("public.rdv.title", "Réserver un créneau")}</h1>
+        <p className="mt-3 text-slate-300 max-w-2xl">{t("public.rdv.subtitle", "Choisissez une date et un horaire disponibles, puis renseignez vos coordonnées.")}</p>
 
         {/* Date strip */}
         <div className="mt-10 flex gap-2 overflow-x-auto pb-2" data-testid="rdv-day-strip">
@@ -126,12 +128,12 @@ export default function RDV() {
           <div className="lg:col-span-3 glow-card rounded-2xl p-6">
             <div className="flex items-center gap-2 text-white">
               <Clock className="h-4 w-4 text-sawali-blue-light" />
-              <h2 className="font-display font-semibold">Créneaux disponibles</h2>
+              <h2 className="font-display font-semibold">{t("public.rdv.slots_title", "Créneaux disponibles")}</h2>
             </div>
             {loadingSlots ? (
-              <p className="mt-4 text-slate-400 text-sm">Chargement...</p>
+              <p className="mt-4 text-slate-400 text-sm">{t("public.rdv.loading", "Chargement...")}</p>
             ) : slots.length === 0 ? (
-              <p className="mt-4 text-slate-400 text-sm">Aucun créneau disponible ce jour.</p>
+              <p className="mt-4 text-slate-400 text-sm">{t("public.rdv.no_slots", "Aucun créneau disponible ce jour.")}</p>
             ) : (
               <div className="mt-5 grid grid-cols-3 sm:grid-cols-4 gap-2">
                 {slots.map((s) => {
@@ -160,13 +162,13 @@ export default function RDV() {
           </div>
 
           <form onSubmit={submit} className="lg:col-span-2 glow-card rounded-2xl p-6 space-y-3" data-testid="rdv-form">
-            <h2 className="font-display font-semibold text-white flex items-center gap-2"><CalendarIcon className="h-4 w-4 text-sawali-blue-light" /> Vos coordonnées</h2>
+            <h2 className="font-display font-semibold text-white flex items-center gap-2"><CalendarIcon className="h-4 w-4 text-sawali-blue-light" /> {t("public.rdv.form_title", "Vos coordonnées")}</h2>
             {[
-              ["name", "Nom complet *"],
-              ["email", "Email *"],
-              ["phone", "Téléphone *"],
-              ["company", "Entreprise"],
-              ["subject", "Sujet *"],
+              ["name", `${t("public.rdv.field_name", "Nom complet")} *`],
+              ["email", `${t("public.rdv.field_email", "Email")} *`],
+              ["phone", `${t("public.rdv.field_phone", "Téléphone")} *`],
+              ["company", t("public.rdv.field_company", "Entreprise")],
+              ["subject", `${t("public.rdv.field_subject", "Sujet")} *`],
             ].map(([n, l]) => (
               <div key={n}>
                 <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-1">{l}</label>
@@ -181,7 +183,7 @@ export default function RDV() {
               </div>
             ))}
             <div>
-              <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-1">Message</label>
+              <label className="block text-[10px] uppercase tracking-[0.2em] text-slate-400 mb-1">{t("public.rdv.field_message", "Message")}</label>
               <textarea
                 rows={3}
                 value={form.message}
@@ -191,10 +193,10 @@ export default function RDV() {
               />
             </div>
             <button type="submit" disabled={sending || !selectedSlot} className="btn-electric inline-flex items-center justify-center w-full gap-2 rounded-lg px-4 py-3 font-medium disabled:opacity-50" data-testid="rdv-submit">
-              {sending ? "Envoi..." : "Confirmer ma demande"} <ArrowRight className="h-4 w-4" />
+              {sending ? t("public.rdv.btn_sending", "Envoi...") : t("public.rdv.btn_submit", "Confirmer ma demande")} <ArrowRight className="h-4 w-4" />
             </button>
             {selectedSlot && (
-              <p className="text-xs text-slate-400">Créneau choisi : {new Date(selectedSlot.start).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}</p>
+              <p className="text-xs text-slate-400">{t("public.rdv.slot_chosen", "Créneau choisi :")} {new Date(selectedSlot.start).toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "short" })}</p>
             )}
           </form>
         </div>

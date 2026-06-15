@@ -18,9 +18,14 @@ from __future__ import annotations
 
 import io
 import logging
+import os
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat()
 
 from fastapi import Body, Depends, HTTPException, Query
 from fastapi.responses import Response
@@ -145,6 +150,104 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
             items.append(g)
         items.sort(key=lambda x: x["request_count"], reverse=True)
         return {"items": items, "count": len(items), "grouped": True}
+
+    # Iter43-fix24e — Auto-generate a Liluvine handler stub for an unknown !command
+    @api.post("/admin/liluvine-pro/exclamations/{command}/auto-handler", tags=["Admin — Liluvine PRO"])
+    async def generate_handler_stub(
+        command: str,
+        user: dict = Depends(get_user_with_roles),
+    ):
+        """Appelle Claude Sonnet pour proposer un handler Python complet pour la commande `!<command>`.
+
+        L'IA reçoit en contexte :
+          - Le nom de la commande
+          - Les 3 derniers exemples reçus (body + args) extraits de `liluvine_exclamations`
+          - Le pattern existant (`_build_garde_reply` / `_build_meteo_reply`) pour cohérence
+
+        Elle renvoie du code Python prêt à coller dans `liluvine_wa_autoreply.py`,
+        avec une explication des points d'attention (DB collections, secrets, etc.).
+        """
+        cmd_lower = command.lower().strip()
+        if not cmd_lower or not cmd_lower.replace("_", "").replace("-", "").isalnum():
+            raise HTTPException(status_code=400, detail="Nom de commande invalide")
+
+        # Récupère 3 exemples concrets
+        samples = []
+        async for ex in db.liluvine_exclamations.find(
+            {"command": cmd_lower, "direction": "inbound"},
+            {"_id": 0, "body": 1, "command_args": 1, "from": 1, "from_profile_name": 1, "created_at": 1},
+        ).sort("created_at", -1).limit(3):
+            samples.append(ex)
+
+        api_key = os.environ.get("EMERGENT_LLM_KEY")
+        if not api_key:
+            raise HTTPException(status_code=503, detail="EMERGENT_LLM_KEY non disponible côté serveur.")
+
+        sys_prompt = (
+            "Tu es un expert Python/FastAPI/MongoDB et l'auteur du module liluvine_wa_autoreply.py de SAWALI. "
+            "L'utilisateur veut ajouter un nouveau handler pour une commande WhatsApp publique préfixée par `!`. "
+            "Produis du code Python concis, idiomatique et drop-in dans le fichier `routes/liluvine_wa_autoreply.py`. "
+            "Respecte STRICTEMENT le pattern existant :\n"
+            "  1. Fonction async `_build_<command>_reply(db, args: str) -> str` qui retourne le texte de la réponse WhatsApp\n"
+            "  2. Ajout dans la condition `is_public_cmd` (ligne ~155) avec le prefix correspondant\n"
+            "  3. Ajout d'un branchement après le check `is_public_cmd` (où on dispatche vers _build_garde_reply ou _build_meteo_reply)\n"
+            "  4. Pas plus de 150 lignes au total\n"
+            "  5. Utiliser `datetime.now(timezone.utc)` (pas utcnow()), `motor` async API, et `from typing import Optional`\n"
+            "Format de sortie OBLIGATOIRE — Markdown structuré :\n"
+            "## 1. Fonction principale\n```python\n<code>\n```\n"
+            "## 2. Modifications de la fonction maybe_handle_liluvine_wa_command\n```python\n<diff/code>\n```\n"
+            "## 3. Points d'attention\n- ...\n- ...\n"
+            "Ne génère AUCUN texte hors de ce format."
+        )
+
+        user_prompt = (
+            f"Commande à implémenter : `!{cmd_lower}`\n\n"
+            f"Exemples reçus ({len(samples)}) :\n"
+            + ("\n".join(
+                f"- de {s.get('from_profile_name') or s.get('from')} : "
+                f"body=`{(s.get('body') or '')[:200]}` args=`{(s.get('command_args') or '')[:100]}`"
+                for s in samples
+            ) if samples else "(aucun exemple en base — devine l'intent du nom de la commande)")
+            + "\n\nObjectif : produire le handler `_build_" + cmd_lower + "_reply(db, args)` "
+            "qui retourne une réponse texte (max 1500 chars) cohérente avec le nom de commande. "
+            "Si la commande requiert une donnée externe (ex. météo, base, …), utilise les collections MongoDB "
+            "existantes (`officines`, `garde_plannings`, etc.) ou décris l'API à appeler."
+        )
+
+        try:
+            from emergentintegrations.llm.chat import LlmChat, UserMessage
+            chat = LlmChat(
+                api_key=api_key,
+                session_id=f"handler-gen:{cmd_lower}",
+                system_message=sys_prompt,
+            ).with_model("anthropic", "claude-sonnet-4-5-20250929")
+            code = await chat.send_message(UserMessage(text=user_prompt))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[handler-gen] LLM error")
+            raise HTTPException(status_code=502, detail=f"Échec génération IA : {exc}") from exc
+
+        # Audit
+        try:
+            await db.liluvine_handler_suggestions.insert_one({
+                "id": str(uuid.uuid4()),
+                "command": cmd_lower,
+                "samples_count": len(samples),
+                "generated_code": code,
+                "model": "claude-sonnet-4-5-20250929",
+                "generated_by": user.get("email"),
+                "generated_at": _now_iso(),
+                "applied": False,
+            })
+        except Exception:  # noqa: BLE001
+            pass
+
+        return {
+            "ok": True,
+            "command": cmd_lower,
+            "samples_count": len(samples),
+            "generated_code": code,
+            "model": "claude-sonnet-4-5-20250929",
+        }
 
     @api.post("/admin/liluvine-pro/wa-requests/import-to-contacts", tags=["Admin — Liluvine PRO"])
     async def import_wa_requests_to_contacts(

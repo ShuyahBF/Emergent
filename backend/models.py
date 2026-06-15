@@ -1013,6 +1013,9 @@ class SettingsUpdate(BaseModel):
     # Iter43-fix23 (2026-06) — Bearer token pour le webhook d'inventaire officines
     officines_inventory_webhook_token: Optional[str] = None  # sensible — masqué en GET
 
+    # Iter43-fix24e (2026-06) — URL publique du backend (utilisée pour les CopyableUrl webhooks)
+    public_base_url: Optional[str] = None  # ex: "https://sawalismartsystems.com"
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

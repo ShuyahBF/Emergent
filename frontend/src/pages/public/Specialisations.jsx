@@ -7,7 +7,7 @@ import { CODE_IMG } from "@/lib/brand";
 const ICONS = { Globe, Smartphone, Database, Cpu, Code: Code2 };
 
 export default function Specialisations() {
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
   const [spec, setSpec] = useState(null);
   // Iter40-content-i18n — Re-fetch on language change
   useEffect(() => {
@@ -24,8 +24,8 @@ export default function Specialisations() {
       data-testid="specialisations-page"
     >
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Domaines d'intervention</p>
-        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{spec?.title || "Nos Spécialisations"}</h1>
+        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.specs.kicker", "Domaines d'intervention")}</p>
+        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{spec?.title || t("public.specs.title", "Nos Spécialisations")}</h1>
 
         <div className="mt-12 grid lg:grid-cols-3 gap-6">
           <div className="lg:col-span-2 grid sm:grid-cols-2 gap-4">
@@ -46,8 +46,8 @@ export default function Specialisations() {
             <img src={CODE_IMG} alt="Code" className="w-full h-full object-cover" />
             <div className="absolute inset-0 bg-gradient-to-t from-[#081226]/95 via-[#081226]/40 to-transparent" />
             <div className="absolute bottom-0 p-6">
-              <p className="text-sm text-sawali-blue-light uppercase tracking-[0.2em]">Stack moderne</p>
-              <p className="text-white text-lg font-display font-semibold mt-1">React · FastAPI · Mongo · Cloud</p>
+              <p className="text-sm text-sawali-blue-light uppercase tracking-[0.2em]">{t("public.specs.stack_kicker", "Stack moderne")}</p>
+              <p className="text-white text-lg font-display font-semibold mt-1">{t("public.specs.stack_label", "React · FastAPI · Mongo · Cloud")}</p>
             </div>
           </div>
         </div>

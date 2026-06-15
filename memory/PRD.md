@@ -5,6 +5,52 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24e (2026-06-15) — URLs Bird éditables + i18n complet + Bouton "Auto-générer handler IA" ✅
+
+**Statut** : LIVRÉ + testé (20/20 pytest, screenshots 4 nouvelles pages 100% EN).
+
+### 1) URLs Bird éditables
+- Nouveau field `public_base_url` dans Settings (par défaut = REACT_APP_BACKEND_URL = preview)
+- Composant `CopyableUrl` modifié pour accepter `baseUrl` en prop et l'utiliser en priorité
+- Input "Base URL publique" affiché dans la section Bird de AdminSettings (placeholder "https://sawalismartsystems.com")
+- Appliqué aux 2 webhooks Bird (Inbound + Delivery) ET aux 2 endpoints Inventaire officines (4 CopyableUrl au total)
+
+### 2) i18n étendu aux 5 pages publiques restantes
+**55 nouvelles clés** seedées (FR/EN/AR) :
+- `public.specs.*` (4) — Specialisations.jsx wrappé
+- `public.cases.*` (7) — CaseStudies.jsx wrappé
+- `public.testi.*` (10) — Testimonials.jsx wrappé (Quote/Stars cards entièrement)
+- `public.rdv.*` (22) — RDV.jsx wrappé (datepicker + slots + form + success)
+- `public.subs.*` (12) — Subscriptions clés seedées (composant déjà i18n-aware)
+- **Total : 241 clés FR/EN/AR**
+
+### 3) Bouton "Auto-générer handler" pour commandes inconnues (Claude Sonnet)
+- **Backend** `routes/liluvine_wa_requests.py` : `POST /api/admin/liluvine-pro/exclamations/{command}/auto-handler`
+  - Charge 3 exemples concrets de la commande depuis `liluvine_exclamations`
+  - Envoie à Claude Sonnet 4.5 (`claude-sonnet-4-5-20250929`) avec prompt système expert sur le module `liluvine_wa_autoreply.py`
+  - Retourne du code Python prêt à coller (fonction `_build_<cmd>_reply` + modifications de `maybe_handle_liluvine_wa_command` + points d'attention)
+  - Audit : chaque génération est loggée dans `liluvine_handler_suggestions` (command, model, code, applied=false)
+- **Frontend** `AdminLiluvineWaRequests.jsx` :
+  - Nouvelle colonne "Commandes" : badges verts (commandes connues) + ambre (inconnues) avec icône Sparkles cliquable pour les inconnues
+  - Toggle "Cmds inconnues uniquement" pour filtrer la liste
+  - Indicateur `⚠ N` à côté des numéros ayant envoyé des commandes inconnues
+  - **Modal `HandlerGenerationModal`** : affiche le code Python généré dans `<pre>` sombre avec bouton "Copier"
+
+### Status budget Emergent LLM
+⚠️ **Budget Emergent LLM épuisé** : `Current cost: 17.46 / Max budget: 16.4`. L'utilisateur doit aller dans son **Profile → Universal Key → Add Balance** (ou activer l'auto top-up) pour utiliser la génération IA et les réponses Liluvine.
+
+### Compteurs i18n actuels
+- **241 clés FR + EN + AR** :
+  - public.home.*: 34, public.footer.*: 21, public.missions.*: 8, public.contact.*: 15, public.catalogue.*: 8
+  - public.specs.*: 4, public.cases.*: 7, public.testi.*: 10, public.rdv.*: 22, public.subs.*: 12, public.nav.*: 13
+  - 87 clés historiques diverses
+
+### Tests
+- **20 tests pytest passent** (fix23b + fix24b + fix24d)
+- **Screenshots EN validés** : Specialisations, CaseStudies, Testimonials, RDV (toutes en EN)
+
+
+
 ## Iter43-fix24d (2026-06-15) — Exclamations Reçues + Bird Cost + i18n complet (Contact/Missions/Catalogue) ✅
 
 **Statut** : LIVRÉ + testé (20/20 pytest, screenshots EN OK).

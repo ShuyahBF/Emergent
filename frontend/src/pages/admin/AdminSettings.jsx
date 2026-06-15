@@ -2427,13 +2427,23 @@ export default function AdminSettings() {
         </div>
         <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3 space-y-2">
           <p className="text-xs font-semibold text-slate-700">📌 URLs à configurer dans Bird → Channels → SMS → Webhooks :</p>
+          {/* Iter43-fix24e — URL publique éditable (par défaut = REACT_APP_BACKEND_URL = preview) */}
+          <Input
+            label="Base URL publique (pour les webhooks)"
+            value={s.public_base_url || ""}
+            onChange={(v) => upd("public_base_url", v)}
+            placeholder="https://sawalismartsystems.com (laisser vide pour utiliser l'URL preview courante)"
+            testid="public-base-url"
+          />
           <CopyableUrl
             label="Inbound Messages (SMS entrants → Liluvine)"
             path="/api/webhooks/bird/inbound-sms"
+            baseUrl={s.public_base_url}
           />
           <CopyableUrl
             label="Delivery Reports (rapports de livraison — optionnel)"
             path="/api/webhooks/bird/delivery-report"
+            baseUrl={s.public_base_url}
           />
           <p className="text-[10px] text-slate-500 mt-2">
             💡 Le webhook valide la signature HMAC SHA-256 dans le header <code>Bird-Signature</code>
@@ -2461,10 +2471,12 @@ export default function AdminSettings() {
           <CopyableUrl
             label="POST inventaire (avec Authorization: Bearer ...)"
             path="/api/webhooks/officines/inventory"
+            baseUrl={s.public_base_url}
           />
           <CopyableUrl
             label="Documentation intégrateurs (JSON)"
             path="/api/webhooks/officines/inventory/docs"
+            baseUrl={s.public_base_url}
           />
           <p className="text-[10px] text-slate-500 mt-2">
             Le payload accepte les clés JSON (product_name, cip, quantity, …) OU les clés CSV françaises
@@ -5647,9 +5659,12 @@ const Input = ({ label, value, onChange, type = "text", placeholder, testid }) =
 };
 
 // Iter43-fix23 — Affiche une URL complète (origine + path + secret optionnel) avec bouton Copier.
-const CopyableUrl = ({ label, path, secret }) => {
-  const BACKEND_URL = process.env.REACT_APP_BACKEND_URL || "";
-  const fullUrl = `${BACKEND_URL}${path}${secret && secret !== "********" ? `?secret=${encodeURIComponent(secret)}` : ""}`;
+// Iter43-fix24e — Utilise `public_base_url` du settings en priorité ; permet aussi d'éditer manuellement.
+const CopyableUrl = ({ label, path, secret, baseUrl }) => {
+  const FALLBACK = process.env.REACT_APP_BACKEND_URL || "";
+  const origin = (baseUrl && baseUrl.trim()) || FALLBACK;
+  const cleanOrigin = origin.replace(/\/$/, "");
+  const fullUrl = `${cleanOrigin}${path}${secret && secret !== "********" ? `?secret=${encodeURIComponent(secret)}` : ""}`;
   return (
     <div className="space-y-1">
       <p className="text-[11px] text-slate-600">{label}</p>

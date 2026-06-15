@@ -1,7 +1,9 @@
 // Iter43-fix22 (2026-06) — Tableau de suivi des interrogations WhatsApp à Liluvine.
 // Accessible aux Admin / Superviseur / Modérateurs.
+// Iter43-fix24d — Renommé "Exclamations Reçues" + filtre only_unknown.
+// Iter43-fix24e — Bouton "Auto-générer handler" pour les commandes inconnues (Claude Sonnet).
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Inbox, Search, FileDown, UserPlus, RefreshCcw, Phone, Clock } from "lucide-react";
+import { Inbox, Search, FileDown, UserPlus, RefreshCcw, Phone, Clock, Sparkles, X, Copy, AlertCircle } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -25,19 +27,39 @@ export default function AdminLiluvineWaRequests() {
   const [selected, setSelected] = useState(() => new Set());
   const [importing, setImporting] = useState(false);
   const [exporting, setExporting] = useState(false);
+  // Iter43-fix24d — Filtre commandes inconnues
+  const [onlyUnknown, setOnlyUnknown] = useState(false);
+  // Iter43-fix24e — Modal "Auto-générer handler"
+  const [genCommand, setGenCommand] = useState(null);
+  const [genLoading, setGenLoading] = useState(false);
+  const [genCode, setGenCode] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams({ group_by_phone: "true", limit: "1000" });
       if (search.trim()) params.set("search", search.trim());
+      if (onlyUnknown) params.set("only_unknown", "true");
       const r = await apiClient.get(`/admin/liluvine-pro/wa-requests?${params.toString()}`);
       setItems(r.data?.items || []);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur chargement");
     } finally { setLoading(false); }
-  }, [search]);
+  }, [search, onlyUnknown]);
   useEffect(() => { load(); }, [load]);
+
+  const generateHandler = async (command) => {
+    setGenCommand(command);
+    setGenLoading(true);
+    setGenCode("");
+    try {
+      const r = await apiClient.post(`/admin/liluvine-pro/exclamations/${encodeURIComponent(command)}/auto-handler`);
+      setGenCode(r.data?.generated_code || "");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Échec génération IA");
+      setGenCommand(null);
+    } finally { setGenLoading(false); }
+  };
 
   const toggleAll = () => {
     if (selected.size === items.length) {
@@ -129,6 +151,17 @@ export default function AdminLiluvineWaRequests() {
         <button onClick={load} className="text-xs px-3 py-2 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-50">
           <RefreshCcw className="h-3 w-3 inline mr-1" /> Rafraîchir
         </button>
+        {/* Iter43-fix24d — Filtre commandes inconnues */}
+        <label className="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={onlyUnknown}
+            onChange={(e) => setOnlyUnknown(e.target.checked)}
+            data-testid="wa-only-unknown-toggle"
+          />
+          <AlertCircle className="h-3 w-3 text-amber-500" />
+          Cmds inconnues uniquement
+        </label>
         {selected.size > 0 && (
           <>
             <button onClick={importContacts} disabled={importing}
@@ -158,6 +191,7 @@ export default function AdminLiluvineWaRequests() {
               <th className="text-left px-3 py-2">Numéro WA</th>
               <th className="text-left px-3 py-2">Identité affichée</th>
               <th className="text-right px-3 py-2">Requêtes</th>
+              <th className="text-left px-3 py-2">Commandes</th>
               <th className="text-left px-3 py-2">Première</th>
               <th className="text-left px-3 py-2">Dernière</th>
               <th className="text-left px-3 py-2">Temps réponse moyen</th>
@@ -166,13 +200,15 @@ export default function AdminLiluvineWaRequests() {
           </thead>
           <tbody>
             {loading && (
-              <tr><td colSpan={8} className="p-6 text-center text-slate-400">Chargement…</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center text-slate-400">Chargement…</td></tr>
             )}
             {!loading && items.length === 0 && (
-              <tr><td colSpan={8} className="p-6 text-center text-slate-400">Aucune interrogation reçue</td></tr>
+              <tr><td colSpan={9} className="p-6 text-center text-slate-400">Aucune exclamation reçue</td></tr>
             )}
             {!loading && items.map((it) => {
               const sel = selected.has(it.phone);
+              const cmds = it.commands || {};
+              const unknownPresent = (it.unknown_count || 0) > 0;
               return (
                 <tr key={it.phone} className={`border-t ${sel ? "bg-sawali-blue/5" : ""}`}
                     data-testid={`wa-row-${it.phone}`}>
@@ -191,6 +227,35 @@ export default function AdminLiluvineWaRequests() {
                       {it.request_count}
                     </span>
                   </td>
+                  <td className="px-3 py-2">
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(cmds).map(([cmd, count]) => {
+                        const known = ["garde", "pharmacie", "meteo", "météo"].includes(cmd);
+                        return (
+                          <span key={cmd} className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded ring-1 ${
+                            known ? "bg-emerald-50 text-emerald-700 ring-emerald-200" : "bg-amber-50 text-amber-700 ring-amber-300"
+                          }`} data-testid={`cmd-tag-${cmd}-${it.phone}`}>
+                            !{cmd} <span className="opacity-60">×{count}</span>
+                            {!known && (
+                              <button
+                                onClick={(e) => { e.stopPropagation(); generateHandler(cmd); }}
+                                className="ml-0.5 hover:text-amber-900"
+                                title={`Générer un handler Liluvine pour !${cmd}`}
+                                data-testid={`gen-handler-${cmd}`}
+                              >
+                                <Sparkles className="h-3 w-3" />
+                              </button>
+                            )}
+                          </span>
+                        );
+                      })}
+                      {unknownPresent && (
+                        <span className="text-[10px] text-amber-600 ml-1" title={`${it.unknown_count} cmd inconnue(s)`}>
+                          ⚠ {it.unknown_count}
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-3 py-2 text-slate-600 text-xs">{fmtDate(it.first_seen)}</td>
                   <td className="px-3 py-2 text-slate-600 text-xs">{fmtDate(it.last_seen)}</td>
                   <td className="px-3 py-2 text-slate-600 text-xs">
@@ -208,6 +273,69 @@ export default function AdminLiluvineWaRequests() {
             })}
           </tbody>
         </table>
+      </div>
+      {/* Iter43-fix24e — Modal de génération de handler IA */}
+      {genCommand && (
+        <HandlerGenerationModal
+          command={genCommand}
+          loading={genLoading}
+          code={genCode}
+          onClose={() => { setGenCommand(null); setGenCode(""); }}
+        />
+      )}
+    </div>
+  );
+}
+
+// Iter43-fix24e — Modal qui affiche le code généré par Claude pour un nouveau handler
+function HandlerGenerationModal({ command, loading, code, onClose }) {
+  const copy = () => {
+    navigator.clipboard.writeText(code);
+    toast.success("Code copié dans le presse-papier");
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" data-testid="handler-gen-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col overflow-hidden">
+        <div className="px-5 py-3 border-b bg-slate-50 flex items-center justify-between">
+          <h2 className="text-sm font-semibold flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-amber-500" />
+            Handler auto-généré pour <code className="px-1 bg-slate-200 rounded">!{command}</code>
+          </h2>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700" data-testid="handler-gen-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-auto p-5">
+          {loading ? (
+            <div className="text-center py-12 text-slate-500">
+              <Sparkles className="h-8 w-8 mx-auto animate-pulse text-amber-500" />
+              <p className="mt-3 text-sm">Claude Sonnet 4.5 génère le handler…</p>
+              <p className="text-xs text-slate-400 mt-1">(~5-10 secondes)</p>
+            </div>
+          ) : (
+            <>
+              <p className="text-xs text-slate-500 mb-3">
+                ⚠ Le code ci-dessous est généré automatiquement. <strong>Vérifiez-le et testez-le</strong> avant de le déployer en production.
+                Collez-le dans <code className="px-1 bg-slate-100 rounded">/app/backend/routes/liluvine_wa_autoreply.py</code>.
+              </p>
+              <pre className="bg-slate-900 text-slate-100 text-xs rounded-lg p-4 overflow-auto whitespace-pre-wrap font-mono leading-relaxed" data-testid="handler-gen-code">
+                {code || "(pas de code généré)"}
+              </pre>
+            </>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
+            Fermer
+          </button>
+          {!loading && code && (
+            <button onClick={copy}
+                    className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 inline-flex items-center gap-1"
+                    data-testid="handler-gen-copy">
+              <Copy className="h-3 w-3" /> Copier le code
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

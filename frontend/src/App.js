@@ -161,6 +161,7 @@ import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
 import PrivacyPage from "@/pages/public/Privacy";
+import GardePage from "@/pages/public/Garde";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -223,6 +224,8 @@ export default function App() {
           <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
           {/* Iter43-fix17 — URL courte /privacy pour Google Search Console + OAuth Consent Screen */}
           <Route path="/privacy" element={<PublicRoute><PrivacyPage /></PublicRoute>} />
+          {/* Iter43-fix22b — Page publique des pharmacies de garde (SEO local) */}
+          <Route path="/garde" element={<PublicRoute><GardePage /></PublicRoute>} />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />

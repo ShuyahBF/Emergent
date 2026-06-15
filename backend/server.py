@@ -12523,6 +12523,7 @@ async def public_sitemap(request: Request):
         ("/missions", 0.8, "monthly"),
         ("/specialisations", 0.8, "monthly"),
         ("/catalogue", 0.9, "weekly"),
+        ("/garde", 0.9, "daily"),  # Iter43-fix22b — page hebdo, change-freq élevée pour SEO local
         ("/etudes-de-cas", 0.8, "weekly"),
         ("/blog", 0.8, "weekly"),
         ("/temoignages", 0.7, "monthly"),

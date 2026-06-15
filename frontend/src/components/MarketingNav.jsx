@@ -15,6 +15,7 @@ const links = [
   { to: "/missions", label: "Missions", tKey: "public.nav.missions" },
   { to: "/specialisations", label: "Spécialisations", tKey: "public.nav.specialisations" },
   { to: "/catalogue", label: "Catalogue", tKey: "public.nav.catalogue" },
+  { to: "/garde", label: "Pharmacies de garde", tKey: "public.nav.garde" },
   { to: "/subscriptions", label: "Abonnements", tKey: "public.nav.subscriptions" },
   { to: "/temoignages", label: "Témoignages", tKey: "public.nav.testimonials" },
   { to: "/rdv", label: "Demande RDV", tKey: "public.nav.rdv" },

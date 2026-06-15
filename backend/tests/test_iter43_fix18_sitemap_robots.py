@@ -43,7 +43,7 @@ class TestSitemap:
         r = requests.get(f"{API}/sitemap.xml", timeout=10)
         body = r.text
         # Pages essentielles à indexer
-        for path in ["/", "/missions", "/catalogue", "/blog", "/contact", "/privacy"]:
+        for path in ["/", "/missions", "/catalogue", "/blog", "/contact", "/privacy", "/garde"]:
             # On vérifie qu'au moins une `<loc>...path</loc>` matche
             assert re.search(rf"<loc>[^<]+{re.escape(path)}</loc>", body), f"absent: {path}"
 

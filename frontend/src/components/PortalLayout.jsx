@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -132,6 +132,9 @@ const adminLinks = [
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
   // Iter43-fix24d — Renommé "Exclamations Reçues" (ne contient que les !commandes).
   { to: "/admin/liluvine-wa-requests", label: "Exclamations Reçues", icon: Inbox, moderatorPlus: true },
+  // Iter43-fix24f — Historique des suggestions IA de handlers + dashboard coût Bird
+  { to: "/admin/handler-suggestions", label: "Handlers IA", icon: Sparkles, adminOnly: true },
+  { to: "/admin/bird-cost", label: "Coût SMS Bird", icon: CircleDollarSign, adminOnly: true },
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];

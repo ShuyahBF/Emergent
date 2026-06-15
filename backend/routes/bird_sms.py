@@ -454,6 +454,71 @@ def setup_bird_sms_routes(*, db, api, get_current_admin):
         }
 
     @api.get(
+        "/admin/bird/cost-daily-series",
+        tags=["Admin — Bird"],
+    )
+    async def admin_bird_cost_daily_series(
+        days: int = Query(30, ge=1, le=365),
+        _: dict = Depends(get_current_admin),
+    ):
+        """Iter43-fix24f — Série temporelle journalière des SMS Bird outbound.
+
+        Retourne un tableau de {date, count, cost} pour les N derniers jours,
+        utilisé par la page Admin → Bird Cost (graphique).
+        """
+        cfg_doc = await db.settings.find_one(
+            {"_id": "global"},
+            {"_id": 0, "bird_cost_per_sms_xof": 1, "bird_cost_currency": 1},
+        ) or {}
+        unit_cost = float(cfg_doc.get("bird_cost_per_sms_xof") or 25.0)
+        currency = (cfg_doc.get("bird_cost_currency") or "XOF").upper()
+
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        end = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        start = end - timedelta(days=days - 1)
+
+        # On charge toutes les rows outbound dans la fenêtre, puis agrège en Python
+        # (volume limité — pas besoin d'aggregation MongoDB)
+        cursor = db.bird_sms_messages.find(
+            {
+                "provider": "bird",
+                "direction": "outbound",
+                "created_at": {"$gte": start.isoformat()},
+            },
+            {"_id": 0, "created_at": 1},
+        )
+        buckets: Dict[str, int] = {}
+        async for doc in cursor:
+            ts = doc.get("created_at")
+            if not ts:
+                continue
+            day = ts[:10]  # YYYY-MM-DD
+            buckets[day] = buckets.get(day, 0) + 1
+
+        # Construire la série en remplissant les zéros
+        series = []
+        for i in range(days):
+            d = (start + timedelta(days=i))
+            day_key = d.isoformat()[:10]
+            cnt = buckets.get(day_key, 0)
+            series.append({
+                "date": day_key,
+                "count": cnt,
+                "cost": round(cnt * unit_cost, 2),
+            })
+
+        total_count = sum(b["count"] for b in series)
+        return {
+            "days": days,
+            "unit_cost": unit_cost,
+            "currency": currency,
+            "total_count": total_count,
+            "total_cost": round(total_count * unit_cost, 2),
+            "series": series,
+        }
+
+    @api.get(
         "/admin/bird/cost-summary",
         tags=["Admin — Bird"],
     )

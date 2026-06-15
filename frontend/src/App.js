@@ -155,6 +155,9 @@ import OfficineHistory from "@/pages/officines/History";
 import AdminOfficinesRegistry from "@/pages/admin/AdminOfficinesRegistry";
 import AdminGardePlanning from "@/pages/admin/AdminGardePlanning";
 import AdminLiluvineWaRequests from "@/pages/admin/AdminLiluvineWaRequests";
+// Iter43-fix24f — Suggestions IA + Bird Cost
+import AdminHandlerSuggestions from "@/pages/admin/AdminHandlerSuggestions";
+import AdminBirdCost from "@/pages/admin/AdminBirdCost";
 import StoryStudio from "@/pages/admin/StoryStudio";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
@@ -344,6 +347,9 @@ export default function App() {
             <Route path="officines-registry" element={<AdminOfficinesRegistry />} />
             <Route path="garde-planning" element={<AdminGardePlanning />} />
             <Route path="liluvine-wa-requests" element={<AdminLiluvineWaRequests />} />
+            {/* Iter43-fix24f */}
+            <Route path="handler-suggestions" element={<AdminHandlerSuggestions />} />
+            <Route path="bird-cost" element={<AdminBirdCost />} />
             <Route path="story-studio" element={<StoryStudio />} />
           </Route>
 

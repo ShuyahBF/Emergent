@@ -5,6 +5,45 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24f (2026-06-15) — Handler Suggestions admin + Bird Cost Dashboard ✅
+
+**Statut** : LIVRÉ + testé (29/29 pytest passent, 9 nouveaux tests fix24f).
+
+### 1) Page admin `/admin/handler-suggestions`
+- **Backend** : 3 endpoints
+  - `GET /api/admin/liluvine-pro/handler-suggestions?command=&applied=` — Liste avec filtres
+  - `PATCH /api/admin/liluvine-pro/handler-suggestions/{id}` — Toggle `applied` + édition `notes`
+  - `DELETE /api/admin/liluvine-pro/handler-suggestions/{id}` — Suppression
+- **Frontend** `/admin/handler-suggestions` :
+  - Table : commande, modèle, exemples, date, auteur, statut (Appliqué/En attente), notes éditables inline, actions
+  - Filtres : par !commande + par statut (tous / en attente / appliqués)
+  - **Modal `CodeViewerModal`** : affiche le code Python généré dans `<pre>` sombre + bouton "Copier"
+  - Notes éditables inline (clic → textarea → bouton OK)
+  - Bouton "Supprimer" avec confirmation native
+
+### 2) Page admin `/admin/bird-cost`
+- **Backend** : `GET /api/admin/bird/cost-daily-series?days=N` (1-365j)
+  - Retourne `{days, unit_cost, currency, total_count, total_cost, series:[{date, count, cost}]}`
+  - Remplit les zéros pour les jours sans SMS
+  - Validation `Query(..., ge=1, le=365)` → 422 si hors plage
+- **Frontend** `/admin/bird-cost` :
+  - 5 KPI cards : Aujourd'hui (highlight sky) / Hier / 7 derniers jours / 30 derniers jours / Total
+  - Graphique barres horizontales pure CSS (pas de lib chart) — 7/14/30/90 jours sélectionnable
+  - Aujourd'hui mis en avant (texte sky bold + barre sky-600 vs sky-400)
+  - Tooltip explicatif : taux fixe + lien vers config dans Paramètres
+- **Sidebar** : 2 nouvelles entrées `Handlers IA` (Sparkles) et `Coût SMS Bird` (CircleDollarSign), admin-only.
+
+### Tests
+- **9 nouveaux tests pytest** dans `test_iter43_fix24f_handler_suggestions_bird_daily.py`
+- **Total Iter43 fix23b+24b+24d+24f = 29 tests, 100% passent**
+
+### Compteurs
+- **241 clés i18n FR/EN/AR** (inchangé depuis fix24e)
+- **2 nouvelles pages admin** (handler-suggestions + bird-cost)
+- **5 nouveaux endpoints** backend
+
+
+
 ## Iter43-fix24e (2026-06-15) — URLs Bird éditables + i18n complet + Bouton "Auto-générer handler IA" ✅
 
 **Statut** : LIVRÉ + testé (20/20 pytest, screenshots 4 nouvelles pages 100% EN).

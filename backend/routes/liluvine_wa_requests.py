@@ -249,6 +249,61 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
             "model": "claude-sonnet-4-5-20250929",
         }
 
+    # Iter43-fix24f — CRUD light pour l'historique des suggestions de handlers IA
+    @api.get("/admin/liluvine-pro/handler-suggestions", tags=["Admin — Liluvine PRO"])
+    async def list_handler_suggestions(
+        command: Optional[str] = Query(None),
+        applied: Optional[bool] = Query(None),
+        limit: int = Query(100, ge=1, le=500),
+        user: dict = Depends(get_user_with_roles),
+    ):
+        q: Dict[str, Any] = {}
+        if command:
+            q["command"] = command.lower().strip()
+        if applied is not None:
+            q["applied"] = bool(applied)
+        items: List[Dict[str, Any]] = []
+        async for d in db.liluvine_handler_suggestions.find(q, {"_id": 0}).sort("generated_at", -1).limit(limit):
+            items.append(d)
+        return {"items": items, "count": len(items)}
+
+    @api.patch("/admin/liluvine-pro/handler-suggestions/{suggestion_id}", tags=["Admin — Liluvine PRO"])
+    async def update_handler_suggestion(
+        suggestion_id: str,
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_user_with_roles),
+    ):
+        """Marquer comme `applied` et/ou ajouter des notes éditeur."""
+        update: Dict[str, Any] = {}
+        if "applied" in payload:
+            update["applied"] = bool(payload["applied"])
+            if update["applied"]:
+                update["applied_at"] = _now_iso()
+                update["applied_by"] = user.get("email")
+            else:
+                update["applied_at"] = None
+                update["applied_by"] = None
+        if "notes" in payload:
+            update["notes"] = (payload["notes"] or "")[:2000]
+        if not update:
+            raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
+        r = await db.liluvine_handler_suggestions.update_one(
+            {"id": suggestion_id}, {"$set": update},
+        )
+        if r.matched_count == 0:
+            raise HTTPException(status_code=404, detail="Suggestion introuvable")
+        return {"ok": True, "updated": list(update.keys())}
+
+    @api.delete("/admin/liluvine-pro/handler-suggestions/{suggestion_id}", tags=["Admin — Liluvine PRO"])
+    async def delete_handler_suggestion(
+        suggestion_id: str,
+        user: dict = Depends(get_user_with_roles),
+    ):
+        r = await db.liluvine_handler_suggestions.delete_one({"id": suggestion_id})
+        if r.deleted_count == 0:
+            raise HTTPException(status_code=404, detail="Suggestion introuvable")
+        return {"ok": True}
+
     @api.post("/admin/liluvine-pro/wa-requests/import-to-contacts", tags=["Admin — Liluvine PRO"])
     async def import_wa_requests_to_contacts(
         payload: Dict[str, Any] = Body(...),

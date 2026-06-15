@@ -5,6 +5,42 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24g (2026-06-15) — Bird SMS Provider in UI + Dry-Run Sandbox ✅
+
+**Statut** : LIVRÉ + testé via testing agent (Backend 11/11 pytest, Frontend 3/3 dropdowns + dry-run UI e2e).
+
+### 1) Bird comme provider SMS sélectionnable
+- **Backend** (`server.py`) :
+  - `_sms_active_providers(s)` ajoute `"bird"` quand `bird_enabled` + `bird_workspace_id` + `bird_channel_id` + `bird_access_key` tous non-vides.
+  - `_sms_provider_cfg(s, "bird")` retourne `{kind:"bird", workspace_id, channel_id, access_key, api_base_url, sender}`.
+  - `_sms_dispatch` branche sur `cfg["kind"] == "bird"` → délègue à `routes/bird_sms.send_bird_sms`, persiste dans `bird_sms_messages`.
+  - `GET /api/me/sms/providers` retourne désormais `bird_enabled` en plus de `ovh_enabled`.
+- **Frontend** :
+  - `/portal/sms` (SmsBulk), `/portal/contacts` (Contacts), `/portal/wa` (WaBulk) : option `📡 Bird.com` affichée dans les dropdowns quand Bird est configuré.
+  - `/portal/liluvine` (LiluvinePro) : nouveau filtre channel `📡 Bird` + badge orange `📡 Bird` pour sessions `sms:bird:*` ou `external_source="bird_sms"`.
+- **Tests** : 3 tests pytest `test_iter43_fix24g_bird_provider.py`.
+
+### 2) Bouton "Tester ce handler en dry-run (sandbox)"
+- **Backend** : `POST /api/admin/liluvine-pro/handler-suggestions/{id}/dry-run`
+  - Body : `{args?: str, timeout_ms?: int}` (clampé 500-15000 ms)
+  - Extrait le 1er bloc ```python contenant `async def _build_<command>_reply` (markdown ou raw).
+  - Compile + exec dans un sandbox : `__builtins__` minimalistes (~30 noms), `__import__` restreint à une whitelist (datetime, asyncio, json, math, re, typing, uuid, hashlib, base64, calendar, collections, itertools, functools, statistics, decimal, html, urllib.parse).
+  - Appelle `_build_X_reply(db, args)` avec `asyncio.wait_for(timeout)`.
+  - Logue chaque exécution dans `db.liluvine_handler_dry_runs` (audit).
+  - Codes erreur : `404` suggestion inexistante / `422` fonction introuvable / `200 + ok:false` pour SyntaxError / runtime / import bloqué / timeout.
+- **Frontend** : `AdminHandlerSuggestions.jsx` → `CodeViewerModal` enrichi
+  - Panneau pliable `dry-run-toggle`, input `dry-run-args-input`, bouton `dry-run-execute-btn`.
+  - Affichage résultat `dry-run-result` : ✅ vert (`dry-run-reply`) ou ❌ rouge (`dry-run-error`) + durée ms.
+  - Toast sonner sur succès/échec.
+- **Tests** : 8 tests pytest `test_iter43_fix24g_dry_run.py` (happy path, syntax error, timeout, import bloqué, fonction manquante, 404, log audit).
+
+### Compteurs cumulés
+- Total Iter43 = **40 tests pytest** (29 fix24f + 11 fix24g), 100 % passent.
+- Endpoints backend ajoutés : **+1** (dry-run).
+
+
+
+
 ## Iter43-fix24f (2026-06-15) — Handler Suggestions admin + Bird Cost Dashboard ✅
 
 **Statut** : LIVRÉ + testé (29/29 pytest passent, 9 nouveaux tests fix24f).

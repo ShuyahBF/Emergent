@@ -259,10 +259,13 @@ const SettingsToolbar = () => {
             className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm pr-8 appearance-none w-full sm:w-72"
             data-testid="settings-jump-select"
           >
-            <option value="">Aller à un paramètre…{newCount > 0 ? `  (${newCount} nouveau${newCount > 1 ? "x" : ""})` : ""}</option>
-            {visibleTitles.map((t) => (
-              <option key={t} value={t}>{isStillNew(t, ctx.seenMap) ? "🆕  " : ""}{t}</option>
-            ))}
+            {/* Iter43-fix23 — Pré-calculer le texte pour éviter le warning hydration
+                (le Visual Editor wrappe les expressions dynamiques en <span>, invalides dans <option>) */}
+            <option value="">{newCount > 0 ? `Aller à un paramètre…  (${newCount} nouveau${newCount > 1 ? "x" : ""})` : "Aller à un paramètre…"}</option>
+            {visibleTitles.map((t) => {
+              const label = isStillNew(t, ctx.seenMap) ? `🆕  ${t}` : t;
+              return <option key={t} value={t}>{label}</option>;
+            })}
           </select>
           <ChevronDown className="h-4 w-4 absolute right-2 top-2.5 text-slate-400 pointer-events-none" />
         </div>

@@ -153,6 +153,8 @@ import OfficineInventory from "@/pages/officines/Inventory";
 import OfficineSecret from "@/pages/officines/Secret";
 import OfficineHistory from "@/pages/officines/History";
 import AdminOfficinesRegistry from "@/pages/admin/AdminOfficinesRegistry";
+import AdminGardePlanning from "@/pages/admin/AdminGardePlanning";
+import AdminLiluvineWaRequests from "@/pages/admin/AdminLiluvineWaRequests";
 import StoryStudio from "@/pages/admin/StoryStudio";
 import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
@@ -337,6 +339,8 @@ export default function App() {
             <Route path="ad-banners" element={<AdminAdBanners />} />
             {/* Iter42 — Officines Registry (validation des pharmacies inscrites) */}
             <Route path="officines-registry" element={<AdminOfficinesRegistry />} />
+            <Route path="garde-planning" element={<AdminGardePlanning />} />
+            <Route path="liluvine-wa-requests" element={<AdminLiluvineWaRequests />} />
             <Route path="story-studio" element={<StoryStudio />} />
           </Route>
 

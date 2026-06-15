@@ -30,8 +30,11 @@ import logging
 import os
 import re
 import secrets
-from datetime import datetime, timezone
+import uuid
+from datetime import date, datetime, timezone
 from typing import Any, Dict, List, Optional
+
+import httpx
 
 logger = logging.getLogger("sawali.liluvine_wa_autoreply")
 
@@ -149,7 +152,13 @@ async def autoreply_to_inbound(
     if (inbound_doc.get("message_type") or "text") != "text":
         return {"ok": False, "reason": "non_text_message"}
     # Skip if the message is a Liluvine remote command (! / / prefix already handled)
-    if text.startswith("!") or text.startswith("/"):
+    # EXCEPT for the public commands `!Garde` and `!Meteo`/`!Météo` (handled below).
+    cmd_lower = text.lower()
+    is_public_cmd = (
+        cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie")
+        or cmd_lower.startswith("!meteo") or cmd_lower.startswith("!météo")
+    )
+    if (text.startswith("!") or text.startswith("/")) and not is_public_cmd:
         return {"ok": False, "reason": "command_prefix"}
 
     decision = await should_autoreply(
@@ -185,6 +194,33 @@ async def autoreply_to_inbound(
     # Tenant feature gate — only if Liluvine PRO is enabled on the parent admin
     # OR the inbound number is matched to a user whose email is in the bypass list.
     scope_uid = inbound_doc.get("client_id")
+
+    # Iter43-fix22 (2026-06) — Slash-style commands publiques : `!Garde`, `!Meteo`.
+    # Court-circuite l'appel LLM (économie de tokens + réponse instantanée).
+    # Pas besoin de feature gate `ai_liluvine_pro` puisque ce sont des
+    # commandes utilitaires (annuaire / météo), pas de l'IA.
+    if is_public_cmd:
+        if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
+            reply = await _build_garde_reply(db)
+        else:
+            reply = await _build_meteo_reply(db, cmd_lower, phone_digits)
+        # Send back via the provided sender
+        to_e164 = inbound_doc.get("from") or f"+{phone_digits}"
+        try:
+            send_res = await wa_send_text(to_e164, reply, reply_to_message_id=inbound_doc.get("wa_message_id"))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
+            send_res = {"ok": False, "error": str(exc)}
+        await db.whatsapp_messages.insert_one({
+            "id": uuid.uuid4().hex, "direction": "outbound",
+            "to": to_e164, "phone_digits": phone_digits,
+            "body": reply, "client_id": inbound_doc.get("client_id"),
+            "wa_message_id": (send_res or {}).get("message_id"),
+            "auto_reply": True, "command": cmd_lower.split()[0],
+            "created_at": datetime.now(timezone.utc).isoformat(),
+        })
+        return {"ok": True, "command": cmd_lower.split()[0], "send": send_res}
+
     if scope_uid:
         parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})
         feats = (parent or {}).get("features") or {}
@@ -432,3 +468,172 @@ async def autoreply_to_inbound(
         "session_id": session_id, "reply_message_id": out_msg_id,
         "tokens": tokens,
     }
+
+
+
+# ====================================================================
+# Iter43-fix22 (2026-06) — Public WA commands : !Garde, !Meteo
+# ====================================================================
+async def _build_garde_reply(db) -> str:
+    """Construit la réponse pour la commande `!Garde` : liste des officines
+    de garde de la semaine en cours + message de prompt rétablissement."""
+    today = datetime.now(timezone.utc).date()
+    iso = today.isocalendar()
+    year, week = iso[0], iso[1]
+    # Récupère le planning pour cette semaine
+    entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
+    if not entry:
+        # Calcule la rotation auto
+        groups_set: set = set()
+        async for o in db.officines.find({"groupe_garde": {"$nin": [None, ""]}}, {"groupe_garde": 1, "_id": 0}):
+            try:
+                groups_set.add(int(o["groupe_garde"]))
+            except (TypeError, ValueError):
+                continue
+        if not groups_set:
+            return ("📅 Aucun groupe de garde n'est encore configuré.\n\n"
+                    "Pour configurer le planning des gardes, rendez-vous sur "
+                    "https://sawalismartsystems.com/admin/garde-planning.")
+        groups = sorted(groups_set)
+        gg = groups[(week - 1) % len(groups)]
+    else:
+        gg = entry.get("groupe_garde")
+    # Liste des officines
+    officines: List[Dict[str, Any]] = []
+    async for o in db.officines.find(
+        {"groupe_garde": gg, "status": "active"},
+        {"_id": 0, "name": 1, "intitule": 1, "phone": 1, "whatsapp": 1, "address": 1, "city": 1, "location_hint": 1},
+    ).sort("name", 1):
+        officines.append(o)
+    try:
+        monday = date.fromisocalendar(year, week, 1).strftime("%d/%m")
+        sunday = date.fromisocalendar(year, week, 7).strftime("%d/%m")
+    except ValueError:
+        monday, sunday = "?", "?"
+    lines = [
+        f"🏥 *Officines de garde — Semaine {week}* ({monday} au {sunday})",
+        f"*Groupe {gg}* — {len(officines)} officine{'s' if len(officines) > 1 else ''}",
+        "",
+    ]
+    if not officines:
+        lines.append("_Aucune officine active dans ce groupe pour cette semaine._")
+    else:
+        for o in officines[:25]:  # WhatsApp ~4096 char limit safety
+            name = o.get("name") or o.get("intitule") or "—"
+            addr_bits = [o.get("location_hint") or o.get("address"), o.get("city")]
+            addr = ", ".join([b for b in addr_bits if b]).strip()
+            ph = o.get("whatsapp") or o.get("phone") or ""
+            lines.append(f"• *{name}*")
+            if addr:
+                lines.append(f"  📍 {addr}")
+            if ph:
+                lines.append(f"  📞 {ph}")
+        if len(officines) > 25:
+            lines.append(f"\n_…et {len(officines) - 25} autre(s) — liste complète sur le site_")
+    lines.append("\n💚 _Prompt rétablissement et bonne santé !_")
+    lines.append("\n_— Liluvine PRO 🤖_")
+    return "\n".join(lines)
+
+
+async def _build_meteo_reply(db, cmd_text: str, phone_digits: str) -> str:
+    """Construit la réponse pour la commande `!Meteo [+N]`.
+
+    `!Meteo`     → météo actuelle de la ville détectée du visiteur
+    `!Meteo +3`  → prévisions à +1h, +2h, +3h (max +5h)
+    """
+    # Parse offset
+    m = re.match(r"^[!/](?:meteo|météo)\s*(?:\+\s*(\d+))?\s*(.*)$", cmd_text.strip(), re.IGNORECASE)
+    offset = 0
+    explicit_city = ""
+    if m:
+        if m.group(1):
+            try:
+                offset = max(0, min(5, int(m.group(1))))
+            except (TypeError, ValueError):
+                offset = 0
+        explicit_city = (m.group(2) or "").strip()
+    # Ville par défaut depuis settings
+    settings_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0,
+        "weather_widget_default_city": 1, "weather_widget_default_country": 1,
+        "company_city": 1, "company_country": 1}) or {}
+    city = explicit_city or settings_doc.get("weather_widget_default_city") \
+           or settings_doc.get("company_city") or "Ouagadougou"
+    # Geocode + weather
+    try:
+        async with httpx.AsyncClient(timeout=6.0) as http:
+            geo_r = await http.get(
+                "https://geocoding-api.open-meteo.com/v1/search",
+                params={"name": city, "count": 1, "language": "fr"},
+            )
+            if geo_r.status_code >= 300:
+                return f"☁️ Impossible de localiser la ville « {city} »."
+            geo = geo_r.json().get("results") or []
+            if not geo:
+                return f"☁️ Ville inconnue : « {city} ». Essayez `!meteo Ouagadougou` ou `!meteo Paris`."
+            top = geo[0]
+            lat, lon = top["latitude"], top["longitude"]
+            city_name = top.get("name") or city
+            country = top.get("country_code") or ""
+            w_r = await http.get(
+                "https://api.open-meteo.com/v1/forecast",
+                params={
+                    "latitude": lat, "longitude": lon,
+                    "current": "temperature_2m,apparent_temperature,relative_humidity_2m,weather_code,wind_speed_10m",
+                    "hourly": "temperature_2m,weather_code,precipitation_probability",
+                    "forecast_days": 1,
+                    "temperature_unit": "celsius",
+                    "wind_speed_unit": "kmh",
+                    "timezone": "auto",
+                },
+            )
+            if w_r.status_code >= 300:
+                return "☁️ Service météo indisponible. Réessayez plus tard."
+            data = w_r.json() or {}
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[wa_meteo] HTTP error: %s", exc)
+        return "☁️ Erreur réseau lors de la récupération de la météo. Réessayez."
+    cur = data.get("current") or {}
+    code = int(cur.get("weather_code") or 0)
+    # Mini map des codes WMO → emoji + libellé FR
+    icon_label = {
+        0: ("☀️", "ensoleillé"), 1: ("🌤️", "principalement clair"),
+        2: ("⛅", "partiellement nuageux"), 3: ("☁️", "couvert"),
+        45: ("🌫️", "brouillard"), 48: ("🌫️", "brouillard givrant"),
+        51: ("🌦️", "bruine légère"), 53: ("🌦️", "bruine"), 55: ("🌦️", "bruine dense"),
+        61: ("🌧️", "pluie légère"), 63: ("🌧️", "pluie modérée"), 65: ("🌧️", "pluie forte"),
+        71: ("🌨️", "neige légère"), 73: ("🌨️", "neige"), 75: ("🌨️", "neige forte"),
+        80: ("🌦️", "averses"), 81: ("🌧️", "averses modérées"), 82: ("⛈️", "averses violentes"),
+        95: ("⛈️", "orage"), 96: ("⛈️", "orage + grêle"), 99: ("⛈️", "orage violent"),
+    }
+    emo, label = icon_label.get(code, ("☁️", "conditions inconnues"))
+    lines = [
+        f"{emo} *Météo {city_name}* ({country})" if country else f"{emo} *Météo {city_name}*",
+        f"*{round(cur.get('temperature_2m') or 0)}°C* · {label}",
+        f"_Ressenti {round(cur.get('apparent_temperature') or 0)}°C · "
+        f"Vent {round(cur.get('wind_speed_10m') or 0)} km/h · "
+        f"Humidité {cur.get('relative_humidity_2m')}%_",
+    ]
+    if offset > 0:
+        hourly = data.get("hourly") or {}
+        times = hourly.get("time") or []
+        temps = hourly.get("temperature_2m") or []
+        codes = hourly.get("weather_code") or []
+        probs = hourly.get("precipitation_probability") or []
+        # Trouver l'index "current hour" dans la liste horaire
+        now_iso = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:00")
+        try:
+            idx = next(i for i, t in enumerate(times) if t >= now_iso)
+        except StopIteration:
+            idx = 0
+        lines.append("\n*Prochaines heures :*")
+        for h in range(1, offset + 1):
+            i = idx + h
+            if i >= len(times):
+                break
+            t = times[i].split("T")[-1]
+            c = codes[i] if i < len(codes) else 0
+            emo_h, lbl_h = icon_label.get(int(c), ("☁️", ""))
+            p = probs[i] if i < len(probs) else 0
+            lines.append(f"  • {t} · {emo_h} {round(temps[i])}°C · pluie {p}%")
+    lines.append("\n_— Liluvine PRO 🤖_")
+    return "\n".join(lines)

@@ -113,3 +113,10 @@ async def get_current_admin(user: dict = Depends(get_current_user)) -> dict:
     if user.get("role") != "admin":
         raise HTTPException(status_code=403, detail="Accès réservé à l'administrateur")
     return user
+
+
+async def get_current_admin_or_moderator(user: dict = Depends(get_current_user)) -> dict:
+    """Iter43-fix22 — Accès pour les rôles admin / moderator / superviseur."""
+    if user.get("role") not in {"admin", "moderator", "superviseur"}:
+        raise HTTPException(status_code=403, detail="Accès réservé aux modérateurs, superviseurs et administrateurs")
+    return user

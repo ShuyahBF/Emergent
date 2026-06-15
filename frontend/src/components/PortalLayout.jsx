@@ -127,6 +127,10 @@ const adminLinks = [
   { to: "/admin/ad-banners", label: "Régie publicitaire", icon: Megaphone },
   // Iter42 — Officines Registry (validation pharmacies inscrites au self-service)
   { to: "/admin/officines-registry", label: "Officines (validation)", icon: HeartPulse, featureGate: "vidal_enabled" },
+  // Iter43-fix22 — Planning des gardes (admin/superviseur)
+  { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
+  // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
+  { to: "/admin/liluvine-wa-requests", label: "Interrogations WhatsApp", icon: Inbox, moderatorPlus: true },
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
@@ -200,6 +204,8 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup)
     .filter((l) => !l.moderationOnly || isModerator || isAdminOrSup)
+    .filter((l) => !l.adminOrSup || isAdminOrSup)
+    .filter((l) => !l.moderatorPlus || isModerator || isAdminOrSup)
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page

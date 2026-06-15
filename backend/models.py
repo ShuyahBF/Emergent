@@ -996,15 +996,16 @@ class SettingsUpdate(BaseModel):
     weather_widget_default_city: Optional[str] = None    # fallback (ex: "Ouagadougou")
     weather_widget_default_country: Optional[str] = None  # code ISO 2 lettres (ex: "BF")
 
-    # Iter43-fix23 (2026-06) — Africa's Talking Two-Way SMS Integration
-    africas_talking_enabled: Optional[bool] = None        # toggle maître
-    africas_talking_env: Optional[str] = None             # "sandbox" | "live"
-    africas_talking_username: Optional[str] = None        # "sandbox" en sandbox, ou app username en live
-    africas_talking_api_key: Optional[str] = None         # sensible — masqué en GET
-    africas_talking_shortcode: Optional[str] = None       # shortcode (ex. 15555 en sandbox)
-    africas_talking_signature: Optional[str] = None       # signature ajoutée à chaque réponse
-    africas_talking_use_liluvine: Optional[bool] = None   # route les SMS vers Liluvine pour réponse IA
-    africas_talking_webhook_secret: Optional[str] = None  # secret optionnel pour valider les webhooks
+    # Iter43-fix23b (2026-06) — Bird.com 2-Way SMS (remplace Africa's Talking)
+    bird_enabled: Optional[bool] = None          # toggle maître
+    bird_api_base_url: Optional[str] = None      # défaut "https://api.bird.com"
+    bird_workspace_id: Optional[str] = None      # UUID workspace Bird
+    bird_channel_id: Optional[str] = None        # UUID channel SMS Bird
+    bird_access_key: Optional[str] = None        # sensible — masqué
+    bird_webhook_secret: Optional[str] = None    # sensible — masqué (HMAC SHA-256)
+    bird_default_sender: Optional[str] = None    # sender ID / long number
+    bird_signature: Optional[str] = None         # signature texte à ajouter à chaque réponse
+    bird_use_liluvine: Optional[bool] = None     # router les SMS vers Liluvine
 
     # Iter43-fix23 (2026-06) — Bearer token pour le webhook d'inventaire officines
     officines_inventory_webhook_token: Optional[str] = None  # sensible — masqué en GET

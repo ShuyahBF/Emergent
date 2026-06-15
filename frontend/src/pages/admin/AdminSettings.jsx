@@ -2332,87 +2332,88 @@ export default function AdminSettings() {
         </div>
       </Section>
 
-      {/* Iter43-fix23 (2026-06) — Africa's Talking Two-Way SMS */}
-      <Section icon={MessageSquare} title="📱 Africa's Talking — SMS Bidirectionnel (offline Liluvine)" anchorId="s-africas-talking">
+      {/* Iter43-fix23b (2026-06) — Bird.com 2-Way SMS (remplace Africa's Talking) */}
+      <Section icon={MessageSquare} title="📱 Bird.com — SMS Bidirectionnel (offline Liluvine)" anchorId="s-bird-sms">
         <p className="text-xs text-slate-500">
           Permet aux clients en zones à faible couverture internet (Burkina Faso) d'envoyer un SMS à Liluvine
-          et de recevoir une réponse IA. Le shortcode/sender ID Africa's Talking est requis (à provisionner via
-          <a href="https://account.africastalking.com" target="_blank" rel="noreferrer" className="text-sawali-blue underline mx-1">account.africastalking.com</a>).
-          Configurez les Callback URLs côté Africa's Talking → SMS → SMS Callback URLs (Incoming + Delivery Reports).
+          et de recevoir une réponse IA. Bird a racheté Africa's Talking et propose une plateforme unifiée.
+          Provisionnez un Workspace + Channel SMS sur
+          <a href="https://app.bird.com" target="_blank" rel="noreferrer" className="text-sawali-blue underline mx-1">app.bird.com</a>,
+          créez une clé API avec la policy <strong>Messaging</strong>, puis configurez le webhook entrant pour qu'il pointe vers l'URL ci-dessous.
         </p>
+        <Toggle label="Activer Bird SMS" value={!!s.bird_enabled} onChange={(v) => upd("bird_enabled", v)} testid="bird-enabled" />
+        <Input
+          label="API Base URL"
+          value={s.bird_api_base_url || ""}
+          onChange={(v) => upd("bird_api_base_url", v)}
+          placeholder="https://api.bird.com (défaut)"
+          testid="bird-api-base-url"
+        />
         <div className="grid sm:grid-cols-2 gap-3">
-          <Toggle label="Activer Africa's Talking SMS" value={!!s.africas_talking_enabled} onChange={(v) => upd("africas_talking_enabled", v)} testid="africas-talking-enabled" />
-          <div>
-            <label className="block text-xs font-semibold mb-1">Environnement</label>
-            <select
-              value={s.africas_talking_env || "sandbox"}
-              onChange={(e) => upd("africas_talking_env", e.target.value)}
-              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              data-testid="africas-talking-env"
-            >
-              <option value="sandbox">Sandbox (test, gratuit)</option>
-              <option value="live">Live (production)</option>
-            </select>
-          </div>
+          <Input
+            label="Workspace ID"
+            value={s.bird_workspace_id || ""}
+            onChange={(v) => upd("bird_workspace_id", v)}
+            placeholder="UUID workspace Bird"
+            testid="bird-workspace-id"
+          />
+          <Input
+            label="Channel ID (SMS)"
+            value={s.bird_channel_id || ""}
+            onChange={(v) => upd("bird_channel_id", v)}
+            placeholder="UUID channel SMS Bird"
+            testid="bird-channel-id"
+          />
         </div>
         <Input
-          label="Username Africa's Talking"
-          value={s.africas_talking_username || ""}
-          onChange={(v) => upd("africas_talking_username", v)}
-          placeholder="sandbox (en Sandbox) ou votre app username (en Live)"
-          testid="africas-talking-username"
-        />
-        <Input
-          label="API Key"
+          label="Access Key (policy Messaging)"
           type="password"
-          value={s.africas_talking_api_key || ""}
-          onChange={(v) => upd("africas_talking_api_key", v)}
-          placeholder={s.africas_talking_api_key === "********" ? "(défini)" : "atsk_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"}
-          testid="africas-talking-api-key"
+          value={s.bird_access_key || ""}
+          onChange={(v) => upd("bird_access_key", v)}
+          placeholder={s.bird_access_key === "********" ? "(défini)" : "n685... (clé Bird avec policy Messaging)"}
+          testid="bird-access-key"
         />
         <Input
-          label="Shortcode / Sender ID"
-          value={s.africas_talking_shortcode || ""}
-          onChange={(v) => upd("africas_talking_shortcode", v)}
-          placeholder="ex. 15555 (sandbox) ou votre shortcode BF (live)"
-          testid="africas-talking-shortcode"
+          label="Webhook Signing Secret (HMAC SHA-256)"
+          type="password"
+          value={s.bird_webhook_secret || ""}
+          onChange={(v) => upd("bird_webhook_secret", v)}
+          placeholder={s.bird_webhook_secret === "********" ? "(défini)" : "Secret partagé pour vérifier Bird-Signature"}
+          testid="bird-webhook-secret"
+        />
+        <Input
+          label="Sender ID / Numéro long par défaut"
+          value={s.bird_default_sender || ""}
+          onChange={(v) => upd("bird_default_sender", v)}
+          placeholder="ex. SAWALI ou +226XXXXXXXX"
+          testid="bird-default-sender"
         />
         <Input
           label="Signature (ajoutée à chaque réponse)"
-          value={s.africas_talking_signature || ""}
-          onChange={(v) => upd("africas_talking_signature", v)}
+          value={s.bird_signature || ""}
+          onChange={(v) => upd("bird_signature", v)}
           placeholder="ex. — Liluvine / SAWALI"
-          testid="africas-talking-signature"
+          testid="bird-signature"
         />
         <Toggle
           label="Router les SMS entrants vers Liluvine (réponse IA automatique)"
-          value={s.africas_talking_use_liluvine !== false}
-          onChange={(v) => upd("africas_talking_use_liluvine", v)}
-          testid="africas-talking-use-liluvine"
-        />
-        <Input
-          label="Secret webhook (optionnel — anti-spoof)"
-          type="password"
-          value={s.africas_talking_webhook_secret || ""}
-          onChange={(v) => upd("africas_talking_webhook_secret", v)}
-          placeholder={s.africas_talking_webhook_secret === "********" ? "(défini)" : "Si défini, le webhook exige ?secret=..."}
-          testid="africas-talking-webhook-secret"
+          value={s.bird_use_liluvine !== false}
+          onChange={(v) => upd("bird_use_liluvine", v)}
+          testid="bird-use-liluvine"
         />
         <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3 space-y-2">
-          <p className="text-xs font-semibold text-slate-700">📌 URLs à configurer dans Africa's Talking → SMS → Callback URLs :</p>
+          <p className="text-xs font-semibold text-slate-700">📌 URLs à configurer dans Bird → Channels → SMS → Webhooks :</p>
           <CopyableUrl
-            label="Incoming Messages (SMS entrants → Liluvine)"
-            path="/api/webhooks/africas-talking/incoming-sms"
-            secret={s.africas_talking_webhook_secret}
+            label="Inbound Messages (SMS entrants → Liluvine)"
+            path="/api/webhooks/bird/inbound-sms"
           />
           <CopyableUrl
-            label="Delivery Reports (rapports de livraison)"
-            path="/api/webhooks/africas-talking/delivery-report"
-            secret={s.africas_talking_webhook_secret}
+            label="Delivery Reports (rapports de livraison — optionnel)"
+            path="/api/webhooks/bird/delivery-report"
           />
           <p className="text-[10px] text-slate-500 mt-2">
-            💡 En Sandbox, créez un Short Code dans le dashboard AT, ouvrez le Simulator,
-            envoyez un SMS depuis un numéro virtuel vers votre shortcode et observez la réponse de Liluvine.
+            💡 Le webhook valide la signature HMAC SHA-256 dans le header <code>Bird-Signature</code>
+            si le Webhook Signing Secret est défini ci-dessus. Sans secret, le webhook est ouvert (à éviter en prod).
           </p>
         </div>
       </Section>

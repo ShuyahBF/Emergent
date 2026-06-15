@@ -48,9 +48,9 @@ GET_MASK_FIELDS = (
     "vidal_test_app_key", "vidal_prod_app_key",
     "officines_api_token",
     "officines_register_hmac_secret",
-    # Iter43-fix23 — Africa's Talking + officines inventory webhook
-    "africas_talking_api_key",
-    "africas_talking_webhook_secret",
+    # Iter43-fix23b — Bird.com (sensible) + officines inventory webhook
+    "bird_access_key",
+    "bird_webhook_secret",
     "officines_inventory_webhook_token",
 )
 

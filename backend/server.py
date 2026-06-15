@@ -6050,9 +6050,9 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     "sms_telecel_basic_user", "sms_telecel_header_name", "sms_telecel_sender",
     "sms_telecel_oauth_url", "sms_telecel_client_id", "sms_telecel_sender_msisdn",
     "sms_ovh_enabled", "sms_ovh_application_key", "sms_ovh_service_name", "sms_ovh_sender",
-    # Iter43-fix23 — Africa's Talking (non-sensitive metadata)
-    "africas_talking_enabled", "africas_talking_env", "africas_talking_username",
-    "africas_talking_shortcode", "africas_talking_signature", "africas_talking_use_liluvine",
+    # Iter43-fix23b — Bird.com (non-sensitive metadata)
+    "bird_enabled", "bird_api_base_url", "bird_workspace_id", "bird_channel_id",
+    "bird_default_sender", "bird_signature", "bird_use_liluvine",
     # PawaPay
     "pawapay_environment", "pawapay_api_token_sandbox", "pawapay_api_token_production",
     "pawapay_callback_secret", "pawapay_default_country",
@@ -11787,9 +11787,9 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         "vidal_test_app_key", "vidal_prod_app_key",
         "officines_api_token",
         "officines_register_hmac_secret",
-        # Iter43-fix23 — Africa's Talking + officines inventory webhook
-        "africas_talking_api_key",
-        "africas_talking_webhook_secret",
+        # Iter43-fix23b — Bird.com (sensible) + officines inventory webhook
+        "bird_access_key",
+        "bird_webhook_secret",
         "officines_inventory_webhook_token",
     )
     for k in SECRET_FIELDS:
@@ -23107,9 +23107,9 @@ from routes.liluvine_wa_requests import setup_liluvine_wa_requests_routes as _se
 from auth import get_current_admin_or_moderator  # noqa: E402
 _setup_wa_req_routes(db=db, api=api, get_user_with_roles=get_current_admin_or_moderator)
 
-# Iter43-fix23 (2026-06) — Africa's Talking Two-Way SMS Integration
-from routes.africas_talking_sms import setup_africas_talking_routes as _setup_at_routes  # noqa: E402
-_setup_at_routes(db=db, api=api, get_current_admin=get_current_admin)
+# Iter43-fix23b (2026-06) — Bird.com 2-Way SMS Integration (remplace Africa's Talking)
+from routes.bird_sms import setup_bird_sms_routes as _setup_bird_routes  # noqa: E402
+_setup_bird_routes(db=db, api=api, get_current_admin=get_current_admin)
 
 # Iter43-fix23 (2026-06) — Webhook inventaire officines (Bearer token)
 from routes.officines_inventory_webhook import setup_officines_inventory_webhook_routes as _setup_inv_wh  # noqa: E402

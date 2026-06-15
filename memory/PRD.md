@@ -5,6 +5,45 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix23b (2026-06-15) — Bird.com 2-Way SMS (remplace Africa's Talking) ✅
+
+**Statut** : LIVRÉ + testé (11/11 pytest). En attente clé Bird "Messaging" côté utilisateur.
+
+### Pourquoi le pivot AT → Bird ?
+L'utilisateur a tenté de fournir une clé AT (`n685Qc...iEd`) — clé en réalité générée sur **app.bird.com** (nouvelle plateforme unifiée après le rachat d'Africa's Talking par Bird). L'auth Bird est validée (200), mais sa première clé avait uniquement la policy "Organization Configuration Manager" (insuffisante pour SMS). L'utilisateur doit générer une seconde clé Bird avec la policy **`Messaging`**.
+
+### Refactoring
+- ❌ Supprimé : `/app/backend/routes/africas_talking_sms.py` + collection `africas_talking_sms_messages` + 8 fields `africas_talking_*` dans Settings.
+- ✅ Créé : `/app/backend/routes/bird_sms.py` — utilise **httpx direct** (pas de SDK Bird).
+
+### Nouveaux endpoints
+- `POST /api/webhooks/bird/inbound-sms` — HMAC SHA-256 sur header `Bird-Signature` (3 formats supportés : hex, `t=...,v1=...`, base64), idempotence sur `provider_message_id`.
+- `POST /api/webhooks/bird/delivery-report` — rapports de livraison.
+- `GET /api/admin/bird/status` — statut config (masqué).
+- `GET /api/admin/bird/messages?q=&direction=` — liste/recherche.
+- `POST /api/admin/bird/send-sms` — envoi sortant via `POST {api_base}/workspaces/{wid}/channels/{cid}/messages`.
+
+### Settings (9 nouveaux fields)
+`bird_enabled`, `bird_api_base_url` (défaut https://api.bird.com), `bird_workspace_id`, `bird_channel_id`, `bird_access_key` (masqué), `bird_webhook_secret` (masqué, HMAC SHA-256), `bird_default_sender`, `bird_signature`, `bird_use_liluvine`.
+
+### UI
+- Section AdminSettings : "📱 Bird.com — SMS Bidirectionnel (offline Liluvine)" avec tous les inputs + CopyableUrl pour Inbound + Delivery webhooks.
+
+### Tests
+- `/app/backend/tests/test_iter43_fix23b_bird_inventory_webhook_role.py` (11 tests, 100%).
+- Test direct API Bird : auth = 200 (clé valide), Workspaces = 403 (policy insuffisante — comportement attendu).
+
+### Action utilisateur restante (3 étapes)
+1. Sur app.bird.com → **Clés API** → **Créer nouveau** :
+   - Nom : "SAWALI Liluvine Messaging"
+   - Policy : **`Messaging`** (et non Organization Configuration Manager !)
+   - Copier la clé (affichée une seule fois).
+2. Récupérer **Workspace ID** (visible dans l'URL `app.bird.com/workspaces/{id}/...`) et **Channel ID** (Channels → SMS → détails).
+3. Saisir tout dans **Admin → Paramètres → Bird.com — SMS Bidirectionnel** (+ activer le toggle).
+4. Aller dans **Bird → Channels → SMS → Webhooks** et coller l'URL `https://sawalismartsystems.com/api/webhooks/bird/inbound-sms` + générer un Signing Secret à recopier dans l'UI Admin SAWALI.
+
+
+
 ## Iter43-fix23 (2026-06-15) — Africa's Talking 2-Way SMS + Inventory Webhook + Officines Roles UI ✅
 
 **Statut** : LIVRÉ + testé (11/11 pytest, 100% backend + 100% frontend par testing_agent).

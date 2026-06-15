@@ -158,6 +158,7 @@ import PayLink from "@/pages/public/PayLink";
 import RemoteSupportConsole from "@/pages/public/RemoteSupportConsole";
 import PublicForm from "@/pages/public/PublicForm";
 import PoliciesPage from "@/pages/public/Policies";
+import PrivacyPage from "@/pages/public/Privacy";
 import { FormationsList, FormationDetail } from "@/pages/portal/Formations";
 import VirtualAssistant from "@/components/VirtualAssistant";
 
@@ -218,6 +219,8 @@ export default function App() {
           <Route path="/documentation" element={<ApiDocs />} />
           <Route path="/politiques" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
           <Route path="/politiques/:slug" element={<PublicRoute><PoliciesPage /></PublicRoute>} />
+          {/* Iter43-fix17 — URL courte /privacy pour Google Search Console + OAuth Consent Screen */}
+          <Route path="/privacy" element={<PublicRoute><PrivacyPage /></PublicRoute>} />
 
           {/* Auth */}
           <Route path="/login" element={<Login />} />

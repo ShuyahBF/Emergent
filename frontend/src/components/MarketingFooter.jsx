@@ -74,6 +74,8 @@ export default function MarketingFooter() {
       </div>
       <div className="border-t border-white/5 py-5 text-center text-xs text-slate-500">
         <div className="flex items-center justify-center gap-3 mb-2 flex-wrap" data-testid="footer-policy-links">
+          <a href="/privacy" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-privacy-link">Privacy</a>
+          <span className="text-slate-700">·</span>
           <a href="/politiques/confidentialite" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-privacy">Politique de confidentialité</a>
           <span className="text-slate-700">·</span>
           <a href="/politiques/services" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">Politique de services</a>

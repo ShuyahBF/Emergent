@@ -2401,6 +2401,30 @@ export default function AdminSettings() {
           onChange={(v) => upd("bird_use_liluvine", v)}
           testid="bird-use-liluvine"
         />
+        {/* Iter43-fix24d — Estimation de coût SMS (badge inbox + admin) */}
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Input
+            label="Coût unitaire par SMS"
+            type="number"
+            value={s.bird_cost_per_sms_xof || ""}
+            onChange={(v) => upd("bird_cost_per_sms_xof", v)}
+            placeholder="25 (défaut)"
+            testid="bird-cost-per-sms"
+          />
+          <div>
+            <label className="block text-xs font-semibold mb-1">Devise</label>
+            <select
+              value={s.bird_cost_currency || "XOF"}
+              onChange={(e) => upd("bird_cost_currency", e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="bird-cost-currency"
+            >
+              <option value="XOF">XOF (FCFA)</option>
+              <option value="EUR">EUR</option>
+              <option value="USD">USD</option>
+            </select>
+          </div>
+        </div>
         <div className="rounded-lg bg-slate-50 ring-1 ring-slate-200 p-3 mt-3 space-y-2">
           <p className="text-xs font-semibold text-slate-700">📌 URLs à configurer dans Bird → Channels → SMS → Webhooks :</p>
           <CopyableUrl

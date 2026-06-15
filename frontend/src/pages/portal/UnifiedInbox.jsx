@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown } from "lucide-react";
+import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {
@@ -26,6 +26,8 @@ export default function UnifiedInbox() {
   const [filterCh, setFilterCh] = useState("all");
   const [composer, setComposer] = useState("");
   const [sending, setSending] = useState(false);
+  // Iter43-fix24d — Badge coût Bird du jour
+  const [birdCost, setBirdCost] = useState(null);
   const messagesEndRef = React.useRef(null);
 
   const load = useCallback(async () => {
@@ -40,13 +42,21 @@ export default function UnifiedInbox() {
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { load(); }, [load]);
+  // Iter43-fix24d — Coût Bird quotidien (rafraîchi à chaque load)
+  const loadBirdCost = useCallback(async () => {
+    try {
+      const r = await apiClient.get("/me/inbox/bird-cost-today");
+      setBirdCost(r.data?.enabled ? r.data : null);
+    } catch { setBirdCost(null); }
+  }, []);
+
+  useEffect(() => { load(); loadBirdCost(); }, [load, loadBirdCost]);
 
   // Iter38j — Poll every 20s to refresh threads (cheap call, ~60 threads max)
   useEffect(() => {
-    const id = setInterval(() => { load(); }, 20000);
+    const id = setInterval(() => { load(); loadBirdCost(); }, 20000);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, loadBirdCost]);
 
   // Iter38j — Update browser tab title with unread count
   useEffect(() => {
@@ -117,6 +127,16 @@ export default function UnifiedInbox() {
             <p className="text-sm text-slate-500">
               Tous vos canaux (WhatsApp{channelsEnabled.sms_bird ? " + SMS Bird" : ""}{channelsEnabled.messenger ? " + Messenger" : ""}) en un seul écran.
               {totals.unread > 0 && <span className="ml-2 inline-flex items-center gap-1 bg-rose-50 text-rose-700 px-2 py-0.5 rounded-full text-xs font-medium">{totals.unread} non-lu(s)</span>}
+              {birdCost && birdCost.enabled && (
+                <span
+                  className="ml-2 inline-flex items-center gap-1 bg-sky-50 text-sky-700 ring-1 ring-sky-200 px-2 py-0.5 rounded-full text-xs font-medium"
+                  title={`Aujourd'hui : ${birdCost.count} SMS Bird envoyés à ${birdCost.unit_cost} ${birdCost.currency}/SMS`}
+                  data-testid="bird-cost-badge"
+                >
+                  <CircleDollarSign className="h-3 w-3" />
+                  Aujourd'hui : {birdCost.cost.toLocaleString("fr-FR")} {birdCost.currency} ({birdCost.count} SMS Bird)
+                </span>
+              )}
             </p>
           </div>
         </div>

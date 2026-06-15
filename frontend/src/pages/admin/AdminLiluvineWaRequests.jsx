@@ -102,9 +102,11 @@ export default function AdminLiluvineWaRequests() {
       <header className="flex items-center gap-3 mb-4">
         <Inbox className="h-6 w-6 text-sawali-blue" />
         <div>
-          <h1 className="text-2xl font-display font-bold">EXCLAM_Liluvine</h1>
+          <h1 className="text-2xl font-display font-bold">Exclamations Reçues</h1>
           <p className="text-xs text-slate-500">
-            Interrogations WhatsApp uniquement (ne contient pas les autres requêtes Liluvine PRO).
+            Ne contient que les commandes <code className="px-1 bg-slate-100 rounded">!Garde</code>,{" "}
+            <code className="px-1 bg-slate-100 rounded">!Meteo</code>, <code className="px-1 bg-slate-100 rounded">!Aizenta</code>, etc.
+            envoyées via WhatsApp ou SMS. Les conversations Liluvine PRO classiques ne sont pas listées ici.
           </p>
         </div>
       </header>

@@ -158,6 +158,37 @@ async def autoreply_to_inbound(
         cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie")
         or cmd_lower.startswith("!meteo") or cmd_lower.startswith("!météo")
     )
+    # Iter43-fix24d (2026-06) — Stocker TOUTES les exclamations (`!xxx`) dans la table
+    # dédiée `liluvine_exclamations`, qu'on sache ou non les traiter. Cela permet :
+    #   - Audit des commandes inconnues (ex. `!Aizenta` sans handler côté code)
+    #   - Roadmap : décider lesquelles automatiser plus tard
+    if text.startswith("!"):
+        try:
+            cmd_match = re.match(r"^!\s*([\w\.\-]+)", text)
+            command_token = (cmd_match.group(1) if cmd_match else "").lower()
+            tail = text[(cmd_match.end() if cmd_match else 1):].strip()
+            await db.liluvine_exclamations.insert_one({
+                "id": uuid.uuid4().hex,
+                "channel": "whatsapp",
+                "direction": "inbound",
+                "from": inbound_doc.get("from"),
+                "phone_digits": phone_digits,
+                "body": text,
+                "command": command_token,
+                "command_args": tail,
+                "from_profile_name": inbound_doc.get("from_profile_name"),
+                "contact_id": inbound_doc.get("contact_id"),
+                "contact_name": inbound_doc.get("contact_name"),
+                "client_id": inbound_doc.get("client_id"),
+                "wa_message_id": inbound_doc.get("wa_message_id"),
+                "inbound_doc_id": inbound_doc.get("id"),
+                "is_known_command": is_public_cmd,
+                "handled": False,  # mis à True après envoi de la réponse
+                "reply": None,
+                "created_at": _now_iso(),
+            })
+        except Exception:  # noqa: BLE001
+            logger.exception("[wa_autoreply] persist exclamation failed")
     if (text.startswith("!") or text.startswith("/")) and not is_public_cmd:
         return {"ok": False, "reason": "command_prefix"}
 
@@ -219,6 +250,19 @@ async def autoreply_to_inbound(
             "auto_reply": True, "command": cmd_lower.split()[0],
             "created_at": datetime.now(timezone.utc).isoformat(),
         })
+        # Iter43-fix24d — Marquer l'exclamation comme traitée
+        try:
+            await db.liluvine_exclamations.update_one(
+                {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
+                {"$set": {
+                    "handled": True,
+                    "reply": reply[:500],
+                    "handled_at": _now_iso(),
+                    "send_ok": bool((send_res or {}).get("ok") if isinstance(send_res, dict) else True),
+                }},
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return {"ok": True, "command": cmd_lower.split()[0], "send": send_res}
 
     if scope_uid:

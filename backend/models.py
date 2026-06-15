@@ -1006,6 +1006,9 @@ class SettingsUpdate(BaseModel):
     bird_default_sender: Optional[str] = None    # sender ID / long number
     bird_signature: Optional[str] = None         # signature texte à ajouter à chaque réponse
     bird_use_liluvine: Optional[bool] = None     # router les SMS vers Liluvine
+    # Iter43-fix24d (2026-06) — Estimation de coût Bird
+    bird_cost_per_sms_xof: Optional[float] = None  # défaut 25 XOF/SMS (~0.04 EUR)
+    bird_cost_currency: Optional[str] = None       # défaut "XOF"
 
     # Iter43-fix23 (2026-06) — Bearer token pour le webhook d'inventaire officines
     officines_inventory_webhook_token: Optional[str] = None  # sensible — masqué en GET

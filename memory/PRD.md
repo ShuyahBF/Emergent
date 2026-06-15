@@ -5,6 +5,49 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24d (2026-06-15) — Exclamations Reçues + Bird Cost + i18n complet (Contact/Missions/Catalogue) ✅
+
+**Statut** : LIVRÉ + testé (20/20 pytest, screenshots EN OK).
+
+### 1) Nouvelle table `liluvine_exclamations` + rename UI
+Demande critique de l'utilisateur : la table /admin/liluvine-wa-requests ne doit contenir QUE les `!commandes`, séparé des conversations Liluvine PRO classiques.
+
+- **Nouvelle collection MongoDB `liluvine_exclamations`** alimentée par `liluvine_wa_autoreply.py` à la détection de tout `text.startswith("!")` :
+  - Capture : `command` (premier token), `command_args` (reste), `body` (texte complet), `is_known_command` (bool), `handled`, `reply`, `wa_message_id`, etc.
+  - Marqué `handled=True` après envoi de la réponse pour les commandes supportées (Garde, Meteo).
+  - Stocke aussi les commandes inconnues (`!Aizenta`, `!xyz`) avec `is_known_command=False` → roadmap.
+- **Endpoint `/admin/liluvine-pro/wa-requests`** : lit `liluvine_exclamations` au lieu de `whatsapp_messages`. Nouveau filtre `only_unknown=true` pour audit roadmap.
+- **Stats par phone groupé** : `commands` (compteur par commande), `unknown_count`, `last_command`, etc.
+- **UI** : H1 "Exclamations Reçues" + sous-titre explicatif. Sidebar "Exclamations Reçues" (remplace "EXCLAM_Liluvine").
+
+### 2) Badge coût Bird en temps réel (suggestion d'amélioration)
+- **Backend** `bird_sms.py` : `GET /api/admin/bird/cost-summary` (today, yesterday, last_7_days, last_30_days, total).
+- **Backend** `unified_inbox.py` : `GET /api/me/inbox/bird-cost-today` (scoped admin vs tenant).
+- **Settings DB** : `bird_cost_per_sms_xof` (défaut 25 XOF), `bird_cost_currency` (XOF/EUR/USD).
+- **UI AdminSettings** : 2 nouveaux inputs (coût unitaire + devise).
+- **UI UnifiedInbox** : badge sky "Aujourd'hui : 0 XOF (0 SMS Bird)" rafraîchi toutes les 20s avec l'inbox.
+
+### 3) i18n public — extension Contact + Missions + Catalogue
+- **31 nouvelles clés** seedées (8 missions, 15 contact, 8 catalogue) — total **186 clés FR/EN/AR**.
+- **Composants refactorés** : `Missions.jsx`, `Contact.jsx`, `Catalogue.jsx` (titre, sous-titre, kicker, recherche, empty state, boutons).
+- **Test E2E** : screenshot Contact en EN → 100% traduit ("Let's talk about your project.", "Our team will reply within 24 business hours.", "FULL NAME", "Send message", "Describe your need...").
+
+### Compteurs i18n (état actuel)
+- **186 clés FR + EN + AR** :
+  - public.home.*: 34
+  - public.footer.*: 21
+  - public.missions.*: 8
+  - public.contact.*: 15
+  - public.catalogue.*: 8
+  - public.nav.*: 13 (déjà existant)
+  - 87 autres clés historiques
+
+### Tests
+- `/app/backend/tests/test_iter43_fix24d_exclamations_bird_cost.py` : 6 tests (exclamations CRUD + Bird cost endpoints).
+- Total **fix23b + fix24b + fix24d** : **20 tests, 100% passent**.
+
+
+
 ## Iter43-fix24b/c (2026-06-15) — Inbox SMS Bird + Footer i18n ✅
 
 **Statut** : LIVRÉ + testé (14/14 pytest, screenshot Footer EN OK).

@@ -40,6 +40,50 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
     async def _tenant_id(user: dict) -> str:
         return user.get("client_id") or user.get("id")
 
+    @api.get("/me/inbox/bird-cost-today", tags=["Portail — Inbox"])
+    async def me_bird_cost_today(user: dict = Depends(get_current_user)):
+        """Iter43-fix24d — Coût Bird du jour pour l'utilisateur courant.
+
+        Admin = tous les SMS Bird outbound du jour ; tenant = ses propres SMS.
+        Le coût unitaire est lu depuis `settings.bird_cost_per_sms_xof` (défaut 25 XOF).
+        """
+        cfg = await db.settings.find_one(
+            {"_id": "global"},
+            {"_id": 0, "bird_cost_per_sms_xof": 1, "bird_cost_currency": 1, "bird_enabled": 1},
+        ) or {}
+        if not cfg.get("bird_enabled"):
+            return {"enabled": False, "count": 0, "cost": 0.0, "currency": "XOF"}
+        unit = float(cfg.get("bird_cost_per_sms_xof") or 25.0)
+        currency = (cfg.get("bird_cost_currency") or "XOF").upper()
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+        today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+        q: Dict[str, Any] = {
+            "provider": "bird",
+            "direction": "outbound",
+            "created_at": {"$gte": today_start.isoformat()},
+        }
+        if user.get("role") != "admin":
+            tid = await _tenant_id(user)
+            u = await db.users.find_one({"id": tid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "phone_digits": 1})
+            digits = set()
+            for k in ("phone", "whatsapp_number"):
+                if u and u.get(k):
+                    digits.add("".join(ch for ch in u[k] if ch.isdigit()))
+            if u and u.get("phone_digits"):
+                digits.add(u["phone_digits"])
+            if not digits:
+                return {"enabled": True, "count": 0, "cost": 0.0, "currency": currency, "unit_cost": unit}
+            q["phone_digits"] = {"$in": list(digits)}
+        n = await db.bird_sms_messages.count_documents(q)
+        return {
+            "enabled": True,
+            "count": n,
+            "cost": round(n * unit, 2),
+            "currency": currency,
+            "unit_cost": unit,
+        }
+
     async def _tenant_features(tid: str) -> Dict[str, bool]:
         u = await db.users.find_one({"id": tid}, {"_id": 0, "features": 1})
         return _normalize_features((u or {}).get("features") or {})

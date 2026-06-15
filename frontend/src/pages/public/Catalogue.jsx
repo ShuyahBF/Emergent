@@ -9,6 +9,7 @@ import React, { useEffect, useState, useMemo } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { FileText, Download, ImageIcon, Layers, Search, ShoppingBag, Sparkles, ArrowRight, Share2, ShoppingCart, X, Tag, CheckCircle2 } from "lucide-react";
+import { useI18n } from "@/contexts/I18nContext";
 
 const FCFA = (n) => Number(n || 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
@@ -46,10 +47,11 @@ function shareProduct(product) {
 }
 
 export default function Catalogue() {
+  const { t } = useI18n();
   const [products, setProducts] = useState({ count: 0, categories: [] });
   const [brochures, setBrochures] = useState([]);
   const [query, setQuery] = useState("");
-  const [activeCategory, setActiveCategory] = useState("Tous");
+  const [activeCategory, setActiveCategory] = useState(() => t("public.catalogue.filter_all", "Toutes catégories"));
   // Iter38r-fix9n — Stripe checkout modal
   const [buyProduct, setBuyProduct] = useState(null);
 
@@ -60,13 +62,14 @@ export default function Catalogue() {
   }, []);
 
   const allCategories = useMemo(
-    () => ["Tous", ...(products.categories || []).map((c) => c.label)],
-    [products],
+    () => [t("public.catalogue.filter_all", "Toutes catégories"), ...(products.categories || []).map((c) => c.label)],
+    [products, t],
   );
 
   const filteredProducts = useMemo(() => {
+    const allLabel = t("public.catalogue.filter_all", "Toutes catégories");
     const q = query.trim().toLowerCase();
-    const groups = activeCategory === "Tous"
+    const groups = activeCategory === allLabel
       ? (products.categories || [])
       : (products.categories || []).filter((c) => c.label === activeCategory);
     return groups
@@ -77,7 +80,7 @@ export default function Catalogue() {
         ),
       }))
       .filter((g) => g.items.length > 0);
-  }, [products, query, activeCategory]);
+  }, [products, query, activeCategory, t]);
 
   const resolveImg = (url) => {
     if (!url) return null;
@@ -87,11 +90,10 @@ export default function Catalogue() {
   return (
     <section className="py-20" data-testid="catalogue-page">
       <div className="mx-auto max-w-screen-2xl px-4 sm:px-6 lg:px-8">
-        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Nos solutions</p>
-        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">Catalogue</h1>
+        <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.catalogue.kicker", "Catalogue")}</p>
+        <h1 className="mt-3 text-4xl sm:text-5xl font-display font-bold text-white">{t("public.catalogue.title", "Solutions et produits")}</h1>
         <p className="mt-4 text-slate-300 max-w-2xl">
-          Découvrez nos produits, services et brochures. Pour chaque offre,
-          demandez un devis personnalisé en un clic — notre équipe vous recontacte sous 24h.
+          {t("public.catalogue.subtitle", "Découvrez notre catalogue de solutions logicielles, produits SAWALI et services.")}
         </p>
 
         {/* ============= Section 1: Produits & Services (publics) ============= */}
@@ -113,7 +115,7 @@ export default function Catalogue() {
                   type="text"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Rechercher un produit, un service…"
+                  placeholder={t("public.catalogue.search_placeholder", "Rechercher un produit, une solution...")}
                   className="w-full rounded-lg bg-white/5 border border-white/10 text-slate-200 placeholder:text-slate-500 pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-sawali-blue-light"
                   data-testid="catalog-products-search"
                 />
@@ -138,7 +140,7 @@ export default function Catalogue() {
 
             {filteredProducts.length === 0 ? (
               <div className="rounded-xl border border-dashed border-white/10 p-12 text-center text-slate-400">
-                Aucun produit ne correspond à votre recherche.
+                {t("public.catalogue.empty", "Aucun produit ne correspond à votre recherche.")}
               </div>
             ) : (
               filteredProducts.map((group) => (
@@ -172,7 +174,7 @@ export default function Catalogue() {
                               className="mt-4 inline-flex items-center justify-center gap-2 rounded-lg bg-sawali-blue-light text-sawali-navy hover:bg-white px-4 py-2 text-sm font-semibold transition mt-auto"
                               data-testid={`catalog-quote-${p.id}`}
                             >
-                              <Sparkles className="h-4 w-4" /> Demander un devis
+                              <Sparkles className="h-4 w-4" /> {t("public.catalogue.request_quote", "Demander un devis")}
                               <ArrowRight className="h-4 w-4" />
                             </Link>
                             <button

@@ -6053,6 +6053,7 @@ VAULT_KEYS = sorted(SENSITIVE_SETTINGS_KEYS | {
     # Iter43-fix23b — Bird.com (non-sensitive metadata)
     "bird_enabled", "bird_api_base_url", "bird_workspace_id", "bird_channel_id",
     "bird_default_sender", "bird_signature", "bird_use_liluvine",
+    "bird_cost_per_sms_xof", "bird_cost_currency",
     # PawaPay
     "pawapay_environment", "pawapay_api_token_sandbox", "pawapay_api_token_production",
     "pawapay_callback_secret", "pawapay_default_country",

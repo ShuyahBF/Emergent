@@ -453,6 +453,60 @@ def setup_bird_sms_routes(*, db, api, get_current_admin):
             "messages_count": await db.bird_sms_messages.count_documents({"provider": "bird"}),
         }
 
+    @api.get(
+        "/admin/bird/cost-summary",
+        tags=["Admin — Bird"],
+    )
+    async def admin_bird_cost_summary(_: dict = Depends(get_current_admin)):
+        """Iter43-fix24d — Résumé du coût Bird : aujourd'hui, hier, 7 derniers jours, 30 derniers jours.
+
+        Le coût est calculé en multipliant le nombre de SMS outbound `provider="bird"`
+        par `settings.bird_cost_per_sms_xof` (défaut 25 XOF).
+        """
+        cfg_doc = await db.settings.find_one(
+            {"_id": "global"},
+            {"_id": 0, "bird_cost_per_sms_xof": 1, "bird_cost_currency": 1},
+        ) or {}
+        unit_cost = float(cfg_doc.get("bird_cost_per_sms_xof") or 25.0)
+        currency = (cfg_doc.get("bird_cost_currency") or "XOF").upper()
+
+        from datetime import timedelta
+        now = datetime.now(timezone.utc)
+
+        def _start_of_day(dt: datetime) -> datetime:
+            return dt.replace(hour=0, minute=0, second=0, microsecond=0)
+
+        today_start = _start_of_day(now)
+        yesterday_start = today_start - timedelta(days=1)
+        last7_start = today_start - timedelta(days=7)
+        last30_start = today_start - timedelta(days=30)
+
+        async def _count_outbound(since: datetime, until: Optional[datetime] = None) -> int:
+            q: Dict[str, Any] = {
+                "provider": "bird",
+                "direction": "outbound",
+                "created_at": {"$gte": since.isoformat()},
+            }
+            if until:
+                q["created_at"]["$lt"] = until.isoformat()
+            return await db.bird_sms_messages.count_documents(q)
+
+        n_today = await _count_outbound(today_start)
+        n_yesterday = await _count_outbound(yesterday_start, today_start)
+        n_last7 = await _count_outbound(last7_start)
+        n_last30 = await _count_outbound(last30_start)
+        n_total = await db.bird_sms_messages.count_documents({"provider": "bird", "direction": "outbound"})
+
+        return {
+            "unit_cost": unit_cost,
+            "currency": currency,
+            "today": {"count": n_today, "cost": round(n_today * unit_cost, 2)},
+            "yesterday": {"count": n_yesterday, "cost": round(n_yesterday * unit_cost, 2)},
+            "last_7_days": {"count": n_last7, "cost": round(n_last7 * unit_cost, 2)},
+            "last_30_days": {"count": n_last30, "cost": round(n_last30 * unit_cost, 2)},
+            "total": {"count": n_total, "cost": round(n_total * unit_cost, 2)},
+        }
+
     logger.info("[bird_sms] routes mounted under /api/webhooks/bird/* and /api/admin/bird/*")
 
 

@@ -57,12 +57,17 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
         group_by_phone: bool = Query(True),
         since: Optional[str] = Query(None),
         limit: int = Query(500, ge=1, le=2000),
+        only_unknown: bool = Query(False, description="Si True, ne renvoie que les commandes non-supportées (audit roadmap)"),
         user: dict = Depends(get_user_with_roles),
     ):
-        """Liste les requêtes WhatsApp entrantes à Liluvine.
+        """Iter43-fix24d — Liste les **exclamations** (`!commandes`) reçues.
+
+        Cette table ne contient QUE les messages WhatsApp/SMS entrants
+        commençant par `!` (ex. `!Garde`, `!Meteo`, `!Aizenta`). Les conversations
+        Liluvine classiques (sans `!`) vont dans `liluvine_pro_messages` et ne
+        sont PAS listées ici.
 
         Si `group_by_phone=True` (défaut), agrège par numéro avec stats.
-        Sinon retourne le détail message par message.
         """
         # Filtre temporel
         q: Dict[str, Any] = {"direction": "inbound"}
@@ -70,7 +75,9 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
             since_dt = _parse_iso(since)
             if since_dt:
                 q["created_at"] = {"$gte": since_dt.isoformat()}
-        # Filtre texte (sur from, body, profile name)
+        if only_unknown:
+            q["is_known_command"] = False
+        # Filtre texte
         if search:
             s = search.strip()
             q["$or"] = [
@@ -79,13 +86,13 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
                 {"from_profile_name": {"$regex": s, "$options": "i"}},
                 {"contact_name": {"$regex": s, "$options": "i"}},
                 {"body": {"$regex": s, "$options": "i"}},
+                {"command": {"$regex": s, "$options": "i"}},
             ]
-        # On charge les inbound récents
+        # On charge les exclamations récentes
         inbound: List[Dict[str, Any]] = []
-        async for m in db.whatsapp_messages.find(q, {"_id": 0}).sort("created_at", -1).limit(limit):
+        async for m in db.liluvine_exclamations.find(q, {"_id": 0}).sort("created_at", -1).limit(limit):
             inbound.append(m)
         if not group_by_phone:
-            # Détail message par message + corrélation response_time
             for m in inbound:
                 m["response_time_seconds"] = await _compute_response_time(db, m)
             return {"items": inbound, "count": len(inbound), "grouped": False}
@@ -102,14 +109,19 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
                 "last_seen": m.get("created_at"),
                 "request_count": 0,
                 "last_message": (m.get("body") or "")[:200],
+                "last_command": m.get("command"),
+                "commands": {},
+                "unknown_count": 0,
                 "response_times": [],
                 "contact_id": m.get("contact_id"),
             })
             g["request_count"] += 1
-            # Garde le profile_name le plus récent non vide
+            cmd = m.get("command") or "?"
+            g["commands"][cmd] = g["commands"].get(cmd, 0) + 1
+            if not m.get("is_known_command"):
+                g["unknown_count"] += 1
             if m.get("from_profile_name") and not g["profile_name"]:
                 g["profile_name"] = m.get("from_profile_name")
-            # first_seen = min, last_seen = max
             try:
                 cur = _parse_iso(m.get("created_at"))
                 first = _parse_iso(g["first_seen"])
@@ -119,13 +131,12 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
                 if cur and (not last or cur > last):
                     g["last_seen"] = m.get("created_at")
                     g["last_message"] = (m.get("body") or "")[:200]
+                    g["last_command"] = m.get("command")
             except Exception:
                 pass
-            # Temps de réponse
             rt = await _compute_response_time(db, m)
             if rt is not None:
                 g["response_times"].append(rt)
-        # Calcul moyennes
         items = []
         for phone, g in grouped.items():
             rts = g.pop("response_times")

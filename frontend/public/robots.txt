@@ -6,4 +6,4 @@ Disallow: /officines
 Disallow: /api/admin
 Disallow: /remote/support
 
-Sitemap: https://sawalismartsystems.com/api/sitemap.xml
+Sitemap: https://sawalismartsystems.com/sitemap.xml

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Sitemap index — pointe vers le sitemap dynamique généré par le backend.
+     Permet à Google d'accéder au sitemap à l'URL canonique /sitemap.xml
+     ainsi qu'à /api/sitemap.xml. -->
+<sitemapindex xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <sitemap>
+    <loc>https://sawalismartsystems.com/api/sitemap.xml</loc>
+  </sitemap>
+</sitemapindex>

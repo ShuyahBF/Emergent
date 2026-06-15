@@ -12496,7 +12496,7 @@ async def admin_request_feedback(appt_id: str, _: dict = Depends(get_current_adm
 # ====================================================================
 # Iter43-fix18 (2026-06) — Dynamic sitemap.xml + robots.txt support
 # ====================================================================
-@api.get("/sitemap.xml", tags=["Public"], response_class=Response)
+@api.api_route("/sitemap.xml", methods=["GET", "HEAD"], tags=["Public"], response_class=Response)
 async def public_sitemap(request: Request):
     """Génère un sitemap XML dynamique conforme au protocole sitemaps.org.
 
@@ -12597,7 +12597,7 @@ async def public_sitemap(request: Request):
     )
 
 
-@api.get("/robots.txt", tags=["Public"], response_class=PlainTextResponse)
+@api.api_route("/robots.txt", methods=["GET", "HEAD"], tags=["Public"], response_class=PlainTextResponse)
 async def public_robots(request: Request):
     """Robots.txt dynamique pointant vers le sitemap.xml généré côté backend.
     Note : un fichier statique `/app/frontend/public/robots.txt` est également

@@ -32,6 +32,13 @@ class TestSitemap:
         urls = root.findall(f"{ns}url")
         assert len(urls) >= 10, f"trop peu d'URLs: {len(urls)}"
 
+    def test_sitemap_supports_head(self):
+        """Google Search Console envoie un HEAD avant le GET — si le HEAD
+        renvoie 405 Method Not Allowed, Google marque le sitemap comme
+        « Impossible de récupérer »."""
+        r = requests.head(f"{API}/sitemap.xml", timeout=10)
+        assert r.status_code == 200, f"HEAD doit retourner 200, reçu {r.status_code}"
+
     def test_sitemap_contains_main_pages(self):
         r = requests.get(f"{API}/sitemap.xml", timeout=10)
         body = r.text
@@ -52,7 +59,12 @@ class TestSitemap:
         r = requests.get(f"{API}/robots.txt", timeout=10)
         assert r.status_code == 200
         assert "Sitemap:" in r.text
-        assert "/api/sitemap.xml" in r.text
+        # On accepte les deux URLs (legacy /api/sitemap.xml ou la nouvelle /sitemap.xml)
+        assert ("/api/sitemap.xml" in r.text) or ("/sitemap.xml" in r.text)
+
+    def test_robots_supports_head(self):
+        r = requests.head(f"{API}/robots.txt", timeout=10)
+        assert r.status_code == 200
 
     def test_static_robots_has_sitemap(self):
         """Frontend static /robots.txt (servi par CRA) doit aussi référencer
@@ -61,4 +73,15 @@ class TestSitemap:
         assert r.status_code == 200
         assert "Sitemap:" in r.text
         # Production URL canonique (statique, indépendante du host)
-        assert "sawalismartsystems.com/api/sitemap.xml" in r.text
+        assert "sawalismartsystems.com" in r.text
+
+    def test_root_sitemap_index_serves(self):
+        """Iter43-fix19 — /sitemap.xml à la racine du domaine renvoie un
+        sitemap index qui pointe vers /api/sitemap.xml. Permet aux outils
+        SEO (Google Search Console, Bing Webmaster) de découvrir le sitemap
+        à l'URL canonique attendue."""
+        r = requests.get(f"{API_BASE}/sitemap.xml", timeout=10)
+        assert r.status_code == 200
+        assert "xml" in r.headers.get("content-type", "").lower()
+        assert "<sitemapindex" in r.text
+        assert "/api/sitemap.xml" in r.text

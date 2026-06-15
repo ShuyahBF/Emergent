@@ -15,12 +15,10 @@ const links = [
   { to: "/missions", label: "Missions", tKey: "public.nav.missions" },
   { to: "/specialisations", label: "Spécialisations", tKey: "public.nav.specialisations" },
   { to: "/catalogue", label: "Catalogue", tKey: "public.nav.catalogue" },
-  { to: "/etudes-de-cas", label: "Études de cas", tKey: "public.nav.case_studies" },
   { to: "/subscriptions", label: "Abonnements", tKey: "public.nav.subscriptions" },
   { to: "/temoignages", label: "Témoignages", tKey: "public.nav.testimonials" },
   { to: "/rdv", label: "Demande RDV", tKey: "public.nav.rdv" },
   { to: "/contact", label: "Contact", tKey: "public.nav.contact" },
-  { to: "/politiques", label: "Politiques", tKey: "public.nav.policies" },
 ];
 
 export default function MarketingNav() {

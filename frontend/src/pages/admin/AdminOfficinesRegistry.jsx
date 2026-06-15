@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   CheckCircle, XCircle, RefreshCw, Link as LinkIcon, Unlink, Search, Building2,
   Upload, Pencil, FileSpreadsheet, UserPlus, X, MapPin, Image as ImageIcon,
-  Eye, Package, Tags, Download, Plus, Trash2, FileJson,
+  Eye, Package, Tags, Download, Plus, Trash2, FileJson, Tag,
 } from "lucide-react";
 
 const STATUS_LABEL = {
@@ -56,6 +56,9 @@ export default function AdminOfficinesRegistry() {
   const [viewingProductsFor, setViewingProductsFor] = React.useState(null);
   const [importingProductsFor, setImportingProductsFor] = React.useState(null);
   const [managingActivities, setManagingActivities] = React.useState(false);
+  // Iter43-fix21 — Bulk-assign + gestion rôles
+  const [showBulkAssign, setShowBulkAssign] = React.useState(false);
+  const [showRolesAdmin, setShowRolesAdmin] = React.useState(false);
 
   const load = React.useCallback(async () => {
     setLoading(true);
@@ -155,6 +158,22 @@ export default function AdminOfficinesRegistry() {
               {importingContacts ? "Import…" : `Importer ${selected.size} → Contacts`}
             </button>
           )}
+          {selected.size > 0 && (
+            <button onClick={() => setShowBulkAssign(true)}
+                    type="button"
+                    className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700"
+                    data-testid="bulk-assign-btn">
+              <Tag className="h-4 w-4" />
+              Affecter rôle/groupe ({selected.size})
+            </button>
+          )}
+          <button onClick={() => setShowRolesAdmin(true)}
+                  type="button"
+                  className="inline-flex items-center gap-2 text-sm px-3 py-2 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50"
+                  data-testid="manage-roles-btn">
+            <Tag className="h-4 w-4 text-slate-500" />
+            Gérer les rôles
+          </button>
         </div>
       </div>
 
@@ -399,6 +418,19 @@ export default function AdminOfficinesRegistry() {
           onSaved={(next) => { setActivities(next); setManagingActivities(false); load(); }}
         />
       )}
+      {/* Iter43-fix21 — Modals bulk-assign + admin rôles */}
+      {showBulkAssign && (
+        <BulkAssignModal
+          selectedIds={Array.from(selected)}
+          onClose={() => setShowBulkAssign(false)}
+          onSaved={() => { setShowBulkAssign(false); setSelected(new Set()); load(); }}
+        />
+      )}
+      {showRolesAdmin && (
+        <RolesAdminModal
+          onClose={() => setShowRolesAdmin(false)}
+        />
+      )}
     </div>
   );
 }
@@ -459,6 +491,237 @@ function LinkClientModal({ officine, onClose, onDone }) {
 // ============================================================
 // Iter43-fix9 — Édition fiche officine complète
 // ============================================================
+// Iter43-fix21 — Modal d'affectation en lot (rôle + groupe de garde)
+function BulkAssignModal({ selectedIds, onClose, onSaved }) {
+  const [role, setRole] = React.useState("");
+  const [groupeGarde, setGroupeGarde] = React.useState("");
+  const [roles, setRoles] = React.useState([]);
+  const [gardeGroups, setGardeGroups] = React.useState([]);
+  const [nextG, setNextG] = React.useState(1);
+  const [saving, setSaving] = React.useState(false);
+
+  React.useEffect(() => {
+    apiClient.get("/admin/officines-registry/roles").then((r) => setRoles(r.data?.roles || [])).catch(() => {});
+    apiClient.get("/admin/officines-registry/garde-groups").then((r) => {
+      setGardeGroups(r.data?.groups || []);
+      setNextG(r.data?.next_suggested || 1);
+    }).catch(() => {});
+  }, []);
+
+  const submit = async () => {
+    if (!role && groupeGarde === "") {
+      toast.error("Choisissez au moins un rôle ou un groupe de garde");
+      return;
+    }
+    if (!window.confirm(`Affecter ${selectedIds.length} officine(s) ?`)) return;
+    setSaving(true);
+    try {
+      const payload = { officine_ids: selectedIds };
+      if (role) payload.role = role;
+      if (groupeGarde !== "") payload.groupe_garde = Number(groupeGarde);
+      const r = await apiClient.post("/admin/officines-registry/bulk-assign", payload);
+      toast.success(`${r.data?.modified ?? 0} officine(s) mises à jour`);
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de l'affectation");
+    } finally { setSaving(false); }
+  };
+
+  const addNewG = () => {
+    setGardeGroups((arr) => [...arr, { groupe_garde: nextG, count: 0 }].sort((a, b) => a.groupe_garde - b.groupe_garde));
+    setGroupeGarde(String(nextG));
+    setNextG(nextG + 1);
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6" data-testid="bulk-assign-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md">
+        <div className="px-5 py-3 border-b flex items-center justify-between">
+          <h3 className="font-display font-semibold inline-flex items-center gap-2">
+            <Tag className="h-4 w-4 text-violet-600" /> Affecter à {selectedIds.length} officine(s)
+          </h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <p className="text-xs text-slate-600">
+            Choisissez le rôle <strong>et/ou</strong> le groupe de garde à appliquer.
+            Laissez vide pour ne pas modifier ce champ.
+          </p>
+
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold text-slate-700 mb-1">Rôle (optionnel)</span>
+            <select
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+              data-testid="bulk-role"
+            >
+              <option value="">— Ne pas modifier —</option>
+              {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+            </select>
+          </label>
+
+          <label className="block text-sm">
+            <span className="block text-xs font-semibold text-slate-700 mb-1">Groupe de garde (optionnel)</span>
+            <div className="flex items-center gap-2">
+              <select
+                value={groupeGarde}
+                onChange={(e) => setGroupeGarde(e.target.value)}
+                className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                data-testid="bulk-groupe-garde"
+              >
+                <option value="">— Ne pas modifier —</option>
+                {gardeGroups.map((g) => (
+                  <option key={g.groupe_garde} value={String(g.groupe_garde)}>
+                    Groupe {g.groupe_garde}
+                  </option>
+                ))}
+              </select>
+              <button
+                type="button"
+                onClick={addNewG}
+                className="text-xs px-2 py-2 rounded bg-emerald-50 ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                data-testid="bulk-add-groupe-garde"
+              >
+                + Nouveau
+              </button>
+            </div>
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
+            Annuler
+          </button>
+          <button onClick={submit} disabled={saving}
+                  className="px-3 py-2 rounded text-sm bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+                  data-testid="bulk-assign-submit">
+            {saving ? "Affectation…" : "Affecter"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// Iter43-fix21 — Modal CRUD des rôles d'officines
+function RolesAdminModal({ onClose }) {
+  const [roles, setRoles] = React.useState([]);
+  const [usage, setUsage] = React.useState({});
+  const [newRole, setNewRole] = React.useState("");
+  const [loading, setLoading] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+
+  const load = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/admin/officines-registry/roles");
+      setRoles(r.data?.roles || []);
+      setUsage(r.data?.usage || {});
+    } catch {
+      toast.error("Erreur chargement");
+    } finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const add = () => {
+    const v = (newRole || "").trim();
+    if (!v) return;
+    if (roles.some((r) => r.toLowerCase() === v.toLowerCase())) {
+      toast.error("Ce rôle existe déjà");
+      return;
+    }
+    setRoles((arr) => [...arr, v]);
+    setNewRole("");
+  };
+
+  const remove = (r) => {
+    if (usage[r]) {
+      toast.error(`Ce rôle est utilisé par ${usage[r]} officine(s). Ré-affectez-les d'abord.`);
+      return;
+    }
+    setRoles((arr) => arr.filter((x) => x !== r));
+  };
+
+  const save = async () => {
+    setSaving(true);
+    try {
+      await apiClient.put("/admin/officines-registry/roles", { roles });
+      toast.success("Rôles enregistrés");
+      onClose();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec");
+    } finally { setSaving(false); }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 px-4 py-6" data-testid="roles-admin-modal">
+      <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg max-h-[80vh] overflow-y-auto">
+        <div className="px-5 py-3 border-b sticky top-0 bg-white z-10 flex items-center justify-between">
+          <h3 className="font-display font-semibold inline-flex items-center gap-2">
+            <Tag className="h-4 w-4 text-sawali-blue" /> Gérer les rôles d'officines
+          </h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          {loading ? <p className="text-sm text-slate-500">Chargement…</p> : (
+            <>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={newRole}
+                  onChange={(e) => setNewRole(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), add())}
+                  placeholder="Nouveau rôle (ex. Laboratoire)"
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                  data-testid="role-new-input"
+                />
+                <button onClick={add}
+                        className="px-3 py-2 rounded text-sm bg-emerald-600 text-white hover:bg-emerald-700"
+                        data-testid="role-new-add">
+                  Ajouter
+                </button>
+              </div>
+              <ul className="divide-y rounded-lg ring-1 ring-slate-200">
+                {roles.map((r) => (
+                  <li key={r} className="flex items-center justify-between px-3 py-2 text-sm">
+                    <span>
+                      <strong>{r}</strong>
+                      {usage[r] ? (
+                        <span className="ml-2 text-xs text-slate-500">— {usage[r]} officine{usage[r] > 1 ? "s" : ""}</span>
+                      ) : null}
+                    </span>
+                    <button onClick={() => remove(r)}
+                            disabled={!!usage[r]}
+                            title={usage[r] ? "Utilisé par des officines" : "Supprimer"}
+                            className="text-rose-600 hover:text-rose-700 disabled:opacity-30 disabled:cursor-not-allowed"
+                            data-testid={`role-remove-${r}`}>
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+              <p className="text-[11px] text-slate-500">
+                Vous ne pouvez pas supprimer un rôle utilisé par au moins une officine —
+                ré-affectez-les d'abord avec « Affecter rôle/groupe ».
+              </p>
+            </>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t bg-slate-50 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 rounded text-sm bg-slate-200 hover:bg-slate-300 text-slate-700">
+            Annuler
+          </button>
+          <button onClick={save} disabled={saving}
+                  className="px-3 py-2 rounded text-sm bg-sawali-blue text-white hover:bg-sawali-blue/90 disabled:opacity-50"
+                  data-testid="roles-save">
+            {saving ? "Enregistrement…" : "Enregistrer"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
   const [form, setForm] = React.useState({
     name: officine.name || "",
@@ -475,12 +738,38 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
     latitude: officine.latitude ?? "",
     longitude: officine.longitude ?? "",
     activite_principale: officine.activite_principale || "",
+    // Iter43-fix21 — Nouveaux champs
+    role: officine.role || "",
+    groupe_garde: officine.groupe_garde ?? "",
   });
   const [logoUrl, setLogoUrl] = React.useState(officine.logo_url || "");
   const [logoBusy, setLogoBusy] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
+  // Iter43-fix21 — Rôles + Groupes de garde dynamiques
+  const [roles, setRoles] = React.useState([]);
+  const [gardeGroups, setGardeGroups] = React.useState([]);
+  const [nextGardeGroup, setNextGardeGroup] = React.useState(1);
+
+  React.useEffect(() => {
+    apiClient.get("/admin/officines-registry/roles").then((r) => setRoles(r.data?.roles || [])).catch(() => {});
+    apiClient.get("/admin/officines-registry/garde-groups").then((r) => {
+      setGardeGroups(r.data?.groups || []);
+      setNextGardeGroup(r.data?.next_suggested || 1);
+    }).catch(() => {});
+  }, []);
 
   const onChange = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+
+  const addNewGardeGroup = () => {
+    const n = nextGardeGroup;
+    setGardeGroups((arr) => {
+      if (arr.some((g) => g.groupe_garde === n)) return arr;
+      return [...arr, { groupe_garde: n, count: 0 }].sort((a, b) => a.groupe_garde - b.groupe_garde);
+    });
+    setForm((f) => ({ ...f, groupe_garde: String(n) }));
+    setNextGardeGroup(n + 1);
+    toast.success(`Groupe de garde ${n} ajouté à cette officine`);
+  };
 
   const detectLocation = () => {
     if (!navigator.geolocation) {
@@ -527,6 +816,9 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
       // Sanitize numbers
       payload.latitude = payload.latitude === "" ? null : Number(payload.latitude);
       payload.longitude = payload.longitude === "" ? null : Number(payload.longitude);
+      // Iter43-fix21 — Groupe de garde : "" → null (désaffectation), sinon entier
+      payload.groupe_garde = payload.groupe_garde === "" ? null : Number(payload.groupe_garde);
+      payload.role = payload.role === "" ? null : payload.role;
       await apiClient.put(`/admin/officines-registry/${officine.id}`, payload);
       toast.success("Fiche mise à jour");
       onSaved();
@@ -569,7 +861,9 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                 <input type="file" accept="image/*" className="hidden" onChange={uploadLogo} disabled={logoBusy} data-testid="edit-officine-logo-input" />
               </label>
             </div>
-            <p className="text-[10px] text-slate-500 mt-1.5">PNG / JPG / WEBP / SVG, 5 Mo max.</p>
+            <p className="text-[10px] text-slate-500 mt-1.5">
+              PNG / JPG / WEBP / SVG, 2 Mo max — stocké en base, persistant après redéploiement.
+            </p>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -590,6 +884,60 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                   <option value={form.activite_principale}>{form.activite_principale} (obsolète)</option>
                 )}
               </select>
+            </label>
+            {/* Iter43-fix21 — Rôle */}
+            <label className="block text-sm">
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Rôle</span>
+              <select
+                value={form.role}
+                onChange={onChange("role")}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                data-testid="edit-officine-role"
+              >
+                <option value="">— Non défini —</option>
+                {roles.map((r) => <option key={r} value={r}>{r}</option>)}
+                {form.role && !roles.includes(form.role) && (
+                  <option value={form.role}>{form.role} (obsolète)</option>
+                )}
+              </select>
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Gérer la liste : Admin → Officines → Rôles
+              </span>
+            </label>
+            {/* Iter43-fix21 — Groupe de garde */}
+            <label className="block text-sm">
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Groupe de garde</span>
+              <div className="flex items-center gap-2">
+                <select
+                  value={form.groupe_garde === null ? "" : String(form.groupe_garde)}
+                  onChange={onChange("groupe_garde")}
+                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                  data-testid="edit-officine-groupe-garde"
+                >
+                  <option value="">— Aucun —</option>
+                  {gardeGroups.map((g) => (
+                    <option key={g.groupe_garde} value={String(g.groupe_garde)}>
+                      Groupe {g.groupe_garde}{g.count ? ` (${g.count} officine${g.count > 1 ? "s" : ""})` : ""}
+                    </option>
+                  ))}
+                  {form.groupe_garde !== "" && form.groupe_garde !== null
+                    && !gardeGroups.some((g) => String(g.groupe_garde) === String(form.groupe_garde)) && (
+                    <option value={String(form.groupe_garde)}>Groupe {form.groupe_garde}</option>
+                  )}
+                </select>
+                <button
+                  type="button"
+                  onClick={addNewGardeGroup}
+                  className="text-xs px-2 py-2 rounded bg-emerald-50 ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  title={`Créer le groupe ${nextGardeGroup}`}
+                  data-testid="edit-officine-add-groupe-garde"
+                >
+                  + Nouveau
+                </button>
+              </div>
+              <span className="text-[10px] text-slate-500 mt-1 block">
+                Burkina Faso : généralement 5 groupes. Cliquez « + Nouveau » pour étendre.
+              </span>
             </label>
             <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact_name" />
             <Field label="Email" type="email" value={form.email} onChange={onChange("email")} testid="edit-email" />

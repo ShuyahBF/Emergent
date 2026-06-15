@@ -148,6 +148,22 @@ class LinkClientIn(BaseModel):
 # --------------------------------------------------------------------------- #
 # Helpers
 # --------------------------------------------------------------------------- #
+
+# Iter43-fix21 (2026-06) — Liste par défaut des rôles d'officines.
+# Cette liste est *éditable* depuis l'admin (Admin → Officines → Rôles). Elle est
+# stockée dans `db.settings.global.officine_roles` ; ce DEFAULT sert si la clé
+# est absente (premier démarrage).
+_DEFAULT_OFFICINE_ROLES: List[str] = [
+    "Pharmacie",
+    "Grossiste pharmaceutique",
+    "Laboratoire",
+    "Centre de santé",
+    "Hôpital / Clinique",
+    "Officine de garde",
+    "Dépôt pharmaceutique",
+]
+
+
 def _now() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -804,6 +820,154 @@ def attach_officines_portal_admin_routes(
                 counts[d["_id"]] = int(d.get("n") or 0)
         return {"items": items, "count": len(items), "counts": counts}
 
+    # Iter43-fix21 — Specific routes BEFORE /{officine_id} catch-all (FastAPI ordering)
+    @api.get("/admin/officines-registry/roles", tags=["Admin — Officines Registry"])
+    async def list_officine_roles_v2(_: dict = Depends(get_current_admin)):
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "officine_roles": 1}) or {}
+        roles = s.get("officine_roles") or list(_DEFAULT_OFFICINE_ROLES)
+        usage: Dict[str, int] = {}
+        async for o in db.officines.find({"role": {"$in": roles}}, {"role": 1, "_id": 0}):
+            r = o.get("role")
+            if r:
+                usage[r] = usage.get(r, 0) + 1
+        return {"roles": roles, "usage": usage, "default_roles": _DEFAULT_OFFICINE_ROLES}
+
+    @api.get("/admin/officines-registry/garde-groups", tags=["Admin — Officines Registry"])
+    async def list_garde_groups_v2(_: dict = Depends(get_current_admin)):
+        groups: Dict[int, int] = {}
+        async for o in db.officines.find(
+            {"groupe_garde": {"$nin": [None, ""]}},
+            {"groupe_garde": 1, "_id": 0},
+        ):
+            try:
+                g = int(o["groupe_garde"])
+                groups[g] = groups.get(g, 0) + 1
+            except (TypeError, ValueError):
+                continue
+        next_g = (max(groups.keys()) + 1) if groups else 1
+        all_keys = sorted(set(list(groups.keys()) + list(range(1, 6))))
+        all_groups = [{"groupe_garde": g, "count": groups.get(g, 0)} for g in all_keys]
+        return {
+            "groups": all_groups,
+            "used_groups": [{"groupe_garde": g, "count": groups[g]} for g in sorted(groups.keys())],
+            "next_suggested": next_g,
+        }
+
+    @api.get("/admin/officines-registry/logos/health", tags=["Admin — Officines Registry"])
+    async def officines_logos_health_v2(_: dict = Depends(get_current_admin)):
+        broken: List[Dict[str, Any]] = []
+        ok_db, ok_disk = 0, 0
+        async for o in db.officines.find(
+            {"logo_url": {"$nin": [None, ""]}},
+            {"_id": 0, "id": 1, "name": 1, "logo_url": 1, "logo_path": 1, "logo_data_b64": 1, "logo_ext": 1},
+        ):
+            if o.get("logo_data_b64"):
+                ok_db += 1
+                continue
+            lp = o.get("logo_path")
+            if lp and Path(lp).exists():
+                ok_disk += 1
+                continue
+            broken.append({"id": o["id"], "name": o.get("name"), "logo_url": o.get("logo_url")})
+        return {
+            "ok_in_db": ok_db,
+            "ok_on_disk_only": ok_disk,
+            "broken_count": len(broken),
+            "broken": broken[:200],
+            "advice": (
+                "Re-téléversez les logos cassés depuis la fiche officine. "
+                "Une fois en DB (base64), ils survivront aux redéploiements."
+            ),
+        }
+
+    # Iter43-fix21 — PUT /roles ET POST /bulk-assign doivent aussi être déclarés
+    # AVANT /{officine_id} pour éviter le shadowing FastAPI.
+    @api.put("/admin/officines-registry/roles", tags=["Admin — Officines Registry"])
+    async def update_officine_roles_v2(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        raw_roles = payload.get("roles")
+        if not isinstance(raw_roles, list):
+            raise HTTPException(status_code=400, detail="`roles` doit être une liste de chaînes")
+        clean: List[str] = []
+        seen = set()
+        for r in raw_roles:
+            if not isinstance(r, str):
+                continue
+            v = r.strip()
+            if not v or v.lower() in seen:
+                continue
+            if len(v) > 60:
+                raise HTTPException(status_code=400, detail=f"Rôle trop long (>60 car) : {v!r}")
+            clean.append(v)
+            seen.add(v.lower())
+        if len(clean) > 50:
+            raise HTTPException(status_code=400, detail="Trop de rôles (max 50)")
+        if not clean:
+            raise HTTPException(status_code=400, detail="Au moins un rôle requis")
+        used_roles = set()
+        async for o in db.officines.find({"role": {"$nin": [None, ""]}}, {"role": 1, "_id": 0}):
+            r = o.get("role")
+            if r:
+                used_roles.add(r)
+        removed = used_roles - set(clean)
+        if removed:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Impossible de supprimer ces rôles encore utilisés : {sorted(removed)}. Ré-affectez d'abord les officines concernées.",
+            )
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"officine_roles": clean, "officine_roles_updated_at": _now(),
+                      "officine_roles_updated_by": user.get("email")}},
+            upsert=True,
+        )
+        return {"ok": True, "roles": clean}
+
+    @api.post("/admin/officines-registry/bulk-assign", tags=["Admin — Officines Registry"])
+    async def bulk_assign_to_officines_v2(
+        payload: Dict[str, Any] = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        ids = [x for x in (payload.get("officine_ids") or []) if isinstance(x, str) and x]
+        if not ids:
+            raise HTTPException(status_code=400, detail="Aucune officine sélectionnée")
+        set_doc: Dict[str, Any] = {}
+        role = payload.get("role")
+        gg = payload.get("groupe_garde")
+        if role is not None:
+            role_val = (str(role) or "").strip()
+            if role_val:
+                s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "officine_roles": 1}) or {}
+                roles = s.get("officine_roles") or _DEFAULT_OFFICINE_ROLES
+                if role_val not in roles:
+                    raise HTTPException(status_code=400, detail=f"Rôle '{role_val}' inconnu")
+                set_doc["role"] = role_val
+            else:
+                set_doc["role"] = None
+        if gg is not None and gg != "":
+            try:
+                set_doc["groupe_garde"] = int(gg)
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="groupe_garde doit être un entier")
+            if not (1 <= set_doc["groupe_garde"] <= 100):
+                raise HTTPException(status_code=400, detail="groupe_garde doit être entre 1 et 100")
+        elif gg == "":
+            set_doc["groupe_garde"] = None
+        if not set_doc:
+            raise HTTPException(status_code=400, detail="Préciser au moins `role` ou `groupe_garde`")
+        set_doc["updated_at"] = _now()
+        set_doc["updated_by"] = user.get("email")
+        result = await db.officines.update_many({"id": {"$in": ids}}, {"$set": set_doc})
+        await db.officine_audit_log.insert_one({
+            "id": str(uuid.uuid4()), "officine_id": None,
+            "action": "bulk_assign", "actor": user.get("email"),
+            "details": {"officine_ids": ids, "set": {k: v for k, v in set_doc.items() if k not in ("updated_at", "updated_by")}},
+            "created_at": _now(),
+        })
+        return {"ok": True, "matched": result.matched_count, "modified": result.modified_count}
+
     @api.get("/admin/officines-registry/{officine_id}", tags=["Admin — Officines Registry"])
     async def detail(officine_id: str, user: dict = Depends(get_current_admin)):
         doc = await db.officines.find_one({"id": officine_id}, {"_id": 0})
@@ -1060,6 +1224,8 @@ def attach_officines_portal_admin_routes(
             "latitude", "longitude",
             # Iter43-fix12 (2026-03)
             "activite_principale",
+            # Iter43-fix21 (2026-06) — Rôle (configurable) + Groupe de Garde (entier)
+            "role", "groupe_garde",
         }
         update: Dict[str, Any] = {}
         for k, v in (payload or {}).items():
@@ -1084,6 +1250,23 @@ def attach_officines_portal_admin_routes(
                     update[fld] = float(update[fld])
                 except (TypeError, ValueError):
                     raise HTTPException(status_code=400, detail=f"{fld} doit être numérique")
+        # Iter43-fix21 — Validation Groupe de Garde (entier ≥ 1)
+        if "groupe_garde" in update and update["groupe_garde"] is not None:
+            try:
+                update["groupe_garde"] = int(update["groupe_garde"])
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="groupe_garde doit être un entier")
+            if update["groupe_garde"] < 1 or update["groupe_garde"] > 100:
+                raise HTTPException(status_code=400, detail="groupe_garde doit être entre 1 et 100")
+        # Iter43-fix21 — Validation rôle (doit exister dans le registre)
+        if "role" in update and update["role"] is not None:
+            role_value = (update["role"] or "").strip()
+            update["role"] = role_value or None
+            if role_value:
+                roles_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0, "officine_roles": 1}) or {}
+                roles = roles_doc.get("officine_roles") or _DEFAULT_OFFICINE_ROLES
+                if role_value not in roles:
+                    raise HTTPException(status_code=400, detail=f"Rôle '{role_value}' inconnu. Définissez-le d'abord dans Admin → Officines → Rôles.")
         if not update:
             raise HTTPException(status_code=400, detail="Aucun champ valide à mettre à jour")
         update["updated_at"] = _now()
@@ -1103,9 +1286,16 @@ def attach_officines_portal_admin_routes(
         request: Request,
         user: dict = Depends(get_current_admin),
     ):
-        """Upload du logo d'une officine. Stocke le fichier sous /uploads/officines/.
-        Le champ `logo_url` est mis à jour sur la fiche."""
+        """Upload du logo d'une officine.
+
+        Iter43-fix21 (2026-06) — **Stockage MongoDB (base64)** pour résister
+        aux redéploiements Kubernetes. Le disque conteneur `/app/backend/uploads/`
+        est éphémère : tous les fichiers étaient perdus à chaque redéploy
+        (« les logos marchaient hier, cassés aujourd'hui »). On stocke
+        désormais l'image dans `db.officines.logo_data_b64` (persistant).
+        """
         from fastapi import UploadFile
+        import base64 as _b64
         existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
         if not existing:
             raise HTTPException(status_code=404, detail="Officine introuvable")
@@ -1114,51 +1304,64 @@ def attach_officines_portal_admin_routes(
         if upload is None:
             raise HTTPException(status_code=400, detail="Fichier manquant (champ `file`)")
         raw = await upload.read()
-        if len(raw) > 5 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="Logo trop volumineux (max 5 Mo)")
+        # Base64 augmente la taille de ~33% → on limite l'upload à 2 Mo
+        # pour rester sous 3 Mo une fois encodé (limite MongoDB pratique).
+        if len(raw) > 2 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="Logo trop volumineux (max 2 Mo). Compressez l'image avant de la téléverser.")
         ext = (upload.filename or "logo.png").rsplit(".", 1)[-1].lower()[:5] or "png"
         if ext not in {"png", "jpg", "jpeg", "webp", "svg", "gif"}:
             raise HTTPException(status_code=400, detail="Format non supporté (png/jpg/webp/svg)")
-        # Iter43-fix10b — Aligne avec server.py (par défaut /app/backend/uploads).
-        # Stocke le chemin DISQUE dans `logo_path`, sert ensuite via endpoint dédié.
-        try:
-            from server import UPLOAD_DIR as _UPLOAD_DIR  # type: ignore
-            upload_dir = Path(_UPLOAD_DIR) / "officines"
-        except Exception:
-            upload_dir = Path(os.environ.get("UPLOAD_DIR", "/app/backend/uploads")) / "officines"
-        upload_dir.mkdir(parents=True, exist_ok=True)
-        fname = f"officine_{officine_id[:8]}_{int(_now().timestamp())}.{ext}"
-        full = upload_dir / fname
-        full.write_bytes(raw)
-        # URL pointe vers l'endpoint streaming public (logos sont publics)
+        data_b64 = _b64.b64encode(raw).decode("ascii")
         rel_url = f"/officines-registry/{officine_id}/logo"
         await db.officines.update_one(
             {"id": officine_id},
             {"$set": {
                 "logo_url": rel_url,
-                "logo_path": str(full),
+                "logo_data_b64": data_b64,
                 "logo_ext": ext,
+                "logo_size_bytes": len(raw),
                 "updated_at": _now(),
                 "updated_by": user.get("email"),
-            }},
+            },
+             # Iter43-fix21 — Purger l'ancien chemin disque devenu obsolète
+             "$unset": {"logo_path": ""}},
         )
         await db.officine_audit_log.insert_one({
             "id": str(uuid.uuid4()), "officine_id": officine_id,
             "action": "upload_logo", "actor": user.get("email"),
-            "details": {"filename": fname, "size_bytes": len(raw)}, "created_at": _now(),
+            "details": {"filename": upload.filename or "logo", "size_bytes": len(raw), "storage": "mongo_b64"},
+            "created_at": _now(),
         })
-        return {"ok": True, "logo_url": rel_url}
+        return {"ok": True, "logo_url": rel_url, "size_bytes": len(raw)}
 
-    # Iter43-fix10b — Streaming public du logo (lecture seule, pas d'auth)
+    # Iter43-fix21 — Streaming public du logo. Source : base64 en DB, fallback
+    # ancien chemin disque pour les fiches non encore migrées (et qui existent
+    # encore localement, ce qui n'est pas garanti après un redéploy).
     @api.get("/officines-registry/{officine_id}/logo", tags=["Officines Registry — Public"])
     async def get_officine_logo(officine_id: str):
-        from fastapi.responses import FileResponse
-        doc = await db.officines.find_one({"id": officine_id}, {"_id": 0, "logo_path": 1, "logo_ext": 1, "logo_url": 1})
+        import base64 as _b64
+        from fastapi.responses import FileResponse, Response
+        doc = await db.officines.find_one(
+            {"id": officine_id},
+            {"_id": 0, "logo_path": 1, "logo_ext": 1, "logo_url": 1, "logo_data_b64": 1},
+        )
         if not doc:
             raise HTTPException(status_code=404, detail="Officine introuvable")
-        # Backward-compat : si logo_path absent mais logo_url ancien format
+        ext = (doc.get("logo_ext") or "png").lower()
+        media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
+                     "webp": "image/webp", "svg": "image/svg+xml", "gif": "image/gif"}
+        media_type = media_map.get(ext, "application/octet-stream")
+        # 1. Stockage moderne : base64 en MongoDB
+        b64 = doc.get("logo_data_b64")
+        if b64:
+            try:
+                raw = _b64.b64decode(b64)
+            except Exception as exc:  # noqa: BLE001
+                raise HTTPException(status_code=500, detail=f"Logo corrompu en DB: {exc}") from exc
+            return Response(content=raw, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
+        # 2. Fallback legacy : fichier sur disque (peut avoir été perdu au redeploy)
         logo_path = doc.get("logo_path")
-        if not logo_path and doc.get("logo_url", "").startswith("/uploads/officines/"):
+        if not logo_path and (doc.get("logo_url") or "").startswith("/uploads/officines/"):
             try:
                 from server import UPLOAD_DIR as _U
             except Exception:
@@ -1167,21 +1370,27 @@ def attach_officines_portal_admin_routes(
             cand = Path(_U) / "officines" / fname
             if cand.exists():
                 logo_path = str(cand)
-                # Persiste pour les prochains accès
-                await db.officines.update_one(
-                    {"id": officine_id},
-                    {"$set": {"logo_path": logo_path, "logo_url": f"/officines-registry/{officine_id}/logo"}},
-                )
         if not logo_path or not Path(logo_path).exists():
-            raise HTTPException(status_code=404, detail="Logo introuvable")
-        ext = doc.get("logo_ext") or logo_path.rsplit(".", 1)[-1].lower()
-        media_map = {"png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg",
-                     "webp": "image/webp", "svg": "image/svg+xml", "gif": "image/gif"}
+            raise HTTPException(status_code=404, detail="Logo introuvable (à téléverser à nouveau)")
+        # Migrer en MongoDB pour ne plus dépendre du disque éphémère
+        try:
+            raw = Path(logo_path).read_bytes()
+            await db.officines.update_one(
+                {"id": officine_id},
+                {"$set": {"logo_data_b64": _b64.b64encode(raw).decode("ascii"),
+                          "logo_size_bytes": len(raw),
+                          "logo_url": f"/officines-registry/{officine_id}/logo"},
+                 "$unset": {"logo_path": ""}},
+            )
+        except Exception:  # noqa: BLE001
+            pass
         return FileResponse(
             logo_path,
-            media_type=media_map.get(ext, "application/octet-stream"),
+            media_type=media_type,
             headers={"Cache-Control": "public, max-age=86400"},
         )
+
+    # Iter43-fix21 — Diagnostic des logos (déclaré plus haut, route /logos/health).
 
     @api.post("/admin/officines-registry/import-to-contacts", tags=["Admin — Officines Registry"])
     async def import_to_contacts(

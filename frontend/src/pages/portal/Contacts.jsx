@@ -2990,7 +2990,11 @@ const SmsModal = ({ contact, onClose, onSent }) => {
                   Fournisseur
                   <select value={provider} onChange={(e) => setProvider(e.target.value)} className="w-full mt-1 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="sms-provider-select">
                     <option value="auto">Auto (selon préfixe)</option>
-                    {providers.active.map((p) => <option key={p} value={p}>{p.toUpperCase()}</option>)}
+                    {providers.active.map((p) => (
+                      <option key={p} value={p}>
+                        {p === "bird" ? "📡 Bird.com" : p.toUpperCase()}
+                      </option>
+                    ))}
                   </select>
                 </label>
                 <label className="text-xs font-semibold">

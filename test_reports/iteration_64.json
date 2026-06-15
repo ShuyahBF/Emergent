@@ -1,0 +1,49 @@
+{
+  "summary": "Iter43-fix24g testing: Bird.com as SMS provider (SmsBulk/Contacts/WaBulk) + dry-run sandbox for handler-suggestions. Backend pytest 11/11 PASS. Frontend verified live (SmsBulk dropdown shows '📡 Bird.com'; AdminHandlerSuggestions modal dry-run executes successfully with reply rendered).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Briefing modal (welcome)", "issues": ["Persistent Bienvenue modal is rendered as a full-screen overlay over every page with no obvious close X reachable via standard keyboard/click — blocks programmatic UI testing. ESC and clicking outside do not close it. Suggest exposing a close button with data-testid='briefing-close' or auto-dismiss after first navigation."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24g_bird_provider.py",
+    "/app/backend/tests/test_iter43_fix24g_dry_run.py",
+    "/app/test_reports/pytest/iter43_fix24g.xml"
+  ],
+  "action_items": [
+    "(Optional) Add data-testid='briefing-close' on the welcome Briefing modal X button so automation can dismiss it (currently it blocks /admin/* interactions and required CSS removal during this test)."
+  ],
+  "critical_code_review_comments": [
+    "Bird option mapping is duplicated across SmsBulk.jsx, Contacts.jsx, WaBulk.jsx (`p === 'bird' ? '📡 Bird.com' : p.toUpperCase()`). Consider extracting a small helper `formatSmsProviderLabel(p)` to keep labels consistent if more providers (Twilio, MTN, etc.) are added later.",
+    "AdminHandlerSuggestions dry-run panel correctly exposes all required data-testids (dry-run-toggle, dry-run-args-input, dry-run-execute-btn, dry-run-result, dry-run-reply, dry-run-error) — good test coverage.",
+    "Backend dry-run endpoint properly enforces sandbox (forbidden imports → blocked, timeout → ok:false), produces audit log in liluvine_handler_dry_runs and returns 404 for unknown suggestion / 422 when function name cannot be extracted. Solid implementation."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (11/11 pytest)", "frontend": "100% (3/3 dropdowns verified + dry-run UI end-to-end successful)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — OTP via dev_otp in /api/auth/login JSON response",
+  "seed_data_creation": "Seeded settings.global with bird_enabled=true + workspace_id/channel_id/access_key for Bird tests. Seeded one liluvine_handler_suggestions doc for frontend dry-run test. Both cleaned up after testing.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "All Iter43-fix24g tests pass. The Briefing welcome modal blocks UI automation on /admin/* and /portal/*; future testers should remove it via JS DOM manipulation (see iteration_64 final script) or main agent should add a dismissable testid. Bird provider tests require the settings.global doc to have bird_enabled=true + non-empty workspace_id/channel_id/access_key — set via the snippet in the agent_to_agent_context_note of the request.",
+  "verified_flows": [
+    "GET /api/me/sms/providers returns ['orange','bird'] in active when Bird fully configured; bird_enabled=true",
+    "When any of workspace_id/channel_id/access_key empty → 'bird' NOT in active; bird_enabled=false",
+    "_sms_provider_cfg('bird', s) returns dict with kind='bird' + correctly-stripped api_base_url; returns None when incomplete or disabled",
+    "POST /admin/liluvine-pro/handler-suggestions/{id}/dry-run — happy path returns ok:true, reply='pong'/'pong: hello', extracted_function set",
+    "Timeout (sleep 20 with timeout_ms=500) → ok:false, 'Timeout' in error",
+    "Forbidden import (`import os`) → ok:false, 'bloqué' or 'ImportError' in error",
+    "SyntaxError → ok:false, 'SyntaxError' in error",
+    "Wrong function name → HTTP 422",
+    "Unknown suggestion ID → HTTP 404",
+    "Audit log liluvine_handler_dry_runs created with suggestion_id, command, args, reply_preview",
+    "SmsBulk dropdown [data-testid='sms-bulk-provider'] options live: ['Auto (selon préfixe)', 'ORANGE', '📡 Bird.com']",
+    "Contacts.jsx + WaBulk.jsx Bird mapping verified by source review (same {p === 'bird' ? '📡 Bird.com' : p.toUpperCase()} pattern)",
+    "AdminHandlerSuggestions: clicking view-code opens CodeViewerModal; dry-run-toggle expands panel; executing with valid code shows '✅ Réussi' + reply 'pong-front: frontend' in [data-testid='dry-run-reply']"
+  ]
+}

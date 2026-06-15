@@ -37,7 +37,7 @@ export default function LiluvinePro() {
   const scrollRef = useRef(null);
 
   // Iter38r-fix9h — Channel filter (Pack Liluvine a+d)
-  const [channelFilter, setChannelFilter] = useState("all"); // all | web | whatsapp | facebook | sms
+  const [channelFilter, setChannelFilter] = useState("all"); // all | web | whatsapp | facebook | sms | sms_bird
   const [searchQ, setSearchQ] = useState("");
   // S-iter39b — "3 dernières conversations" quick toggle, always visible.
   // Sorts by updated_at desc and caps the list to the top 3.
@@ -370,6 +370,7 @@ export default function LiluvinePro() {
             { id: "whatsapp", label: "📱 WA", icon: Phone },
             { id: "facebook", label: "📘 FB", icon: null },
             { id: "sms", label: "📩 SMS", icon: null },
+            { id: "sms_bird", label: "📡 Bird", icon: null },
           ].map((t) => (
             <button
               key={t.id}
@@ -418,6 +419,7 @@ export default function LiluvinePro() {
               let channel = "web";
               if (sid.startsWith("wa:") || src === "whatsapp_native" || src === "whatsapp") channel = "whatsapp";
               else if (sid.startsWith("fb:") || src === "facebook") channel = "facebook";
+              else if (sid.startsWith("sms:bird:") || src === "bird_sms" || src === "sms_bird") channel = "sms_bird";
               else if (sid.startsWith("sms:") || src === "sms") channel = "sms";
               if (channelFilter !== "all" && channel !== channelFilter) return false;
               if (searchQ) {
@@ -441,10 +443,12 @@ export default function LiluvinePro() {
               const src = s.external_source || "";
               const isWa = sid.startsWith("wa:") || src === "whatsapp_native" || src === "whatsapp";
               const isFb = sid.startsWith("fb:") || src === "facebook";
-              const isSms = sid.startsWith("sms:") || src === "sms";
-              const badge = isWa ? "📱 WA" : isFb ? "📘 FB" : isSms ? "📩 SMS" : "🌐 Web";
+              const isBird = sid.startsWith("sms:bird:") || src === "bird_sms" || src === "sms_bird";
+              const isSms = !isBird && (sid.startsWith("sms:") || src === "sms");
+              const badge = isWa ? "📱 WA" : isFb ? "📘 FB" : isBird ? "📡 Bird" : isSms ? "📩 SMS" : "🌐 Web";
               const badgeColor = isWa ? "bg-emerald-50 text-emerald-700 ring-emerald-200"
                 : isFb ? "bg-blue-50 text-blue-700 ring-blue-200"
+                : isBird ? "bg-orange-50 text-orange-700 ring-orange-200"
                 : isSms ? "bg-amber-50 text-amber-700 ring-amber-200"
                 : "bg-slate-50 text-slate-600 ring-slate-200";
               const ageMin = s.updated_at ? Math.floor((Date.now() - new Date(s.updated_at).getTime()) / 60000) : null;

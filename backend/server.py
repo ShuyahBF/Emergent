@@ -15170,6 +15170,22 @@ def _sms_provider_cfg(s: Dict[str, Any], provider: str) -> Optional[Dict[str, An
             "service_name": s.get("sms_ovh_service_name"),
             "sender": s.get("sms_ovh_sender") or "OVHSMS",
         }
+    # Iter43-fix24g — Bird.com Channels API (remplace Africa's Talking)
+    if p == "bird":
+        if not s.get("bird_enabled"):
+            return None
+        # Validation minimale : Bird nécessite workspace_id, channel_id et access_key
+        if not (s.get("bird_workspace_id") and s.get("bird_channel_id") and s.get("bird_access_key")):
+            return None
+        return {
+            "kind": "bird",
+            "name": "bird",
+            "api_base_url": (s.get("bird_api_base_url") or "https://api.bird.com").rstrip("/"),
+            "workspace_id": (s.get("bird_workspace_id") or "").strip(),
+            "channel_id": (s.get("bird_channel_id") or "").strip(),
+            "access_key": (s.get("bird_access_key") or "").strip(),
+            "sender": (s.get("bird_default_sender") or "").strip() or None,
+        }
     return None
 
 
@@ -15177,6 +15193,16 @@ def _sms_active_providers(s: Dict[str, Any]) -> List[str]:
     out = [p for p in SMS_BFA_PROVIDERS if s.get(f"sms_{p}_enabled")]
     if s.get("sms_ovh_enabled"):
         out.append("ovh")
+    # Iter43-fix24g — Expose Bird.com comme provider sélectionnable dans les UI
+    # (Portail SMS, Contacts, etc.). Apparaît seulement quand la config Bird
+    # est complète : workspace_id + channel_id + access_key + toggle activé.
+    if (
+        s.get("bird_enabled")
+        and s.get("bird_workspace_id")
+        and s.get("bird_channel_id")
+        and s.get("bird_access_key")
+    ):
+        out.append("bird")
     return out
 
 
@@ -15588,6 +15614,54 @@ async def _sms_dispatch(provider: str, msisdn: str, message: str, sender: Option
     msisdn_clean = "".join(ch for ch in (msisdn or "") if ch.isdigit() or ch == "+")
     if cfg["kind"] == "ovh":
         result = await _sms_send_ovh(cfg, msisdn_clean if msisdn_clean.startswith("+") else f"+{msisdn_clean}", message, sender)
+    elif cfg["kind"] == "bird":
+        # Iter43-fix24g — Délègue à routes/bird_sms.send_bird_sms (réutilise
+        # la config + httpx déjà en place, gère l'auth AccessKey).
+        try:
+            from routes.bird_sms import send_bird_sms as _send_bird_sms  # local import (évite circulaire)
+            bird_to = msisdn_clean if msisdn_clean.startswith("+") else f"+{msisdn_clean}"
+            bird_res = await _send_bird_sms(
+                db,
+                to=bird_to,
+                text=message,
+                sender=sender or cfg.get("sender"),
+            )
+            # Persist dans bird_sms_messages pour cohérence avec l'inbox unifiée
+            try:
+                await db.bird_sms_messages.insert_one({
+                    "id": _uuid(),
+                    "direction": "outbound",
+                    "from": sender or cfg.get("sender") or "liluvine",
+                    "to": bird_to,
+                    "phone_digits": "".join(c for c in bird_to if c.isdigit()),
+                    "text": message,
+                    "bird_response": bird_res,
+                    "provider": "bird",
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:  # noqa: BLE001
+                logger.warning("[sms_dispatch] bird persistence failed", exc_info=True)
+            result = {
+                "ok": True,
+                "status": "sent",
+                "api_message": "Bird Channels API accepted",
+                "http_status": 200,
+                "raw_response": bird_res,
+            }
+        except HTTPException as he:
+            result = {
+                "ok": False,
+                "status": "failed",
+                "api_message": str(he.detail)[:300],
+                "http_status": he.status_code,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[sms_dispatch] bird send failed")
+            result = {
+                "ok": False,
+                "status": "failed",
+                "api_message": str(exc)[:300],
+            }
     else:
         result = await _sms_send_generic(cfg, msisdn_clean.lstrip("+"), message, sender)
     result["provider"] = actual_provider
@@ -15610,6 +15684,14 @@ async def me_sms_providers(user: dict = Depends(get_current_user)):
         "default": (s.get("sms_default_provider") or "auto").lower(),
         "active": _sms_active_providers(s),
         "ovh_enabled": bool(s.get("sms_ovh_enabled")),
+        # Iter43-fix24g — Permet aux pages de personnaliser le label "Bird.com"
+        # quand le provider apparaît dans la liste `active`.
+        "bird_enabled": bool(
+            s.get("bird_enabled")
+            and s.get("bird_workspace_id")
+            and s.get("bird_channel_id")
+            and s.get("bird_access_key")
+        ),
     }
 
 

@@ -304,6 +304,191 @@ def setup_liluvine_wa_requests_routes(*, db, api, get_user_with_roles):
             raise HTTPException(status_code=404, detail="Suggestion introuvable")
         return {"ok": True}
 
+    # Iter43-fix24g (2026-06) — Exécution sandbox d'un handler suggéré.
+    # Permet à l'admin de tester le code Python généré par Claude sans avoir
+    # à le copier dans liluvine_wa_autoreply.py.
+    @api.post(
+        "/admin/liluvine-pro/handler-suggestions/{suggestion_id}/dry-run",
+        tags=["Admin — Liluvine PRO"],
+    )
+    async def dry_run_handler_suggestion(
+        suggestion_id: str,
+        payload: Dict[str, Any] = Body(default_factory=dict),
+        user: dict = Depends(get_user_with_roles),
+    ):
+        """Exécute la fonction `_build_<command>_reply(db, args)` extraite du code
+        généré par Claude, dans un sandbox restreint, avec un timeout court.
+
+        Body : { args?: str, timeout_ms?: int }
+
+        Retour :
+          { ok: bool, reply: str|None, error: str|None, duration_ms: int,
+            extracted_function: str, code_snippet: str }
+        """
+        import asyncio
+        import re
+        import textwrap
+        import time as _time
+
+        sugg = await db.liluvine_handler_suggestions.find_one(
+            {"id": suggestion_id}, {"_id": 0},
+        )
+        if not sugg:
+            raise HTTPException(status_code=404, detail="Suggestion introuvable")
+
+        command = (sugg.get("command") or "").strip().lower()
+        if not command:
+            raise HTTPException(status_code=400, detail="Suggestion sans commande associée")
+        full_code = sugg.get("generated_code") or ""
+        if not full_code:
+            raise HTTPException(status_code=400, detail="Suggestion sans code généré")
+
+        args = (payload.get("args") or "").strip()
+        timeout_ms = int(payload.get("timeout_ms") or 5000)
+        timeout_ms = max(500, min(timeout_ms, 15000))
+
+        # Extraction du premier bloc ```python … ``` qui contient `_build_<cmd>_reply`
+        fn_name = f"_build_{command}_reply"
+        snippet = ""
+        for m in re.finditer(r"```(?:python)?\s*(.*?)```", full_code, re.DOTALL):
+            block = m.group(1)
+            if fn_name in block and "async def" in block:
+                snippet = textwrap.dedent(block).strip()
+                break
+        if not snippet:
+            # Fallback : si le code n'est pas dans un bloc markdown, on regarde tel quel.
+            if fn_name in full_code and "async def" in full_code:
+                snippet = full_code.strip()
+        if not snippet:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Impossible d'extraire la fonction async def {fn_name} du code généré.",
+            )
+
+        # Sandbox d'exécution :
+        # - builtins minimaux (lecture seule, pas d'I/O)
+        # - injection de motor/datetime/re que les handlers utilisent typiquement
+        # - pas d'accès au filesystem, aux env vars, etc.
+        safe_builtins = {
+            k: __builtins__[k] if isinstance(__builtins__, dict) else getattr(__builtins__, k)
+            for k in [
+                "True", "False", "None",
+                "abs", "all", "any", "bool", "dict", "enumerate", "filter",
+                "float", "int", "isinstance", "issubclass", "len", "list",
+                "map", "max", "min", "range", "reversed", "round", "set",
+                "sorted", "str", "sum", "tuple", "type", "zip", "print",
+                "Exception", "ValueError", "KeyError", "TypeError",
+                "AttributeError", "StopIteration", "IndexError",
+            ]
+            if (k in (__builtins__ if isinstance(__builtins__, dict) else dir(__builtins__)))
+        }
+        # `__import__` est nécessaire pour `from datetime import ...` côté handler.
+        # On wrappe un __import__ qui n'autorise qu'une whitelist de modules.
+        allowed_modules = {
+            "datetime", "asyncio", "json", "math", "re",
+            "typing", "uuid", "hashlib", "base64", "calendar",
+            "collections", "itertools", "functools", "statistics",
+            "decimal", "html", "urllib.parse",
+        }
+
+        def _restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+            root = name.split(".")[0]
+            if root not in {m.split(".")[0] for m in allowed_modules}:
+                raise ImportError(f"import '{name}' bloqué par le sandbox")
+            return __import__(name, globals, locals, fromlist, level)
+
+        safe_builtins["__import__"] = _restricted_import
+
+        sandbox_globals: Dict[str, Any] = {
+            "__builtins__": safe_builtins,
+            "__name__": "handler_sandbox",
+        }
+
+        start = _time.monotonic()
+        try:
+            # 1. Compile + exec dans le sandbox
+            exec(compile(snippet, f"<handler:{command}>", "exec"), sandbox_globals)
+        except SyntaxError as exc:
+            return {
+                "ok": False,
+                "reply": None,
+                "error": f"SyntaxError ligne {exc.lineno} : {exc.msg}",
+                "duration_ms": int((_time.monotonic() - start) * 1000),
+                "extracted_function": fn_name,
+                "code_snippet": snippet,
+            }
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "reply": None,
+                "error": f"{type(exc).__name__}: {exc}",
+                "duration_ms": int((_time.monotonic() - start) * 1000),
+                "extracted_function": fn_name,
+                "code_snippet": snippet,
+            }
+
+        fn = sandbox_globals.get(fn_name)
+        if not callable(fn):
+            return {
+                "ok": False,
+                "reply": None,
+                "error": f"Fonction `{fn_name}` introuvable après exec",
+                "duration_ms": int((_time.monotonic() - start) * 1000),
+                "extracted_function": fn_name,
+                "code_snippet": snippet,
+            }
+
+        # 2. Appel avec timeout — passe `db` réel (motor) pour permettre aux
+        # handlers de lire des collections, mais l'admin doit être conscient
+        # que c'est un dry-run = pas d'écriture suggérée par les prompts.
+        try:
+            reply = await asyncio.wait_for(fn(db, args), timeout=timeout_ms / 1000.0)
+        except asyncio.TimeoutError:
+            return {
+                "ok": False,
+                "reply": None,
+                "error": f"Timeout après {timeout_ms} ms (handler trop lent ou bloqué)",
+                "duration_ms": timeout_ms,
+                "extracted_function": fn_name,
+                "code_snippet": snippet,
+            }
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[handler-dry-run] runtime error")
+            return {
+                "ok": False,
+                "reply": None,
+                "error": f"{type(exc).__name__}: {exc}",
+                "duration_ms": int((_time.monotonic() - start) * 1000),
+                "extracted_function": fn_name,
+                "code_snippet": snippet,
+            }
+
+        duration_ms = int((_time.monotonic() - start) * 1000)
+
+        # Log de l'exécution pour audit
+        try:
+            await db.liluvine_handler_dry_runs.insert_one({
+                "id": str(uuid.uuid4()),
+                "suggestion_id": suggestion_id,
+                "command": command,
+                "args": args,
+                "reply_preview": (str(reply) if reply else "")[:500],
+                "duration_ms": duration_ms,
+                "executed_by": user.get("email"),
+                "executed_at": _now_iso(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+
+        return {
+            "ok": True,
+            "reply": str(reply) if reply is not None else "",
+            "error": None,
+            "duration_ms": duration_ms,
+            "extracted_function": fn_name,
+            "code_snippet": snippet,
+        }
+
     @api.post("/admin/liluvine-pro/wa-requests/import-to-contacts", tags=["Admin — Liluvine PRO"])
     async def import_wa_requests_to_contacts(
         payload: Dict[str, Any] = Body(...),

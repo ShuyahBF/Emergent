@@ -619,7 +619,9 @@ export default function WaBulk() {
                     >
                       <option value="auto">Auto (selon préfixe)</option>
                       {(smsProviders.active || []).map((p) => (
-                        <option key={p} value={p}>{p.toUpperCase()}</option>
+                        <option key={p} value={p}>
+                          {p === "bird" ? "📡 Bird.com" : p.toUpperCase()}
+                        </option>
                       ))}
                     </select>
                   </label>

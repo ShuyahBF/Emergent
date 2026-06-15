@@ -14,7 +14,7 @@ import WeatherWidget from "@/components/WeatherWidget";
 const ICONS = { Globe: Globe2, Smartphone, Database, Cpu, Code: Code2 };
 
 export default function Home() {
-  const { lang } = useI18n();
+  const { lang, t } = useI18n();
   const [home, setHome] = useState(null);
   const [exp, setExp] = useState(null);
   const [spec, setSpec] = useState(null);
@@ -64,27 +64,27 @@ export default function Home() {
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-sawali-blue/40 bg-sawali-blue/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-sawali-blue-light">
               <Sparkles className="h-3 w-3" />
-              {home?.metadata?.kicker || "SAWALI · Software Engineering"}
+              {home?.metadata?.kicker || t("public.home.hero.kicker", "SAWALI · Software Engineering")}
             </div>
             <div className="mt-3">
               <TeamPresenceBadge tone="dark" />
             </div>
             <h1 className="mt-6 text-4xl sm:text-5xl lg:text-6xl font-display font-bold leading-[1.05] text-white">
-              {home?.title || "L'ingénierie logicielle au service de votre transformation."}
+              {home?.title || t("public.home.hero.title", "L'ingénierie logicielle au service de votre transformation.")}
             </h1>
             <div
               className="mt-6 max-w-2xl text-base sm:text-lg text-slate-300 prose-sawali"
-              dangerouslySetInnerHTML={{ __html: home?.body_html || "<p>Solutions sur-mesure, robustes et évolutives pour les entreprises africaines exigeantes.</p>" }}
+              dangerouslySetInnerHTML={{ __html: home?.body_html || `<p>${t("public.home.hero.body", "Solutions sur-mesure, robustes et évolutives pour les entreprises africaines exigeantes.")}</p>` }}
             />
             <div className="mt-10 flex flex-wrap gap-3">
               <Link to="/rdv" className="btn-electric inline-flex items-center gap-2 rounded-lg px-5 py-3 font-medium" data-testid="hero-cta-rdv">
-                Réserver un rendez-vous <ArrowRight className="h-4 w-4" />
+                {t("public.home.hero.cta_rdv", "Réserver un rendez-vous")} <ArrowRight className="h-4 w-4" />
               </Link>
               <Link to="/specialisations" className="inline-flex items-center gap-2 rounded-lg border border-white/20 px-5 py-3 text-white hover:bg-white/5 transition" data-testid="hero-cta-specs">
-                Découvrir nos spécialisations
+                {t("public.home.hero.cta_specs", "Découvrir nos spécialisations")}
               </Link>
               <Link to="/login" className="inline-flex items-center gap-2 rounded-lg border border-sawali-blue-light/40 px-5 py-3 text-sawali-blue-light hover:bg-sawali-blue/10 transition" data-testid="hero-cta-login">
-                <ShieldCheck className="h-4 w-4" /> Espace Loois
+                <ShieldCheck className="h-4 w-4" /> {t("public.home.hero.cta_loois", "Espace Loois")}
               </Link>
               {/* Iter38r-fix9o — Conversion CTA: WhatsApp express access */}
               <Link
@@ -93,7 +93,7 @@ export default function Home() {
                 data-testid="hero-cta-whatsapp"
               >
                 <MessageCircle className="h-4 w-4" />
-                <span>Découvrir en 30s via WhatsApp</span>
+                <span>{t("public.home.hero.cta_whatsapp", "Découvrir en 30s via WhatsApp")}</span>
                 <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
               </Link>
             </div>
@@ -105,10 +105,10 @@ export default function Home() {
               <WeatherWidget variant="detailed" placement="public" />
             </div>
             {(metrics.length ? metrics : [
-              { label: "Années d'expérience", value: "10+" },
-              { label: "Projets livrés", value: "50+" },
-              { label: "Clients", value: "30+" },
-              { label: "Disponibilité", value: "24/7" },
+              { label: t("public.home.metric.years", "Années d'expérience"), value: "10+" },
+              { label: t("public.home.metric.projects", "Projets livrés"), value: "50+" },
+              { label: t("public.home.metric.clients", "Clients"), value: "30+" },
+              { label: t("public.home.metric.availability", "Disponibilité"), value: "24/7" },
             ]).map((m, i) => (
               <div key={i} className="glow-card rounded-xl p-5" data-testid={`hero-metric-${i}`}>
                 <div className="text-3xl sm:text-4xl font-display font-bold text-gradient-blue">{m.value}</div>
@@ -131,11 +131,11 @@ export default function Home() {
         <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
           <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
             <div>
-              <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Nos savoir-faire</p>
-              <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Spécialisations</h2>
+              <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.home.specs.kicker", "Nos savoir-faire")}</p>
+              <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">{t("public.home.specs.title", "Spécialisations")}</h2>
             </div>
             <Link to="/specialisations" className="text-sm text-sawali-blue-light hover:text-white inline-flex items-center gap-1">
-              Voir tout <ArrowRight className="h-4 w-4" />
+              {t("public.home.specs.see_all", "Voir tout")} <ArrowRight className="h-4 w-4" />
             </Link>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -165,16 +165,16 @@ export default function Home() {
           <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
             <div className="flex items-end justify-between flex-wrap gap-6 mb-10">
               <div>
-                <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">Voix de nos clients</p>
-                <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Ils témoignent</h2>
+                <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.home.testi.kicker", "Voix de nos clients")}</p>
+                <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">{t("public.home.testi.title", "Ils témoignent")}</h2>
                 {npsStats && npsStats.count > 0 && (
                   <p className="mt-2 text-sm text-slate-400">
-                    Score NPS : <span className="text-gradient-blue font-display font-bold text-lg">{npsStats.nps}</span> · Note moyenne : <span className="text-white">{npsStats.average_score}/10</span> · {npsStats.count} avis publiés
+                    {t("public.home.testi.nps_label", "Score NPS")} : <span className="text-gradient-blue font-display font-bold text-lg">{npsStats.nps}</span> · {t("public.home.testi.average_label", "Note moyenne")} : <span className="text-white">{npsStats.average_score}/10</span> · {t("public.home.testi.published_count", "{count} avis publiés").replace("{count}", String(npsStats.count))}
                   </p>
                 )}
               </div>
               <Link to="/temoignages" className="text-sm text-sawali-blue-light hover:text-white inline-flex items-center gap-1">
-                Voir tous les avis <ArrowRight className="h-4 w-4" />
+                {t("public.home.testi.see_all", "Voir tous les avis")} <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
             <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -225,18 +225,17 @@ export default function Home() {
             <div className="absolute inset-0 bg-gradient-to-tr from-[#081226]/80 via-transparent to-transparent" />
           </div>
           <div>
-            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">L'expérience SAWALI</p>
-            <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">Une équipe, une exigence : la qualité.</h2>
+            <p className="text-xs uppercase tracking-[0.25em] text-sawali-blue-light">{t("public.home.exp.kicker", "L'expérience SAWALI")}</p>
+            <h2 className="mt-2 text-3xl lg:text-4xl font-display font-bold text-white">{t("public.home.exp.title", "Une équipe, une exigence : la qualité.")}</h2>
             <p className="mt-5 text-slate-300 leading-relaxed">
-              Nous combinons rigueur d'ingénierie et proximité humaine. Chaque projet est suivi par un référent
-              dédié, livré avec une documentation claire et une supervision continue.
+              {t("public.home.exp.body", "Nous combinons rigueur d'ingénierie et proximité humaine. Chaque projet est suivi par un référent dédié, livré avec une documentation claire et une supervision continue.")}
             </p>
             <div className="mt-8 grid grid-cols-2 gap-4">
               {[
-                { k: "Méthodologie", v: "Agile + Code review systématique" },
-                { k: "Stack", v: "Web, Mobile, Cloud, IA" },
-                { k: "Support", v: "SLA & maintenance" },
-                { k: "Sécurité", v: "Bonnes pratiques OWASP" },
+                { k: t("public.home.exp.method_k", "Méthodologie"), v: t("public.home.exp.method_v", "Agile + Code review systématique") },
+                { k: t("public.home.exp.stack_k", "Stack"), v: t("public.home.exp.stack_v", "Web, Mobile, Cloud, IA") },
+                { k: t("public.home.exp.support_k", "Support"), v: t("public.home.exp.support_v", "SLA & maintenance") },
+                { k: t("public.home.exp.security_k", "Sécurité"), v: t("public.home.exp.security_v", "Bonnes pratiques OWASP") },
               ].map((b, i) => (
                 <div key={i} className="rounded-lg border border-white/10 p-4 bg-white/[0.02]">
                   <p className="text-[10px] uppercase tracking-[0.2em] text-sawali-blue-light">{b.k}</p>
@@ -255,11 +254,11 @@ export default function Home() {
             <div className="absolute -right-20 -bottom-20 h-72 w-72 rounded-full bg-sawali-blue/20 blur-3xl" />
             <div className="relative grid lg:grid-cols-3 gap-6 items-center">
               <div className="lg:col-span-2">
-                <h3 className="text-2xl lg:text-3xl font-display font-bold text-white">Un projet en tête ? Parlons-en.</h3>
-                <p className="mt-2 text-slate-300">Réservez un rendez-vous gratuit avec notre équipe d'ingénierie.</p>
+                <h3 className="text-2xl lg:text-3xl font-display font-bold text-white">{t("public.home.cta.title", "Un projet en tête ? Parlons-en.")}</h3>
+                <p className="mt-2 text-slate-300">{t("public.home.cta.body", "Réservez un rendez-vous gratuit avec notre équipe d'ingénierie.")}</p>
               </div>
               <Link to="/rdv" className="btn-electric inline-flex items-center justify-center gap-2 rounded-lg px-6 py-3 font-medium" data-testid="cta-bottom-rdv">
-                Prendre rendez-vous <ArrowRight className="h-4 w-4" />
+                {t("public.home.cta.button", "Prendre rendez-vous")} <ArrowRight className="h-4 w-4" />
               </Link>
             </div>
           </div>

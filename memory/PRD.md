@@ -5,6 +5,32 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24 (2026-06-15) — i18n extension Home publique (FR/EN/AR/RTL) ✅
+
+**Statut** : LIVRÉ + testé (screenshots EN + AR-RTL OK).
+
+### Réalisé
+- 34 nouvelles clés `public.home.*` seedées en FR/EN/AR via le système i18n existant (`SEED_KEYS` dans `/app/backend/routes/i18n.py`).
+- Refacto `Home.jsx` : tous les CTAs hero, sections Spécialisations, Témoignages, Expérience SAWALI, et CTA bottom utilisent `t("key", "Fallback FR")`.
+- Mode RTL Arabe vérifié : `html dir="rtl"` appliqué automatiquement par I18nContext + tous les CTAs traduits.
+
+### Système i18n existant (à savoir)
+- 5 langues : FR (source), EN, AR (RTL), Gulmancema (lg1), Mooré (lg2)
+- 134 clés FR au total (100 historiques + 34 nouvelles)
+- Traducteur IA Claude/GPT/Gemini intégré (page `/admin/i18n`)
+- Détection auto via header CF-IPCountry (BF → FR, MA → AR, etc.)
+- Persistance localStorage `sawali_lang`
+
+### Limitation
+Le titre H1 du hero vient du `content_blocks` API (pas du i18n simple) — gérable séparément via l'éditeur **Admin → Contenu** existant. Idem pour les metrics dynamiques.
+
+### Action utilisateur restante
+Traduire Gulmancema (lg1) et Mooré (lg2) via **Admin → i18n** :
+- Soit en saisissant les langues à la main
+- Soit via le bouton "Traduire avec IA" (Claude Sonnet/Haiku, GPT-4o, Gemini 2.5)
+
+
+
 ## Iter43-fix23b (2026-06-15) — Bird.com 2-Way SMS (remplace Africa's Talking) ✅
 
 **Statut** : LIVRÉ + testé (11/11 pytest). En attente clé Bird "Messaging" côté utilisateur.

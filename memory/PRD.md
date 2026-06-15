@@ -5,6 +5,77 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix23 (2026-06-15) — Africa's Talking 2-Way SMS + Inventory Webhook + Officines Roles UI ✅
+
+**Statut** : LIVRÉ + testé (11/11 pytest, 100% backend + 100% frontend par testing_agent).
+
+### 1) Africa's Talking 2-Way SMS Integration (offline Liluvine)
+- Nouveau fichier `/app/backend/routes/africas_talking_sms.py` :
+  - `POST /api/webhooks/africas-talking/incoming-sms` — webhook AT entrant (form-data), persistance Mongo, routage vers Liluvine si activé.
+  - `POST /api/webhooks/africas-talking/delivery-report` — webhook livraisons.
+  - `GET /api/admin/africas-talking/status` — statut config (masqué).
+  - `GET /api/admin/africas-talking/messages?q=&direction=` — liste/recherche.
+  - `POST /api/admin/africas-talking/send-sms` — test envoi manuel.
+- SDK Python `africastalking==2.0.2` installé.
+- Mode toggle Sandbox/Live (settings DB).
+- Settings DB : `africas_talking_enabled`, `africas_talking_env`, `africas_talking_username`, `africas_talking_api_key` (masqué), `africas_talking_shortcode`, `africas_talking_signature`, `africas_talking_use_liluvine`, `africas_talking_webhook_secret` (masqué).
+- UI Admin → Paramètres : nouvelle section "Africa's Talking — SMS Bidirectionnel" avec inputs + CopyableUrl (URLs prêtes à coller dans AT dashboard → SMS → Callback URLs).
+- Liluvine reply : Claude Haiku 4.5 via `emergentintegrations`, sortie limitée 320 chars + signature optionnelle, KB + BizRAG injectés.
+
+### 2) Webhook d'inventaire officines (Bearer auth)
+- Nouveau fichier `/app/backend/routes/officines_inventory_webhook.py` :
+  - `POST /api/webhooks/officines/inventory` — Bearer auth, upsert items par (officine_id, product_name, lot_number).
+  - `GET /api/webhooks/officines/inventory/docs` — schéma JSON public pour intégrateurs SI.
+- Accepte JSON natif **et** clés CSV françaises (Nom du produit, CIP, Quantité, Prix unitaire, Lot, Devise).
+- Limite 5000 items par appel. Audit log + tracker registry (last_webhook_at, webhook_calls).
+- UI Admin → Paramètres : section "Webhook Inventaire Officines (Bearer)" avec input password + URLs CopyableUrl.
+
+### 3) Officines Registry — Rôles dans l'UI + création manuelle
+- Frontend `AdminOfficinesRegistry.jsx` :
+  - Filtre par **rôle** (data-testid="filter-role") au lieu d'activité.
+  - Colonne **Rôle** dans le tableau (au lieu d'Activité).
+  - Recherche `q=` étendue au champ `role` côté backend.
+  - Bouton **"Nouvelle officine"** (data-testid="create-officine-btn") + modale complète `CreateOfficineModal` (name, intitulé, email, phone, WA, ville, pays, adresse, location_hint, numero_ordre, contact, rôle, groupe_garde, statut).
+- Backend `routes/officines_portal.py` :
+  - `POST /api/admin/officines-registry` — création manuelle (validation rôle, anti-doublon par name + phone_digits, audit log).
+  - `GET /api/admin/officines-registry?role=X` — filtre par rôle.
+
+### 4) Renommage EXCLAM_Liluvine
+- Page `AdminLiluvineWaRequests.jsx` : H1 → "EXCLAM_Liluvine" + sous-titre clarifiant "Interrogations WhatsApp uniquement".
+- Sidebar `PortalLayout.jsx` : libellé du lien `/admin/liluvine-wa-requests` → "EXCLAM_Liluvine".
+
+### Fichiers modifiés
+- `backend/models.py` (SettingsUpdate +9 fields)
+- `backend/routes/admin_settings.py` (GET_MASK_FIELDS)
+- `backend/server.py` (montage routes + SECRET_FIELDS + _PUBLIC_PROVIDER_FIELDS)
+- `backend/routes/officines_portal.py` (POST création + filtre role)
+- `frontend/src/pages/admin/AdminSettings.jsx` (sections AT + Webhook + CopyableUrl + import Package)
+- `frontend/src/pages/admin/AdminOfficinesRegistry.jsx` (rôle au lieu d'activité + bouton créer + modal)
+- `frontend/src/pages/admin/AdminLiluvineWaRequests.jsx` (titre)
+- `frontend/src/components/PortalLayout.jsx` (libellé sidebar)
+
+### Tests
+- `/app/backend/tests/test_iter43_fix23_at_inventory_webhook_role.py` (11 tests, 100%).
+- Testing agent : backend 100%, frontend 100% (cf. `/app/test_reports/iteration_63.json`).
+
+### Action utilisateur restante
+1. Créer le compte Africa's Talking sur https://account.africastalking.com (Sandbox d'abord puis Live).
+2. Saisir les credentials dans Admin → Paramètres → "Africa's Talking — SMS Bidirectionnel" (username + API key + shortcode/sender ID).
+3. Coller les **2 URLs CopyableUrl** dans le dashboard AT → SMS → SMS Callback URLs (Incoming + Delivery Reports).
+4. Tester via le Simulator AT (mode Sandbox).
+5. Pour le webhook inventaire : générer un token Bearer long (≥ 32 chars), le saisir dans la section "Webhook Inventaire Officines", puis le communiquer aux SI des officines.
+
+### Issues mineures (non bloquantes — backlog)
+- Warning React hydration `<span>` dans `<option>` (AdminSettings.jsx) — cosmétique, présent avant fix23.
+- Performance AdminSettings : ~8s de rendu initial — splitting par sous-composants à envisager (P2).
+- Duplication MASK fields entre `admin_settings.py` et `server.py` — centraliser dans un module (P2).
+
+
+
+## Iter43-fix22 (2026-06) — Liluvine WA Tracker + Garde Planning + WA Commands ✅
+
+
+
 ## Iter43-fix16 (2026-06) — WhatsApp Webhook Subscription Diagnostic + OpenAPI fix ✅
 
 **Statut** : LIVRÉ + testé (9/9 pytest = 6 docs/openapi + 3 webhook-subscription).

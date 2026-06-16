@@ -369,6 +369,117 @@ def setup_bird_sms_routes(*, db, api, get_current_admin):
     # ===================================================================
     # ADMIN — Envoi manuel d'un SMS via Bird (test/debug)
     # ===================================================================
+    # ===================================================================
+    # Iter43-fix24l — ADMIN TEST : envoi SMS Bird avec diagnostics complets
+    # ===================================================================
+    @api.post(
+        "/admin/bird/test-sms",
+        tags=["Admin — Bird"],
+    )
+    async def admin_test_bird_sms(
+        payload: BirdSendPayload = Body(...),
+        user: dict = Depends(get_current_admin),
+    ):
+        """Test d'envoi SMS Bird avec retour DÉTAILLÉ pour debugging.
+
+        Contrairement à `/admin/bird/send-sms`, cet endpoint :
+          - Bypass le toggle `bird_enabled` (permet de tester avant activation)
+          - Retourne TOUS les détails : http_status, headers, body, latency_ms, URL appelée
+          - Ne persiste PAS le résultat dans bird_sms_messages
+        Idéal pour valider la config Workspace ID / Channel ID / Access Key.
+        """
+        import time as _t
+        if not payload.to.strip() or not payload.text.strip():
+            raise HTTPException(status_code=400, detail="`to` et `text` requis")
+        cfg = await _get_bird_config(db)
+        diag: Dict[str, Any] = {
+            "ok": False,
+            "config_check": {
+                "bird_enabled": cfg.get("enabled"),
+                "has_access_key": bool(cfg.get("access_key")),
+                "has_workspace_id": bool(cfg.get("workspace_id")),
+                "has_channel_id": bool(cfg.get("channel_id")),
+                "api_base_url": cfg.get("api_base_url"),
+                "default_sender": cfg.get("default_sender") or "(non configuré)",
+            },
+        }
+        # Validation explicite
+        missing = []
+        if not cfg.get("access_key"):
+            missing.append("bird_access_key")
+        if not cfg.get("workspace_id"):
+            missing.append("bird_workspace_id")
+        if not cfg.get("channel_id"):
+            missing.append("bird_channel_id")
+        if missing:
+            diag["error"] = f"Configuration incomplète. Champs manquants : {', '.join(missing)}"
+            return diag
+
+        url = (
+            f"{cfg['api_base_url']}/workspaces/{cfg['workspace_id']}"
+            f"/channels/{cfg['channel_id']}/messages"
+        )
+        headers = {
+            "Authorization": f"AccessKey {cfg['access_key'][:4]}…(masqué)",  # pour l'UI uniquement
+            "Content-Type": "application/json",
+            "Accept": "application/json",
+        }
+        real_headers = {**headers, "Authorization": f"AccessKey {cfg['access_key']}"}
+        from_sender = (payload.sender.strip() if payload.sender else None) or cfg["default_sender"]
+        bird_payload: Dict[str, Any] = {
+            "receiver": {"contacts": [{"identifierValue": payload.to.strip()}]},
+            "body": {"type": "text", "text": {"text": payload.text.strip()}},
+        }
+        if from_sender:
+            bird_payload["sender"] = {"connector": {"identifierValue": from_sender}}
+
+        diag["request"] = {
+            "method": "POST",
+            "url": url,
+            "headers_preview": headers,  # access_key masquée
+            "payload": bird_payload,
+        }
+
+        start = _t.monotonic()
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                r = await client.post(url, json=bird_payload, headers=real_headers)
+            duration_ms = int((_t.monotonic() - start) * 1000)
+            diag["response"] = {
+                "http_status": r.status_code,
+                "latency_ms": duration_ms,
+                "headers": dict(r.headers),
+            }
+            # Parse body
+            try:
+                body = r.json()
+            except Exception:  # noqa: BLE001
+                body = {"raw_text": r.text[:2000]}
+            diag["response"]["body"] = body
+            # Verdict
+            if r.status_code < 300:
+                diag["ok"] = True
+                diag["verdict"] = (
+                    f"✅ Succès — SMS accepté par Bird en {duration_ms} ms. "
+                    "Vérifiez la réception sur le téléphone destinataire."
+                )
+            else:
+                diag["ok"] = False
+                err_msg = str(body)[:300]
+                diag["verdict"] = (
+                    f"❌ Échec HTTP {r.status_code} — {err_msg}"
+                )
+        except httpx.HTTPError as exc:
+            duration_ms = int((_t.monotonic() - start) * 1000)
+            diag["response"] = {
+                "http_status": 0,
+                "latency_ms": duration_ms,
+                "error": str(exc)[:300],
+            }
+            diag["ok"] = False
+            diag["verdict"] = f"❌ Erreur réseau après {duration_ms} ms : {exc}"
+        return diag
+
     @api.post(
         "/admin/bird/send-sms",
         tags=["Admin — Bird"],

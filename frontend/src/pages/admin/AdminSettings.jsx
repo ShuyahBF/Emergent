@@ -2450,6 +2450,8 @@ export default function AdminSettings() {
             si le Webhook Signing Secret est défini ci-dessus. Sans secret, le webhook est ouvert (à éviter en prod).
           </p>
         </div>
+        {/* Iter43-fix24l — Bouton de test SMS Bird avec retour HTTP complet */}
+        <BirdTestSmsBlock defaultSender={s.bird_default_sender || ""} />
       </Section>
 
       {/* Iter43-fix23 (2026-06) — Webhook d'inventaire officines (Bearer) */}
@@ -5690,6 +5692,146 @@ const CopyableUrl = ({ label, path, secret, baseUrl }) => {
     </div>
   );
 };
+
+// Iter43-fix24l (2026-06) — Composant de test SMS Bird (envoi réel + diagnostics)
+const BirdTestSmsBlock = ({ defaultSender }) => {
+  const [to, setTo] = useState("");
+  const [text, setText] = useState("Test Bird SAWALI ✓");
+  const [sender, setSender] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const runTest = async () => {
+    if (!to.trim()) {
+      toast.error("Numéro destinataire requis");
+      return;
+    }
+    setLoading(true);
+    setResult(null);
+    try {
+      const r = await apiClient.post("/admin/bird/test-sms", {
+        to: to.trim(),
+        text: text.trim() || "Test Bird SAWALI ✓",
+        sender: sender.trim() || undefined,
+      });
+      setResult(r.data);
+      if (r.data?.ok) {
+        toast.success(`SMS test envoyé (HTTP ${r.data.response?.http_status})`);
+      } else {
+        toast.error("Test échoué — voir détails");
+      }
+    } catch (e) {
+      const detail = e?.response?.data?.detail || e?.message || "Erreur inconnue";
+      setResult({ ok: false, error: detail, verdict: `❌ ${detail}` });
+      toast.error("Test échoué");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="rounded-lg ring-1 ring-emerald-300 bg-emerald-50/40 p-3 mt-3 space-y-3" data-testid="bird-test-sms-block">
+      <h4 className="text-xs font-semibold text-emerald-900 inline-flex items-center gap-1.5">
+        🧪 Tester l'envoi SMS Bird
+      </h4>
+      <p className="text-[10px] text-emerald-900/70 leading-relaxed">
+        Envoie un VRAI SMS au numéro indiqué et affiche le code HTTP + la réponse complète de Bird.
+        Idéal pour valider workspace_id / channel_id / access_key avant activation en production.
+        Ce test n'écrit PAS dans l'historique des messages.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+        <label className="block md:col-span-1">
+          <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Destinataire (E.164)</span>
+          <input
+            type="text"
+            value={to}
+            onChange={(e) => setTo(e.target.value)}
+            placeholder="+22670123456"
+            className="w-full mt-1 text-xs font-mono rounded border border-emerald-300 px-2 py-1.5 bg-white"
+            data-testid="bird-test-to"
+          />
+        </label>
+        <label className="block md:col-span-1">
+          <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">
+            Expéditeur (optionnel)
+          </span>
+          <input
+            type="text"
+            value={sender}
+            onChange={(e) => setSender(e.target.value)}
+            placeholder={defaultSender || "SAWALI"}
+            className="w-full mt-1 text-xs font-mono rounded border border-emerald-300 px-2 py-1.5 bg-white"
+            data-testid="bird-test-sender"
+          />
+        </label>
+        <label className="block md:col-span-1">
+          <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Message</span>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            maxLength={160}
+            className="w-full mt-1 text-xs rounded border border-emerald-300 px-2 py-1.5 bg-white"
+            data-testid="bird-test-text"
+          />
+        </label>
+      </div>
+      <button
+        type="button"
+        onClick={runTest}
+        disabled={loading || !to.trim()}
+        className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold px-3 py-1.5"
+        data-testid="bird-test-run"
+      >
+        {loading ? "Envoi en cours…" : "🧪 Envoyer le SMS test"}
+      </button>
+      {result && (
+        <div
+          className={`rounded-lg p-3 ring-1 text-xs space-y-2 ${
+            result.ok ? "bg-white ring-emerald-300" : "bg-rose-50 ring-rose-300"
+          }`}
+          data-testid="bird-test-result"
+        >
+          <p className={`font-semibold ${result.ok ? "text-emerald-700" : "text-rose-700"}`} data-testid="bird-test-verdict">
+            {result.verdict || (result.ok ? "✅ Succès" : "❌ Échec")}
+          </p>
+          {result.config_check && (
+            <details className="text-[11px]">
+              <summary className="cursor-pointer text-slate-600">Vérification config</summary>
+              <pre className="bg-slate-50 rounded p-2 mt-1 overflow-auto whitespace-pre-wrap font-mono">
+                {JSON.stringify(result.config_check, null, 2)}
+              </pre>
+            </details>
+          )}
+          {result.request && (
+            <details className="text-[11px]">
+              <summary className="cursor-pointer text-slate-600">Requête envoyée</summary>
+              <pre className="bg-slate-50 rounded p-2 mt-1 overflow-auto whitespace-pre-wrap font-mono">
+                {JSON.stringify(result.request, null, 2)}
+              </pre>
+            </details>
+          )}
+          {result.response && (
+            <details className="text-[11px]" open>
+              <summary className="cursor-pointer text-slate-600">
+                Réponse Bird (HTTP <strong data-testid="bird-test-http-status">{result.response.http_status}</strong> · {result.response.latency_ms} ms)
+              </summary>
+              <pre className="bg-slate-50 rounded p-2 mt-1 overflow-auto whitespace-pre-wrap font-mono max-h-64">
+                {JSON.stringify(result.response, null, 2)}
+              </pre>
+            </details>
+          )}
+          {result.error && !result.response && (
+            <pre className="bg-rose-100 rounded p-2 text-rose-800 whitespace-pre-wrap font-mono">
+              {result.error}
+            </pre>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
 // Panel that lets the admin probe Meta Graph API live to validate WA config.
 const WaTestPanel = () => {
   const [loading, setLoading] = useState(false);

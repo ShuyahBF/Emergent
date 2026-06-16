@@ -16983,7 +16983,12 @@ async def whatsapp_webhook_incoming(request: Request):
                     # No n8n needed: when the toggle is on AND the message
                     # passes the configured rules, Liluvine generates a reply
                     # via Claude and ships it back through Meta Graph API.
-                    if not skip_autoreply and not hr_handled and mtype == "text" and text_body and not (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
+                    # Iter43-fix24l (2026-06) — Les `!commandes` non HR (ex. !garde,
+                    # !meteo, !adresse, !horaires, !stock, !Aizenta) doivent AUSSI
+                    # passer par `autoreply_to_inbound` qui contient maintenant
+                    # le dispatcher des commandes publiques + le catch-all `…`.
+                    # On ne skip QUE quand `hr_handled` a déjà traité le message.
+                    if not skip_autoreply and not hr_handled and mtype == "text" and text_body:
                         try:
                             from routes.liluvine_wa_autoreply import autoreply_to_inbound
                             s_root = await db.settings.find_one({"_id": "global"}) or {}
@@ -16995,8 +17000,9 @@ async def whatsapp_webhook_incoming(request: Request):
                                 wa_send_text=_wa_send_text,
                             )
                             if ar_result.get("ok"):
-                                logger.info("[wa_autoreply] sent for %s (msg_id=%s)",
-                                            digits_only, ar_result.get("wa_out_message_id"))
+                                logger.info("[wa_autoreply] sent for %s (cmd=%s, msg_id=%s)",
+                                            digits_only, ar_result.get("command"),
+                                            ar_result.get("wa_out_message_id"))
                             else:
                                 logger.debug("[wa_autoreply] skipped (%s)", ar_result.get("reason"))
                         except Exception as exc:  # noqa: BLE001

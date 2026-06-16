@@ -89,6 +89,22 @@ class AutoreplyConfigPayload(BaseModel):
     keywords: Optional[List[str]] = None
     cooldown_seconds: Optional[int] = Field(None, ge=0, le=3600)
     signature: Optional[str] = Field(None, max_length=200)
+    # Iter43-fix24h — Fallback `…` pour les `!commandes` inconnues
+    unknown_cmd_reply: Optional[str] = Field(None, max_length=500)
+    unknown_cmd_fallback_enabled: Optional[bool] = None
+    # Iter43-fix24j — Profil "marque/HQ" pour les commandes !adresse / !horaires / !contact
+    brand_name: Optional[str] = Field(None, max_length=200)
+    brand_phone: Optional[str] = Field(None, max_length=40)
+    brand_whatsapp: Optional[str] = Field(None, max_length=40)
+    brand_email: Optional[str] = Field(None, max_length=200)
+    brand_address: Optional[str] = Field(None, max_length=300)
+    brand_city: Optional[str] = Field(None, max_length=100)
+    brand_country: Optional[str] = Field(None, max_length=100)
+    brand_location_hint: Optional[str] = Field(None, max_length=300)
+    brand_latitude: Optional[float] = Field(None, ge=-90, le=90)
+    brand_longitude: Optional[float] = Field(None, ge=-180, le=180)
+    brand_hours: Optional[str] = Field(None, max_length=2000)
+    brand_maps_url: Optional[str] = Field(None, max_length=500)
 
 
 # Bypass list (2026-02) — Admin payload to overwrite the email allowlist.
@@ -647,6 +663,22 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "keywords": "liluvine_wa_autoreply_keywords",
         "cooldown_seconds": "liluvine_wa_autoreply_cooldown_seconds",
         "signature": "liluvine_wa_autoreply_signature",
+        # Iter43-fix24h — Catch-all fallback `…`
+        "unknown_cmd_reply": "liluvine_wa_unknown_cmd_reply",
+        "unknown_cmd_fallback_enabled": "liluvine_wa_unknown_cmd_fallback_enabled",
+        # Iter43-fix24j — Profil "marque/HQ" pour !adresse / !horaires
+        "brand_name": "liluvine_wa_brand_name",
+        "brand_phone": "liluvine_wa_brand_phone",
+        "brand_whatsapp": "liluvine_wa_brand_whatsapp",
+        "brand_email": "liluvine_wa_brand_email",
+        "brand_address": "liluvine_wa_brand_address",
+        "brand_city": "liluvine_wa_brand_city",
+        "brand_country": "liluvine_wa_brand_country",
+        "brand_location_hint": "liluvine_wa_brand_location_hint",
+        "brand_latitude": "liluvine_wa_brand_latitude",
+        "brand_longitude": "liluvine_wa_brand_longitude",
+        "brand_hours": "liluvine_wa_brand_hours",
+        "brand_maps_url": "liluvine_wa_brand_maps_url",
     }
 
     @api.get("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
@@ -663,6 +695,22 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "keywords": s.get("liluvine_wa_autoreply_keywords") or [],
             "cooldown_seconds": int(s.get("liluvine_wa_autoreply_cooldown_seconds") or 60),
             "signature": s.get("liluvine_wa_autoreply_signature") or "— 🤖 Réponse automatique Liluvine PRO",
+            # Iter43-fix24h
+            "unknown_cmd_reply": s.get("liluvine_wa_unknown_cmd_reply") or "",
+            "unknown_cmd_fallback_enabled": bool(s.get("liluvine_wa_unknown_cmd_fallback_enabled", True)),
+            # Iter43-fix24j — Brand
+            "brand_name": s.get("liluvine_wa_brand_name") or "",
+            "brand_phone": s.get("liluvine_wa_brand_phone") or "",
+            "brand_whatsapp": s.get("liluvine_wa_brand_whatsapp") or "",
+            "brand_email": s.get("liluvine_wa_brand_email") or "",
+            "brand_address": s.get("liluvine_wa_brand_address") or "",
+            "brand_city": s.get("liluvine_wa_brand_city") or "",
+            "brand_country": s.get("liluvine_wa_brand_country") or "",
+            "brand_location_hint": s.get("liluvine_wa_brand_location_hint") or "",
+            "brand_latitude": s.get("liluvine_wa_brand_latitude"),
+            "brand_longitude": s.get("liluvine_wa_brand_longitude"),
+            "brand_hours": s.get("liluvine_wa_brand_hours") or "",
+            "brand_maps_url": s.get("liluvine_wa_brand_maps_url") or "",
         }
 
     @api.put("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])

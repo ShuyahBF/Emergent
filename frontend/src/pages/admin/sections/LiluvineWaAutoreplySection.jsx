@@ -28,6 +28,21 @@ export default function LiluvineWaAutoreplySection() {
         allow_phones: (r.data.allow_phones || []).join(", "),
         deny_phones: (r.data.deny_phones || []).join(", "),
         keywords: (r.data.keywords || []).join(", "),
+        // Iter43-fix24h/j — Catch-all `…` + brand info pour !adresse/!horaires
+        unknown_cmd_reply: r.data.unknown_cmd_reply || "",
+        unknown_cmd_fallback_enabled: r.data.unknown_cmd_fallback_enabled !== false,
+        brand_name: r.data.brand_name || "",
+        brand_phone: r.data.brand_phone || "",
+        brand_whatsapp: r.data.brand_whatsapp || "",
+        brand_email: r.data.brand_email || "",
+        brand_address: r.data.brand_address || "",
+        brand_city: r.data.brand_city || "",
+        brand_country: r.data.brand_country || "",
+        brand_location_hint: r.data.brand_location_hint || "",
+        brand_latitude: r.data.brand_latitude == null ? "" : String(r.data.brand_latitude),
+        brand_longitude: r.data.brand_longitude == null ? "" : String(r.data.brand_longitude),
+        brand_hours: r.data.brand_hours || "",
+        brand_maps_url: r.data.brand_maps_url || "",
       });
     } catch (e) {
       toast.error("Erreur chargement config auto-réponse");
@@ -48,7 +63,40 @@ export default function LiluvineWaAutoreplySection() {
         allow_phones: (form.allow_phones || "").split(",").map((s) => s.trim()).filter(Boolean),
         deny_phones: (form.deny_phones || "").split(",").map((s) => s.trim()).filter(Boolean),
         keywords: (form.keywords || "").split(",").map((s) => s.trim()).filter(Boolean),
+        // Iter43-fix24h/j
+        unknown_cmd_reply: form.unknown_cmd_reply || "",
+        unknown_cmd_fallback_enabled: !!form.unknown_cmd_fallback_enabled,
+        brand_name: form.brand_name || "",
+        brand_phone: form.brand_phone || "",
+        brand_whatsapp: form.brand_whatsapp || "",
+        brand_email: form.brand_email || "",
+        brand_address: form.brand_address || "",
+        brand_city: form.brand_city || "",
+        brand_country: form.brand_country || "",
+        brand_location_hint: form.brand_location_hint || "",
+        brand_hours: form.brand_hours || "",
+        brand_maps_url: form.brand_maps_url || "",
       };
+      const latStr = (form.brand_latitude ?? "").toString().trim();
+      const lonStr = (form.brand_longitude ?? "").toString().trim();
+      if (latStr) {
+        const n = Number(latStr);
+        if (Number.isNaN(n) || n < -90 || n > 90) {
+          toast.error("Latitude invalide (doit être entre -90 et 90)");
+          setSaving(false);
+          return;
+        }
+        payload.brand_latitude = n;
+      }
+      if (lonStr) {
+        const n = Number(lonStr);
+        if (Number.isNaN(n) || n < -180 || n > 180) {
+          toast.error("Longitude invalide (doit être entre -180 et 180)");
+          setSaving(false);
+          return;
+        }
+        payload.brand_longitude = n;
+      }
       await apiClient.put("/admin/liluvine-pro/wa-autoreply", payload);
       toast.success("Configuration enregistrée");
       load();
@@ -200,6 +248,192 @@ export default function LiluvineWaAutoreplySection() {
           data-testid="liluvine-autoreply-signature"
         />
         <p className="text-[10px] text-slate-500 mt-1">Laissez vide pour conserver la valeur par défaut. Sera ajoutée à la fin de chaque réponse pour transparence.</p>
+      </div>
+
+      {/* Iter43-fix24h — Catch-all "…" pour commandes inconnues */}
+      <div className="rounded-lg ring-1 ring-orange-200 bg-orange-50/40 p-3 space-y-2" data-testid="liluvine-unknown-cmd-section">
+        <h3 className="text-xs font-semibold text-orange-900 inline-flex items-center gap-1.5">
+          <Sparkles className="h-3.5 w-3.5" /> Fallback pour les commandes <code className="px-1 bg-white rounded">!xxx</code> inconnues
+        </h3>
+        <label className="flex items-start gap-2 text-[11px] text-orange-900 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!form.unknown_cmd_fallback_enabled}
+            onChange={(e) => setForm({ ...form, unknown_cmd_fallback_enabled: e.target.checked })}
+            className="mt-0.5"
+            data-testid="liluvine-unknown-fallback-enabled"
+          />
+          <span>
+            <strong>Activer la réponse automatique</strong> pour les <code>!commandes</code> non reconnues (recommandé).
+            <br />
+            <span className="text-[10px] opacity-80">Sinon Liluvine reste muette sur <code>!Aizenta</code>, <code>!truc</code>, etc. — l'utilisateur ne saura pas si son message a été reçu.</span>
+          </span>
+        </label>
+        <input
+          type="text"
+          value={form.unknown_cmd_reply}
+          onChange={(e) => setForm({ ...form, unknown_cmd_reply: e.target.value })}
+          placeholder="…"
+          maxLength={500}
+          className="w-full text-xs rounded-lg border border-orange-300 px-3 py-2 bg-white"
+          data-testid="liluvine-unknown-cmd-reply"
+        />
+        <p className="text-[10px] text-orange-900/70">Message envoyé pour toute <code>!commande</code> non gérée. Vide = <code>…</code> par défaut.</p>
+      </div>
+
+      {/* Iter43-fix24j — Profil marque/HQ pour !adresse, !horaires, !contact */}
+      <div className="rounded-lg ring-1 ring-emerald-200 bg-emerald-50/40 p-3 space-y-3" data-testid="liluvine-brand-section">
+        <h3 className="text-xs font-semibold text-emerald-900 inline-flex items-center gap-1.5">
+          <MessageCircle className="h-3.5 w-3.5" /> Profil enseigne pour les commandes <code className="px-1 bg-white rounded">!adresse</code> / <code className="px-1 bg-white rounded">!horaires</code> / <code className="px-1 bg-white rounded">!contact</code>
+        </h3>
+        <p className="text-[10px] text-emerald-900/70 -mt-2">
+          Ces infos sont envoyées en clair à l'utilisateur WhatsApp + carte map cliquable si latitude/longitude renseignées.
+        </p>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Nom enseigne</span>
+            <input
+              type="text" value={form.brand_name}
+              onChange={(e) => setForm({ ...form, brand_name: e.target.value })}
+              placeholder="SAWALI SMART SYSTEMS"
+              maxLength={200}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-name"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Email contact</span>
+            <input
+              type="email" value={form.brand_email}
+              onChange={(e) => setForm({ ...form, brand_email: e.target.value })}
+              placeholder="contact@sawalismartsystems.com"
+              maxLength={200}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-email"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Téléphone</span>
+            <input
+              type="text" value={form.brand_phone}
+              onChange={(e) => setForm({ ...form, brand_phone: e.target.value })}
+              placeholder="+226 25 00 00 00"
+              maxLength={40}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-phone"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">WhatsApp</span>
+            <input
+              type="text" value={form.brand_whatsapp}
+              onChange={(e) => setForm({ ...form, brand_whatsapp: e.target.value })}
+              placeholder="+226 70 00 00 00"
+              maxLength={40}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-whatsapp"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Adresse complète</span>
+            <input
+              type="text" value={form.brand_address}
+              onChange={(e) => setForm({ ...form, brand_address: e.target.value })}
+              placeholder="12 Avenue Houphouët-Boigny"
+              maxLength={300}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-address"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Ville</span>
+            <input
+              type="text" value={form.brand_city}
+              onChange={(e) => setForm({ ...form, brand_city: e.target.value })}
+              placeholder="Ouagadougou"
+              maxLength={100}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-city"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Pays</span>
+            <input
+              type="text" value={form.brand_country}
+              onChange={(e) => setForm({ ...form, brand_country: e.target.value })}
+              placeholder="Burkina Faso"
+              maxLength={100}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-country"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">
+              Indication de localisation <span className="opacity-60">(repères visuels — affichés sur la fiche officine)</span>
+            </span>
+            <input
+              type="text" value={form.brand_location_hint}
+              onChange={(e) => setForm({ ...form, brand_location_hint: e.target.value })}
+              placeholder="À côté de la station Total, en face de la mosquée"
+              maxLength={300}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-location-hint"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Latitude (-90 à 90)</span>
+            <input
+              type="number" step="0.000001" min="-90" max="90"
+              value={form.brand_latitude}
+              onChange={(e) => setForm({ ...form, brand_latitude: e.target.value })}
+              placeholder="12.371428"
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white font-mono"
+              data-testid="liluvine-brand-latitude"
+            />
+          </label>
+          <label className="block">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">Longitude (-180 à 180)</span>
+            <input
+              type="number" step="0.000001" min="-180" max="180"
+              value={form.brand_longitude}
+              onChange={(e) => setForm({ ...form, brand_longitude: e.target.value })}
+              placeholder="-1.519582"
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white font-mono"
+              data-testid="liluvine-brand-longitude"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">
+              URL Google Maps personnalisée <span className="opacity-60">(optionnel — sinon générée auto depuis lat/lon)</span>
+            </span>
+            <input
+              type="url" value={form.brand_maps_url}
+              onChange={(e) => setForm({ ...form, brand_maps_url: e.target.value })}
+              placeholder="https://maps.app.goo.gl/abc123…"
+              maxLength={500}
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white"
+              data-testid="liluvine-brand-maps-url"
+            />
+          </label>
+          <label className="block md:col-span-2">
+            <span className="block text-[10px] uppercase tracking-wider font-semibold text-emerald-900">
+              Horaires d'ouverture <span className="opacity-60">(une ligne par jour — le jour courant sera mis en évidence)</span>
+            </span>
+            <textarea
+              value={form.brand_hours}
+              onChange={(e) => setForm({ ...form, brand_hours: e.target.value })}
+              rows={7}
+              maxLength={2000}
+              placeholder="Lundi : 08h00 - 19h30&#10;Mardi : 08h00 - 19h30&#10;Mercredi : 08h00 - 19h30&#10;Jeudi : 08h00 - 19h30&#10;Vendredi : 08h00 - 19h30&#10;Samedi : 09h00 - 13h00&#10;Dimanche : Fermé"
+              className="w-full mt-1 text-xs rounded-lg border border-emerald-300 px-3 py-2 bg-white font-mono leading-relaxed"
+              data-testid="liluvine-brand-hours"
+            />
+          </label>
+        </div>
+        <p className="text-[10px] text-emerald-900/70 leading-relaxed">
+          💡 <strong>Astuce :</strong> pour récupérer rapidement vos coordonnées GPS, ouvrez Google Maps sur l'emplacement de l'officine,
+          faites un clic droit (ou un appui long sur mobile) puis cliquez sur les coordonnées qui s'affichent — elles seront copiées au format <code>12.371428, -1.519582</code>.
+        </p>
       </div>
 
       <div className="flex items-start gap-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3">

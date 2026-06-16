@@ -157,6 +157,9 @@ async def autoreply_to_inbound(
     is_public_cmd = (
         cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie")
         or cmd_lower.startswith("!meteo") or cmd_lower.startswith("!météo")
+        or cmd_lower.startswith("!adresse") or cmd_lower.startswith("!contact")
+        or cmd_lower.startswith("!horaire") or cmd_lower.startswith("!horaires")
+        or cmd_lower.startswith("!stock") or cmd_lower.startswith("!dispo")
     )
     # Iter43-fix24d (2026-06) — Stocker TOUTES les exclamations (`!xxx`) dans la table
     # dédiée `liluvine_exclamations`, qu'on sache ou non les traiter. Cela permet :
@@ -205,13 +208,30 @@ async def autoreply_to_inbound(
             return {"ok": False, "reason": "denylisted"}
 
         if is_public_cmd:
-            # Commandes publiques (!garde, !meteo, !pharmacie) — TOUJOURS exécutées.
+            # Commandes publiques — TOUJOURS exécutées.
             # Sécurisées par try/except : même si le builder plante, on répond.
+            location_payload = None  # type=location WA à envoyer en plus du texte
             try:
                 if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
                     reply_pc = await _build_garde_reply(db)
+                    cmd_label = "!garde"
+                elif cmd_lower.startswith("!adresse") or cmd_lower.startswith("!contact"):
+                    addr_res = await _build_adresse_reply(db)
+                    reply_pc = addr_res["text"]
+                    location_payload = addr_res.get("location")
+                    cmd_label = "!adresse"
+                elif cmd_lower.startswith("!horaire"):  # couvre !horaire ET !horaires
+                    reply_pc = await _build_horaires_reply(db)
+                    cmd_label = "!horaires"
+                elif cmd_lower.startswith("!stock") or cmd_lower.startswith("!dispo"):
+                    # Extract args after the command word
+                    m_stock = re.match(r"^!(?:stock|dispo)\s*(.*)$", text, re.IGNORECASE)
+                    stock_args = (m_stock.group(1).strip() if m_stock else "")
+                    reply_pc = await _build_stock_reply(db, stock_args)
+                    cmd_label = "!stock"
                 else:
                     reply_pc = await _build_meteo_reply(db, cmd_lower, phone_digits)
+                    cmd_label = "!meteo"
                 if not reply_pc or not str(reply_pc).strip():
                     reply_pc = "…"
             except Exception:  # noqa: BLE001
@@ -220,6 +240,7 @@ async def autoreply_to_inbound(
                     "⚠️ Désolé, je n'arrive pas à traiter cette commande pour le moment. "
                     "Réessayez dans quelques instants."
                 )
+                cmd_label = cmd_lower.split()[0] if cmd_lower.split() else "!unknown"
             to_e164_pc = inbound_doc.get("from") or f"+{phone_digits}"
             try:
                 send_pc = await wa_send_text(
@@ -228,11 +249,23 @@ async def autoreply_to_inbound(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
                 send_pc = {"ok": False, "error": str(exc)}
+            # Iter43-fix24j — Pour !adresse avec lat/lon configurés, envoie aussi
+            # une "carte" WhatsApp type=location (UX native : preview map cliquable).
+            if location_payload is not None:
+                try:
+                    s_local = await db.settings.find_one({"_id": "global"}) or {}
+                    loc_res = await _wa_send_location(
+                        to_e164_pc,
+                        latitude=location_payload["latitude"],
+                        longitude=location_payload["longitude"],
+                        name=location_payload.get("name"),
+                        address=location_payload.get("address"),
+                        settings_doc=s_local,
+                    )
+                    logger.info("[wa_autoreply][!adresse] location sent: %s", loc_res)
+                except Exception:  # noqa: BLE001
+                    logger.exception("[wa_autoreply][!adresse] location send failed")
             try:
-                cmd_label = (
-                    "!garde" if (cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"))
-                    else "!meteo"
-                )
                 await db.whatsapp_messages.insert_one({
                     "id": uuid.uuid4().hex, "direction": "outbound",
                     "to": to_e164_pc, "phone_digits": phone_digits,
@@ -749,5 +782,281 @@ async def _build_meteo_reply(db, cmd_text: str, phone_digits: str) -> str:
             emo_h, lbl_h = icon_label.get(int(c), ("☁️", ""))
             p = probs[i] if i < len(probs) else 0
             lines.append(f"  • {t} · {emo_h} {round(temps[i])}°C · pluie {p}%")
+    lines.append("\n_— Liluvine PRO 🤖_")
+    return "\n".join(lines)
+
+
+
+# ====================================================================
+# Iter43-fix24j (2026-06) — Commandes publiques étendues : !adresse / !horaires / !stock
+# ====================================================================
+async def _wa_send_location(
+    to_e164: str,
+    *,
+    latitude: float,
+    longitude: float,
+    name: Optional[str] = None,
+    address: Optional[str] = None,
+    settings_doc: Optional[Dict[str, Any]] = None,
+    db_ref: Any = None,
+) -> Dict[str, Any]:
+    """Envoie un message WhatsApp de type `location` (carte avec aperçu Google Maps).
+
+    Utilisé par `!adresse` pour partager la géolocalisation cliquable de l'enseigne
+    — l'utilisateur peut ouvrir directement dans son app de cartographie.
+    """
+    s = settings_doc
+    if s is None and db_ref is not None:
+        s = await db_ref.settings.find_one({"_id": "global"}) or {}
+    s = s or {}
+    access_token = s.get("wa_access_token")
+    phone_number_id = s.get("wa_phone_number_id")
+    wa_graph_version = s.get("wa_graph_version") or "v22.0"
+    if not access_token or not phone_number_id:
+        return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)"}
+    to_clean = "".join(ch for ch in (to_e164 or "") if ch.isdigit())
+    if len(to_clean) < 6:
+        return {"ok": False, "error": f"Numéro invalide « {to_e164} »"}
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "location",
+        "location": {
+            "latitude": str(latitude),
+            "longitude": str(longitude),
+        },
+    }
+    if name:
+        body["location"]["name"] = str(name)[:200]
+    if address:
+        body["location"]["address"] = str(address)[:500]
+    url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=12) as http:
+            r = await http.post(
+                url, json=body,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:500]}
+            if r.status_code < 300:
+                mid = (raw.get("messages") or [{}])[0].get("id") if isinstance(raw, dict) else None
+                return {"ok": True, "message_id": mid, "raw": raw}
+            return {"ok": False, "error": str(raw)[:300], "status": r.status_code, "raw": raw}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:300]}
+
+
+def _resolve_brand_info(settings_doc: Dict[str, Any]) -> Dict[str, Any]:
+    """Compose le profil "marque/HQ" affiché par les commandes publiques.
+
+    Mélange les nouveaux champs `liluvine_wa_brand_*` (prioritaires) avec
+    les anciens champs génériques (`company_phone`, `public_brand_name`, etc.).
+    """
+    s = settings_doc or {}
+
+    def _pick(*keys: str) -> str:
+        for k in keys:
+            v = s.get(k)
+            if isinstance(v, str) and v.strip():
+                return v.strip()
+        return ""
+
+    def _num(v: Any) -> Optional[float]:
+        try:
+            if v in (None, ""):
+                return None
+            return float(v)
+        except (TypeError, ValueError):
+            return None
+
+    return {
+        "name": _pick("liluvine_wa_brand_name", "public_brand_name") or "SAWALI SMART SYSTEMS",
+        "phone": _pick("liluvine_wa_brand_phone", "company_phone"),
+        "whatsapp": _pick("liluvine_wa_brand_whatsapp", "liluvine_wa_brand_phone", "company_phone"),
+        "email": _pick("liluvine_wa_brand_email"),
+        "address": _pick("liluvine_wa_brand_address"),
+        "city": _pick("liluvine_wa_brand_city"),
+        "country": _pick("liluvine_wa_brand_country"),
+        "location_hint": _pick("liluvine_wa_brand_location_hint"),
+        "latitude": _num(s.get("liluvine_wa_brand_latitude")),
+        "longitude": _num(s.get("liluvine_wa_brand_longitude")),
+        "hours": _pick("liluvine_wa_brand_hours"),
+        "maps_url": _pick("liluvine_wa_brand_maps_url"),
+    }
+
+
+def _build_maps_url(brand: Dict[str, Any]) -> str:
+    """Génère l'URL Google Maps (priorité au champ personnalisé, sinon coords, sinon recherche texte)."""
+    if brand.get("maps_url"):
+        return brand["maps_url"]
+    lat = brand.get("latitude")
+    lon = brand.get("longitude")
+    if lat is not None and lon is not None:
+        return f"https://www.google.com/maps?q={lat},{lon}"
+    bits = [brand.get("address"), brand.get("city"), brand.get("country")]
+    q = ", ".join([b for b in bits if b])
+    if q:
+        import urllib.parse as _urlp
+        return f"https://www.google.com/maps/search/?api=1&query={_urlp.quote(q)}"
+    return ""
+
+
+async def _build_adresse_reply(db) -> Dict[str, Any]:
+    """Construit la réponse pour `!adresse`.
+
+    Retourne un dict `{text, location}` :
+      - `text` : message texte avec nom + phone + WA + adresse + lien maps
+      - `location` : si lat/lon configurés → dict pour l'envoi WA type=location
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    brand = _resolve_brand_info(s)
+    lines = [f"📍 *{brand['name']}*"]
+    if brand["address"] or brand["city"]:
+        addr_bits = [brand.get("address"), brand.get("city"), brand.get("country")]
+        addr_full = ", ".join([b for b in addr_bits if b])
+        lines.append(f"🏠 {addr_full}")
+    if brand["location_hint"]:
+        lines.append(f"🧭 {brand['location_hint']}")
+    if brand["phone"]:
+        lines.append(f"📞 {brand['phone']}")
+    if brand["whatsapp"] and brand["whatsapp"] != brand["phone"]:
+        lines.append(f"💬 WhatsApp : {brand['whatsapp']}")
+    if brand["email"]:
+        lines.append(f"✉️ {brand['email']}")
+    maps_url = _build_maps_url(brand)
+    if maps_url:
+        lines.append(f"\n🗺️ Itinéraire : {maps_url}")
+    if brand["hours"]:
+        lines.append(f"\n🕒 *Horaires :*\n{brand['hours']}")
+    lines.append("\n_— Liluvine PRO 🤖_")
+    text = "\n".join(lines)
+    location = None
+    if brand["latitude"] is not None and brand["longitude"] is not None:
+        location = {
+            "latitude": brand["latitude"],
+            "longitude": brand["longitude"],
+            "name": brand["name"],
+            "address": ", ".join(
+                [b for b in [brand.get("address"), brand.get("city"), brand.get("country")] if b]
+            ) or brand["location_hint"] or None,
+        }
+    return {"text": text, "location": location, "brand": brand}
+
+
+_DAY_NAMES_FR = {
+    0: "Lundi", 1: "Mardi", 2: "Mercredi", 3: "Jeudi",
+    4: "Vendredi", 5: "Samedi", 6: "Dimanche",
+}
+
+
+async def _build_horaires_reply(db) -> str:
+    """Construit la réponse pour `!horaires`.
+
+    Lit `liluvine_wa_brand_hours` (texte libre multi-lignes ou format `lun:08-19`).
+    Marque visuellement le jour courant (➡️).
+    """
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    brand = _resolve_brand_info(s)
+    today_idx = datetime.now(timezone.utc).weekday()  # 0=Mon ... 6=Sun
+    if not brand["hours"]:
+        return (
+            f"🕒 *Horaires d'ouverture — {brand['name']}*\n\n"
+            "_Les horaires ne sont pas encore configurés. "
+            "Contactez-nous au "
+            f"{brand['phone'] or '_(non renseigné)_'} pour plus d'info._\n\n"
+            "_— Liluvine PRO 🤖_"
+        )
+    today_lbl = _DAY_NAMES_FR[today_idx].lower()
+    out_lines = [f"🕒 *Horaires d'ouverture — {brand['name']}*", ""]
+    found_today = False
+    for raw in brand["hours"].splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        lower = line.lower()
+        if today_lbl in lower or lower.startswith(today_lbl[:3]):
+            out_lines.append(f"➡️ *{line}*  ← _aujourd'hui_")
+            found_today = True
+        else:
+            out_lines.append(f"   {line}")
+    if not found_today:
+        out_lines.append(f"\n_Nous sommes {_DAY_NAMES_FR[today_idx]}._")
+    out_lines.append("\n_— Liluvine PRO 🤖_")
+    return "\n".join(out_lines)
+
+
+async def _build_stock_reply(db, args: str) -> str:
+    """Construit la réponse pour `!stock <médicament>`.
+
+    Recherche `args` (case-insensitive) dans `officine_inventory_items.product_name`,
+    join avec `officines` pour récupérer le contact, retourne au max 5 résultats
+    classés par quantité décroissante. Ne retourne que les items `available=True`
+    avec `quantity > 0` et n'appartenant pas à une officine `suspended`.
+    """
+    query = (args or "").strip()
+    if len(query) < 2:
+        return (
+            "❓ *Recherche de stock*\n\n"
+            "Utilisation : `!stock <nom du médicament>`\n"
+            "Exemple : `!stock paracétamol`\n\n"
+            "_— Liluvine PRO 🤖_"
+        )
+    pattern = re.escape(query)
+    items: List[Dict[str, Any]] = []
+    cursor = db.officine_inventory_items.find(
+        {
+            "product_name": {"$regex": pattern, "$options": "i"},
+            "available": True,
+            "quantity": {"$gt": 0},
+        },
+        {"_id": 0, "officine_id": 1, "product_name": 1, "quantity": 1, "unit_price": 1, "currency": 1, "expiry_date": 1, "cip": 1},
+    ).sort("quantity", -1).limit(20)
+    async for it in cursor:
+        items.append(it)
+    if not items:
+        return (
+            f"🔎 *Recherche : « {query[:50]} »*\n\n"
+            "❌ Aucune officine n'a ce produit en stock actuellement.\n\n"
+            "_Conseil : essayez avec un nom plus court ou la marque générique._\n\n"
+            "_— Liluvine PRO 🤖_"
+        )
+    officine_ids = list({it["officine_id"] for it in items})
+    officines_map: Dict[str, Dict[str, Any]] = {}
+    async for o in db.officines.find(
+        {"id": {"$in": officine_ids}, "status": {"$ne": "suspended"}},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp": 1, "city": 1, "location_hint": 1, "latitude": 1, "longitude": 1},
+    ):
+        officines_map[o["id"]] = o
+    items = [it for it in items if it["officine_id"] in officines_map]
+    if not items:
+        return (
+            f"🔎 *Recherche : « {query[:50]} »*\n\n"
+            "❌ Le produit existe mais aucune officine active ne le propose actuellement.\n\n"
+            "_— Liluvine PRO 🤖_"
+        )
+    items = items[:5]
+    lines = [f"💊 *Stock — « {query[:50]} »*", f"_{len(items)} officine{'s' if len(items) > 1 else ''} avec ce produit_", ""]
+    for it in items:
+        off = officines_map[it["officine_id"]]
+        name = off.get("name") or "—"
+        qty = it.get("quantity") or 0
+        price = it.get("unit_price")
+        currency = it.get("currency") or "XOF"
+        line_bits = [f"🏥 *{name}*"]
+        addr = ", ".join([b for b in [off.get("location_hint"), off.get("city")] if b])
+        if addr:
+            line_bits.append(f"  📍 {addr}")
+        line_bits.append(f"  📦 {it.get('product_name')} — *{qty}* en stock")
+        if price is not None:
+            line_bits.append(f"  💰 {price:.0f} {currency}")
+        ph = off.get("whatsapp") or off.get("phone")
+        if ph:
+            line_bits.append(f"  📞 {ph}")
+        lines.append("\n".join(line_bits))
+        lines.append("")
+    lines.append("_💚 Prompt rétablissement !_")
     lines.append("\n_— Liluvine PRO 🤖_")
     return "\n".join(lines)

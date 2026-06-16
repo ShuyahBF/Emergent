@@ -593,6 +593,23 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : Liluvine ne paraît jamais "muette" sur WhatsApp. L'utilisateur sait toujours que son message a été reçu, et l'admin peut suivre les commandes inconnues pour décider lesquelles automatiser ensuite.
 - **Fichiers** : `routes/liluvine_wa_autoreply.py` lignes 192-238 + 233-251.
 
+## S066 — 3 commandes WhatsApp publiques étendues : `!adresse`, `!horaires`, `!stock`
+- **Demande utilisateur** : 2026-06 — « Implémente l'idée d'enhancement avec aussi la commande !adresse (téléphone+whatsapp+géolocalisation accessible sous whatsapp comme quand on envoie sa géolocalisation) et localisation dans le champ de 'indication de localisation' de la fiche officine, etc »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24j
+- **Détail** :
+  - **`!adresse`** (alias `!contact`) : envoie un message texte avec nom + adresse + ville + pays + indication de localisation + téléphone + WhatsApp + email + lien Google Maps + horaires, PUIS envoie un message WA de type `location` (carte cliquable avec preview map) si lat/lon configurés. Helper privé `_wa_send_location` ajouté.
+  - **`!horaires`** (alias `!horaire`) : lit le champ `liluvine_wa_brand_hours` (texte libre multi-lignes), met en évidence (➡️) la ligne correspondant au jour courant (lundi-dimanche en français). Message friendly si non configuré.
+  - **`!stock <médicament>`** (alias `!dispo`) : recherche regex case-insensitive dans `officine_inventory_items.product_name`, filtre `available=True` + `quantity>0` + officine `status != "suspended"`, trié par quantité décroissante, top 5 résultats. Affiche pour chaque match : nom officine, indication de localisation/ville, nom produit, quantité, prix, téléphone/WhatsApp. Helper `_build_stock_reply`.
+- **Nouvelle UI Admin** : section "Profil enseigne" dans `LiluvineWaAutoreplySection.jsx` avec 12 champs éditables (name, phone, whatsapp, email, address, city, country, location_hint, latitude, longitude, hours, maps_url) + section dédiée "Fallback `…`" (toggle on/off + texte personnalisé).
+- **API étendue** : `GET/PUT /api/admin/liluvine-pro/wa-autoreply` étendu avec 14 nouveaux champs validés (lat ∈ [-90,90], lon ∈ [-180,180]).
+- **Bénéfice** : les clients WhatsApp obtiennent en libre-service les infos de contact, horaires d'ouverture, et la disponibilité produits — sans nécessiter d'opérateur humain ni d'appel LLM. Diminue le volume de tickets entrants tout en améliorant la satisfaction client.
+- **Tests** : 12 tests pytest `test_iter43_fix24j_public_commands.py` (adresse avec/sans config, alias !contact, horaires avec mise en évidence du jour, !horaire singulier, !stock match/empty/usage, !dispo alias, exclusion suspended, sanity disabled-toggle). **12/12 PASS**.
+- **Fichiers** :
+  - Backend : `routes/liluvine_wa_autoreply.py` lignes 756-1009 (helpers) + lignes 195-275 (dispatch)
+  - Backend : `routes/liluvine_pro.py` (payload + endpoint étendu)
+  - Frontend : `pages/admin/sections/LiluvineWaAutoreplySection.jsx` (nouvelle section "Profil enseigne")
+
 ---
 
 ## Comment référencer une suggestion

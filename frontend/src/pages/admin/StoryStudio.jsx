@@ -354,6 +354,10 @@ function AssetCard({ asset, onShare, onPublish, onDelete }) {
   const isReady = asset.status === "ready";
   const isProcessing = asset.status === "processing";
   const isFailed = asset.status === "failed";
+  // Iter43-fix24k — Statut "expired" : fichier local perdu (redéploiement K8s)
+  // ET URL source CDN expirée. L'asset reste visible avec un badge clair pour
+  // que l'admin puisse régénérer.
+  const isExpired = asset.status === "expired";
   const [blobUrl, setBlobUrl] = React.useState(null);
   const [blobLoading, setBlobLoading] = React.useState(false);
 
@@ -410,6 +414,14 @@ function AssetCard({ asset, onShare, onPublish, onDelete }) {
           <div className="text-center"><Loader2 className="h-8 w-8 animate-spin text-violet-600 mx-auto" /><p className="text-xs text-slate-500 mt-2">Génération…</p></div>
         ) : isFailed ? (
           <div className="text-center px-3"><AlertTriangle className="h-6 w-6 text-rose-500 mx-auto" /><p className="text-xs text-rose-600 mt-2">Échec</p><p className="text-[10px] text-slate-500 mt-1 line-clamp-2">{asset.error}</p></div>
+        ) : isExpired ? (
+          <div className="text-center px-3" data-testid={`asset-expired-${asset.id}`}>
+            <AlertTriangle className="h-6 w-6 text-amber-500 mx-auto" />
+            <p className="text-xs text-amber-700 font-semibold mt-2">Vidéo expirée</p>
+            <p className="text-[10px] text-slate-500 mt-1 line-clamp-3">
+              {asset.expired_reason || "Fichier perdu lors d'un redéploiement serveur. Régénérez l'asset."}
+            </p>
+          </div>
         ) : null}
         <span className="absolute top-2 left-2 text-[10px] uppercase tracking-wider font-semibold px-2 py-0.5 rounded bg-white/90 backdrop-blur ring-1 ring-slate-200">
           {isVideo ? "Vidéo" : "Image"} · {asset.engine}

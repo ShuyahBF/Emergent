@@ -610,6 +610,24 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - Backend : `routes/liluvine_pro.py` (payload + endpoint étendu)
   - Frontend : `pages/admin/sections/LiluvineWaAutoreplySection.jsx` (nouvelle section "Profil enseigne")
 
+## S067 — Story Studio : résilience aux redéploiements (Object Storage + fallback CDN)
+- **Demande utilisateur** : 2026-06 — « Concernant Story Studio, la bibliothèque est vide (cadre image vide mais aucun contenu) et l'historique affiche [fb_feed/ig_reel — Fichier vidéo introuvable] »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24k
+- **Cause racine** : Les vidéos générées étaient stockées **uniquement** sur le disque local `/app/backend/uploads/stories/` du container. À chaque redéploiement Kubernetes (Save to Github → Deploy), un nouveau container est créé et **tous les fichiers locaux sont perdus**. Les entrées BDD `story_assets` conservaient `file_path` mais le fichier n'existait plus → "Fichier vidéo introuvable" sur publication + cadre vide en bibliothèque.
+- **Fix architecture** (3 niveaux de résilience en cascade) :
+  1. **Stockage primaire** : disque local (rapide, garde le comportement existant)
+  2. **Stockage de backup persistant** : Emergent Object Storage (`object_storage.save_and_log`) au moment de la génération. Persiste indéfiniment, indépendant du container. Métadonnées dans `stored_objects` collection.
+  3. **Stockage de secours** : URL CDN d'origine (`source_url` Fal.ai). Re-download possible 24-72h après génération.
+  4. **Helper unifié** `_ensure_local_file(asset_doc)` qui essaie les 3 sources en cascade et auto-marque l'asset `status="expired"` si rien ne fonctionne.
+  5. **Endpoints résilients** : `stream_asset_media`, `signed_public_media` (utilisé par Meta), `_publish_single_target` utilisent tous le helper. Plus de "Fichier introuvable" sans tentative de restauration.
+- **UI** : `AssetCard` affiche désormais les assets `expired` avec un badge ambré « ⚠️ Vidéo expirée — Régénérez l'asset » au lieu d'un cadre vide.
+- **Bénéfice** : Les vidéos générées **survivent maintenant aux redéploiements**. Les anciens assets cassés sont visibles et clairement marqués pour régénération (au lieu d'un échec silencieux).
+- **Tests** : 4 tests pytest `test_iter43_fix24k_story_studio_resilience.py` (fichier présent / 410 si tout échoue / restoration source_url / bibliothèque liste les expired). **4/4 PASS**.
+- **Fichiers** :
+  - Backend : `routes/story_studio.py` (+import object_storage, +helper `_ensure_local_file` 90 lignes, +upload backup à la génération, +tuple return `_generate_with_fal`, +cascade dans stream + publish + signed-media)
+  - Frontend : `pages/admin/StoryStudio.jsx` (variable `isExpired`, badge ambré dans `AssetCard`)
+
 ---
 
 ## Comment référencer une suggestion

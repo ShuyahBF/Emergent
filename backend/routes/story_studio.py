@@ -51,6 +51,10 @@ from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 from dotenv import load_dotenv
 
+# Iter43-fix24k — Stockage objet persistant (survit aux redéploiements K8s).
+# Si désactivé (clé manquante), retombe gracieusement sur le disque local.
+import object_storage as _obj_storage
+
 load_dotenv()
 
 logger = logging.getLogger("sawali.story_studio")
@@ -337,6 +341,115 @@ def attach_story_studio_routes(
     logger.info(f"[story_studio] media dir = {STORY_DIR}")
 
     # ========================================================================
+    # Iter43-fix24k (2026-06) — Résilience disque éphémère
+    # ========================================================================
+    async def _ensure_local_file(asset_doc: Dict[str, Any]) -> Optional[str]:
+        """Garantit qu'un fichier vidéo/image local existe pour cet asset.
+
+        Logique en cascade (Iter43-fix24k) :
+          1. Si `file_path` existe sur disque → retourne le chemin.
+          2. Sinon, si `storage_path` (Emergent Object Storage) → download depuis là
+             (PERSISTANT, survit aux redéploiements K8s — option PRÉFÉRÉE).
+          3. Sinon, si `source_url` (URL CDN Fal.ai) → tente la re-download
+             (peut expirer après 24-72h selon le provider).
+          4. Si tout échoue → marque l'asset `status="expired"` et retourne None.
+        """
+        import httpx
+        asset_id = asset_doc.get("id") or ""
+        fpath = asset_doc.get("file_path")
+        # Cas 1 : le fichier existe localement
+        if fpath and Path(fpath).exists():
+            return fpath
+        # Cas 2 : reconstruire le path attendu (pour les anciens assets sans file_path)
+        if not fpath:
+            kind = asset_doc.get("kind") or "video"
+            engine = asset_doc.get("engine") or ""
+            if kind == "video":
+                prefix = "fal_" if engine == "fal" else "sora_"
+                guess = STORY_DIR / f"{prefix}{asset_id}.mp4"
+            else:
+                guess = STORY_DIR / f"img_{asset_id}.png"
+            if guess.exists():
+                await db.story_assets.update_one(
+                    {"id": asset_id}, {"$set": {"file_path": str(guess)}},
+                )
+                return str(guess)
+            fpath = str(guess)
+        target_path = Path(fpath)
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+
+        # Cas 3 : tente la restauration depuis Object Storage (préféré, persistant)
+        storage_path = asset_doc.get("storage_path")
+        if storage_path and (_obj_storage.is_enabled() or await _obj_storage.init_storage()):
+            try:
+                logger.info(
+                    "[story_studio] restoring asset %s from object_storage %s",
+                    asset_id, storage_path,
+                )
+                data, _ct = await _obj_storage.get_object(storage_path)
+                target_path.write_bytes(data)
+                await db.story_assets.update_one(
+                    {"id": asset_id},
+                    {"$set": {
+                        "file_path": str(target_path),
+                        "file_size": target_path.stat().st_size,
+                        "status": "ready",
+                        "restored_at": _now_iso(),
+                        "restored_from": "object_storage",
+                    }},
+                )
+                return str(target_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[story_studio] object_storage restore failed for asset %s: %s",
+                    asset_id, exc,
+                )
+
+        # Cas 4 : fallback re-download depuis source_url (Fal.ai CDN — peut expirer)
+        source_url = asset_doc.get("source_url")
+        if source_url:
+            try:
+                logger.info(
+                    "[story_studio] re-downloading asset %s from source_url (file missing)",
+                    asset_id,
+                )
+                async with httpx.AsyncClient(timeout=180.0) as client:
+                    r = await client.get(source_url)
+                    r.raise_for_status()
+                    target_path.write_bytes(r.content)
+                await db.story_assets.update_one(
+                    {"id": asset_id},
+                    {"$set": {
+                        "file_path": str(target_path),
+                        "file_size": target_path.stat().st_size,
+                        "status": "ready",
+                        "restored_at": _now_iso(),
+                        "restored_from": "source_url",
+                    }},
+                )
+                return str(target_path)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "[story_studio] source_url re-download failed for %s: %s",
+                    asset_id, exc,
+                )
+
+        # Cas 5 : impossible de restaurer → marque comme expired
+        await db.story_assets.update_one(
+            {"id": asset_id},
+            {"$set": {
+                "status": "expired",
+                "expired_at": _now_iso(),
+                "expired_reason": (
+                    "Fichier local manquant ET object storage indisponible "
+                    "ET URL source expirée. Régénérez l'asset pour le récupérer."
+                ),
+                "updated_at": _now_iso(),
+            }},
+        )
+        return None
+
+    # ========================================================================
     # SETTINGS (admin only)
     # ========================================================================
     @api.get("/admin/story-studio/settings", tags=["Admin — Story Studio"])
@@ -443,11 +556,13 @@ def attach_story_studio_routes(
 
         # Exécute la génération en tâche bloquante (le client web est patient ou poll après)
         try:
+            source_url: Optional[str] = None  # URL Fal/Sora CDN pour re-download si fichier perdu
             if engine.startswith("sora"):
+                # Sora renvoie des bytes (pas d'URL CDN persistante exposée par emergentintegrations)
                 video_path = await _generate_with_sora(payload, asset_id)
             else:
-                # Fal.ai
-                video_path = await _generate_with_fal(payload, asset_id, db)
+                # Fal.ai : on récupère ET le path local ET l'URL CDN d'origine
+                video_path, source_url = await _generate_with_fal(payload, asset_id, db)
 
             if not video_path or not Path(video_path).exists():
                 raise RuntimeError("Génération vidéo : aucun fichier produit")
@@ -463,16 +578,53 @@ def attach_story_studio_routes(
             # Iter43-fix10a — URL via endpoint streaming dédié (les fichiers ne sont PAS
             # exposés via static mount sur ce déploiement Kubernetes).
             rel_url = f"/admin/story-studio/library/{asset_id}/media"
+            update_doc = {
+                "status": "ready",
+                "url": rel_url,
+                "file_path": video_path,  # chemin disque pour le streamer
+                "file_size": file_size,
+                "usage_estimate": usage_estimate,
+                "updated_at": _now_iso(),
+            }
+            # Iter43-fix24k — Persiste l'URL CDN d'origine (Fal.ai) pour permettre
+            # la re-download à la demande si le fichier local disparaît (redéploiement
+            # Kubernetes qui efface le filesystem du container).
+            if source_url:
+                update_doc["source_url"] = source_url
+            # Iter43-fix24k — Upload vers Emergent Object Storage (PERSISTANT entre
+            # redéploiements). Le `storage_path` permet la restauration garantie même
+            # si l'URL Fal expire (≥72h après génération).
+            try:
+                if _obj_storage.is_enabled() or await _obj_storage.init_storage():
+                    with open(video_path, "rb") as fh:
+                        video_bytes = fh.read()
+                    obj_meta = await _obj_storage.save_and_log(
+                        db,
+                        data=video_bytes,
+                        kind="ai_media",
+                        tenant_id=asset_doc.get("tenant_id") or "_global",
+                        ext="mp4",
+                        content_type="video/mp4",
+                        original_filename=f"story_{asset_id}.mp4",
+                        user_id=user["id"],
+                        metadata={"asset_id": asset_id, "engine": engine, "model": payload.model},
+                    )
+                    update_doc["storage_path"] = obj_meta["path"]
+                    update_doc["storage_id"] = obj_meta["id"]
+                    logger.info(
+                        "[story_studio] asset %s uploaded to object storage at %s",
+                        asset_id, obj_meta["path"],
+                    )
+            except Exception as exc:  # noqa: BLE001
+                # Non-fatal — l'asset reste utilisable via le disque local + source_url.
+                # Mais alerter dans les logs pour qu'on remarque si le storage est down.
+                logger.warning(
+                    "[story_studio] object storage upload failed for asset %s: %s",
+                    asset_id, exc,
+                )
             await db.story_assets.update_one(
                 {"id": asset_id},
-                {"$set": {
-                    "status": "ready",
-                    "url": rel_url,
-                    "file_path": video_path,  # chemin disque pour le streamer
-                    "file_size": file_size,
-                    "usage_estimate": usage_estimate,
-                    "updated_at": _now_iso(),
-                }},
+                {"$set": update_doc},
             )
             fresh = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
             return {"ok": True, "asset": fresh}
@@ -593,8 +745,13 @@ def attach_story_studio_routes(
         Path(out_path).write_bytes(video_bytes)
         return out_path
 
-    async def _generate_with_fal(payload: StoryGenerateText2Video, asset_id: str, db_) -> str:
-        """Fal.ai (Kling 2.1 Master par défaut)."""
+    async def _generate_with_fal(payload: StoryGenerateText2Video, asset_id: str, db_) -> tuple[str, Optional[str]]:
+        """Fal.ai (Kling 2.1 Master par défaut).
+
+        Returns: (local_path, source_url) — Iter43-fix24k stocke source_url pour
+        permettre la re-download à la demande si le fichier disque disparaît
+        (redéploiement K8s qui remet le filesystem à zéro).
+        """
         import fal_client  # type: ignore
         import httpx
         # Récupère la clé Fal depuis settings.global.story_studio
@@ -623,7 +780,7 @@ def attach_story_studio_routes(
             r = await client.get(video_url)
             r.raise_for_status()
             out_path.write_bytes(r.content)
-        return str(out_path)
+        return str(out_path), str(video_url)
 
     # ========================================================================
     # Iter43-fix11 — Meta credentials & publishing helpers (closure over `db`)
@@ -662,9 +819,18 @@ def attach_story_studio_routes(
             if not acc:
                 return {"ok": False, "error": "Compte social introuvable"}
 
-            file_path = asset_doc.get("file_path")
-            if not file_path or not Path(file_path).exists():
-                return {"ok": False, "error": "Fichier vidéo introuvable"}
+            # Iter43-fix24k — Garantit que le fichier local existe (re-download
+            # depuis source_url si nécessaire). Évite les "Fichier vidéo introuvable"
+            # après un redéploiement K8s qui efface le filesystem du container.
+            file_path = await _ensure_local_file(asset_doc)
+            if not file_path:
+                return {
+                    "ok": False,
+                    "error": (
+                        "Fichier vidéo perdu (redéploiement serveur) "
+                        "et URL source expirée. Régénérez la vidéo via « Recréer »."
+                    ),
+                }
 
             # TikTok : pas de notion de Page, on appelle directement
             if target.target == "tiktok":
@@ -1067,26 +1233,20 @@ def attach_story_studio_routes(
         doc = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Asset introuvable")
-        if doc.get("status") != "ready":
+        if doc.get("status") not in ("ready", "expired"):
             raise HTTPException(status_code=400, detail=f"Asset non prêt (statut: {doc.get('status')})")
-        fpath = doc.get("file_path")
-        # Iter43-fix10a — Backward-compat : reconstruit le path depuis l'id
-        # pour les assets créés avant ce fix (file_path absent).
+        # Iter43-fix24k — Helper résilient : vérifie le fichier local, sinon
+        # tente la re-download depuis source_url (Fal.ai CDN), sinon marque expired.
+        fpath = await _ensure_local_file(doc)
         if not fpath:
-            kind = doc.get("kind")
-            engine = doc.get("engine") or ""
-            if kind == "video":
-                prefix = "fal_" if engine == "fal" else "sora_"
-                guess = STORY_DIR / f"{prefix}{asset_id}.mp4"
-            else:
-                guess = STORY_DIR / f"img_{asset_id}.png"
-            if guess.exists():
-                fpath = str(guess)
-                # Persiste pour les prochains accès
-                await db.story_assets.update_one({"id": asset_id}, {"$set": {"file_path": fpath}})
-        if not fpath or not Path(fpath).exists():
-            logger.error("[story_studio] file missing on disk: %s (asset=%s)", fpath, asset_id)
-            raise HTTPException(status_code=410, detail="Fichier introuvable sur le disque")
+            logger.error("[story_studio] file unrecoverable for asset=%s", asset_id)
+            raise HTTPException(
+                status_code=410,
+                detail=(
+                    "Vidéo expirée — le fichier local a été perdu (redéploiement) "
+                    "et l'URL source n'est plus accessible. Régénérez l'asset."
+                ),
+            )
         media_type = "video/mp4" if doc.get("kind") == "video" else "image/png"
         return FileResponse(
             fpath,
@@ -1813,9 +1973,13 @@ def attach_story_studio_routes(
         doc = await db.story_assets.find_one({"id": asset_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Asset introuvable")
-        fpath = doc.get("file_path")
-        if not fpath or not Path(fpath).exists():
-            raise HTTPException(status_code=410, detail="Fichier introuvable")
+        # Iter43-fix24k — Résilience : re-download depuis source_url si fichier perdu
+        fpath = await _ensure_local_file(doc)
+        if not fpath:
+            raise HTTPException(
+                status_code=410,
+                detail="Fichier perdu et URL source expirée (régénérez l'asset)",
+            )
         media_type = "video/mp4" if doc.get("kind") == "video" else "image/png"
         return FileResponse(fpath, media_type=media_type)
 

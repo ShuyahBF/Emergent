@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "sonner";
 import "@/App.css";
@@ -183,6 +183,29 @@ const Protected = ({ admin = false, children }) => {
   return children;
 };
 
+// Iter43-fix24r (2026-06) — Route-guard spécifique pour le menu Officines délégué.
+// Un utilisateur non-admin listé dans `settings.officines_menu_allowed_emails` doit
+// pouvoir atteindre `/admin/officines-registry` sans être redirigé. Cette
+// protection asynchrone interroge `/me/officines-permissions` AVANT de rediriger.
+function OfficinesDelegatedProtected({ children }) {
+  const { user, loading } = useAuth();
+  const [allowed, setAllowed] = useState(null); // null = loading
+  useEffect(() => {
+    if (!user) { setAllowed(false); return; }
+    if (user.role === "admin") { setAllowed(true); return; }
+    let cancelled = false;
+    apiClient.get("/me/officines-permissions").then((r) => {
+      if (!cancelled) setAllowed(r.data?.can_view === true);
+    }).catch(() => { if (!cancelled) setAllowed(false); });
+    return () => { cancelled = true; };
+  }, [user]);
+  if (loading) return null;
+  if (!user) return <Navigate to="/login" replace />;
+  if (allowed === null) return null;
+  if (allowed === false) return <Navigate to="/portal" replace />;
+  return children;
+}
+
 export default function App() {
   // Iter40-ui-flags — Apply public branding (title, --brand-primary CSS var)
   // app-wide. The hook fetches once and listens for ui-flags-updated.
@@ -343,14 +366,31 @@ export default function App() {
             <Route path="settings" element={<AdminSettings />} />
             <Route path="voice-notifications" element={<AdminVoiceNotifications />} />
             <Route path="ad-banners" element={<AdminAdBanners />} />
-            {/* Iter42 — Officines Registry (validation des pharmacies inscrites) */}
-            <Route path="officines-registry" element={<AdminOfficinesRegistry />} />
+            {/* Iter42 — Officines Registry (validation des pharmacies inscrites).
+                Iter43-fix24r (2026-06) — DÉPLACÉ hors de ce groupe : la route
+                top-level `/admin/officines-registry` ci-dessous gère désormais
+                la délégation aux non-admins listés dans
+                `settings.officines_menu_allowed_emails`. */}
             <Route path="garde-planning" element={<AdminGardePlanning />} />
             <Route path="liluvine-wa-requests" element={<AdminLiluvineWaRequests />} />
             {/* Iter43-fix24f */}
             <Route path="handler-suggestions" element={<AdminHandlerSuggestions />} />
             <Route path="bird-cost" element={<AdminBirdCost />} />
             <Route path="story-studio" element={<StoryStudio />} />
+          </Route>
+
+          {/* Iter43-fix24r (2026-06) — Route Officines Registry isolée, autorise
+              les utilisateurs délégués (non-admin) listés dans
+              `settings.officines_menu_allowed_emails`. */}
+          <Route
+            path="/admin/officines-registry"
+            element={
+              <OfficinesDelegatedProtected>
+                <PortalLayout admin />
+              </OfficinesDelegatedProtected>
+            }
+          >
+            <Route index element={<AdminOfficinesRegistry />} />
           </Route>
 
           <Route path="*" element={<Navigate to="/" replace />} />

@@ -9,6 +9,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24r (2026-06-16) — VIDAL URL Cleaning + Officines Route-Guard ✅
+
+**Statut** : LIVRÉ. 18/18 pytest (7 fix24n + 11 fix24r). Smoke test admin OK.
+
+### Bug 1 : VIDAL retourne du HTML au lieu de JSON (fix RÉEL)
+- **Cause** : L'admin avait collé `http://api.vidal.fr/#!/rest/api` (URL Angular de l'API explorer) au lieu de `https://api.vidal.net/rest/api`. Le hashbang `#!/` n'est jamais envoyé au serveur, donc VIDAL recevait `GET /` et renvoyait sa page d'accueil HTML.
+- **Fix précédent (handoff) JAMAIS APPLIQUÉ** : le code dans `vidal.py` n'avait aucune logique de nettoyage. Le git log confirme aucun commit avec cette logique.
+- **Fix réel** : Ajout de `_clean_vidal_base_url(raw)` qui "déplie" le hashbang :
+  - `http://api.vidal.fr/#!/rest/api` → `http://api.vidal.fr/rest/api`
+  - `http://api.vidal.fr/#!/` → `http://api.vidal.fr` (juste strip)
+- Appelée dans 3 endroits :
+  - `_load_config()` (à la lecture, pour que les URLs déjà stockées soient nettoyées)
+  - `admin_set_vidal_config()` (à la sauvegarde via PUT)
+  - `admin_get_vidal_config()` (à l'affichage GET pour cohérence UI/backend)
+
+### Bug 2 : Utilisateur délégué Officines redirigé vers le Dashboard (fix RÉEL)
+- **Cause** : Le composant `Protected admin` dans `App.js` ligne 182 redirigeait IMMÉDIATEMENT vers `/portal` si `user.role !== "admin"`, AVANT que `PortalLayout` ne monte. Donc le flag `permissionsLoaded` ajouté dans la session précédente était inutile.
+- **Fix réel** :
+  - Création d'un composant `OfficinesDelegatedProtected` qui interroge `/me/officines-permissions` AVANT de rendre la page (loading state explicite).
+  - Sortie de la route `/admin/officines-registry` du groupe `<Route path="/admin" element={<Protected admin>}>`.
+  - Création d'une route top-level `/admin/officines-registry` utilisant le nouveau garde.
+  - PortalLayout reste utilisé (sidebar/header identiques).
+
+### Files modifiés
+- `/app/backend/routes/vidal.py` : `_clean_vidal_base_url` + 3 call sites
+- `/app/frontend/src/App.js` : nouveau `OfficinesDelegatedProtected` + route déplacée
+- `/app/backend/tests/test_iter43_fix24r_vidal_url_clean.py` : 11 nouveaux tests
+
+### IMPORTANT — Re-déploiement requis
+Le préviews est OK, mais l'environnement production (`sawalismartsystems.com`) montre encore les anciens bugs. L'utilisateur doit cliquer **"Save to Github"** puis **redéployer** pour appliquer les correctifs.
+
+
+
 ## Iter43-fix24g (2026-06-15) — Bird SMS Provider in UI + Dry-Run Sandbox ✅
 
 **Statut** : LIVRÉ + testé via testing agent (Backend 11/11 pytest, Frontend 3/3 dropdowns + dry-run UI e2e).

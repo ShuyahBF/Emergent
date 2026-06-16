@@ -156,11 +156,16 @@ export default function PortalLayout({ admin = false }) {
   const [tenantFeatures, setTenantFeatures] = useState({});
   // Iter43-fix24o (2026-06) — Délégation menu Officines à des non-admin
   const [officinesDelegated, setOfficinesDelegated] = useState(false);
+  // Iter43-fix24q — race condition fix : ne pas rediriger avant d'avoir reçu les perms.
+  const [permissionsLoaded, setPermissionsLoaded] = useState(false);
   useEffect(() => {
     if (!user) return;
     apiClient.get("/me/officines-permissions")
-      .then((r) => setOfficinesDelegated(r.data?.can_view === true && r.data?.edit_mode === "limited"))
-      .catch(() => setOfficinesDelegated(false));
+      .then((r) => {
+        setOfficinesDelegated(r.data?.can_view === true && r.data?.edit_mode === "limited");
+      })
+      .catch(() => setOfficinesDelegated(false))
+      .finally(() => setPermissionsLoaded(true));
   }, [user]);
   useEffect(() => {
     apiClient.get("/me/features").then((r) => {
@@ -262,16 +267,15 @@ export default function PortalLayout({ admin = false }) {
 
   useEffect(() => {
     if (!user) navigate("/login");
-    // Iter43-fix24o — un utilisateur délégué Officines peut accéder à /admin/officines-registry
-    // depuis le layout client (pas besoin d'être admin). Pour les AUTRES pages admin,
-    // le redirect normal s'applique.
-    if (admin && user && user.role !== "admin") {
+    // Iter43-fix24o + 24q — délégation Officines : attendre que les perms soient chargées
+    // avant de décider du redirect (sinon race condition → moderator vire vers /portal).
+    if (admin && user && user.role !== "admin" && permissionsLoaded) {
       const onOfficinesRegistry = location.pathname.startsWith("/admin/officines-registry");
       if (!(onOfficinesRegistry && officinesDelegated)) {
         navigate("/portal");
       }
     }
-  }, [user, admin, navigate, officinesDelegated, location.pathname]);
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname]);
 
   // Web Notifications + son sur nouveaux WA
   const waNotifier = useWhatsAppNotifier();

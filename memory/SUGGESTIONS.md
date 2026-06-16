@@ -628,6 +628,34 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - Backend : `routes/story_studio.py` (+import object_storage, +helper `_ensure_local_file` 90 lignes, +upload backup à la génération, +tuple return `_generate_with_fal`, +cascade dans stream + publish + signed-media)
   - Frontend : `pages/admin/StoryStudio.jsx` (variable `isExpired`, badge ambré dans `AssetCard`)
 
+## S068 — Délégation menu Officines à des comptes non-admin (RBAC champ par champ)
+- **Demande utilisateur** : 2026-06 — « Permettre de configurer dans Admin Settings les comptes des utilisateurs pouvant afficher le menu officine. Ces utilisateurs ne pourront modifier dans la fiche individuelle des pharmacies : l'intitulé, les numéros de téléphone et WhatsApp, la géolocalisation, mes indication de localisation, et l'activité principale. Les autres champs restant grisés. Par contre pour l'ajout des nouvelles officines tous les champs sont actifs. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24n
+- **Détail** :
+  - Nouveau setting `officines_menu_allowed_emails: List[str]` éditable dans Admin → Paramètres → « 🏥 Délégation menu Officines (comptes autorisés) »
+  - Backend : helper `_get_officines_menu_user(user) → (user, edit_mode)` qui retourne `"full"` pour admin/supervisor, `"limited"` pour email autorisé, sinon HTTP 403
+  - Nouvel endpoint `GET /api/me/officines-permissions` → `{can_view, edit_mode, editable_fields}` utilisé par le frontend pour route-guard et grisage
+  - Endpoints `/admin/officines-registry`, `/admin/officines-registry/{id}` (GET + PUT) acceptent désormais admin ET utilisateur délégué
+  - En mode `limited`, le PUT filtre payload : seuls `intitule, phone, whatsapp, latitude, longitude, location_hint, activite_principale` peuvent être modifiés. Les autres champs sont ignorés silencieusement (UX : grisés côté UI)
+  - POST création officine : un délégué peut créer avec TOUS les champs (la restriction limited ne s'applique qu'à l'édition d'une fiche existante)
+- **Frontend** : `EditOfficineModal` reçoit `editMode` ; banner ambré affiché en mode limited ; helper `canEdit(field)` ; `Field` composant accepte `disabled` (background slate-100 + readonly) ; les selects Activité / Rôle / Groupe garde + l'upload logo sont également désactivés ; le bouton "Détecter ma position" est disabled si latitude lock
+- **Tests** : 7 tests pytest `test_iter43_fix24n_officines_delegation.py` (admin full / non-admin 403 / délégué limited / liste autorisée / PUT filtré server-side / admin keeps full / création avec tous les champs). **7/7 PASS**.
+
+## S069 — Bouton test SMS Bird + Fix critique webhook !commandes
+- **Demande utilisateur** : 2026-06 — « Place moi un bouton 'test' à la configuration de BIRD dans Admin settings pour tester l'envoie de message à un numéro et afficher le code retour. Puis les commandes '!' ne marchent toujours pas. elles ne sont pas suivies de réponses. Est ce la bonne table qui est utilisée ? »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24l
+- **Bug racine `!commandes` muettes** : le webhook WhatsApp (`server.py:16986`) avait une exclusion explicite `... and not (text.startswith("!") or text.startswith("/"))` qui bypass `autoreply_to_inbound` pour TOUTES les commandes `!`. Donc seuls `!absence`/`!avance`/`!ticket`/`!aide` (gérés par leur propre handler HR) répondaient. `!garde`/`!meteo`/`!adresse`/`!horaires`/`!stock`/`!Aizenta` restaient muets MÊME AVEC les fix24h/i/j en place.
+- **Fix appliqué** : suppression de l'exclusion `!`/`/`. Toutes les commandes `!` non HR passent désormais au dispatcher centralisé `autoreply_to_inbound`.
+- **Bouton test Bird** : endpoint `POST /admin/bird/test-sms` qui envoie un vrai SMS et retourne HTTP status + latency + headers + corps Bird complets. Bypass `bird_enabled` toggle pour valider la config avant activation. Pas de persistance dans `bird_sms_messages` (mode test). UI : bloc vert "🧪 Tester l'envoi SMS Bird" dans Admin → Paramètres → Bird Channels SMS.
+
+## S070 — Suppression TeamPresenceBadge du top menu public
+- **Demande utilisateur** : 2026-06 — « Supprimer totalement de la page publique le lien "équipe joignable 24/7" se trouvant dans le menu du haut. uniquement là bas »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06)
+- **Fix associé** : Iter43-fix24m
+- **Détail** : Retrait du composant `<TeamPresenceBadge>` de `MarketingNav.jsx` uniquement. Le badge reste visible en `Home.jsx`, `Contact.jsx`, `MarketingFooter.jsx` (comme demandé : "uniquement là bas").
+
 ---
 
 ## Comment référencer une suggestion

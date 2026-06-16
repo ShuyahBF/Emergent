@@ -771,11 +771,77 @@ def attach_officines_portal_admin_routes(
     *,
     db,
     get_current_admin,
+    get_current_user=None,  # Iter43-fix24n — pour la délégation menu Officines
 ) -> None:
     """Admin-only routes for officine validation/management.
 
     Mounted under /api/admin/officines-registry/*
+
+    Iter43-fix24n (2026-06) : ajoute le support de la **délégation du menu
+    Officines** à des utilisateurs non-admin listés dans
+    `settings.officines_menu_allowed_emails`. Ces utilisateurs ont des droits
+    d'édition LIMITÉS (cf. `_OFFICINE_DELEGATED_EDITABLE_FIELDS`).
     """
+
+    # Iter43-fix24n — Champs éditables par un utilisateur délégué (non-admin).
+    # Les autres restent en lecture seule (côté UI grisé + rejet côté backend).
+    _OFFICINE_DELEGATED_EDITABLE_FIELDS = {
+        "intitule",
+        "phone",
+        "whatsapp",
+        "latitude",
+        "longitude",
+        "location_hint",
+        "activite_principale",
+    }
+
+    async def _get_officines_menu_user(user: dict) -> tuple[dict, str]:
+        """Retourne (user, edit_mode) où edit_mode ∈ {"full", "limited"}.
+
+        - Admin / supervisor → "full"
+        - Utilisateur listé dans settings.officines_menu_allowed_emails → "limited"
+        - Sinon → HTTP 403
+        """
+        if (user.get("role") or "").lower() in ("admin", "supervisor", "superviseur"):
+            return user, "full"
+        email = (user.get("email") or "").strip().lower()
+        if not email:
+            raise HTTPException(status_code=403, detail="Accès Officines refusé")
+        s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "officines_menu_allowed_emails": 1}) or {}
+        allowed = s.get("officines_menu_allowed_emails") or []
+        allowed_norm = {e.strip().lower() for e in allowed if e and e.strip()}
+        if email in allowed_norm:
+            return user, "limited"
+        raise HTTPException(status_code=403, detail="Accès Officines refusé — contactez un administrateur")
+
+    async def _require_admin_or_delegated(user: dict) -> tuple[dict, str]:
+        """Wrapper utilisable par les endpoints qui doivent accepter admin OU délégué."""
+        return await _get_officines_menu_user(user)
+
+    if get_current_user is not None:
+        @api.get("/me/officines-permissions", tags=["Admin — Officines Registry"])
+        async def me_officines_permissions(user: dict = Depends(get_current_user)):
+            """Retourne {can_view, edit_mode, editable_fields} pour l'utilisateur courant.
+
+            Utilisé par le frontend pour griser les champs en mode délégué et
+            pour le route-guard du menu Officines.
+            """
+            try:
+                _, edit_mode = await _get_officines_menu_user(user)
+            except HTTPException:
+                return {
+                    "can_view": False,
+                    "edit_mode": None,
+                    "editable_fields": [],
+                }
+            return {
+                "can_view": True,
+                "edit_mode": edit_mode,
+                "editable_fields": (
+                    sorted(_OFFICINE_DELEGATED_EDITABLE_FIELDS) if edit_mode == "limited"
+                    else "all"
+                ),
+            }
 
     @api.get("/admin/officines-registry", tags=["Admin — Officines Registry"])
     async def list_registry(
@@ -784,8 +850,11 @@ def attach_officines_portal_admin_routes(
         role: Optional[str] = Query(None),
         q: Optional[str] = Query(None),
         limit: int = Query(500, ge=1, le=2000),
-        user: dict = Depends(get_current_admin),
+        user: dict = Depends(get_current_user or get_current_admin),
     ):
+        # Iter43-fix24n — Délégation : admin OU utilisateur autorisé via setting
+        if get_current_user is not None:
+            await _get_officines_menu_user(user)
         query: Dict[str, Any] = {}
         if status:
             query["status"] = status
@@ -975,7 +1044,10 @@ def attach_officines_portal_admin_routes(
         return {"ok": True, "matched": result.matched_count, "modified": result.modified_count}
 
     @api.get("/admin/officines-registry/{officine_id}", tags=["Admin — Officines Registry"])
-    async def detail(officine_id: str, user: dict = Depends(get_current_admin)):
+    async def detail(officine_id: str, user: dict = Depends(get_current_user or get_current_admin)):
+        # Iter43-fix24n — Délégation : admin OU email autorisé
+        if get_current_user is not None:
+            await _get_officines_menu_user(user)
         doc = await db.officines.find_one({"id": officine_id}, {"_id": 0})
         if not doc:
             raise HTTPException(status_code=404, detail="Officine introuvable")
@@ -1215,7 +1287,7 @@ def attach_officines_portal_admin_routes(
     @api.post("/admin/officines-registry", tags=["Admin — Officines Registry"])
     async def create_officine(
         payload: Dict[str, Any] = Body(...),
-        user: dict = Depends(get_current_admin),
+        user: dict = Depends(get_current_user or get_current_admin),
     ):
         """Création manuelle d'une officine.
 
@@ -1223,7 +1295,13 @@ def attach_officines_portal_admin_routes(
         Champs optionnels : tous les autres (intitule, email, phone, whatsapp,
         address, city, country, location_hint, numero_ordre, contact_name,
         latitude, longitude, role, groupe_garde, activite_principale).
+
+        Iter43-fix24n : utilisateur "délégué" peut créer une officine avec TOUS
+        les champs (la restriction limited s'applique seulement à l'édition).
         """
+        # Iter43-fix24n — admin OU délégué
+        if get_current_user is not None:
+            await _get_officines_menu_user(user)
         name = (payload.get("name") or "").strip()
         if not name:
             raise HTTPException(status_code=400, detail="`name` requis")
@@ -1316,11 +1394,22 @@ def attach_officines_portal_admin_routes(
     async def update_officine(
         officine_id: str,
         payload: Dict[str, Any] = Body(...),
-        user: dict = Depends(get_current_admin),
+        user: dict = Depends(get_current_user or get_current_admin),
     ):
         """Mise à jour d'une fiche officine. Champs autorisés : name (=code),
         intitule, email, phone, whatsapp, address, city, country, location_hint,
-        numero_ordre, contact_name, logo_url, latitude, longitude."""
+        numero_ordre, contact_name, logo_url, latitude, longitude.
+
+        Iter43-fix24n : un utilisateur "délégué" (non-admin listé dans
+        `officines_menu_allowed_emails`) ne peut modifier QUE :
+        intitule, phone, whatsapp, latitude, longitude, location_hint,
+        activite_principale.
+        """
+        # Iter43-fix24n — Délégation
+        edit_mode = "full"
+        if get_current_user is not None:
+            _, edit_mode = await _get_officines_menu_user(user)
+
         existing = await db.officines.find_one({"id": officine_id}, {"_id": 0})
         if not existing:
             raise HTTPException(status_code=404, detail="Officine introuvable")
@@ -1329,11 +1418,14 @@ def attach_officines_portal_admin_routes(
             "address", "city", "country", "location_hint",
             "numero_ordre", "contact_name", "logo_url",
             "latitude", "longitude",
-            # Iter43-fix12 (2026-03)
             "activite_principale",
-            # Iter43-fix21 (2026-06) — Rôle (configurable) + Groupe de Garde (entier)
             "role", "groupe_garde",
         }
+        # Iter43-fix24n — En mode limited, on filtre par la whitelist des champs délégués.
+        # Champs envoyés par l'UI mais non autorisés en limited → rejet silencieux
+        # (UX : le frontend grise déjà les autres champs).
+        if edit_mode == "limited":
+            allowed = allowed & _OFFICINE_DELEGATED_EDITABLE_FIELDS
         update: Dict[str, Any] = {}
         for k, v in (payload or {}).items():
             if k not in allowed:

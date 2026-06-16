@@ -466,6 +466,12 @@ class SettingsUpdate(BaseModel):
     wa_silent_phones_enabled: Optional[bool] = None
     wa_silent_phones: Optional[List[str]] = None
 
+    # Iter43-fix24n (2026-06) — Délégation menu Officines à des comptes non-admin
+    # Liste d'emails autorisés à accéder à /admin/officines sans rôle admin.
+    # Ces utilisateurs ne peuvent modifier que : intitule, phone, whatsapp,
+    # latitude, longitude, location_hint, activite_principale.
+    officines_menu_allowed_emails: Optional[List[str]] = None
+
     # Iter40 (2026-02) — Token Bearer pour le webhook /api/errors/ingest
     errors_webhook_token: Optional[str] = None
 

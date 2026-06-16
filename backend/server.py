@@ -23319,6 +23319,8 @@ _attach_officines_portal(
 )
 _attach_officines_portal_admin(
     api=api, db=db, get_current_admin=get_current_admin,
+    # Iter43-fix24n — get_current_user permet la délégation aux non-admin
+    get_current_user=get_current_user,
 )
 _attach_synthese_otp_admin(
     api=api, db=db, get_current_admin=get_current_admin,

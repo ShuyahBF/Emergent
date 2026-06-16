@@ -64,6 +64,21 @@ export default function AdminOfficinesRegistry() {
   // Iter43-fix23 — Création manuelle d'une officine
   const [showCreate, setShowCreate] = React.useState(false);
 
+  // Iter43-fix24n (2026-06) — Délégation menu Officines (permissions limited/full)
+  const [permissions, setPermissions] = React.useState({ can_view: true, edit_mode: "full" });
+
+  const loadPermissions = React.useCallback(async () => {
+    try {
+      const r = await apiClient.get("/me/officines-permissions");
+      setPermissions({
+        can_view: !!r.data?.can_view,
+        edit_mode: r.data?.edit_mode || "full",
+      });
+    } catch { /* admin endpoint absent → fallback: full access (legacy) */ }
+  }, []);
+
+  React.useEffect(() => { loadPermissions(); }, [loadPermissions]);
+
   const load = React.useCallback(async () => {
     setLoading(true);
     try {
@@ -406,6 +421,7 @@ export default function AdminOfficinesRegistry() {
         <EditOfficineModal
           officine={editingFor}
           activities={activities}
+          editMode={permissions.edit_mode}
           onClose={() => setEditingFor(null)}
           onSaved={() => { setEditingFor(null); load(); }}
         />
@@ -747,7 +763,16 @@ function RolesAdminModal({ onClose }) {
   );
 }
 
-function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
+function EditOfficineModal({ officine, activities = [], editMode = "full", onClose, onSaved }) {
+  // Iter43-fix24n (2026-06) — Édition limitée : pour un utilisateur "délégué"
+  // (non-admin listé dans settings.officines_menu_allowed_emails), seuls les
+  // champs suivants sont éditables. Les autres sont grisés en lecture seule.
+  const LIMITED_FIELDS = new Set([
+    "intitule", "phone", "whatsapp", "latitude", "longitude",
+    "location_hint", "activite_principale",
+  ]);
+  const isLimited = editMode === "limited";
+  const canEdit = (field) => !isLimited || LIMITED_FIELDS.has(field);
   const [form, setForm] = React.useState({
     name: officine.name || "",
     intitule: officine.intitule || "",
@@ -880,10 +905,10 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                   <ImageIcon className="h-6 w-6 text-slate-300" />
                 </div>
               )}
-              <label className="text-xs inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white ring-1 ring-slate-300 hover:bg-slate-50 cursor-pointer">
+              <label className={`text-xs inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-white ring-1 ring-slate-300 ${canEdit("logo_url") ? "hover:bg-slate-50 cursor-pointer" : "opacity-50 cursor-not-allowed"}`}>
                 <Upload className="h-3 w-3" />
-                {logoBusy ? "Téléversement…" : "Téléverser un logo"}
-                <input type="file" accept="image/*" className="hidden" onChange={uploadLogo} disabled={logoBusy} data-testid="edit-officine-logo-input" />
+                {logoBusy ? "Téléversement…" : "Téléverser un logo"}{!canEdit("logo_url") && <span className="text-[9px] text-amber-600 uppercase font-semibold">(lecture seule)</span>}
+                <input type="file" accept="image/*" className="hidden" onChange={uploadLogo} disabled={logoBusy || !canEdit("logo_url")} data-testid="edit-officine-logo-input" />
               </label>
             </div>
             <p className="text-[10px] text-slate-500 mt-1.5">
@@ -892,14 +917,21 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Field label="Nom (= code)" required value={form.name} onChange={onChange("name")} testid="edit-name" />
-            <Field label="Intitulé" value={form.intitule} onChange={onChange("intitule")} testid="edit-intitule" placeholder="Libellé commercial" />
+            {isLimited && (
+              <div className="sm:col-span-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 p-2.5 text-xs text-amber-900" data-testid="officine-limited-banner">
+                ℹ️ <strong>Mode édition limitée</strong> — Vous pouvez modifier seulement : intitulé, téléphone, WhatsApp,
+                géolocalisation, indications de localisation et activité principale. Les autres champs sont en lecture seule.
+              </div>
+            )}
+            <Field label="Nom (= code)" required value={form.name} onChange={onChange("name")} testid="edit-name" disabled={!canEdit("name")} />
+            <Field label="Intitulé" value={form.intitule} onChange={onChange("intitule")} testid="edit-intitule" placeholder="Libellé commercial" disabled={!canEdit("intitule")} />
             <label className="block text-sm">
-              <span className="block text-xs font-semibold text-slate-700 mb-1">Activité principale</span>
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Activité principale{!canEdit("activite_principale") && <span className="ml-1 text-[9px] text-amber-600 uppercase font-semibold">(lecture seule)</span>}</span>
               <select
                 value={form.activite_principale}
                 onChange={onChange("activite_principale")}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                disabled={!canEdit("activite_principale")}
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${!canEdit("activite_principale") ? "bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed" : "border-slate-300 bg-white"}`}
                 data-testid="edit-activite_principale"
               >
                 <option value="">— Non définie —</option>
@@ -912,11 +944,12 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
             </label>
             {/* Iter43-fix21 — Rôle */}
             <label className="block text-sm">
-              <span className="block text-xs font-semibold text-slate-700 mb-1">Rôle</span>
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Rôle{!canEdit("role") && <span className="ml-1 text-[9px] text-amber-600 uppercase font-semibold">(lecture seule)</span>}</span>
               <select
                 value={form.role}
                 onChange={onChange("role")}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                disabled={!canEdit("role")}
+                className={`w-full rounded-lg border px-3 py-2 text-sm ${!canEdit("role") ? "bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed" : "border-slate-300 bg-white"}`}
                 data-testid="edit-officine-role"
               >
                 <option value="">— Non défini —</option>
@@ -931,12 +964,13 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
             </label>
             {/* Iter43-fix21 — Groupe de garde */}
             <label className="block text-sm">
-              <span className="block text-xs font-semibold text-slate-700 mb-1">Groupe de garde</span>
+              <span className="block text-xs font-semibold text-slate-700 mb-1">Groupe de garde{!canEdit("groupe_garde") && <span className="ml-1 text-[9px] text-amber-600 uppercase font-semibold">(lecture seule)</span>}</span>
               <div className="flex items-center gap-2">
                 <select
                   value={form.groupe_garde === null ? "" : String(form.groupe_garde)}
                   onChange={onChange("groupe_garde")}
-                  className="flex-1 rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                  disabled={!canEdit("groupe_garde")}
+                  className={`flex-1 rounded-lg border px-3 py-2 text-sm ${!canEdit("groupe_garde") ? "bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed" : "border-slate-300 bg-white"}`}
                   data-testid="edit-officine-groupe-garde"
                 >
                   <option value="">— Aucun —</option>
@@ -953,7 +987,8 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                 <button
                   type="button"
                   onClick={addNewGardeGroup}
-                  className="text-xs px-2 py-2 rounded bg-emerald-50 ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-100"
+                  disabled={!canEdit("groupe_garde")}
+                  className="text-xs px-2 py-2 rounded bg-emerald-50 ring-1 ring-emerald-300 text-emerald-700 hover:bg-emerald-100 disabled:opacity-50 disabled:cursor-not-allowed"
                   title={`Créer le groupe ${nextGardeGroup}`}
                   data-testid="edit-officine-add-groupe-garde"
                 >
@@ -964,15 +999,15 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                 Burkina Faso : généralement 5 groupes. Cliquez « + Nouveau » pour étendre.
               </span>
             </label>
-            <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact_name" />
-            <Field label="Email" type="email" value={form.email} onChange={onChange("email")} testid="edit-email" />
-            <Field label="Téléphone" value={form.phone} onChange={onChange("phone")} testid="edit-phone" placeholder="+22670…" />
-            <Field label="WhatsApp" value={form.whatsapp} onChange={onChange("whatsapp")} testid="edit-whatsapp" placeholder="+22670…" />
-            <Field label="Adresse" value={form.address} onChange={onChange("address")} testid="edit-address" />
-            <Field label="Ville" value={form.city} onChange={onChange("city")} testid="edit-city" />
-            <Field label="Pays" value={form.country} onChange={onChange("country")} testid="edit-country" />
-            <Field label="N° d'ordre" value={form.numero_ordre} onChange={onChange("numero_ordre")} testid="edit-numero_ordre" />
-            <Field label="Indications de localisation" value={form.location_hint} onChange={onChange("location_hint")} testid="edit-location_hint" wide />
+            <Field label="Nom du responsable" value={form.contact_name} onChange={onChange("contact_name")} testid="edit-contact_name" disabled={!canEdit("contact_name")} />
+            <Field label="Email" type="email" value={form.email} onChange={onChange("email")} testid="edit-email" disabled={!canEdit("email")} />
+            <Field label="Téléphone" value={form.phone} onChange={onChange("phone")} testid="edit-phone" placeholder="+22670…" disabled={!canEdit("phone")} />
+            <Field label="WhatsApp" value={form.whatsapp} onChange={onChange("whatsapp")} testid="edit-whatsapp" placeholder="+22670…" disabled={!canEdit("whatsapp")} />
+            <Field label="Adresse" value={form.address} onChange={onChange("address")} testid="edit-address" disabled={!canEdit("address")} />
+            <Field label="Ville" value={form.city} onChange={onChange("city")} testid="edit-city" disabled={!canEdit("city")} />
+            <Field label="Pays" value={form.country} onChange={onChange("country")} testid="edit-country" disabled={!canEdit("country")} />
+            <Field label="N° d'ordre" value={form.numero_ordre} onChange={onChange("numero_ordre")} testid="edit-numero_ordre" disabled={!canEdit("numero_ordre")} />
+            <Field label="Indications de localisation" value={form.location_hint} onChange={onChange("location_hint")} testid="edit-location_hint" wide disabled={!canEdit("location_hint")} />
           </div>
 
           {/* Géolocalisation */}
@@ -982,14 +1017,15 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
                 <MapPin className="h-3 w-3" /> Géolocalisation
               </label>
               <button type="button" onClick={detectLocation}
-                      className="text-[11px] px-2 py-1 rounded bg-white ring-1 ring-sky-300 hover:bg-sky-100 text-sky-700"
+                      disabled={!canEdit("latitude")}
+                      className="text-[11px] px-2 py-1 rounded bg-white ring-1 ring-sky-300 hover:bg-sky-100 text-sky-700 disabled:opacity-50 disabled:cursor-not-allowed"
                       data-testid="edit-detect-location">
                 Détecter ma position
               </button>
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <Field label="Latitude" value={form.latitude} onChange={onChange("latitude")} testid="edit-latitude" placeholder="12.345678" inline />
-              <Field label="Longitude" value={form.longitude} onChange={onChange("longitude")} testid="edit-longitude" placeholder="-1.234567" inline />
+              <Field label="Latitude" value={form.latitude} onChange={onChange("latitude")} testid="edit-latitude" placeholder="12.345678" inline disabled={!canEdit("latitude")} />
+              <Field label="Longitude" value={form.longitude} onChange={onChange("longitude")} testid="edit-longitude" placeholder="-1.234567" inline disabled={!canEdit("longitude")} />
             </div>
             {form.latitude && form.longitude && (
               <a href={`https://www.google.com/maps?q=${form.latitude},${form.longitude}`}
@@ -1016,13 +1052,13 @@ function EditOfficineModal({ officine, activities = [], onClose, onSaved }) {
   );
 }
 
-function Field({ label, value, onChange, testid, type = "text", required = false, placeholder = "", wide = false, inline = false }) {
+function Field({ label, value, onChange, testid, type = "text", required = false, placeholder = "", wide = false, inline = false, disabled = false }) {
   return (
     <label className={`block ${wide ? "sm:col-span-2" : ""}`}>
-      <span className={`block ${inline ? "text-[10px]" : "text-xs"} font-medium text-slate-700 mb-1`}>{label}{required && " *"}</span>
+      <span className={`block ${inline ? "text-[10px]" : "text-xs"} font-medium text-slate-700 mb-1`}>{label}{required && " *"}{disabled && <span className="ml-1 text-[9px] text-amber-600 uppercase font-semibold">(lecture seule)</span>}</span>
       <input type={type} value={value || ""} onChange={onChange} required={required}
-             placeholder={placeholder}
-             className="w-full border border-slate-300 rounded px-3 py-2 text-sm"
+             placeholder={placeholder} disabled={disabled} readOnly={disabled}
+             className={`w-full border rounded px-3 py-2 text-sm ${disabled ? "bg-slate-100 border-slate-200 text-slate-500 cursor-not-allowed" : "border-slate-300"}`}
              data-testid={testid} />
     </label>
   );

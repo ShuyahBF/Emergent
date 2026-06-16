@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef, useCallback, createContext
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2 } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -2452,6 +2452,31 @@ export default function AdminSettings() {
         </div>
         {/* Iter43-fix24l — Bouton de test SMS Bird avec retour HTTP complet */}
         <BirdTestSmsBlock defaultSender={s.bird_default_sender || ""} />
+      </Section>
+
+      {/* Iter43-fix24n (2026-06) — Délégation menu Officines à des comptes non-admin */}
+      <Section icon={Building2} title="🏥 Délégation menu Officines (comptes autorisés)" anchorId="s-officines-delegation">
+        <p className="text-xs text-slate-500">
+          Liste des comptes utilisateur (par email) autorisés à accéder à <code className="px-1 bg-slate-100 rounded">/admin/officines</code>
+          sans avoir le rôle administrateur. Ces utilisateurs ne peuvent modifier que :
+          <strong className="text-slate-700"> intitulé, téléphone, WhatsApp, géolocalisation (lat/lon), indication de localisation, activité principale</strong>.
+          Tous les autres champs restent grisés en édition. Pour la création d'une nouvelle officine, tous les champs sont actifs.
+        </p>
+        <Input
+          label="Emails autorisés (séparés par des virgules)"
+          value={Array.isArray(s.officines_menu_allowed_emails)
+            ? s.officines_menu_allowed_emails.join(", ")
+            : (s.officines_menu_allowed_emails || "")}
+          onChange={(v) => {
+            const arr = (v || "").split(",").map((x) => x.trim()).filter(Boolean);
+            upd("officines_menu_allowed_emails", arr);
+          }}
+          placeholder="user1@sawali.com, user2@sawali.com"
+          testid="officines-allowed-emails"
+        />
+        <p className="text-[10px] text-slate-500 mt-1">
+          💡 Les administrateurs gardent un accès complet automatiquement, indépendamment de cette liste.
+        </p>
       </Section>
 
       {/* Iter43-fix23 (2026-06) — Webhook d'inventaire officines (Bearer) */}

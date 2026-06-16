@@ -7,7 +7,7 @@ import { useT } from "@/contexts/I18nContext";
 import { useUIFlags } from "@/lib/useUIFlags";
 import LanguageSelector from "@/components/LanguageSelector";
 import SupportLoadGauge from "@/components/SupportLoadGauge";
-import TeamPresenceBadge from "@/components/TeamPresenceBadge";
+// Iter43-fix24m — TeamPresenceBadge supprimé du top menu (utilisé dans Home/Contact/Footer uniquement)
 import WeatherWidget from "@/components/WeatherWidget";
 
 const links = [
@@ -76,7 +76,7 @@ export default function MarketingNav() {
           <div className="flex items-center gap-2 shrink-0">
             <WeatherWidget variant="compact" placement="public" className="hidden md:inline-flex" />
             <LanguageSelector compact />
-            <TeamPresenceBadge tone="dark" compact className="hidden md:inline-flex" />
+            {/* Iter43-fix24m — TeamPresenceBadge supprimé du top menu (visible en Home/Contact/Footer uniquement) */}
             <button
               onClick={() => navigate(portalHref)}
               className="hidden sm:inline-flex items-center gap-2 rounded-lg border border-sawali-blue/40 px-4 py-2 text-sm text-white hover:bg-sawali-blue/10 transition"

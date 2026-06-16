@@ -154,6 +154,14 @@ export default function PortalLayout({ admin = false }) {
   const [metaEnabled, setMetaEnabled] = useState(false);
   // Iter38r-fix7 — Full features object for per-link gate (visible-but-disabled)
   const [tenantFeatures, setTenantFeatures] = useState({});
+  // Iter43-fix24o (2026-06) — Délégation menu Officines à des non-admin
+  const [officinesDelegated, setOfficinesDelegated] = useState(false);
+  useEffect(() => {
+    if (!user) return;
+    apiClient.get("/me/officines-permissions")
+      .then((r) => setOfficinesDelegated(r.data?.can_view === true && r.data?.edit_mode === "limited"))
+      .catch(() => setOfficinesDelegated(false));
+  }, [user]);
   useEffect(() => {
     apiClient.get("/me/features").then((r) => {
       const f = r.data?.features || r.data || {};
@@ -195,7 +203,13 @@ export default function PortalLayout({ admin = false }) {
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
     : (admin ? adminLinks : clientLinks);
-  const links = baseLinks
+  // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
+  // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
+  // dans le portail client (admin layout l'affiche déjà via adminLinks).
+  const linksWithDelegation = !admin && officinesDelegated
+    ? [...baseLinks, { to: "/admin/officines-registry", label: "Officines", icon: HeartPulse, officinesDelegated: true }]
+    : baseLinks;
+  const links = linksWithDelegation
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
@@ -248,8 +262,16 @@ export default function PortalLayout({ admin = false }) {
 
   useEffect(() => {
     if (!user) navigate("/login");
-    if (admin && user && user.role !== "admin") navigate("/portal");
-  }, [user, admin, navigate]);
+    // Iter43-fix24o — un utilisateur délégué Officines peut accéder à /admin/officines-registry
+    // depuis le layout client (pas besoin d'être admin). Pour les AUTRES pages admin,
+    // le redirect normal s'applique.
+    if (admin && user && user.role !== "admin") {
+      const onOfficinesRegistry = location.pathname.startsWith("/admin/officines-registry");
+      if (!(onOfficinesRegistry && officinesDelegated)) {
+        navigate("/portal");
+      }
+    }
+  }, [user, admin, navigate, officinesDelegated, location.pathname]);
 
   // Web Notifications + son sur nouveaux WA
   const waNotifier = useWhatsAppNotifier();

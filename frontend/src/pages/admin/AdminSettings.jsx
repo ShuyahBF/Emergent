@@ -418,6 +418,14 @@ export default function AdminSettings() {
         if (payload[k] === "********") delete payload[k];
       }
       delete payload.google_calendar_connected;
+      // Iter43-fix24o — VIDAL fields are managed by their own endpoint
+      // (/admin/vidal/config in `S058VidalSection`). Stripping them from the
+      // global Save avoids the stale-state regression where the page-level
+      // state still holds OLD vidal credentials and overwrites the freshly
+      // saved ones.
+      for (const k of Object.keys(payload)) {
+        if (k.startsWith("vidal_")) delete payload[k];
+      }
       await apiClient.put("/admin/settings", payload);
       toast.success("Paramètres enregistrés");
       // Iter40-ui-flags — Notify the global hook so the localStorage cache is

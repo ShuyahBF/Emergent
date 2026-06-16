@@ -189,17 +189,79 @@ async def autoreply_to_inbound(
             })
         except Exception:  # noqa: BLE001
             logger.exception("[wa_autoreply] persist exclamation failed")
-    if (text.startswith("!") or text.startswith("/")) and not is_public_cmd:
-        # Iter43-fix24h (2026-06) — Catch-all fallback : pour toute exclamation `!xxx`
-        # inconnue (ex. `!Aizenta`, `!status`, etc.), envoie au moins « … » pour que
-        # l'utilisateur sache que le message a bien été reçu et que Liluvine n'a pas
-        # de handler pour cette commande. Réponse personnalisable via le réglage
-        # `liluvine_wa_unknown_cmd_reply` (Admin Settings).
-        if not bool(settings_doc.get("liluvine_wa_autoreply_enabled")):
-            return {"ok": False, "reason": "disabled"}
-        deny_list = _norm_phones(settings_doc.get("liluvine_wa_autoreply_deny_phones"))
-        if phone_digits in deny_list:
+
+    # Iter43-fix24i (2026-06) — DECOUPLAGE : les commandes publiques `!xxx` doivent
+    # TOUJOURS fonctionner indépendamment du toggle `liluvine_wa_autoreply_enabled`
+    # (qui ne contrôle QUE l'auto-reply LLM basé sur le contenu).
+    # Auparavant : si l'admin n'avait pas activé l'auto-reply LLM, `!garde`/`!meteo`
+    # restaient muettes (decision.ok = False sur `disabled`).
+    # Maintenant : les `!commandes` (connues ET inconnues) passent par leur propre
+    # branche AVANT le gate `should_autoreply`. Seul filtre commun : denylist phones.
+    if text.startswith("!") or text.startswith("/"):
+        # Filtre denylist (même pour les commandes — un admin peut vouloir
+        # bloquer un harceleur même sur les commandes utilitaires).
+        deny_list_cmd = _norm_phones(settings_doc.get("liluvine_wa_autoreply_deny_phones"))
+        if phone_digits in deny_list_cmd:
             return {"ok": False, "reason": "denylisted"}
+
+        if is_public_cmd:
+            # Commandes publiques (!garde, !meteo, !pharmacie) — TOUJOURS exécutées.
+            # Sécurisées par try/except : même si le builder plante, on répond.
+            try:
+                if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
+                    reply_pc = await _build_garde_reply(db)
+                else:
+                    reply_pc = await _build_meteo_reply(db, cmd_lower, phone_digits)
+                if not reply_pc or not str(reply_pc).strip():
+                    reply_pc = "…"
+            except Exception:  # noqa: BLE001
+                logger.exception("[wa_autoreply][cmd] builder failed for %s", cmd_lower)
+                reply_pc = (
+                    "⚠️ Désolé, je n'arrive pas à traiter cette commande pour le moment. "
+                    "Réessayez dans quelques instants."
+                )
+            to_e164_pc = inbound_doc.get("from") or f"+{phone_digits}"
+            try:
+                send_pc = await wa_send_text(
+                    to_e164_pc, reply_pc, reply_to_message_id=inbound_doc.get("wa_message_id"),
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
+                send_pc = {"ok": False, "error": str(exc)}
+            try:
+                cmd_label = (
+                    "!garde" if (cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"))
+                    else "!meteo"
+                )
+                await db.whatsapp_messages.insert_one({
+                    "id": uuid.uuid4().hex, "direction": "outbound",
+                    "to": to_e164_pc, "phone_digits": phone_digits,
+                    "body": reply_pc, "client_id": inbound_doc.get("client_id"),
+                    "wa_message_id": (send_pc or {}).get("message_id"),
+                    "auto_reply": True, "command": cmd_label,
+                    "created_at": datetime.now(timezone.utc).isoformat(),
+                })
+            except Exception:  # noqa: BLE001
+                pass
+            try:
+                await db.liluvine_exclamations.update_one(
+                    {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
+                    {"$set": {
+                        "handled": True, "reply": reply_pc[:500],
+                        "handled_at": _now_iso(),
+                        "send_ok": bool((send_pc or {}).get("ok") if isinstance(send_pc, dict) else True),
+                    }},
+                )
+            except Exception:  # noqa: BLE001
+                pass
+            return {"ok": True, "command": cmd_label, "send": send_pc, "reply": reply_pc}
+
+        # Catch-all pour `!xxx` inconnu / `/xxx` — TOUJOURS exécuté SAUF si
+        # l'admin l'a explicitement désactivé via `liluvine_wa_unknown_cmd_fallback_enabled`.
+        # Le `True` par défaut garantit qu'aucune commande n'est silencieuse.
+        fb_enabled = settings_doc.get("liluvine_wa_unknown_cmd_fallback_enabled")
+        if fb_enabled is False:  # explicitement False uniquement (None / absent = True)
+            return {"ok": False, "reason": "unknown_fallback_disabled"}
         fallback_reply = (settings_doc.get("liluvine_wa_unknown_cmd_reply") or "…").strip() or "…"
         to_e164_fb = inbound_doc.get("from") or f"+{phone_digits}"
         try:
@@ -224,8 +286,7 @@ async def autoreply_to_inbound(
             await db.liluvine_exclamations.update_one(
                 {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
                 {"$set": {
-                    "handled": True,
-                    "reply": fallback_reply[:500],
+                    "handled": True, "reply": fallback_reply[:500],
                     "handled_at": _now_iso(),
                     "send_ok": bool((send_res_fb or {}).get("ok") if isinstance(send_res_fb, dict) else True),
                     "fallback": True,
@@ -269,58 +330,10 @@ async def autoreply_to_inbound(
     # OR the inbound number is matched to a user whose email is in the bypass list.
     scope_uid = inbound_doc.get("client_id")
 
-    # Iter43-fix22 (2026-06) — Slash-style commands publiques : `!Garde`, `!Meteo`.
-    # Court-circuite l'appel LLM (économie de tokens + réponse instantanée).
-    # Pas besoin de feature gate `ai_liluvine_pro` puisque ce sont des
-    # commandes utilitaires (annuaire / météo), pas de l'IA.
-    if is_public_cmd:
-        # Iter43-fix24h (2026-06) — Sécuriser les handlers builtin : même si
-        # `_build_garde_reply` ou `_build_meteo_reply` lève une exception
-        # (DB down, API météo HS, ville inconnue, etc.), on envoie toujours
-        # une réponse — sinon l'utilisateur a l'impression que Liluvine est
-        # cassée.
-        try:
-            if cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie"):
-                reply = await _build_garde_reply(db)
-            else:
-                reply = await _build_meteo_reply(db, cmd_lower, phone_digits)
-            if not reply or not str(reply).strip():
-                reply = "…"
-        except Exception as exc:  # noqa: BLE001, F841
-            logger.exception("[wa_autoreply][cmd] builder failed for %s", cmd_lower)
-            reply = (
-                "⚠️ Désolé, je n'arrive pas à traiter cette commande pour le moment. "
-                "Réessayez dans quelques instants."
-            )
-        # Send back via the provided sender
-        to_e164 = inbound_doc.get("from") or f"+{phone_digits}"
-        try:
-            send_res = await wa_send_text(to_e164, reply, reply_to_message_id=inbound_doc.get("wa_message_id"))
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
-            send_res = {"ok": False, "error": str(exc)}
-        await db.whatsapp_messages.insert_one({
-            "id": uuid.uuid4().hex, "direction": "outbound",
-            "to": to_e164, "phone_digits": phone_digits,
-            "body": reply, "client_id": inbound_doc.get("client_id"),
-            "wa_message_id": (send_res or {}).get("message_id"),
-            "auto_reply": True, "command": cmd_lower.split()[0],
-            "created_at": datetime.now(timezone.utc).isoformat(),
-        })
-        # Iter43-fix24d — Marquer l'exclamation comme traitée
-        try:
-            await db.liluvine_exclamations.update_one(
-                {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
-                {"$set": {
-                    "handled": True,
-                    "reply": reply[:500],
-                    "handled_at": _now_iso(),
-                    "send_ok": bool((send_res or {}).get("ok") if isinstance(send_res, dict) else True),
-                }},
-            )
-        except Exception:  # noqa: BLE001
-            pass
-        return {"ok": True, "command": cmd_lower.split()[0], "send": send_res}
+    # Iter43-fix24i (2026-06) — La gestion des commandes publiques `!Garde`/`!Meteo`
+    # est désormais effectuée AVANT `should_autoreply` (voir bloc ci-dessus, ligne ~145).
+    # Cette branche est conservée vide pour la lisibilité — toute exclamation `!xxx`
+    # a déjà été return-ée par le bloc principal.
 
     if scope_uid:
         parent = await db.users.find_one({"id": scope_uid}, {"_id": 0, "features": 1})

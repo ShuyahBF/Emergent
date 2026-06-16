@@ -123,7 +123,9 @@ class TestUnknownCommandFallback:
         assert len(sender.calls) == 0  # No reply sent
 
     @pytest.mark.asyncio
-    async def test_unknown_command_skipped_when_autoreply_disabled(self, db):
+    async def test_unknown_command_works_when_global_autoreply_disabled(self, db):
+        """Iter43-fix24i — Le toggle `liluvine_wa_autoreply_enabled` ne contrôle
+        QUE l'auto-reply LLM. Les `!commandes` doivent toujours fonctionner."""
         sender = _FakeSend()
         res = await autoreply.autoreply_to_inbound(
             db,
@@ -132,9 +134,10 @@ class TestUnknownCommandFallback:
             settings_doc=_settings(liluvine_wa_autoreply_enabled=False),
             wa_send_text=sender,
         )
-        assert res["ok"] is False
-        assert res["reason"] == "disabled"
-        assert len(sender.calls) == 0
+        assert res["ok"] is True
+        assert res["command"] == "unknown_fallback"
+        assert len(sender.calls) == 1
+        assert sender.calls[0]["text"] == "…"
 
     @pytest.mark.asyncio
     async def test_unknown_command_persists_exclamation_handled(self, db):
@@ -195,3 +198,69 @@ class TestPublicCommandHandlerResilience:
         assert len(sender.calls) == 1
         # Le message envoyé doit indiquer une erreur user-friendly
         assert "Désolé" in sender.calls[0]["text"] or "…" in sender.calls[0]["text"]
+
+    # Iter43-fix24i — Tests critiques : les commandes publiques `!garde`/`!meteo`
+    # ainsi que le fallback `!xxx` inconnu doivent fonctionner MÊME SI le toggle
+    # global `liluvine_wa_autoreply_enabled` est FALSE (qui ne contrôle QUE le
+    # LLM auto-reply, pas les commandes manuelles avec préfixe `!`).
+    @pytest.mark.asyncio
+    async def test_garde_works_even_when_autoreply_globally_disabled(self, db):
+        sender = _FakeSend()
+        res = await autoreply.autoreply_to_inbound(
+            db,
+            inbound_doc=_inbound("!garde"),
+            contact=None,
+            settings_doc=_settings(liluvine_wa_autoreply_enabled=False),
+            wa_send_text=sender,
+        )
+        assert res["ok"] is True, res
+        assert res["command"] == "!garde"
+        assert len(sender.calls) == 1
+        assert sender.calls[0]["text"].strip()  # non-empty
+
+    @pytest.mark.asyncio
+    async def test_meteo_works_even_when_autoreply_globally_disabled(self, db):
+        sender = _FakeSend()
+        res = await autoreply.autoreply_to_inbound(
+            db,
+            inbound_doc=_inbound("!meteo Ouagadougou"),
+            contact=None,
+            settings_doc=_settings(liluvine_wa_autoreply_enabled=False),
+            wa_send_text=sender,
+        )
+        assert res["ok"] is True, res
+        assert res["command"] == "!meteo"
+        assert len(sender.calls) == 1
+
+    @pytest.mark.asyncio
+    async def test_unknown_fallback_works_even_when_autoreply_globally_disabled(self, db):
+        """Le toggle `liluvine_wa_autoreply_enabled` ne doit PAS bloquer le fallback `…`."""
+        sender = _FakeSend()
+        res = await autoreply.autoreply_to_inbound(
+            db,
+            inbound_doc=_inbound("!Aizenta"),
+            contact=None,
+            settings_doc=_settings(liluvine_wa_autoreply_enabled=False),
+            wa_send_text=sender,
+        )
+        assert res["ok"] is True, res
+        assert res["command"] == "unknown_fallback"
+        assert sender.calls[0]["text"] == "…"
+
+    @pytest.mark.asyncio
+    async def test_unknown_fallback_can_be_explicitly_disabled(self, db):
+        """Un admin peut désactiver le fallback `…` via le réglage dédié."""
+        sender = _FakeSend()
+        res = await autoreply.autoreply_to_inbound(
+            db,
+            inbound_doc=_inbound("!Aizenta"),
+            contact=None,
+            settings_doc=_settings(
+                liluvine_wa_autoreply_enabled=True,
+                liluvine_wa_unknown_cmd_fallback_enabled=False,
+            ),
+            wa_send_text=sender,
+        )
+        assert res["ok"] is False
+        assert res["reason"] == "unknown_fallback_disabled"
+        assert len(sender.calls) == 0

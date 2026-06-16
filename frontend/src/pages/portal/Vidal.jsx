@@ -28,13 +28,189 @@ const CATALOG_STATUSES = [
   { value: "PHARMACO", label: "Vigilance" },
 ];
 
+// Iter43-fix24p (2026-06) — Rendu enrichi des réponses VIDAL non-JSON
+// VIDAL peut renvoyer du HTML (portail API explorer si endpoint invalide ou auth manquée)
+// ou du XML/Atom (catalogue, pharmacovigilance). Cette fonction utilitaire détecte
+// le format et propose un rendu adapté plutôt qu'un blob de texte brut.
+function _detectResponseKind(raw) {
+  if (typeof raw !== "string") return "unknown";
+  const head = raw.trim().slice(0, 200).toLowerCase();
+  if (head.startsWith("<!doctype html") || head.startsWith("<html")) return "html";
+  if (head.startsWith("<?xml") || /<(feed|entry|atom|rss)\b/.test(head)) return "xml";
+  return "text";
+}
+
+function _parseAtomEntries(xmlText) {
+  try {
+    const parser = new DOMParser();
+    const doc = parser.parseFromString(xmlText, "application/xml");
+    const errorNode = doc.querySelector("parsererror");
+    if (errorNode) return null;
+    const entryNodes = doc.querySelectorAll("entry");
+    if (!entryNodes.length) return null;
+    return Array.from(entryNodes).map((node) => {
+      const get = (tag) => {
+        const el = node.querySelector(tag);
+        return el ? (el.textContent || "").trim() : "";
+      };
+      return {
+        title: get("title") || get("name") || "(sans nom)",
+        id: get("id") || get("vidalId"),
+        type: get("type") || get("objectType") || "-",
+        summary: get("summary") || get("description") || "",
+        updated: get("updated") || "",
+      };
+    });
+  } catch {
+    return null;
+  }
+}
+
+function RawResponseViewer({ raw, contentLength = 0 }) {
+  const [view, setView] = React.useState("rendered"); // rendered | source
+  const kind = _detectResponseKind(raw);
+
+  // Détection rapide : page d'accueil de l'API explorer VIDAL (auth manquée ou path invalide)
+  const looksLikeApiExplorer = kind === "html"
+    && (raw.includes("data-ng-app=\"app\"") || raw.includes("data-ng-controller=\"MainCtrl\""));
+
+  // XML/Atom → tente de parser
+  const atomEntries = kind === "xml" ? _parseAtomEntries(raw) : null;
+
+  const copyToClipboard = () => {
+    try { navigator.clipboard.writeText(raw || ""); toast.success("Réponse copiée"); }
+    catch { toast.error("Copie impossible"); }
+  };
+
+  if (kind === "html") {
+    return (
+      <div className="space-y-2" data-testid="vidal-raw-html-viewer">
+        {looksLikeApiExplorer && (
+          <div className="rounded-lg bg-amber-50 ring-1 ring-amber-200 p-3 text-xs text-amber-900 leading-relaxed" data-testid="vidal-explorer-warning">
+            <p className="font-semibold mb-1">⚠️ VIDAL a renvoyé la page d&apos;accueil de l&apos;API explorer</p>
+            <p>Cela arrive quand :</p>
+            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+              <li>L&apos;endpoint demandé n&apos;existe pas (chemin incorrect)</li>
+              <li>L&apos;<code>app_id</code> ou l&apos;<code>app_key</code> est invalide pour ce mode (test/prod)</li>
+              <li>Le <code>base_url</code> dans <strong>Admin → Paramètres → VIDAL</strong> est mal configuré (manque <code>/rest/api</code> ou trailing slash)</li>
+            </ul>
+            <p className="mt-2 italic">Vérifiez la configuration et relancez. La page complète VIDAL est affichée ci-dessous pour info.</p>
+          </div>
+        )}
+        <div className="flex items-center justify-between gap-2">
+          <div className="text-[11px] text-slate-500">
+            🌐 Réponse HTML reçue ({Math.round((contentLength || raw.length) / 1024)} Ko)
+          </div>
+          <div className="flex gap-1">
+            <button
+              type="button"
+              onClick={() => setView(view === "rendered" ? "source" : "rendered")}
+              className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+              data-testid="vidal-raw-toggle-view"
+            >
+              {view === "rendered" ? "Voir source HTML" : "Voir rendu"}
+            </button>
+            <button
+              type="button"
+              onClick={copyToClipboard}
+              className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+              data-testid="vidal-raw-copy"
+            >
+              Copier
+            </button>
+          </div>
+        </div>
+        {view === "rendered" ? (
+          <div className="rounded-lg ring-1 ring-slate-200 bg-white overflow-hidden">
+            <iframe
+              title="VIDAL response"
+              srcDoc={raw}
+              sandbox="allow-same-origin"
+              referrerPolicy="no-referrer"
+              className="w-full"
+              style={{ height: "60vh", border: "none", background: "white" }}
+              data-testid="vidal-raw-iframe"
+            />
+          </div>
+        ) : (
+          <pre className="text-[10px] bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-source">
+            {raw.slice(0, 20000)}
+            {raw.length > 20000 && "\n\n… (tronqué — utilisez Copier pour récupérer le contenu complet)"}
+          </pre>
+        )}
+      </div>
+    );
+  }
+
+  if (kind === "xml" && atomEntries && atomEntries.length > 0) {
+    return (
+      <div className="space-y-2" data-testid="vidal-raw-atom-viewer">
+        <div className="text-[11px] text-emerald-700">
+          📑 Réponse Atom/XML parsée — {atomEntries.length} entrée{atomEntries.length > 1 ? "s" : ""}
+        </div>
+        <table className="w-full text-xs ring-1 ring-slate-200 rounded">
+          <thead className="bg-slate-50 text-slate-600">
+            <tr>
+              <th className="text-left px-2 py-1.5">Titre</th>
+              <th className="text-left px-2 py-1.5">ID</th>
+              <th className="text-left px-2 py-1.5">Type</th>
+              <th className="text-left px-2 py-1.5">Résumé</th>
+            </tr>
+          </thead>
+          <tbody>
+            {atomEntries.slice(0, 50).map((e, i) => (
+              <tr key={i} className="border-t border-slate-100">
+                <td className="px-2 py-1.5 font-semibold">{e.title}</td>
+                <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{e.id || "?"}</td>
+                <td className="px-2 py-1.5 text-slate-500">{e.type}</td>
+                <td className="px-2 py-1.5 text-slate-600 max-w-[400px] truncate" title={e.summary}>{e.summary}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+        {atomEntries.length > 50 && (
+          <p className="text-[10px] text-slate-500 italic">… {atomEntries.length - 50} entrées non affichées (limite UI 50).</p>
+        )}
+      </div>
+    );
+  }
+
+  // Fallback : texte brut / JSON
+  return (
+    <div className="space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <div className="text-[11px] text-slate-500">
+          📄 Réponse texte ({Math.round((raw || "").length / 1024)} Ko)
+        </div>
+        <button
+          type="button"
+          onClick={copyToClipboard}
+          className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+          data-testid="vidal-raw-copy-text"
+        >
+          Copier
+        </button>
+      </div>
+      <pre className="text-[10px] bg-white p-3 rounded ring-1 ring-slate-200 overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-text">
+        {(raw || "").slice(0, 20000)}
+      </pre>
+    </div>
+  );
+}
+
 function ResultTable({ data, onPick }) {
   // VIDAL responses can be Atom-style. We try to detect entries[] or items[].
   const entries = data?.entries || data?.items || data?.feed?.entries || [];
   if (!Array.isArray(entries) || entries.length === 0) {
+    // Iter43-fix24p — Rendu enrichi pour les réponses non structurées
+    // (HTML → iframe sandboxée, XML/Atom → table parsée, sinon JSON pretty).
+    const raw = typeof data?.raw === "string" ? data.raw : null;
+    if (raw) {
+      return <RawResponseViewer raw={raw} contentLength={raw.length} />;
+    }
     return (
       <div className="text-xs text-slate-500 italic p-3 ring-1 ring-slate-200 rounded bg-slate-50">
-        Aucun résultat structuré renvoyé. Réponse brute :
+        Aucun résultat structuré renvoyé. Réponse JSON :
         <pre className="mt-2 text-[10px] overflow-auto max-h-60 bg-white p-2 rounded ring-1 ring-slate-100">
           {JSON.stringify(data, null, 2).slice(0, 4000)}
         </pre>

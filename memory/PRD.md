@@ -9,6 +9,40 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24z (2026-06-16) — VIDAL : Auto-détection du format de réponse ✅
+
+**Statut** : LIVRÉ. 34/34 pytest passent. Frontend lint clean.
+
+### Demande utilisateur
+Auto-détection du format de réponse dans `RawResponseViewer` :
+- HTML → iframe sandboxée (déjà OK)
+- XML/Atom → table parsée
+- JSON → tree view formatté
+- Autre → texte brut
+
+### Améliorations apportées
+- **`AtomFeedViewer`** (nouveau composant) pour les réponses XML/Atom :
+  - Toggle Table ↔ Source XML
+  - Filtre par texte (titre, ID, résumé) et par type d'entrée
+  - Badge avec compteur `filtré/total`
+  - Boutons : Copier XML, Télécharger XML, Voir source
+  - Limite UI passée à 200 entrées (vs 50 avant)
+  - Hover row pour meilleure lisibilité
+- **`JsonTreeViewer`** (nouveau composant) pour les réponses JSON :
+  - Toggle Formaté (indenté avec `JSON.stringify(data, null, 2)`) ↔ Source brut
+  - Bouton Copier
+  - Header avec badge violet `{} Réponse JSON`
+- **`_buildCurlCommand`** corrigé pour matcher exactement ce que le backend envoie :
+  - `Accept: application/atom+xml, application/xml, application/json;q=0.5`
+  - Si body est une string → `Content-Type: text/xml; charset=utf-8` (pour `/alerts/full` XML)
+  - Si body est un object → `Content-Type: application/json`
+- Tous les viewers (HTML, XML, JSON, texte) intègrent désormais le `RequestDebugPanel` (méthode, URL, body, curl reproductible) en mode "Voir source"
+
+### Note technique
+J'ai retiré une approche initiale avec composant React récursif `JsonTreeNode` qui faisait crasher Babel ("Maximum call stack size exceeded" lors du parsing AST). Remplacé par une approche plus simple avec `JSON.stringify(data, null, 2)` pretty-printed, qui suffit pour l'usage admin et reste extensible plus tard.
+
+
+
 ## Iter43-fix24y (2026-06-16) — VIDAL : URL cleaning + Accept XML + POST text/xml ✅
 
 **Statut** : LIVRÉ. 34/34 pytest passent (14 nouveaux fix24y + 20 anciens).

@@ -76,10 +76,17 @@ function _buildCurlCommand(meta) {
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v ?? ""))}`)
     .join("&");
   if (qs) url += (url.includes("?") ? "&" : "?") + qs;
-  const lines = [`curl -X ${m} '${url}'`, `  -H 'Accept: application/json'`];
+  // Iter43-fix24z (2026-06-16) — VIDAL répond en XML Atom : on accepte les
+  // deux formats pour matcher exactement ce que le backend envoie.
+  const accept = "application/atom+xml, application/xml, application/json;q=0.5";
+  const lines = [`curl -X ${m} '${url}'`, `  -H 'Accept: ${accept}'`];
   if (m !== "GET" && m !== "HEAD" && meta.body) {
-    lines.push(`  -H 'Content-Type: application/json'`);
-    lines.push(`  -d '${JSON.stringify(meta.body)}'`);
+    // POST /alerts/full : body XML + text/xml selon la spec VIDAL
+    const bodyIsString = typeof meta.body === "string";
+    const ctype = bodyIsString ? "text/xml; charset=utf-8" : "application/json";
+    lines.push(`  -H 'Content-Type: ${ctype}'`);
+    const payload = bodyIsString ? meta.body : JSON.stringify(meta.body);
+    lines.push(`  -d ${JSON.stringify(payload)}`);
   }
   return lines.join(" \\\n");
 }
@@ -272,44 +279,26 @@ function RawResponseViewer({ raw, contentLength = 0, requestMeta = null }) {
   }
 
   if (kind === "xml" && atomEntries && atomEntries.length > 0) {
-    return (
-      <div className="space-y-2" data-testid="vidal-raw-atom-viewer">
-        <div className="text-[11px] text-emerald-700">
-          📑 Réponse Atom/XML parsée — {atomEntries.length} entrée{atomEntries.length > 1 ? "s" : ""}
-        </div>
-        <table className="w-full text-xs ring-1 ring-slate-200 rounded">
-          <thead className="bg-slate-50 text-slate-600">
-            <tr>
-              <th className="text-left px-2 py-1.5">Titre</th>
-              <th className="text-left px-2 py-1.5">ID</th>
-              <th className="text-left px-2 py-1.5">Type</th>
-              <th className="text-left px-2 py-1.5">Résumé</th>
-            </tr>
-          </thead>
-          <tbody>
-            {atomEntries.slice(0, 50).map((e, i) => (
-              <tr key={i} className="border-t border-slate-100">
-                <td className="px-2 py-1.5 font-semibold">{e.title}</td>
-                <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{e.id || "?"}</td>
-                <td className="px-2 py-1.5 text-slate-500">{e.type}</td>
-                <td className="px-2 py-1.5 text-slate-600 max-w-[400px] truncate" title={e.summary}>{e.summary}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {atomEntries.length > 50 && (
-          <p className="text-[10px] text-slate-500 italic">… {atomEntries.length - 50} entrées non affichées (limite UI 50).</p>
-        )}
-      </div>
-    );
+    return <AtomFeedViewer entries={atomEntries} raw={raw} requestMeta={requestMeta} />;
   }
 
-  // Fallback : texte brut / JSON
+  // JSON kind → tree view (collapsible)
+  if (kind === "json") {
+    let parsed = null;
+    try { parsed = JSON.parse(raw); } catch { parsed = null; }
+    if (parsed !== null) {
+      return <JsonTreeViewer data={parsed} raw={raw} requestMeta={requestMeta} />;
+    }
+  }
+
+  // Fallback : texte brut / inconnu
   return (
     <div className="space-y-2">
+      {requestMeta && <RequestDebugPanel meta={requestMeta} />}
       <div className="flex items-center justify-between gap-2">
         <div className="text-[11px] text-slate-500">
           📄 Réponse texte ({Math.round((raw || "").length / 1024)} Ko)
+          {kind && <span className="ml-2 px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px] uppercase tracking-wider font-mono">format : {kind}</span>}
         </div>
         <button
           type="button"
@@ -322,6 +311,212 @@ function RawResponseViewer({ raw, contentLength = 0, requestMeta = null }) {
       </div>
       <pre className="text-[10px] bg-white p-3 rounded ring-1 ring-slate-200 overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-text">
         {(raw || "").slice(0, 20000)}
+      </pre>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Iter43-fix24z (2026-06-16) — Format-specific viewers
+// ---------------------------------------------------------------------------
+
+function _entryDisplayInfo(entry) {
+  // Pull a friendly subtitle from the Atom entry. VIDAL embeds the resource
+  // type in `category[term]` and useful metadata in `content`. We surface
+  // the prettiest available.
+  const cat = (entry.type || "").split(":").pop();
+  const dose = entry.summary || "";
+  return { category: cat, summary: dose };
+}
+
+function AtomFeedViewer({ entries, raw, requestMeta }) {
+  const [view, setView] = React.useState("table"); // table | source
+  const [filterTerm, setFilterTerm] = React.useState("");
+  const [filterType, setFilterType] = React.useState("__all__");
+
+  const types = React.useMemo(() => {
+    const s = new Set();
+    entries.forEach((e) => {
+      const t = (e.type || "").split(":").pop();
+      if (t) s.add(t);
+    });
+    return ["__all__", ...Array.from(s).sort()];
+  }, [entries]);
+
+  const filtered = React.useMemo(() => {
+    const q = filterTerm.trim().toLowerCase();
+    return entries.filter((e) => {
+      const t = (e.type || "").split(":").pop();
+      if (filterType !== "__all__" && t !== filterType) return false;
+      if (!q) return true;
+      return [e.title, e.id, e.summary].some((v) => (v || "").toLowerCase().includes(q));
+    });
+  }, [entries, filterTerm, filterType]);
+
+  const copyText = (txt) => {
+    try { navigator.clipboard.writeText(txt || ""); toast.success("Copié"); }
+    catch { toast.error("Copie impossible"); }
+  };
+
+  const downloadXml = () => {
+    try {
+      const blob = new Blob([raw], { type: "application/atom+xml;charset=utf-8" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url; a.download = "vidal-response.xml";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch { toast.error("Téléchargement impossible"); }
+  };
+
+  return (
+    <div className="space-y-2" data-testid="vidal-atom-viewer">
+      {requestMeta && <RequestDebugPanel meta={requestMeta} />}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1">
+        <div className="flex items-center gap-2 text-[11px] text-emerald-700">
+          <span className="font-semibold">📑 Réponse Atom/XML</span>
+          <span className="px-1.5 py-0.5 rounded bg-emerald-50 ring-1 ring-emerald-200 text-emerald-700">
+            {filtered.length}/{entries.length} entrée{entries.length > 1 ? "s" : ""}
+          </span>
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setView(view === "table" ? "source" : "table")}
+            className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+            data-testid="vidal-atom-toggle-view"
+          >
+            {view === "table" ? "Voir source XML" : "Voir tableau"}
+          </button>
+          <button
+            type="button"
+            onClick={() => copyText(raw)}
+            className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+            data-testid="vidal-atom-copy-xml"
+          >
+            Copier XML
+          </button>
+          <button
+            type="button"
+            onClick={downloadXml}
+            className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+            data-testid="vidal-atom-download"
+          >
+            ⬇ Télécharger
+          </button>
+        </div>
+      </div>
+
+      {view === "table" ? (
+        <>
+          <div className="flex flex-wrap items-center gap-1.5 px-1">
+            <input
+              type="text"
+              placeholder="🔍 Filtrer titre / ID / résumé…"
+              value={filterTerm}
+              onChange={(e) => setFilterTerm(e.target.value)}
+              className="flex-1 min-w-[180px] text-[11px] px-2 py-1 rounded ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none"
+              data-testid="vidal-atom-filter-term"
+            />
+            <select
+              value={filterType}
+              onChange={(e) => setFilterType(e.target.value)}
+              className="text-[11px] px-2 py-1 rounded ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none"
+              data-testid="vidal-atom-filter-type"
+            >
+              {types.map((t) => (
+                <option key={t} value={t}>{t === "__all__" ? "Tous types" : t}</option>
+              ))}
+            </select>
+          </div>
+          <div className="overflow-x-auto rounded ring-1 ring-slate-200">
+            <table className="w-full text-xs">
+              <thead className="bg-slate-50 text-slate-600 sticky top-0">
+                <tr>
+                  <th className="text-left px-2 py-1.5">Titre</th>
+                  <th className="text-left px-2 py-1.5">ID VIDAL</th>
+                  <th className="text-left px-2 py-1.5">Type</th>
+                  <th className="text-left px-2 py-1.5">Résumé</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 200).map((e, i) => {
+                  const info = _entryDisplayInfo(e);
+                  return (
+                    <tr key={i} className="border-t border-slate-100 hover:bg-emerald-50/40 transition-colors">
+                      <td className="px-2 py-1.5 font-semibold">{e.title || "—"}</td>
+                      <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{e.id || "?"}</td>
+                      <td className="px-2 py-1.5 text-slate-500">
+                        <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">{info.category || "—"}</span>
+                      </td>
+                      <td className="px-2 py-1.5 text-slate-600 max-w-[400px] truncate" title={info.summary}>{info.summary || "—"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length > 200 && (
+            <p className="text-[10px] text-slate-500 italic px-1">… {filtered.length - 200} entrées non affichées (limite UI 200).</p>
+          )}
+          {filtered.length === 0 && (
+            <p className="text-[11px] text-slate-500 italic px-1 py-3 text-center">Aucune entrée ne correspond aux filtres.</p>
+          )}
+        </>
+      ) : (
+        <pre className="text-[10px] bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-96 font-mono whitespace-pre-wrap" data-testid="vidal-atom-source">
+          {(raw || "").slice(0, 30000)}
+          {raw && raw.length > 30000 && "\n\n… (tronqué — utilisez Télécharger pour le contenu complet)"}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+function JsonTreeViewer({ data, raw, requestMeta }) {
+  const [view, setView] = React.useState("tree"); // tree | source
+  const pretty = React.useMemo(() => {
+    try { return JSON.stringify(data, null, 2); } catch { return String(data); }
+  }, [data]);
+  const copyText = (txt) => {
+    try { navigator.clipboard.writeText(txt); toast.success("Copié"); }
+    catch { toast.error("Copie impossible"); }
+  };
+  return (
+    <div className="space-y-2" data-testid="vidal-json-viewer">
+      {requestMeta && <RequestDebugPanel meta={requestMeta} />}
+      <div className="flex items-center justify-between gap-2 px-1">
+        <div className="text-[11px] text-violet-700 font-semibold">
+          <span className="font-mono">&#123;&#125;</span> Réponse JSON
+        </div>
+        <div className="flex gap-1">
+          <button
+            type="button"
+            onClick={() => setView(view === "tree" ? "source" : "tree")}
+            className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+            data-testid="vidal-json-toggle-view"
+          >
+            {view === "tree" ? "Voir brut compact" : "Voir formaté"}
+          </button>
+          <button
+            type="button"
+            onClick={() => copyText(raw)}
+            className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300"
+            data-testid="vidal-json-copy"
+          >
+            Copier
+          </button>
+        </div>
+      </div>
+      <pre
+        className={
+          view === "tree"
+            ? "text-[11px] bg-white p-3 rounded ring-1 ring-slate-200 overflow-auto max-h-96 font-mono whitespace-pre"
+            : "text-[10px] bg-slate-900 text-emerald-200 p-3 rounded overflow-auto max-h-96 font-mono whitespace-pre-wrap"
+        }
+        data-testid={view === "tree" ? "vidal-json-tree" : "vidal-json-source"}
+      >
+        {view === "tree" ? pretty.slice(0, 30000) : (raw || "").slice(0, 30000)}
       </pre>
     </div>
   );

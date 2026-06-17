@@ -522,22 +522,69 @@ function JsonTreeViewer({ data, raw, requestMeta }) {
   );
 }
 
+function ErrorBanner({ error }) {
+  if (!error) return null;
+  const status = error.status || 0;
+  const isNetwork = status === 0;
+  return (
+    <div
+      className={`rounded-lg p-3 ring-1 ${isNetwork ? "bg-amber-50 ring-amber-300 text-amber-900" : "bg-rose-50 ring-rose-300 text-rose-900"}`}
+      data-testid="vidal-error-banner"
+    >
+      <div className="flex items-center gap-2 mb-1">
+        <span className="text-base">{isNetwork ? "⚠️" : "🚫"}</span>
+        <span className="text-sm font-semibold">
+          {isNetwork ? "VIDAL injoignable (erreur réseau)" : `VIDAL a renvoyé HTTP ${status}`}
+        </span>
+        {!isNetwork && (
+          <span className="ml-auto px-2 py-0.5 rounded bg-rose-100 text-rose-700 text-[10px] font-mono uppercase tracking-wider">
+            {status >= 500 ? "Serveur VIDAL" : status === 404 ? "Endpoint inconnu" : status === 401 || status === 403 ? "Auth invalide" : "Client"}
+          </span>
+        )}
+      </div>
+      <p className="text-xs leading-relaxed">{error.message || "—"}</p>
+      {error.url && (
+        <p className="text-[10px] mt-1 text-slate-600 break-all">
+          <span className="font-semibold">URL appelée :</span> <code>{error.url}</code>
+        </p>
+      )}
+      <p className="text-[11px] mt-1.5 italic">
+        ↓ La requête + la réponse complète de VIDAL sont affichées ci-dessous pour diagnostic.
+      </p>
+    </div>
+  );
+}
+
 function ResultTable({ data, onPick }) {
   // VIDAL responses can be Atom-style. We try to detect entries[] or items[].
   const entries = data?.entries || data?.items || data?.feed?.entries || [];
-  if (!Array.isArray(entries) || entries.length === 0) {
+  const errorInfo = data?._error || null;
+  const hasNoStructuredEntries = !Array.isArray(entries) || entries.length === 0;
+  if (hasNoStructuredEntries) {
     // Iter43-fix24p — Rendu enrichi pour les réponses non structurées
     // (HTML → iframe sandboxée, XML/Atom → table parsée, sinon JSON pretty).
+    // Iter43-fix24aa (2026-06-16) — Si data._error existe, on affiche une
+    // bannière d'erreur au-dessus du viewer mais on rend QUAND MÊME la
+    // requête + le body, indispensable pour diagnostiquer.
     const raw = typeof data?.raw === "string" ? data.raw : null;
     if (raw) {
-      return <RawResponseViewer raw={raw} contentLength={raw.length} requestMeta={data?._request || null} />;
+      return (
+        <div className="space-y-2">
+          {errorInfo && <ErrorBanner error={errorInfo} />}
+          <RawResponseViewer raw={raw} contentLength={raw.length} requestMeta={data?._request || null} />
+        </div>
+      );
     }
     return (
-      <div className="text-xs text-slate-500 italic p-3 ring-1 ring-slate-200 rounded bg-slate-50">
-        Aucun résultat structuré renvoyé. Réponse JSON :
-        <pre className="mt-2 text-[10px] overflow-auto max-h-60 bg-white p-2 rounded ring-1 ring-slate-100">
-          {JSON.stringify(data, null, 2).slice(0, 4000)}
-        </pre>
+      <div className="space-y-2">
+        {errorInfo && <ErrorBanner error={errorInfo} />}
+        {data?._request && <RequestDebugPanel meta={data._request} />}
+        <div className="text-xs text-slate-500 italic p-3 ring-1 ring-slate-200 rounded bg-slate-50">
+          Aucun résultat structuré renvoyé. Réponse JSON :
+          <pre className="mt-2 text-[10px] overflow-auto max-h-60 bg-white p-2 rounded ring-1 ring-slate-100">
+            {JSON.stringify(data, null, 2).slice(0, 4000)}
+          </pre>
+        </div>
       </div>
     );
   }

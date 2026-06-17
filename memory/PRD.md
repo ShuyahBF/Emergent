@@ -9,6 +9,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24aa (2026-06-16) — VIDAL : Affichage requête + réponse même sur erreur ✅
+
+**Statut** : LIVRÉ. 38/38 pytest passent (4 nouveaux fix24aa + 34 anciens).
+
+### Demande utilisateur
+> "Même en cas d'erreur affiche moi toujours la requête et la réponse stp. C'est obligatoire pour t'aider à corriger"
+
+Auparavant : un 404 VIDAL provoquait un `HTTPException(400)` côté backend, le frontend recevait un toast `"VIDAL a renvoyé 404 : ..."` et perdait le body HTML complet.
+
+### Changements
+
+**Backend (`vidal.py`)** :
+- `_vidal_call` ne lève **plus** d'`HTTPException` sur erreur HTTP 4xx/5xx ni sur erreur réseau.
+- Renvoie toujours `{raw, _request, _error: {status, content_type, message, url}}` pour que l'UI puisse afficher la requête + le body de réponse.
+- `app_key` masquée dans `_request.params` (`app_key=***`).
+- Cas réseau (httpx.HTTPError) : `_error.status = 0`, body = `"[Erreur réseau VIDAL]\n\n<exc>"`.
+
+**Frontend (`Vidal.jsx`)** :
+- Nouveau composant **`ErrorBanner`** :
+  - Couleur rouge pour HTTP 4xx/5xx (avec sous-badge `Endpoint inconnu`, `Auth invalide`, `Client`, `Serveur VIDAL`)
+  - Couleur ambre pour erreur réseau
+  - Affiche message + URL appelée + invitation à consulter la requête/réponse en dessous
+- **`ResultTable`** modifié : quand `data._error` existe, affiche `ErrorBanner` au-dessus du viewer + le viewer normal (qui montre déjà la requête + le body HTML/XML/JSON dans une iframe ou pre).
+- Fallback "aucun résultat structuré" inclut désormais aussi `RequestDebugPanel` pour avoir la requête.
+
+### Tests (`test_iter43_fix24aa_vidal_error_passthrough.py`)
+- `test_404_returns_structured_data_no_raise` : 404 retourne `{raw, _request, _error}` sans HTTPException
+- `test_500_returns_structured_data_no_raise` : idem pour 500
+- `test_200_no_error_field` : pas de `_error` quand succès
+- `test_request_meta_includes_masked_app_key` : `app_key` masquée (`***`), `app_id` exposé pour debug
+
+
+
 ## Iter43-fix24z (2026-06-16) — VIDAL : Auto-détection du format de réponse ✅
 
 **Statut** : LIVRÉ. 34/34 pytest passent. Frontend lint clean.

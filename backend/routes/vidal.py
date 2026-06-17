@@ -396,7 +396,18 @@ async def _vidal_call(
         debug["error"] = f"HTTPError: {str(exc)[:300]}"
         if return_debug:
             return {"_error": True, "_debug": debug}
-        raise HTTPException(status_code=502, detail=f"VIDAL injoignable : {str(exc)[:200]}") from exc
+        # Iter43-fix24aa (2026-06-16) — Ne pas lever : retourner une structure
+        # de données avec `_error` pour que l'UI puisse afficher la requête.
+        return {
+            "raw": f"[Erreur réseau VIDAL]\n\n{exc!s}",
+            "_request": dict(debug["request"]),
+            "_error": {
+                "status": 0,
+                "content_type": "text/plain",
+                "message": f"VIDAL injoignable : {str(exc)[:300]}",
+                "url": url,
+            },
+        }
 
     ctype = (r.headers.get("content-type") or "").lower()
     raw_text = r.text or ""
@@ -407,18 +418,31 @@ async def _vidal_call(
         "body_preview": raw_text[:2000],
         "body_truncated": len(raw_text) > 2000,
     }
+    # Iter43-fix24aa (2026-06-16) — Sur erreur HTTP (>= 400), on NE LÈVE PLUS
+    # d'HTTPException. À la place, on renvoie la même structure `{raw, _request,
+    # _error: {status, content_type, ...}}` que pour une réponse 200. Cela permet
+    # à l'UI d'afficher la requête + le body de la réponse, indispensable pour
+    # diagnostiquer (demandé explicitement par l'utilisateur).
+    error_info: Optional[Dict[str, Any]] = None
     if r.status_code >= 400:
+        error_info = {
+            "status": r.status_code,
+            "content_type": ctype,
+            "message": f"VIDAL a renvoyé HTTP {r.status_code}",
+            "url": url,
+        }
         if return_debug:
+            debug["error"] = f"HTTP {r.status_code}"
             return {"_error": True, "_debug": debug}
-        snippet = raw_text[:300]
-        raise HTTPException(
-            status_code=502 if r.status_code >= 500 else 400,
-            detail=f"VIDAL a renvoyé {r.status_code} : {snippet}",
-        )
 
     if "application/json" in ctype:
         try:
             data = r.json()
+            # Si JSON parsable, on l'enveloppe pour pouvoir attacher _request/_error
+            if not isinstance(data, dict):
+                data = {"json": data, "_request": dict(debug["request"])}
+            else:
+                data["_request"] = dict(debug["request"])
         except Exception:  # noqa: BLE001
             data = {"raw": raw_text, "_request": dict(debug["request"])}
     else:
@@ -450,6 +474,11 @@ async def _vidal_call(
         # puisse l'afficher (méthode, URL, params masqués, body) et générer
         # une commande curl reproductible côté admin.
         data = {"raw": raw_text, "_request": dict(debug["request"])}
+
+    # Iter43-fix24aa — Attache l'info d'erreur si présent (rendue par l'UI sans
+    # bloquer l'affichage de la requête / du body).
+    if error_info:
+        data["_error"] = error_info
 
     if return_debug:
         return {"_data": data, "_debug": debug}

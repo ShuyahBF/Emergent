@@ -767,9 +767,13 @@ function EditOfficineModal({ officine, activities = [], editMode = "full", onClo
   // Iter43-fix24n (2026-06) — Édition limitée : pour un utilisateur "délégué"
   // (non-admin listé dans settings.officines_menu_allowed_emails), seuls les
   // champs suivants sont éditables. Les autres sont grisés en lecture seule.
+  // Iter43-fix24v (2026-06-16) — Ajout email, contact_name (Nom du
+  // responsable) et groupe_garde suite à la demande utilisateur.
   const LIMITED_FIELDS = new Set([
     "intitule", "phone", "whatsapp", "latitude", "longitude",
     "location_hint", "activite_principale",
+    // fix24v additions
+    "email", "contact_name", "groupe_garde",
   ]);
   const isLimited = editMode === "limited";
   const canEdit = (field) => !isLimited || LIMITED_FIELDS.has(field);

@@ -157,6 +157,8 @@ async def test_delegated_user_has_limited_mode(db):
     assert set(data["editable_fields"]) == {
         "intitule", "phone", "whatsapp", "latitude", "longitude",
         "location_hint", "activite_principale",
+        # Iter43-fix24v additions
+        "email", "contact_name", "groupe_garde",
     }
 
 
@@ -181,8 +183,9 @@ async def test_delegated_user_can_list_officines(db):
 
 @pytest.mark.asyncio
 async def test_delegated_user_can_only_edit_allowed_fields(db):
-    """Cœur du fix : un utilisateur délégué ne peut PAS modifier name, email,
-    address, city, country, numero_ordre, role, groupe_garde."""
+    """Cœur du fix : un utilisateur délégué ne peut PAS modifier name,
+    address, city, country, numero_ordre, role.
+    Iter43-fix24v : email, contact_name, groupe_garde sont maintenant ALLOWED."""
     database, _ = db
     email = f"delegated-pytest-{uuid.uuid4().hex[:8]}@test.com"
     pwd = "Delegated@2026"
@@ -200,6 +203,7 @@ async def test_delegated_user_can_only_edit_allowed_fields(db):
         "whatsapp": "+22500002222", "email": "original@test.com",
         "address": "Original Address", "city": "Original City",
         "country": "Original Country", "numero_ordre": "999",
+        "contact_name": "Original Contact", "groupe_garde": 1,
         "status": "active", "role": None,
     }
     await database.officines.insert_one(original)
@@ -212,7 +216,9 @@ async def test_delegated_user_can_only_edit_allowed_fields(db):
         "intitule": "New Intitule",       # ALLOWED
         "phone": "+22600003333",          # ALLOWED
         "whatsapp": "+22600004444",       # ALLOWED
-        "email": "hacked@test.com",       # forbidden
+        "email": "new@test.com",          # ALLOWED (fix24v)
+        "contact_name": "New Contact",    # ALLOWED (fix24v)
+        "groupe_garde": 3,                # ALLOWED (fix24v)
         "address": "Hacked Address",      # forbidden
         "city": "Hacked City",            # forbidden
         "country": "Hacked Country",      # forbidden
@@ -239,14 +245,73 @@ async def test_delegated_user_can_only_edit_allowed_fields(db):
     assert fresh["longitude"] == -1.234567
     assert fresh["location_hint"] == "Près du marché"
     assert fresh["activite_principale"] == "Pharmacie d'officine"
+    # Iter43-fix24v — these are now editable by delegated users
+    assert fresh["email"] == "new@test.com"
+    assert fresh["contact_name"] == "New Contact"
+    assert fresh["groupe_garde"] == 3
     # FORBIDDEN fields → UNCHANGED
     assert fresh["name"] == "ORIGINAL_NAME"
-    assert fresh["email"] == "original@test.com"
     assert fresh["address"] == "Original Address"
     assert fresh["city"] == "Original City"
     assert fresh["country"] == "Original Country"
     assert fresh["numero_ordre"] == "999"
     assert fresh.get("role") is None
+
+
+@pytest.mark.asyncio
+async def test_intitule_auto_computed_when_empty(db, admin_headers):
+    """Iter43-fix24v : si intitule est vide et name + role sont renseignés,
+    intitule = '{role} {name}' automatiquement à l'update."""
+    database, _ = db
+    test_id = f"test-fix24n-{uuid.uuid4().hex[:8]}"
+    # Seed a role in settings if missing
+    await database.settings.update_one(
+        {"_id": "global"},
+        {"$addToSet": {"officine_roles": "Pharmacie"}},
+        upsert=True,
+    )
+    await database.officines.insert_one({
+        "id": test_id, "name": "BELLEVUE", "code": "BELLEVUE",
+        "intitule": None, "role": None,
+        "status": "active",
+    })
+    with httpx.Client(timeout=15) as client:
+        # Step 1: set role only, leave intitule empty
+        r = client.put(
+            f"{API_BASE}/admin/officines-registry/{test_id}",
+            json={"role": "Pharmacie", "intitule": ""}, headers=admin_headers,
+        )
+    assert r.status_code == 200, r.text
+    fresh = await database.officines.find_one({"id": test_id})
+    # Expected: intitule auto-computed = "Pharmacie BELLEVUE"
+    assert fresh["intitule"] == "Pharmacie BELLEVUE", fresh
+
+
+@pytest.mark.asyncio
+async def test_intitule_not_overwritten_when_provided(db, admin_headers):
+    """Iter43-fix24v : si intitule est explicitement renseigné, on respecte
+    la valeur — pas d'écrasement automatique."""
+    database, _ = db
+    test_id = f"test-fix24n-{uuid.uuid4().hex[:8]}"
+    await database.settings.update_one(
+        {"_id": "global"},
+        {"$addToSet": {"officine_roles": "Pharmacie"}},
+        upsert=True,
+    )
+    await database.officines.insert_one({
+        "id": test_id, "name": "BELLEVUE", "code": "BELLEVUE",
+        "intitule": None, "role": None,
+        "status": "active",
+    })
+    with httpx.Client(timeout=15) as client:
+        r = client.put(
+            f"{API_BASE}/admin/officines-registry/{test_id}",
+            json={"role": "Pharmacie", "intitule": "Mon Libellé Commercial"},
+            headers=admin_headers,
+        )
+    assert r.status_code == 200, r.text
+    fresh = await database.officines.find_one({"id": test_id})
+    assert fresh["intitule"] == "Mon Libellé Commercial"
 
 
 @pytest.mark.asyncio

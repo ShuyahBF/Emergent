@@ -784,6 +784,9 @@ def attach_officines_portal_admin_routes(
     """
 
     # Iter43-fix24n — Champs éditables par un utilisateur délégué (non-admin).
+    # Iter43-fix24v (2026-06-16) — Ajout de email, contact_name (Nom du
+    # responsable) et groupe_garde (Groupe de Garde) suite à la demande
+    # utilisateur lors du test de la délégation.
     # Les autres restent en lecture seule (côté UI grisé + rejet côté backend).
     _OFFICINE_DELEGATED_EDITABLE_FIELDS = {
         "intitule",
@@ -793,6 +796,10 @@ def attach_officines_portal_admin_routes(
         "longitude",
         "location_hint",
         "activite_principale",
+        # Iter43-fix24v additions
+        "email",
+        "contact_name",
+        "groupe_garde",
     }
 
     async def _get_officines_menu_user(user: dict) -> tuple[dict, str]:
@@ -1381,6 +1388,10 @@ def attach_officines_portal_admin_routes(
         }
         if doc["status"] not in ("pending", "active", "suspended"):
             doc["status"] = "pending"
+        # Iter43-fix24v (2026-06-16) — Auto-calcul de `intitule` quand vide :
+        # si name + role sont renseignés et intitule vide, intitule = "{role} {name}".
+        if not doc["intitule"] and doc["name"] and doc["role"]:
+            doc["intitule"] = f"{doc['role']} {doc['name']}"
         await db.officines.insert_one(doc.copy())
         await db.officine_audit_log.insert_one({
             "id": str(uuid.uuid4()), "officine_id": oid,
@@ -1466,6 +1477,19 @@ def attach_officines_portal_admin_routes(
                 roles = roles_doc.get("officine_roles") or _DEFAULT_OFFICINE_ROLES
                 if role_value not in roles:
                     raise HTTPException(status_code=400, detail=f"Rôle '{role_value}' inconnu. Définissez-le d'abord dans Admin → Officines → Rôles.")
+        # Iter43-fix24v (2026-06-16) — Auto-calcul de `intitule` quand vide.
+        # Règle métier demandée par l'utilisateur : si `intitule` reste vide
+        # mais que `name` ET `role` sont renseignés (en valeur effective après
+        # mise à jour), alors intitule = "{role} {name}".
+        eff_intitule = update.get("intitule") if "intitule" in update else existing.get("intitule")
+        eff_intitule_is_empty = not (eff_intitule and str(eff_intitule).strip())
+        if eff_intitule_is_empty:
+            eff_name = update.get("name") if "name" in update else existing.get("name")
+            eff_role = update.get("role") if "role" in update else existing.get("role")
+            eff_name_s = (eff_name or "").strip() if isinstance(eff_name, str) else ""
+            eff_role_s = (eff_role or "").strip() if isinstance(eff_role, str) else ""
+            if eff_name_s and eff_role_s:
+                update["intitule"] = f"{eff_role_s} {eff_name_s}"
         if not update:
             raise HTTPException(status_code=400, detail="Aucun champ valide à mettre à jour")
         update["updated_at"] = _now()

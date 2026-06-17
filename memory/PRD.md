@@ -9,6 +9,36 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24v (2026-06-16) — Délégation Officines : champs étendus + auto-intitule ✅
+
+**Statut** : LIVRÉ. 16/16 pytest passent (incluant 2 nouveaux tests auto-intitule).
+
+### Demande utilisateur (lors du test de la délégation)
+1. Ajouter aux champs autorisés en `edit_mode=limited` :
+   - **email**
+   - **Nom du responsable** (`contact_name`)
+   - **Groupe de Garde** (`groupe_garde`)
+2. Règle métier : si `intitule` est vide ET `name` est rempli ET `role` est renseigné → `intitule = "{role} {name}"`
+
+### Changements
+- **Backend** (`officines_portal.py`) :
+  - `_OFFICINE_DELEGATED_EDITABLE_FIELDS` étendu : ajout de `email`, `contact_name`, `groupe_garde`
+  - `update_officine` : ajout du bloc d'auto-calcul de `intitule` après validation rôle/garde. Effet :
+    - Calcule la valeur "effective" de `intitule`, `name`, `role` (en tenant compte des champs envoyés + de l'existant)
+    - Si l'intitulé effectif est vide ET les autres sont remplis → `update["intitule"] = "{role} {name}"`
+  - `create_officine` : même règle appliquée à la création
+  - `me_officines_permissions` retourne maintenant 10 champs éditables au lieu de 7
+
+- **Frontend** (`AdminOfficinesRegistry.jsx`) :
+  - `LIMITED_FIELDS` dans `EditOfficineModal` aligné : ajout des 3 champs (les inputs ne sont plus grisés pour utilisateurs délégués)
+
+### Tests
+- `test_intitule_auto_computed_when_empty` : crée une officine sans intitule, met role="Pharmacie", attend `intitule = "Pharmacie BELLEVUE"`
+- `test_intitule_not_overwritten_when_provided` : si l'admin saisit un intitulé explicite, pas d'écrasement
+- `test_delegated_user_can_only_edit_allowed_fields` : mis à jour pour confirmer que `email`, `contact_name`, `groupe_garde` sont maintenant ALLOWED en mode délégué
+
+
+
 ## Iter43-fix24u (2026-06-16) — VIDAL HTTP proxy (CORS bypass for iframe) ✅
 
 **Statut** : LIVRÉ. 14/14 pytest (3 fix24u + 4 fix24t + 7 fix24n).

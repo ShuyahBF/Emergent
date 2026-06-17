@@ -9,6 +9,54 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24u (2026-06-16) — VIDAL HTTP proxy (CORS bypass for iframe) ✅
+
+**Statut** : LIVRÉ. 14/14 pytest (3 fix24u + 4 fix24t + 7 fix24n).
+
+### Pourquoi un proxy ?
+Quand VIDAL renvoie sa page Angular et qu'on la rend dans une iframe `srcdoc`,
+les ressources (CSS, JS, XHR) du SPA doivent atteindre le serveur VIDAL.
+- En direct (avec `<base href="http://api.vidal.fr/">`) : l'iframe sandboxée
+  a une origine `null`, donc les XHR sont cross-origin → CORS bloque.
+- Via notre proxy : tout passe par notre backend qui transmet à VIDAL avec
+  les credentials côté serveur. Aucun problème CORS.
+
+### Implémentation
+- **Backend** :
+  - Nouvelle constante `VIDAL_PROXY_PREFIX = "/api/vidal/proxy"`.
+  - Endpoint `/api/vidal/proxy/{subpath:path}` (GET/POST/PUT/DELETE/OPTIONS) :
+    - Auth = `Depends(get_current_user)` + `_ensure_tenant_can_access` (même
+      gate que `/api/vidal/search`).
+    - Extrait l'origine VIDAL depuis `cfg["base_url"]` (`urlparse`).
+    - Transmet à `{origin}/{subpath}?{query+app_id+app_key}` avec le body
+      et content-type d'origine.
+    - Pour les réponses HTML, ré-injecte `<base href="/api/vidal/proxy/">`
+      pour garder le proxy actif sur la navigation interne.
+    - Supprime les headers hop-by-hop (`content-length`, `transfer-encoding`…).
+  - Endpoint compagnon `/api/vidal/proxy` (sans sous-path) pour le root.
+  - `_vidal_call` injecte désormais `<base href="/api/vidal/proxy/">` (au lieu
+    de l'origine VIDAL directe).
+
+- **Frontend** (`Vidal.jsx`) :
+  - Sandbox iframe → `allow-scripts allow-same-origin allow-popups allow-forms`.
+  - `allow-same-origin` est OK car l'iframe partage l'origine de notre frontal,
+    et les XHR vers `/api/vidal/proxy/...` sont same-origin → pas de CORS.
+
+### Tests
+- `test_iter43_fix24u_vidal_proxy.py` — 3 smoke tests (prefix canonique).
+- `test_iter43_fix24t_vidal_base_inject.py` — 4 tests d'injection HTML.
+- `test_iter43_fix24n_officines_delegation.py` — 7 tests conservés.
+
+### Vérification preview
+- Routes enregistrées dans OpenAPI :
+  - `/api/vidal/proxy/{subpath}` → GET, POST, PUT, DELETE, OPTIONS ✓
+  - `/api/vidal/proxy` → GET, POST, PUT, DELETE, OPTIONS ✓
+- Auth fonctionne (401 sans token) ✓
+- Le preview ne peut pas atteindre `api.vidal.fr` (réseau bloqué) ; le test
+  end-to-end se fera sur production après redéploiement.
+
+
+
 ## Iter43-fix24t (2026-06-16) — Inject &lt;base&gt; tag in VIDAL HTML responses ✅
 
 **Statut** : LIVRÉ. 4 nouveaux pytest passent. UI peut maintenant rendre la page Angular VIDAL correctement.

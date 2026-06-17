@@ -140,14 +140,12 @@ function RawResponseViewer({ raw, contentLength = 0 }) {
             <iframe
               title="VIDAL response"
               srcDoc={raw}
-              // Iter43-fix24t (2026-06-16) — `allow-scripts` est requis pour
-              // que les pages VIDAL (Angular SPA) s'initialisent. Le backend
-              // injecte une balise <base> pointant sur l'origine VIDAL pour
-              // que les chemins relatifs (CSS/JS) résolvent correctement.
-              // `allow-same-origin` est intentionnellement omis pour limiter
-              // le risque XSS — l'iframe aura une origine `null`, les XHR
-              // cross-origin vers VIDAL nécessitent CORS côté VIDAL.
-              sandbox="allow-scripts allow-popups"
+              // Iter43-fix24u (2026-06-16) — `allow-scripts` + `allow-same-origin`
+              // sont nécessaires pour : (1) que les scripts AngularJS s'exécutent,
+              // (2) que les XHR vers `/api/vidal/proxy/...` partagent l'origine
+              // du frontal (sinon CORS bloque). Le backend transmet à VIDAL
+              // côté serveur avec les credentials, donc aucune fuite client-side.
+              sandbox="allow-scripts allow-same-origin allow-popups allow-forms"
               referrerPolicy="no-referrer"
               className="w-full"
               style={{ height: "60vh", border: "none", background: "white" }}

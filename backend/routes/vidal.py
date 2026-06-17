@@ -30,9 +30,10 @@ import json
 import logging
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
+from urllib.parse import urlparse
 
 import httpx
-from fastapi import Body, Depends, HTTPException, Query
+from fastapi import Body, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel
 
 logger = logging.getLogger("sawali.vidal")
@@ -43,6 +44,14 @@ DEFAULT_PROD_BASE_URL = "https://api.vidal.net/rest/api"
 DEFAULT_CACHE_TTL_HOURS = 168     # 7 days
 DEFAULT_QUOTA_PER_DAY = 200       # per user
 DEFAULT_HTTP_TIMEOUT = 12         # seconds
+
+# Iter43-fix24u (2026-06-16) — Public path prefix for the in-process proxy that
+# transmits HTTP requests to VIDAL on behalf of the iframe-rendered Angular SPA.
+# When the iframe renders the VIDAL HTML response, all relative resources
+# (CSS, JS, XHR endpoints) resolve against `<base href>` injected by the
+# backend — pointing here makes them transit through our proxy and reach the
+# VIDAL origin without CORS issues.
+VIDAL_PROXY_PREFIX = "/api/vidal/proxy"
 
 
 # --------------------------------------------------------------------------- #
@@ -306,19 +315,17 @@ async def _vidal_call(
         except Exception:  # noqa: BLE001
             data = {"raw": raw_text}
     else:
-        # Iter43-fix24t (2026-06-16) — Pour les réponses HTML (typiquement la
-        # page Angular API explorer de VIDAL), on injecte une balise <base href>
-        # pointant sur l'origine VIDAL afin que les ressources relatives
-        # (lib/angular.min.js, css/style.css, etc.) résolvent correctement
-        # lorsque le HTML est rendu dans une iframe `srcdoc` côté UI.
+        # Iter43-fix24u (2026-06-16) — Pour les réponses HTML (typiquement la
+        # page Angular API explorer de VIDAL), on injecte deux choses :
+        #   1) `<base href="{VIDAL_PROXY_PREFIX}/">` — les ressources relatives
+        #      (CSS/JS/img) et les XHR Angular résolvent vers notre proxy
+        #      backend qui transmet à VIDAL avec les credentials côté serveur.
+        #   2) Un attribut data-vidal-origin sur <html> pour debug.
         if raw_text and "<html" in raw_text[:500].lower():
-            from urllib.parse import urlparse
             import re as _re
             parsed = urlparse(url)
             origin = f"{parsed.scheme}://{parsed.netloc}"
-            base_tag = f'<base href="{origin}/">'
-            # Insère juste après <head ...> (insensible à la casse). Sinon
-            # tente d'insérer après <html ...>. En dernier recours, prefix.
+            base_tag = f'<base href="{VIDAL_PROXY_PREFIX}/">'
             head_re = _re.compile(r"(<head[^>]*>)", _re.IGNORECASE)
             html_re = _re.compile(r"(<html[^>]*>)", _re.IGNORECASE)
             if head_re.search(raw_text):
@@ -327,6 +334,11 @@ async def _vidal_call(
                 raw_text = html_re.sub(lambda m: m.group(1) + "<head>" + base_tag + "</head>", raw_text, count=1)
             else:
                 raw_text = base_tag + raw_text
+            # Annotation debug (non-fonctionnelle, juste informative)
+            raw_text = html_re.sub(
+                lambda m: m.group(0).replace("<html", f'<html data-vidal-origin="{origin}"', 1),
+                raw_text, count=1,
+            )
         data = {"raw": raw_text}
 
     if return_debug:
@@ -462,6 +474,117 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             "access": access,
             "tenant_type": tenant_info["tenant_type"],
         }
+
+    # ---- Iter43-fix24u (2026-06-16) — HTTP proxy for the Angular SPA -------
+    # When VIDAL returns an HTML page (Angular API explorer), it loads its CSS,
+    # JS, images and dynamic XHR endpoints via *relative* URLs. We rewrite the
+    # `<base href>` to point here so all those requests transit through this
+    # proxy, which forwards them to the real VIDAL origin with the credentials
+    # configured in AdminSettings. This bypasses CORS limitations of sandboxed
+    # iframes (origin = null).
+    #
+    # Security notes:
+    #   • VIDAL `app_id` + `app_key` stay server-side (never exposed to client).
+    #   • The endpoint is authenticated (same gate as `/api/vidal/search`).
+    #   • Allowed methods: GET, POST, PUT, DELETE, OPTIONS.
+    #   • Forwards content-type and binary payloads as-is.
+    async def _proxy_vidal(request: Request, subpath: str, user: dict):
+        cfg = await _ensure_tenant_can_access(db, user)
+        _ensure_active(cfg)
+        # Build the target URL from the configured VIDAL origin and the
+        # requested sub-path. We KEEP the user's `base_url` exactly as the
+        # admin configured it (including any `#!/` fragment) but only use
+        # its *origin* (scheme + host) when proxying.
+        parsed = urlparse(cfg["base_url"])
+        origin = f"{parsed.scheme}://{parsed.netloc}"
+        # Normalise the sub-path: strip leading slashes, preserve query
+        clean_sub = (subpath or "").lstrip("/")
+        target_url = f"{origin}/{clean_sub}"
+        # Merge query: caller params + server-side credentials
+        qp: Dict[str, Any] = dict(request.query_params)
+        # Don't override caller's `app_id`/`app_key` if any
+        qp.setdefault("app_id", cfg["app_id"])
+        qp.setdefault("app_key", cfg["app_key"])
+        # Forward body for non-GET methods
+        body_bytes: Optional[bytes] = None
+        if request.method.upper() not in ("GET", "HEAD", "OPTIONS"):
+            body_bytes = await request.body()
+        # Forward content-type from caller (Angular often sends JSON or form)
+        fwd_headers = {"Accept": request.headers.get("accept", "*/*")}
+        if request.headers.get("content-type"):
+            fwd_headers["Content-Type"] = request.headers["content-type"]
+        try:
+            async with httpx.AsyncClient(timeout=cfg["http_timeout"], follow_redirects=False) as client:
+                r = await client.request(
+                    request.method.upper(),
+                    target_url,
+                    params=qp,
+                    content=body_bytes,
+                    headers=fwd_headers,
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"VIDAL proxy injoignable : {str(exc)[:200]}") from exc
+        # Pass through the response. For HTML responses, rewrite again so
+        # nested navigation (e.g. when the iframe follows a link) keeps the
+        # proxy active.
+        resp_ctype = r.headers.get("content-type") or "application/octet-stream"
+        body = r.content
+        if "text/html" in resp_ctype.lower():
+            text = r.text or ""
+            if text and "<html" in text[:500].lower():
+                import re as _re
+                base_tag = f'<base href="{VIDAL_PROXY_PREFIX}/">'
+                head_re = _re.compile(r"(<head[^>]*>)", _re.IGNORECASE)
+                html_re = _re.compile(r"(<html[^>]*>)", _re.IGNORECASE)
+                if head_re.search(text):
+                    text = head_re.sub(lambda m: m.group(1) + base_tag, text, count=1)
+                elif html_re.search(text):
+                    text = html_re.sub(lambda m: m.group(1) + "<head>" + base_tag + "</head>", text, count=1)
+                else:
+                    text = base_tag + text
+            body = text.encode("utf-8")
+        # Strip hop-by-hop headers
+        SKIP = {
+            "content-encoding", "content-length", "transfer-encoding",
+            "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+            "te", "trailers", "upgrade",
+        }
+        passthrough_headers = {k: v for k, v in r.headers.items() if k.lower() not in SKIP}
+        return Response(
+            content=body,
+            status_code=r.status_code,
+            media_type=resp_ctype,
+            headers=passthrough_headers,
+        )
+
+    @api.api_route(
+        "/vidal/proxy/{subpath:path}",
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        tags=["VIDAL"],
+    )
+    async def vidal_proxy(
+        subpath: str,
+        request: Request,
+        user: dict = Depends(get_current_user),
+    ):
+        """Forward any HTTP request to the configured VIDAL origin.
+
+        Used by the iframe-rendered Angular SPA: `<base href="/api/vidal/proxy/">`
+        makes every relative resource go through here.
+        """
+        return await _proxy_vidal(request, subpath, user)
+
+    # Empty-path companion (when iframe requests the root resource)
+    @api.api_route(
+        "/vidal/proxy",
+        methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        tags=["VIDAL"],
+    )
+    async def vidal_proxy_root(
+        request: Request,
+        user: dict = Depends(get_current_user),
+    ):
+        return await _proxy_vidal(request, "", user)
 
     # ---- Search products / packages / molecules ----
     @api.get("/vidal/search", tags=["VIDAL"])

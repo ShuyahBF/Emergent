@@ -80,7 +80,12 @@ class _FakeAsyncClient:
 
 @pytest.mark.asyncio
 async def test_html_response_injects_base_tag():
-    """The Angular API explorer page gets <base> injected after <head>."""
+    """The Angular API explorer page gets <base> injected after <head>.
+
+    Iter43-fix24u — `<base href>` points to the backend proxy (`/api/vidal/proxy/`),
+    not the VIDAL origin. This makes all relative resources transit through
+    our backend, avoiding CORS issues in sandboxed iframes.
+    """
     from routes.vidal import _vidal_call
     cfg = {
         "base_url": "http://api.vidal.fr/#!/rest/api",
@@ -91,10 +96,10 @@ async def test_html_response_injects_base_tag():
     with patch.object(httpx, "AsyncClient", lambda *a, **kw: fake):
         result = await _vidal_call(cfg, "GET", "/products/search", params={"q": "x"})
     raw = result.get("raw") or ""
-    assert '<base href="http://api.vidal.fr/">' in raw, raw[:500]
+    assert '<base href="/api/vidal/proxy/">' in raw, raw[:500]
     # <base> must come right after <head> opening tag
     head_idx = raw.lower().find("<head>")
-    base_idx = raw.find('<base href="http://api.vidal.fr/">')
+    base_idx = raw.find('<base href="/api/vidal/proxy/">')
     assert base_idx > head_idx, "base tag must come AFTER <head>"
     assert base_idx - head_idx < 10, "base tag must be IMMEDIATELY after <head>"
 
@@ -112,7 +117,7 @@ async def test_html_error_page_also_gets_base_tag():
     with patch.object(httpx, "AsyncClient", lambda *a, **kw: fake):
         result = await _vidal_call(cfg, "GET", "/authentication")
     raw = result.get("raw") or ""
-    assert '<base href="https://api.vidal.net/">' in raw, raw[:500]
+    assert '<base href="/api/vidal/proxy/">' in raw, raw[:500]
 
 
 @pytest.mark.asyncio

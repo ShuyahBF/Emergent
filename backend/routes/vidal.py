@@ -306,6 +306,27 @@ async def _vidal_call(
         except Exception:  # noqa: BLE001
             data = {"raw": raw_text}
     else:
+        # Iter43-fix24t (2026-06-16) — Pour les réponses HTML (typiquement la
+        # page Angular API explorer de VIDAL), on injecte une balise <base href>
+        # pointant sur l'origine VIDAL afin que les ressources relatives
+        # (lib/angular.min.js, css/style.css, etc.) résolvent correctement
+        # lorsque le HTML est rendu dans une iframe `srcdoc` côté UI.
+        if raw_text and "<html" in raw_text[:500].lower():
+            from urllib.parse import urlparse
+            import re as _re
+            parsed = urlparse(url)
+            origin = f"{parsed.scheme}://{parsed.netloc}"
+            base_tag = f'<base href="{origin}/">'
+            # Insère juste après <head ...> (insensible à la casse). Sinon
+            # tente d'insérer après <html ...>. En dernier recours, prefix.
+            head_re = _re.compile(r"(<head[^>]*>)", _re.IGNORECASE)
+            html_re = _re.compile(r"(<html[^>]*>)", _re.IGNORECASE)
+            if head_re.search(raw_text):
+                raw_text = head_re.sub(lambda m: m.group(1) + base_tag, raw_text, count=1)
+            elif html_re.search(raw_text):
+                raw_text = html_re.sub(lambda m: m.group(1) + "<head>" + base_tag + "</head>", raw_text, count=1)
+            else:
+                raw_text = base_tag + raw_text
         data = {"raw": raw_text}
 
     if return_debug:

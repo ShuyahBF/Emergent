@@ -9,6 +9,24 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24t (2026-06-16) — Inject &lt;base&gt; tag in VIDAL HTML responses ✅
+
+**Statut** : LIVRÉ. 4 nouveaux pytest passent. UI peut maintenant rendre la page Angular VIDAL correctement.
+
+### Problème
+Quand VIDAL renvoie du HTML (page API explorer Angular ou page d'erreur), l'iframe `srcdoc` côté UI ne pouvait pas afficher correctement car :
+1. Les chemins relatifs (`css/bootstrap.min.css`, `lib/angular.min.js`, `img/logo.png`) résolvaient vers `about:srcdoc/...` (404)
+2. Le sandbox `allow-same-origin` seul empêchait l'exécution des scripts AngularJS
+
+### Fix
+- **Backend** (`vidal.py` `_vidal_call`) : pour toute réponse HTML (détectée par `<html` dans les 500 premiers octets), injecte automatiquement `<base href="{scheme}://{netloc}/">` juste après `<head>` (insensible à la casse, fallbacks `<html>` ou prefix).
+- **Frontend** (`Vidal.jsx`) : sandbox iframe passe à `allow-scripts allow-popups` (sans `allow-same-origin` pour limiter XSS — l'iframe a une origine `null`, les XHR cross-origin nécessitent CORS côté VIDAL mais la page se rend correctement avec ses ressources statiques).
+
+### Tests
+- `test_iter43_fix24t_vidal_base_inject.py` — 4 tests : HTML Angular, HTML erreur générique, JSON unaffected, plain text unaffected.
+
+
+
 ## Iter43-fix24s (2026-06-16) — Revert VIDAL URL cleaning + Improve UI response viewer ✅
 
 **Statut** : LIVRÉ. URL VIDAL préservée telle quelle ; rendu UI amélioré pour 2 cas HTML.

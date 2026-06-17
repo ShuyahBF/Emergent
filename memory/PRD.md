@@ -9,6 +9,27 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24s (2026-06-16) — Revert VIDAL URL cleaning + Improve UI response viewer ✅
+
+**Statut** : LIVRÉ. URL VIDAL préservée telle quelle ; rendu UI amélioré pour 2 cas HTML.
+
+### Décision utilisateur (test Postman direct)
+- L'utilisateur a testé en Postman : `http://api.vidal.fr/#!/rest/api/authentication` → page Angular API explorer.
+- L'URL nettoyée `http://api.vidal.fr/rest/api/authentication` → page d'erreur générique "Oops! Something went wrong".
+- **Conclusion utilisateur** : ne pas réécrire l'URL côté backend. Conserver telle quelle. L'effort doit porter sur l'affichage de la réponse.
+
+### Changements
+- **`backend/routes/vidal.py`** : suppression complète de `_clean_vidal_base_url()`. L'URL est utilisée TELLE QUELLE (`rstrip("/")` uniquement, comme avant).
+- **`frontend/src/pages/portal/Vidal.jsx`** : `RawResponseViewer` détecte désormais 2 types de pages HTML VIDAL :
+  - Page Angular API explorer (warning ambré, `vidal-explorer-warning`)
+  - Page d'erreur générique "Oops! Something went wrong" (warning rouge, `vidal-error-page-warning`)
+- **`backend/tests/test_iter43_fix24r_vidal_url_clean.py`** : supprimé (obsolète).
+
+### Iter43-fix24r conservé pour la délégation Officines
+La sortie de la route `/admin/officines-registry` du groupe `<Protected admin>` reste en place. Le composant `OfficinesDelegatedProtected` vérifie `/me/officines-permissions` avant de rendre.
+
+
+
 ## Iter43-fix24r (2026-06-16) — VIDAL URL Cleaning + Officines Route-Guard ✅
 
 **Statut** : LIVRÉ. 18/18 pytest (7 fix24n + 11 fix24r). Smoke test admin OK.

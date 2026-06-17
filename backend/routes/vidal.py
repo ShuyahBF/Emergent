@@ -81,41 +81,17 @@ def _today_str() -> str:
     return _now().date().isoformat()
 
 
-def _clean_vidal_base_url(raw: str) -> str:
-    """Sanitize a VIDAL base_url that the admin may have mis-pasted.
-
-    The user occasionally pastes the Angular *frontend* URL of the VIDAL API
-    explorer (`http://api.vidal.fr/#!/rest/api`) instead of the REST root.
-    The hash route (`#!/...`) is meaningless server-side and causes VIDAL
-    to return its HTML homepage instead of JSON.
-
-    We "unfold" the hashbang: `host/#!/rest/api` → `host/rest/api`. If the
-    URL has a hash *fragment* without a path (e.g. `host/#!/`), we just
-    strip it. Trailing slashes are removed.
-    """
-    if not raw:
-        return ""
-    u = str(raw).strip()
-    if "#" in u:
-        before, after = u.split("#", 1)
-        # Strip leading `!` from Angular hashbang routes (`#!/path` → `/path`)
-        after = after.lstrip("!")
-        # If the after-hash part contains a path, append it after stripping a
-        # trailing slash from `before` to avoid double slashes.
-        if after and after.strip("/"):
-            u = before.rstrip("/") + ("/" + after.lstrip("/"))
-        else:
-            u = before
-    u = u.rstrip("/")
-    return u
-
-
 async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[str, Any]:
     """Load VIDAL config from settings.global.
 
     `tenant_mode_override` allows a per-tenant `vidal_mode` (test|production)
     to take precedence over the global `vidal_mode` setting. Use values
     "test", "production" or None/"inherit" to fall back to global.
+
+    Iter43-fix24s (2026-06-16) — l'URL est utilisée TELLE QUELLE (incluant
+    d'éventuels fragments `#!/...`). Demande explicite utilisateur : ne
+    jamais réécrire l'URL côté backend. L'effort se limite à l'affichage
+    de la réponse côté UI.
     """
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     # Per-tenant override wins when set to a concrete mode.
@@ -126,11 +102,11 @@ async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[s
         if mode not in ("test", "production"):
             mode = "test"
     if mode == "production":
-        base = _clean_vidal_base_url(s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL)
+        base = (s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL).rstrip("/")
         app_id = (s.get("vidal_prod_app_id") or "").strip()
         app_key = (s.get("vidal_prod_app_key") or "").strip()
     else:
-        base = _clean_vidal_base_url(s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL)
+        base = (s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL).rstrip("/")
         app_id = (s.get("vidal_test_app_id") or "").strip()
         app_key = (s.get("vidal_test_app_key") or "").strip()
     return {
@@ -351,10 +327,10 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         return {
             "enabled": bool(s.get("vidal_enabled")),
             "mode": (s.get("vidal_mode") or "test").lower(),
-            "test_base_url": _clean_vidal_base_url(s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL),
+            "test_base_url": s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL,
             "test_app_id": s.get("vidal_test_app_id") or "",
             "test_app_key": "********" if (s.get("vidal_test_app_key") or "") else "",
-            "prod_base_url": _clean_vidal_base_url(s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL),
+            "prod_base_url": s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL,
             "prod_app_id": s.get("vidal_prod_app_id") or "",
             "prod_app_key": "********" if (s.get("vidal_prod_app_key") or "") else "",
             "cache_ttl_hours": int(s.get("vidal_cache_ttl_hours") or DEFAULT_CACHE_TTL_HOURS),
@@ -382,14 +358,10 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         ]:
             v = getattr(payload, src_key)
             if v is not None and v != "********":
-                # Iter43-fix24r (2026-06) — Auto-clean base_url if admin pasted
-                # the Angular frontend URL (`http://api.vidal.fr/#!/rest/api`)
-                # instead of the REST root. The hash fragment makes VIDAL return
-                # its HTML homepage instead of JSON.
-                if src_key.endswith("_base_url"):
-                    update[dst_key] = _clean_vidal_base_url(v)
-                else:
-                    update[dst_key] = v.strip()
+                # Iter43-fix24s (2026-06-16) — Conserver l'URL telle que saisie.
+                # L'utilisateur a explicitement demandé de NE PAS toucher au
+                # fragment `#!/...` côté backend ; l'effort de rendu se fait UI.
+                update[dst_key] = v.strip()
         if payload.cache_ttl_hours is not None:
             update["vidal_cache_ttl_hours"] = max(int(payload.cache_ttl_hours), 0)
         if payload.quota_per_user_per_day is not None:

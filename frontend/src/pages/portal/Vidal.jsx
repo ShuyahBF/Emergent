@@ -70,9 +70,13 @@ function RawResponseViewer({ raw, contentLength = 0 }) {
   const [view, setView] = React.useState("rendered"); // rendered | source
   const kind = _detectResponseKind(raw);
 
-  // Détection rapide : page d'accueil de l'API explorer VIDAL (auth manquée ou path invalide)
+  // Iter43-fix24s (2026-06-16) — Détection enrichie des pages HTML VIDAL :
+  //   1. Page d'accueil de l'API explorer (Angular SPA) → URL contient `#!/`
+  //   2. Page d'erreur générique « Oops! Something went wrong »
   const looksLikeApiExplorer = kind === "html"
     && (raw.includes("data-ng-app=\"app\"") || raw.includes("data-ng-controller=\"MainCtrl\""));
+  const looksLikeErrorPage = kind === "html"
+    && /Oops!?\s*Something went wrong/i.test(raw);
 
   // XML/Atom → tente de parser
   const atomEntries = kind === "xml" ? _parseAtomEntries(raw) : null;
@@ -90,11 +94,22 @@ function RawResponseViewer({ raw, contentLength = 0 }) {
             <p className="font-semibold mb-1">⚠️ VIDAL a renvoyé la page d&apos;accueil de l&apos;API explorer</p>
             <p>Cela arrive quand :</p>
             <ul className="list-disc pl-5 mt-1 space-y-0.5">
-              <li>L&apos;endpoint demandé n&apos;existe pas (chemin incorrect)</li>
+              <li>Le <code>base_url</code> dans <strong>Admin → Paramètres → VIDAL</strong> pointe sur le portail explorer (URL contenant <code>#!/</code>)</li>
               <li>L&apos;<code>app_id</code> ou l&apos;<code>app_key</code> est invalide pour ce mode (test/prod)</li>
-              <li>Le <code>base_url</code> dans <strong>Admin → Paramètres → VIDAL</strong> est mal configuré (manque <code>/rest/api</code> ou trailing slash)</li>
+              <li>L&apos;endpoint demandé n&apos;existe pas (chemin incorrect)</li>
             </ul>
-            <p className="mt-2 italic">Vérifiez la configuration et relancez. La page complète VIDAL est affichée ci-dessous pour info.</p>
+            <p className="mt-2 italic">La page complète VIDAL est affichée ci-dessous pour info.</p>
+          </div>
+        )}
+        {looksLikeErrorPage && !looksLikeApiExplorer && (
+          <div className="rounded-lg bg-rose-50 ring-1 ring-rose-200 p-3 text-xs text-rose-900 leading-relaxed" data-testid="vidal-error-page-warning">
+            <p className="font-semibold mb-1">🚫 VIDAL a renvoyé une page d&apos;erreur générique</p>
+            <p>Le serveur a accepté la requête mais ne peut pas répondre. Causes probables :</p>
+            <ul className="list-disc pl-5 mt-1 space-y-0.5">
+              <li>Endpoint inexistant sur cet environnement (vérifier <code>test</code> vs <code>production</code>)</li>
+              <li>Credentials VIDAL invalides ou expirés</li>
+              <li>Le <code>base_url</code> n&apos;est pas correct (doit inclure le bon préfixe REST)</li>
+            </ul>
           </div>
         )}
         <div className="flex items-center justify-between gap-2">

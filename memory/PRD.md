@@ -9,6 +9,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24y (2026-06-16) — VIDAL : URL cleaning + Accept XML + POST text/xml ✅
+
+**Statut** : LIVRÉ. 34/34 pytest passent (14 nouveaux fix24y + 20 anciens).
+
+### Contexte (clarifié par utilisateur)
+Le `#!/` est uniquement utilisé par le navigateur pour ouvrir le SPA Angular API explorer
+(test manuel des credentials). Pour les vraies requêtes API :
+- **GET** simples : `https://api.vidal.fr/rest/api/products?app_id=X&app_key=Y&q=doliprane`
+- **POST** sécurisation : `https://api.vidal.fr/rest/api/alerts/full?app_id=X&app_key=Y` + body XML + `Content-Type: text/xml`
+- VIDAL refuse HTTP (force HTTPS) et répond en **XML Atom**, pas en JSON.
+
+### Changements
+- **`_clean_vidal_base_url`** (vidal.py) :
+  - Déplie le hashbang Angular : `host/#!/rest/api` → `host/rest/api`
+  - Force HTTPS : `http://` → `https://`
+  - Appliqué à la lecture (`_load_config`) ET à la sauvegarde (`set_vidal_config`).
+- **`_vidal_call`** :
+  - GET : `Accept: application/atom+xml, application/xml, application/json;q=0.5`
+  - POST avec `body: str` → envoie tel quel avec `Content-Type: text/xml; charset=utf-8`
+  - POST avec `body: dict` → fallback JSON (rétrocompat)
+- **`analyze_prescription`** :
+  - Nouvelle fonction `_build_alerts_xml(patient, prescriptions, allergies, pathologies)` construit le body XML best-effort
+  - Champ optionnel `xml_body` sur `PrescriptionAnalysisPayload` permet à l'utilisateur de fournir l'XML brut (si la spec VIDAL diffère de notre best-effort)
+- **`test-connection`** déjà OK (utilise `/products?q=doliprane`)
+
+### Tests
+- `test_iter43_fix24y_vidal_url_clean.py` : 14 tests (hashbang, https force, edge cases)
+
+### Action utilisateur
+- Sur preview : la prochaine fois que tu enregistres VIDAL Settings, l'URL sera nettoyée automatiquement. Tu peux aussi laisser ta DB telle quelle (`http://api.vidal.fr/#!/rest/api`) ; à la prochaine lecture par `_load_config`, l'URL est nettoyée à la volée pour la requête (la DB reste inchangée tant que tu ne sauvegardes pas).
+- Sur production : après redéploiement, ouvre Admin Settings VIDAL et clique "Enregistrer" pour normaliser ta DB.
+
+### En attente de toi
+- Script XML → HTML pour visualiser le flux Atom dans `Vidal.jsx` (tu m'as dit en envoyer un)
+- Spec exacte du body XML `/alerts/full` si elle diffère de mon best-effort
+
+
+
 ## Iter43-fix24x (2026-06-16) — Deploy sequence counter + VIDAL request debug ✅
 
 **Statut** : LIVRÉ. 20/20 pytest passent.

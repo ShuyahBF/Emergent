@@ -72,11 +72,53 @@ class VidalConfigPayload(BaseModel):
 
 
 class PrescriptionAnalysisPayload(BaseModel):
-    """Mirror of the VIDAL `/alerts/full` body, simplified."""
+    """Mirror of the VIDAL `/alerts/full` body, simplified.
+
+    Iter43-fix24y — VIDAL exige du XML pour `/alerts/full`. On accepte deux
+    modes : (a) champs structurés que le backend convertit en XML, ou
+    (b) `xml_body` raw que le backend envoie tel quel à VIDAL (utile pour
+    coller la structure exacte du manuel d'intégration VIDAL).
+    """
     patient: Optional[Dict[str, Any]] = None  # birth_date, sex, weight_kg, ...
-    prescriptions: List[Dict[str, Any]]       # [{ vidal_id, dose, ... }]
+    prescriptions: List[Dict[str, Any]] = []  # [{ vidal_id, dose, ... }]
     allergies: Optional[List[str]] = None
     pathologies: Optional[List[str]] = None
+    xml_body: Optional[str] = None             # Override : XML brut
+
+
+def _build_alerts_xml(patient: Dict[str, Any], prescriptions: List[Dict[str, Any]],
+                      allergies: List[str], pathologies: List[str]) -> str:
+    """Construit un body XML pour POST /alerts/full.
+
+    Best-effort en attendant la spec exacte du manuel d'intégration VIDAL.
+    L'utilisateur peut passer `xml_body` raw pour bypasser cette construction.
+    """
+    import xml.etree.ElementTree as ET
+    root = ET.Element("alertsRequest")
+    if patient:
+        p = ET.SubElement(root, "patient")
+        for k, v in patient.items():
+            if v is None:
+                continue
+            ET.SubElement(p, str(k)).text = str(v)
+    if prescriptions:
+        pres = ET.SubElement(root, "prescriptions")
+        for prescription in prescriptions:
+            pr = ET.SubElement(pres, "prescription")
+            for k, v in (prescription or {}).items():
+                if v is None:
+                    continue
+                ET.SubElement(pr, str(k)).text = str(v)
+    if allergies:
+        a = ET.SubElement(root, "allergies")
+        for al in allergies:
+            ET.SubElement(a, "allergy").text = str(al)
+    if pathologies:
+        path = ET.SubElement(root, "pathologies")
+        for pa in pathologies:
+            ET.SubElement(path, "pathology").text = str(pa)
+    xml_str = ET.tostring(root, encoding="unicode")
+    return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
 
 
 # --------------------------------------------------------------------------- #
@@ -90,6 +132,39 @@ def _today_str() -> str:
     return _now().date().isoformat()
 
 
+def _clean_vidal_base_url(raw: str) -> str:
+    """Sanitize a VIDAL base_url that the admin may have mis-pasted.
+
+    Iter43-fix24y (2026-06-16) — Documentation VIDAL :
+        Bon  : https://api.vidal.fr/rest/api
+        Mauvais : http://api.vidal.fr/#!/rest/api  (URL Angular API explorer)
+
+    Le `#!/` (hashbang) n'a de sens que pour le navigateur Angular SPA — il
+    ne fait JAMAIS partie d'une vraie requête HTTP. On "déplie" donc :
+        host/#!/rest/api → host/rest/api
+        host/#rest/api   → host/rest/api  (variant without bang)
+        host/#!/         → host  (just strip)
+    VIDAL refuse aussi le `http://` (force `https`).
+    """
+    if not raw:
+        return ""
+    u = str(raw).strip()
+    # Déplie le hashbang Angular en URL serveur normale
+    if "#" in u:
+        before, after = u.split("#", 1)
+        after = after.lstrip("!")  # `#!/path` → `/path`
+        if after and after.strip("/"):
+            u = before.rstrip("/") + ("/" + after.lstrip("/"))
+        else:
+            u = before
+    # Force HTTPS (VIDAL n'accepte pas HTTP)
+    if u.startswith("http://"):
+        u = "https://" + u[len("http://"):]
+    # Nettoyage final
+    u = u.rstrip("/")
+    return u
+
+
 async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[str, Any]:
     """Load VIDAL config from settings.global.
 
@@ -97,10 +172,11 @@ async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[s
     to take precedence over the global `vidal_mode` setting. Use values
     "test", "production" or None/"inherit" to fall back to global.
 
-    Iter43-fix24s (2026-06-16) — l'URL est utilisée TELLE QUELLE (incluant
-    d'éventuels fragments `#!/...`). Demande explicite utilisateur : ne
-    jamais réécrire l'URL côté backend. L'effort se limite à l'affichage
-    de la réponse côté UI.
+    Iter43-fix24y (2026-06-16) — Auto-déplie les URLs avec `#!/` (hashbang
+    Angular = uniquement pour le navigateur, jamais pour l'API). Force aussi
+    `https` car VIDAL refuse les requêtes HTTP. Cf. doc utilisateur :
+        Bon  : https://api.vidal.fr/rest/api/products?app_id=X&app_key=Y&q=doliprane
+        Mauvais : http://api.vidal.fr/#!/rest/api/products?...
     """
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     # Per-tenant override wins when set to a concrete mode.
@@ -111,11 +187,11 @@ async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[s
         if mode not in ("test", "production"):
             mode = "test"
     if mode == "production":
-        base = (s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL).rstrip("/")
+        base = _clean_vidal_base_url(s.get("vidal_prod_base_url") or DEFAULT_PROD_BASE_URL)
         app_id = (s.get("vidal_prod_app_id") or "").strip()
         app_key = (s.get("vidal_prod_app_key") or "").strip()
     else:
-        base = (s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL).rstrip("/")
+        base = _clean_vidal_base_url(s.get("vidal_test_base_url") or DEFAULT_TEST_BASE_URL)
         app_id = (s.get("vidal_test_app_id") or "").strip()
         app_key = (s.get("vidal_test_app_key") or "").strip()
     return {
@@ -288,14 +364,33 @@ async def _vidal_call(
     try:
         async with httpx.AsyncClient(timeout=timeout) as client:
             if method.upper() == "GET":
-                r = await client.get(url, params=qp, headers={"Accept": "application/json"})
+                # Iter43-fix24y — VIDAL répond en Atom/XML par défaut.
+                # On accepte les deux formats ; VIDAL renverra `application/atom+xml`.
+                r = await client.get(
+                    url,
+                    params=qp,
+                    headers={"Accept": "application/atom+xml, application/xml, application/json;q=0.5"},
+                )
+            elif method.upper() == "POST" and body is not None and isinstance(body, str):
+                # Iter43-fix24y — Sécurisation prescriptions VIDAL utilise POST
+                # avec Content-Type: text/xml et un body XML. Si l'appelant
+                # passe `body` en tant que `str`, on l'envoie tel quel comme XML.
+                r = await client.post(
+                    url,
+                    params=qp,
+                    content=body.encode("utf-8"),
+                    headers={
+                        "Accept": "application/atom+xml, application/xml",
+                        "Content-Type": "text/xml; charset=utf-8",
+                    },
+                )
             else:
                 r = await client.request(
                     method.upper(),
                     url,
                     params=qp,
                     json=body or {},
-                    headers={"Accept": "application/json"},
+                    headers={"Accept": "application/atom+xml, application/xml, application/json;q=0.5"},
                 )
     except httpx.HTTPError as exc:
         debug["error"] = f"HTTPError: {str(exc)[:300]}"
@@ -406,10 +501,13 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         ]:
             v = getattr(payload, src_key)
             if v is not None and v != "********":
-                # Iter43-fix24s (2026-06-16) — Conserver l'URL telle que saisie.
-                # L'utilisateur a explicitement demandé de NE PAS toucher au
-                # fragment `#!/...` côté backend ; l'effort de rendu se fait UI.
-                update[dst_key] = v.strip()
+                # Iter43-fix24y (2026-06-16) — Nettoyage automatique des URLs
+                # de base : déplie `#!/` (hashbang Angular invalide pour API)
+                # et force HTTPS. Cf. _clean_vidal_base_url().
+                if src_key.endswith("_base_url"):
+                    update[dst_key] = _clean_vidal_base_url(v)
+                else:
+                    update[dst_key] = v.strip()
         if payload.cache_ttl_hours is not None:
             update["vidal_cache_ttl_hours"] = max(int(payload.cache_ttl_hours), 0)
         if payload.quota_per_user_per_day is not None:
@@ -691,23 +789,33 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         user: dict = Depends(get_current_user),
     ):
         """Forwards the payload to VIDAL `/alerts/full`. Result includes alert
-        objects per type (allergy, contraindication, interaction, posology…)."""
-        if not payload.prescriptions:
+        objects per type (allergy, contraindication, interaction, posology…).
+
+        Iter43-fix24y (2026-06-16) — VIDAL exige POST avec `Content-Type:
+        text/xml` et un body XML pour `/alerts/full`. On construit l'XML
+        best-effort à partir des champs structurés. Si l'utilisateur fournit
+        `xml_body` (string), on l'envoie tel quel.
+        """
+        if not payload.prescriptions and not getattr(payload, "xml_body", None):
             raise HTTPException(status_code=400, detail="`prescriptions` ne peut pas être vide")
         cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
-        body = {
-            "patient": payload.patient or {},
-            "prescriptions": payload.prescriptions,
-            "allergies": payload.allergies or [],
-            "pathologies": payload.pathologies or [],
-        }
-        data = await _vidal_call(cfg, "POST", "/alerts/full", body=body)
+        # Iter43-fix24y — Build XML body (or use the provided raw XML override).
+        xml_body = getattr(payload, "xml_body", None)
+        if not xml_body:
+            xml_body = _build_alerts_xml(
+                patient=payload.patient or {},
+                prescriptions=payload.prescriptions,
+                allergies=payload.allergies or [],
+                pathologies=payload.pathologies or [],
+            )
+        # `_vidal_call` detects str body → POST with `Content-Type: text/xml`.
+        data = await _vidal_call(cfg, "POST", "/alerts/full", body=xml_body)
         try:
             await db.vidal_prescription_audit.insert_one({
                 "user_id": user["id"], "user_email": user.get("email"),
-                "request": body, "response_summary": str(data)[:1500],
+                "request_xml": xml_body[:4000], "response_summary": str(data)[:1500],
                 "mode": cfg["mode"], "created_at": _now(),
             })
         except Exception:  # noqa: BLE001

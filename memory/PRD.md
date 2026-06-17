@@ -9,6 +9,28 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24ad + fix24ae (2026-06-17) — Version counter no-git + Bouton Tester VIDAL ✅
+
+**Statut** : LIVRÉ. Backend 4/4 nouveaux tests + 17/17 prior pass. Frontend validé par testing agent (vidal-tester-modal + 7 boutons Tester opérationnels).
+
+### fix24ad — Compteur de version résilient sans `.git`
+- `server.py::_bump_deployment_counter_if_needed()` n'échoue plus si `git rev-parse HEAD` est indisponible (cas conteneur de prod où `.git` n'est pas inclus). On retombe sur un **file fingerprint** `(mtime, size)` de `/app/backend/server.py` qui change à chaque déploiement.
+- L'empreinte combine : `git:<head>` (si dispo) + `file:<mtime:size>` + `env:<APP_VERSION>`.
+- `/api/version` renvoie maintenant `v1.N` qui s'incrémente automatiquement à chaque deploy même sans Git.
+- Nouveau test : `tests/test_iter43_fix24ad_version_no_git.py` (2 tests).
+
+### fix24ae — Bouton "🧪 Tester" pour chaque action VIDAL
+- Nouveau composant **`VidalActionTesterModal.jsx`** (~310 lignes) — modal full-screen avec deux onglets :
+  - **Requête** : méthode + URL exécutée + query params (app_key masqué `***`) + body XML éditable (POST/PUT) + commande curl reproductible.
+  - **Réponse** : status HTTP backend + status VIDAL + content-type + body brut JSON/XML/Atom (overflow scrollable) + bloc d'erreur structuré si `_error` présent.
+- Bouton 🧪 Tester ajouté dans l'en-tête de chaque action (`VidalActionsSection.jsx::ActionEditor`), data-testid `vidal-action-{id}-test`.
+- Pour les actions POST avec body XML (`alerts_full`, `interactions`), le body est éditable dans le modal pour itérer sans sauvegarder.
+- Modal fermé par clic sur `×`, clic sur le backdrop, ou touche ESC.
+- Le modal est `key`é sur `action.id` pour repartir à zéro quand on ouvre une autre action.
+- Gère gracieusement les erreurs VIDAL upstream (api.vidal.fr injoignable depuis preview) — affiche `_error.message` + `raw` body.
+
+
+
 ## Iter43-fix24ab + fix24ac (2026-06-16) — VIDAL : Actions configurables (Admin tab) ✅
 
 **Statut** : LIVRÉ. **105/105 pytest** passent (Iter43 complet).

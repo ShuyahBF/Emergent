@@ -157,8 +157,13 @@ export default function VidalActionTesterModal({ action, onClose }) {
           </div>
           <button
             type="button"
-            onClick={onClose}
-            className="text-slate-500 hover:text-slate-900 text-2xl leading-none px-2"
+            onClick={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              onClose();
+            }}
+            onPointerDown={(e) => e.stopPropagation()}
+            className="text-slate-500 hover:text-slate-900 text-2xl leading-none px-3 py-1 rounded hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-sky-400 transition-colors"
             aria-label="Fermer"
             data-testid="vidal-tester-close"
           >

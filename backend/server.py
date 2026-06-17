@@ -9121,15 +9121,23 @@ _BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
 
 async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
     """Iter43-fix24x (2026-06-16) — Increment a sequential deployment number
-    whenever the running git commit differs from the previously stored one.
+    whenever the running build "fingerprint" differs from the previously stored one.
+
+    Iter43-fix24ad (2026-06-16) — Le `git rev-parse HEAD` ne marche pas en
+    production (le `.git` n'est pas inclus dans l'image déployée). On utilise
+    désormais une *empreinte de déploiement* combinant :
+      - git HEAD (si disponible)
+      - mtime + size de `server.py` (toujours disponible, change à chaque deploy)
+      - APP_VERSION env var
+    Cela garantit que la version s'incrémente vraiment à chaque deploy en prod.
 
     Stored in `db.app_deployments` (single doc with `_id="current"`).
-    Returns the current `{seq, git_head}` snapshot.
-
-    The user explicitly requested a deployment sequence number that auto-bumps
-    on each deploy (previously the UI always showed `v1.0`).
+    Returns the current `{seq, fingerprint, git_head}` snapshot.
     """
     import subprocess
+    import os
+    # 1) git HEAD (best signal when available)
+    git_head: Optional[str] = None
     try:
         git_head = subprocess.check_output(
             ["git", "rev-parse", "HEAD"],
@@ -9139,31 +9147,50 @@ async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
         ).decode().strip()
     except Exception:  # noqa: BLE001
         git_head = None
+    # 2) File fingerprint of /app/backend/server.py — changes at each deploy.
+    file_fp: Optional[str] = None
+    try:
+        st = os.stat("/app/backend/server.py")
+        file_fp = f"{int(st.st_mtime)}:{st.st_size}"
+    except OSError:
+        file_fp = None
+    # 3) Combine — prefer git_head if present, else file fingerprint.
+    fingerprint_parts = []
+    if git_head:
+        fingerprint_parts.append(f"git:{git_head[:12]}")
+    if file_fp:
+        fingerprint_parts.append(f"file:{file_fp}")
+    # APP_VERSION as a third signal (override-aware)
+    env_ver = (os.environ.get("APP_VERSION") or "").strip()
+    if env_ver:
+        fingerprint_parts.append(f"env:{env_ver}")
+    fingerprint = "|".join(fingerprint_parts) if fingerprint_parts else None
     try:
         current = await db.app_deployments.find_one({"_id": "current"}) or {}
     except Exception:  # noqa: BLE001
-        return {"seq": 0, "git_head": git_head}
-    prev_head = current.get("git_head")
+        return {"seq": 0, "git_head": git_head, "fingerprint": fingerprint}
+    prev_fp = current.get("fingerprint") or current.get("git_head")  # bw-compat
     seq = int(current.get("seq") or 0)
     deployed_at = current.get("deployed_at")
-    # Bump only when the commit hash actually changed (or first run).
-    if git_head and git_head != prev_head:
+    # Bump when the fingerprint changed (or first run).
+    if fingerprint and fingerprint != prev_fp:
         seq += 1
         try:
             await db.app_deployments.update_one(
                 {"_id": "current"},
                 {"$set": {
                     "seq": seq,
+                    "fingerprint": fingerprint,
                     "git_head": git_head,
                     "deployed_at": _BUILD_TIME_ISO,
-                    "prev_git_head": prev_head,
+                    "prev_fingerprint": prev_fp,
                 }},
                 upsert=True,
             )
             deployed_at = _BUILD_TIME_ISO
         except Exception:  # noqa: BLE001
             logger.warning("[deploy-counter] failed to bump", exc_info=True)
-    return {"seq": seq, "git_head": git_head, "deployed_at": deployed_at}
+    return {"seq": seq, "git_head": git_head, "fingerprint": fingerprint, "deployed_at": deployed_at}
 
 
 @api.get("/version-detail", tags=["Public"])

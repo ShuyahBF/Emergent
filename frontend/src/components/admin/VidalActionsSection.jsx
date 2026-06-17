@@ -14,6 +14,7 @@
 import React, { useEffect, useState } from "react";
 import { apiClient } from "../../lib/api";
 import { toast } from "sonner";
+import VidalActionTesterModal from "./VidalActionTesterModal";
 
 const METHODS = ["GET", "POST", "PUT", "DELETE"];
 
@@ -22,8 +23,10 @@ export default function VidalActionsSection() {
   const [saving, setSaving] = useState(false);
   const [actions, setActions] = useState([]);
   const [expandedId, setExpandedId] = useState(null);
+  // Iter43-fix24ae (2026-06-17) — Tester modal state
+  const [testerAction, setTesterAction] = useState(null);
 
-  const reload = async () => {
+  const reload = React.useCallback(async () => {
     setLoading(true);
     try {
       const r = await apiClient.get("/admin/vidal/actions");
@@ -33,9 +36,9 @@ export default function VidalActionsSection() {
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
-  useEffect(() => { reload(); }, []);
+  useEffect(() => { reload(); }, [reload]);
 
   const updateAction = (id, patch) => {
     setActions((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
@@ -144,6 +147,7 @@ export default function VidalActionsSection() {
             onAddQueryParam={() => addQueryParam(a.id)}
             onRemoveQueryParam={(qIdx) => removeQueryParam(a.id, qIdx)}
             onRemove={() => removeAction(a.id)}
+            onTest={() => setTesterAction(a)}
           />
         ))}
       </div>
@@ -176,11 +180,19 @@ export default function VidalActionsSection() {
           {saving ? "Enregistrement…" : "💾 Enregistrer les actions VIDAL"}
         </button>
       </div>
+
+      {testerAction && (
+        <VidalActionTesterModal
+          key={testerAction.id}
+          action={testerAction}
+          onClose={() => setTesterAction(null)}
+        />
+      )}
     </div>
   );
 }
 
-function ActionEditor({ action, isExpanded, onToggle, onUpdate, onUpdateQueryParam, onAddQueryParam, onRemoveQueryParam, onRemove }) {
+function ActionEditor({ action, isExpanded, onToggle, onUpdate, onUpdateQueryParam, onAddQueryParam, onRemoveQueryParam, onRemove, onTest }) {
   const m = action.method || "GET";
   const headerColor = action.is_public ? "bg-emerald-50 ring-emerald-200" : "bg-amber-50 ring-amber-200";
   return (
@@ -201,6 +213,15 @@ function ActionEditor({ action, isExpanded, onToggle, onUpdate, onUpdateQueryPar
           {!action.is_public && (
             <span className="ml-1 px-1.5 py-0.5 rounded bg-amber-200 text-amber-800 text-[10px] font-semibold">🔒 Abonné VIDAL</span>
           )}
+        </button>
+        <button
+          type="button"
+          onClick={onTest}
+          className="text-xs text-sky-700 hover:text-sky-900 px-2 py-0.5 rounded bg-sky-100 hover:bg-sky-200 ring-1 ring-sky-300 font-semibold"
+          title="Tester cette action — voir la requête et la réponse VIDAL"
+          data-testid={`vidal-action-${action.id}-test`}
+        >
+          🧪 Tester
         </button>
         <button
           type="button"

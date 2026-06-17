@@ -5,10 +5,11 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  Stethoscope, Search, Loader2, AlertTriangle, FileText, Pill, ListChecks, Plus, X
+  Stethoscope, Search, Loader2, AlertTriangle, FileText, Pill, ListChecks, Plus, X, Zap
 } from "lucide-react";
 
 const TABS = [
+  { key: "actions", label: "Actions", icon: Zap },
   { key: "search", label: "Recherche", icon: Search },
   { key: "catalog", label: "Catalogue", icon: ListChecks },
   { key: "analyze", label: "Analyse prescription", icon: AlertTriangle },
@@ -728,6 +729,121 @@ function ProductDetail({ id, onClose }) {
   );
 }
 
+// ---------------------------------------------------------------------------
+// Iter43-fix24ac (2026-06-16) — Tab "Actions" : boutons dynamiques générés
+// depuis la configuration admin (Admin → Settings → S058b VIDAL Actions).
+// Chaque action visible (`portal_button_visible=true`) devient une carte
+// avec : champ de saisie + bouton "Exécuter" + viewer adapté.
+// ---------------------------------------------------------------------------
+function ActionsTab() {
+  const [actions, setActions] = useState([]);
+  const [loading, setLoading] = useState(true);
+  // Map { [action_id]: { input, running, result } }
+  const [state, setState] = useState({});
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const r = await apiClient.get("/vidal/actions/portal");
+        setActions(r.data?.actions || []);
+      } catch (e) {
+        toast.error(e?.response?.data?.detail || "Chargement actions VIDAL impossible");
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const setInput = (id, val) => setState((s) => ({ ...s, [id]: { ...(s[id] || {}), input: val } }));
+
+  const run = async (action) => {
+    const id = action.id;
+    const userInput = (state[id]?.input || "").trim();
+    if (!userInput) {
+      toast.warning("Saisir une valeur d'abord");
+      return;
+    }
+    setState((s) => ({ ...s, [id]: { ...(s[id] || {}), running: true } }));
+    try {
+      // Special case 'interactions' splits into id1/id2
+      let payload;
+      if (action.id === "interactions") {
+        const parts = userInput.split(/\s+/);
+        payload = { id1: parts[0] || "", id2: parts[1] || "" };
+      } else {
+        const key = action.input_param || "q";
+        payload = { [key]: userInput };
+      }
+      const r = await apiClient.post(`/vidal/execute/${encodeURIComponent(action.id)}`, payload);
+      setState((s) => ({ ...s, [id]: { ...(s[id] || {}), result: r.data, running: false } }));
+    } catch (e) {
+      setState((s) => ({ ...s, [id]: { ...(s[id] || {}), result: { data: { _error: { status: e?.response?.status || 0, message: e?.response?.data?.detail || String(e) } } }, running: false } }));
+    }
+  };
+
+  if (loading) return <p className="text-sm text-slate-500 italic">Chargement des actions…</p>;
+
+  if (actions.length === 0) {
+    return (
+      <div className="text-sm text-slate-600 italic p-4 bg-slate-50 rounded ring-1 ring-slate-200">
+        Aucune action VIDAL visible.{" "}
+        <a href="/admin/settings#s-s058b-vidal-actions" className="text-fuchsia-600 hover:underline">
+          Configurer dans Admin → Settings → VIDAL Actions →
+        </a>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3" data-testid="vidal-actions-tab">
+      <p className="text-[11px] text-slate-500">
+        Boutons configurés via <strong>Admin → Settings → S058b VIDAL Actions</strong>. {actions.length} action{actions.length > 1 ? "s" : ""} disponible{actions.length > 1 ? "s" : ""}.
+      </p>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+        {actions.map((a) => {
+          const st = state[a.id] || {};
+          return (
+            <div key={a.id} className="ring-1 ring-slate-200 rounded-lg bg-white p-3 space-y-2" data-testid={`vidal-action-card-${a.id}`}>
+              <div className="flex items-center gap-2">
+                <span className="text-sm font-semibold flex-1">{a.portal_button_label || a.label}</span>
+                <span className="font-mono text-[9px] uppercase px-1 py-0.5 rounded bg-slate-100 text-slate-500">{a.method}</span>
+                {!a.is_public && <span className="text-[9px] px-1 py-0.5 rounded bg-amber-100 text-amber-700">🔒</span>}
+              </div>
+              <p className="text-[10px] text-slate-500 font-mono break-all">{a.path}</p>
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={st.input || ""}
+                  onChange={(e) => setInput(a.id, e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && run(a)}
+                  placeholder={a.input_label || "Saisir une valeur…"}
+                  className="flex-1 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 focus:ring-2 focus:ring-fuchsia-400 outline-none"
+                  data-testid={`vidal-action-input-${a.id}`}
+                />
+                <button
+                  type="button"
+                  onClick={() => run(a)}
+                  disabled={!!st.running}
+                  className="text-xs px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white disabled:opacity-50 inline-flex items-center gap-1"
+                  data-testid={`vidal-action-run-${a.id}`}
+                >
+                  {st.running ? <Loader2 className="h-3 w-3 animate-spin" /> : <Zap className="h-3 w-3" />}
+                  Exécuter
+                </button>
+              </div>
+              {st.result && (
+                <div className="pt-2 border-t border-slate-100">
+                  <ResultTable data={st.result.data} onPick={() => {}} />
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SearchTab({ onPick }) {
   const [q, setQ] = useState("");
   const [filter, setFilter] = useState("product");
@@ -1002,7 +1118,7 @@ function AnalyzeTab() {
 }
 
 export default function Vidal() {
-  const [tab, setTab] = useState("search");
+  const [tab, setTab] = useState("actions");
   const [pickedId, setPickedId] = useState(null);
   const [quota, setQuota] = useState(null);
 
@@ -1042,6 +1158,7 @@ export default function Vidal() {
       </div>
 
       <div className="ring-1 ring-slate-200 rounded-lg bg-white p-4">
+        {tab === "actions" && <ActionsTab />}
         {tab === "search" && <SearchTab onPick={setPickedId} />}
         {tab === "catalog" && <CatalogTab onPick={setPickedId} />}
         {tab === "analyze" && <AnalyzeTab />}

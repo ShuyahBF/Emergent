@@ -207,6 +207,70 @@ async def autoreply_to_inbound(
         if phone_digits in deny_list_cmd:
             return {"ok": False, "reason": "denylisted"}
 
+        # Iter43-fix24ac (2026-06-16) — Configurable VIDAL `!commands`.
+        # On essaie d'abord de matcher avec une action VIDAL configurée
+        # (Admin → Settings → VIDAL Actions). Si la commande correspond,
+        # on exécute l'action et on répond. Sinon on continue vers les
+        # handlers existants (`!garde`, `!adresse`, etc.).
+        vidal_cmd_token = None
+        vidal_cmd_args = ""
+        m_v = re.match(r"^!\s*([\w\-]+)\s*(.*)$", text)
+        if m_v:
+            vidal_cmd_token = (m_v.group(1) or "").lower()
+            vidal_cmd_args = m_v.group(2) or ""
+        if vidal_cmd_token:
+            vidal_res = await _build_vidal_reply(
+                db, vidal_cmd_token, vidal_cmd_args, phone_digits,
+            )
+            if vidal_res is not None:
+                # The command matched a configured VIDAL action — send reply.
+                reply_v = vidal_res.get("text") or "…"
+                to_e164_v = inbound_doc.get("from") or f"+{phone_digits}"
+                try:
+                    send_v = await wa_send_text(
+                        to_e164_v, reply_v,
+                        reply_to_message_id=inbound_doc.get("wa_message_id"),
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[wa_autoreply][vidal] send failed: %s", exc)
+                    send_v = {"ok": False, "error": str(exc)}
+                try:
+                    await db.whatsapp_messages.insert_one({
+                        "id": uuid.uuid4().hex, "direction": "outbound",
+                        "to": to_e164_v, "phone_digits": phone_digits,
+                        "body": reply_v, "client_id": inbound_doc.get("client_id"),
+                        "wa_message_id": (send_v or {}).get("message_id"),
+                        "auto_reply": True,
+                        "command": f"!{vidal_cmd_token} [vidal:{vidal_res.get('action_id')}]",
+                        "vidal_action_id": vidal_res.get("action_id"),
+                        "vidal_denied": bool(vidal_res.get("denied")),
+                        "created_at": datetime.now(timezone.utc).isoformat(),
+                    })
+                except Exception:  # noqa: BLE001
+                    pass
+                try:
+                    await db.liluvine_exclamations.update_one(
+                        {"wa_message_id": inbound_doc.get("wa_message_id"), "direction": "inbound"},
+                        {"$set": {
+                            "handled": True,
+                            "reply": reply_v[:500],
+                            "handled_at": _now_iso(),
+                            "vidal_action_id": vidal_res.get("action_id"),
+                            "send_ok": bool((send_v or {}).get("ok") if isinstance(send_v, dict) else True),
+                        }},
+                    )
+                except Exception:  # noqa: BLE001
+                    pass
+                return {
+                    "ok": True,
+                    "command": f"!{vidal_cmd_token}",
+                    "vidal_action_id": vidal_res.get("action_id"),
+                    "denied": bool(vidal_res.get("denied")),
+                    "send": send_v,
+                    "reply": reply_v,
+                }
+            # vidal_res is None → no matching VIDAL action, fall through.
+
         if is_public_cmd:
             # Commandes publiques — TOUJOURS exécutées.
             # Sécurisées par try/except : même si le builder plante, on répond.
@@ -1060,3 +1124,137 @@ async def _build_stock_reply(db, args: str) -> str:
     lines.append("_💚 Prompt rétablissement !_")
     lines.append("\n_— Liluvine PRO 🤖_")
     return "\n".join(lines)
+
+
+
+# ===========================================================================
+# Iter43-fix24ac (2026-06-16) — Configurable VIDAL `!commands`
+# ===========================================================================
+async def _contact_has_vidal_subscription(db, phone_digits: str) -> bool:
+    """Returns True if the contact identified by `phone_digits` carries
+    the tag "Abonné VIDAL" in `db.contacts`. Used to gate access to
+    non-public VIDAL actions over WhatsApp.
+
+    The tag match is case-insensitive and tolerates the diacritic é/e.
+    """
+    if not phone_digits:
+        return False
+    # Normalize: VIDAL tag may be stored as "Abonné VIDAL" or "Abonne VIDAL".
+    targets = {"abonné vidal", "abonne vidal"}
+    contact = await db.contacts.find_one({"phone_digits": phone_digits}) or {}
+    if not contact:
+        contact = await db.contacts.find_one({"phone": {"$regex": phone_digits[-9:] if len(phone_digits) >= 9 else phone_digits}})
+        contact = contact or {}
+    tags = contact.get("tags") or contact.get("labels") or []
+    if isinstance(tags, str):
+        tags = [t.strip() for t in tags.split(",") if t.strip()]
+    norm = {(t or "").strip().lower() for t in tags if t}
+    return bool(norm & targets)
+
+
+async def _build_vidal_reply(db, command_token: str, command_args: str,
+                              phone_digits: str) -> Optional[Dict[str, Any]]:
+    """Try to resolve and execute a VIDAL action for an inbound `!cmd args`.
+
+    Returns:
+      - None if the command does NOT match any configured VIDAL action
+        (so the caller falls through to other handlers)
+      - {"text": str, "action_id": str, "denied": bool} if matched
+    """
+    try:
+        from routes.vidal_actions import get_vidal_actions, find_action_by_command, render_action
+        from routes.vidal import _load_config, _vidal_call, _ensure_active
+    except Exception:  # noqa: BLE001
+        logger.exception("[wa_autoreply][vidal] failed to import VIDAL modules")
+        return None
+    actions = await get_vidal_actions(db)
+    action = find_action_by_command(actions, command_token)
+    if not action:
+        return None
+    # Access control : public OR contact has "Abonné VIDAL" tag.
+    is_public = bool(action.get("is_public"))
+    if not is_public:
+        subscribed = await _contact_has_vidal_subscription(db, phone_digits)
+        if not subscribed:
+            return {
+                "text": (
+                    f"🔒 La commande `!{command_token}` est réservée aux abonnés VIDAL.\n\n"
+                    "Pour y accéder, contactez votre pharmacien afin de souscrire "
+                    "à l'option **Abonné VIDAL**."
+                ),
+                "action_id": action.get("id"),
+                "denied": True,
+            }
+    # Build the user_input dict from the trailing args.
+    args_clean = (command_args or "").strip()
+    input_param = action.get("input_param") or "q"
+    user_input: Dict[str, Any] = {input_param: args_clean}
+    # Special case : `interactions` needs two ids → split on whitespace.
+    if action.get("id") == "interactions":
+        parts = args_clean.split()
+        user_input = {"id1": parts[0] if len(parts) >= 1 else "", "id2": parts[1] if len(parts) >= 2 else ""}
+    # Execute the call.
+    try:
+        cfg = await _load_config(db)
+        _ensure_active(cfg)
+        rendered = render_action(action, user_input)
+        data = await _vidal_call(
+            cfg, rendered["method"], rendered["path"],
+            params=rendered["params"], body=rendered["body"],
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("[wa_autoreply][vidal] call failed for %s", command_token)
+        return {
+            "text": (
+                f"⚠️ Désolé, impossible d'interroger VIDAL pour `!{command_token}` "
+                f"actuellement.\n_Erreur : {str(exc)[:120]}_"
+            ),
+            "action_id": action.get("id"),
+            "denied": False,
+        }
+    # Format the response : prefer Atom entries, else short JSON snippet.
+    if (data or {}).get("_error"):
+        err = data["_error"]
+        return {
+            "text": (
+                f"❌ VIDAL a refusé la requête `!{command_token}` "
+                f"(HTTP {err.get('status')}).\n\n_{err.get('message') or '—'}_"
+            ),
+            "action_id": action.get("id"),
+            "denied": False,
+        }
+    text = _format_vidal_data_for_wa(action, data)
+    return {"text": text, "action_id": action.get("id"), "denied": False}
+
+
+def _format_vidal_data_for_wa(action: Dict[str, Any], data: Dict[str, Any]) -> str:
+    """Format a VIDAL response into a short WhatsApp-friendly text block."""
+    label = action.get("label") or action.get("id")
+    head = f"📋 *{label}*"
+    raw = data.get("raw") if isinstance(data, dict) else None
+    # Try to parse Atom entries from raw XML (lightweight regex parse).
+    if isinstance(raw, str) and "<entry" in raw:
+        # Extract first 5 <title> tags
+        titles = re.findall(r"<title[^>]*>([^<]+)</title>", raw)
+        titles = [t.strip() for t in titles if t.strip()]
+        # Drop the feed title (first one is usually "VIDAL …")
+        if len(titles) > 1:
+            titles = titles[1:]
+        if titles:
+            lines = [head, ""]
+            for i, t in enumerate(titles[:8], 1):
+                lines.append(f"{i}. {t}")
+            if len(titles) > 8:
+                lines.append(f"… (+{len(titles) - 8} résultats non affichés)")
+            return "\n".join(lines)
+        return f"{head}\n\n_Aucun résultat trouvé._"
+    # JSON dict fallback
+    if isinstance(data, dict) and data.get("entries"):
+        entries = data["entries"][:8]
+        lines = [head, ""]
+        for i, e in enumerate(entries, 1):
+            title = (e or {}).get("title") or (e or {}).get("name") or "?"
+            lines.append(f"{i}. {title}")
+        return "\n".join(lines)
+    # Anything else → just confirm the call worked
+    return f"{head}\n\n_Réponse VIDAL reçue ({len(str(data))} caractères). Consultez le portail pour le détail._"

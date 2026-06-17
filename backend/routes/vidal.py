@@ -135,33 +135,39 @@ def _today_str() -> str:
 def _clean_vidal_base_url(raw: str) -> str:
     """Sanitize a VIDAL base_url that the admin may have mis-pasted.
 
-    Iter43-fix24y (2026-06-16) — Documentation VIDAL :
+    Iter43-fix24ab (2026-06-16) — Cas connus à corriger automatiquement :
         Bon  : https://api.vidal.fr/rest/api
-        Mauvais : http://api.vidal.fr/#!/rest/api  (URL Angular API explorer)
+        Mauvais 1 : http://api.vidal.fr/#!/rest/api  (URL Angular API explorer)
+        Mauvais 2 : http://api.vidal.fr/#!/rest/api/authentication  (endpoint test only)
+        Mauvais 3 : https://api.vidal.fr/rest/api/authentication  (endpoint test only)
 
-    Le `#!/` (hashbang) n'a de sens que pour le navigateur Angular SPA — il
-    ne fait JAMAIS partie d'une vraie requête HTTP. On "déplie" donc :
-        host/#!/rest/api → host/rest/api
-        host/#rest/api   → host/rest/api  (variant without bang)
-        host/#!/         → host  (just strip)
-    VIDAL refuse aussi le `http://` (force `https`).
+    Le `/authentication` n'est PAS un préfixe d'API — c'est l'endpoint que le
+    navigateur Angular utilise pour tester les credentials manuellement. Il ne
+    doit jamais être concaténé devant les vraies actions (`/products`, etc.).
+    On le retire automatiquement si présent en suffixe du base_url.
+
+    On déplie aussi le hashbang (`#!/`) et on force HTTPS.
     """
     if not raw:
         return ""
     u = str(raw).strip()
-    # Déplie le hashbang Angular en URL serveur normale
+    # 1) Déplie le hashbang Angular en URL serveur normale
     if "#" in u:
         before, after = u.split("#", 1)
-        after = after.lstrip("!")  # `#!/path` → `/path`
+        after = after.lstrip("!")
         if after and after.strip("/"):
             u = before.rstrip("/") + ("/" + after.lstrip("/"))
         else:
             u = before
-    # Force HTTPS (VIDAL n'accepte pas HTTP)
+    # 2) Force HTTPS (VIDAL n'accepte pas HTTP)
     if u.startswith("http://"):
         u = "https://" + u[len("http://"):]
-    # Nettoyage final
+    # 3) Nettoyage du trailing slash
     u = u.rstrip("/")
+    # 4) Iter43-fix24ab — Strip `/authentication` suffix if present :
+    #    l'admin a confondu l'endpoint de test avec le base_url.
+    if u.endswith("/authentication"):
+        u = u[: -len("/authentication")]
     return u
 
 
@@ -567,13 +573,13 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
                 "error": f"Credentials ({cfg['mode']}) manquants.",
                 "debug": {"request": {
                     "url": f"{cfg['base_url']}/products",
-                    "params": {"q": "doliprane", "filter": "product", "app_id": cfg["app_id"] or "(vide)", "app_key": "(vide)"},
+                    "params": {"q": "doliprane", "app_id": cfg["app_id"] or "(vide)", "app_key": "(vide)"},
                     "mode": cfg["mode"],
                 }, "response": None},
             }
         result = await _vidal_call(
             cfg, "GET", "/products",
-            params={"q": "doliprane", "filter": "product"},
+            params={"q": "doliprane"},
             return_debug=True,
         )
         if result.get("_error"):
@@ -732,18 +738,23 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     @api.get("/vidal/search", tags=["VIDAL"])
     async def search(
         q: str = Query(..., min_length=2, description="Terme de recherche"),
-        filter: str = Query("product", regex="^(product|package|ucd|vmp|all-packages)$"),
+        filter: Optional[str] = Query(None, regex="^(product|package|ucd|vmp|all-packages)$"),
         user: dict = Depends(get_current_user),
     ):
         cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
         await _quota_check_and_increment(db, user["id"], cfg)
-        params = {"q": q, "filter": filter}
-        ckey = _cache_key(cfg["mode"], "GET", "/products/search", params)
+        # Iter43-fix24ab — `filter` est désormais optionnel. Doc VIDAL :
+        # `https://api.vidal.fr/rest/api/products?app_id=X&app_key=Y&q=doliprane`
+        # ne nécessite pas de `filter` pour une recherche basique.
+        params: Dict[str, Any] = {"q": q}
+        if filter:
+            params["filter"] = filter
+        ckey = _cache_key(cfg["mode"], "GET", "/products", params)
         cached = await _cache_get(db, ckey, cfg["cache_ttl_hours"])
         if cached is not None:
             return {"cached": True, "data": cached}
-        data = await _vidal_call(cfg, "GET", "/products/search", params=params)
+        data = await _vidal_call(cfg, "GET", "/products", params=params)
         await _cache_set(db, ckey, data)
         # Iter41 Phase 2 — Hybrid Qdrant ingest (lazy on every search result).
         try:
@@ -856,5 +867,16 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     async def purge_cache(user: dict = Depends(get_current_admin)):
         r = await db.vidal_cache.delete_many({})
         return {"ok": True, "deleted": r.deleted_count}
+
+    # Iter43-fix24ac (2026-06-16) — Configurable actions (admin editable).
+    from routes.vidal_actions import attach_vidal_actions_routes
+    attach_vidal_actions_routes(
+        api=api, db=db,
+        get_current_user=get_current_user, get_current_admin=get_current_admin,
+        vidal_call_fn=_vidal_call,
+        ensure_tenant_can_access_fn=_ensure_tenant_can_access,
+        ensure_active_fn=_ensure_active,
+        quota_check_fn=_quota_check_and_increment,
+    )
 
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

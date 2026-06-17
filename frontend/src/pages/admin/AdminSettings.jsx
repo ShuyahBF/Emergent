@@ -13,6 +13,7 @@ import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutorep
 import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowledgeBaseSection";
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
+import VidalActionsSection from "@/components/admin/VidalActionsSection";
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
@@ -685,6 +686,11 @@ export default function AdminSettings() {
 
       <Filterable title="💊 S058 — Module VIDAL France (médicaments, RCP, alertes prescription)" anchorId="s-s058-vidal">
         <S058VidalSection />
+      </Filterable>
+
+      {/* Iter43-fix24ac (2026-06-16) — VIDAL Actions configurables */}
+      <Filterable title="⚙️ S058b — VIDAL : Actions configurables (boutons portail + commandes WhatsApp)" anchorId="s-s058b-vidal-actions">
+        <VidalActionsSection />
       </Filterable>
 
       <Filterable title="📊 S059 — Synthèse Liluvine + API Officines + Image sidebar" anchorId="s-s059-synthese-officines">

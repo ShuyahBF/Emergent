@@ -9,6 +9,78 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24ab + fix24ac (2026-06-16) — VIDAL : Actions configurables (Admin tab) ✅
+
+**Statut** : LIVRÉ. **105/105 pytest** passent (Iter43 complet).
+
+### Contexte — Pourquoi ce gros refactor
+L'utilisateur a constaté que je devinais mal les chemins VIDAL (ex : `/products/search` au lieu de `/products`, `/authentication` concaténé par erreur). Plutôt que de continuer à hardcoder, l'utilisateur a demandé un **système de configuration centralisé** où il définit lui-même chaque action.
+
+### fix24ab : Quick-fix de débloquage (avant refactor)
+- `_clean_vidal_base_url` strip désormais le suffixe `/authentication` (endpoint de test uniquement, jamais un préfixe).
+- Recherche : `/products/search` → `/products` (path correct selon doc VIDAL).
+- Paramètre `filter` rendu optionnel sur `/api/vidal/search`.
+
+### fix24ac : Système d'actions VIDAL configurables (le vrai fix)
+
+**Nouveau module backend** `routes/vidal_actions.py` (~270 lignes) :
+- `DEFAULT_ACTIONS` — 7 actions VIDAL seedées au premier accès :
+  | id | méthode | path | publique | !cmd |
+  |---|---|---|---|---|
+  | `recherche` | GET | `/products?q={q}` | ✓ | `!recherche` |
+  | `produit` | GET | `/product/{id}` | ✓ | `!produit` |
+  | `documents` | GET | `/product/{id}/documents` | ✓ | `!docs` |
+  | `produit_status` | GET | `/product/{id}/status` | ✓ | `!status` |
+  | `package` | GET | `/package/{id}` (CIP/EAN) | ✓ | `!cip` |
+  | `alerts_full` | POST | `/alerts/full` (body XML) | 🔒 | `!secure` |
+  | `interactions` | POST | `/alerts/interactions` (body XML) | 🔒 | `!interactions` |
+
+- Endpoints admin :
+  - `GET /api/admin/vidal/actions` (liste + seed défauts au 1er appel)
+  - `PUT /api/admin/vidal/actions` (replace all, validation unicité id+cmd)
+  - `POST /api/admin/vidal/actions/reset-defaults`
+- Endpoint portail :
+  - `POST /api/vidal/execute/{action_id}` (body = `{[input_param]: "doliprane"}`)
+  - `GET /api/vidal/actions/portal` (filtre `portal_button_visible=true`, trié par `order`)
+- Helpers :
+  - `find_action_by_command(actions, "!recherche")` — match par `exclamation_command` puis fallback id, case-insensitive
+  - `render_action(action, user_input)` — substitue `{var}` dans path/query_template/body avec `re.sub`
+  - `_safe_format` — garde le placeholder `{var}` si non fourni (feedback visuel admin)
+
+**Frontend** :
+- Nouveau composant `frontend/src/components/admin/VidalActionsSection.jsx` (~360 lignes)
+  - Liste expand/collapse de toutes les actions
+  - Édition complète : `id`, `label`, `method` (dropdown GET/POST/PUT/DELETE), `path`, `query_params[]` (ajout/suppression dynamique), `body_template` (textarea XML), `is_public`, `exclamation_command`, `portal_button_visible`, `portal_button_label`, `input_label`, `input_param`, `example_url`
+  - Boutons : ➕ Ajouter, 🔄 Réinitialiser aux défauts, 💾 Enregistrer
+  - Badges visuels : public (vert) / privé (ambre) / 🔒 Abonné VIDAL
+- Intégré dans `AdminSettings.jsx` sous **S058b — VIDAL Actions configurables**
+- Nouveau composant `ActionsTab` dans `Vidal.jsx` (portail) :
+  - Charge `/api/vidal/actions/portal`
+  - Affiche une carte par action visible (label + path mono + champ input + bouton Exécuter)
+  - Résultat rendu via les viewers existants (Atom / JSON / HTML / RequestDebugPanel)
+  - Onglet "Actions" mis comme **default** (avant Recherche, Catalogue, Analyse)
+
+**WhatsApp** (`liluvine_wa_autoreply.py`) :
+- Nouveau handler `_build_vidal_reply()` qui :
+  - Match la commande `!recherche doliprane` contre les actions configurées
+  - Si `is_public=false` → vérifie que le contact porte le tag **"Abonné VIDAL"** (ou "Abonne VIDAL" sans accent). Sinon → message "🔒 réservé aux abonnés"
+  - Exécute l'action, formate la réponse en texte WhatsApp (top 8 entrées Atom)
+  - Insère dans `whatsapp_messages` avec `vidal_action_id` + `vidal_denied`
+  - Stocke dans `liluvine_exclamations` avec `vidal_action_id`
+- Wiring : tenté en PREMIER dans le dispatcher `!`/`/`, fallback aux handlers existants si pas de match
+- Helper `_contact_has_vidal_subscription(db, phone_digits)` qui cherche le tag dans `db.contacts.tags` (avec/sans accent)
+
+### Tests
+- `test_iter43_fix24ac_vidal_actions.py` (11 tests) :
+  - Défauts ont les champs requis
+  - `recherche` suit la doc VIDAL (`/products` avec `q={q}`)
+  - `alerts_full` est POST avec body XML, privé
+  - `find_action_by_command` : explicit, fallback id, case-insensitive, retour None pour inconnu
+  - `render_action` : path placeholder, query template, XML body, missing var conservé
+  - `_clean_vidal_base_url` strip `/authentication` suffix
+
+
+
 ## Iter43-fix24aa (2026-06-16) — VIDAL : Affichage requête + réponse même sur erreur ✅
 
 **Statut** : LIVRÉ. 38/38 pytest passent (4 nouveaux fix24aa + 34 anciens).

@@ -66,7 +66,110 @@ function _parseAtomEntries(xmlText) {
   }
 }
 
-function RawResponseViewer({ raw, contentLength = 0 }) {
+function _buildCurlCommand(meta) {
+  if (!meta) return "";
+  const m = String(meta.method || "GET").toUpperCase();
+  // Build full URL with query string
+  let url = meta.url || "";
+  const params = meta.params || {};
+  const qs = Object.entries(params)
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v ?? ""))}`)
+    .join("&");
+  if (qs) url += (url.includes("?") ? "&" : "?") + qs;
+  const lines = [`curl -X ${m} '${url}'`, `  -H 'Accept: application/json'`];
+  if (m !== "GET" && m !== "HEAD" && meta.body) {
+    lines.push(`  -H 'Content-Type: application/json'`);
+    lines.push(`  -d '${JSON.stringify(meta.body)}'`);
+  }
+  return lines.join(" \\\n");
+}
+
+function RequestDebugPanel({ meta }) {
+  if (!meta) return null;
+  const curl = _buildCurlCommand(meta);
+  const fullUrl = (() => {
+    let u = meta.url || "";
+    const qs = Object.entries(meta.params || {})
+      .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v ?? ""))}`)
+      .join("&");
+    return u + (qs ? (u.includes("?") ? "&" : "?") + qs : "");
+  })();
+  const copyText = (text) => {
+    try {
+      navigator.clipboard.writeText(text || "");
+      toast.success("Copié dans le presse-papier");
+    } catch {
+      toast.error("Copie impossible");
+    }
+  };
+  return (
+    <div className="rounded-lg ring-1 ring-blue-200 bg-blue-50 p-3 space-y-2" data-testid="vidal-request-debug">
+      <div className="flex items-center justify-between">
+        <p className="text-xs font-semibold text-blue-900">🔬 Requête envoyée à VIDAL</p>
+        <span className="text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded bg-blue-100 text-blue-700 font-bold">
+          mode: {meta.mode || "?"}
+        </span>
+      </div>
+      <div className="grid grid-cols-[80px_1fr] gap-x-2 gap-y-1 text-[11px]">
+        <span className="text-blue-700 font-semibold">Méthode</span>
+        <code className="text-slate-800 break-all">{(meta.method || "GET").toUpperCase()}</code>
+        <span className="text-blue-700 font-semibold">URL</span>
+        <code className="text-slate-800 break-all bg-white px-1.5 py-0.5 rounded ring-1 ring-blue-100" data-testid="vidal-debug-url">{fullUrl}</code>
+        {meta.body && (
+          <>
+            <span className="text-blue-700 font-semibold">Body</span>
+            <pre className="text-[10px] bg-white p-1.5 rounded ring-1 ring-blue-100 overflow-auto max-h-24 font-mono" data-testid="vidal-debug-body">
+              {typeof meta.body === "string" ? meta.body : JSON.stringify(meta.body, null, 2)}
+            </pre>
+          </>
+        )}
+        <span className="text-blue-700 font-semibold">Timeout</span>
+        <span className="text-slate-600">{meta.timeout_seconds || "?"} s</span>
+      </div>
+      <details className="text-[11px]">
+        <summary className="cursor-pointer text-blue-700 hover:text-blue-900 select-none font-semibold">
+          ▼ Commande curl reproductible (clé app_key masquée)
+        </summary>
+        <div className="mt-1.5 space-y-1.5">
+          <pre className="text-[10px] bg-slate-900 text-emerald-200 p-2 rounded overflow-auto font-mono" data-testid="vidal-debug-curl">{curl}</pre>
+          <div className="flex gap-1.5">
+            <button
+              type="button"
+              onClick={() => copyText(curl)}
+              className="text-[10px] px-2 py-1 rounded bg-blue-600 hover:bg-blue-700 text-white"
+              data-testid="vidal-debug-copy-curl"
+            >
+              📋 Copier curl
+            </button>
+            <button
+              type="button"
+              onClick={() => copyText(fullUrl)}
+              className="text-[10px] px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
+              data-testid="vidal-debug-copy-url"
+            >
+              Copier URL seule
+            </button>
+            {meta.body && (
+              <button
+                type="button"
+                onClick={() => copyText(typeof meta.body === "string" ? meta.body : JSON.stringify(meta.body, null, 2))}
+                className="text-[10px] px-2 py-1 rounded bg-slate-200 hover:bg-slate-300 text-slate-700"
+                data-testid="vidal-debug-copy-body"
+              >
+                Copier Body
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] text-blue-700 italic">
+            ⚠️ Remplacez <code className="bg-blue-100 px-1">app_key=***</code> par votre clé réelle avant exécution dans Postman / curl.
+          </p>
+        </div>
+      </details>
+    </div>
+  );
+}
+
+function RawResponseViewer({ raw, contentLength = 0, requestMeta = null }) {
   const [view, setView] = React.useState("rendered"); // rendered | source
   const kind = _detectResponseKind(raw);
 
@@ -153,10 +256,16 @@ function RawResponseViewer({ raw, contentLength = 0 }) {
             />
           </div>
         ) : (
-          <pre className="text-[10px] bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-source">
-            {raw.slice(0, 20000)}
-            {raw.length > 20000 && "\n\n… (tronqué — utilisez Copier pour récupérer le contenu complet)"}
-          </pre>
+          <div className="space-y-2">
+            {requestMeta && <RequestDebugPanel meta={requestMeta} />}
+            <div>
+              <div className="text-[11px] text-slate-500 mb-1">📄 Source HTML brute reçue de VIDAL :</div>
+              <pre className="text-[10px] bg-slate-900 text-slate-100 p-3 rounded overflow-auto max-h-80 font-mono whitespace-pre-wrap" data-testid="vidal-raw-source">
+                {raw.slice(0, 20000)}
+                {raw.length > 20000 && "\n\n… (tronqué — utilisez Copier pour récupérer le contenu complet)"}
+              </pre>
+            </div>
+          </div>
         )}
       </div>
     );
@@ -226,7 +335,7 @@ function ResultTable({ data, onPick }) {
     // (HTML → iframe sandboxée, XML/Atom → table parsée, sinon JSON pretty).
     const raw = typeof data?.raw === "string" ? data.raw : null;
     if (raw) {
-      return <RawResponseViewer raw={raw} contentLength={raw.length} />;
+      return <RawResponseViewer raw={raw} contentLength={raw.length} requestMeta={data?._request || null} />;
     }
     return (
       <div className="text-xs text-slate-500 italic p-3 ring-1 ring-slate-200 rounded bg-slate-50">

@@ -858,14 +858,25 @@ async def health():
 
 @api.get("/version", tags=["Santé"])
 async def version():
-    """Iter35n — Tag de version public. Affiché sur la page de connexion pour que les utilisateurs
-    can confirm which build they are about to authenticate against. Always
-    returns 200 (never auth-protected); contains no secrets."""
+    """Iter43-fix24x (2026-06-16) — Version sequence auto-bumped on each deploy.
+
+    The minor number after the dot is a sequential counter incremented every
+    time the git HEAD commit changes (= a new deploy). Previously this was
+    tied to `roadmap_actions` which rarely changed, so the UI always showed
+    `v1.0`. The major number stays `1` (or whatever `APP_VERSION` env var
+    overrides it to). The `git_sha` field is exposed for support / debug.
+    Always returns 200, contains no secrets.
+    """
+    snap = await _bump_deployment_counter_if_needed()
+    seq = int(snap.get("seq") or 0)
+    env_ver = (os.environ.get("APP_VERSION") or "").strip()
+    base = env_ver if env_ver else "1"
     return {
-        "version": APP_VERSION,
-        "git_sha": APP_GIT_SHA,
+        "version": f"{base}.{seq}",
+        "git_sha": (snap.get("git_head") or APP_GIT_SHA)[:7],
         "built_at": APP_BUILT_AT,
-        "started_at": APP_STARTED_AT,
+        "started_at": snap.get("deployed_at") or APP_STARTED_AT,
+        "deploy_seq": seq,
     }
 
 
@@ -9108,25 +9119,71 @@ _BUILD_TIME_ISO = datetime.now(timezone.utc).isoformat()
 _BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
 
 
-@api.get("/version", tags=["Public"])
-async def get_version():
-    """Renvoie la version du build en cours + l'horodatage du dernier redémarrage.
+async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
+    """Iter43-fix24x (2026-06-16) — Increment a sequential deployment number
+    whenever the running git commit differs from the previously stored one.
 
-    Iter34i: The minor version auto-bumps from the count of delivered
-    roadmap actions stored in `db.roadmap_actions`. Manual major releases
-    can be forced via the APP_VERSION env var (then we append the action
-    count as a build number). Result format: `1.<N>` or `<APP_VERSION>.<N>`.
+    Stored in `db.app_deployments` (single doc with `_id="current"`).
+    Returns the current `{seq, git_head}` snapshot.
+
+    The user explicitly requested a deployment sequence number that auto-bumps
+    on each deploy (previously the UI always showed `v1.0`).
     """
+    import subprocess
     try:
-        done_count = await db.roadmap_actions.count_documents({"done": True})
-    except Exception:
-        done_count = 0
+        git_head = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd="/app",
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        ).decode().strip()
+    except Exception:  # noqa: BLE001
+        git_head = None
+    try:
+        current = await db.app_deployments.find_one({"_id": "current"}) or {}
+    except Exception:  # noqa: BLE001
+        return {"seq": 0, "git_head": git_head}
+    prev_head = current.get("git_head")
+    seq = int(current.get("seq") or 0)
+    deployed_at = current.get("deployed_at")
+    # Bump only when the commit hash actually changed (or first run).
+    if git_head and git_head != prev_head:
+        seq += 1
+        try:
+            await db.app_deployments.update_one(
+                {"_id": "current"},
+                {"$set": {
+                    "seq": seq,
+                    "git_head": git_head,
+                    "deployed_at": _BUILD_TIME_ISO,
+                    "prev_git_head": prev_head,
+                }},
+                upsert=True,
+            )
+            deployed_at = _BUILD_TIME_ISO
+        except Exception:  # noqa: BLE001
+            logger.warning("[deploy-counter] failed to bump", exc_info=True)
+    return {"seq": seq, "git_head": git_head, "deployed_at": deployed_at}
+
+
+@api.get("/version-detail", tags=["Public"])
+async def get_version_detail():
+    """Iter43-fix24x — wrapper public détaillé pour le numéro de déploiement.
+
+    Identique à `/api/version` mais expose explicitement `deploy_seq` et
+    `git_head` pour les outils de monitoring / debug.
+    """
+    snap = await _bump_deployment_counter_if_needed()
+    seq = int(snap.get("seq") or 0)
     env_ver = (os.environ.get("APP_VERSION") or "").strip()
-    if env_ver:
-        version = f"{env_ver}.{done_count}"
-    else:
-        version = f"1.{done_count}"
-    return {"version": version, "started_at": _BUILD_TIME_ISO, "actions_done": done_count}
+    base = env_ver if env_ver else "1"
+    version = f"{base}.{seq}"
+    return {
+        "version": version,
+        "started_at": snap.get("deployed_at") or _BUILD_TIME_ISO,
+        "deploy_seq": seq,
+        "git_head": (snap.get("git_head") or "")[:7],  # short hash for UI
+    }
 
 
 # ====================================================================

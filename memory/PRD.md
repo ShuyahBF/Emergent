@@ -9,6 +9,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24x (2026-06-16) — Deploy sequence counter + VIDAL request debug ✅
+
+**Statut** : LIVRÉ. 20/20 pytest passent.
+
+### Demandes utilisateur
+1. **VIDAL Source HTML** : afficher la requête POST + body envoyée pour reproduction côté admin (Postman/curl).
+2. **Numéro de version séquentiel** : afficher un compteur qui s'incrémente à chaque déploiement (avant : `v1.0` figé).
+
+### 1. Numéro de déploiement séquentiel
+- `_bump_deployment_counter_if_needed()` (`server.py`) :
+  - Compare le commit git HEAD courant avec la valeur stockée en DB (`db.app_deployments._id="current"`).
+  - Si différent → incrémente `seq` et persiste.
+  - Si identique → no-op (retourne la valeur courante).
+- `/api/version` retourne désormais `version = "1.<seq>"`, `deploy_seq`, `git_sha` (7 chars).
+- Le `VersionStamp` (footer bas-gauche, `frontend/src/components/VersionStamp.jsx`) affiche `v{seq} · {date heure}` — la date et l'heure du déploiement actuel restent.
+- Tests : `test_iter43_fix24x_deploy_seq.py` (4 tests : format, idempotence, regression contre `v1.0`, git_sha).
+
+### 2. Debug requête VIDAL (panneau "Voir source HTML")
+- **Backend** (`vidal.py` `_vidal_call`) : attache `{method, url, params, body, timeout_seconds, mode}` au champ `_request` du dict de réponse pour les cas raw (HTML/XML/etc.). La clé `app_key` est masquée (`***`).
+- **Bypass cache pour HTML/XML** : `_cache_get` et `_cache_set` ignorent les réponses contenant un champ `raw` — sinon les vieilles réponses sans `<base>` reviendraient et l'admin verrait toujours le même comportement après un fix.
+- **Frontend** (`Vidal.jsx`) :
+  - Nouveau composant `RequestDebugPanel` affiché au-dessus du HTML source : méthode, URL complète, body, timeout, mode.
+  - Bouton "📋 Copier curl" qui génère une commande curl reproductible.
+  - Boutons "Copier URL seule" et "Copier Body".
+  - Affiché uniquement dans le mode "Voir source HTML" (pas dans le rendu iframe).
+
+
+
+## Iter43-fix24w (2026-06-16) — Pas de mise en cache des réponses HTML ✅
+(Inclus dans fix24x : voir ci-dessus)
+
+
+
 ## Iter43-fix24v (2026-06-16) — Délégation Officines : champs étendus + auto-intitule ✅
 
 **Statut** : LIVRÉ. 16/16 pytest passent (incluant 2 nouveaux tests auto-intitule).

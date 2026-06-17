@@ -199,10 +199,22 @@ async def _cache_get(db, key: str, ttl_hours: int) -> Optional[Dict[str, Any]]:
         stored_at = stored_at.replace(tzinfo=timezone.utc)
     if _now() - stored_at > timedelta(hours=ttl_hours):
         return None
-    return doc.get("payload")
+    payload = doc.get("payload")
+    # Iter43-fix24w (2026-06-16) — Bypass cache for raw HTML/XML responses.
+    # These come back when VIDAL returns its Angular API explorer or an error
+    # page. They should be re-fetched every time so:
+    #   1) The latest `<base>` injection from `_vidal_call` is applied.
+    #   2) Users see the current state (not yesterday's cached error page).
+    if isinstance(payload, dict) and payload.get("raw"):
+        return None
+    return payload
 
 
 async def _cache_set(db, key: str, payload: Dict[str, Any]) -> None:
+    # Iter43-fix24w — Ne pas mettre en cache les réponses brutes (HTML/XML).
+    # Le cache n'a de valeur que pour les réponses JSON structurées.
+    if isinstance(payload, dict) and payload.get("raw"):
+        return
     try:
         await db.vidal_cache.update_one(
             {"_id": key},
@@ -313,7 +325,7 @@ async def _vidal_call(
         try:
             data = r.json()
         except Exception:  # noqa: BLE001
-            data = {"raw": raw_text}
+            data = {"raw": raw_text, "_request": dict(debug["request"])}
     else:
         # Iter43-fix24u (2026-06-16) — Pour les réponses HTML (typiquement la
         # page Angular API explorer de VIDAL), on injecte deux choses :
@@ -339,7 +351,10 @@ async def _vidal_call(
                 lambda m: m.group(0).replace("<html", f'<html data-vidal-origin="{origin}"', 1),
                 raw_text, count=1,
             )
-        data = {"raw": raw_text}
+        # Iter43-fix24w (2026-06-16) — Attache la requête envoyée pour que l'UI
+        # puisse l'afficher (méthode, URL, params masqués, body) et générer
+        # une commande curl reproductible côté admin.
+        data = {"raw": raw_text, "_request": dict(debug["request"])}
 
     if return_debug:
         return {"_data": data, "_debug": debug}

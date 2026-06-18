@@ -248,6 +248,12 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
 
         Utilisé par la commande `!Garde` de Liluvine sur WhatsApp et peut être
         appelé depuis la page publique pour afficher les pharmacies de garde.
+
+        Iter43-fix24ak (2026-06-17) — Le filtre `status="active"` est retiré
+        (alignement avec `_build_garde_reply`) : seules les officines
+        `suspended` sont exclues. Inclut aussi `cms_header`, `cms_footer`,
+        `cms_image_url` configurés via Admin Settings pour personnaliser
+        la page publique sans redéployer.
         """
         today = _now_utc().date()
         year, week = _iso_week_year(today)
@@ -266,16 +272,23 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             gg = groups[(week - 1) % len(groups)]
         else:
             gg = entry.get("groupe_garde")
-        # Officines de ce groupe
+        # Officines de ce groupe (status != suspended)
         officines: List[Dict[str, Any]] = []
         async for o in db.officines.find(
-            {"groupe_garde": gg, "status": "active"},
+            {"groupe_garde": gg, "status": {"$ne": "suspended"}},
             {"_id": 0, "id": 1, "name": 1, "intitule": 1, "phone": 1,
-             "whatsapp": 1, "address": 1, "city": 1, "location_hint": 1},
+             "whatsapp": 1, "address": 1, "city": 1, "location_hint": 1,
+             "latitude": 1, "longitude": 1},
         ).sort("name", 1):
             officines.append(o)
         monday = date.fromisocalendar(year, week, 1).isoformat()
         sunday = date.fromisocalendar(year, week, 7).isoformat()
+        # Iter43-fix24ak — CMS overrides (admin-editable) for the public page
+        s = await db.settings.find_one(
+            {"_id": "global"},
+            {"_id": 0, "garde_page_header": 1, "garde_page_footer": 1,
+             "garde_page_image_url": 1, "garde_page_image_caption": 1},
+        ) or {}
         return {
             "ok": True,
             "year": year, "week_number": week,
@@ -283,4 +296,8 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             "monday": monday, "sunday": sunday,
             "officines": officines,
             "count": len(officines),
+            "cms_header": s.get("garde_page_header") or "",
+            "cms_footer": s.get("garde_page_footer") or "",
+            "cms_image_url": s.get("garde_page_image_url") or "",
+            "cms_image_caption": s.get("garde_page_image_caption") or "",
         }

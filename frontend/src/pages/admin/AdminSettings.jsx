@@ -15,6 +15,7 @@ import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSect
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
 import VidalActionsSection from "@/components/admin/VidalActionsSection";
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
+import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
@@ -697,6 +698,11 @@ export default function AdminSettings() {
       {/* Iter43-fix24ai (2026-06-17) — Template configurable de la réponse `!garde` */}
       <Filterable title="🏥 S058c — WhatsApp !garde : Template de réponse personnalisable" anchorId="s-s058c-garde-reply">
         <GardeReplyTemplateSection />
+      </Filterable>
+
+      {/* Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde */}
+      <Filterable title="🌐 S058d — Page publique /garde : Bandeaux + image" anchorId="s-s058d-garde-public">
+        <GardePublicPageSection />
       </Filterable>
 
       <Filterable title="📊 S059 — Synthèse Liluvine + API Officines + Image sidebar" anchorId="s-s059-synthese-officines">

@@ -1029,6 +1029,17 @@ class SettingsUpdate(BaseModel):
     garde_reply_header: Optional[str] = None
     garde_reply_template: Optional[str] = None
 
+    # Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde.
+    # `garde_page_header` : texte affiché en haut (ex: "Joyeux Noël !").
+    # `garde_page_footer` : texte affiché en bas (ex: "Prompt rétablissement!").
+    # `garde_page_image_url` : URL d'une capture/illustration cliquable affichée
+    #                          en bas (pointe vers https://sawalismartsystems.com).
+    # `garde_page_image_caption` : Légende sous l'image.
+    garde_page_header: Optional[str] = None
+    garde_page_footer: Optional[str] = None
+    garde_page_image_url: Optional[str] = None
+    garde_page_image_caption: Optional[str] = None
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

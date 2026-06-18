@@ -70,6 +70,16 @@ export default function GardePage() {
   return (
     <section className="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8 py-12 lg:py-16 text-slate-200"
              data-testid="garde-public-page">
+      {/* Iter43-fix24ak — CMS header (configurable from Admin Settings) */}
+      {data?.cms_header && (
+        <div
+          className="mb-6 rounded-xl ring-1 ring-sawali-blue-light/30 bg-sawali-blue-light/5 p-4 text-center text-sawali-blue-light font-display text-lg whitespace-pre-wrap"
+          data-testid="garde-cms-header"
+        >
+          {data.cms_header}
+        </div>
+      )}
+
       <header className="mb-8">
         <p className="text-xs uppercase tracking-[0.3em] text-sawali-blue-light mb-2">
           Service public · Liste hebdomadaire
@@ -192,6 +202,57 @@ export default function GardePage() {
         <button onClick={load} className="inline-flex items-center gap-1 hover:text-slate-300" data-testid="garde-refresh">
           <RefreshCcw className="h-3 w-3" /> Rafraîchir
         </button>
+      </div>
+
+      {/* Iter43-fix24ak — CMS footer (configurable from Admin Settings) */}
+      {data?.cms_footer && (
+        <div
+          className="mt-6 rounded-xl ring-1 ring-emerald-300/20 bg-emerald-500/5 p-4 text-center text-emerald-200 font-display text-lg whitespace-pre-wrap"
+          data-testid="garde-cms-footer"
+        >
+          {data.cms_footer}
+        </div>
+      )}
+
+      {/* Iter43-fix24ak — Persistent link to the main site + optional admin-uploaded "click-here" hint image */}
+      <div className="mt-8 rounded-xl ring-1 ring-white/10 bg-white/5 p-5 text-center" data-testid="garde-cta-site">
+        <p className="text-sm text-slate-300 mb-3">
+          Retrouvez plus d&apos;informations et nos services sur notre site officiel :
+        </p>
+        <a
+          href="https://sawalismartsystems.com"
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-block text-sawali-blue-light hover:text-white underline underline-offset-4 font-semibold text-base"
+          data-testid="garde-site-link"
+        >
+          https://sawalismartsystems.com
+        </a>
+        {data?.cms_image_url && (
+          <a
+            href="https://sawalismartsystems.com"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="block mt-4 group"
+            data-testid="garde-cms-image-link"
+          >
+            <img
+              src={data.cms_image_url}
+              alt={data.cms_image_caption || "Aperçu — cliquez pour visiter le site"}
+              className="mx-auto max-h-80 rounded-lg ring-1 ring-white/10 group-hover:ring-sawali-blue-light/50 transition shadow-lg"
+              loading="lazy"
+              data-testid="garde-cms-image"
+            />
+            {data.cms_image_caption && (
+              <p
+                className="mt-2 text-xs text-slate-400 italic"
+                data-testid="garde-cms-image-caption"
+              >
+                {data.cms_image_caption}
+              </p>
+            )}
+          </a>
+        )}
       </div>
 
       {/* JSON-LD pour SEO (rich results) */}

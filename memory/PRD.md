@@ -9,6 +9,27 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24ak (2026-06-17) — Page publique /garde corrigée + CMS configurable ✅
+
+**Bug** : `https://sawalismartsystems.com/garde` retournait toujours 0 officine alors que la commande WhatsApp `!garde` retournait la bonne liste.
+
+**Cause racine** : `GET /api/public/officines/garde/current` (dans `routes/garde_planning.py`) avait le même filtre strict `status="active"` que `_build_garde_reply` avant le fix 24ah. Les officines `pending` (cas standard après import) étaient cachées.
+
+**Fix** :
+- Backend : filtre passe à `status != "suspended"` (aligné avec WA). Endpoint retourne en plus `cms_header`, `cms_footer`, `cms_image_url`, `cms_image_caption` lus depuis `settings`.
+- Frontend `Garde.jsx` : 
+  - Bandeau du HAUT (CMS configurable) rendu au-dessus du titre.
+  - Bandeau du BAS (CMS configurable) rendu sous la liste.
+  - Bloc « Site officiel » **toujours visible** avec lien clickable vers `https://sawalismartsystems.com` + image cliquable + légende (tous les 4 admin-configurables).
+- Nouveau composant **`GardePublicPageSection.jsx`** dans Admin Settings (S058d) : 4 champs éditables (haut, bas, image URL+upload, légende) + aperçu live + bouton « Vider » + upload base64 (cap 2 Mo).
+- Modèle `SettingsUpdate` (models.py) : ajout des 4 champs `garde_page_*`.
+
+**Tests** : 3 nouveaux tests `tests/test_iter43_fix24ak_garde_public_cms.py` — endpoint expose les CMS fields, PUT/GET admin settings persiste correctement, officines pending sont incluses. 
+
+**Vérifié visuellement** : screenshot `/garde` montre header + footer + image cliquable + lien officiel + 2 officines pending correctement listées. Version preview : **v1.20**.
+
+
+
 ## Iter43-fix24ag à 24aj (2026-06-17) — Officines !garde + Bouton Tester + Meta #131009 ✅
 
 **Statut** : LIVRÉ. Backend 213/213 + 2 skip pytest passent. Tous les fixes demandés (A + C) sont opérationnels.

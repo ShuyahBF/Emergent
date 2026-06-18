@@ -1022,6 +1022,13 @@ class SettingsUpdate(BaseModel):
     # Iter43-fix24e (2026-06) — URL publique du backend (utilisée pour les CopyableUrl webhooks)
     public_base_url: Optional[str] = None  # ex: "https://sawalismartsystems.com"
 
+    # Iter43-fix24ai (2026-06-17) — Template configurable pour `!garde` WhatsApp.
+    # Syntaxe: `{champ}` (texte), `[champ]` (lien cliquable). Séparateurs = espace
+    # entre champs, \n entre lignes d'une officine. Plusieurs officines séparées
+    # par \n\n (auto-géré). Voir `_render_garde_officine` dans liluvine_wa_autoreply.
+    garde_reply_header: Optional[str] = None
+    garde_reply_template: Optional[str] = None
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

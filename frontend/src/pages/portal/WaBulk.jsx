@@ -5,7 +5,7 @@ import {
   Send, Users, CalendarClock, X, Trash2, Eye, RefreshCw,
   CheckCircle2, Clock, AlertCircle, Search, Hash, MessageCircle,
 } from "lucide-react";
-import { parseTemplate } from "@/lib/waTemplate";
+import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
 /*
   Portal → WhatsApp Bulk + Scheduling page (/portal/whatsapp-bulk).
@@ -285,7 +285,9 @@ export default function WaBulk() {
         header_text: parsed?.header?.format === "TEXT" && headerVars.length
           ? headerVars.join(" ")  // Meta only supports 1 text param per HEADER → join, then backend renders
           : undefined,
-        button_vars: (buttonVars || []).map((arr) => arr || []),
+        // Iter43-fix24aj — Send button_specs (knows actual sub_type) instead
+        // of raw button_vars. Avoids Meta error #131009 on QUICK_REPLY templates.
+        button_specs: parsed ? buildButtonSpecs(parsed, buttonVars) : null,
       };
       // For HEADER text, Meta accepts only a single positional placeholder per header.
       // Most approved templates have exactly 1 var, so we send the first non-empty value.

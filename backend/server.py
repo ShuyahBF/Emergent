@@ -13370,9 +13370,30 @@ def _build_components(
     header_text: Optional[str] = None,
     header_media: Optional[Dict[str, Any]] = None,
     button_vars: Optional[List[List[str]]] = None,
+    button_specs: Optional[List[Dict[str, Any]]] = None,
 ) -> Optional[list]:
     """Build Meta template `components` array from positional variables and optional
     HEADER (text or media link) + URL-button parameters.
+
+    Iter43-fix24aj (2026-06-17) — `button_specs` (preferred) lets the caller
+    explicitly declare each button's `sub_type` (`url` / `quick_reply` / `flow`
+    …) + `index` + `parameters`. Without it, the legacy `button_vars` path is
+    used which hardcoded `sub_type=url` — that caused Meta error #131009
+    "Components sub_type invalid at index: N" whenever the template's actual
+    button was a QUICK_REPLY/FLOW.
+
+    Each `button_specs` entry shape:
+      {
+        "sub_type": "url" | "quick_reply" | "flow" | "voice_call" | "copy_code",
+        "index":    int | str,
+        "parameters": [
+            "raw {{token}} value",  # OR
+            {"type": "text", "text": "..."},  # OR
+            {"type": "payload", "payload": "..."},
+        ],
+      }
+    `{{token}}` substitutions are applied per recipient via `_render_variable`.
+
     Returns None when nothing to send."""
     components: list = []
     # HEADER
@@ -13394,16 +13415,49 @@ def _build_components(
     if variables:
         params = [{"type": "text", "text": _render_variable(v, ctx)} for v in variables]
         components.append({"type": "body", "parameters": params})
-    # BUTTONS (URL with {{N}})
-    if button_vars:
+    # BUTTONS — preferred path: explicit specs from the caller.
+    if button_specs:
+        for spec in button_specs:
+            sub_type = (spec.get("sub_type") or "url").lower()
+            idx = spec.get("index")
+            raw_params = spec.get("parameters") or []
+            default_param_type = "payload" if sub_type == "quick_reply" else "text"
+            rendered: list = []
+            for p in raw_params:
+                if isinstance(p, dict):
+                    # Already shaped — render any string value through substitution.
+                    new_p = dict(p)
+                    for k in ("text", "payload"):
+                        if k in new_p and isinstance(new_p[k], str):
+                            new_p[k] = _render_variable(new_p[k], ctx)
+                    rendered.append(new_p)
+                else:
+                    rendered.append({"type": default_param_type, default_param_type: _render_variable(str(p), ctx)})
+            # Skip emitting a button component with no parameters (Meta rejects empty).
+            if not rendered:
+                continue
+            components.append({
+                "type": "button",
+                "sub_type": sub_type,
+                "index": str(idx) if idx is not None else "0",
+                "parameters": rendered,
+            })
+    elif button_vars:
+        # Legacy path — assumes URL buttons. Kept for backwards compat with
+        # callers that haven't been updated to pass `button_specs` yet.
         for index, params in enumerate(button_vars):
             if not params:
+                continue
+            # Filter out fully-empty params (no template has parameters when the
+            # button is static — emitting in that case yields Meta #131009).
+            cleaned = [p for p in params if p and str(p).strip()]
+            if not cleaned:
                 continue
             components.append({
                 "type": "button",
                 "sub_type": "url",
                 "index": str(index),
-                "parameters": [{"type": "text", "text": _render_variable(p, ctx)} for p in params],
+                "parameters": [{"type": "text", "text": _render_variable(p, ctx)} for p in cleaned],
             })
     return components or None
 
@@ -16147,6 +16201,7 @@ class MeScheduleCreate(BaseModel):
     header_text: Optional[str] = None
     header_media: Optional[Dict[str, Any]] = None
     button_vars: Optional[List[List[str]]] = None
+    button_specs: Optional[List[Dict[str, Any]]] = None  # Iter43-fix24aj
     scheduled_at: str  # ISO-8601 UTC
 
 
@@ -16195,6 +16250,7 @@ async def me_create_schedule(payload: MeScheduleCreate, user: dict = Depends(get
         "header_text": payload.header_text,
         "header_media": payload.header_media,
         "button_vars": payload.button_vars,
+        "button_specs": payload.button_specs,
         "scheduled_at": sched.isoformat(),
         "status": "pending",
         "result_summary": None,
@@ -16220,6 +16276,10 @@ class MeWaBulkRequest(BaseModel):
     header_text: Optional[str] = None
     header_media: Optional[Dict[str, Any]] = None
     button_vars: Optional[List[List[str]]] = None
+    # Iter43-fix24aj (2026-06-17) — Preferred over `button_vars`: explicit
+    # per-button {sub_type, index, parameters} so QUICK_REPLY / URL / FLOW
+    # templates send with the correct Meta structure.
+    button_specs: Optional[List[Dict[str, Any]]] = None
     scheduled_at: Optional[str] = None  # ISO-8601 — if set, schedule instead of live send
     title: Optional[str] = None  # Friendly label for the schedule row
     # SMS fallback: when WhatsApp delivery fails for a contact (no number, not on WA,
@@ -16360,6 +16420,7 @@ async def me_whatsapp_bulk(payload: MeWaBulkRequest, user: dict = Depends(get_cu
             header_text=payload.header_text,
             header_media=payload.header_media,
             button_vars=payload.button_vars,
+            button_specs=payload.button_specs,
         )
         try:
             wr = await _wa_send_template(
@@ -18051,6 +18112,7 @@ class AdminBulkSendRequest(BaseModel):
     header_text: Optional[str] = None  # Optional header TEXT variable (with token substitution)
     header_media: Optional[Dict[str, Any]] = None  # {link, kind, filename?} for header IMAGE/DOC/VIDEO
     button_vars: Optional[List[List[str]]] = None  # [[urlVar1,...], ...] indexed by button position
+    button_specs: Optional[List[Dict[str, Any]]] = None  # Iter43-fix24aj — explicit sub_type per button
 
 
 @api.post("/admin/messaging/bulk-send", tags=["Admin"])
@@ -18097,13 +18159,14 @@ async def admin_messaging_bulk_send(
     results = []
     for x in to_send:
         # Build per-recipient components from either the static `components` or dynamic `variables`/header/buttons
-        if payload.variables or payload.header_text or payload.header_media or payload.button_vars:
+        if payload.variables or payload.header_text or payload.header_media or payload.button_vars or payload.button_specs:
             ctx = _build_recipient_ctx(x["kind"], x["user_doc"], x["phone"], x["label"])
             components = _build_components(
                 payload.variables, ctx,
                 header_text=payload.header_text,
                 header_media=payload.header_media,
                 button_vars=payload.button_vars,
+                button_specs=payload.button_specs,
             )
         else:
             components = payload.components
@@ -18509,6 +18572,7 @@ class AdminScheduleCreate(BaseModel):
     header_text: Optional[str] = None
     header_media: Optional[Dict[str, Any]] = None
     button_vars: Optional[List[List[str]]] = None
+    button_specs: Optional[List[Dict[str, Any]]] = None  # Iter43-fix24aj
     scheduled_at: str  # ISO-8601 UTC, e.g. "2026-05-10T14:30:00+00:00"
 
 
@@ -18549,6 +18613,7 @@ async def admin_create_schedule(
         "header_text": payload.header_text,
         "header_media": payload.header_media,
         "button_vars": payload.button_vars,
+        "button_specs": payload.button_specs,
         "scheduled_at": sched.isoformat(),
         "status": "pending",
         "result_summary": None,
@@ -18647,13 +18712,14 @@ async def _run_scheduled_whatsapp():
                     skipped.append({"label": label, "reason": "Pas de numéro de téléphone"})
                     continue
                 # Per-recipient dynamic components
-                if variables or sc.get("header_text") or sc.get("header_media") or sc.get("button_vars"):
+                if variables or sc.get("header_text") or sc.get("header_media") or sc.get("button_vars") or sc.get("button_specs"):
                     ctx = _build_recipient_ctx(kind, user_doc, phone, label)
                     components = _build_components(
                         variables, ctx,
                         header_text=sc.get("header_text"),
                         header_media=sc.get("header_media"),
                         button_vars=sc.get("button_vars"),
+                        button_specs=sc.get("button_specs"),
                     )
                 else:
                     components = static_components

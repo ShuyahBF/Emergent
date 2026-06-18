@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { parseTemplate } from "@/lib/waTemplate";
+import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 import { toast } from "sonner";
 import {
   MessageCircle, Send, Users, UserCheck, Filter, Search, RefreshCw, CheckCircle2, XCircle, ClockIcon, AlertTriangle, Phone, Settings, CalendarClock, Trash2, Loader2, Wand2, Eye,
@@ -310,7 +310,8 @@ export default function AdminMessaging() {
         variables: variables.length > 0 ? variables : undefined,
         header_text: headerText || undefined,
         header_media: headerMedia || undefined,
-        button_vars: (buttonVars && buttonVars.some((bv) => bv && bv.length > 0)) ? buttonVars : undefined,
+        // Iter43-fix24aj — Use button_specs (knows real sub_type) instead of button_vars.
+        button_specs: parsed ? buildButtonSpecs(parsed, buttonVars) : null,
       });
       const { sent_ok = 0, sent_ko = 0, skipped = [], error_summary = [] } = r.data || {};
       if (sent_ok > 0 && sent_ko === 0) {
@@ -367,7 +368,8 @@ export default function AdminMessaging() {
         variables: variables.length > 0 ? variables : undefined,
         header_text: headerText || undefined,
         header_media: headerMedia || undefined,
-        button_vars: (buttonVars && buttonVars.some((bv) => bv && bv.length > 0)) ? buttonVars : undefined,
+        // Iter43-fix24aj — Use button_specs instead of button_vars.
+        button_specs: parsed ? buildButtonSpecs(parsed, buttonVars) : null,
         scheduled_at: local.toISOString(),
       });
       toast.success(`Planifié pour ${local.toLocaleString("fr-FR")}`);

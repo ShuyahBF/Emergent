@@ -915,7 +915,12 @@ def attach_officines_portal_admin_routes(
         return {"roles": roles, "usage": usage, "default_roles": _DEFAULT_OFFICINE_ROLES}
 
     @api.get("/admin/officines-registry/garde-groups", tags=["Admin — Officines Registry"])
-    async def list_garde_groups_v2(_: dict = Depends(get_current_admin)):
+    async def list_garde_groups_v2(user: dict = Depends(get_current_user)):
+        # Iter43-fix24ag (2026-06-17) — Permettre aussi aux utilisateurs délégués
+        # (qui peuvent éditer le champ `groupe_garde` d'une officine) de charger
+        # la liste des groupes existants. Sans ce fix, la dropdown était vide
+        # pour eux (le `.catch(() => {})` côté frontend avalait le 403).
+        await _require_admin_or_delegated(user)
         groups: Dict[int, int] = {}
         async for o in db.officines.find(
             {"groupe_garde": {"$nin": [None, ""]}},

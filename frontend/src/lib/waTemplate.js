@@ -129,6 +129,42 @@ export function buildComponentsPayload(parsed, values) {
 }
 
 /**
+ * Build `button_specs` payload for backend (used when the backend will
+ * substitute per-recipient `{{token}}` variables but still needs to know
+ * the exact sub_type / index / parameter type of each button so it can
+ * emit a Meta-compliant `components` array.
+ *
+ * Iter43-fix24aj (2026-06-17) — fixes Meta error #131009
+ * "Components sub_type invalid at index: N and type: 0" which previously
+ * happened because the backend hardcoded `sub_type=url` for every button.
+ *
+ * @param parsed from parseTemplate()
+ * @param buttonVars string[][] (index = button position, inner array = vars)
+ * @returns Array<{ sub_type, index, parameters }> ready to pass as `button_specs`,
+ *          OR null if the template has no parameterized buttons.
+ */
+export function buildButtonSpecs(parsed, buttonVars) {
+  const specs = [];
+  (parsed.buttons || []).forEach((btn, index) => {
+    const btype = (btn.type || "").toUpperCase();
+    if (btype === "URL" && btn.urlVarCount > 0) {
+      const params = (buttonVars?.[index] || []).slice(0, btn.urlVarCount);
+      const cleaned = params.filter((v) => v != null && String(v).trim() !== "");
+      if (!cleaned.length) return;
+      specs.push({
+        sub_type: "url",
+        index,
+        parameters: cleaned.map((v) => ({ type: "text", text: String(v) })),
+      });
+    }
+    // QUICK_REPLY / FLOW / COPY_CODE / OTP / VOICE_CALL: no per-message
+    // parameter component is required for the static cases we currently
+    // support — we deliberately do NOT emit a component for them.
+  });
+  return specs.length ? specs : null;
+}
+
+/**
  * Validate all required inputs for a template are present.
  * Returns { ok:true } or { ok:false, message }.
  */

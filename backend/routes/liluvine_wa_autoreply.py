@@ -687,7 +687,22 @@ async def autoreply_to_inbound(
 # ====================================================================
 async def _build_garde_reply(db) -> str:
     """Construit la réponse pour la commande `!Garde` : liste des officines
-    de garde de la semaine en cours + message de prompt rétablissement."""
+    de garde de la semaine en cours + message de prompt rétablissement.
+
+    Iter43-fix24ah (2026-06-17) — Le filtre `status="active"` est retiré :
+    si un admin a affecté un `groupe_garde` à une officine, elle fait partie
+    de la rotation, quel que soit son statut de modération. Le filtre exclut
+    désormais uniquement `suspended`.
+
+    Iter43-fix24ai (2026-06-17) — Template configurable depuis Admin Settings
+    (`settings.garde_reply_template`) avec syntaxe :
+      - `{champ}`  → valeur texte du champ (ex: `{name}`)
+      - `[champ]`  → lien cliquable (ex: `[phone]` → `tel:+226…`,
+                     `[latitude,longitude]` → maps URL, `[whatsapp]` → wa.me/…)
+      - Espace      → séparateur de champs
+      - Saut de ligne → nouvelle officine
+    Fallback sur le template hardcodé si non configuré.
+    """
     today = datetime.now(timezone.utc).date()
     iso = today.isocalendar()
     year, week = iso[0], iso[1]
@@ -709,11 +724,13 @@ async def _build_garde_reply(db) -> str:
         gg = groups[(week - 1) % len(groups)]
     else:
         gg = entry.get("groupe_garde")
-    # Liste des officines
+    # Liste des officines (status != suspended)
     officines: List[Dict[str, Any]] = []
     async for o in db.officines.find(
-        {"groupe_garde": gg, "status": "active"},
-        {"_id": 0, "name": 1, "intitule": 1, "phone": 1, "whatsapp": 1, "address": 1, "city": 1, "location_hint": 1},
+        {"groupe_garde": gg, "status": {"$ne": "suspended"}},
+        {"_id": 0, "name": 1, "intitule": 1, "phone": 1, "whatsapp": 1,
+         "address": 1, "city": 1, "location_hint": 1,
+         "latitude": 1, "longitude": 1, "contact_name": 1, "email": 1},
     ).sort("name", 1):
         officines.append(o)
     try:
@@ -721,29 +738,156 @@ async def _build_garde_reply(db) -> str:
         sunday = date.fromisocalendar(year, week, 7).strftime("%d/%m")
     except ValueError:
         monday, sunday = "?", "?"
-    lines = [
-        f"🏥 *Officines de garde — Semaine {week}* ({monday} au {sunday})",
-        f"*Groupe {gg}* — {len(officines)} officine{'s' if len(officines) > 1 else ''}",
-        "",
-    ]
+    # Lookup template configurable
+    s = await db.settings.find_one(
+        {"_id": "global"},
+        {"_id": 0, "garde_reply_template": 1, "garde_reply_header": 1},
+    ) or {}
+    template = s.get("garde_reply_template") or DEFAULT_GARDE_REPLY_TEMPLATE
+    header_tpl = s.get("garde_reply_header") or DEFAULT_GARDE_REPLY_HEADER
+    header = _render_garde_header(header_tpl, week=week, year=year, monday=monday,
+                                  sunday=sunday, gg=gg, count=len(officines))
+    lines = [header, ""]
     if not officines:
-        lines.append("_Aucune officine active dans ce groupe pour cette semaine._")
+        lines.append("_Aucune officine dans ce groupe pour cette semaine._")
     else:
         for o in officines[:25]:  # WhatsApp ~4096 char limit safety
-            name = o.get("name") or o.get("intitule") or "—"
-            addr_bits = [o.get("location_hint") or o.get("address"), o.get("city")]
-            addr = ", ".join([b for b in addr_bits if b]).strip()
-            ph = o.get("whatsapp") or o.get("phone") or ""
-            lines.append(f"• *{name}*")
-            if addr:
-                lines.append(f"  📍 {addr}")
-            if ph:
-                lines.append(f"  📞 {ph}")
+            rendered = _render_garde_officine(template, o)
+            if rendered.strip():
+                lines.append(rendered)
         if len(officines) > 25:
             lines.append(f"\n_…et {len(officines) - 25} autre(s) — liste complète sur le site_")
     lines.append("\n💚 _Prompt rétablissement et bonne santé !_")
     lines.append("\n_— Liluvine PRO 🤖_")
     return "\n".join(lines)
+
+
+# ====================================================================
+# Iter43-fix24ai (2026-06-17) — Template configurable pour `!garde`
+# ====================================================================
+DEFAULT_GARDE_REPLY_HEADER = (
+    "🏥 *Officines de garde — Semaine {week}* ({monday} au {sunday})\n"
+    "*Groupe {gg}* — {count} officine{plural}"
+)
+
+# Template par défaut : nom en gras, adresse, téléphone cliquable, géoloc cliquable.
+# `{x}` = valeur texte ; `[x]` = lien cliquable (tel:, wa.me, maps).
+# `[latitude,longitude]` est une forme spéciale → ouvre Google Maps.
+DEFAULT_GARDE_REPLY_TEMPLATE = (
+    "• *{name}*\n"
+    "  📍 {location_hint} {city}\n"
+    "  📞 [phone]\n"
+    "  📍 [latitude,longitude]"
+)
+
+
+def _render_garde_header(template: str, *, week: int, year: int, monday: str,
+                          sunday: str, gg: Any, count: int) -> str:
+    """Render header with `{week}`, `{year}`, `{monday}`, `{sunday}`, `{gg}`,
+    `{count}`, `{plural}` placeholders."""
+    plural = "s" if count > 1 else ""
+    ctx = {
+        "week": week, "year": year, "monday": monday, "sunday": sunday,
+        "gg": gg or "?", "count": count, "plural": plural,
+    }
+    def _repl(m: "re.Match") -> str:
+        k = m.group(1)
+        return str(ctx.get(k, m.group(0)))
+    return re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _repl, template)
+
+
+def _format_phone_link(value: str) -> str:
+    """Render a phone number as a WhatsApp-friendly clickable link.
+    WhatsApp auto-links phone numbers in messages, so we just keep the value.
+    For display we also prefix `tel:` is not necessary — WhatsApp clients
+    handle phone numbers natively."""
+    digits = re.sub(r"[^\d+]", "", value or "")
+    if not digits:
+        return value
+    return digits  # WhatsApp auto-detects this as tappable
+
+
+def _format_maps_link(lat: Any, lng: Any) -> str:
+    """Build a Google Maps URL from lat,lng. WhatsApp will preview the link."""
+    try:
+        lat_f = float(lat)
+        lng_f = float(lng)
+    except (TypeError, ValueError):
+        return ""
+    return f"https://maps.google.com/?q={lat_f},{lng_f}"
+
+
+def _render_garde_officine(template: str, o: Dict[str, Any]) -> str:
+    """Render one officine line(s) using the configurable template.
+
+    Syntax:
+      - `{field}`  → plain text value of the field (empty string if missing)
+      - `[field]`  → "link" version : phone → just the digits (WhatsApp auto-links),
+                     whatsapp → `https://wa.me/<digits>`, email → `mailto:`,
+                     latitude,longitude → maps URL.
+      - any other text is kept as-is.
+
+    Example template:
+        "• *{name}* — [phone] — [latitude,longitude]"
+    """
+    # Build a lookup that combines plain fields with sensible defaults.
+    name = o.get("intitule") or o.get("name") or "—"
+    phone = o.get("phone") or ""
+    whatsapp = o.get("whatsapp") or ""
+    address = o.get("address") or ""
+    city = o.get("city") or ""
+    location_hint = o.get("location_hint") or ""
+    email = o.get("email") or ""
+    contact_name = o.get("contact_name") or ""
+    latitude = o.get("latitude")
+    longitude = o.get("longitude")
+    plain = {
+        "name": name,
+        "phone": phone,
+        "whatsapp": whatsapp,
+        "address": address,
+        "city": city,
+        "location_hint": location_hint,
+        "email": email,
+        "contact_name": contact_name,
+        "latitude": "" if latitude is None else str(latitude),
+        "longitude": "" if longitude is None else str(longitude),
+    }
+    # Replace `[latitude,longitude]` first (composite) before single-field [x]
+    def _bracket_repl(m: "re.Match") -> str:
+        key = m.group(1).strip()
+        # Composite: lat,lng → maps URL
+        if "," in key:
+            keys = [k.strip() for k in key.split(",")]
+            if set(keys) == {"latitude", "longitude"} or keys == ["latitude", "longitude"]:
+                return _format_maps_link(latitude, longitude)
+            # Fallback: join with comma
+            return ",".join(plain.get(k, "") for k in keys)
+        # Single field link forms
+        if key == "phone":
+            return _format_phone_link(phone)
+        if key == "whatsapp":
+            digits = re.sub(r"[^\d]", "", whatsapp or "")
+            return f"https://wa.me/{digits}" if digits else ""
+        if key == "email":
+            return f"mailto:{email}" if email else ""
+        if key in ("latitude", "longitude"):
+            return _format_maps_link(latitude, longitude)
+        return plain.get(key, "")
+
+    def _brace_repl(m: "re.Match") -> str:
+        key = m.group(1).strip()
+        return str(plain.get(key, ""))
+
+    rendered = re.sub(r"\[([^\[\]]+)\]", _bracket_repl, template)
+    rendered = re.sub(r"\{([a-zA-Z_][a-zA-Z0-9_]*)\}", _brace_repl, rendered)
+    # Clean up: collapse multiple spaces (introduced when a field was empty)
+    # but preserve newlines.
+    cleaned_lines = []
+    for line in rendered.split("\n"):
+        cleaned_lines.append(re.sub(r" +", " ", line).strip())
+    # Drop empty lines that resulted purely from missing fields
+    return "\n".join(l for l in cleaned_lines if l)
 
 
 async def _build_meteo_reply(db, cmd_text: str, phone_digits: str) -> str:

@@ -9,6 +9,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24ag à 24aj (2026-06-17) — Officines !garde + Bouton Tester + Meta #131009 ✅
+
+**Statut** : LIVRÉ. Backend 213/213 + 2 skip pytest passent. Tous les fixes demandés (A + C) sont opérationnels.
+
+### A.1 — Groupes de garde réinitialisés à l'édition (24ag)
+- **Cause** : `GET /admin/officines-registry/garde-groups` requérait `get_current_admin` → 403 pour les utilisateurs délégués → le `.catch(() => {})` côté frontend avalait silencieusement l'erreur → dropdown vide.
+- **Fix** : endpoint passe à `get_current_user` + `_require_admin_or_delegated`. Les délégués peuvent maintenant lister les groupes existants.
+
+### A.1 — `!garde` retournait 0 même avec groupes renseignés (24ah)
+- **Cause** : Filtre `status="active"` trop strict — les officines importées en `pending` étaient exclues alors que leur `groupe_garde` est défini.
+- **Fix** : `_build_garde_reply` filtre désormais par `status != "suspended"` (inclut active + pending). Les officines `wend denda` & co apparaissent.
+
+### A.2 — Template configurable du retour `!garde` (24ai)
+- **Backend** : Nouveaux helpers `_render_garde_header` + `_render_garde_officine` dans `liluvine_wa_autoreply.py`. Syntaxe :
+  - `{champ}` → valeur texte du champ.
+  - `[champ]` → forme « lien » (téléphone → digits WhatsApp-tappables, whatsapp → wa.me, email → mailto:, latitude/longitude → maps URL).
+  - `[latitude,longitude]` → composite Google Maps URL.
+- **Settings persistés** : `garde_reply_header` + `garde_reply_template` dans `SettingsUpdate` (models.py).
+- **Frontend** : Nouveau composant `sections/GardeReplyTemplateSection.jsx` (~250 lignes) — 2 textareas (header + body) + **aperçu live** rendu avec 1 officine fictive (Pharmacie WEND DENDA, groupe 3) + doc des champs disponibles + bouton « Défauts ».
+- **AdminSettings** : Section ajoutée sous **S058c — WhatsApp !garde : Template de réponse personnalisable**.
+
+### C — Erreur Meta #131009 "Components sub_type invalid" (24aj)
+- **Cause** : `_build_components()` hardcodait `sub_type="url"` pour tous les boutons quand le caller passait `button_vars`. Les templates avec boutons **QUICK_REPLY** échouaient.
+- **Fix backend** :
+  - Ajout d'un paramètre `button_specs: List[Dict]` (préféré) à `_build_components`, qui transporte `{sub_type, index, parameters}` explicites par bouton. `QUICK_REPLY` reçoit `parameters: [{type: payload, payload: "..."}]` ; `URL` reçoit `parameters: [{type: text, text: "..."}]`. Substitution `{{token}}` toujours faite côté serveur per-recipient.
+  - Ajout de `button_specs` à **3 payload models** : `MeWaBulkRequest`, `MeScheduleCreate`, `AdminScheduleCreate`, `AdminBulkSendRequest`.
+  - Path legacy (`button_vars` sans `specs`) toujours supporté pour back-compat, mais filtre désormais les params vides pour ne pas émettre de composant invalide.
+- **Fix frontend** :
+  - Nouvelle helper `buildButtonSpecs(parsed, buttonVars)` dans `lib/waTemplate.js` qui ne génère un spec QUE pour les boutons URL avec varCount > 0.
+  - `WaBulk.jsx` et `AdminMessaging.jsx` envoient désormais `button_specs` au lieu de `button_vars` brut. Templates QUICK_REPLY ne génèrent plus de composant invalide.
+
+**Tests** : 23 nouveaux tests pytest (`test_iter43_fix24ah_ai_garde_template.py` + `test_iter43_fix24aj_wa_button_specs.py`) + 0 régression (213/213 pass).
+
+
+
 ## Iter43-fix24af (2026-06-17) — SMART Communications PUT 422 fix ✅
 
 **Bug** : `PUT /admin/clients/{id}/features` retournait **HTTP 422** sur `vidal_mode: true` (boolean au lieu de string) → la page SMART Communications restait bloquée à chaque save.

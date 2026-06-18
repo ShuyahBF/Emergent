@@ -9,6 +9,21 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24af (2026-06-17) — SMART Communications PUT 422 fix ✅
+
+**Bug** : `PUT /admin/clients/{id}/features` retournait **HTTP 422** sur `vidal_mode: true` (boolean au lieu de string) → la page SMART Communications restait bloquée à chaque save.
+
+**Cause racine** : `_normalize_features()` coerçait **tous** les champs (sauf NUMERIC) en `bool`, y compris `vidal_mode` qui doit rester `"inherit"|"test"|"production"`. Au prochain GET, le frontend recevait `vidal_mode: True`, le renvoyait tel quel au PUT, et Pydantic rejetait (`Optional[str]` strict).
+
+**Fix** :
+1. `_normalize_features()` ajout d'une liste `STRING_FIELDS = {"vidal_mode"}` — préserve les enums string, fallback `"inherit"` si bool legacy détecté.
+2. `ClientFeaturesUpdate` Pydantic : nouveau `@field_validator("vidal_mode", mode="before")` qui coerce `True/False → "inherit"`, accepte `"PRODUCTION"` insensible à la casse, repli `"inherit"` sur valeur garbage.
+3. **DB repair** : 1 doc utilisateur (admin) corrigé de `features.vidal_mode: True → "inherit"`.
+
+**Tests** : `tests/test_iter43_fix24af_vidal_mode_string.py` (4/4 pass) + curl e2e PUT HTTP 200 vérifié.
+
+
+
 ## Iter43-fix24ad + fix24ae (2026-06-17) — Version counter no-git + Bouton Tester VIDAL ✅
 
 **Statut** : LIVRÉ. Backend 4/4 nouveaux tests + 17/17 prior pass. Frontend validé par testing agent (vidal-tester-modal + 7 boutons Tester opérationnels).

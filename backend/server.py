@@ -46,7 +46,7 @@ from fastapi import (
 from fastapi.responses import FileResponse, RedirectResponse, JSONResponse, Response, PlainTextResponse, HTMLResponse, StreamingResponse
 from starlette.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from db import db, serialize, serialize_many
 from models import (
@@ -3871,6 +3871,11 @@ def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
     out = dict(DEFAULT_CLIENT_FEATURES)
     # Iter38r-fix9p — Numeric/typed fields that must NOT be coerced to bool.
     NUMERIC_FIELDS = {"kb_ocr_xof_per_page", "kb_ocr_xof_monthly_cap", "kb_ocr_pdf_max_pages"}
+    # Iter43-fix24af (2026-06-17) — String enum fields that must NOT be coerced
+    # to bool. Without this, `vidal_mode="inherit"` would degrade to `True` on
+    # every save, breaking the PUT /admin/clients/{id}/features endpoint
+    # (Pydantic rejected `vidal_mode: True` because the model expects `str`).
+    STRING_FIELDS = {"vidal_mode"}
     if isinstance(raw, dict):
         for k, default in DEFAULT_CLIENT_FEATURES.items():
             v = raw.get(k, default)
@@ -3879,6 +3884,12 @@ def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
                 try:
                     out[k] = int(v) if v not in (None, "", False) else default
                 except (TypeError, ValueError):
+                    out[k] = default
+            elif k in STRING_FIELDS:
+                # Preserve string enum; coerce stray legacy bool → default.
+                if isinstance(v, str) and v:
+                    out[k] = v.lower().strip()
+                else:
                     out[k] = default
             else:
                 out[k] = bool(v)
@@ -4122,6 +4133,20 @@ class ClientFeaturesUpdate(BaseModel):
     # customer enter it themselves on the hosted page (false). When null,
     # the server-side default `settings.pawapay_fix_msisdn_default` applies.
     pawapay_fix_msisdn: Optional[bool] = None
+
+    # Iter43-fix24af (2026-06-17) — Defensive coercion: legacy data in DB
+    # had `vidal_mode: True` (bool) due to a bug in `_normalize_features`.
+    # Old admin forms now send back that bool — instead of 422-rejecting,
+    # we coerce bool → "inherit" so the save succeeds.
+    @field_validator("vidal_mode", mode="before")
+    @classmethod
+    def _coerce_vidal_mode(cls, v):
+        if isinstance(v, bool):
+            return "inherit"
+        if v is None:
+            return None
+        s = str(v).lower().strip()
+        return s if s in ("inherit", "test", "production") else "inherit"
 
 
 @api.get("/admin/clients/{client_id}/features", tags=["Admin"])

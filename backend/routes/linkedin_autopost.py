@@ -60,10 +60,13 @@ DEFAULT_TOPIC_PROMPT = (
     "Liluvine PRO — assistant IA pour officines pharmaceutiques + CRM "
     "complet (WhatsApp, paiements PawaPay/Stripe, RGPD, prescription VIDAL).\n\n"
     "Style : professionnel mais accessible, 2-3 paragraphes courts, "
-    "3-5 hashtags ciblés (#PharmacieAfrique #DigitalHealth #BurkinaFaso "
-    "#IntelligenceArtificielle #LiluvinePro), pas d'emoji excessif, "
-    "max 1500 caractères. Termine par un appel à l'action (visiter le site, "
-    "demander une démo).\n\n"
+    "pas d'emoji excessif, max 1500 caractères. Termine par un appel à l'action "
+    "(visiter le site, demander une démo).\n\n"
+    "⚠️ IMPÉRATIF : la DERNIÈRE ligne du post DOIT contenir EXACTEMENT 5 "
+    "hashtags séparés par des espaces — choisis-les pertinents parmi : "
+    "#PharmacieAfrique #DigitalHealth #BurkinaFaso #IntelligenceArtificielle "
+    "#LiluvinePro #Pharmacien #SantéNumérique #Sahel #Afrique #SAWALI #CRM. "
+    "Aucun post n'est valide sans cette ligne finale de hashtags.\n\n"
     "Cette semaine, parle de [SUJET ALÉATOIRE PARMI : "
     "(1) bénéfices de la digitalisation des officines au Sahel, "
     "(2) conformité RGPD et anonymisation patient en Afrique de l'Ouest, "
@@ -71,6 +74,9 @@ DEFAULT_TOPIC_PROMPT = (
     "(4) WhatsApp comme canal médical sécurisé, "
     "(5) prescription assistée VIDAL pour réduire les interactions médicamenteuses]."
 )
+
+# Fallback hashtags appended server-side if the LLM forgot (rare but possible)
+FALLBACK_HASHTAGS = "#LiluvinePro #PharmacieAfrique #DigitalHealth #BurkinaFaso #SAWALI"
 
 
 # --------------------------------------------------------------------------- #
@@ -143,6 +149,11 @@ async def _generate_draft(db, topic_prompt: str, session_id: str) -> str:
     text = (raw or "").strip()
     if text.startswith("```"):
         text = text.strip("`").strip()
+    # Iter43-fix24av-fix1 — Ensure at least one hashtag is present (rare but
+    # Claude occasionally omits them). Append the fallback set on the last
+    # line if none found.
+    if "#" not in text:
+        text = text.rstrip() + "\n\n" + FALLBACK_HASHTAGS
     # Hard cap at 3000 chars (LinkedIn max), but the prompt asks for 1500
     if len(text) > 3000:
         text = text[:2997] + "…"

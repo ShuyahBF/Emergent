@@ -6,6 +6,159 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. Chaque délégué ne verrait que ses propres officines. Permet une organisation multi-régions. _[suggéré 2026-06-16, en attente]_
+- **PortalLayout: <span> inside <option> warning** : préexistant non-bloquant — corriger le markup du <select> autour de la ligne 558 de `/app/frontend/src/components/PortalLayout.jsx`. _[noté 2026-02-26 dans iteration_68]_
+
+
+## Iter43-fix24av (2026-02-26) — LinkedIn Auto-post hebdomadaire (Liluvine) ✅
+
+**Demande utilisateur** : « OK implémente cette suggestion d'engagement marketing » (auto-post LinkedIn hebdo).
+
+**Concept** : Chaque semaine au jour & heure configurés, Liluvine (Claude Sonnet 4.5) génère un post LinkedIn promotionnel à partir d'un prompt configurable + contexte SAWALI récent (officines, messages WA). Selon le mode de validation :
+- **`auto`** : publication immédiate sur LinkedIn + notification WhatsApp confirmant l'URN
+- **`wa_approval`** (défaut) : le brouillon est envoyé sur le téléphone WhatsApp configuré, qui répond par **OK** (publier), **STOP** (annuler) ou **REGEN** (régénérer un autre texte)
+
+**Backend (`/app/backend/routes/linkedin_autopost.py` — nouveau, ~440 LOC)** :
+- `GET /api/admin/linkedin/autopost/config` — config + pending_draft + history (last 10)
+- `PUT /api/admin/linkedin/autopost/config` — set `enabled`, `day_of_week` (0=Mon..6=Sun, défaut 4=Fri), `hour` (0-23), `minute` (0-59), `topic_prompt`, `author_type` (member|organization), `organization_urn`, `validation_mode` (auto|wa_approval), `validation_phone` (E.164)
+- `POST /api/admin/linkedin/autopost/generate-draft` — génère un brouillon Liluvine manuellement (sans publier) — persisté dans `linkedin_autopost_pending_draft`
+- `POST /api/admin/linkedin/autopost/publish-pending` — publie immédiatement le brouillon en attente
+- `DELETE /api/admin/linkedin/autopost/pending` — supprime le brouillon en attente
+- `POST /api/admin/linkedin/autopost/tick-now` — force le cron sans attendre le jour/heure config (utile pour tests E2E)
+- Scheduler : `_scheduled_linkedin_autopost` ajouté dans server.py:21082, cron minutely avec timezone Africa/Abidjan + idempotency guard de 60 min
+- Hook WA reply : intercepté dans `whatsapp_webhook_incoming` (server.py:~16785) — appelle `_handle_linkedin_autopost_wa_reply` qui agit sur OK/STOP/REGEN
+- Iter43-fix24av-fix1 : post-process server-side qui injecte les hashtags fallback (`#LiluvinePro #PharmacieAfrique #DigitalHealth #BurkinaFaso #SAWALI`) si Claude les omet (rare mais possible)
+- Prompt par défaut amélioré avec une instruction « IMPÉRATIF » pour forcer 5 hashtags
+
+**Frontend (`/app/frontend/src/pages/admin/sections/LinkedInSection.jsx`)** :
+- Nouvelle sous-section « 5. Auto-post hebdomadaire (Liluvine) » (gradient fuchsia-blue) qui apparaît UNIQUEMENT si LinkedIn est connecté
+- Toggle Activer/Désactiver
+- Sélecteurs Jour (Lun-Dim), Heure (0-23), Minute (0/5/10/.../55), Mode validation (auto/wa_approval), Auteur (member/organization), Page entreprise (si org)
+- Champ téléphone validation WA (visible en mode wa_approval)
+- Textarea Prompt Liluvine (5 lignes, pré-rempli avec le prompt par défaut)
+- Boutons « Enregistrer » + « Générer un brouillon maintenant »
+- Panneau Brouillon en attente (si présent) : prévisualisation + nb caractères + boutons « Publier maintenant », « Régénérer », « Annuler »
+- `<details>` Historique : 10 derniers posts (date, URN, preview 200 chars)
+
+**Tests** (`/app/backend/tests/test_iter43_fix24av_linkedin_autopost.py`) — **7 pytest actifs + 1 skip LLM** :
+- Config GET defaults + PUT validation (422 day>6/hour>23, 400 author/mode invalide)
+- Persistence du config
+- DELETE pending + publish-pending without draft → 400
+- tick-now requires enabled=True + LinkedIn connected
+- Tous les endpoints rejettent les requêtes non-admin
+
+**Action utilisateur attendue** :
+1. Compléter d'abord l'OAuth LinkedIn (Iter43-fix24au) — ajouter le redirect URI dans LinkedIn App + cliquer « Connecter »
+2. La section auto-post devient visible dans `/admin/settings#s-linkedin`
+3. Activer le toggle, choisir le jour/heure (défaut Vendredi 9h00 Abidjan)
+4. Saisir le téléphone WhatsApp E.164 qui validera les brouillons
+5. Cliquer « Générer un brouillon maintenant » pour tester immédiatement
+6. À la prochaine échéance cron, Liluvine envoie le brouillon sur WhatsApp ; vous répondez OK/STOP/REGEN
+
+
+## Iter43-fix24au-fix1 (2026-02-26) — UX redirect_uri LinkedIn ✅
+
+**Bug reporté** : LinkedIn renvoie « The redirect_uri does not match the registered value » quand l'admin clique « Connecter LinkedIn » depuis PROD (`sawalismartsystems.com`).
+
+**RCA** : L'utilisateur n'avait pas encore enregistré l'URL `https://sawalismartsystems.com/api/linkedin/oauth/callback` dans les « Authorized redirect URLs » de son App LinkedIn.
+
+**Correctif UX** :
+- Nouveau endpoint `GET /api/admin/linkedin/oauth/preview-redirect-uri` — calcule la valeur exacte qui sera envoyée à LinkedIn (sans déclencher d'OAuth)
+- Bandeau ambre proéminent dans LinkedInSection.jsx (data-testid `linkedin-redirect-warning`) qui affiche le redirect_uri EXACT (data-testid `linkedin-redirect-uri-computed`) + bouton « Copier » (data-testid `linkedin-copy-computed-redirect`)
+- Texte d'instructions explicite : « ÉTAPE OBLIGATOIRE avant de cliquer Connecter LinkedIn… »
+- Avertissement : « si vous testez sur PROD et PREVIEW, ajoutez les DEUX URLs »
+- Log backend `[linkedin] authorize → redirect_uri=... scopes=... state=...` pour debugging
+
+
+## Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth + Posts API) ✅
+
+**Demande** : « Pour LinkedIn implémente c et d » — c = poster vers LinkedIn, d = lire les posts. Option `c)` choisie : profil personnel + page entreprise (les deux).
+
+**Credentials utilisateur** (stockés dans MongoDB `settings.global`, masqués via `GET_MASK_FIELDS`) :
+- LinkedIn App ID : `77rg7lu8v2hd3w`
+- LinkedIn App Secret : `WPL_AP1.oRLaioMBYPnRljoz.wy2mdg==`
+
+**Backend (`/app/backend/routes/linkedin.py` — ~520 lignes)** :
+- `GET /api/admin/linkedin/config` — config actuelle (secret masqué `********`)
+- `PUT /api/admin/linkedin/config` — set Client ID, Client Secret, redirect_uri, toggles enable_member/enable_organization
+- `GET /api/admin/linkedin/oauth/authorize` — génère l'URL d'autorisation LinkedIn avec state persisté en DB (`db.linkedin_oauth_states`), redirect_uri auto-calculé depuis X-Forwarded-Host
+- `GET /api/admin/linkedin/oauth/preview-redirect-uri` — Iter43-fix24au-fix1 — retourne le redirect_uri calculé sans déclencher d'OAuth
+- `GET /api/linkedin/oauth/callback` — handler public LinkedIn → valide state → échange code contre tokens (access + refresh) → fetch `/v2/userinfo` (sub, name, email, picture) → liste les organisations admin via `/rest/organizationAcls` + `/rest/organizations/{id}` → persiste tout dans `settings.global` → renvoie une page HTML auto-close pour la pop-up
+- `GET /api/linkedin/status` — état de connexion (any authenticated user)
+- `DELETE /api/admin/linkedin/connection` — déconnexion (`$unset` tokens + orgs)
+- `POST /api/linkedin/posts` — création de post (text + optional image_url + author_type=member|organization + organization_urn?) — auth roles `admin`/`marketing`/`communication` — upload image via `/rest/images?action=initializeUpload` puis PUT bytes au `uploadUrl` retourné — création via `POST /rest/posts` avec headers `LinkedIn-Version: 202507` + `X-RestLi-Protocol-Version: 2.0.0` — audit dans `db.linkedin_posts_audit`
+- `GET /api/linkedin/posts` — liste les posts récents d'un author_urn (member ou org)
+- Refresh automatique du token quand `expires_at - now < 5 minutes`
+- Cleanup automatique des states OAuth > 1h
+
+**Frontend (`/app/frontend/src/pages/admin/sections/LinkedInSection.jsx` — ~600 lignes)** :
+- Section dans `AdminSettings.jsx` (anchorId `s-linkedin`) avec 5 blocs :
+  1. **Application** : inputs Client ID + Client Secret (avec toggle 👁/🙈) + Redirect URI + checkbox member/organization
+  2. **Bandeau ambre redirect_uri** (Iter43-fix24au-fix1)
+  3. **Connexion OAuth** : pop-up + status + orgs administrées + scopes obtenus + boutons Reconnecter / Déconnecter
+  4. **Composer post** : radio member/organization + sélecteur d'org + textarea + image URL facultative + bouton « Publier »
+  5. **Posts récents** : liste cliquable des dernières publications
+  6. **Auto-post hebdomadaire** (Iter43-fix24av — visible si connecté)
+- Pop-up OAuth communique avec la fenêtre parent via `window.postMessage` pour refresh auto du status
+
+**Redirect URIs à autoriser dans LinkedIn App → Auth** :
+- PROD : `https://sawalismartsystems.com/api/linkedin/oauth/callback`
+- PREVIEW : `https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback`
+
+**Scopes demandés** :
+- `openid profile email` (OpenID Connect)
+- `w_member_social r_member_social` (si `enable_member=true`)
+- `w_organization_social r_organization_social` (si `enable_organization=true`)
+
+**Tests** (`/app/backend/tests/test_iter43_fix24au_linkedin.py`) — **8 pytest** :
+- Config GET/PUT + masking secret
+- Authorize requires credentials + returns valid LinkedIn URL
+- Status disconnected when no token
+- Posts requires connected token
+- Callback rejects missing params / invalid state
+- All admin endpoints require auth (401/403)
+
+
+## Iter43-fix24at (2026-02-26) — Favoris VIDAL par utilisateur ✅
+
+**Demande** : « Bouton 📋 Copier le code sur chaque ligne VIDAL + liste Favoris ».
+
+**Backend (`/app/backend/routes/vidal_favorites.py` — nouveau)** :
+- `GET /api/vidal/favorites` — liste les favoris de l'utilisateur connecté (les plus récents d'abord, max 500)
+- `POST /api/vidal/favorites` — ajoute un favori `{vidal_id, title?, type?, summary?}` (idempotent : upsert sur `(user_id, vidal_id)`)
+- `DELETE /api/vidal/favorites/{vidal_id}` — retire
+- Collection `vidal_favorites` avec index unique `(user_id, vidal_id)` créé au boot
+- Auth utilisateur requise sur les 3 endpoints
+
+**Frontend (`/app/frontend/src/pages/portal/Vidal.jsx`)** :
+- Nouveau composant `FavoritesProvider` (React Context) qui charge les favoris au boot et expose `add/remove/isFavorite/refresh`
+- Composant `CopyCodeButton` (📋 « Copier le code ») : copie le code VIDAL dans le clipboard avec toast
+- Composant `FavoriteToggle` (⭐ « Favori ») : étoile remplie/vide qui ajoute/retire selon l'état
+- Boutons ajoutés sur :
+  - `AtomFeedViewer` (résultats XML/Atom) — nouvelle colonne « Actions »
+  - `ResultTable` (résultats JSON Recherche/Catalogue/Actions) — nouvelle colonne « Actions »
+- Nouvel onglet **« Favoris »** (5e tab, data-testid `vidal-tab-favorites`) entre Catalogue et Analyse
+
+**Tests** (`/app/backend/tests/test_iter43_fix24at_vidal_favorites.py`) — **3 pytest**
+
+
+## Iter43-fix24as (2026-02-26) — Validation TikTok pour `sawalismartsystems` ✅
+
+**Contexte** : TikTok a rejeté l'app `sawalismartsystems` car :
+1. Le titre du site (browser tab + homepage) ne matche pas EXACTEMENT le nom de l'app.
+2. Privacy Policy & Terms of Service doivent être des URLs séparées (pas un PDF).
+3. Les pages Privacy & Terms doivent avoir comme titre exact :
+   - `sawalismartsystems Privacy Policy`
+   - `sawalismartsystems Terms of Service`
+
+**Implémentation** :
+- **`/app/frontend/public/index.html`** : `<title>` → `sawalismartsystems — SAWALI SMART SYSTEMS Software Engineering` + meta `og:site_name="sawalismartsystems"`.
+- **`/app/frontend/src/pages/public/Home.jsx`** : `document.title = "sawalismartsystems — SAWALI SMART SYSTEMS"` + kicker fallback contient `sawalismartsystems`.
+- **`/app/frontend/src/pages/public/Privacy.jsx`** : `document.title = "sawalismartsystems Privacy Policy"` + H1 visible avec ce texte exact.
+- **`/app/frontend/src/pages/public/TermsOfService.jsx`** : *nouvelle page* (12 sections). `document.title = "sawalismartsystems Terms of Service"` + H1 visible.
+- **`/app/frontend/src/App.js`** : nouvelles routes `/privacy-policy` + `/terms-of-service`.
+- **`/app/frontend/src/components/MarketingFooter.jsx`** : lien `/privacy-policy` + `/terms-of-service` + ligne « App ID : sawalismartsystems » visible.
+
+**Action utilisateur** : Save to GitHub + redéployer en PROD, puis resoumettre l'app TikTok pour review.
 
 
 ## Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth + Posts API) ✅

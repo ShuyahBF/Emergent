@@ -10,6 +10,38 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing modal** : intercepte parfois les clics au premier load. Auto-dismiss après 3s ou close-on-outside-click serait plus user-friendly. _[noté 2026-02-26 iteration_69]_
 
 
+## Iter43-fix24az (2026-02-26) — 3 bugs P0 reportés en PROD ✅
+
+**Bugs signalés par l'utilisateur** (testés en PROD) :
+1. **Liluvine synthèse quotidienne/hebdo affiche '0' pour tous les indicateurs** malgré une activité réelle (11 contacts, 20 WA, 26 factures aujourd'hui).
+2. **LinkedIn OAuth callback renvoie 'Internal Server Error' (500)** après consentement utilisateur.
+3. **Facebook Redirect URI bloqué sur l'URL preview** — non modifiable dans l'UI Admin.
+
+**Correctifs (backend)** :
+- `/app/backend/routes/synthese.py` :
+  - `_gather_kpis` : noms de collections MongoDB corrigés (`tickets`→`support_tickets`, `sms_outbox`→`sms_messages`, `wa_outbox`→`whatsapp_messages`, `suivis`→`user_suivis`, `payments`→`payment_transactions`). Le champ `opened_at` est utilisé pour `support_tickets`.
+  - Ajout d'un compteur `bird_sms_sent` (collection `bird_sms_messages`).
+  - `_build_prompt` : KPIs formatés en liste FR lisible au lieu d'un dict Python brut (`f"{kpis}"`) — Liluvine ne peut plus prétendre que tout est à 0.
+  - `run_synthese_test` : retourne maintenant le bloc `kpis` complet dans la réponse (debug observability).
+- `/app/backend/routes/linkedin.py` :
+  - `linkedin_oauth_callback` enveloppé dans un `try/except` global → renvoie HTML défensif au lieu de 500 brut.
+  - `_userinfo` et `_list_admin_organizations` : `except Exception` (et plus seulement `HTTPException`) — tolèrent timeouts/JSON parse errors.
+- `/app/backend/routes/facebook.py` :
+  - Callback aussi wrappé en `try/except`. Long-lived token exchange et `/me` rendus tolérants à toute exception.
+
+**Correctifs (frontend)** :
+- `/app/frontend/src/pages/admin/sections/FacebookSection.jsx` :
+  - Ajout d'un `<input>` éditable pour `redirect_uri` (anciennement read-only).
+  - Bouton **Auto** : efface l'override → backend recalcule depuis `x-forwarded-host`.
+  - Bouton **Cet env** : pré-remplit avec `window.location.origin/api/facebook/oauth/callback`.
+
+**Tests** (iteration_71.json) : **10/10 pytest PASS** (100%) — `/app/backend/tests/test_iter71_bugfixes.py`.
+- Validé : `POST /api/admin/synthese/test` renvoie `kpis.counts = {new_contacts:11, wa_sent:20, bird_sms_sent:18, invoices:26, payments:3, appointments:1}` (au lieu de 0).
+- Validé : `GET /api/linkedin/oauth/callback` retourne HTML FR 400 (jamais 500) pour params manquants, state bogus, et erreur OAuth.
+- Validé : `PUT /api/admin/facebook/config {redirect_uri:"https://test.example.com/..."}` persiste l'override ; PUT avec `""` clear l'override ; preview-redirect-uri reflète correctement les deux états.
+
+
+
 ## Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (Phase 2 push sync) ✅
 
 **Demande** : « Nous finirons par Google Watch API » (sync temps réel des changements externes du calendrier).

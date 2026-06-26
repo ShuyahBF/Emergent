@@ -9,6 +9,24 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24an (2026-06-17) — Google Calendar OAuth PKCE fix ✅
+
+**Bug** : Après validation de l'écran de consentement Google, l'admin obtenait :
+> *"Aucun refresh_token reçu. (Détail Google : Missing code verifier.)"*
+
+**Cause racine — PKCE mismatch** : `google_auth_oauthlib.Flow.authorization_url()` génère automatiquement un `code_verifier` (PKCE S256) et envoie son `code_challenge` à Google dans l'URL d'auth. Mais l'`exchange_code()` faisait un POST direct vers `/oauth2.googleapis.com/token` **sans** inclure le `code_verifier` correspondant → Google refusait l'échange avec `error: "invalid_grant", error_description: "Missing code verifier"`. Comme `get_auth_url()` et `exchange_code()` sont **2 requêtes HTTP distinctes** sur 2 instances Flow différentes, le verifier était perdu entre les deux.
+
+**Fix dans `backend/google_calendar.py`** :
+1. `get_auth_url()` : après `flow.authorization_url(...)`, persiste `flow.code_verifier` dans `settings.google_oauth_code_verifier`.
+2. `exchange_code()` : lit `code_verifier` depuis settings et l'inclut dans le POST `/token`. Nettoie le verifier après usage (one-shot).
+3. Message d'erreur amélioré : surface explicite de `error_description` Google pour aider au diagnostic.
+
+**Tests** : 3 nouveaux pytest passent (`test_iter43_fix24an_google_oauth_pkce.py`) — verifier persisté, verifier inclus dans token POST, erreur Google surfacée explicitement.
+
+**Vérifié** : Auth URL preview contient bien `code_challenge=...&code_challenge_method=S256` ; settings stocke le verifier (128 chars) ; nettoyé après succès.
+
+
+
 ## Iter43-fix24al + 24am (2026-06-17) — !garde footer/image + Code produit VIDAL ✅
 
 ### 24al — WhatsApp `!garde` : footer + URL site + image capture (avant `/garde` interrompu pour urgence)

@@ -93,6 +93,25 @@ async def get_auth_url(redirect_uri: str) -> Optional[str]:
         access_type="offline",
         prompt="consent select_account",
     )
+    # Iter43-fix24an (2026-06-17) — PKCE: google_auth_oauthlib génère
+    # automatiquement un `code_verifier` + `code_challenge` (S256). Le challenge
+    # est envoyé à Google dans l'URL auth ; le verifier doit accompagner le
+    # `code` lors du POST `/token` (sinon Google répond "Missing code verifier").
+    # Comme `get_auth_url` et `exchange_code` sont 2 requêtes HTTP distinctes,
+    # on persiste le `code_verifier` dans `settings` pour le récupérer ensuite.
+    cv = getattr(flow, "code_verifier", None)
+    if cv:
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$set": {"google_oauth_code_verifier": cv}},
+            upsert=True,
+        )
+    else:
+        # Aucun verifier généré → flux non-PKCE. On nettoie tout résidu.
+        await db.settings.update_one(
+            {"_id": "global"},
+            {"$unset": {"google_oauth_code_verifier": ""}},
+        )
     return url
 
 
@@ -104,33 +123,49 @@ async def exchange_code(code: str, redirect_uri: str) -> dict:
     if not s.get("google_client_id") or not s.get("google_client_secret"):
         raise RuntimeError("Google OAuth client not configured")
 
+    # Iter43-fix24an (2026-06-17) — Récupère le `code_verifier` PKCE stocké
+    # par `get_auth_url`. Sans lui, Google répond "Missing code verifier".
+    data = {
+        "code": code,
+        "client_id": s["google_client_id"],
+        "client_secret": s["google_client_secret"],
+        "redirect_uri": redirect_uri,
+        "grant_type": "authorization_code",
+    }
+    code_verifier = s.get("google_oauth_code_verifier")
+    if code_verifier:
+        data["code_verifier"] = code_verifier
+
     async with httpx.AsyncClient(timeout=15) as client:
         r = await client.post(
             "https://oauth2.googleapis.com/token",
-            data={
-                "code": code,
-                "client_id": s["google_client_id"],
-                "client_secret": s["google_client_secret"],
-                "redirect_uri": redirect_uri,
-                "grant_type": "authorization_code",
-            },
+            data=data,
         )
         token = r.json()
 
     if "refresh_token" not in token:
         # If Google didn't return a refresh_token, it means the user has previously
         # granted access to this OAuth client. We must force re-consent.
-        msg = token.get("error_description") or token.get("error") or ""
+        # On surface l'erreur Google explicite (`error` / `error_description`)
+        # pour aider l'admin à diagnostiquer (ex: "Missing code verifier",
+        # "invalid_grant", "redirect_uri_mismatch"…).
+        err = token.get("error") or ""
+        msg = token.get("error_description") or err or "OK mais pas de refresh_token"
         raise RuntimeError(
             "Aucun refresh_token reçu. Allez sur https://myaccount.google.com/permissions, "
             "supprimez l'accès de cette app, puis recommencez. "
-            f"(Détail Google : {msg or 'OK mais pas de refresh_token'})"
+            f"(Détail Google : {msg})"
         )
     update = {
         "google_refresh_token": token["refresh_token"],
         "google_access_token": token.get("access_token"),
     }
-    await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
+    # Nettoie le verifier après usage (one-shot — pas réutilisable).
+    await db.settings.update_one(
+        {"_id": "global"},
+        {"$set": update, "$unset": {"google_oauth_code_verifier": ""}},
+        upsert=True,
+    )
     return {"ok": True}
 
 

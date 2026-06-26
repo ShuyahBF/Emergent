@@ -1,0 +1,42 @@
+{
+  "summary": "Iter43-fix24au-fix1 — LinkedIn redirect_uri pre-display UX validation. NEW endpoint GET /api/admin/linkedin/oauth/preview-redirect-uri verified end-to-end on public URL (401 unauth, returns PREVIEW URI by default, respects explicit override, exposes computed_from_host + computed_proto). Frontend amber warning banner verified in Admin Settings with all required data-testids + heading + <code> + copy button. Backend log line confirmed in supervisor logs. Regression pytest 11/11 PASSED in 1.80s.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24au_linkedin.py",
+    "/app/backend/tests/test_iter43_fix24at_vidal_favorites.py",
+    "/app/test_reports/pytest/iter67_results.xml"
+  ],
+  "tested_against": "https://sawali-portal.preview.emergentagent.com (REACT_APP_BACKEND_URL)",
+  "test_evidence": {
+    "pytest": "11/11 passed (3 vidal_favorites + 8 linkedin) in 1.80s",
+    "new_endpoint_unauth": "401 (auth required as designed)",
+    "new_endpoint_default": "{redirect_uri: https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback, explicit_override: '', computed_from_host: 'sawali-portal.preview.emergentagent.com', computed_proto: 'https'}",
+    "new_endpoint_with_explicit_override": "{redirect_uri: 'https://sawalismartsystems.com/api/linkedin/oauth/callback', explicit_override: 'https://sawalismartsystems.com/api/linkedin/oauth/callback', ...}",
+    "explicit_override_cleared_returns_to_computed": true,
+    "backend_log_line": "2026-06-26 18:27:06 sawali.linkedin INFO - [linkedin] authorize → redirect_uri=https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback scopes=['openid','profile','email','w_member_social','r_member_social','w_organization_social','r_organization_social'] state=Csk-p_CS",
+    "frontend_amber_banner_testid": "linkedin-redirect-warning — rendered (visible in screenshot)",
+    "frontend_heading_text": "ÉTAPE OBLIGATOIRE avant de cliquer « Connecter LinkedIn »",
+    "frontend_code_element_testid": "linkedin-redirect-uri-computed — text = https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback",
+    "frontend_copy_button_testid": "linkedin-copy-computed-redirect — present and clickable, labelled 'Copier'",
+    "frontend_input_placeholder": "https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback (matches computed value, not window.location.origin fallback)",
+    "screenshot": "/app/test_reports/linkedin_warning_banner.png"
+  },
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Welcome briefing modal still intercepts pointer events on first admin nav per session — pre-existing, noted in iteration_66, not a blocker but it shadows clipboard/toast verification in Playwright headless. Workaround for future Playwright tests: sessionStorage.setItem('sawali_welcome_briefing_seen','1') before navigating.",
+    "navigator.clipboard.readText() returned empty in Chromium headless even after grant_permissions(['clipboard-read','clipboard-write']) — known Playwright/Chromium quirk. The copyText() implementation in LinkedInSection.jsx (line 212-214) is correct (calls navigator.clipboard.writeText + toast). User-facing behaviour validated visually."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp shown on OTP page + exposed via /api/auth/login).",
+  "seed_data_creation": "Temporarily set linkedin_redirect_uri='https://sawalismartsystems.com/api/linkedin/oauth/callback' via PUT /api/admin/linkedin/config to verify explicit override, then cleared it back to empty. Restored client_id/secret to fake_cid_for_test/fake_secret_for_test by last regression test (test_linkedin_authorize_returns_url_with_credentials). Main agent should restore real LinkedIn credentials (Client ID 77rg7lu8v2hd3w + secret) via the admin UI before final deploy if needed.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 11 pytest tests + the new preview-redirect-uri endpoint + the frontend amber banner are validated. The real LinkedIn OAuth handshake (browser → linkedin.com → callback) cannot be tested automatically — requires manual login. After the user adds the PROD redirect URI in LinkedIn App → Auth, they can click « Connecter LinkedIn » on https://sawalismartsystems.com/admin/settings and the round-trip will succeed. The fake_cid_for_test client_id is currently persisted in DB from the last regression run — main agent should re-paste the real Client ID/Secret (77rg7lu8v2hd3w / WPL_AP1.oRLaioMBYPnRljoz.wy2mdg==) before user retests OAuth.",
+  "rca_of_the_issue": "Original bug: LinkedIn returned « The redirect_uri does not match the registered value » because the user had not yet added their PROD callback URL (https://sawalismartsystems.com/api/linkedin/oauth/callback) to their LinkedIn App's Authorized redirect URLs list. The fix (new preview-redirect-uri endpoint + amber UI banner) surfaces the EXACT redirect_uri the backend will send, with a one-click copy button + explicit instructions. User must now copy the URI from the amber banner and paste it into LinkedIn Developer Portal → App → Auth → Authorized redirect URLs before clicking Connecter. Validation complete."
+}

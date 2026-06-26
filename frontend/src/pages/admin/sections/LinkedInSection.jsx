@@ -50,11 +50,23 @@ const LinkedInSection = () => {
   const [postsLoading, setPostsLoading] = useState(false);
   const [postsError, setPostsError] = useState(null);
 
+  // Iter43-fix24au-fix1 — pre-computed redirect_uri the backend will use
+  // (so the admin can register it in LinkedIn App → Auth BEFORE clicking
+  // Connecter — fixes the « The redirect_uri does not match the registered
+  // value » error)
+  const [computedRedirectUri, setComputedRedirectUri] = useState("");
+
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get("/admin/linkedin/config");
+      const [r, p] = await Promise.all([
+        apiClient.get("/admin/linkedin/config"),
+        apiClient.get("/admin/linkedin/oauth/preview-redirect-uri").catch(() => null),
+      ]);
       setConfig((prev) => ({ ...prev, ...r.data }));
+      if (p?.data?.redirect_uri) {
+        setComputedRedirectUri(p.data.redirect_uri);
+      }
       // Default org URN in composer
       const orgs = r.data?.organizations || [];
       if (orgs.length > 0 && !postOrgUrn) {
@@ -288,7 +300,7 @@ const LinkedInSection = () => {
               onChange={(e) => setConfig((p) => ({ ...p, redirect_uri: e.target.value }))}
               className="flex-1 text-xs px-3 py-2 rounded ring-1 ring-slate-300 font-mono"
               data-testid="linkedin-redirect-uri-input"
-              placeholder={`${window.location.origin}/api/linkedin/oauth/callback`}
+              placeholder={computedRedirectUri || `${window.location.origin}/api/linkedin/oauth/callback`}
             />
             <button
               type="button"
@@ -304,6 +316,43 @@ const LinkedInSection = () => {
             ⚠️ Cette URL doit être <strong>ajoutée à la liste « Authorized redirect URLs »</strong> dans votre App LinkedIn → Auth.
           </p>
         </label>
+
+        {/* Iter43-fix24au-fix1 — CRITICAL: highlight the EXACT redirect_uri
+            being sent so the admin can copy-paste it into LinkedIn without
+            typos (fixes « redirect_uri does not match the registered value ») */}
+        {computedRedirectUri && (
+          <div className="rounded-lg ring-2 ring-amber-300 bg-amber-50 p-3 space-y-2" data-testid="linkedin-redirect-warning">
+            <p className="text-xs font-semibold text-amber-900 inline-flex items-center gap-1">
+              <AlertCircle className="h-4 w-4" />
+              ÉTAPE OBLIGATOIRE avant de cliquer « Connecter LinkedIn »
+            </p>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Copiez l&apos;URL <strong>EXACTE</strong> ci-dessous et collez-la dans <strong>LinkedIn Developer Portal → votre App → onglet Auth → Authorized redirect URLs</strong> :
+            </p>
+            <div className="flex items-stretch gap-1">
+              <code
+                className="flex-1 text-[11px] bg-white px-2 py-2 rounded ring-1 ring-amber-300 font-mono break-all select-all"
+                data-testid="linkedin-redirect-uri-computed"
+              >
+                {computedRedirectUri}
+              </code>
+              <button
+                type="button"
+                onClick={() => copyText(computedRedirectUri)}
+                className="text-[11px] px-3 py-2 rounded bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1"
+                data-testid="linkedin-copy-computed-redirect"
+              >
+                <Copy className="h-3 w-3" /> Copier
+              </button>
+            </div>
+            <p className="text-[10px] text-amber-700 italic">
+              ⚠️ Si vous testez sur PROD et PREVIEW, vous devez ajouter <strong>les DEUX</strong> URLs (la valeur ci-dessus
+              dépend de l&apos;environnement où vous êtes en ce moment).
+              <br />
+              💡 Erreur « <em>The redirect_uri does not match the registered value</em> » = vous n&apos;avez pas encore ajouté cette URL.
+            </p>
+          </div>
+        )}
 
         <div className="flex flex-wrap gap-4 text-xs">
           <label className="inline-flex items-center gap-2" data-testid="linkedin-toggle-member">
@@ -341,7 +390,10 @@ const LinkedInSection = () => {
 
         {!config.connected ? (
           <div className="space-y-2">
-            <p className="text-xs text-slate-600">Cliquez pour ouvrir l&apos;autorisation LinkedIn dans une pop-up.</p>
+            <p className="text-xs text-slate-600">
+              Avant de cliquer, <strong>vérifiez que l&apos;URL de redirection ci-dessus est bien enregistrée dans votre App LinkedIn</strong>.
+              La pop-up LinkedIn s&apos;ouvrira pour autorisation.
+            </p>
             <button
               type="button"
               onClick={connect}

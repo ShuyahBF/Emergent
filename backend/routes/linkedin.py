@@ -489,11 +489,35 @@ def attach_linkedin_routes(*, api, db, get_current_user, get_current_admin):
             "state": state,
         }
         url = f"{LINKEDIN_AUTH_URL}?{urlencode(params)}"
+        logger.info("[linkedin] authorize → redirect_uri=%s scopes=%s state=%s", redirect_uri, scopes, state[:8])
         return {
             "authorization_url": url,
             "redirect_uri": redirect_uri,
             "scopes": scopes,
             "state": state,
+        }
+
+    @api.get("/admin/linkedin/oauth/preview-redirect-uri", tags=["Admin — LinkedIn"])
+    async def admin_linkedin_preview_redirect_uri(
+        request: Request,
+        _: dict = Depends(get_current_admin),
+    ) -> Dict[str, Any]:
+        """Iter43-fix24au-fix1 — Returns the EXACT redirect_uri the backend
+        will send to LinkedIn for OAuth, so the admin can register it in their
+        LinkedIn App before clicking « Connecter ».
+
+        Lightweight (no DB write, no state generation) — safe to call on every
+        section mount.
+        """
+        s = await _load_settings(db)
+        redirect_uri = _compute_redirect_uri(request, s)
+        # Also expose the explicit setting + computed fallback so the UI can
+        # tell the user which one is in effect.
+        return {
+            "redirect_uri": redirect_uri,
+            "explicit_override": s.get("linkedin_redirect_uri") or "",
+            "computed_from_host": request.headers.get("x-forwarded-host") or request.headers.get("host") or "",
+            "computed_proto": request.headers.get("x-forwarded-proto") or "https",
         }
 
     @api.get("/linkedin/oauth/callback", tags=["LinkedIn"], name="linkedin_oauth_callback")

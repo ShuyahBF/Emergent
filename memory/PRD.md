@@ -5,8 +5,138 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
-- **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. Chaque délégué ne verrait que ses propres officines. Permet une organisation multi-régions. _[suggéré 2026-06-16, en attente]_
-- **PortalLayout: <span> inside <option> warning** : préexistant non-bloquant — corriger le markup du <select> autour de la ligne 558 de `/app/frontend/src/components/PortalLayout.jsx`. _[noté 2026-02-26 dans iteration_68]_
+- **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. _[suggéré 2026-06-16]_
+- **PortalLayout: <span> inside <option> warning** : préexistant non-bloquant — corriger le markup du <select> autour de la ligne 558 de `/app/frontend/src/components/PortalLayout.jsx`. _[noté 2026-02-26 iteration_68]_
+- **WelcomeBriefing modal** : intercepte parfois les clics au premier load. Auto-dismiss après 3s ou close-on-outside-click serait plus user-friendly. _[noté 2026-02-26 iteration_69]_
+
+
+## Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (Phase 2 push sync) ✅
+
+**Demande** : « Nous finirons par Google Watch API » (sync temps réel des changements externes du calendrier).
+
+**Backend (`/app/backend/routes/google_calendar_watch.py` — nouveau, ~280 LOC)** :
+- `GET /api/admin/google/calendar/watch` — status (active, channel_id, expiration, sync_token_set, last_notification_at, last_sync_at)
+- `POST /api/admin/google/calendar/watch` — démarre une watch (appelle `events.watch` Google → enregistre channel_id, resource_id, expiration, token secret, sync_token initial)
+- `DELETE /api/admin/google/calendar/watch` — arrête la watch (`channels.stop`) + nettoie settings
+- `POST /api/admin/google/calendar/sync-now` — force un sync incrémental (`events.list?syncToken=...`) → MAJ `db.appointments` (created/updated/deleted)
+- `POST /api/google/calendar/webhook` — endpoint public que Google appelle ; vérifie `X-Goog-Channel-ID` + `X-Goog-Channel-Token` (403 si mismatch) ; ignore le message `state=sync` initial ; appelle `_sync_events_incremental` pour les changements ; retourne toujours 200 à Google même en cas d'erreur interne
+- Cron `_scheduled_gcal_watch_renewal` toutes les 6h : renouvelle automatiquement la watch si expiration < 24h
+- Gère `sync_token expired (410 Gone)` → réinitialise et retente
+- Mappe les événements Google vers `db.appointments` avec `google_event_id`, `summary`, `start`, `end`, `attendees`, `status=cancelled` pour les suppressions
+
+**Frontend (`/app/frontend/src/pages/admin/sections/GoogleCalendarWatchPanel.jsx` — nouveau, ~200 LOC)** :
+- Apparaît dans la section Google Calendar de AdminSettings uniquement si `google_calendar_connected=true`
+- Badge status (✓ Active / ○ Inactive), expiration + heures restantes, webhook URL (avec bouton Copier)
+- Boutons : Démarrer la surveillance / Arrêter / Forcer un sync maintenant
+- Affichage du dernier résultat de sync (créés/MAJ/supprimés)
+
+**Tests** (`/app/backend/tests/test_iter43_fix24ay_gcal_watch.py`) — **7 pytest** : status initial, auth admin requise, webhook rejette sans headers + avec headers invalides, start/sync fail si non connecté, stop sans watch active retourne {ok:false}.
+
+
+## Iter43-fix24ax (2026-02-26) — Twitter (X) + Facebook + Multi-canal Auto-post ✅
+
+**Demande** : « On peut faire la même chose sur X et Facebook comme tu le suggères » → étendre l'auto-post LinkedIn hebdomadaire pour publier aussi sur X et Facebook Page.
+
+**Backend (`/app/backend/routes/twitter.py` — nouveau, ~330 LOC)** :
+- OAuth 2.0 Authorization Code Flow **avec PKCE** (S256 code_challenge)
+- `GET/PUT /api/admin/twitter/config` (Client ID/Secret masqué)
+- `GET /api/admin/twitter/oauth/{authorize,preview-redirect-uri}` + `GET /api/twitter/oauth/callback`
+- `GET /api/twitter/status` + `DELETE /api/admin/twitter/connection`
+- `POST /api/twitter/tweets` (text ≤ 280 chars + image optionnel via v1.1 media/upload)
+- `GET /api/twitter/tweets` (10 derniers via `/2/users/{id}/tweets`)
+- Refresh token rotation automatique (tokens valides 2h)
+- Scopes : `tweet.read tweet.write users.read offline.access`
+
+**Backend (`/app/backend/routes/facebook.py` — nouveau, ~290 LOC)** :
+- OAuth standard + **Long-lived token exchange** (60 jours) + **Page Access Token** retrieval via `/me/accounts`
+- `GET/PUT /api/admin/facebook/config` (App ID/Secret masqué)
+- `GET /api/admin/facebook/oauth/{authorize,preview-redirect-uri}` + `GET /api/facebook/oauth/callback`
+- `GET /api/admin/facebook/pages` (liste les Pages administrées)
+- `PUT /api/admin/facebook/active-page` (sélectionne la Page active)
+- `GET /api/facebook/status` + `DELETE /api/admin/facebook/connection`
+- `POST /api/facebook/posts` (text via `/{page-id}/feed`, ou photo via `/{page-id}/photos`)
+- `GET /api/facebook/posts` (feed récent)
+- Scopes : `pages_show_list pages_manage_posts pages_read_engagement public_profile email`
+
+**Auto-post multi-canal (`/app/backend/routes/linkedin_autopost.py`)** :
+- Nouveaux champs `linkedin_autopost_also_post_twitter` + `linkedin_autopost_also_post_facebook` (toggles)
+- Helper `_publish_multi_channel(db, draft, image)` : publie LinkedIn (toujours) + Twitter (si activé) + Facebook (si activé)
+- Helper `_shorten_for_twitter(text, 270)` : tronque intelligemment au dernier espace
+- WhatsApp reply OK publie maintenant sur les 3 canaux + résume le résultat (LinkedIn URN / tweet_id / fb post_id) dans la confirmation
+
+**Frontend** :
+- `TwitterSection.jsx` (~190 LOC) — config + OAuth (PKCE-aware) + composer tweet + liste tweets
+- `FacebookSection.jsx` (~200 LOC) — config + OAuth + liste Pages + sélection Page active + composer + feed
+- `LinkedInSection.jsx` enrichi avec 2 checkboxes multi-canal (`also-twitter` + `also-facebook`)
+- 3 sections distinctes dans AdminSettings : `s-linkedin`, `s-twitter`, `s-facebook`
+
+**Action utilisateur attendue** :
+1. Créer une App Twitter (https://developer.twitter.com/en/portal/dashboard) OAuth 2.0 + ajouter redirect URI
+2. Créer une App Facebook (https://developers.facebook.com/apps/) + ajouter Facebook Login + redirect URI
+3. Coller les credentials dans Admin Settings, cliquer Connecter, sélectionner la Page Facebook
+4. Activer les toggles « X / Twitter » + « Facebook Page » dans la section Auto-post hebdomadaire
+5. À la prochaine échéance, Liluvine publie sur les 3 canaux en parallèle
+
+
+## Iter43-fix24aw (2026-02-26) — Résolution GPS officines (Google Maps + OSM) ✅
+
+**Demande** : « Bouton Résoudre géolocalisation au-dessus du tableau, parcours Google Maps pour chaque pharmacie sélectionnée et récupère ses coordonnées GPS ».
+
+**Backend (`/app/backend/routes/officines_geocode.py` — nouveau, ~250 LOC)** :
+- 2 providers automatiques : **Google Places API** si `settings.global.google_maps_api_key` configurée (meilleure couverture pharmacies) sinon **OpenStreetMap Nominatim** (gratuit, 1 req/sec respecté)
+- `GET /api/admin/geocode/config` — provider actuel + nombre d'officines sans GPS
+- `POST /api/admin/officines-registry/geocode-batch` — body `{officine_ids: [str], overwrite_existing: bool}` → résout chaque officine séquentiellement (avec délai 1.05s pour OSM) → MAJ Mongo avec `latitude`, `longitude`, `latitude_source`, `latitude_resolved_at`, `latitude_resolved_query`, `latitude_resolved_formatted_address`
+- `POST /api/admin/officines-registry/{id}/geocode` — wrapper single
+- Stratégie de requête adaptative : si `address` présente → nom + adresse + ville + pays ; sinon nom + ville + pays. Préfixe « Pharmacie » si absent du nom.
+
+**Frontend (`/app/frontend/src/pages/admin/AdminOfficinesRegistry.jsx`)** :
+- Bouton CYAN « 🌍 Résoudre géoloc (N) » dans la barre d'actions (visible si >0 officines sélectionnées)
+- Checkbox `overwrite` adjacente pour forcer la réécriture des GPS existants
+- Modal de résultat `GeocodeResultModal` avec stats (Traitées / Résolues / Échecs / Ignorées) + liste détaillée par officine (lat/lng, formatted_address, source)
+- Pré-load du provider via `GET /api/admin/geocode/config` au mount pour afficher le bon nom dans le tooltip
+
+**Tests** (`/app/backend/tests/test_iter43_fix24aw_geocode.py`) — **7 pytest** : config, auth, validation body (422 si vide), unknown id, skip si GPS présent, query_builder unit test.
+
+**Note importante** : OSM Nominatim a peu de pharmacies indexées en Afrique de l'Ouest. **Pour SAWALI, configurer une clé Google Maps API est recommandé** (Google Cloud Console → activer Places API New → générer clé → coller dans `settings.global.google_maps_api_key` via PUT /api/admin/settings).
+
+
+## Iter43-fix24av (2026-02-26) — LinkedIn Auto-post hebdomadaire (Liluvine) ✅
+
+Liluvine (Claude Sonnet 4.5) génère un post LinkedIn chaque semaine. 2 modes : `auto` (publie immédiatement) ou `wa_approval` (envoi WhatsApp → réponse OK/STOP/REGEN). Voir détails iteration_68 — désormais étendu en multi-canal (Iter43-fix24ax).
+
+
+## Iter43-fix24au-fix1 (2026-02-26) — UX redirect_uri LinkedIn ✅
+
+Bandeau ambre + endpoint `/preview-redirect-uri` qui affiche le redirect_uri EXACT calculé par le backend, à copier dans LinkedIn App → Auth. Validé iteration_67.
+
+
+## Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth + Posts API) ✅
+
+OAuth 2.0 complet + post text/image (member + organization) + lecture posts. Credentials user : `77rg7lu8v2hd3w` / masked. 8 pytest. Validé iteration_66.
+
+
+## Iter43-fix24at (2026-02-26) — Favoris VIDAL par utilisateur ✅
+
+Bouton « 📋 Copier » + ⭐ Favori sur chaque ligne, nouvel onglet « Favoris ». 3 pytest. Validé iteration_66.
+
+
+## Iter43-fix24as (2026-02-26) — Validation TikTok ✅
+
+Titre `sawalismartsystems` exact + pages `/privacy-policy` + `/terms-of-service`.
+
+
+## 📊 Résumé tests automatisés (cumul depuis iter43-fix24at)
+
+| Module | pytest | Validé par |
+|--------|--------|------------|
+| VIDAL Favoris | 3/3 | iteration_66 |
+| LinkedIn OAuth + Posts | 8/8 | iteration_66 |
+| LinkedIn redirect_uri UX | endpoint+UI | iteration_67 |
+| LinkedIn Auto-post | 7/8 (1 LLM skip) | iteration_68 |
+| Twitter + Facebook | endpoints + UI | iteration_69 |
+| Officines Geocode | 7/7 | iteration_69 |
+| GCal Watch API | 7/7 | iteration_70 |
+| **TOTAL** | **32 actifs + 1 skip** | 5 iterations ✅ |
 
 
 ## Iter43-fix24av (2026-02-26) — LinkedIn Auto-post hebdomadaire (Liluvine) ✅

@@ -9,6 +9,53 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24ap (2026-06-17) — Monitoring intégrations + cron alertes WhatsApp ✅
+
+**Objectif** : Vérification automatique périodique de Google Calendar + Meta Webhook WhatsApp, avec alerte WA proactive vers l'admin en cas d'incident.
+
+**Implémentation backend** :
+- Nouvelle fonction `_run_integration_health_check()` qui :
+  - Teste Google Calendar via `gcal.list_upcoming_events(1)` (vérifie refresh_token + API).
+  - Teste Meta WA Webhook via Graph API `subscribed_apps` (vérifie token + souscription active).
+  - Persiste chaque exécution dans `db.integration_health_checks` (audit).
+  - Envoie une alerte WhatsApp formatée au `integration_health_alert_wa_phone` configuré, **throttlée à 12h** (pas de spam si l'incident persiste).
+- **Cron 4h** (déjà via APScheduler) : `_scheduled_integration_health` à `*/4:35` heure Abidjan, à côté du cron WA silence detector existant.
+- **Endpoints REST** : `GET /admin/integrations/health-check` (manuel) et `GET /admin/integrations/health-history` (audit).
+- **Settings** : 2 nouveaux champs dans `SettingsUpdate` : `integration_health_alerts_enabled` (toggle), `integration_health_alert_wa_phone` (numéro E.164).
+
+**Implémentation frontend** :
+- Nouveau composant **`IntegrationHealthSection.jsx`** dans Admin Settings (S058e). Inclut :
+  - Bouton 🩺 **« Lancer un check »** qui appelle l'endpoint et affiche le résultat en temps réel (badges vert/rouge par intégration + message d'erreur si échec).
+  - Toggle « Alertes WhatsApp activées » + input numéro E.164.
+  - Tableau historique des 10 derniers checks (date, statut GCal, statut Meta, source, alerte envoyée/throttlée).
+
+**Confirmation Sawali → Google déjà fonctionnel** : Vérifié que `gcal.create_event` / `update_event` / `delete_event` sont déjà appelés depuis le CRUD RDV existant (`server.py` lignes 1588, 2936/7702, 2960). Pas de travail supplémentaire requis.
+
+**Tests** : 5 nouveaux pytest passent (`test_iter43_fix24ap_integration_health_monitor.py`) — endpoint renvoie status granulaire, persistance DB, auth admin requise, états d'erreur séparés.
+
+
+
+## Iter43-fix24ao (2026-06-17) — Bouton "Tester connexion Google Calendar" ✅
+
+**Objectif** : Permettre à l'admin de vérifier instantanément que la connexion Google Calendar fonctionne (refresh_token valide + API accessible) sans avoir à créer un événement de test.
+
+**Implémentation** :
+- **Backend** : 
+  - Nouvel endpoint `GET /api/admin/google/test-connection` qui :
+    - Vérifie la configuration (Client ID/Secret + refresh_token).
+    - Appelle `gcal.list_upcoming_events(max_results=3)` pour vérifier l'API en read-only.
+    - Retourne `{ok: True, events_count, events: [...], calendar_id}` en succès, ou `{ok: False, reason, message, error_type}` avec message explicite en erreur.
+  - Nouveau helper `gcal.list_upcoming_events()` dans `google_calendar.py` qui appelle `events.list()` avec `timeMin=now`, `orderBy=startTime`. Retourne une liste compacte (id, summary, start, end, html_link, status).
+- **Frontend** : 
+  - Bouton 🧪 **« Tester connexion »** visible **uniquement quand Google Calendar est connecté** (à côté de « Connecté » + « Se déconnecter »).
+  - Panneau de résultat dépliable (`gcal-test-result`) :
+    - Vert si OK : liste les 3 prochains événements (titre, dates formatées FR, lien direct vers Google Calendar).
+    - Rouge si KO : affiche le message d'erreur Google + le type d'exception pour faciliter le diagnostic.
+
+**Tests** : 3 nouveaux pytest passent (`test_iter43_fix24ao_google_test_connection.py`) — endpoint sans connexion → ok=False, helper raise sans creds, endpoint nécessite auth admin.
+
+
+
 ## Iter43-fix24an (2026-06-17) — Google Calendar OAuth PKCE fix ✅
 
 **Bug** : Après validation de l'écran de consentement Google, l'admin obtenait :

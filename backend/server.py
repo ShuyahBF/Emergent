@@ -12374,6 +12374,35 @@ async def admin_google_disconnect(_: dict = Depends(get_current_admin)):
     return {"ok": True}
 
 
+# Iter43-fix24ao (2026-06-17) — Diagnostic endpoint: verifies that the
+# stored refresh_token still produces a valid access_token AND that the
+# Google Calendar API responds. Returns the 3 next upcoming events so the
+# admin can visually confirm everything works end-to-end.
+@api.get("/admin/google/test-connection", tags=["Admin"])
+async def admin_google_test_connection(_: dict = Depends(get_current_admin)):
+    if not await gcal.is_configured():
+        return {
+            "ok": False,
+            "reason": "not_connected",
+            "message": "Google Calendar n'est pas connecté. Configurez Client ID + Secret puis cliquez sur « Connecter Google Calendar ».",
+        }
+    try:
+        events = await gcal.list_upcoming_events(max_results=3)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "reason": "api_call_failed",
+            "message": f"Erreur lors de l'appel Google Calendar API : {exc}",
+            "error_type": type(exc).__name__,
+        }
+    return {
+        "ok": True,
+        "events_count": len(events),
+        "events": events,
+        "calendar_id": (await db.settings.find_one({"_id": "global"}) or {}).get("google_calendar_email") or "primary",
+    }
+
+
 # ====================================================================
 # API DOCS METADATA (custom listing)
 # ====================================================================
@@ -17450,6 +17479,161 @@ async def admin_list_wa_silence_alerts(
     return {"items": items, "count": len(items)}
 
 
+# ============================================================================
+# Iter43-fix24ap (2026-06-17) — Integration health monitor (Google Calendar
+# + Meta WA Webhook). Periodically tests both connections and sends a
+# WhatsApp message to the configured admin number if either fails. Also
+# persists each run in `db.integration_health_checks` for audit.
+# ============================================================================
+async def _run_integration_health_check(triggered_by: str = "cron") -> dict:
+    """Verifies that Google Calendar refresh_token AND Meta Webhook
+    subscription are both healthy. Alerts the admin via WhatsApp on the
+    very first failure detected after a healthy state (no spam — only
+    when state changes from OK→FAIL or after a 24h re-confirm window)."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    enabled = bool(s.get("integration_health_alerts_enabled", True))
+    alert_wa_phone = (s.get("integration_health_alert_wa_phone") or s.get("super_admin_phone") or "").strip()
+
+    # ----- 1) Google Calendar -----
+    gcal_status = {"ok": False, "reason": None, "message": None}
+    try:
+        if await gcal.is_configured():
+            events = await gcal.list_upcoming_events(max_results=1)
+            gcal_status = {"ok": True, "events_count": len(events), "message": "Refresh token valide, API OK."}
+        else:
+            gcal_status = {"ok": False, "reason": "not_connected", "message": "Non connecté."}
+    except Exception as exc:  # noqa: BLE001
+        gcal_status = {
+            "ok": False, "reason": "api_error",
+            "message": str(exc)[:300],
+            "error_type": type(exc).__name__,
+        }
+
+    # ----- 2) Meta WA Webhook subscription -----
+    meta_status = {"ok": False, "reason": None, "message": None}
+    access_token = (s.get("wa_access_token") or "").strip()
+    waba_id = (s.get("wa_business_account_id") or "").strip()
+    if not access_token or not waba_id:
+        meta_status = {"ok": False, "reason": "missing_config", "message": "wa_access_token ou waba_id absent."}
+    else:
+        try:
+            async with httpx.AsyncClient(timeout=10) as http:
+                r = await http.get(
+                    f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/subscribed_apps",
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                if r.status_code >= 300:
+                    err = (r.json() or {}).get("error") or {}
+                    meta_status = {
+                        "ok": False, "reason": "api_error",
+                        "message": err.get("message") or f"HTTP {r.status_code}",
+                        "error_code": err.get("code"),
+                    }
+                else:
+                    apps = (r.json() or {}).get("data") or []
+                    if not apps:
+                        meta_status = {"ok": False, "reason": "no_subscription",
+                                       "message": "Aucune app abonnée au WABA — webhook entrant cassé."}
+                    else:
+                        meta_status = {"ok": True, "subscribed_apps": len(apps), "message": "Souscription présente."}
+        except Exception as exc:  # noqa: BLE001
+            meta_status = {"ok": False, "reason": "exception",
+                           "message": str(exc)[:300], "error_type": type(exc).__name__}
+
+    overall_ok = gcal_status["ok"] and meta_status["ok"]
+    result = {
+        "ok": overall_ok,
+        "google_calendar": gcal_status,
+        "meta_webhook": meta_status,
+        "triggered_by": triggered_by,
+        "checked_at": _now(),
+        "alert_sent": False,
+    }
+
+    # Persist every run for audit / dashboard
+    try:
+        await db.integration_health_checks.insert_one({
+            "id": _uuid(), **result,
+        })
+    except Exception:  # noqa: BLE001
+        pass
+
+    if overall_ok or not enabled:
+        return result
+
+    # Throttle: don't re-alert if same failures already sent in the last 12h
+    last_alert = s.get("integration_health_last_alert") or {}
+    try:
+        last_at = last_alert.get("fired_at")
+        if last_at:
+            last_dt = datetime.fromisoformat(last_at.replace("Z", "+00:00"))
+            if last_dt.tzinfo is None:
+                last_dt = last_dt.replace(tzinfo=timezone.utc)
+            # Only re-alert if either status FLIPPED (new failure) or 12h passed
+            same_failures = (
+                last_alert.get("gcal_ok") == gcal_status["ok"]
+                and last_alert.get("meta_ok") == meta_status["ok"]
+            )
+            if same_failures and (datetime.now(timezone.utc) - last_dt).total_seconds() < 12 * 3600:
+                result["alert_throttled"] = True
+                return result
+    except Exception:  # noqa: BLE001
+        pass
+
+    # ----- Fire WhatsApp alert -----
+    if alert_wa_phone:
+        problems: list[str] = []
+        if not gcal_status["ok"]:
+            problems.append(f"🟥 *Google Calendar* : {gcal_status.get('message', '?')}")
+        if not meta_status["ok"]:
+            problems.append(f"🟥 *Meta WA Webhook* : {meta_status.get('message', '?')}")
+        text = (
+            "🚨 *SAWALI — Alerte intégrations*\n\n"
+            + "\n".join(problems)
+            + "\n\nVérifiez Admin Settings → respectivement Google Calendar / WhatsApp."
+            + f"\n\n_Détecté à {result['checked_at'][:19]}Z — Liluvine PRO 🤖_"
+        )
+        try:
+            send_res = await _wa_send_text(alert_wa_phone, text)
+            result["alert_sent"] = bool(send_res.get("ok"))
+            result["alert_to"] = alert_wa_phone
+            result["alert_error"] = send_res.get("error") if not send_res.get("ok") else None
+        except Exception as exc:  # noqa: BLE001
+            result["alert_sent"] = False
+            result["alert_error"] = str(exc)[:200]
+    else:
+        result["alert_skipped"] = "no_admin_wa_phone_configured"
+
+    await db.settings.update_one(
+        {"_id": "global"},
+        {"$set": {"integration_health_last_alert": {
+            "fired_at": _now(),
+            "gcal_ok": gcal_status["ok"],
+            "meta_ok": meta_status["ok"],
+        }}},
+        upsert=True,
+    )
+    return result
+
+
+@api.get("/admin/integrations/health-check", tags=["Admin"])
+async def admin_integration_health_check(_: dict = Depends(get_current_admin)):
+    """Run the integration health check manually (also runs every 4h via cron).
+    Returns the live status of Google Calendar + Meta Webhook + whether an
+    alert was fired/throttled."""
+    return await _run_integration_health_check(triggered_by="manual")
+
+
+@api.get("/admin/integrations/health-history", tags=["Admin"])
+async def admin_integration_health_history(
+    limit: int = Query(default=30, ge=1, le=200),
+    _: dict = Depends(get_current_admin),
+):
+    """Historique des contrôles de santé (audit / monitoring)."""
+    items = await db.integration_health_checks.find({}, {"_id": 0}).sort("checked_at", -1).to_list(limit)
+    return {"items": items, "count": len(items)}
+
+
 
 
 
@@ -20691,6 +20875,18 @@ async def on_startup():
                 _scheduled_wa_silence,
                 CronTrigger(hour="*/4", minute=20, timezone="Africa/Abidjan"),
                 id="wa_silence_detector_4h",
+                replace_existing=True,
+                misfire_grace_time=900,
+            )
+            # Iter43-fix24ap (2026-06-17) — every 4h, verify Google Calendar
+            # refresh_token + Meta webhook subscription. Alerts admin via
+            # WhatsApp on failures (throttled 12h to avoid spam).
+            async def _scheduled_integration_health():
+                await _run_integration_health_check(triggered_by="cron:4h")
+            _scheduler.add_job(
+                _scheduled_integration_health,
+                CronTrigger(hour="*/4", minute=35, timezone="Africa/Abidjan"),
+                id="integration_health_monitor_4h",
                 replace_existing=True,
                 misfire_grace_time=900,
             )

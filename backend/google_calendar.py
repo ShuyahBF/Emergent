@@ -217,6 +217,47 @@ async def freebusy(start_iso: str, end_iso: str) -> list[dict]:
         return []
 
 
+# Iter43-fix24ao (2026-06-17) — Diagnostic helper used by the admin
+# "Tester connexion" button. Lists the N next upcoming events on the
+# configured calendar to confirm OAuth + API access work end-to-end.
+async def list_upcoming_events(max_results: int = 3) -> list[dict]:
+    """List upcoming events on the configured calendar.
+
+    Raises an Exception (RuntimeError / Google API error) if the service
+    cannot be built or the API call fails. The caller is expected to
+    catch and surface the message to the admin.
+    """
+    service = await _build_service()
+    if service is None:
+        raise RuntimeError(
+            "Impossible de construire le service Google Calendar. Le refresh_token "
+            "est peut-être expiré ou révoqué — recommencez la connexion."
+        )
+    s = await _get_settings()
+    calendar_id = s.get("google_calendar_email") or "primary"
+    now_iso = datetime.now(timezone.utc).isoformat()
+    res = service.events().list(
+        calendarId=calendar_id,
+        timeMin=now_iso,
+        maxResults=int(max_results),
+        singleEvents=True,
+        orderBy="startTime",
+    ).execute()
+    items = res.get("items", []) or []
+    # Return a compact, JSON-serializable summary (not the raw bloated Google obj)
+    return [
+        {
+            "id": ev.get("id"),
+            "summary": ev.get("summary") or "(sans titre)",
+            "start": (ev.get("start") or {}).get("dateTime") or (ev.get("start") or {}).get("date"),
+            "end": (ev.get("end") or {}).get("dateTime") or (ev.get("end") or {}).get("date"),
+            "html_link": ev.get("htmlLink"),
+            "status": ev.get("status"),
+        }
+        for ev in items
+    ]
+
+
 async def update_event(
     event_id: str,
     summary: Optional[str] = None,

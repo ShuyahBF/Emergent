@@ -16,6 +16,7 @@ import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPr
 import VidalActionsSection from "@/components/admin/VidalActionsSection";
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
 import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
+import IntegrationHealthSection from "@/pages/admin/sections/IntegrationHealthSection";
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
@@ -449,6 +450,25 @@ export default function AdminSettings() {
     await apiClient.post("/admin/google/disconnect");
     toast.success("Déconnecté"); await load();
   };
+  // Iter43-fix24ao (2026-06-17) — Test the live Google Calendar connection
+  // (lists the next 3 upcoming events) without creating any event.
+  const [gcalTestState, setGcalTestState] = useState({ loading: false, result: null });
+  const testGoogleConnection = async () => {
+    setGcalTestState({ loading: true, result: null });
+    try {
+      const r = await apiClient.get("/admin/google/test-connection");
+      setGcalTestState({ loading: false, result: r.data });
+      if (r.data?.ok) {
+        toast.success(`Google Calendar OK — ${r.data.events_count} événement(s) à venir`);
+      } else {
+        toast.error(r.data?.message || "Échec du test de connexion");
+      }
+    } catch (err) {
+      const msg = err?.response?.data?.detail || err?.message || "Erreur réseau";
+      setGcalTestState({ loading: false, result: { ok: false, message: msg } });
+      toast.error(msg);
+    }
+  };
 
   const upd = (k, v) => setS({ ...s, [k]: v });
 
@@ -552,6 +572,14 @@ export default function AdminSettings() {
           {s.google_calendar_connected ? (
             <>
               <span className="inline-flex items-center gap-2 text-sm text-emerald-700"><CheckCircle2 className="h-4 w-4" /> Connecté</span>
+              <button
+                onClick={testGoogleConnection}
+                disabled={gcalTestState.loading}
+                className="text-sm inline-flex items-center gap-1.5 rounded-lg border border-emerald-300 bg-emerald-50 hover:bg-emerald-100 text-emerald-700 px-3 py-1.5 disabled:opacity-50"
+                data-testid="gcal-test-connection"
+              >
+                {gcalTestState.loading ? "Test en cours…" : "🧪 Tester connexion"}
+              </button>
               <button onClick={disconnectGoogle} className="text-sm text-rose-600 underline" data-testid="gcal-disconnect">Se déconnecter</button>
             </>
           ) : (
@@ -560,6 +588,55 @@ export default function AdminSettings() {
             </button>
           )}
         </div>
+        {/* Iter43-fix24ao — Test connection result panel */}
+        {gcalTestState.result && (
+          <div
+            className={`mt-3 rounded-lg p-3 text-xs ring-1 ${gcalTestState.result.ok ? "bg-emerald-50 ring-emerald-200 text-emerald-900" : "bg-rose-50 ring-rose-200 text-rose-900"}`}
+            data-testid="gcal-test-result"
+          >
+            {gcalTestState.result.ok ? (
+              <>
+                <p className="font-semibold mb-1">
+                  ✅ Connexion OK — {gcalTestState.result.events_count} événement{gcalTestState.result.events_count > 1 ? "s" : ""} à venir
+                </p>
+                <p className="text-[10px] text-slate-600 mb-2">
+                  Calendrier : <code>{gcalTestState.result.calendar_id}</code>
+                </p>
+                {(gcalTestState.result.events || []).length > 0 ? (
+                  <ul className="space-y-1.5">
+                    {gcalTestState.result.events.map((ev) => (
+                      <li key={ev.id} className="rounded bg-white ring-1 ring-emerald-100 p-2" data-testid={`gcal-test-event-${ev.id}`}>
+                        <p className="font-semibold">{ev.summary}</p>
+                        <p className="text-[10px] text-slate-600">
+                          {ev.start ? new Date(ev.start).toLocaleString("fr-FR") : "—"}{" "}
+                          → {ev.end ? new Date(ev.end).toLocaleString("fr-FR") : "—"}
+                        </p>
+                        {ev.html_link && (
+                          <a href={ev.html_link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-emerald-700 underline">
+                            Ouvrir dans Google Calendar →
+                          </a>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="italic text-slate-600">Aucun événement à venir (calendrier vide ou tous les événements sont passés).</p>
+                )}
+              </>
+            ) : (
+              <>
+                <p className="font-semibold mb-1">❌ Échec du test</p>
+                <p className="break-words">{gcalTestState.result.message}</p>
+                {gcalTestState.result.reason === "not_connected" && (
+                  <p className="text-[10px] italic mt-1">Cliquez sur « Connecter Google Calendar » ci-dessus.</p>
+                )}
+                {gcalTestState.result.error_type && (
+                  <p className="text-[10px] font-mono mt-1 text-slate-600">type: {gcalTestState.result.error_type}</p>
+                )}
+              </>
+            )}
+          </div>
+        )}
         <p className="text-xs text-slate-500">Sauvegardez les Client ID et Secret avant de cliquer sur Connecter.</p>
       </Section>
 
@@ -703,6 +780,11 @@ export default function AdminSettings() {
       {/* Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde */}
       <Filterable title="🌐 S058d — Page publique /garde : Bandeaux + image" anchorId="s-s058d-garde-public">
         <GardePublicPageSection />
+      </Filterable>
+
+      {/* Iter43-fix24ap (2026-06-17) — Monitoring des intégrations (Google Cal + Meta) */}
+      <Filterable title="🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)" anchorId="s-s058e-integration-health">
+        <IntegrationHealthSection />
       </Filterable>
 
       <Filterable title="📊 S059 — Synthèse Liluvine + API Officines + Image sidebar" anchorId="s-s059-synthese-officines">

@@ -1039,6 +1039,12 @@ class SettingsUpdate(BaseModel):
     garde_reply_image_url: Optional[str] = None
     garde_reply_image_caption: Optional[str] = None
 
+    # Iter43-fix24ap (2026-06-17) — Monitoring intégrations (Google Cal + Meta WA Webhook).
+    # `integration_health_alerts_enabled` : active les alertes WhatsApp (défaut: True).
+    # `integration_health_alert_wa_phone` : numéro WhatsApp E.164 à notifier en cas d'incident.
+    integration_health_alerts_enabled: Optional[bool] = None
+    integration_health_alert_wa_phone: Optional[str] = None
+
     # Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde.
     # `garde_page_header` : texte affiché en haut (ex: "Joyeux Noël !").
     # `garde_page_footer` : texte affiché en bas (ex: "Prompt rétablissement!").

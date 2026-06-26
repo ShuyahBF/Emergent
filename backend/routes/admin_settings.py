@@ -52,6 +52,10 @@ GET_MASK_FIELDS = (
     "bird_access_key",
     "bird_webhook_secret",
     "officines_inventory_webhook_token",
+    # Iter43-fix24au — LinkedIn integration secrets
+    "linkedin_client_secret",
+    "linkedin_access_token",
+    "linkedin_refresh_token",
 )
 
 

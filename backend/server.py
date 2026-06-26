@@ -23828,6 +23828,18 @@ _attach_vidal(
     get_current_admin=get_current_admin,
 )
 
+# Iter43-fix24at (2026-02-26) — Favoris VIDAL par utilisateur
+from routes.vidal_favorites import attach_vidal_favorites_routes as _attach_vidal_favorites  # noqa: E402
+_attach_vidal_favorites(api=api, db=db, get_current_user=get_current_user)
+
+# Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth2 + Posts API)
+from routes.linkedin import attach_linkedin_routes as _attach_linkedin  # noqa: E402
+_attach_linkedin(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+)
+
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402
 _attach_amm(api=api, db=db, get_current_user=get_current_user)

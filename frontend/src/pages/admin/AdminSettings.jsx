@@ -30,6 +30,7 @@ import IncidentsAndCountrySection from "@/pages/admin/sections/IncidentsAndCount
 import ErrorSeverityMappingSection from "@/pages/admin/sections/ErrorSeverityMappingSection";
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
+import LinkedInSection from "@/pages/admin/sections/LinkedInSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
@@ -735,6 +736,11 @@ export default function AdminSettings() {
 
       <Filterable title="Webhook Stripe (confirmation paiement)" anchorId="s-stripe-webhook">
         <StripeWebhookSection />
+      </Filterable>
+
+      {/* Iter43-fix24au (2026-02-26) — LinkedIn OAuth + Posts API */}
+      <Filterable title="💼 LinkedIn — Publications & lecture (OAuth + Posts API)" anchorId="s-linkedin">
+        <LinkedInSection />
       </Filterable>
 
       {/* Iter38r-fix9u — AI Subscriptions reminder table */}

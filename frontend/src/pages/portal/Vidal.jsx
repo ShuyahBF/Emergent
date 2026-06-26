@@ -5,13 +5,14 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  Stethoscope, Search, Loader2, AlertTriangle, FileText, Pill, ListChecks, Plus, X, Zap
+  Stethoscope, Search, Loader2, AlertTriangle, FileText, Pill, ListChecks, Plus, X, Zap, Star, Copy, Trash2
 } from "lucide-react";
 
 const TABS = [
   { key: "actions", label: "Actions", icon: Zap },
   { key: "search", label: "Recherche", icon: Search },
   { key: "catalog", label: "Catalogue", icon: ListChecks },
+  { key: "favorites", label: "Favoris", icon: Star },
   { key: "analyze", label: "Analyse prescription", icon: AlertTriangle },
 ];
 
@@ -28,6 +29,131 @@ const CATALOG_STATUSES = [
   { value: "DELETED", label: "Retirés" },
   { value: "PHARMACO", label: "Vigilance" },
 ];
+
+// Iter43-fix24at (2026-02-26) — Favoris VIDAL : context partagé entre les
+// onglets pour qu'un ajout/retrait depuis la liste de recherche se reflète
+// instantanément sur l'onglet Favoris (et inversement).
+const FavoritesContext = React.createContext({
+  ids: new Set(),
+  loading: false,
+  add: async () => {},
+  remove: async () => {},
+  refresh: async () => {},
+  isFavorite: () => false,
+});
+
+function useFavorites() {
+  return React.useContext(FavoritesContext);
+}
+
+function FavoritesProvider({ children }) {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  const refresh = React.useCallback(async () => {
+    setLoading(true);
+    try {
+      const r = await apiClient.get("/vidal/favorites");
+      setItems(r.data?.items || []);
+    } catch (e) {
+      // Silent — endpoint may be unreachable briefly during boot
+      setItems([]);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  const ids = React.useMemo(() => new Set(items.map((i) => String(i.vidal_id))), [items]);
+  const isFavorite = React.useCallback((vid) => ids.has(String(vid || "")), [ids]);
+
+  const add = React.useCallback(async (favPayload) => {
+    if (!favPayload?.vidal_id) {
+      toast.warning("Code VIDAL manquant pour ce produit");
+      return false;
+    }
+    try {
+      await apiClient.post("/vidal/favorites", favPayload);
+      toast.success("⭐ Ajouté aux favoris");
+      await refresh();
+      return true;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur ajout favori");
+      return false;
+    }
+  }, [refresh]);
+
+  const remove = React.useCallback(async (vid) => {
+    if (!vid) return false;
+    try {
+      await apiClient.delete(`/vidal/favorites/${encodeURIComponent(vid)}`);
+      toast.success("Retiré des favoris");
+      await refresh();
+      return true;
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur retrait favori");
+      return false;
+    }
+  }, [refresh]);
+
+  const value = { items, ids, loading, isFavorite, add, remove, refresh };
+  return <FavoritesContext.Provider value={value}>{children}</FavoritesContext.Provider>;
+}
+
+// Copy any string to clipboard with a friendly toast.
+function _copyCode(code) {
+  if (!code) {
+    toast.warning("Aucun code à copier");
+    return;
+  }
+  try {
+    navigator.clipboard.writeText(String(code));
+    toast.success(`📋 Code copié : ${code}`);
+  } catch {
+    toast.error("Copie impossible");
+  }
+}
+
+// Small inline button shared by the result tables ("📋 Copier le code").
+function CopyCodeButton({ code, testId }) {
+  if (!code) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); _copyCode(code); }}
+      className="text-[10px] px-1.5 py-0.5 rounded bg-slate-100 hover:bg-fuchsia-100 text-slate-600 hover:text-fuchsia-700 ring-1 ring-slate-200 inline-flex items-center gap-1 transition-colors"
+      title={`Copier le code VIDAL : ${code}`}
+      data-testid={testId}
+    >
+      <Copy className="h-3 w-3" /> Copier le code
+    </button>
+  );
+}
+
+// Small inline star toggle shared by the result tables.
+function FavoriteToggle({ vidalId, title, type, summary, testId }) {
+  const { isFavorite, add, remove } = useFavorites();
+  if (!vidalId) return null;
+  const on = isFavorite(vidalId);
+  const onClick = async (e) => {
+    e.stopPropagation();
+    if (on) await remove(vidalId);
+    else await add({ vidal_id: String(vidalId), title: title || "", type: type || "", summary: summary || "" });
+  };
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`text-[10px] px-1.5 py-0.5 rounded ring-1 inline-flex items-center gap-1 transition-colors ${on ? "bg-amber-100 ring-amber-300 text-amber-700 hover:bg-amber-200" : "bg-slate-100 ring-slate-200 text-slate-500 hover:bg-amber-50 hover:text-amber-600"}`}
+      title={on ? "Retirer des favoris" : "Ajouter aux favoris"}
+      data-testid={testId}
+    >
+      <Star className={`h-3 w-3 ${on ? "fill-current" : ""}`} />
+      {on ? "Favori" : "★ Favori"}
+    </button>
+  );
+}
 
 // Iter43-fix24p (2026-06) — Rendu enrichi des réponses VIDAL non-JSON
 // VIDAL peut renvoyer du HTML (portail API explorer si endpoint invalide ou auth manquée)
@@ -483,6 +609,7 @@ function AtomFeedViewer({ entries, raw, requestMeta }) {
                   <th className="text-left px-2 py-1.5">ID VIDAL</th>
                   <th className="text-left px-2 py-1.5">Type</th>
                   <th className="text-left px-2 py-1.5">Résumé</th>
+                  <th className="text-right px-2 py-1.5">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -507,6 +634,18 @@ function AtomFeedViewer({ entries, raw, requestMeta }) {
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">{info.category || "—"}</span>
                       </td>
                       <td className="px-2 py-1.5 text-slate-600 max-w-[400px] truncate" title={info.summary}>{info.summary || "—"}</td>
+                      <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                        <div className="inline-flex gap-1 justify-end">
+                          <CopyCodeButton code={numericId || rawId} testId={`vidal-atom-copy-${i}`} />
+                          <FavoriteToggle
+                            vidalId={numericId || rawId}
+                            title={e.title || ""}
+                            type={info.category || ""}
+                            summary={info.summary || ""}
+                            testId={`vidal-atom-fav-${i}`}
+                          />
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
@@ -652,7 +791,7 @@ function ResultTable({ data, onPick }) {
           <th className="text-left px-2 py-1.5">Nom</th>
           <th className="text-left px-2 py-1.5">ID VIDAL</th>
           <th className="text-left px-2 py-1.5">Type</th>
-          <th></th>
+          <th className="text-right px-2 py-1.5">Actions</th>
         </tr>
       </thead>
       <tbody>
@@ -666,6 +805,7 @@ function ResultTable({ data, onPick }) {
             : (/^\d+$/.test(String(id || "")) ? id : "");
           const title = e?.title || e?.name || e?.label || "(sans nom)";
           const type = e?.type || e?.objectType || "-";
+          const codeForCopy = numericId || (id || "");
           return (
             <tr key={i} className="border-t border-slate-100 hover:bg-fuchsia-50">
               <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-row-${i}-name`}>
@@ -678,17 +818,27 @@ function ResultTable({ data, onPick }) {
               </td>
               <td className="px-2 py-1.5 font-mono text-slate-500">{numericId || id || "?"}</td>
               <td className="px-2 py-1.5 text-slate-500">{type}</td>
-              <td className="px-2 py-1.5 text-right">
-                {id && (
-                  <button
-                    type="button"
-                    onClick={() => onPick(parseInt(id) || id)}
-                    className="text-fuchsia-600 hover:text-fuchsia-700 text-[10px] underline"
-                    data-testid={`vidal-pick-${i}`}
-                  >
-                    Voir la fiche →
-                  </button>
-                )}
+              <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                <div className="inline-flex gap-1 justify-end items-center flex-wrap">
+                  <CopyCodeButton code={codeForCopy} testId={`vidal-row-copy-${i}`} />
+                  <FavoriteToggle
+                    vidalId={codeForCopy}
+                    title={title}
+                    type={type}
+                    summary={e?.summary || e?.description || ""}
+                    testId={`vidal-row-fav-${i}`}
+                  />
+                  {id && (
+                    <button
+                      type="button"
+                      onClick={() => onPick(parseInt(id) || id)}
+                      className="text-fuchsia-600 hover:text-fuchsia-700 text-[10px] underline"
+                      data-testid={`vidal-pick-${i}`}
+                    >
+                      Voir la fiche →
+                    </button>
+                  )}
+                </div>
               </td>
             </tr>
           );
@@ -1187,6 +1337,113 @@ function AnalyzeTab() {
 }
 
 export default function Vidal() {
+  return (
+    <FavoritesProvider>
+      <VidalInner />
+    </FavoritesProvider>
+  );
+}
+
+function FavoritesTab({ onPick }) {
+  const { items, loading, remove, refresh } = useFavorites();
+
+  if (loading) {
+    return (
+      <p className="text-sm text-slate-500 italic inline-flex items-center gap-2" data-testid="vidal-favorites-loading">
+        <Loader2 className="h-4 w-4 animate-spin" /> Chargement des favoris…
+      </p>
+    );
+  }
+
+  if (!items.length) {
+    return (
+      <div className="text-sm text-slate-600 italic p-4 bg-amber-50 rounded ring-1 ring-amber-200" data-testid="vidal-favorites-empty">
+        <p className="font-semibold text-amber-800 mb-1">⭐ Aucun favori pour l&apos;instant</p>
+        <p className="text-xs text-amber-700">
+          Cliquez sur l&apos;étoile <Star className="inline h-3 w-3 mb-0.5" /> à côté d&apos;un produit dans <strong>Recherche</strong>, <strong>Catalogue</strong> ou <strong>Actions</strong> pour le retrouver ici.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-2" data-testid="vidal-favorites-tab">
+      <div className="flex items-center justify-between gap-2 px-1">
+        <p className="text-[11px] text-slate-500">
+          {items.length} produit{items.length > 1 ? "s" : ""} VIDAL favori{items.length > 1 ? "s" : ""}
+        </p>
+        <button
+          type="button"
+          onClick={refresh}
+          className="text-[11px] px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 ring-1 ring-slate-300 inline-flex items-center gap-1"
+          data-testid="vidal-favorites-refresh"
+        >
+          <Loader2 className="h-3 w-3" /> Rafraîchir
+        </button>
+      </div>
+      <div className="overflow-x-auto rounded ring-1 ring-slate-200">
+        <table className="w-full text-xs">
+          <thead className="bg-amber-50/60 text-slate-600">
+            <tr>
+              <th className="text-left px-2 py-1.5">Titre</th>
+              <th className="text-left px-2 py-1.5">ID VIDAL</th>
+              <th className="text-left px-2 py-1.5">Type</th>
+              <th className="text-left px-2 py-1.5">Ajouté le</th>
+              <th className="text-right px-2 py-1.5">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((f, i) => {
+              const numericId = /^\d+$/.test(String(f.vidal_id || "")) ? f.vidal_id : "";
+              return (
+                <tr key={f.vidal_id || i} className="border-t border-slate-100 hover:bg-amber-50/40">
+                  <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-fav-row-${i}-title`}>
+                    {f.title || "(sans nom)"}
+                  </td>
+                  <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500" data-testid={`vidal-fav-row-${i}-id`}>
+                    {f.vidal_id || "?"}
+                  </td>
+                  <td className="px-2 py-1.5 text-slate-500">
+                    <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">{f.type || "—"}</span>
+                  </td>
+                  <td className="px-2 py-1.5 text-[10px] text-slate-400" title={f.created_at}>
+                    {f.created_at ? new Date(f.created_at).toLocaleDateString("fr-FR") : "—"}
+                  </td>
+                  <td className="px-2 py-1.5 text-right whitespace-nowrap">
+                    <div className="inline-flex gap-1 justify-end items-center">
+                      <CopyCodeButton code={f.vidal_id} testId={`vidal-fav-copy-${i}`} />
+                      {numericId && (
+                        <button
+                          type="button"
+                          onClick={() => onPick(parseInt(numericId))}
+                          className="text-[10px] px-1.5 py-0.5 rounded bg-fuchsia-100 hover:bg-fuchsia-200 text-fuchsia-700 ring-1 ring-fuchsia-200 inline-flex items-center gap-1"
+                          data-testid={`vidal-fav-open-${i}`}
+                        >
+                          📄 Fiche
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => remove(f.vidal_id)}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-700 ring-1 ring-rose-200 inline-flex items-center gap-1"
+                        title="Retirer des favoris"
+                        data-testid={`vidal-fav-remove-${i}`}
+                      >
+                        <Trash2 className="h-3 w-3" /> Retirer
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+function VidalInner() {
   const [tab, setTab] = useState("actions");
   const [pickedId, setPickedId] = useState(null);
   const [quota, setQuota] = useState(null);
@@ -1230,6 +1487,7 @@ export default function Vidal() {
         {tab === "actions" && <ActionsTab />}
         {tab === "search" && <SearchTab onPick={setPickedId} />}
         {tab === "catalog" && <CatalogTab onPick={setPickedId} />}
+        {tab === "favorites" && <FavoritesTab onPick={setPickedId} />}
         {tab === "analyze" && <AnalyzeTab />}
       </div>
 

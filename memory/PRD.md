@@ -8,6 +8,100 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. Chaque délégué ne verrait que ses propres officines. Permet une organisation multi-régions. _[suggéré 2026-06-16, en attente]_
 
 
+## Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth + Posts API) ✅
+
+**Demande** : « Pour LinkedIn implémente c et d » — c = poster vers LinkedIn, d = lire les posts. Option `c)` choisie : profil personnel + page entreprise (les deux).
+
+**Credentials utilisateur** (stockés dans MongoDB `settings.global`, masqués via `GET_MASK_FIELDS`) :
+- LinkedIn App ID : `77rg7lu8v2hd3w`
+- LinkedIn App Secret : `WPL_AP1.oRLaioMBYPnRljoz.wy2mdg==`
+
+**Backend (`/app/backend/routes/linkedin.py` — nouveau fichier, ~520 lignes)** :
+- `GET /api/admin/linkedin/config` — config actuelle (secret masqué `********`)
+- `PUT /api/admin/linkedin/config` — set Client ID, Client Secret, redirect_uri, toggles enable_member/enable_organization
+- `GET /api/admin/linkedin/oauth/authorize` — génère l'URL d'autorisation LinkedIn avec state persisté en DB (`db.linkedin_oauth_states`), redirect_uri auto-calculé depuis X-Forwarded-Host
+- `GET /api/linkedin/oauth/callback` — handler public LinkedIn → valide state → échange code contre tokens (access + refresh) → fetch `/v2/userinfo` (sub, name, email, picture) → liste les organisations admin via `/rest/organizationAcls` + `/rest/organizations/{id}` → persiste tout dans `settings.global` → renvoie une page HTML auto-close pour la pop-up
+- `GET /api/linkedin/status` — état de connexion (any authenticated user)
+- `DELETE /api/admin/linkedin/connection` — déconnexion (`$unset` tokens + orgs)
+- `POST /api/linkedin/posts` — création de post (text + optional image_url + author_type=member|organization + organization_urn?) — auth roles `admin`/`marketing`/`communication` — upload image via `/rest/images?action=initializeUpload` puis PUT bytes au `uploadUrl` retourné — création via `POST /rest/posts` avec headers `LinkedIn-Version: 202507` + `X-RestLi-Protocol-Version: 2.0.0` — audit dans `db.linkedin_posts_audit`
+- `GET /api/linkedin/posts` — liste les posts récents d'un author_urn (member ou org) via `/rest/posts?q=author&author=...` — surface gracieusement les 403 (scopes restreints `r_member_social` fermé, `r_organization_social` nécessite Community Mgmt approval)
+- Refresh automatique du token quand `expires_at - now < 5 minutes` (helper `_ensure_token_valid`)
+- Cleanup automatique des states OAuth > 1h
+
+**Secrets masqués (ajoutés à `GET_MASK_FIELDS` dans `routes/admin_settings.py`)** :
+- `linkedin_client_secret`
+- `linkedin_access_token`
+- `linkedin_refresh_token`
+
+**Frontend (`/app/frontend/src/pages/admin/sections/LinkedInSection.jsx` — nouveau, ~460 lignes)** :
+- Section dans `AdminSettings.jsx` (anchorId `s-linkedin`) avec 4 blocs :
+  1. **Application** : inputs Client ID + Client Secret (avec toggle 👁/🙈) + Redirect URI (avec bouton « Copier ») + checkbox member/organization
+  2. **Connexion OAuth** : si non connecté → bouton « Connecter LinkedIn » qui ouvre une pop-up sur l'URL d'autorisation ; sinon → tableau d'infos (member_name, member_urn, connected_by, token_expires_at, refresh_expires_at, scopes obtenus, organizations administrées) + boutons Reconnecter / Déconnecter
+  3. **Composer post** : radio member/organization + sélecteur d'org + textarea texte (3000 chars max) + URL image facultative + bouton « Publier » + display du `post_urn` retourné
+  4. **Posts récents** : liste cliquable des dernières publications avec affichage gracieux des erreurs read scope
+- Pop-up OAuth communique avec la fenêtre parent via `window.postMessage({type: 'linkedin-oauth-result', success, message})` pour refresh auto du status sans recharger la page
+
+**Redirect URIs à autoriser dans LinkedIn App → Auth** :
+- PROD : `https://sawalismartsystems.com/api/linkedin/oauth/callback`
+- PREVIEW : `https://sawali-portal.preview.emergentagent.com/api/linkedin/oauth/callback`
+
+**Scopes demandés** :
+- `openid profile email` (OpenID Connect — toujours)
+- `w_member_social r_member_social` (si `enable_member=true`)
+- `w_organization_social r_organization_social` (si `enable_organization=true`)
+
+**Tests** (`/app/backend/tests/test_iter43_fix24au_linkedin.py`) — **8 pytest** :
+- Config GET/PUT + masking secret
+- Authorize requires credentials
+- Authorize returns valid LinkedIn URL avec state + scope + redirect_uri
+- Status disconnected when no token
+- Posts requires connected token
+- Callback rejects missing params
+- Callback rejects invalid state
+- All admin endpoints require auth (401/403)
+
+**Action utilisateur attendue** :
+1. Aller dans Admin → Settings → « 💼 LinkedIn »
+2. Vérifier que Client ID est rempli (`77rg7lu8v2hd3w`) — il l'est déjà
+3. Dans https://www.linkedin.com/developers/apps : ajouter les 2 redirect URIs ci-dessus à « Authorized redirect URLs »
+4. Activer les produits LinkedIn nécessaires (Sign In with LinkedIn using OpenID Connect, Share on LinkedIn, optionnellement Community Management API pour les pages entreprise)
+5. Cliquer « Connecter LinkedIn » dans Admin Settings → autoriser → la pop-up se ferme automatiquement
+6. Le composer apparaît : tester un post texte simple en profil personnel
+7. Pour poster en tant que page entreprise SAWALI, attendre l'approbation LinkedIn Community Management API
+
+
+
+## Iter43-fix24at (2026-02-26) — Favoris VIDAL par utilisateur ✅
+
+**Demande** : « Bouton 📋 Copier le code sur chaque ligne VIDAL + liste Favoris ».
+
+**Backend (`/app/backend/routes/vidal_favorites.py` — nouveau)** :
+- `GET /api/vidal/favorites` — liste les favoris de l'utilisateur connecté (les plus récents d'abord, max 500)
+- `POST /api/vidal/favorites` — ajoute un favori `{vidal_id, title?, type?, summary?}` (idempotent : upsert sur `(user_id, vidal_id)`)
+- `DELETE /api/vidal/favorites/{vidal_id}` — retire
+- Collection `vidal_favorites` avec index unique `(user_id, vidal_id)` créé au boot
+- Auth utilisateur requise sur les 3 endpoints
+
+**Frontend (`/app/frontend/src/pages/portal/Vidal.jsx`)** :
+- Nouveau composant `FavoritesProvider` (React Context) qui charge les favoris au boot et expose `add/remove/isFavorite/refresh`
+- Composant `CopyCodeButton` (📋 « Copier le code ») : copie le code VIDAL dans le clipboard avec toast
+- Composant `FavoriteToggle` (⭐ « Favori ») : étoile remplie/vide qui ajoute/retire selon l'état
+- Boutons ajoutés sur :
+  - `AtomFeedViewer` (résultats XML/Atom) — nouvelle colonne « Actions » avec data-testids `vidal-atom-copy-{i}` + `vidal-atom-fav-{i}`
+  - `ResultTable` (résultats JSON Recherche/Catalogue/Actions) — nouvelle colonne « Actions » avec `vidal-row-copy-{i}` + `vidal-row-fav-{i}`
+- Nouvel onglet **« Favoris »** (5e tab, data-testid `vidal-tab-favorites`) entre Catalogue et Analyse :
+  - État vide avec message guide (data-testid `vidal-favorites-empty`)
+  - Tableau avec colonnes Titre / ID VIDAL / Type / Ajouté le / Actions
+  - Actions par ligne : « 📋 Copier le code », « 📄 Fiche » (ouvre `ProductDetail` modal pour les IDs numériques), « 🗑 Retirer »
+  - Bouton « Rafraîchir » global
+
+**Tests** (`/app/backend/tests/test_iter43_fix24at_vidal_favorites.py`) — **3 pytest** :
+- Lifecycle complet : list initial vide → POST add → list = 1 → POST idempotent upsert (titre refreshed) → DELETE → list vide → DELETE idempotent (deleted=0)
+- Endpoints requièrent auth
+- Validation vidal_id vide rejetée (400/422)
+
+
+
 ## Iter43-fix24as (2026-02-26) — Validation TikTok pour `sawalismartsystems` ✅
 
 **Contexte** : TikTok a rejeté l'app `sawalismartsystems` car :

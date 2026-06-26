@@ -21,6 +21,13 @@ export default function Home() {
   const [testimonials, setTestimonials] = useState([]);
   const [npsStats, setNpsStats] = useState(null);
 
+  // Iter43-fix24as (2026-02) — TikTok validation : la page d'accueil DOIT
+  // afficher le nom de l'app exactement (« sawalismartsystems ») dans le
+  // titre de la fenêtre/onglet du navigateur.
+  useEffect(() => {
+    document.title = "sawalismartsystems — SAWALI SMART SYSTEMS";
+  }, []);
+
   // Iter40-content-i18n — Re-fetch content whenever the active language changes.
   useEffect(() => {
     apiClient.get("/content", { params: { lang } }).then((r) => {
@@ -64,7 +71,7 @@ export default function Home() {
             </div>
             <div className="inline-flex items-center gap-2 rounded-full border border-sawali-blue/40 bg-sawali-blue/10 px-3 py-1 text-xs uppercase tracking-[0.25em] text-sawali-blue-light">
               <Sparkles className="h-3 w-3" />
-              {home?.metadata?.kicker || t("public.home.hero.kicker", "SAWALI · Software Engineering")}
+              {home?.metadata?.kicker || t("public.home.hero.kicker", "sawalismartsystems · Software Engineering")}
             </div>
             <div className="mt-3">
               <TeamPresenceBadge tone="dark" />

@@ -11,10 +11,14 @@ import { apiClient } from "@/lib/api";
 export default function PrivacyPage() {
   const [info, setInfo] = useState(null);
   useEffect(() => {
+    // Iter43-fix24as (2026-02) — TikTok validation requirement : la page Privacy
+    // doit avoir un titre qui contient EXACTEMENT le nom de l'app (« sawalismartsystems »).
+    document.title = "sawalismartsystems Privacy Policy";
     apiClient
       .get("/company-info")
       .then((r) => setInfo(r.data))
       .catch(() => {});
+    return () => { document.title = "sawalismartsystems — SAWALI SMART SYSTEMS"; };
   }, []);
 
   const contactEmail = info?.email || "contact@sawalismartsystems.com";
@@ -33,7 +37,7 @@ export default function PrivacyPage() {
         </p>
         <h1 className="text-3xl sm:text-4xl font-display font-bold text-white flex items-center gap-3">
           <Shield className="h-8 w-8 text-sawali-blue-light" />
-          Politique de confidentialité
+          sawalismartsystems Privacy Policy
         </h1>
         <p className="mt-3 text-slate-400 text-sm">
           Dernière mise à jour : <strong className="text-slate-200">{lastUpdated}</strong>

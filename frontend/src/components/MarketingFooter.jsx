@@ -76,11 +76,16 @@ export default function MarketingFooter() {
       </div>
       <div className="border-t border-white/5 py-5 text-center text-xs text-slate-500">
         <div className="flex items-center justify-center gap-3 mb-2 flex-wrap" data-testid="footer-policy-links">
-          <a href="/privacy" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-privacy-link">{t("public.footer.policy_privacy", "Politique de Confidentialité")}</a>
+          <a href="/privacy-policy" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-privacy-link">{t("public.footer.policy_privacy", "Privacy Policy")}</a>
+          <span className="text-slate-700">·</span>
+          <a href="/terms-of-service" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-terms-link">Terms of Service</a>
           <span className="text-slate-700">·</span>
           <a href="/politiques/services" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-services">{t("public.footer.policy_services", "Politique de services")}</a>
           <span className="text-slate-700">·</span>
           <a href="/politiques/suppression" rel="noopener noreferrer" className="hover:text-white transition" data-testid="footer-policy-deletion">{t("public.footer.policy_cookies", "Politique de Cookies")}</a>
+        </div>
+        <div className="mb-1 text-slate-600" data-testid="footer-app-id">
+          App ID : <code className="text-slate-400">sawalismartsystems</code>
         </div>
         {t("public.footer.copyright", "© {year} SAWALI SMART SYSTEMS. Tous droits réservés.").replace("{year}", String(year))}
       </div>

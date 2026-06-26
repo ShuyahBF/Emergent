@@ -8,6 +8,37 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. Chaque délégué ne verrait que ses propres officines. Permet une organisation multi-régions. _[suggéré 2026-06-16, en attente]_
 
 
+## Iter43-fix24as (2026-02-26) — Validation TikTok pour `sawalismartsystems` ✅
+
+**Contexte** : TikTok a rejeté l'app `sawalismartsystems` car :
+1. Le titre du site (browser tab + homepage) ne matche pas EXACTEMENT le nom de l'app.
+2. Privacy Policy & Terms of Service doivent être des URLs séparées (pas un PDF).
+3. Les pages Privacy & Terms doivent avoir comme titre exact :
+   - `sawalismartsystems Privacy Policy`
+   - `sawalismartsystems Terms of Service`
+
+**Implémentation** :
+- **`/app/frontend/public/index.html`** : `<title>` → `sawalismartsystems — SAWALI SMART SYSTEMS Software Engineering` + meta `og:site_name="sawalismartsystems"`.
+- **`/app/frontend/src/pages/public/Home.jsx`** : `document.title = "sawalismartsystems — SAWALI SMART SYSTEMS"` + kicker fallback contient `sawalismartsystems`.
+- **`/app/frontend/src/pages/public/Privacy.jsx`** : `document.title = "sawalismartsystems Privacy Policy"` + H1 visible avec ce texte exact.
+- **`/app/frontend/src/pages/public/TermsOfService.jsx`** : *nouvelle page* (12 sections : définitions, acceptation, compte, usages interdits, IP, paiements, responsabilité, intégrations tierces, RGPD, résiliation, droit applicable, contact). `document.title = "sawalismartsystems Terms of Service"` + H1 visible.
+- **`/app/frontend/src/App.js`** : nouvelles routes `/privacy-policy` (alias de `/privacy`) + `/terms-of-service` (+ `/terms`).
+- **`/app/frontend/src/components/MarketingFooter.jsx`** : remplace footer "Politique de Confidentialité" par lien `/privacy-policy` + nouveau lien `/terms-of-service` + ligne « App ID : sawalismartsystems » visible.
+
+**Validation manuelle (PREVIEW)** :
+- `https://…/privacy-policy` → Title browser : `sawalismartsystems Privacy Policy` ✅ + H1 identique ✅
+- `https://…/terms-of-service` → Title browser : `sawalismartsystems Terms of Service` ✅ + H1 identique ✅
+- Homepage → Title browser : `sawalismartsystems — SAWALI SMART SYSTEMS Software Engineering` ✅
+- Footer : « App ID : sawalismartsystems » + liens vers `/privacy-policy` et `/terms-of-service` ✅
+
+**Action utilisateur** : Save to GitHub + redéployer en PROD, puis resoumettre l'app TikTok pour review en pointant vers :
+- URL site : `https://sawalismartsystems.com`
+- Privacy Policy : `https://sawalismartsystems.com/privacy-policy`
+- Terms of Service : `https://sawalismartsystems.com/terms-of-service`
+- Redirect domain : `sawalismartsystems.com`
+
+
+
 ## Iter43-fix24ar (2026-02-26) — Diagnostic Webhook Meta + Simulateur Pipeline ✅
 
 **Problème critique reporté** :

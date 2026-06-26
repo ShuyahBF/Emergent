@@ -16781,6 +16781,18 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue
                         except Exception:  # noqa: BLE001
                             logger.warning("[wa_admin_cockpit] hook failed", exc_info=True)
+                        # Iter43-fix24av (2026-02-26) — LinkedIn auto-post WA approval.
+                        # Intercepts OK / STOP / REGEN sent by the configured
+                        # validation phone when a pending LinkedIn draft exists.
+                        try:
+                            reply_text = await _handle_linkedin_autopost_wa_reply(
+                                db, phone=from_num, text=text_body or "",
+                            )
+                            if reply_text:
+                                await _wa_send_text(from_num, reply_text)
+                                continue
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[linkedin.autopost] WA reply hook failed", exc_info=True)
                     elif mtype in ("image", "document", "audio", "video", "sticker"):
                         # Iter35l — Try to download the binary from Meta Graph
                         # (URL expires ~5min) and persist it locally so the chat
@@ -21080,6 +21092,16 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=120,
             )
+            # Iter43-fix24av (2026-02-26) — Minute-level LinkedIn auto-post tick.
+            async def _scheduled_linkedin_autopost():
+                await _run_linkedin_autopost_tick(db)
+            _scheduler.add_job(
+                _scheduled_linkedin_autopost,
+                CronTrigger(minute="*", timezone="Africa/Abidjan"),
+                id="linkedin_autopost_minutely",
+                replace_existing=True,
+                misfire_grace_time=120,
+            )
             # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
             try:
                 _scheduler.add_job(
@@ -23839,6 +23861,14 @@ _attach_linkedin(
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
 )
+
+# Iter43-fix24av (2026-02-26) — LinkedIn weekly auto-post (Liluvine + cron)
+from routes.linkedin_autopost import (  # noqa: E402
+    attach_linkedin_autopost_routes as _attach_linkedin_autopost,
+    run_linkedin_autopost_tick as _run_linkedin_autopost_tick,
+    handle_linkedin_autopost_wa_reply as _handle_linkedin_autopost_wa_reply,
+)
+_attach_linkedin_autopost(api=api, db=db, get_current_admin=get_current_admin)
 
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402

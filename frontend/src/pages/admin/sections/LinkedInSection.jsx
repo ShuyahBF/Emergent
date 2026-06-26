@@ -6,14 +6,26 @@
 //  3. Compose a quick post (text + optional image URL) as profile OR org
 //  4. List latest posts (where the read scopes were granted)
 //  5. Disconnect
+// Iter43-fix24av (2026-02-26) — also includes:
+//  6. Weekly auto-post (Liluvine + WA approval) configuration
 // =====================================================================
 import React, { useCallback, useEffect, useState } from "react";
 import {
   Linkedin, Loader2, ExternalLink, Send, RefreshCw, Trash2, Copy, Check,
-  AlertCircle, Building2, User, Calendar
+  AlertCircle, Building2, User, Calendar, Bot, Clock, MessageCircle, Sparkles
 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
+
+const DAYS_OF_WEEK = [
+  { v: 0, label: "Lundi" },
+  { v: 1, label: "Mardi" },
+  { v: 2, label: "Mercredi" },
+  { v: 3, label: "Jeudi" },
+  { v: 4, label: "Vendredi" },
+  { v: 5, label: "Samedi" },
+  { v: 6, label: "Dimanche" },
+];
 
 const LinkedInSection = () => {
   const [config, setConfig] = useState({
@@ -55,6 +67,13 @@ const LinkedInSection = () => {
   // Connecter — fixes the « The redirect_uri does not match the registered
   // value » error)
   const [computedRedirectUri, setComputedRedirectUri] = useState("");
+
+  // Iter43-fix24av — weekly auto-post config + draft preview
+  const [autopost, setAutopost] = useState(null);
+  const [autopostLoading, setAutopostLoading] = useState(true);
+  const [savingAutopost, setSavingAutopost] = useState(false);
+  const [generatingDraft, setGeneratingDraft] = useState(false);
+  const [publishingPending, setPublishingPending] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -208,6 +227,84 @@ const LinkedInSection = () => {
   }, [config.connected, postAuthorType, postOrgUrn]);
 
   useEffect(() => { loadPosts(); }, [loadPosts]);
+
+  // Iter43-fix24av — Auto-post helpers
+  const loadAutopost = useCallback(async () => {
+    setAutopostLoading(true);
+    try {
+      const r = await apiClient.get("/admin/linkedin/autopost/config");
+      setAutopost(r.data);
+    } catch {
+      setAutopost(null);
+    } finally {
+      setAutopostLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { loadAutopost(); }, [loadAutopost]);
+
+  const saveAutopost = async (overrides = {}) => {
+    if (!autopost) return;
+    setSavingAutopost(true);
+    try {
+      const payload = {
+        enabled: autopost.enabled,
+        day_of_week: autopost.day_of_week,
+        hour: autopost.hour,
+        minute: autopost.minute,
+        topic_prompt: autopost.topic_prompt,
+        author_type: autopost.author_type,
+        organization_urn: autopost.organization_urn,
+        validation_mode: autopost.validation_mode,
+        validation_phone: autopost.validation_phone,
+        ...overrides,
+      };
+      await apiClient.put("/admin/linkedin/autopost/config", payload);
+      toast.success("Auto-post enregistré");
+      await loadAutopost();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur enregistrement auto-post");
+    } finally {
+      setSavingAutopost(false);
+    }
+  };
+
+  const generateDraft = async () => {
+    setGeneratingDraft(true);
+    try {
+      const r = await apiClient.post("/admin/linkedin/autopost/generate-draft", {}, { timeout: 90000 });
+      toast.success(`Brouillon généré (${r.data?.length || "?"} caractères)`);
+      await loadAutopost();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur génération");
+    } finally {
+      setGeneratingDraft(false);
+    }
+  };
+
+  const publishPending = async () => {
+    setPublishingPending(true);
+    try {
+      const r = await apiClient.post("/admin/linkedin/autopost/publish-pending");
+      toast.success(`Publié : ${r.data?.post_urn || "OK"}`);
+      await loadAutopost();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur publication");
+    } finally {
+      setPublishingPending(false);
+    }
+  };
+
+  const cancelPending = async () => {
+    if (!window.confirm("Annuler le brouillon en attente ?")) return;
+    try {
+      await apiClient.delete("/admin/linkedin/autopost/pending");
+      toast.success("Brouillon annulé");
+      await loadAutopost();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur annulation");
+    }
+  };
 
   const copyText = (txt) => {
     try { navigator.clipboard.writeText(txt || ""); toast.success("Copié"); } catch { toast.error("Copie impossible"); }
@@ -614,6 +711,259 @@ const LinkedInSection = () => {
                 </li>
               ))}
             </ul>
+          )}
+        </div>
+      )}
+      {/* === AUTO-POST HEBDOMADAIRE === */}
+      {config.connected && (
+        <div className="rounded-lg ring-2 ring-fuchsia-200 bg-gradient-to-br from-fuchsia-50/40 to-blue-50/40 p-4 space-y-3" data-testid="linkedin-autopost-section">
+          <div className="flex items-center justify-between flex-wrap gap-2">
+            <h3 className="text-xs uppercase tracking-wider text-fuchsia-700 font-bold inline-flex items-center gap-2">
+              <Bot className="h-4 w-4" /> 5. Auto-post hebdomadaire (Liluvine)
+              <span className="text-[10px] font-normal text-fuchsia-500 italic">— powered by Claude Sonnet 4.5</span>
+            </h3>
+            {autopost && (
+              <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autopost.enabled}
+                  onChange={(e) => {
+                    setAutopost((p) => ({ ...p, enabled: e.target.checked }));
+                    saveAutopost({ enabled: e.target.checked });
+                  }}
+                  data-testid="linkedin-autopost-enabled"
+                />
+                <span className={autopost.enabled ? "font-semibold text-emerald-700" : "text-slate-500"}>
+                  {autopost.enabled ? "✓ Activé" : "○ Désactivé"}
+                </span>
+              </label>
+            )}
+          </div>
+
+          {autopostLoading ? (
+            <p className="text-xs text-slate-500 italic inline-flex items-center gap-1">
+              <Loader2 className="h-3 w-3 animate-spin" /> Chargement…
+            </p>
+          ) : !autopost ? (
+            <p className="text-xs text-amber-700">Erreur de chargement. Rechargez la page.</p>
+          ) : (
+            <>
+              <p className="text-[11px] text-slate-600 leading-relaxed">
+                Chaque semaine au jour & heure choisis, <strong>Liluvine génère un post LinkedIn</strong> à partir de votre prompt
+                et de l&apos;activité SAWALI récente. Vous le validez par WhatsApp avant publication.
+              </p>
+
+              {/* Schedule */}
+              <div className="grid sm:grid-cols-4 gap-2 items-end">
+                <label className="block">
+                  <span className="block text-[10px] text-slate-600 mb-0.5 inline-flex items-center gap-1">
+                    <Calendar className="h-3 w-3" /> Jour
+                  </span>
+                  <select
+                    value={autopost.day_of_week}
+                    onChange={(e) => setAutopost((p) => ({ ...p, day_of_week: parseInt(e.target.value) }))}
+                    className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                    data-testid="linkedin-autopost-day"
+                  >
+                    {DAYS_OF_WEEK.map((d) => <option key={d.v} value={d.v}>{d.label}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-[10px] text-slate-600 mb-0.5 inline-flex items-center gap-1">
+                    <Clock className="h-3 w-3" /> Heure
+                  </span>
+                  <select
+                    value={autopost.hour}
+                    onChange={(e) => setAutopost((p) => ({ ...p, hour: parseInt(e.target.value) }))}
+                    className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                    data-testid="linkedin-autopost-hour"
+                  >
+                    {Array.from({ length: 24 }, (_, i) => <option key={i} value={i}>{String(i).padStart(2, "0")}h</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-[10px] text-slate-600 mb-0.5">Minute</span>
+                  <select
+                    value={autopost.minute}
+                    onChange={(e) => setAutopost((p) => ({ ...p, minute: parseInt(e.target.value) }))}
+                    className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                    data-testid="linkedin-autopost-minute"
+                  >
+                    {[0, 5, 10, 15, 20, 25, 30, 35, 40, 45, 50, 55].map((m) => <option key={m} value={m}>{String(m).padStart(2, "0")}</option>)}
+                  </select>
+                </label>
+                <label className="block">
+                  <span className="block text-[10px] text-slate-600 mb-0.5">Mode validation</span>
+                  <select
+                    value={autopost.validation_mode}
+                    onChange={(e) => setAutopost((p) => ({ ...p, validation_mode: e.target.value }))}
+                    className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                    data-testid="linkedin-autopost-validation-mode"
+                  >
+                    <option value="wa_approval">📲 Approbation WhatsApp</option>
+                    <option value="auto">🤖 Publication automatique</option>
+                  </select>
+                </label>
+              </div>
+
+              {/* Author + phone */}
+              <div className="grid sm:grid-cols-2 gap-2">
+                <label className="block">
+                  <span className="block text-[10px] text-slate-600 mb-0.5">Auteur du post</span>
+                  <select
+                    value={autopost.author_type}
+                    onChange={(e) => setAutopost((p) => ({ ...p, author_type: e.target.value }))}
+                    className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                    data-testid="linkedin-autopost-author-type"
+                  >
+                    <option value="member">👤 Profil personnel</option>
+                    {(config.organizations || []).length > 0 && <option value="organization">🏢 Page entreprise</option>}
+                  </select>
+                </label>
+                {autopost.validation_mode === "wa_approval" && (
+                  <label className="block">
+                    <span className="block text-[10px] text-slate-600 mb-0.5 inline-flex items-center gap-1">
+                      <MessageCircle className="h-3 w-3" /> Téléphone WhatsApp validation (E.164)
+                    </span>
+                    <input
+                      type="text"
+                      value={autopost.validation_phone || ""}
+                      onChange={(e) => setAutopost((p) => ({ ...p, validation_phone: e.target.value }))}
+                      placeholder="+22670112233"
+                      className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+                      data-testid="linkedin-autopost-phone"
+                    />
+                  </label>
+                )}
+                {autopost.author_type === "organization" && (config.organizations || []).length > 0 && (
+                  <label className="block sm:col-span-2">
+                    <span className="block text-[10px] text-slate-600 mb-0.5">Page entreprise cible</span>
+                    <select
+                      value={autopost.organization_urn || ""}
+                      onChange={(e) => setAutopost((p) => ({ ...p, organization_urn: e.target.value }))}
+                      className="w-full text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
+                      data-testid="linkedin-autopost-org"
+                    >
+                      <option value="">— Sélectionner —</option>
+                      {config.organizations.map((o) => <option key={o.urn} value={o.urn}>{o.name || o.urn}</option>)}
+                    </select>
+                  </label>
+                )}
+              </div>
+
+              {/* Prompt */}
+              <label className="block">
+                <span className="block text-[10px] text-slate-600 mb-0.5 inline-flex items-center gap-1">
+                  <Sparkles className="h-3 w-3" /> Prompt Liluvine (sera utilisé chaque semaine)
+                </span>
+                <textarea
+                  rows={5}
+                  value={autopost.topic_prompt}
+                  onChange={(e) => setAutopost((p) => ({ ...p, topic_prompt: e.target.value }))}
+                  className="w-full text-[11px] px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+                  data-testid="linkedin-autopost-prompt"
+                />
+              </label>
+
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => saveAutopost()}
+                  disabled={savingAutopost}
+                  className="text-xs px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-900 text-white inline-flex items-center gap-1 disabled:opacity-50"
+                  data-testid="linkedin-autopost-save"
+                >
+                  {savingAutopost ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Enregistrer
+                </button>
+                <button
+                  type="button"
+                  onClick={generateDraft}
+                  disabled={generatingDraft}
+                  className="text-xs px-3 py-1.5 rounded bg-fuchsia-600 hover:bg-fuchsia-700 text-white inline-flex items-center gap-1 disabled:opacity-50"
+                  data-testid="linkedin-autopost-generate"
+                >
+                  {generatingDraft ? <Loader2 className="h-3 w-3 animate-spin" /> : <Sparkles className="h-3 w-3" />} Générer un brouillon maintenant
+                </button>
+              </div>
+
+              {/* Pending draft preview */}
+              {autopost.pending_draft && (
+                <div className="rounded-lg ring-1 ring-emerald-300 bg-emerald-50/50 p-3 space-y-2" data-testid="linkedin-autopost-pending">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs font-semibold text-emerald-800 inline-flex items-center gap-1">
+                      ✨ Brouillon en attente
+                      <span className="text-[10px] text-emerald-600 font-normal">
+                        (généré {autopost.pending_draft.created_at ? new Date(autopost.pending_draft.created_at).toLocaleString("fr-FR") : ""})
+                      </span>
+                    </p>
+                    {autopost.pending_draft.sent_to_wa_at && (
+                      <span className="text-[10px] text-emerald-700 inline-flex items-center gap-1">
+                        📲 Envoyé sur WhatsApp
+                      </span>
+                    )}
+                  </div>
+                  <div className="text-[11px] bg-white p-2 rounded ring-1 ring-emerald-200 whitespace-pre-wrap max-h-48 overflow-y-auto" data-testid="linkedin-autopost-pending-text">
+                    {autopost.pending_draft.text}
+                  </div>
+                  <p className="text-[10px] text-slate-500">
+                    {autopost.pending_draft.text.length} caractères
+                  </p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={publishPending}
+                      disabled={publishingPending}
+                      className="text-xs px-3 py-1.5 rounded bg-[#0a66c2] hover:bg-[#084d92] text-white inline-flex items-center gap-1 disabled:opacity-50"
+                      data-testid="linkedin-autopost-publish-pending"
+                    >
+                      {publishingPending ? <Loader2 className="h-3 w-3 animate-spin" /> : <Send className="h-3 w-3" />} Publier maintenant
+                    </button>
+                    <button
+                      type="button"
+                      onClick={generateDraft}
+                      disabled={generatingDraft}
+                      className="text-xs px-3 py-1.5 rounded bg-fuchsia-100 hover:bg-fuchsia-200 text-fuchsia-700 ring-1 ring-fuchsia-300 inline-flex items-center gap-1 disabled:opacity-50"
+                      data-testid="linkedin-autopost-regen"
+                    >
+                      <RefreshCw className="h-3 w-3" /> Régénérer
+                    </button>
+                    <button
+                      type="button"
+                      onClick={cancelPending}
+                      className="text-xs px-3 py-1.5 rounded bg-rose-100 hover:bg-rose-200 text-rose-700 ring-1 ring-rose-200 inline-flex items-center gap-1"
+                      data-testid="linkedin-autopost-cancel"
+                    >
+                      <Trash2 className="h-3 w-3" /> Annuler
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* History */}
+              {(autopost.history || []).length > 0 && (
+                <details className="text-xs" data-testid="linkedin-autopost-history">
+                  <summary className="cursor-pointer text-slate-600 hover:text-slate-800">
+                    📜 Historique ({autopost.history.length} post{autopost.history.length > 1 ? "s" : ""})
+                  </summary>
+                  <ul className="mt-2 space-y-1">
+                    {autopost.history.slice().reverse().map((h, i) => (
+                      <li key={i} className="bg-white rounded ring-1 ring-slate-200 p-2">
+                        <p className="text-[10px] text-slate-400">
+                          {h.date ? new Date(h.date).toLocaleString("fr-FR") : "—"} • {h.author_type} • {h.author_urn}
+                        </p>
+                        <p className="font-mono text-[10px] text-slate-500 break-all">{h.post_urn}</p>
+                        <p className="text-[11px] mt-1 text-slate-700">{h.text_preview}…</p>
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              )}
+
+              <p className="text-[10px] text-slate-500 italic border-t border-slate-200 pt-2">
+                💡 Mode <code>wa_approval</code> : Liluvine envoie le brouillon sur le téléphone WhatsApp configuré.
+                Répondez par <strong>OK</strong> pour publier, <strong>STOP</strong> pour annuler, ou <strong>REGEN</strong> pour générer un autre texte.
+              </p>
+            </>
           )}
         </div>
       )}

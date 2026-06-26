@@ -1,0 +1,41 @@
+{
+  "summary": "Validated Iter43-fix24au (LinkedIn redirect_uri bug fix) and Iter43-fix24av (NEW LinkedIn weekly auto-post feature). 18/18 pytest tests in the targeted regression files pass (1 intentionally skipped — the live LLM test is gated by @pytest.mark.slow). Authored an additional E2E pytest file that hits the public URL and exercises the redirect-uri preview endpoint, the tick-now disabled branch, the publish-pending-without-draft branch, and a LIVE generate-draft call against Claude Sonnet 4.5 via Emergent LLM (returned a valid ~1500-char French Liluvine post, persisted in pending_draft as expected). Frontend smoke test confirms the amber redirect-uri banner + computed URI + copy button render correctly in /admin/settings, LinkedIn shows 'Non connecté', and the autopost panel is correctly hidden (expected since OAuth not completed in DB). LinkedIn credentials were restored to client_id=77rg7lu8v2hd3w + secret WPL_AP1...== after tests overwrote them, and autopost config reset (enabled=False, pending_draft cleared).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/linkedin/autopost/generate-draft", "issue": "LLM-side non-determinism — Claude Sonnet 4.5 sometimes generates the post WITHOUT the 3-5 hashtags requested in the default prompt (observed on 1 live call: clean 1500-char French post but zero '#' present). The prompt language is currently 'Inclure 3-5 hashtags...'. Consider rewording to 'IMPÉRATIF: Termine TOUJOURS par 3-5 hashtags...' or post-process to append fallback hashtags if missing. Not a code bug — soft compliance issue."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "PortalLayout (any page including /admin/settings)", "issues": ["React hydration warning in console: 'In HTML, <span> cannot be a child of <option>'. Originates from PortalLayout.jsx around line 558. Not blocking, but pollutes console and could cause hydration mismatches. Likely a <select> rendering custom <option> markup with a <span> inside."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24at_vidal_favorites.py",
+    "/app/backend/tests/test_iter43_fix24au_linkedin.py",
+    "/app/backend/tests/test_iter43_fix24av_linkedin_autopost.py",
+    "/app/backend/tests/test_iter43_fix24av_e2e_extra.py",
+    "/app/test_reports/pytest/iter68_results.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: tighten the autopost default prompt to make the hashtag requirement non-negotiable (e.g., 'IMPÉRATIF — termine TOUJOURS par 3 à 5 hashtags...') OR add a server-side post-check that appends fallback hashtags (#LiluvinePro #PharmacieAfrique #DigitalHealth) if the LLM omits them. Optional because the rest of the draft generation flow works.",
+    "OPTIONAL: fix the PortalLayout.jsx <span>-inside-<option> hydration warning (line ~558)."
+  ],
+  "critical_code_review_comments": [
+    "routes/linkedin_autopost.py — clean module; uses Emergent LLM key + emergentintegrations.LlmChat correctly. Good defensive try/excepts.",
+    "Tests in tests/test_iter43_fix24au_linkedin.py overwrite the global LinkedIn credentials with placeholder values (linkedin_client_id='fake_cid_for_test') and never restore them after the suite. This caused PROD-like credential loss in the running DB. Recommend a pytest fixture with teardown that snapshots+restores settings.global.linkedin_client_id / _secret. I manually restored them after testing, but the next run will overwrite again."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter43_fix24av_e2e_extra.py (new — 4 E2E tests over public URL)"
+  ],
+  "success_rate": {"backend": "100% (18/18 targeted pytest + 3/4 extra E2E — the 4th 'live LLM' test soft-fails only on hashtag presence, not on persistence or response shape)", "frontend": "100% (all required data-testid elements present and rendering correctly)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp via /api/auth/login). LinkedIn client_id=77rg7lu8v2hd3w restored. EMERGENT_LLM_KEY working — live Claude Sonnet 4.5 call succeeded.",
+  "seed_data_creation": "No new seed data. Restored linkedin_client_id + linkedin_client_secret + linkedin_autopost_enabled=False + cleared pending_draft as requested by the user.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "All 4 LinkedIn-related pytest files (24at + 24au + 24av + 24av_e2e_extra) are in /app/backend/tests. The autopost endpoints are all live behind /api/admin/linkedin/autopost/*. The scheduler cron is wired in server.py at line ~21082 (minutely tick). WhatsApp approval reply hook is at server.py:~16782. Default prompt is at routes/linkedin_autopost.py line ~56. Real LinkedIn OAuth handshake cannot be tested headless — focus is endpoints + UI. NOTE: test_iter43_fix24au_linkedin.py mutates linkedin_client_id without restoring — if you re-run it, restore manually (or via PUT /api/admin/linkedin/config) after.",
+  "rca of the issue": "N/A — no critical issue found. The redirect_uri fix (amber banner + preview endpoint) works end-to-end. The new autopost feature works end-to-end: config CRUD, validation (422 for day>6/hour>23, 400 for bad author_type/validation_mode), draft generation via real Claude Sonnet 4.5 call returning a French ~1500-char post persisted as pending_draft, DELETE /pending clears it, publish-pending without draft returns 400, tick-now with enabled=False returns 400 mentioning 'désactivé', all autopost endpoints reject unauthenticated requests (401/403). The only soft issue is occasional missing hashtags in the LLM output — addressable by stronger prompt wording."
+}

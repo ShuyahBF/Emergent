@@ -54,22 +54,54 @@ function _parseAtomEntries(xmlText) {
         const el = node.querySelector(tag);
         return el ? (el.textContent || "").trim() : "";
       };
-      // Iter43-fix24am (2026-06-17) — Le vrai code produit VIDAL est dans
-      // l'élément namespacé `<vidal:id>5485</vidal:id>`, pas dans le
-      // `<id>` Atom (qui contient typiquement un URN long type
-      // `vidal://product/5485`). On lit donc `vidal:id` explicitement via
-      // `getElementsByTagName` (qui préserve les préfixes XML namespacés).
+      // Iter43-fix24am+24aq (2026-06-17) — Extract VIDAL product code robustly.
+      // Strategy stack (first hit wins) :
+      //   1) `<vidal:id>NNNN</vidal:id>` via getElementsByTagName (handles
+      //       XML where the prefix is preserved on the qualified name).
+      //   2) Any *direct child* whose `localName === "id"` AND content is digits.
+      //       Handles both prefixed namespaces and default-namespaced cases.
+      //   3) `<id>` URN form `vidal://product/5485` → extract trailing digits.
+      //   4) Regex fallback on the raw outerHTML for `<*:id>NNNN</*:id>`
+      //       (catches edge cases where the DOM normalization drops prefixes).
+      let vidalId = "";
+      // 1) Prefixed tagname
       const vidalIdNode = node.getElementsByTagName("vidal:id")[0];
-      const vidalId = vidalIdNode ? (vidalIdNode.textContent || "").trim() : "";
-      // Fallback : extraire `5485` depuis un URN type `vidal://product/5485`
-      // ou similaire, pour les entrées sans `<vidal:id>`.
+      if (vidalIdNode) {
+        const t = (vidalIdNode.textContent || "").trim();
+        if (t) vidalId = t;
+      }
+      // 2) Scan direct children for localName "id" + digit content
+      if (!vidalId) {
+        for (const child of Array.from(node.children || [])) {
+          if ((child.localName || child.nodeName || "").toLowerCase() === "id") {
+            const tt = (child.textContent || "").trim();
+            if (/^\d+$/.test(tt)) {
+              vidalId = tt;
+              break;
+            }
+          }
+        }
+      }
+      // 3) Atom `<id>` URN fallback
       const atomId = get("id");
-      const idFromUrn = atomId.match(/(\d+)\s*$/);
-      const id = vidalId || (idFromUrn ? idFromUrn[1] : atomId);
+      if (!vidalId && atomId) {
+        const m = atomId.match(/(\d+)\s*$/);
+        if (m) vidalId = m[1];
+      }
+      // 4) Regex on raw outerHTML for `<*:id>NNNN</*:id>` (last resort)
+      if (!vidalId) {
+        try {
+          const html = node.outerHTML || "";
+          const m = html.match(/<[a-z][a-z0-9]*:id>\s*(\d+)\s*<\/[a-z][a-z0-9]*:id>/i);
+          if (m) vidalId = m[1];
+        } catch { /* noop */ }
+      }
+      // Final fallback: use atomId as-is (last resort, may be a URN string)
+      const id = vidalId || atomId;
       return {
         title: get("title") || get("name") || "(sans nom)",
         id,
-        vidal_id: vidalId || id,  // separate field for callers that strictly want vidal:id
+        vidal_id: vidalId,  // ONLY populated when we found a real numeric code
         type: get("type") || get("objectType") || "-",
         summary: get("summary") || get("description") || "",
         updated: get("updated") || "",
@@ -456,21 +488,21 @@ function AtomFeedViewer({ entries, raw, requestMeta }) {
               <tbody>
                 {filtered.slice(0, 200).map((e, i) => {
                   const info = _entryDisplayInfo(e);
-                  // Iter43-fix24am (2026-06-17) — `vidal_id` (depuis `<vidal:id>`)
-                  // est le vrai code produit ; on l'affiche entre parenthèses
-                  // à droite du titre.
-                  const code = e.vidal_id || e.id || "";
+                  // Iter43-fix24am+24aq (2026-06-17) — Affiche le code entre
+                  // parens UNIQUEMENT s'il s'agit d'un nombre (vrai vidal:id).
+                  const rawId = e.vidal_id || e.id || "";
+                  const numericId = /^\d+$/.test(String(rawId)) ? rawId : "";
                   return (
                     <tr key={i} className="border-t border-slate-100 hover:bg-emerald-50/40 transition-colors">
                       <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-atom-row-${i}-title`}>
                         {e.title || "—"}
-                        {code && (
+                        {numericId && (
                           <span className="ml-1 font-mono text-slate-500 font-normal" data-testid={`vidal-atom-row-${i}-id-paren`}>
-                            ({code})
+                            ({numericId})
                           </span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{code || "?"}</td>
+                      <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{numericId || rawId || "?"}</td>
                       <td className="px-2 py-1.5 text-slate-500">
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">{info.category || "—"}</span>
                       </td>
@@ -625,23 +657,26 @@ function ResultTable({ data, onPick }) {
       </thead>
       <tbody>
         {entries.map((e, i) => {
-          // Iter43-fix24am (2026-06-17) — Priorise `vidal_id` (vidal:id namespacé)
-          // sur les autres clés. Affiche le code entre parenthèses à droite du nom :
-          // « DOLIPRANE 100 mg pdre p sol buv en sachet-dose (5485) ».
+          // Iter43-fix24am+24aq (2026-06-17) — Affiche le code entre parens
+          // UNIQUEMENT si `vidal_id` est numérique (vrai code produit).
+          // Évite d'afficher des URN longs ou le titre.
           const id = e?.vidal_id || e?.id || e?.product_id || e?.idVidal;
+          const numericId = /^\d+$/.test(String(e?.vidal_id || ""))
+            ? e.vidal_id
+            : (/^\d+$/.test(String(id || "")) ? id : "");
           const title = e?.title || e?.name || e?.label || "(sans nom)";
           const type = e?.type || e?.objectType || "-";
           return (
             <tr key={i} className="border-t border-slate-100 hover:bg-fuchsia-50">
               <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-row-${i}-name`}>
                 {title}
-                {id && (
+                {numericId && (
                   <span className="ml-1 font-mono text-slate-500 font-normal" data-testid={`vidal-row-${i}-id-paren`}>
-                    ({id})
+                    ({numericId})
                   </span>
                 )}
               </td>
-              <td className="px-2 py-1.5 font-mono text-slate-500">{id || "?"}</td>
+              <td className="px-2 py-1.5 font-mono text-slate-500">{numericId || id || "?"}</td>
               <td className="px-2 py-1.5 text-slate-500">{type}</td>
               <td className="px-2 py-1.5 text-right">
                 {id && (

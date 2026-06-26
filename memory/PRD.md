@@ -9,6 +9,39 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24aq (2026-06-17) — 3 bugs VIDAL/WhatsApp corrigés ✅
+
+### Bug 1 — Portail VIDAL : code produit incorrect entre parens
+- **Cause** : Parser Atom du fix24am n'était pas assez robuste. Si `<vidal:id>` était absent OU si le namespace utilisait un préfixe alternatif (`<v:id>`), `vidal_id` retombait sur le titre (le `id` Atom était `e.id`, qui s'utilisait comme fallback).
+- **Fix** : Parser `_parseAtomEntries` (`Vidal.jsx`) renforcé avec **4 stratégies en cascade** :
+  1. `getElementsByTagName("vidal:id")` (prefixed tagname)
+  2. Scan des enfants directs avec `localName === "id"` + contenu digit-only
+  3. Extraction des digits finaux de l'URN Atom `<id>vidal://product/5485</id>`
+  4. Regex sur `outerHTML` pour `<*:id>NNNN</*:id>` (filet de sécurité tous préfixes)
+- **Affichage** : Les parens n'apparaissent **que si** `vidal_id` est strictement numérique. Plus d'affichage de titre/URN entre parens.
+
+### Bug 2 — WhatsApp `!recherche` etc : codes absents des résultats
+- **Cause** : `_format_vidal_data_for_wa` ne faisait qu'extraire les `<title>` via regex, ignorait `<vidal:id>`.
+- **Fix** : Découpage entry-par-entry du XML brut, extraction `(title, vidal_id)` par entry via regex robuste (`<*:id>NNNN</*:id>`). Affichage WA : `1. DOLIPRANE 100 mg pdre p sol buv en sachet-dose (*5485*)`.
+- Saut auto du `<feed><title>` (qui n'est pas un résultat).
+- Fallback URN si pas de `<vidal:id>`.
+
+### Bug 3 — Image jointe à TOUTES les commandes WhatsApp (pas que !garde)
+- **Backend** : Le dispatcher d'image dans `liluvine_wa_autoreply.py` reconnaît maintenant :
+  - `settings.wa_cmd_<id>_image_url` (override spécifique par commande, ex: `wa_cmd_produits_image_url`)
+  - `settings.wa_default_cmd_image_url` (image par défaut pour TOUTES les commandes)
+  - `settings.garde_reply_image_url` (compatibilité ascendante — gardé pour `!garde`)
+- Priorité : per-command override > legacy garde > default.
+- **Settings model** : ajout de `wa_default_cmd_image_url` + `wa_default_cmd_image_caption`. Le `SettingsUpdate` passe en `extra="allow"` (Pydantic v2) pour accepter les clés dynamiques `wa_cmd_<id>_image_*`.
+- **Frontend** : Nouveau composant **`WaCommandImagesSection.jsx`** dans Admin Settings (S058f) :
+  - Image par défaut (URL ou téléversement base64 max 2 Mo, légende).
+  - Image spécifique par commande (collapsible per command — auto-listées depuis `/admin/vidal/actions` + 4 builtins `!garde`, `!adresse`, `!horaires`, `!contact`).
+  - Badge « ✓ configurée » visible quand une override est définie.
+
+**Tests** : 7 nouveaux pytest backend (`test_iter43_fix24aq_wa_vidal_id_and_images.py`) + 6 jest frontend (parser multi-stratégies, namespace alternatif `<v:id>`, fallback URN, vidal_id vide si pas de digits). 158/158 backend pytest passent.
+
+
+
 ## Iter43-fix24ap (2026-06-17) — Monitoring intégrations + cron alertes WhatsApp ✅
 
 **Objectif** : Vérification automatique périodique de Google Calendar + Meta Webhook WhatsApp, avec alerte WA proactive vers l'admin en cas d'incident.

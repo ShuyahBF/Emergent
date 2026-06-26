@@ -407,6 +407,11 @@ class TrackedUserSetPassword(BaseModel):
 # SETTINGS (admin configurable)
 # ====================================================================
 class SettingsUpdate(BaseModel):
+    # Iter43-fix24aq (2026-06-17) — Allow arbitrary `wa_cmd_<id>_image_url`
+    # / `wa_cmd_<id>_image_caption` keys (one per VIDAL action). Without
+    # `extra="allow"`, Pydantic would silently drop them.
+    model_config = ConfigDict(extra="allow")
+
     recaptcha_site_key: Optional[str] = None
     recaptcha_secret_key: Optional[str] = None
     recaptcha_enabled: Optional[bool] = None
@@ -1044,6 +1049,12 @@ class SettingsUpdate(BaseModel):
     # `integration_health_alert_wa_phone` : numéro WhatsApp E.164 à notifier en cas d'incident.
     integration_health_alerts_enabled: Optional[bool] = None
     integration_health_alert_wa_phone: Optional[str] = None
+
+    # Iter43-fix24aq (2026-06-17) — Image envoyée par défaut après TOUTE réponse
+    # à une commande WhatsApp (!garde, !produits, !adresse, etc.). Une image
+    # spécifique par commande peut surcharger via `wa_cmd_<id>_image_url`.
+    wa_default_cmd_image_url: Optional[str] = None
+    wa_default_cmd_image_caption: Optional[str] = None
 
     # Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde.
     # `garde_page_header` : texte affiché en haut (ex: "Joyeux Noël !").

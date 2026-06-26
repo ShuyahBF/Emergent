@@ -17,6 +17,7 @@ import VidalActionsSection from "@/components/admin/VidalActionsSection";
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
 import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
 import IntegrationHealthSection from "@/pages/admin/sections/IntegrationHealthSection";
+import WaCommandImagesSection from "@/pages/admin/sections/WaCommandImagesSection";
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
@@ -785,6 +786,11 @@ export default function AdminSettings() {
       {/* Iter43-fix24ap (2026-06-17) — Monitoring des intégrations (Google Cal + Meta) */}
       <Filterable title="🩺 S058e — Monitoring intégrations (Google Cal + Meta WA)" anchorId="s-s058e-integration-health">
         <IntegrationHealthSection />
+      </Filterable>
+
+      {/* Iter43-fix24aq (2026-06-17) — Images jointes aux réponses WhatsApp !commands */}
+      <Filterable title="🖼 S058f — Images jointes aux commandes WhatsApp (!garde, !produits, …)" anchorId="s-s058f-wa-cmd-images">
+        <WaCommandImagesSection />
       </Filterable>
 
       <Filterable title="📊 S059 — Synthèse Liluvine + API Officines + Image sidebar" anchorId="s-s059-synthese-officines">

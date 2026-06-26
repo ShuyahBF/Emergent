@@ -313,27 +313,50 @@ async def autoreply_to_inbound(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
                 send_pc = {"ok": False, "error": str(exc)}
-            # Iter43-fix24al — Pour !garde, envoie aussi l'image "capture" configurée
-            # via Admin Settings (`settings.garde_reply_image_url`) avec sa légende.
-            # No-op silencieux si non configurée.
-            if cmd_label == "!garde":
-                try:
-                    s_garde = await db.settings.find_one(
-                        {"_id": "global"},
-                        {"_id": 0, "garde_reply_image_url": 1,
-                         "garde_reply_image_caption": 1},
-                    ) or {}
-                    img_url = s_garde.get("garde_reply_image_url") or ""
-                    if img_url:
-                        img_res = await _wa_send_image(
-                            to_e164_pc,
-                            img_url,
-                            caption=s_garde.get("garde_reply_image_caption") or None,
-                            db_ref=db,
-                        )
-                        logger.info("[wa_autoreply][!garde] image sent: %s", img_res)
-                except Exception:  # noqa: BLE001
-                    logger.exception("[wa_autoreply][!garde] image send failed")
+            # Iter43-fix24al + 24aq (2026-06-17) — Pour TOUTES les commandes
+            # WhatsApp (`!garde`, `!produits`, `!adresse`, etc.), envoie aussi
+            # une image après le texte si configurée dans settings :
+            #   - Image SPÉCIFIQUE à la commande : `wa_cmd_<id>_image_url`
+            #     (où <id> est l'`id` de l'action sans `!`, ex: `garde`, `produits`)
+            #     + `wa_cmd_<id>_image_caption`.
+            #   - Image PAR DÉFAUT (fallback) : `wa_default_cmd_image_url`
+            #     + `wa_default_cmd_image_caption`.
+            #   - Compatibilité ascendante : `garde_reply_image_url` (utilisé
+            #     historiquement pour !garde) est encore reconnue.
+            # No-op silencieux si aucune image n'est configurée.
+            try:
+                cmd_id = (cmd_label or "").lstrip("!").lower().strip()
+                s_img = await db.settings.find_one(
+                    {"_id": "global"},
+                    {"_id": 0,
+                     f"wa_cmd_{cmd_id}_image_url": 1,
+                     f"wa_cmd_{cmd_id}_image_caption": 1,
+                     "wa_default_cmd_image_url": 1,
+                     "wa_default_cmd_image_caption": 1,
+                     "garde_reply_image_url": 1,
+                     "garde_reply_image_caption": 1},
+                ) or {}
+                # Priority order : per-command override → legacy garde → default
+                img_url = (
+                    s_img.get(f"wa_cmd_{cmd_id}_image_url")
+                    or (s_img.get("garde_reply_image_url") if cmd_id == "garde" else "")
+                    or s_img.get("wa_default_cmd_image_url")
+                    or ""
+                )
+                img_caption = (
+                    s_img.get(f"wa_cmd_{cmd_id}_image_caption")
+                    or (s_img.get("garde_reply_image_caption") if cmd_id == "garde" else "")
+                    or s_img.get("wa_default_cmd_image_caption")
+                    or None
+                )
+                if img_url:
+                    img_res = await _wa_send_image(
+                        to_e164_pc, img_url,
+                        caption=img_caption, db_ref=db,
+                    )
+                    logger.info("[wa_autoreply][!%s] image sent: %s", cmd_id, img_res)
+            except Exception:  # noqa: BLE001
+                logger.exception("[wa_autoreply][!%s] image send failed", cmd_label)
             # Iter43-fix24j — Pour !adresse avec lat/lon configurés, envoie aussi
             # une "carte" WhatsApp type=location (UX native : preview map cliquable).
             if location_payload is not None:
@@ -1508,24 +1531,46 @@ async def _build_vidal_reply(db, command_token: str, command_args: str,
 
 
 def _format_vidal_data_for_wa(action: Dict[str, Any], data: Dict[str, Any]) -> str:
-    """Format a VIDAL response into a short WhatsApp-friendly text block."""
+    """Format a VIDAL response into a short WhatsApp-friendly text block.
+
+    Iter43-fix24aq (2026-06-17) — Inclut le code produit `<vidal:id>` entre
+    parenthèses pour chaque entrée (ex: « 1. DOLIPRANE 100 mg ... (5485) »).
+    Extraction par regex sur le XML brut entry-par-entry (pas besoin d'un
+    parser DOM côté backend).
+    """
     label = action.get("label") or action.get("id")
     head = f"📋 *{label}*"
     raw = data.get("raw") if isinstance(data, dict) else None
-    # Try to parse Atom entries from raw XML (lightweight regex parse).
+    # Try to parse Atom entries from raw XML.
     if isinstance(raw, str) and "<entry" in raw:
-        # Extract first 5 <title> tags
-        titles = re.findall(r"<title[^>]*>([^<]+)</title>", raw)
-        titles = [t.strip() for t in titles if t.strip()]
-        # Drop the feed title (first one is usually "VIDAL …")
-        if len(titles) > 1:
-            titles = titles[1:]
-        if titles:
+        # Split on <entry ...> ... </entry> blocks and extract title + vidal:id per block
+        entry_blocks = re.findall(r"<entry\b[^>]*>(.*?)</entry>", raw, flags=re.DOTALL | re.IGNORECASE)
+        items: list = []
+        for block in entry_blocks:
+            title_m = re.search(r"<title[^>]*>([^<]+)</title>", block, flags=re.IGNORECASE)
+            title = (title_m.group(1) if title_m else "").strip()
+            if not title:
+                continue
+            # Look for <vidal:id>NNNN</vidal:id> OR <*:id>NNNN</*:id> (any prefix)
+            vidal_id_m = re.search(r"<(?:[a-z][a-z0-9]*:)?id>\s*(\d+)\s*</(?:[a-z][a-z0-9]*:)?id>", block, flags=re.IGNORECASE)
+            if not vidal_id_m:
+                # Fallback: extract trailing digits from atom <id>vidal://product/5485</id>
+                atom_id_m = re.search(r"<id[^>]*>([^<]+)</id>", block, flags=re.IGNORECASE)
+                if atom_id_m:
+                    trailing = re.search(r"(\d+)\s*$", atom_id_m.group(1))
+                    if trailing:
+                        vidal_id_m = trailing
+            vidal_id = vidal_id_m.group(1) if vidal_id_m else ""
+            items.append((title, vidal_id))
+        if items:
             lines = [head, ""]
-            for i, t in enumerate(titles[:8], 1):
-                lines.append(f"{i}. {t}")
-            if len(titles) > 8:
-                lines.append(f"… (+{len(titles) - 8} résultats non affichés)")
+            for i, (t, code) in enumerate(items[:8], 1):
+                if code:
+                    lines.append(f"{i}. {t} (*{code}*)")
+                else:
+                    lines.append(f"{i}. {t}")
+            if len(items) > 8:
+                lines.append(f"… (+{len(items) - 8} résultats non affichés)")
             return "\n".join(lines)
         return f"{head}\n\n_Aucun résultat trouvé._"
     # JSON dict fallback
@@ -1534,7 +1579,11 @@ def _format_vidal_data_for_wa(action: Dict[str, Any], data: Dict[str, Any]) -> s
         lines = [head, ""]
         for i, e in enumerate(entries, 1):
             title = (e or {}).get("title") or (e or {}).get("name") or "?"
-            lines.append(f"{i}. {title}")
+            code = (e or {}).get("vidal_id") or (e or {}).get("id") or ""
+            if isinstance(code, str) and code.isdigit():
+                lines.append(f"{i}. {title} (*{code}*)")
+            else:
+                lines.append(f"{i}. {title}")
         return "\n".join(lines)
     # Anything else → just confirm the call worked
     return f"{head}\n\n_Réponse VIDAL reçue ({len(str(data))} caractères). Consultez le portail pour le détail._"

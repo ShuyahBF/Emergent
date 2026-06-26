@@ -21102,6 +21102,16 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=120,
             )
+            # Iter43-fix24ay (2026-02-26) — Google Calendar Watch channel renewal (every 6h)
+            async def _scheduled_gcal_watch_renewal():
+                await _run_gcal_watch_renewal(db)
+            _scheduler.add_job(
+                _scheduled_gcal_watch_renewal,
+                CronTrigger(hour="*/6", timezone="Africa/Abidjan"),
+                id="gcal_watch_renewal_6h",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
             # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
             try:
                 _scheduler.add_job(
@@ -23881,6 +23891,13 @@ _attach_twitter(api=api, db=db, get_current_user=get_current_user, get_current_a
 # Iter43-fix24ax (2026-02-26) — Facebook Page integration
 from routes.facebook import attach_facebook_routes as _attach_facebook  # noqa: E402
 _attach_facebook(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
+
+# Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (push notifications)
+from routes.google_calendar_watch import (  # noqa: E402
+    attach_google_calendar_watch_routes as _attach_gcal_watch,
+    run_google_calendar_watch_renewal_tick as _run_gcal_watch_renewal,
+)
+_attach_gcal_watch(api=api, db=db, get_current_admin=get_current_admin)
 
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402

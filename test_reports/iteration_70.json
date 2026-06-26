@@ -1,0 +1,47 @@
+{
+  "summary": "Iter70 — Validated Google Calendar Watch API (Phase 2 / push sync). Ran the full requested regression set (5 test files, 32 passed + 1 skipped intentional) AND a live smoke suite against the public preview URL covering every endpoint contract (7/7 passed). Frontend AdminSettings page loads cleanly post-OTP login and the new GoogleCalendarWatchPanel is correctly hidden as Google Calendar is not connected in this preview env (expected behavior).",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "endpoint_verification": {
+    "GET /api/admin/google/calendar/watch (unauth)": "401/403 OK",
+    "GET /api/admin/google/calendar/watch (admin)": "200 with full key set {active, channel_id, resource_id, webhook_url, calendar_id, expiration, renewed_at, last_notification_at, last_sync_at, sync_token_set}; active=False as expected",
+    "POST /api/admin/google/calendar/watch (empty body, not connected)": "400/502 with 'Google Calendar non configuré' — verified",
+    "POST /api/admin/google/calendar/sync-now (not connected)": "400 — verified",
+    "DELETE /api/admin/google/calendar/watch (no active channel)": "200 {ok: false} — does NOT raise, verified",
+    "POST /api/google/calendar/webhook (no headers)": "403 — verified",
+    "POST /api/google/calendar/webhook (wrong channel id/token)": "403 — verified"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24ay_gcal_watch.py",
+    "/app/backend/tests/test_iter70_gcal_watch_live.py",
+    "/app/test_reports/pytest/iter70_gcal_watch.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "GoogleCalendarWatchPanel renders inside AdminSettings only when s.google_calendar_connected=true — confirmed via DOM inspection (panel absent in preview).",
+    "Webhook endpoint is public (no admin guard) yet correctly enforces x-goog-channel-id + x-goog-channel-token validation, returning 403 on mismatch — good defense.",
+    "All admin watch routes properly require admin role (unauth → 401/403). Cleanly isolated from public webhook.",
+    "Sync-now returning 400 when not connected (instead of 502) is fine and matches the intent."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter70_gcal_watch_live.py (NEW — live smoke against public URL, 7 tests)"
+  ],
+  "success_rate": {
+    "backend": "100% (32/32 pytest + 7/7 live smoke; 1 skipped intentional)",
+    "frontend": "100% (AdminSettings renders cleanly; gcal-watch-panel correctly hidden as expected)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp returned on /api/auth/login; verify via /api/auth/verify-otp with {session_token, code})",
+  "seed_data_creation": "None — read-only validation. LinkedIn creds in DB untouched.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "GCal Watch API is the FINAL feature of the multi-step plan and is fully green. The real watch+sync round-trip (start_watch → Google ack → webhook → sync_token persistence) can only be validated with a connected Google account — out of scope for automated testing in this preview env. New live smoke test file at /app/backend/tests/test_iter70_gcal_watch_live.py reuses session_token+code OTP flow and is reusable for any future endpoint regression against the public URL.",
+  "rca of the issue": "N/A — no issues found."
+}

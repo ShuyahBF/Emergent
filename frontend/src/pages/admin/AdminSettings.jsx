@@ -33,6 +33,7 @@ import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import LinkedInSection from "@/pages/admin/sections/LinkedInSection";
 import TwitterSection from "@/pages/admin/sections/TwitterSection";
 import FacebookSection from "@/pages/admin/sections/FacebookSection";
+import GoogleCalendarWatchPanel from "@/pages/admin/sections/GoogleCalendarWatchPanel";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
@@ -642,6 +643,8 @@ export default function AdminSettings() {
           </div>
         )}
         <p className="text-xs text-slate-500">Sauvegardez les Client ID et Secret avant de cliquer sur Connecter.</p>
+        {/* Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (real-time push sync) */}
+        {s.google_calendar_connected && <GoogleCalendarWatchPanel />}
       </Section>
 
       <Section icon={Calendar} title="Heures ouvrables / RDV">

@@ -23870,6 +23870,18 @@ from routes.linkedin_autopost import (  # noqa: E402
 )
 _attach_linkedin_autopost(api=api, db=db, get_current_admin=get_current_admin)
 
+# Iter43-fix24aw (2026-02-26) — Officines GPS geocoding (Google Maps + OSM)
+from routes.officines_geocode import attach_officines_geocode_routes as _attach_officines_geocode  # noqa: E402
+_attach_officines_geocode(api=api, db=db, get_current_admin=get_current_admin)
+
+# Iter43-fix24ax (2026-02-26) — Twitter (X) API v2 integration
+from routes.twitter import attach_twitter_routes as _attach_twitter  # noqa: E402
+_attach_twitter(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
+
+# Iter43-fix24ax (2026-02-26) — Facebook Page integration
+from routes.facebook import attach_facebook_routes as _attach_facebook  # noqa: E402
+_attach_facebook(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
+
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402
 _attach_amm(api=api, db=db, get_current_user=get_current_user)

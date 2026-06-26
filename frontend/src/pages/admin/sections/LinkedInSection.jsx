@@ -851,6 +851,42 @@ const LinkedInSection = () => {
                 )}
               </div>
 
+              {/* Iter43-fix24ax — Multi-canal social toggles */}
+              <div className="rounded ring-1 ring-fuchsia-200 bg-white p-3 space-y-2">
+                <p className="text-[11px] font-semibold text-fuchsia-800 inline-flex items-center gap-1">
+                  📡 Cross-poster aussi sur :
+                </p>
+                <div className="flex flex-wrap gap-4 text-xs">
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!autopost.also_post_twitter}
+                      onChange={(e) => {
+                        setAutopost((p) => ({ ...p, also_post_twitter: e.target.checked }));
+                        saveAutopost({ also_post_twitter: e.target.checked });
+                      }}
+                      data-testid="linkedin-autopost-also-twitter"
+                    />
+                    <span>✖️ X / Twitter (texte tronqué à 270 chars)</span>
+                  </label>
+                  <label className="inline-flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={!!autopost.also_post_facebook}
+                      onChange={(e) => {
+                        setAutopost((p) => ({ ...p, also_post_facebook: e.target.checked }));
+                        saveAutopost({ also_post_facebook: e.target.checked });
+                      }}
+                      data-testid="linkedin-autopost-also-facebook"
+                    />
+                    <span>📘 Facebook Page</span>
+                  </label>
+                </div>
+                <p className="text-[10px] text-slate-500 italic">
+                  ⚠️ X et Facebook doivent être connectés au préalable (sections plus bas dans Admin Settings).
+                </p>
+              </div>
+
               {/* Prompt */}
               <label className="block">
                 <span className="block text-[10px] text-slate-600 mb-0.5 inline-flex items-center gap-1">

@@ -56,6 +56,16 @@ GET_MASK_FIELDS = (
     "linkedin_client_secret",
     "linkedin_access_token",
     "linkedin_refresh_token",
+    # Iter43-fix24aw — Google Maps geocoding API key
+    "google_maps_api_key",
+    # Iter43-fix24ax — Twitter (X) integration secrets
+    "twitter_client_secret",
+    "twitter_access_token",
+    "twitter_refresh_token",
+    # Iter43-fix24ax — Facebook Page integration secrets
+    "facebook_app_secret",
+    "facebook_user_access_token",
+    "facebook_page_access_token",
 )
 
 

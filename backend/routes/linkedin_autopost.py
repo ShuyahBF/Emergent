@@ -92,6 +92,9 @@ class AutopostConfigPayload(BaseModel):
     organization_urn: Optional[str] = None
     validation_mode: Optional[str] = None  # "auto" | "wa_approval"
     validation_phone: Optional[str] = None
+    # Iter43-fix24ax — Multi-canal social
+    also_post_twitter: Optional[bool] = None
+    also_post_facebook: Optional[bool] = None
 
 
 # --------------------------------------------------------------------------- #
@@ -249,6 +252,62 @@ async def _publish_draft(db, draft_text: str, image_url: Optional[str] = None) -
     return post_urn
 
 
+def _shorten_for_twitter(text: str, max_len: int = 270) -> str:
+    """Twitter limit is 280 chars. We keep 270 to leave room for URL shortener
+    artifacts. Truncate intelligently at the last whitespace before max_len-1
+    and append « … »."""
+    if len(text) <= max_len:
+        return text
+    cut = text[:max_len - 1]
+    sp = cut.rfind(" ")
+    if sp > max_len // 2:
+        cut = cut[:sp]
+    return cut.rstrip() + "…"
+
+
+async def _publish_multi_channel(db, draft_text: str, image_url: Optional[str] = None) -> Dict[str, Any]:
+    """Publish the draft on LinkedIn (always) + Twitter + Facebook (if enabled
+    in settings.global). Returns a dict with per-channel result."""
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    results: Dict[str, Any] = {"linkedin": None, "twitter": None, "facebook": None}
+
+    # 1) LinkedIn (mandatory — the autopost feature is anchored on LinkedIn)
+    try:
+        results["linkedin"] = await _publish_draft(db, draft_text, image_url)
+    except HTTPException as exc:
+        results["linkedin"] = {"_error": exc.detail}
+
+    # 2) Twitter (if enabled and connected)
+    if s.get("linkedin_autopost_also_post_twitter") and s.get("twitter_access_token"):
+        try:
+            from routes.twitter import _ensure_token_valid as _tw_ensure, _post_tweet, _upload_media_from_url
+            access = await _tw_ensure(db, s)
+            short_text = _shorten_for_twitter(draft_text)
+            media_id = None
+            if image_url:
+                try:
+                    media_id = await _upload_media_from_url(access, image_url)
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[linkedin.autopost] Twitter media skip: %s", exc)
+            tw_res = await _post_tweet(access, short_text, media_id)
+            tweet_id = (tw_res.get("data") or {}).get("id", "")
+            results["twitter"] = {"tweet_id": tweet_id, "shortened_len": len(short_text)}
+        except Exception as exc:  # noqa: BLE001
+            results["twitter"] = {"_error": str(exc)[:200]}
+
+    # 3) Facebook (if enabled and Page configured)
+    if s.get("linkedin_autopost_also_post_facebook") and s.get("facebook_page_id") and s.get("facebook_page_access_token"):
+        try:
+            from routes.facebook import _post_to_page
+            fb_res = await _post_to_page(s["facebook_page_id"], s["facebook_page_access_token"], draft_text, image_url)
+            post_id = fb_res.get("id") or fb_res.get("post_id", "")
+            results["facebook"] = {"post_id": post_id}
+        except Exception as exc:  # noqa: BLE001
+            results["facebook"] = {"_error": str(exc)[:200]}
+
+    return results
+
+
 # --------------------------------------------------------------------------- #
 # Scheduler tick — invoked every minute by APScheduler
 # --------------------------------------------------------------------------- #
@@ -312,21 +371,28 @@ async def run_linkedin_autopost_tick(db):
         )
 
         if validation_mode == "auto":
-            # Publish immediately
+            # Publish immediately on LinkedIn + Twitter + Facebook (selon config)
             try:
-                post_urn = await _publish_draft(db, draft)
-                logger.info("[linkedin.autopost] AUTO published → %s", post_urn)
+                multi = await _publish_multi_channel(db, draft)
+                logger.info("[linkedin.autopost] AUTO multi-channel published → %s", multi)
                 # Notify on WA if a phone is configured
                 if validation_phone:
                     import server  # noqa: WPS433
                     send_fn = getattr(server, "_wa_send_text", None)
                     if callable(send_fn):
-                        await send_fn(
-                            validation_phone,
-                            f"🤖 ✅ Post LinkedIn hebdomadaire AUTO-publié.\n\n"
-                            f"URN : {post_urn}\n"
-                            f"Texte (200c) : {draft[:200]}…",
-                        )
+                        summary_lines = ["🤖 ✅ Post hebdomadaire AUTO-publié."]
+                        if isinstance(multi.get("linkedin"), str):
+                            summary_lines.append(f"• LinkedIn : {multi['linkedin']}")
+                        elif multi.get("linkedin"):
+                            summary_lines.append(f"• LinkedIn : ❌ {multi['linkedin'].get('_error','?')}")
+                        if multi.get("twitter"):
+                            tw = multi["twitter"]
+                            summary_lines.append(f"• Twitter : {tw.get('tweet_id') or '❌ ' + str(tw.get('_error',''))}")
+                        if multi.get("facebook"):
+                            fb = multi["facebook"]
+                            summary_lines.append(f"• Facebook : {fb.get('post_id') or '❌ ' + str(fb.get('_error',''))}")
+                        summary_lines.append(f"\nTexte (200c) : {draft[:200]}…")
+                        await send_fn(validation_phone, "\n".join(summary_lines))
             except HTTPException as exc:
                 logger.error("[linkedin.autopost] AUTO publish failed: %s", exc.detail)
         else:
@@ -368,8 +434,17 @@ async def handle_linkedin_autopost_wa_reply(db, phone: str, text: str) -> Option
     cmd = (text or "").strip().lower()
     if cmd in ("ok", "valider", "publier", "yes", "oui", "go"):
         try:
-            post_urn = await _publish_draft(db, pending["text"], pending.get("image_url"))
-            return f"✅ Post LinkedIn publié !\n\nURN : {post_urn}"
+            multi = await _publish_multi_channel(db, pending["text"], pending.get("image_url"))
+            lines = ["✅ Publication multi-canal effectuée :"]
+            if isinstance(multi.get("linkedin"), str):
+                lines.append(f"• LinkedIn : {multi['linkedin']}")
+            elif multi.get("linkedin"):
+                lines.append(f"• LinkedIn : ❌ {multi['linkedin'].get('_error','?')}")
+            if multi.get("twitter"):
+                lines.append(f"• Twitter : {multi['twitter'].get('tweet_id') or '❌'}")
+            if multi.get("facebook"):
+                lines.append(f"• Facebook : {multi['facebook'].get('post_id') or '❌'}")
+            return "\n".join(lines)
         except HTTPException as exc:
             return f"❌ Échec publication : {exc.detail}"
     if cmd in ("stop", "annuler", "cancel", "non", "no"):
@@ -422,6 +497,8 @@ def attach_linkedin_autopost_routes(*, api, db, get_current_admin):
             "organization_urn": s.get("linkedin_autopost_organization_urn") or "",
             "validation_mode": s.get("linkedin_autopost_validation_mode") or "wa_approval",
             "validation_phone": s.get("linkedin_autopost_validation_phone") or "",
+            "also_post_twitter": bool(s.get("linkedin_autopost_also_post_twitter")),
+            "also_post_facebook": bool(s.get("linkedin_autopost_also_post_facebook")),
             "last_run_at": s.get("linkedin_autopost_last_run_at"),
             "last_post_urn": s.get("linkedin_autopost_last_post_urn") or "",
             "pending_draft": s.get("linkedin_autopost_pending_draft"),
@@ -456,6 +533,11 @@ def attach_linkedin_autopost_routes(*, api, db, get_current_admin):
             update["linkedin_autopost_validation_mode"] = payload.validation_mode
         if payload.validation_phone is not None:
             update["linkedin_autopost_validation_phone"] = payload.validation_phone.strip()
+        # Iter43-fix24ax — Multi-canal social toggles
+        if payload.also_post_twitter is not None:
+            update["linkedin_autopost_also_post_twitter"] = bool(payload.also_post_twitter)
+        if payload.also_post_facebook is not None:
+            update["linkedin_autopost_also_post_facebook"] = bool(payload.also_post_facebook)
         if not update:
             raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
         update["linkedin_autopost_config_updated_at"] = _now_iso()
@@ -488,8 +570,8 @@ def attach_linkedin_autopost_routes(*, api, db, get_current_admin):
         pending = s.get("linkedin_autopost_pending_draft")
         if not pending or not pending.get("text"):
             raise HTTPException(status_code=400, detail="Aucun brouillon en attente")
-        post_urn = await _publish_draft(db, pending["text"], pending.get("image_url"))
-        return {"ok": True, "post_urn": post_urn}
+        multi = await _publish_multi_channel(db, pending["text"], pending.get("image_url"))
+        return {"ok": True, "channels": multi}
 
     @api.delete("/admin/linkedin/autopost/pending", tags=["Admin — LinkedIn"])
     async def delete_pending(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:
@@ -519,8 +601,8 @@ def attach_linkedin_autopost_routes(*, api, db, get_current_admin):
             }}},
         )
         if validation_mode == "auto":
-            post_urn = await _publish_draft(db, draft)
-            return {"ok": True, "mode": "auto", "post_urn": post_urn, "draft": draft}
+            multi = await _publish_multi_channel(db, draft)
+            return {"ok": True, "mode": "auto", "channels": multi, "draft": draft}
         # WA approval
         sent = False
         if validation_phone:

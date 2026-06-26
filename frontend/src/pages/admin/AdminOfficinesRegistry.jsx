@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import {
   CheckCircle, XCircle, RefreshCw, Link as LinkIcon, Unlink, Search, Building2,
   Upload, Pencil, FileSpreadsheet, UserPlus, X, MapPin, Image as ImageIcon,
-  Eye, Package, Tags, Download, Plus, Trash2, FileJson, Tag,
+  Eye, Package, Tags, Download, Plus, Trash2, FileJson, Tag, Globe2, Loader2,
 } from "lucide-react";
 
 const STATUS_LABEL = {
@@ -158,6 +158,55 @@ export default function AdminOfficinesRegistry() {
     } finally { setImportingContacts(false); }
   };
 
+  // Iter43-fix24aw (2026-02-26) — Géocodage GPS via Google Maps / OSM Nominatim.
+  const [geocoding, setGeocoding] = React.useState(false);
+  const [geocodeResult, setGeocodeResult] = React.useState(null);
+  const [overwriteGps, setOverwriteGps] = React.useState(false);
+  const [geocodeProvider, setGeocodeProvider] = React.useState(null);
+
+  // Pre-load provider info (Google vs OSM) on mount
+  React.useEffect(() => {
+    apiClient.get("/admin/geocode/config")
+      .then((r) => setGeocodeProvider(r.data))
+      .catch(() => setGeocodeProvider(null));
+  }, []);
+
+  const resolveGeolocation = async () => {
+    if (selected.size === 0) {
+      toast.error("Sélectionnez au moins une officine");
+      return;
+    }
+    const provider = geocodeProvider?.provider === "google_places" ? "Google Maps" : "OpenStreetMap";
+    const warn = geocodeProvider?.provider === "osm_nominatim"
+      ? "\n\n⚠️ Provider actuel : OpenStreetMap (gratuit). Les pharmacies d'Afrique de l'Ouest sont peu indexées. Pour un meilleur résultat, configurez une clé Google Maps API dans Admin Settings → settings.global.google_maps_api_key."
+      : "";
+    if (!window.confirm(
+      `Lancer la résolution GPS pour ${selected.size} officine(s) via ${provider} ?${warn}\n\n` +
+      `${overwriteGps ? "🔄 Mode REMPLACEMENT : les coordonnées existantes seront écrasées." : "💾 Mode CONSERVATEUR : seules les officines sans GPS seront résolues."}\n\n` +
+      "Cela peut prendre quelques minutes (OSM = 1 req/sec)."
+    )) return;
+    setGeocoding(true);
+    setGeocodeResult(null);
+    try {
+      const r = await apiClient.post(
+        "/admin/officines-registry/geocode-batch",
+        { officine_ids: Array.from(selected), overwrite_existing: overwriteGps },
+        { timeout: 600000 },  // 10 min total for big batches
+      );
+      setGeocodeResult(r.data);
+      const { succeeded, failed, skipped, provider: usedProvider } = r.data;
+      toast.success(
+        `✅ ${succeeded} résolue(s), ❌ ${failed} échec(s), ⏭️ ${skipped} ignorée(s) — Source : ${usedProvider}`
+      );
+      // Refresh the list to display the new GPS values
+      await load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur résolution GPS");
+    } finally {
+      setGeocoding(false);
+    }
+  };
+
   return (
     <div className="space-y-5" data-testid="admin-officines-registry">
       <div className="flex items-center justify-between flex-wrap gap-2">
@@ -188,6 +237,33 @@ export default function AdminOfficinesRegistry() {
               <UserPlus className="h-4 w-4" />
               {importingContacts ? "Import…" : `Importer ${selected.size} → Contacts`}
             </button>
+          )}
+          {/* Iter43-fix24aw — Bouton Résoudre géolocalisation */}
+          {selected.size > 0 && (
+            <div className="inline-flex items-stretch rounded-lg overflow-hidden ring-1 ring-cyan-300">
+              <button
+                onClick={resolveGeolocation}
+                disabled={geocoding}
+                className="inline-flex items-center gap-2 text-sm px-3 py-2 bg-cyan-600 text-white hover:bg-cyan-700 disabled:opacity-50"
+                data-testid="resolve-geolocation-btn"
+                title={geocodeProvider?.provider === "google_places"
+                  ? "Résoudre les coordonnées GPS via Google Maps Places API"
+                  : "Résoudre les coordonnées GPS via OpenStreetMap (gratuit mais peu de pharmacies indexées en Afrique de l'Ouest)"}
+              >
+                {geocoding ? <Loader2 className="h-4 w-4 animate-spin" /> : <Globe2 className="h-4 w-4" />}
+                {geocoding ? "Résolution…" : `🌍 Résoudre géoloc (${selected.size})`}
+              </button>
+              <label className="inline-flex items-center gap-1 text-[10px] bg-cyan-50 px-2 cursor-pointer hover:bg-cyan-100" title="Écraser même les coordonnées déjà existantes">
+                <input
+                  type="checkbox"
+                  checked={overwriteGps}
+                  onChange={(e) => setOverwriteGps(e.target.checked)}
+                  className="h-3 w-3"
+                  data-testid="geocode-overwrite"
+                />
+                <span className="text-cyan-700">overwrite</span>
+              </label>
+            </div>
           )}
           {selected.size > 0 && (
             <button onClick={() => setShowBulkAssign(true)}
@@ -472,6 +548,116 @@ export default function AdminOfficinesRegistry() {
           onClose={() => setShowRolesAdmin(false)}
         />
       )}
+      {/* Iter43-fix24aw — Modal résultat de géocodage */}
+      {geocodeResult && (
+        <GeocodeResultModal
+          result={geocodeResult}
+          onClose={() => setGeocodeResult(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// Iter43-fix24aw — Modal récapitulatif après résolution GPS batch
+function GeocodeResultModal({ result, onClose }) {
+  const { processed, succeeded, failed, skipped, provider, results } = result;
+  const ok = (results || []).filter((r) => r.status === "ok");
+  const ko = (results || []).filter((r) => r.status !== "ok" && r.status !== "skipped_has_gps");
+  const sk = (results || []).filter((r) => r.status === "skipped_has_gps");
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4" data-testid="geocode-result-modal">
+      <div className="bg-white rounded-xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col">
+        <header className="px-5 py-3 border-b border-slate-200 flex items-center justify-between bg-cyan-50">
+          <h3 className="text-base font-bold text-slate-800 inline-flex items-center gap-2">
+            <Globe2 className="h-5 w-5 text-cyan-600" /> Résultat géocodage GPS
+            <span className="text-[10px] font-normal text-slate-500">via {provider}</span>
+          </h3>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700" data-testid="geocode-result-close">
+            <X className="h-5 w-5" />
+          </button>
+        </header>
+        <div className="px-5 py-3 grid grid-cols-4 gap-2 border-b border-slate-200 text-center">
+          <div className="bg-slate-50 rounded p-2">
+            <p className="text-2xl font-bold text-slate-800" data-testid="geocode-total">{processed}</p>
+            <p className="text-[10px] text-slate-500">Traitées</p>
+          </div>
+          <div className="bg-emerald-50 rounded p-2">
+            <p className="text-2xl font-bold text-emerald-700" data-testid="geocode-succeeded">{succeeded}</p>
+            <p className="text-[10px] text-emerald-700">Résolues</p>
+          </div>
+          <div className="bg-rose-50 rounded p-2">
+            <p className="text-2xl font-bold text-rose-700" data-testid="geocode-failed">{failed}</p>
+            <p className="text-[10px] text-rose-700">Échecs</p>
+          </div>
+          <div className="bg-amber-50 rounded p-2">
+            <p className="text-2xl font-bold text-amber-700" data-testid="geocode-skipped">{skipped}</p>
+            <p className="text-[10px] text-amber-700">Ignorées (GPS déjà présent)</p>
+          </div>
+        </div>
+        <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3">
+          {ok.length > 0 && (
+            <details open className="text-xs">
+              <summary className="cursor-pointer font-semibold text-emerald-700 mb-1">
+                ✅ Résolues ({ok.length})
+              </summary>
+              <ul className="space-y-1 mt-1">
+                {ok.map((r, i) => (
+                  <li key={i} className="bg-emerald-50 rounded p-2 ring-1 ring-emerald-200">
+                    <p className="font-semibold">{r.name}</p>
+                    <p className="font-mono text-[10px]">
+                      📍 {r.lat?.toFixed(5)}, {r.lng?.toFixed(5)} ({r.source})
+                    </p>
+                    {r.formatted_address && (
+                      <p className="text-[10px] text-slate-600 mt-0.5">{r.formatted_address}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {ko.length > 0 && (
+            <details open className="text-xs">
+              <summary className="cursor-pointer font-semibold text-rose-700 mb-1">
+                ❌ Échecs ({ko.length})
+              </summary>
+              <ul className="space-y-1 mt-1">
+                {ko.map((r, i) => (
+                  <li key={i} className="bg-rose-50 rounded p-2 ring-1 ring-rose-200">
+                    <p className="font-semibold">{r.name || r.id}</p>
+                    <p className="text-[10px] text-rose-700">{r.error || r.status}</p>
+                    {r.query && (
+                      <p className="font-mono text-[10px] text-slate-600 mt-0.5">Query : {r.query}</p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+          {sk.length > 0 && (
+            <details className="text-xs">
+              <summary className="cursor-pointer font-semibold text-amber-700 mb-1">
+                ⏭️ Ignorées — GPS déjà présent ({sk.length})
+              </summary>
+              <ul className="space-y-1 mt-1">
+                {sk.map((r, i) => (
+                  <li key={i} className="bg-amber-50 rounded p-2 ring-1 ring-amber-200">
+                    <p className="font-semibold">{r.name}</p>
+                    <p className="font-mono text-[10px]">
+                      📍 {Number(r.lat)?.toFixed(5)}, {Number(r.lng)?.toFixed(5)}
+                    </p>
+                  </li>
+                ))}
+              </ul>
+            </details>
+          )}
+        </div>
+        <footer className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex justify-end">
+          <button onClick={onClose} className="text-sm px-3 py-1.5 rounded bg-slate-800 hover:bg-slate-900 text-white" data-testid="geocode-result-done">
+            Fermer
+          </button>
+        </footer>
+      </div>
     </div>
   );
 }

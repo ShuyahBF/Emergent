@@ -31,6 +31,8 @@ import ErrorSeverityMappingSection from "@/pages/admin/sections/ErrorSeverityMap
 import CouponsSection from "@/pages/admin/sections/CouponsSection";
 import StripeWebhookSection from "@/pages/admin/sections/StripeWebhookSection";
 import LinkedInSection from "@/pages/admin/sections/LinkedInSection";
+import TwitterSection from "@/pages/admin/sections/TwitterSection";
+import FacebookSection from "@/pages/admin/sections/FacebookSection";
 import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSection";
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
@@ -741,6 +743,15 @@ export default function AdminSettings() {
       {/* Iter43-fix24au (2026-02-26) — LinkedIn OAuth + Posts API */}
       <Filterable title="💼 LinkedIn — Publications & lecture (OAuth + Posts API)" anchorId="s-linkedin">
         <LinkedInSection />
+      </Filterable>
+
+      {/* Iter43-fix24ax (2026-02-26) — Twitter (X) + Facebook Page social integrations */}
+      <Filterable title="✖️ X / Twitter — Posts API" anchorId="s-twitter">
+        <TwitterSection />
+      </Filterable>
+
+      <Filterable title="📘 Facebook Page — Posts API" anchorId="s-facebook">
+        <FacebookSection />
       </Filterable>
 
       {/* Iter38r-fix9u — AI Subscriptions reminder table */}

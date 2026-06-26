@@ -151,9 +151,46 @@ const FacebookSection = () => {
               <button onClick={() => setReveal(!reveal)} className="text-xs px-2 rounded ring-1 ring-slate-300">{reveal ? "🙈" : "👁"}</button>
             </div></label>
         </div>
+        {/* Iter43-fix24az — Editable Redirect URI override (PROD vs PREVIEW) */}
+        <label className="block">
+          <span className="block text-xs text-slate-700 mb-1">
+            Redirect URI <span className="text-slate-400">(facultatif — auto-calculé depuis l&apos;URL courante si vide)</span>
+          </span>
+          <div className="flex gap-1">
+            <input
+              type="text"
+              value={cfg?.redirect_uri || ""}
+              onChange={(e) => setCfg({...cfg, redirect_uri: e.target.value})}
+              className="flex-1 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
+              placeholder={`${window.location.origin}/api/facebook/oauth/callback`}
+              data-testid="facebook-redirect-uri-input"
+            />
+            <button
+              type="button"
+              onClick={() => setCfg({...cfg, redirect_uri: ""})}
+              className="text-xs px-2 py-1.5 rounded bg-slate-100 ring-1 ring-slate-300 hover:bg-slate-200"
+              data-testid="facebook-clear-redirect"
+              title="Effacer pour utiliser l'URL automatique de l'environnement courant"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => setCfg({...cfg, redirect_uri: `${window.location.origin}/api/facebook/oauth/callback`})}
+              className="text-xs px-2 py-1.5 rounded bg-slate-100 ring-1 ring-slate-300 hover:bg-slate-200"
+              data-testid="facebook-use-current-redirect"
+              title="Pré-remplir avec l'URL de l'environnement actuel"
+            >
+              Cet env
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1">
+            ⚠️ Si vous testez sur PROD <strong>et</strong> PREVIEW, laissez ce champ vide et ajoutez les deux URL ci-dessous dans Facebook Login → Settings.
+          </p>
+        </label>
         {redirect && (
           <div className="rounded ring-2 ring-amber-300 bg-amber-50 p-2 text-xs space-y-1" data-testid="facebook-redirect-warning">
-            <p className="font-semibold text-amber-900 inline-flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Redirect URI à enregistrer dans Facebook Login → Settings</p>
+            <p className="font-semibold text-amber-900 inline-flex items-center gap-1"><AlertCircle className="h-3 w-3" /> Redirect URI effectif (à enregistrer dans Facebook Login → Settings)</p>
             <div className="flex gap-1">
               <code className="flex-1 bg-white px-2 py-1 rounded ring-1 ring-amber-300 text-[10px] font-mono break-all" data-testid="facebook-redirect-uri-computed">{redirect}</code>
               <button onClick={() => { navigator.clipboard.writeText(redirect); toast.success("Copié"); }} className="text-[10px] px-2 py-1 rounded bg-amber-600 hover:bg-amber-700 text-white inline-flex items-center gap-1" data-testid="facebook-copy-redirect"><Copy className="h-3 w-3" />Copier</button>

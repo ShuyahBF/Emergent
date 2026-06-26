@@ -81,7 +81,17 @@ def parse_synthese_args(arg_string: str) -> Tuple[date, date]:
 # --------------------------------------------------------------------------- #
 async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, Any]:
     """Aggregate a small structured snapshot of the activity for the given
-    date range. Designed to be cheap (single-tenant scope, count_documents)."""
+    date range. Designed to be cheap (single-tenant scope, count_documents).
+
+    Iter43-fix24az (2026-02-26) — Fixed the collection / field names that
+    were silently returning 0 across the board:
+      - tickets         → support_tickets   (field `opened_at`, not `created_at`)
+      - sms_outbox      → sms_messages
+      - wa_outbox       → whatsapp_messages
+      - suivis          → user_suivis
+      - payments        → payment_transactions
+      - bird_sms        → bird_sms_messages (new dedicated counter)
+    """
     start_iso = start.isoformat()
     end_iso = (end + timedelta(days=1)).isoformat()  # exclusive upper bound
     kpi: Dict[str, Any] = {"period": {"start": start_iso, "end": end_iso}}
@@ -92,28 +102,38 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
         except Exception:  # noqa: BLE001
             return 0
 
-    # Common date filter on created_at strings
-    drange = {"created_at": {"$gte": start_iso, "$lt": end_iso}}
+    # Common date filter on created_at strings (ISO format as stored in Mongo).
+    drange_field = {"$gte": start_iso, "$lt": end_iso}
+    drange = {"created_at": drange_field}
+    # Tickets use `opened_at`, not `created_at`.
+    drange_tickets = {"opened_at": drange_field}
     tenant_filter = {"client_id": scope_uid} if scope_uid else {}
     full = {**tenant_filter, **drange}
+    full_tickets = {**tenant_filter, **drange_tickets}
 
     kpi["counts"] = {
         "new_contacts": await _count("directory_contacts", full),
-        "new_tickets": await _count("tickets", {**tenant_filter, "created_at": drange["created_at"]}),
+        "new_tickets": await _count("support_tickets", full_tickets),
         "appointments": await _count("appointments", full),
         "rapports": await _count("rapports", full),
-        "suivis": await _count("suivis", full),
-        "sms_sent": await _count("sms_outbox", full),
-        "wa_sent": await _count("wa_outbox", full),
+        "suivis": await _count("user_suivis", full),
+        "sms_sent": await _count("sms_messages", full),
+        "wa_sent": await _count("whatsapp_messages", full),
+        "bird_sms_sent": await _count("bird_sms_messages", full),
         "invoices": await _count("invoices", full),
-        "payments": await _count("payments", full),
+        "payments": await _count("payment_transactions", full),
     }
-    # Last 5 tickets summary
+    # Last 5 tickets summary (uses opened_at).
     try:
-        cursor = db.tickets.find({**tenant_filter, "created_at": drange["created_at"]}, {"_id": 0}).sort("created_at", -1).limit(5)
+        cursor = db.support_tickets.find(full_tickets, {"_id": 0}).sort("opened_at", -1).limit(5)
         tickets = []
         async for t in cursor:
-            tickets.append({"id": t.get("id"), "title": t.get("title") or t.get("motif"), "status": t.get("status"), "created_at": t.get("created_at")})
+            tickets.append({
+                "id": t.get("id") or t.get("number"),
+                "title": t.get("title") or t.get("motif"),
+                "status": t.get("status"),
+                "opened_at": t.get("opened_at") or t.get("created_at"),
+            })
         kpi["recent_tickets"] = tickets
     except Exception:  # noqa: BLE001
         kpi["recent_tickets"] = []
@@ -121,18 +141,53 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
 
 
 def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: date) -> str:
-    """Combine the user's custom prompt with the structured KPI block."""
+    """Combine the user's custom prompt with the structured KPI block.
+
+    Iter43-fix24az — render the KPIs as a clean bullet list instead of a
+    raw Python dict literal. The previous formatting was so ambiguous that
+    Liluvine often rounded everything down to 0 in the synthese."""
     base = custom_prompt or (
         "Tu es Liluvine. Synthétise l'activité de l'établissement sur la période "
         "indiquée en 5-8 puces actionnables. Mets en gras les points critiques."
     )
     period_label = f"du {start.isoformat()} au {end.isoformat()}" if start != end else f"le {start.isoformat()}"
+
+    counts = kpis.get("counts") or {}
+    # Friendly French labels (only for known keys; unknown keys fall through
+    # raw so we don't silently lose any new KPI).
+    LABELS = {
+        "new_contacts": "Nouveaux contacts",
+        "new_tickets": "Nouveaux tickets",
+        "appointments": "Rendez-vous",
+        "rapports": "Rapports",
+        "suivis": "Suivis",
+        "sms_sent": "SMS envoyés (Meta / legacy)",
+        "wa_sent": "Messages WhatsApp",
+        "bird_sms_sent": "SMS envoyés (Bird)",
+        "invoices": "Factures",
+        "payments": "Paiements",
+    }
+    counts_lines = "\n".join(
+        f"  • {LABELS.get(k, k)} : {v}" for k, v in counts.items()
+    ) or "  (aucune donnée)"
+
+    tickets = kpis.get("recent_tickets") or []
+    if tickets:
+        tickets_lines = "\n".join(
+            f"  • #{t.get('id','')} — {t.get('title','(sans titre)')} ({t.get('status','?')})"
+            for t in tickets
+        )
+    else:
+        tickets_lines = "  (aucun ticket sur la période)"
+
     return (
         f"{base}\n\n"
         f"[CONTEXTE STRUCTURÉ — {period_label}]\n"
-        f"{kpis}\n"
+        f"Indicateurs :\n{counts_lines}\n\n"
+        f"5 derniers tickets :\n{tickets_lines}\n"
         f"[FIN CONTEXTE]\n\n"
-        f"Génère la synthèse en français."
+        f"Génère la synthèse en français, en t'appuyant sur les chiffres ci-dessus. "
+        f"N'invente PAS de chiffres : utilise ceux fournis. Si une catégorie est à 0, mentionne-le explicitement."
     )
 
 
@@ -254,11 +309,17 @@ async def run_synthese_test(db) -> Dict[str, Any]:
 
     Force l'envoi (même si `synthese_enabled` est False) en utilisant la
     configuration courante. Retourne un payload détaillé pour l'admin.
+
+    Iter43-fix24az — renvoie aussi les `kpis` calculés pour que l'admin
+    puisse vérifier les chiffres bruts (ce qui était impossible avant et
+    masquait le bug des noms de collection).
     """
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0}) or {}
     channels = (s.get("synthese_channels") or "both").lower()
     today = date.today()
-    body = await build_synthese(db, start=today, end=today)
+    kpis = await _gather_kpis(db, "", today, today)
+    prompt = _build_prompt(s.get("synthese_prompt") or "", kpis, today, today)
+    body = await _call_liluvine(db, prompt)
     sent_email = False
     sent_wa = False
     errors: list = []
@@ -288,5 +349,6 @@ async def run_synthese_test(db) -> Dict[str, Any]:
             "wa_to": s.get("synthese_wa_to"),
             "hour": s.get("synthese_hour"),
         },
+        "kpis": kpis,
         "preview": body[:500],
     }

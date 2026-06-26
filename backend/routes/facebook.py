@@ -171,60 +171,76 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
         error: Optional[str] = Query(None),
         error_description: Optional[str] = Query(None),
     ):
-        if error:
-            return HTMLResponse(_render_html(False, f"Facebook a refusé : {error} — {error_description or ''}"), 400)
-        if not code or not state:
-            return HTMLResponse(_render_html(False, "code/state requis."), 400)
-        st = await db.facebook_oauth_states.find_one({"state": state})
-        if not st:
-            return HTMLResponse(_render_html(False, "State invalide."), 400)
-        await db.facebook_oauth_states.delete_one({"state": state})
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        app_id = (s.get("facebook_app_id") or "").strip()
-        app_secret = (s.get("facebook_app_secret") or "").strip()
-        if not app_id or not app_secret:
-            return HTMLResponse(_render_html(False, "App ID/Secret perdus."), 500)
-        # Step 1: exchange code for short-lived user token
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
-            r = await cli.get(FB_TOKEN_URL, params={
-                "client_id": app_id, "redirect_uri": st["redirect_uri"],
-                "client_secret": app_secret, "code": code,
-            })
-        if r.status_code != 200:
-            return HTMLResponse(_render_html(False, f"Échange code échoué : {r.text[:200]}"), 400)
-        short = r.json()
-        short_token = short.get("access_token")
-        # Step 2: exchange for long-lived (60 days)
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
-            r2 = await cli.get(FB_TOKEN_URL, params={
-                "grant_type": "fb_exchange_token",
-                "client_id": app_id, "client_secret": app_secret,
-                "fb_exchange_token": short_token,
-            })
-        long_token = short_token
-        expires_in = 0
-        if r2.status_code == 200:
-            lj = r2.json()
-            long_token = lj.get("access_token") or short_token
-            expires_in = int(lj.get("expires_in") or 0)
-        # Step 3: fetch user info
-        async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
-            ur = await cli.get(f"{FB_API_BASE}/me", params={"access_token": long_token, "fields": "id,name,email"})
-        u = ur.json() if ur.status_code == 200 else {}
-        await db.settings.update_one(
-            {"_id": "global"},
-            {"$set": {
-                "facebook_user_access_token": long_token,
-                "facebook_user_token_expires_at": (_now_dt() + timedelta(seconds=expires_in)).isoformat() if expires_in else None,
-                "facebook_user_id": u.get("id", ""),
-                "facebook_user_name": u.get("name", ""),
-                "facebook_user_email": u.get("email", ""),
-                "facebook_connected_at": _now_iso(),
-                "facebook_connected_by": st.get("user_email", ""),
-            }},
-            upsert=True,
-        )
-        return HTMLResponse(_render_html(True, f"Facebook connecté en tant que {u.get('name', 'utilisateur')}. Sélectionnez une Page maintenant."))
+        # Iter43-fix24az — defensive wrapper so unexpected errors render a
+        # friendly HTML page instead of FastAPI's bare 500.
+        try:
+            if error:
+                return HTMLResponse(_render_html(False, f"Facebook a refusé : {error} — {error_description or ''}"), 400)
+            if not code or not state:
+                return HTMLResponse(_render_html(False, "code/state requis."), 400)
+            st = await db.facebook_oauth_states.find_one({"state": state})
+            if not st:
+                return HTMLResponse(_render_html(False, "State invalide."), 400)
+            await db.facebook_oauth_states.delete_one({"state": state})
+            s = await db.settings.find_one({"_id": "global"}) or {}
+            app_id = (s.get("facebook_app_id") or "").strip()
+            app_secret = (s.get("facebook_app_secret") or "").strip()
+            if not app_id or not app_secret:
+                return HTMLResponse(_render_html(False, "App ID/Secret perdus."), 500)
+            # Step 1: exchange code for short-lived user token
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
+                r = await cli.get(FB_TOKEN_URL, params={
+                    "client_id": app_id, "redirect_uri": st["redirect_uri"],
+                    "client_secret": app_secret, "code": code,
+                })
+            if r.status_code != 200:
+                return HTMLResponse(_render_html(False, f"Échange code échoué : {r.text[:200]}"), 400)
+            short = r.json()
+            short_token = short.get("access_token")
+            if not short_token:
+                return HTMLResponse(_render_html(False, "Facebook n'a pas renvoyé d'access_token."), 400)
+            # Step 2: exchange for long-lived (60 days)
+            long_token = short_token
+            expires_in = 0
+            try:
+                async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
+                    r2 = await cli.get(FB_TOKEN_URL, params={
+                        "grant_type": "fb_exchange_token",
+                        "client_id": app_id, "client_secret": app_secret,
+                        "fb_exchange_token": short_token,
+                    })
+                if r2.status_code == 200:
+                    lj = r2.json()
+                    long_token = lj.get("access_token") or short_token
+                    expires_in = int(lj.get("expires_in") or 0)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[facebook] long-lived token exchange failed (non-fatal): %s", exc)
+            # Step 3: fetch user info (tolerate failure)
+            u: Dict[str, Any] = {}
+            try:
+                async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
+                    ur = await cli.get(f"{FB_API_BASE}/me", params={"access_token": long_token, "fields": "id,name,email"})
+                if ur.status_code == 200:
+                    u = ur.json()
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[facebook] /me failed (non-fatal): %s", exc)
+            await db.settings.update_one(
+                {"_id": "global"},
+                {"$set": {
+                    "facebook_user_access_token": long_token,
+                    "facebook_user_token_expires_at": (_now_dt() + timedelta(seconds=expires_in)).isoformat() if expires_in else None,
+                    "facebook_user_id": u.get("id", ""),
+                    "facebook_user_name": u.get("name", ""),
+                    "facebook_user_email": u.get("email", ""),
+                    "facebook_connected_at": _now_iso(),
+                    "facebook_connected_by": st.get("user_email", ""),
+                }},
+                upsert=True,
+            )
+            return HTMLResponse(_render_html(True, f"Facebook connecté en tant que {u.get('name', 'utilisateur')}. Sélectionnez une Page maintenant."))
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[facebook] callback unexpected error")
+            return HTMLResponse(_render_html(False, f"Erreur inattendue : {str(exc)[:300]}"), 500)
 
     @api.get("/admin/facebook/pages", tags=["Admin — Facebook"])
     async def list_pages(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:

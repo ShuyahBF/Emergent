@@ -531,102 +531,135 @@ def attach_linkedin_routes(*, api, db, get_current_user, get_current_admin):
         """Handles LinkedIn's redirect. Public endpoint (LinkedIn does NOT send
         any auth header). State validation happens against our DB. On success
         we render a tiny HTML page that auto-closes the popup or redirects to
-        Admin Settings."""
-        if error:
-            return HTMLResponse(
-                _render_html(success=False, message=f"LinkedIn a refusé : {error} — {error_description or ''}"),
-                status_code=400,
-            )
-        if not code or not state:
-            return HTMLResponse(
-                _render_html(success=False, message="Paramètres `code` et `state` requis."),
-                status_code=400,
-            )
-        st = await db.linkedin_oauth_states.find_one({"state": state})
-        if not st:
-            return HTMLResponse(
-                _render_html(success=False, message="State invalide ou déjà utilisé."),
-                status_code=400,
-            )
-        # One-shot state
-        await db.linkedin_oauth_states.delete_one({"state": state})
-        # Reject states older than 15 min
-        created_at = st.get("created_at")
-        if isinstance(created_at, datetime) and (_now_dt() - created_at) > timedelta(minutes=15):
-            return HTMLResponse(
-                _render_html(success=False, message="State expiré (> 15 min). Relancez la connexion."),
-                status_code=400,
-            )
+        Admin Settings.
 
-        s = await _load_settings(db)
-        cid = (s.get("linkedin_client_id") or "").strip()
-        csec = (s.get("linkedin_client_secret") or "").strip()
-        if not cid or not csec:
+        Iter43-fix24az (2026-02-26) — Wrap the whole body in a try/except so
+        that any unexpected exception (network glitch, JSON parse, LinkedIn
+        API quirk…) renders a friendly HTML page instead of FastAPI's bare
+        "Internal Server Error". The previous version surfaced raw 500s when
+        e.g. /v2/userinfo timed out, which the user encountered in production.
+        """
+        try:
+            if error:
+                return HTMLResponse(
+                    _render_html(success=False, message=f"LinkedIn a refusé : {error} — {error_description or ''}"),
+                    status_code=400,
+                )
+            if not code or not state:
+                return HTMLResponse(
+                    _render_html(success=False, message="Paramètres `code` et `state` requis."),
+                    status_code=400,
+                )
+            st = await db.linkedin_oauth_states.find_one({"state": state})
+            if not st:
+                return HTMLResponse(
+                    _render_html(success=False, message="State invalide ou déjà utilisé."),
+                    status_code=400,
+                )
+            # One-shot state
+            await db.linkedin_oauth_states.delete_one({"state": state})
+            # Reject states older than 15 min
+            created_at = st.get("created_at")
+            if isinstance(created_at, datetime) and (_now_dt() - created_at) > timedelta(minutes=15):
+                return HTMLResponse(
+                    _render_html(success=False, message="State expiré (> 15 min). Relancez la connexion."),
+                    status_code=400,
+                )
+
+            s = await _load_settings(db)
+            cid = (s.get("linkedin_client_id") or "").strip()
+            csec = (s.get("linkedin_client_secret") or "").strip()
+            if not cid or not csec:
+                return HTMLResponse(
+                    _render_html(success=False, message="Config LinkedIn perdue côté serveur."),
+                    status_code=500,
+                )
+
+            try:
+                tok = await _exchange_code(cid, csec, code, st.get("redirect_uri"))
+            except HTTPException as exc:
+                return HTMLResponse(
+                    _render_html(success=False, message=str(exc.detail)),
+                    status_code=exc.status_code,
+                )
+
+            access = tok.get("access_token")
+            if not access:
+                return HTMLResponse(
+                    _render_html(success=False, message="LinkedIn n'a pas renvoyé d'access_token."),
+                    status_code=400,
+                )
+            expires_in = int(tok.get("expires_in") or 0)
+            refresh = tok.get("refresh_token")
+            refresh_expires_in = int(tok.get("refresh_token_expires_in") or 0)
+            scope_str = tok.get("scope") or ""
+            scopes = scope_str.split() if scope_str else []
+            token_expires_at = _now_dt() + timedelta(seconds=expires_in) if expires_in else None
+            refresh_expires_at = _now_dt() + timedelta(seconds=refresh_expires_in) if refresh_expires_in else None
+
+            # Fetch profile via /v2/userinfo (works with openid+profile+email).
+            # Tolerate ANY failure here — the access token is already valid
+            # and the connection should not be aborted just because the
+            # profile endpoint hiccupped.
+            ui: Dict[str, Any] = {}
+            try:
+                ui = await _userinfo(access)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[linkedin] /v2/userinfo failed (non-fatal): %s", exc)
+            sub = ui.get("sub") or ""
+            member_urn = f"urn:li:person:{sub}" if sub else ""
+            raw_name = ui.get("name")
+            given_family = (ui.get("given_name") or "") + " " + (ui.get("family_name") or "")
+            member_name = (raw_name or given_family).strip()
+            member_picture = ui.get("picture") or ""
+            member_email = ui.get("email") or ""
+
+            # Discover organizations the connected user can post for
+            try:
+                orgs = await _list_admin_organizations(access)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[linkedin] org listing failed (non-fatal): %s", exc)
+                orgs = []
+
+            await db.settings.update_one(
+                {"_id": "global"},
+                {"$set": {
+                    "linkedin_access_token": access,
+                    "linkedin_token_expires_at": token_expires_at.isoformat() if token_expires_at else None,
+                    "linkedin_refresh_token": refresh,
+                    "linkedin_refresh_expires_at": refresh_expires_at.isoformat() if refresh_expires_at else None,
+                    "linkedin_scopes": scopes,
+                    "linkedin_member_urn": member_urn,
+                    "linkedin_member_name": member_name,
+                    "linkedin_member_picture": member_picture,
+                    "linkedin_member_email": member_email,
+                    "linkedin_organizations": orgs,
+                    "linkedin_connected_at": _now_iso(),
+                    "linkedin_connected_by": st.get("user_email") or "",
+                }},
+                upsert=True,
+            )
+            logger.info(
+                "[linkedin] OAuth success — member=%s orgs=%d scopes=%s",
+                member_urn or "(unknown)", len(orgs), scopes,
+            )
+            display_name = member_name or member_urn or "(profil indéterminé)"
             return HTMLResponse(
-                _render_html(success=False, message="Config LinkedIn perdue côté serveur."),
+                _render_html(
+                    success=True,
+                    message=f"LinkedIn connecté avec succès en tant que « {display_name} »."
+                            f" {len(orgs)} organisation(s) gérée(s) détectée(s).",
+                )
+            )
+        except Exception as exc:  # noqa: BLE001 — final safety net
+            logger.exception("[linkedin] callback unexpected error")
+            return HTMLResponse(
+                _render_html(
+                    success=False,
+                    message=f"Erreur inattendue durant la callback LinkedIn : {str(exc)[:300]}",
+                ),
                 status_code=500,
             )
-
-        try:
-            tok = await _exchange_code(cid, csec, code, st.get("redirect_uri"))
-        except HTTPException as exc:
-            return HTMLResponse(
-                _render_html(success=False, message=exc.detail),
-                status_code=exc.status_code,
-            )
-
-        access = tok.get("access_token")
-        expires_in = int(tok.get("expires_in") or 0)
-        refresh = tok.get("refresh_token")
-        refresh_expires_in = int(tok.get("refresh_token_expires_in") or 0)
-        scope_str = tok.get("scope") or ""
-        scopes = scope_str.split() if scope_str else []
-        token_expires_at = _now_dt() + timedelta(seconds=expires_in) if expires_in else None
-        refresh_expires_at = _now_dt() + timedelta(seconds=refresh_expires_in) if refresh_expires_in else None
-
-        # Fetch profile via /v2/userinfo (works with openid+profile+email)
-        try:
-            ui = await _userinfo(access)
-        except HTTPException:
-            ui = {}
-        sub = ui.get("sub") or ""
-        member_urn = f"urn:li:person:{sub}" if sub else ""
-        member_name = ui.get("name") or (ui.get("given_name", "") + " " + ui.get("family_name", "")).strip()
-        member_picture = ui.get("picture") or ""
-        member_email = ui.get("email") or ""
-
-        # Discover organizations the connected user can post for
-        orgs = await _list_admin_organizations(access)
-
-        await db.settings.update_one(
-            {"_id": "global"},
-            {"$set": {
-                "linkedin_access_token": access,
-                "linkedin_token_expires_at": token_expires_at.isoformat() if token_expires_at else None,
-                "linkedin_refresh_token": refresh,
-                "linkedin_refresh_expires_at": refresh_expires_at.isoformat() if refresh_expires_at else None,
-                "linkedin_scopes": scopes,
-                "linkedin_member_urn": member_urn,
-                "linkedin_member_name": member_name.strip(),
-                "linkedin_member_picture": member_picture,
-                "linkedin_member_email": member_email,
-                "linkedin_organizations": orgs,
-                "linkedin_connected_at": _now_iso(),
-                "linkedin_connected_by": st.get("user_email") or "",
-            }},
-            upsert=True,
-        )
-        logger.info(
-            "[linkedin] OAuth success — member=%s orgs=%d scopes=%s",
-            member_urn, len(orgs), scopes,
-        )
-        return HTMLResponse(
-            _render_html(
-                success=True,
-                message=f"LinkedIn connecté avec succès en tant que « {member_name or member_urn} »."
-                        f" {len(orgs)} organisation(s) gérée(s) détectée(s).",
-            )
-        )
 
     @api.get("/linkedin/status", tags=["LinkedIn"])
     async def linkedin_status(_: dict = Depends(get_current_user)) -> Dict[str, Any]:

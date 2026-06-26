@@ -9,6 +9,23 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## Iter43-fix24al + 24am (2026-06-17) — !garde footer/image + Code produit VIDAL ✅
+
+### 24al — WhatsApp `!garde` : footer + URL site + image capture (avant `/garde` interrompu pour urgence)
+- **Backend** : `_build_garde_reply` lit `garde_reply_footer` + `garde_reply_site_url` depuis settings (fallback : footer hardcodé + `https://sawalismartsystems.com`). URL site **toujours** ajoutée en fin de message texte sous forme `🌐 {url}/garde`.
+- **Nouveau helper** `_wa_send_image` dans `liluvine_wa_autoreply.py` : envoie un 2ème message WhatsApp type=image après le texte. Accepte URL HTTPS (direct via Meta) OU data URI base64 (uploadé d'abord à Meta `/media` pour obtenir un `media_id`). Dispatch automatique pour `!garde` si `garde_reply_image_url` est configurée.
+- **Settings persistés** (4 nouveaux champs dans `SettingsUpdate`) : `garde_reply_footer`, `garde_reply_site_url`, `garde_reply_image_url`, `garde_reply_image_caption`.
+- **Frontend** : `GardeReplyTemplateSection.jsx` étendu avec 4 nouveaux champs éditables (textarea footer, input site URL, file upload pour image, input caption) + aperçu image dans le panneau de preview + bouton « Défauts » qui réinitialise tout (haut + bas + body + footer + URL + image).
+- **Tests** : 7 nouveaux pytest dans `test_iter43_fix24al_wa_garde_footer_image.py` (helper exists, validation src image, no-op si WA non configuré, settings round-trip, build_garde_reply utilise les valeurs admin).
+
+### 24am — Code produit VIDAL affiché entre parenthèses dans la recherche (URGENCE)
+- **Bug** : Dans le tableau de résultats de la recherche VIDAL, le code produit ne s'affichait pas correctement — le parser lisait `<id>` Atom (qui contient un URN type `vidal://product/5485`), pas `<vidal:id>5485</vidal:id>` (vrai code produit namespacé).
+- **Fix `_parseAtomEntries` dans `Vidal.jsx`** : utilise `getElementsByTagName("vidal:id")` (qui préserve les préfixes XML namespacés) pour lire le vrai code. Fallback : extrait les digits depuis l'URN `<id>` (`/5485` → `5485`). Expose un nouveau champ `vidal_id` séparé sur chaque entrée.
+- **Affichage** : `ResultTable` ET `AtomFeedViewer` affichent désormais le code entre parenthèses à droite du titre : « DOLIPRANE 100 mg pdre p sol buv en sachet-dose **(5485)** ».
+- **Tests Jest** : 4 tests passent dans `__tests__/vidalAtomParser.test.js` (extrait vidal:id, fallback URN, malformed XML, empty feed).
+
+
+
 ## Iter43-fix24ak (2026-06-17) — Page publique /garde corrigée + CMS configurable ✅
 
 **Bug** : `https://sawalismartsystems.com/garde` retournait toujours 0 officine alors que la commande WhatsApp `!garde` retournait la bonne liste.

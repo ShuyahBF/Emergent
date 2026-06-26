@@ -17,6 +17,11 @@ const DEFAULT_HEADER =
 const DEFAULT_BODY =
   "• *{name}*\n  📍 {location_hint} {city}\n  📞 [phone]\n  📍 [latitude,longitude]";
 
+// Iter43-fix24al (2026-06-17) — Default footer & site URL fallbacks.
+const DEFAULT_FOOTER =
+  "💚 _Prompt rétablissement et bonne santé !_\n_— Liluvine PRO 🤖_";
+const DEFAULT_SITE_URL = "https://sawalismartsystems.com";
+
 const SAMPLE_OFFICINE = {
   name: "Pharmacie WEND DENDA",
   intitule: "Pharmacie WEND DENDA",
@@ -109,6 +114,11 @@ const FIELD_DOCS = [
 export default function GardeReplyTemplateSection() {
   const [header, setHeader] = useState("");
   const [body, setBody] = useState("");
+  // Iter43-fix24al — Footer + site URL + image capture
+  const [footer, setFooter] = useState("");
+  const [siteUrl, setSiteUrl] = useState("");
+  const [imageUrl, setImageUrl] = useState("");
+  const [imageCaption, setImageCaption] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
 
@@ -118,6 +128,10 @@ export default function GardeReplyTemplateSection() {
       const r = await apiClient.get("/admin/settings");
       setHeader(r.data?.garde_reply_header || "");
       setBody(r.data?.garde_reply_template || "");
+      setFooter(r.data?.garde_reply_footer || "");
+      setSiteUrl(r.data?.garde_reply_site_url || "");
+      setImageUrl(r.data?.garde_reply_image_url || "");
+      setImageCaption(r.data?.garde_reply_image_caption || "");
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur chargement template !garde");
     } finally {
@@ -135,6 +149,10 @@ export default function GardeReplyTemplateSection() {
       await apiClient.put("/admin/settings", {
         garde_reply_header: header || "",
         garde_reply_template: body || "",
+        garde_reply_footer: footer || "",
+        garde_reply_site_url: siteUrl || "",
+        garde_reply_image_url: imageUrl || "",
+        garde_reply_image_caption: imageCaption || "",
       });
       toast.success("Template !garde enregistré");
     } catch (err) {
@@ -148,6 +166,28 @@ export default function GardeReplyTemplateSection() {
     if (!window.confirm("Réinitialiser le template !garde aux valeurs par défaut ?")) return;
     setHeader(DEFAULT_HEADER);
     setBody(DEFAULT_BODY);
+    setFooter(DEFAULT_FOOTER);
+    setSiteUrl(DEFAULT_SITE_URL);
+    setImageUrl("");
+    setImageCaption("");
+  };
+
+  const onPickImage = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.size > 2_000_000) {
+      toast.error("Fichier trop volumineux (max 2 Mo)");
+      e.target.value = "";
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      setImageUrl(String(ev.target?.result || ""));
+      toast.success(`Image chargée (${(file.size / 1024).toFixed(0)} Ko)`);
+    };
+    reader.onerror = () => toast.error("Erreur de lecture du fichier");
+    reader.readAsDataURL(file);
+    e.target.value = "";
   };
 
   const previewHeader = useMemo(
@@ -158,7 +198,12 @@ export default function GardeReplyTemplateSection() {
     () => renderBody(body || DEFAULT_BODY, SAMPLE_OFFICINE),
     [body],
   );
-  const fullPreview = `${previewHeader}\n\n${previewBody}`;
+  const previewFooter = useMemo(
+    () => renderHeader(footer || DEFAULT_FOOTER, SAMPLE_HEADER_CTX),
+    [footer],
+  );
+  const previewSite = siteUrl || DEFAULT_SITE_URL;
+  const fullPreview = `${previewHeader}\n\n${previewBody}${previewFooter ? `\n\n${previewFooter}` : ""}\n\n🌐 ${previewSite}/garde`;
 
   if (loading) return <p className="text-sm text-slate-500 italic">Chargement…</p>;
 
@@ -213,6 +258,75 @@ export default function GardeReplyTemplateSection() {
               data-testid="garde-reply-body-input"
             />
           </div>
+          {/* Iter43-fix24al — Footer + site URL + image capture */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Bas (footer) — placeholders {`{week}`} {`{monday}`} {`{sunday}`} {`{gg}`} {`{count}`} {`{plural}`}
+            </label>
+            <textarea
+              value={footer}
+              onChange={(e) => setFooter(e.target.value)}
+              placeholder={DEFAULT_FOOTER}
+              rows={2}
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none font-mono text-xs"
+              data-testid="garde-reply-footer-input"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              URL du site (toujours envoyée en fin de message — &quot;/garde&quot; est ajouté)
+            </label>
+            <input
+              type="text"
+              value={siteUrl}
+              onChange={(e) => setSiteUrl(e.target.value)}
+              placeholder={DEFAULT_SITE_URL}
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none text-xs font-mono"
+              data-testid="garde-reply-site-url-input"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Image &quot;capture&quot; (envoyée en deuxième message WhatsApp après le texte)
+            </label>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                type="text"
+                value={imageUrl}
+                onChange={(e) => setImageUrl(e.target.value)}
+                placeholder="https://… (HTTPS uniquement) ou colle une URL"
+                className="flex-1 px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none text-xs font-mono"
+                data-testid="garde-reply-image-url-input"
+              />
+              <label className="inline-flex items-center justify-center gap-1 px-3 py-2 rounded-lg ring-1 ring-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100 cursor-pointer text-xs font-semibold">
+                📷 Téléverser
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={onPickImage}
+                  className="hidden"
+                  data-testid="garde-reply-image-file"
+                />
+              </label>
+            </div>
+            <p className="text-[10px] text-slate-500 italic mt-1">
+              Max 2 Mo. Si data URI, l&apos;image est uploadée vers Meta Graph
+              avant l&apos;envoi (1 appel API en plus).
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Légende sous l&apos;image WhatsApp (facultative, max 1024 car.)
+            </label>
+            <input
+              type="text"
+              value={imageCaption}
+              onChange={(e) => setImageCaption(e.target.value)}
+              placeholder="ex : Cliquez ici pour découvrir nos services"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 focus:ring-2 focus:ring-emerald-400 outline-none text-sm"
+              data-testid="garde-reply-image-caption-input"
+            />
+          </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -259,6 +373,23 @@ export default function GardeReplyTemplateSection() {
           >
             {fullPreview}
           </pre>
+          {imageUrl && (
+            <div className="mt-2 rounded-lg ring-1 ring-emerald-200 bg-white p-2 text-center">
+              <p className="text-[10px] font-semibold text-slate-600 mb-1">
+                📷 2ème message WhatsApp (image)
+              </p>
+              <img
+                src={imageUrl}
+                alt={imageCaption || "Aperçu de l'image envoyée"}
+                className="mx-auto max-h-40 rounded ring-1 ring-slate-200"
+                onError={(e) => { e.currentTarget.style.opacity = "0.3"; }}
+                data-testid="garde-reply-image-preview"
+              />
+              {imageCaption && (
+                <p className="mt-1 text-[10px] text-slate-500 italic">{imageCaption}</p>
+              )}
+            </div>
+          )}
           <p className="text-[10px] text-slate-500 italic mt-1">
             WhatsApp transforme automatiquement les numéros en boutons tappables et les URLs
             en aperçus. <code>*texte*</code> est affiché en <strong>gras</strong>,{" "}

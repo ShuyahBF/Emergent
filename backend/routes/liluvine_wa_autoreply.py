@@ -313,6 +313,27 @@ async def autoreply_to_inbound(
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[wa_autoreply][cmd] send failed: %s", exc)
                 send_pc = {"ok": False, "error": str(exc)}
+            # Iter43-fix24al — Pour !garde, envoie aussi l'image "capture" configurée
+            # via Admin Settings (`settings.garde_reply_image_url`) avec sa légende.
+            # No-op silencieux si non configurée.
+            if cmd_label == "!garde":
+                try:
+                    s_garde = await db.settings.find_one(
+                        {"_id": "global"},
+                        {"_id": 0, "garde_reply_image_url": 1,
+                         "garde_reply_image_caption": 1},
+                    ) or {}
+                    img_url = s_garde.get("garde_reply_image_url") or ""
+                    if img_url:
+                        img_res = await _wa_send_image(
+                            to_e164_pc,
+                            img_url,
+                            caption=s_garde.get("garde_reply_image_caption") or None,
+                            db_ref=db,
+                        )
+                        logger.info("[wa_autoreply][!garde] image sent: %s", img_res)
+                except Exception:  # noqa: BLE001
+                    logger.exception("[wa_autoreply][!garde] image send failed")
             # Iter43-fix24j — Pour !adresse avec lat/lon configurés, envoie aussi
             # une "carte" WhatsApp type=location (UX native : preview map cliquable).
             if location_payload is not None:
@@ -738,13 +759,16 @@ async def _build_garde_reply(db) -> str:
         sunday = date.fromisocalendar(year, week, 7).strftime("%d/%m")
     except ValueError:
         monday, sunday = "?", "?"
-    # Lookup template configurable
+    # Lookup template configurable + CMS footer/site link (Iter43-fix24al)
     s = await db.settings.find_one(
         {"_id": "global"},
-        {"_id": 0, "garde_reply_template": 1, "garde_reply_header": 1},
+        {"_id": 0, "garde_reply_header": 1, "garde_reply_template": 1,
+         "garde_reply_footer": 1, "garde_reply_site_url": 1},
     ) or {}
     template = s.get("garde_reply_template") or DEFAULT_GARDE_REPLY_TEMPLATE
     header_tpl = s.get("garde_reply_header") or DEFAULT_GARDE_REPLY_HEADER
+    footer_tpl = s.get("garde_reply_footer") or DEFAULT_GARDE_REPLY_FOOTER
+    site_url = s.get("garde_reply_site_url") or "https://sawalismartsystems.com"
     header = _render_garde_header(header_tpl, week=week, year=year, monday=monday,
                                   sunday=sunday, gg=gg, count=len(officines))
     lines = [header, ""]
@@ -757,8 +781,15 @@ async def _build_garde_reply(db) -> str:
                 lines.append(rendered)
         if len(officines) > 25:
             lines.append(f"\n_…et {len(officines) - 25} autre(s) — liste complète sur le site_")
-    lines.append("\n💚 _Prompt rétablissement et bonne santé !_")
-    lines.append("\n_— Liluvine PRO 🤖_")
+    # Iter43-fix24al — Configurable footer (replaces hardcoded "Prompt rétablissement").
+    # Also ALWAYS include the site link so contacts can navigate to /garde.
+    footer = _render_garde_header(footer_tpl, week=week, year=year, monday=monday,
+                                   sunday=sunday, gg=gg, count=len(officines))
+    if footer.strip():
+        lines.append("")
+        lines.append(footer)
+    lines.append("")
+    lines.append(f"🌐 {site_url}/garde")
     return "\n".join(lines)
 
 
@@ -778,6 +809,13 @@ DEFAULT_GARDE_REPLY_TEMPLATE = (
     "  📍 {location_hint} {city}\n"
     "  📞 [phone]\n"
     "  📍 [latitude,longitude]"
+)
+
+# Iter43-fix24al (2026-06-17) — Default footer (used when admin hasn't
+# configured `settings.garde_reply_footer`).
+DEFAULT_GARDE_REPLY_FOOTER = (
+    "💚 _Prompt rétablissement et bonne santé !_\n"
+    "_— Liluvine PRO 🤖_"
 )
 
 
@@ -1041,6 +1079,104 @@ async def _wa_send_location(
     url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/messages"
     try:
         async with httpx.AsyncClient(timeout=12) as http:
+            r = await http.post(
+                url, json=body,
+                headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},
+            )
+            try:
+                raw = r.json()
+            except Exception:
+                raw = {"text": r.text[:500]}
+            if r.status_code < 300:
+                mid = (raw.get("messages") or [{}])[0].get("id") if isinstance(raw, dict) else None
+                return {"ok": True, "message_id": mid, "raw": raw}
+            return {"ok": False, "error": str(raw)[:300], "status": r.status_code, "raw": raw}
+    except Exception as exc:  # noqa: BLE001
+        return {"ok": False, "error": str(exc)[:300]}
+
+
+# ====================================================================
+# Iter43-fix24al (2026-06-17) — `_wa_send_image` helper used by `!garde`
+# to send the optional "click-here" capture image as a 2nd WA message.
+#
+# Accepts either an HTTPS URL (preferred — Meta downloads it) OR a
+# data:image/...;base64,... URI (we strip the prefix and POST the bytes
+# to /media first to get a media_id, then send by media_id).
+# ====================================================================
+async def _wa_send_image(
+    to_e164: str,
+    image_src: str,
+    *,
+    caption: Optional[str] = None,
+    settings_doc: Optional[Dict[str, Any]] = None,
+    db_ref=None,
+) -> Dict[str, Any]:
+    """Send a WhatsApp `image` message.
+
+    Returns {"ok": bool, "message_id"?: str, "error"?: str}.
+    Silently no-ops (returns ok=False) when WhatsApp is not configured —
+    callers should not crash on this.
+    """
+    s = settings_doc
+    if s is None and db_ref is not None:
+        s = await db_ref.settings.find_one({"_id": "global"}) or {}
+    s = s or {}
+    access_token = s.get("wa_access_token")
+    phone_number_id = s.get("wa_phone_number_id")
+    wa_graph_version = s.get("wa_graph_version") or "v22.0"
+    if not access_token or not phone_number_id:
+        return {"ok": False, "error": "WhatsApp non configuré"}
+    to_clean = "".join(ch for ch in (to_e164 or "") if ch.isdigit())
+    if len(to_clean) < 6:
+        return {"ok": False, "error": f"Numéro invalide « {to_e164} »"}
+    if not image_src:
+        return {"ok": False, "error": "image_src vide"}
+
+    image_block: Dict[str, Any] = {}
+    # data: URI → upload first to /media
+    if image_src.startswith("data:image/"):
+        try:
+            import base64 as _b64
+            header_part, b64_part = image_src.split(",", 1)
+            mime = header_part.split(";")[0][5:]  # "image/png"
+            blob = _b64.b64decode(b64_part)
+            upload_url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/media"
+            async with httpx.AsyncClient(timeout=20) as http:
+                files = {"file": ("garde.png", blob, mime)}
+                data = {"messaging_product": "whatsapp", "type": mime}
+                ru = await http.post(
+                    upload_url, headers={"Authorization": f"Bearer {access_token}"},
+                    files=files, data=data,
+                )
+                try:
+                    ru_json = ru.json()
+                except Exception:
+                    ru_json = {"text": ru.text[:500]}
+                if ru.status_code >= 300:
+                    return {"ok": False, "error": f"media upload failed: {ru_json}", "status": ru.status_code}
+                media_id = ru_json.get("id")
+                if not media_id:
+                    return {"ok": False, "error": f"media upload: no id in {ru_json}"}
+                image_block = {"id": media_id}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "error": f"data URI parse failed: {exc}"}
+    elif image_src.startswith("http://") or image_src.startswith("https://"):
+        image_block = {"link": image_src}
+    else:
+        return {"ok": False, "error": "image_src must be http(s):// or data:image/...;base64,..."}
+
+    if caption:
+        image_block["caption"] = str(caption)[:1024]
+
+    body = {
+        "messaging_product": "whatsapp",
+        "to": to_clean,
+        "type": "image",
+        "image": image_block,
+    }
+    url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/messages"
+    try:
+        async with httpx.AsyncClient(timeout=15) as http:
             r = await http.post(
                 url, json=body,
                 headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"},

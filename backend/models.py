@@ -1028,6 +1028,16 @@ class SettingsUpdate(BaseModel):
     # par \n\n (auto-géré). Voir `_render_garde_officine` dans liluvine_wa_autoreply.
     garde_reply_header: Optional[str] = None
     garde_reply_template: Optional[str] = None
+    # Iter43-fix24al (2026-06-17) — Footer + URL site + image capture pour !garde WA.
+    # `garde_reply_footer` : texte affiché en bas (avant le lien site).
+    # `garde_reply_site_url` : URL toujours envoyée à la fin du message texte.
+    # `garde_reply_image_url` : URL HTTPS ou data:image/...;base64 — envoyée en
+    #                            deuxième message WhatsApp (type=image).
+    # `garde_reply_image_caption` : Légende sous l'image envoyée.
+    garde_reply_footer: Optional[str] = None
+    garde_reply_site_url: Optional[str] = None
+    garde_reply_image_url: Optional[str] = None
+    garde_reply_image_caption: Optional[str] = None
 
     # Iter43-fix24ak (2026-06-17) — Personnalisation de la page publique /garde.
     # `garde_page_header` : texte affiché en haut (ex: "Joyeux Noël !").

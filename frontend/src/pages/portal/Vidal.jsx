@@ -54,9 +54,22 @@ function _parseAtomEntries(xmlText) {
         const el = node.querySelector(tag);
         return el ? (el.textContent || "").trim() : "";
       };
+      // Iter43-fix24am (2026-06-17) — Le vrai code produit VIDAL est dans
+      // l'élément namespacé `<vidal:id>5485</vidal:id>`, pas dans le
+      // `<id>` Atom (qui contient typiquement un URN long type
+      // `vidal://product/5485`). On lit donc `vidal:id` explicitement via
+      // `getElementsByTagName` (qui préserve les préfixes XML namespacés).
+      const vidalIdNode = node.getElementsByTagName("vidal:id")[0];
+      const vidalId = vidalIdNode ? (vidalIdNode.textContent || "").trim() : "";
+      // Fallback : extraire `5485` depuis un URN type `vidal://product/5485`
+      // ou similaire, pour les entrées sans `<vidal:id>`.
+      const atomId = get("id");
+      const idFromUrn = atomId.match(/(\d+)\s*$/);
+      const id = vidalId || (idFromUrn ? idFromUrn[1] : atomId);
       return {
         title: get("title") || get("name") || "(sans nom)",
-        id: get("id") || get("vidalId"),
+        id,
+        vidal_id: vidalId || id,  // separate field for callers that strictly want vidal:id
         type: get("type") || get("objectType") || "-",
         summary: get("summary") || get("description") || "",
         updated: get("updated") || "",
@@ -443,10 +456,21 @@ function AtomFeedViewer({ entries, raw, requestMeta }) {
               <tbody>
                 {filtered.slice(0, 200).map((e, i) => {
                   const info = _entryDisplayInfo(e);
+                  // Iter43-fix24am (2026-06-17) — `vidal_id` (depuis `<vidal:id>`)
+                  // est le vrai code produit ; on l'affiche entre parenthèses
+                  // à droite du titre.
+                  const code = e.vidal_id || e.id || "";
                   return (
                     <tr key={i} className="border-t border-slate-100 hover:bg-emerald-50/40 transition-colors">
-                      <td className="px-2 py-1.5 font-semibold">{e.title || "—"}</td>
-                      <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{e.id || "?"}</td>
+                      <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-atom-row-${i}-title`}>
+                        {e.title || "—"}
+                        {code && (
+                          <span className="ml-1 font-mono text-slate-500 font-normal" data-testid={`vidal-atom-row-${i}-id-paren`}>
+                            ({code})
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 font-mono text-[10px] text-slate-500">{code || "?"}</td>
                       <td className="px-2 py-1.5 text-slate-500">
                         <span className="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 text-[10px]">{info.category || "—"}</span>
                       </td>
@@ -601,12 +625,22 @@ function ResultTable({ data, onPick }) {
       </thead>
       <tbody>
         {entries.map((e, i) => {
-          const id = e?.id || e?.vidal_id || e?.product_id || e?.idVidal;
+          // Iter43-fix24am (2026-06-17) — Priorise `vidal_id` (vidal:id namespacé)
+          // sur les autres clés. Affiche le code entre parenthèses à droite du nom :
+          // « DOLIPRANE 100 mg pdre p sol buv en sachet-dose (5485) ».
+          const id = e?.vidal_id || e?.id || e?.product_id || e?.idVidal;
           const title = e?.title || e?.name || e?.label || "(sans nom)";
           const type = e?.type || e?.objectType || "-";
           return (
             <tr key={i} className="border-t border-slate-100 hover:bg-fuchsia-50">
-              <td className="px-2 py-1.5 font-semibold">{title}</td>
+              <td className="px-2 py-1.5 font-semibold" data-testid={`vidal-row-${i}-name`}>
+                {title}
+                {id && (
+                  <span className="ml-1 font-mono text-slate-500 font-normal" data-testid={`vidal-row-${i}-id-paren`}>
+                    ({id})
+                  </span>
+                )}
+              </td>
               <td className="px-2 py-1.5 font-mono text-slate-500">{id || "?"}</td>
               <td className="px-2 py-1.5 text-slate-500">{type}</td>
               <td className="px-2 py-1.5 text-right">

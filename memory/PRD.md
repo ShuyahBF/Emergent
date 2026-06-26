@@ -8,6 +8,45 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. Chaque délégué ne verrait que ses propres officines. Permet une organisation multi-régions. _[suggéré 2026-06-16, en attente]_
 
 
+## Iter43-fix24ar (2026-02-26) — Diagnostic Webhook Meta + Simulateur Pipeline ✅
+
+**Problème critique reporté** :
+- Diagnostic souscription Webhook Meta retournait « subscribed_apps exception: » SANS détail
+  → Admin ne pouvait pas savoir si le token était expiré, si Meta était down, etc.
+- Messages WA entrants de certains utilisateurs ne sont plus reçus
+- Pour ceux reçus, l'AI Liluvine répond mais le message n'apparaît pas dans le centre
+
+**Diagnostic amélioré (`GET /api/admin/whatsapp/webhook-subscription`)** :
+- **Token probe préalable** : appelle d'abord `GET /me` (cheap, ne lit pas le WABA) pour
+  détecter immédiatement un token expiré/invalide (code 190). Court-circuite avec un message
+  actionnable : « 🔑 Régénérez un System User Token permanent dans Meta Business Manager ».
+- **Capture complète** : retourne maintenant `token_probe.ok`, `http_status`,
+  `raw_response_preview`, `error_type` pour permettre à l'admin de diagnostiquer SANS accès
+  serveur. JAMAIS de message vide « subscribed_apps exception: ».
+- **Bouton « Re-souscrire » désactivé** si le token est invalide (avec tooltip explicatif).
+
+**Nouveau simulateur de pipeline (`POST /api/admin/whatsapp/simulate-inbound`)** :
+- Synthétise un payload Meta inbound JSON valide et le route à travers le VRAI handler
+  `whatsapp_webhook_incoming`.
+- Permet de vérifier que le pipeline `webhook → whatsapp_messages → inbox → notifications`
+  fonctionne SANS dépendre de Meta.
+- Retourne `inserted` (msg id, client_id), `webhook_log` (compteurs + erreurs), `ai_reply`
+  (réponse Liluvine si autoreply ON), `hint` (conseil de debug).
+- **UI Admin Settings** : nouveau panneau **`WaSimulateInboundPanel`** sous le diagnostic
+  (form: numéro + message + bouton « ▶️ Simuler »).
+
+**Tests** : 8 nouveaux pytest (`test_iter43_fix24ar_webhook_diag.py` + `_simulate_inbound.py`)
+  couvrant : token 190, exception réseau typée, 0 apps, config manquante, réponse non-JSON,
+  persistance du message simulé, retour du diagnostic, validation E.164.
+
+**Action utilisateur attendue** :
+1. Cliquer sur « Vérifier la souscription » → voir le `token_probe`
+2. Si rouge : régénérer un System User Token dans Meta Business Manager, le re-coller
+3. Cliquer sur « Re-souscrire le webhook »
+4. Cliquer sur « ▶️ Simuler » pour valider le pipeline interne
+
+
+
 
 ## Iter43-fix24aq (2026-06-17) — 3 bugs VIDAL/WhatsApp corrigés ✅
 

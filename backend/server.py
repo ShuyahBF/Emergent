@@ -17797,30 +17797,88 @@ async def admin_wa_webhook_subscription(_: dict = Depends(get_current_admin)):
         "subscribed_apps": [],
         "messages_subscribed": False,
         "message": None,
+        # Iter43-fix24ar (2026-02) — Token health probe (debug-info shown in UI
+        # whenever `subscribed_apps` fails so the admin can self-diagnose
+        # WITHOUT needing server logs).
+        "token_probe": None,
     }
+    # ----- 1) Probe the token first via /me (cheap, always returns) -----
+    try:
+        async with httpx.AsyncClient(timeout=8) as http:
+            r0 = await http.get(
+                f"https://graph.facebook.com/{WA_GRAPH_VERSION}/me",
+                headers={"Authorization": f"Bearer {access_token}"},
+            )
+            try:
+                me_json = r0.json()
+            except Exception:  # noqa: BLE001
+                me_json = {"_raw_text": (r0.text or "")[:300]}
+            out["token_probe"] = {
+                "status": r0.status_code,
+                "ok": r0.status_code < 300,
+                "id": me_json.get("id") if isinstance(me_json, dict) else None,
+                "name": me_json.get("name") if isinstance(me_json, dict) else None,
+                "error": (
+                    ((me_json or {}).get("error") or {}).get("message")
+                    if isinstance(me_json, dict) else None
+                ),
+                "error_code": (
+                    ((me_json or {}).get("error") or {}).get("code")
+                    if isinstance(me_json, dict) else None
+                ),
+            }
+            if r0.status_code >= 300:
+                # Surface a clear "token expired/revoked" message early so the
+                # admin knows to refresh the System User token before clicking
+                # « Re-souscrire » (which would also fail with the same cause).
+                err_obj = (me_json or {}).get("error") if isinstance(me_json, dict) else {}
+                err_code = (err_obj or {}).get("code")
+                # 190 = OAuthException token expired/invalid
+                if err_code == 190:
+                    out["message"] = (
+                        "🔑 *Token Meta expiré ou invalide* (code 190). "
+                        "Régénérez un System User Token permanent dans "
+                        "Meta Business Manager → Paramètres business → Utilisateurs système "
+                        "→ Générer un nouveau token, puis collez-le dans Admin Settings → WhatsApp."
+                    )
+                    out["error_code"] = err_code
+                    out["error_type"] = (err_obj or {}).get("type") or "OAuthException"
+                    return out
+    except Exception as exc:  # noqa: BLE001
+        out["token_probe"] = {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+        }
+
+    # ----- 2) Now the actual subscribed_apps call -----
     try:
         async with httpx.AsyncClient(timeout=10) as http:
             r = await http.get(
                 f"https://graph.facebook.com/{WA_GRAPH_VERSION}/{waba_id}/subscribed_apps",
                 headers={"Authorization": f"Bearer {access_token}"},
             )
+            # Always expose the HTTP status + raw preview so the UI can render
+            # a helpful diagnostic even when the body isn't a dict.
+            out["http_status"] = r.status_code
+            try:
+                data = r.json()
+            except Exception as je:  # noqa: BLE001
+                out["raw_response_preview"] = (r.text or "")[:500]
+                out["message"] = (
+                    f"⚠️ Réponse non-JSON de Meta ({type(je).__name__}). "
+                    f"HTTP {r.status_code}. Aperçu : "
+                    f"{(r.text or '')[:160]!r}"
+                )
+                return out
             if r.status_code >= 300:
-                err = {}
-                try:
-                    err = (r.json() or {}).get("error") or {}
-                except Exception:  # noqa: BLE001
-                    pass
+                err = (data or {}).get("error") or {} if isinstance(data, dict) else {}
                 out["message"] = err.get("message") or f"HTTP {r.status_code}"
                 out["error_code"] = err.get("code")
                 out["error_type"] = err.get("type")
+                out["raw_response_preview"] = str(data)[:500]
                 return out
-            data = r.json() or {}
-            apps = data.get("data") or []
+            apps = (data or {}).get("data") or [] if isinstance(data, dict) else []
             out["subscribed_apps"] = apps
-            # Meta peut renvoyer chaque app avec `subscribed_fields` ou pas selon
-            # le scope du token. On considère qu'au moins UNE app abonnée
-            # correspond probablement à notre app si elle est listée — la liste
-            # vide est le signal critique du bug (aucune souscription).
             has_messages = False
             for a in apps:
                 fields = a.get("subscribed_fields") or []
@@ -17845,12 +17903,14 @@ async def admin_wa_webhook_subscription(_: dict = Depends(get_current_admin)):
                 out["message"] = (
                     "❌ Aucune app abonnée à ce WABA — Meta n'enverra plus jamais "
                     "de webhook tant que vous n'aurez pas re-souscrit l'app. "
-                    "Cliquez sur « Re-souscrire le webhook » ci-dessous ou allez "
-                    "dans Meta Business Suite → WhatsApp → Configuration → "
-                    "Webhooks."
+                    "Cliquez sur « 🔁 Re-souscrire le webhook » ci-dessous."
                 )
     except Exception as exc:  # noqa: BLE001
-        out["message"] = f"subscribed_apps exception: {str(exc)[:200]}"
+        out["message"] = (
+            f"⚠️ Erreur réseau lors de l'appel Meta : "
+            f"{type(exc).__name__}: {str(exc)[:200] or '(message vide)'}"
+        )
+        out["error_type"] = type(exc).__name__
     return out
 
 
@@ -17906,7 +17966,129 @@ async def admin_wa_webhook_subscribe(_: dict = Depends(get_current_admin)):
                 ),
             }
     except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "message": f"subscribe exception: {str(exc)[:200]}"}
+        return {
+            "ok": False,
+            "message": (
+                f"⚠️ Erreur réseau : {type(exc).__name__}: "
+                f"{str(exc)[:200] or '(message vide)'}"
+            ),
+            "error_type": type(exc).__name__,
+        }
+
+
+# ============================================================================
+# Iter43-fix24ar (2026-02) — Simulate an inbound WhatsApp message END-TO-END.
+#
+# Use case : the admin wants to verify that incoming messages reach the
+# Unified Inbox + trigger AI auto-reply + show up in notifications, WITHOUT
+# depending on Meta actually calling our webhook (Meta side may be broken,
+# or we just want to debug the local pipeline in isolation).
+#
+# This endpoint synthesizes the exact JSON payload Meta would send and
+# routes it through the same `whatsapp_webhook_incoming` handler. The
+# admin gets back the inserted message id + the webhook_log id so they
+# can trace what happened.
+# ============================================================================
+class _SimulateInboundPayload(BaseModel):
+    from_phone: str = Field(..., min_length=4, max_length=30)  # E.164 (e.g. +22670112233)
+    text: str = Field(..., min_length=1, max_length=2000)
+    profile_name: Optional[str] = None
+
+
+@api.post("/admin/whatsapp/simulate-inbound", tags=["Admin"])
+async def admin_wa_simulate_inbound(
+    payload: _SimulateInboundPayload,
+    request: Request,
+    _: dict = Depends(get_current_admin),
+):
+    """Synthétise un payload Meta WhatsApp inbound et le route à travers
+    le vrai handler. Permet de valider le pipeline message_center +
+    notifications + Liluvine SANS dépendre de Meta. Renvoie un résumé
+    (msg id inséré, AI reply, etc.)."""
+    from_phone = payload.from_phone.strip().lstrip("+")
+    if not from_phone.isdigit() or len(from_phone) < 6:
+        raise HTTPException(status_code=400, detail="Format E.164 invalide (ex: +22670112233)")
+
+    sim_id = f"wamid.SIM_{uuid.uuid4().hex[:24]}"
+    ts = int(datetime.now(timezone.utc).timestamp())
+    s = await db.settings.find_one({"_id": "global"}) or {}
+    phone_number_id = (s.get("wa_phone_number_id") or "_test_pnid_").strip()
+
+    meta_payload = {
+        "object": "whatsapp_business_account",
+        "entry": [{
+            "id": (s.get("wa_business_account_id") or "_test_waba_").strip(),
+            "changes": [{
+                "field": "messages",
+                "value": {
+                    "messaging_product": "whatsapp",
+                    "metadata": {
+                        "display_phone_number": "+225 00 00 00 00",
+                        "phone_number_id": phone_number_id,
+                    },
+                    "contacts": [{
+                        "profile": {"name": (payload.profile_name or f"Sim {from_phone[-4:]}")},
+                        "wa_id": from_phone,
+                    }],
+                    "messages": [{
+                        "from": from_phone,
+                        "id": sim_id,
+                        "timestamp": str(ts),
+                        "type": "text",
+                        "text": {"body": payload.text},
+                    }],
+                },
+            }],
+        }],
+    }
+
+    # Send the payload through the SAME entrypoint Meta would call.
+    raw_bytes = json.dumps(meta_payload).encode("utf-8")
+    # Mock a minimal Request with the synthesized body.
+    sim_request = Request(scope=request.scope.copy())
+    sim_request._body = raw_bytes  # type: ignore[attr-defined]
+
+    # Call the handler directly. It returns {"ok": True} or raises.
+    try:
+        await whatsapp_webhook_incoming(sim_request)
+    except Exception as exc:  # noqa: BLE001
+        return {
+            "ok": False,
+            "stage": "handler_crash",
+            "error": f"{type(exc).__name__}: {str(exc)[:200]}",
+        }
+
+    # Read back to confirm persistence
+    inserted = await db.whatsapp_messages.find_one(
+        {"wa_message_id": sim_id},
+        {"_id": 0, "id": 1, "client_id": 1, "body": 1, "contact_id": 1, "contact_name": 1,
+         "from_profile_name": 1, "from": 1, "phone_digits": 1, "received_at": 1},
+    )
+    # Also fetch the most recent webhook log entry tied to this run
+    log_entry = await db.wa_webhook_logs.find_one(
+        {"body.entry.changes.value.messages.id": sim_id},
+        {"_id": 0, "id": 1, "extracted_messages": 1, "inserted_messages": 1, "errors": 1},
+    )
+    # Outbound AI reply (if any) - last outbound to that phone in the last 60s
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=60)).isoformat()
+    ai_reply = await db.whatsapp_messages.find_one(
+        {"phone_digits": from_phone, "direction": {"$ne": "inbound"}, "created_at": {"$gte": cutoff}},
+        {"_id": 0, "id": 1, "body": 1, "wa_message_id": 1, "auto_reply": 1, "command": 1,
+         "ai_generated": 1},
+        sort=[("created_at", -1)],
+    )
+
+    return {
+        "ok": bool(inserted),
+        "inserted": inserted,
+        "webhook_log": log_entry,
+        "ai_reply": ai_reply,
+        "hint": (
+            "Si `inserted` est null, le pipeline est cassé (consulter les logs Liluvine). "
+            "Si `inserted.client_id` ne correspond pas à votre tenant, le scope par défaut "
+            "(superviseur → admin → super-admin) doit être revu."
+        ),
+    }
 
 
 

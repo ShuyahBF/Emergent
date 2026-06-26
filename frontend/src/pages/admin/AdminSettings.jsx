@@ -6196,8 +6196,13 @@ const WaWebhookSubscriptionPanel = () => {
           {data && !data.ok && (
             <button
               onClick={resubscribe}
-              disabled={resubLoading}
-              className="text-xs px-3 py-1 rounded bg-amber-600 text-white font-semibold hover:brightness-110 disabled:opacity-50"
+              disabled={resubLoading || (data.token_probe && data.token_probe.ok === false)}
+              title={
+                data.token_probe && data.token_probe.ok === false
+                  ? "Le token Meta est invalide ou expiré : régénérez-le d'abord dans Meta Business Manager → Utilisateurs système, puis re-collez-le dans Admin Settings → WhatsApp."
+                  : "Re-souscrire l'application Meta au webhook"
+              }
+              className="text-xs px-3 py-1 rounded bg-amber-600 text-white font-semibold hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed"
               data-testid="wa-webhook-subscription-resubscribe"
             >
               {resubLoading ? "Re-souscription…" : "🔁 Re-souscrire le webhook"}
@@ -6257,6 +6262,44 @@ const WaWebhookSubscriptionPanel = () => {
               Code Meta : <code>{data.error_code}</code> · Type : <code>{data.error_type || "—"}</code>
             </div>
           )}
+          {data.http_status && (
+            <div className="text-[11px] text-slate-500">
+              HTTP Meta : <code>{data.http_status}</code>
+            </div>
+          )}
+          {/* Iter43-fix24ar (2026-02) — Token probe (résultat de l'appel /me préalable) */}
+          {data.token_probe && (
+            <div
+              className={`mt-1 p-2 rounded text-[11px] ring-1 ${
+                data.token_probe.ok
+                  ? "bg-emerald-50 ring-emerald-200 text-emerald-900"
+                  : "bg-amber-50 ring-amber-300 text-amber-900"
+              }`}
+              data-testid="wa-webhook-subscription-token-probe"
+            >
+              <strong>Token Meta :</strong>{" "}
+              {data.token_probe.ok ? (
+                <>
+                  ✅ Valide — utilisateur/app{" "}
+                  <code>{data.token_probe.name || data.token_probe.id || "?"}</code>
+                </>
+              ) : (
+                <>
+                  ❌ Invalide / expiré
+                  {data.token_probe.error_code && <> (code {data.token_probe.error_code})</>}
+                  {data.token_probe.error && (
+                    <div className="mt-1 font-mono text-[10px]">{data.token_probe.error}</div>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+          {data.raw_response_preview && (
+            <details className="text-[11px] text-slate-500">
+              <summary className="cursor-pointer">Aperçu de la réponse brute Meta</summary>
+              <pre className="mt-1 bg-white p-2 rounded ring-1 ring-slate-200 overflow-auto text-[10px] font-mono whitespace-pre-wrap break-all">{data.raw_response_preview}</pre>
+            </details>
+          )}
           {data.note && (
             <div className="text-[11px] text-slate-600 italic">{data.note}</div>
           )}
@@ -6268,6 +6311,121 @@ const WaWebhookSubscriptionPanel = () => {
             {" "}<code>https://sawalismartsystems.com/api/whatsapp/webhook</code>{" "}
             et que le champ <strong>messages</strong> est bien coché.
           </div>
+          {/* Iter43-fix24ar — Test du pipeline interne SANS dépendre de Meta */}
+          <WaSimulateInboundPanel />
+        </div>
+      )}
+    </div>
+  );
+};
+
+// Iter43-fix24ar (2026-02) — Simulate an incoming WhatsApp message END-TO-END
+// to verify the pipeline `webhook → whatsapp_messages → inbox → notifs` works
+// EVEN IF Meta is not calling our webhook. Useful to isolate whether the bug
+// is Meta-side (no inbound calls) or internal (calls received but lost).
+const WaSimulateInboundPanel = () => {
+  const [phone, setPhone] = useState("+22670112233");
+  const [text, setText] = useState("Test pipeline — message simulé");
+  const [running, setRunning] = useState(false);
+  const [result, setResult] = useState(null);
+
+  const run = async () => {
+    if (!phone || !text) {
+      toast.error("Numéro et message requis");
+      return;
+    }
+    setRunning(true);
+    setResult(null);
+    try {
+      const r = await apiClient.post("/admin/whatsapp/simulate-inbound", {
+        from_phone: phone,
+        text,
+        profile_name: "Sim Admin Test",
+      });
+      setResult(r.data);
+      if (r.data?.ok) {
+        toast.success("Message inséré — vérifiez l'inbox unifiée");
+      } else {
+        toast.warning(r.data?.stage || "Pipeline en erreur");
+      }
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors de la simulation");
+    } finally {
+      setRunning(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 rounded-lg ring-1 ring-violet-200 bg-violet-50/50 p-3 space-y-2"
+         data-testid="wa-simulate-inbound-panel">
+      <p className="text-xs font-semibold text-slate-700">
+        🧪 Tester le pipeline (sans Meta) — synthétise un message entrant et le route à travers le vrai handler
+      </p>
+      <div className="flex flex-wrap items-end gap-2">
+        <div className="flex-1 min-w-[160px]">
+          <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">De (E.164)</label>
+          <input
+            type="text"
+            value={phone}
+            onChange={(e) => setPhone(e.target.value)}
+            placeholder="+22670112233"
+            className="w-full px-2 py-1 rounded ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="wa-simulate-from-phone"
+          />
+        </div>
+        <div className="flex-[2] min-w-[200px]">
+          <label className="block text-[10px] text-slate-600 font-semibold mb-0.5">Message</label>
+          <input
+            type="text"
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Bonjour SAWALI"
+            className="w-full px-2 py-1 rounded ring-1 ring-slate-300 text-xs"
+            data-testid="wa-simulate-text"
+          />
+        </div>
+        <button
+          onClick={run}
+          disabled={running}
+          className="text-xs px-3 py-1 rounded bg-violet-600 text-white font-semibold hover:brightness-110 disabled:opacity-50"
+          data-testid="wa-simulate-run"
+        >
+          {running ? "Simulation…" : "▶️ Simuler"}
+        </button>
+      </div>
+      {result && (
+        <div className="text-[11px] mt-1 space-y-1" data-testid="wa-simulate-result">
+          <div className={result.ok ? "text-emerald-700" : "text-rose-700"}>
+            <strong>{result.ok ? "✅ Pipeline OK" : "❌ Pipeline cassé"}</strong>
+            {result.stage && <span className="ml-1">— stage: <code>{result.stage}</code></span>}
+            {result.error && <div className="font-mono text-[10px]">{result.error}</div>}
+          </div>
+          {result.inserted && (
+            <div className="text-slate-700">
+              📥 <strong>Inséré :</strong> tenant <code>{result.inserted.client_id || "?"}</code>{" "}
+              · contact_id <code>{result.inserted.contact_id || "—"}</code>
+            </div>
+          )}
+          {result.webhook_log && (
+            <div className="text-slate-700">
+              📋 <strong>Log webhook :</strong> {result.webhook_log.inserted_messages}/{result.webhook_log.extracted_messages} insérés
+              {result.webhook_log.errors?.length > 0 && (
+                <span className="ml-1 text-rose-600">
+                  · erreurs : {result.webhook_log.errors.join(", ")}
+                </span>
+              )}
+            </div>
+          )}
+          {result.ai_reply ? (
+            <div className="text-slate-700">
+              🤖 <strong>AI a répondu :</strong> « {(result.ai_reply.body || "").slice(0, 80)} »
+              {result.ai_reply.command && <span className="ml-1 text-slate-500">(cmd: {result.ai_reply.command})</span>}
+            </div>
+          ) : (
+            <div className="text-slate-500 italic">
+              🤖 Pas de réponse IA (autoreply désactivé ou cooldown actif)
+            </div>
+          )}
         </div>
       )}
     </div>

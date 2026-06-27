@@ -558,13 +558,20 @@ def attach_linkedin_routes(*, api, db, get_current_user, get_current_admin):
                 )
             # One-shot state
             await db.linkedin_oauth_states.delete_one({"state": state})
-            # Reject states older than 15 min
+            # Reject states older than 15 min — handle both tz-aware (Python
+            # datetime stored by us) and tz-naive (BSON Date read back by
+            # motor's default tz_aware=False) created_at values, otherwise
+            # the subtraction raises "can't subtract offset-naive and
+            # offset-aware datetimes".
             created_at = st.get("created_at")
-            if isinstance(created_at, datetime) and (_now_dt() - created_at) > timedelta(minutes=15):
-                return HTMLResponse(
-                    _render_html(success=False, message="State expiré (> 15 min). Relancez la connexion."),
-                    status_code=400,
-                )
+            if isinstance(created_at, datetime):
+                if created_at.tzinfo is None:
+                    created_at = created_at.replace(tzinfo=timezone.utc)
+                if (_now_dt() - created_at) > timedelta(minutes=15):
+                    return HTMLResponse(
+                        _render_html(success=False, message="State expiré (> 15 min). Relancez la connexion."),
+                        status_code=400,
+                    )
 
             s = await _load_settings(db)
             cid = (s.get("linkedin_client_id") or "").strip()

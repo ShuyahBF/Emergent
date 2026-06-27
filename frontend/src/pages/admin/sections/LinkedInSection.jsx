@@ -401,6 +401,24 @@ const LinkedInSection = () => {
             />
             <button
               type="button"
+              onClick={() => setConfig((p) => ({ ...p, redirect_uri: "" }))}
+              className="text-xs px-2 py-2 rounded ring-1 ring-slate-300 hover:bg-slate-100"
+              data-testid="linkedin-clear-redirect"
+              title="Effacer l'override pour utiliser l'URL automatique de l'environnement courant"
+            >
+              Auto
+            </button>
+            <button
+              type="button"
+              onClick={() => setConfig((p) => ({ ...p, redirect_uri: `${window.location.origin}/api/linkedin/oauth/callback` }))}
+              className="text-xs px-2 py-2 rounded ring-1 ring-slate-300 hover:bg-slate-100"
+              data-testid="linkedin-use-current-redirect"
+              title="Pré-remplir avec l'URL de l'environnement actuel"
+            >
+              Cet env
+            </button>
+            <button
+              type="button"
               onClick={() => copyText(`${window.location.origin}/api/linkedin/oauth/callback`)}
               className="text-xs px-2 py-2 rounded ring-1 ring-slate-300 hover:bg-slate-100 inline-flex items-center gap-1"
               data-testid="linkedin-copy-redirect"
@@ -411,6 +429,7 @@ const LinkedInSection = () => {
           </div>
           <p className="text-[10px] text-slate-500 mt-1">
             ⚠️ Cette URL doit être <strong>ajoutée à la liste « Authorized redirect URLs »</strong> dans votre App LinkedIn → Auth.
+            Si l&apos;URL effective ci-dessous est figée sur preview, cliquez <strong>Auto</strong> puis <strong>Enregistrer</strong>.
           </p>
         </label>
 

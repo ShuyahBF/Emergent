@@ -2,7 +2,7 @@ import React, { useEffect, useState, useMemo, useRef, useCallback, createContext
 import { apiClient } from "@/lib/api";
 import { applyBrandingLocal } from "@/lib/useUIFlags";
 import { useSearchParams, Link } from "react-router-dom";
-import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2 } from "lucide-react";
+import { Save, ShieldCheck, Calendar, Mail, ExternalLink, AlertCircle, CheckCircle2, Globe, Webhook, Video, Upload, MessageCircle, ClipboardList, Activity, RotateCcw, Mic, Tag, Sparkles, Smartphone, CreditCard, KeyRound, Headphones, Copy, Database, RefreshCw, Wrench, Search, ChevronDown, X, Download, FileArchive, Trash2, Pencil, Cloud, Inbox, UserCog, Check, MessageSquare, Lock, Ticket, Link2, Megaphone, Brain, Bell, Clock, Bot, Package, Building2, MapPin } from "lucide-react";
 import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -645,6 +645,36 @@ export default function AdminSettings() {
         <p className="text-xs text-slate-500">Sauvegardez les Client ID et Secret avant de cliquer sur Connecter.</p>
         {/* Iter43-fix24ay (2026-02-26) — Google Calendar Watch API (real-time push sync) */}
         {s.google_calendar_connected && <GoogleCalendarWatchPanel />}
+      </Section>
+
+      {/* Iter43-fix24az-b (2026-02-26) — Google Maps API key UI (was DB-only) */}
+      <Section icon={MapPin} title="Google Maps (Géocodage des Officines)">
+        <p className="text-sm text-slate-500">
+          Permet de géocoder automatiquement les pharmacies (lat/lng) à partir de leur nom + ville.
+          Sans clé, le système retombe sur <strong>OpenStreetMap Nominatim</strong> (gratuit mais moins précis en Afrique de l&apos;Ouest).
+        </p>
+        <Input
+          label="Google Maps API Key"
+          type="password"
+          value={s.google_maps_api_key || ""}
+          onChange={(v) => upd("google_maps_api_key", v)}
+          testid="google-maps-api-key"
+          placeholder={s.google_maps_api_key === "********" ? "(défini)" : "AIzaSy..."}
+        />
+        <Input
+          label="Biais pays (ISO-3166, ex: BF, CI, ML)"
+          value={s.geocode_country_bias || ""}
+          onChange={(v) => upd("geocode_country_bias", v)}
+          testid="geocode-country-bias"
+          placeholder="BF"
+        />
+        <p className="text-[11px] text-slate-500">
+          Obtenez votre clé sur{" "}
+          <a href="https://console.cloud.google.com/google/maps-apis/credentials" target="_blank" rel="noreferrer" className="text-sawali-blue underline">
+            console.cloud.google.com → Maps APIs → Credentials
+          </a>{" "}
+          (activez <em>Geocoding API</em> + <em>Places API</em>). Free tier : 5000 requêtes/mois.
+        </p>
       </Section>
 
       <Section icon={Calendar} title="Heures ouvrables / RDV">

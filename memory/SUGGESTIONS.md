@@ -656,6 +656,111 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fix associé** : Iter43-fix24m
 - **Détail** : Retrait du composant `<TeamPresenceBadge>` de `MarketingNav.jsx` uniquement. Le badge reste visible en `Home.jsx`, `Contact.jsx`, `MarketingFooter.jsx` (comme demandé : "uniquement là bas").
 
+## S071 — VIDAL : « Copier le code » + Favoris persistés
+- **Demande utilisateur** : 2026-02-26 — Faciliter la recherche VIDAL : pouvoir copier le code médicament et bookmarker les favoris persistés en DB (au lieu de localStorage volatile).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24au-VIDAL
+- **Détail** :
+  - Backend : `routes/vidal_favorites.py` (CRUD `/api/vidal/favorites/*` lié au user_id), masquage uuid → titre/picked_id
+  - Frontend : `pages/portal/Vidal.jsx` ajoute un bouton 📋 sur chaque résultat (copy code) et une icône ⭐ pour toggle favori (cloud sync)
+  - Liste des favoris affichée en tête de page avec recherche/suppression
+- **Tests** : 5 pytest `test_iter43_fix24au_vidal_favorites.py` (CRUD complet, isolation par user_id). **5/5 PASS**.
+
+## S072 — LinkedIn OAuth + Auto-post hebdomadaire (Claude 4.5)
+- **Demande utilisateur** : 2026-02-26 — « On veut pouvoir poster automatiquement sur LinkedIn une fois par semaine, avec validation par WhatsApp avant publication. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24au + Iter43-fix24av
+- **Détail** :
+  - OAuth 2.0 standard (openid + profile + email + w_member_social + w_organization_social) avec refresh token rotation
+  - Backend : `routes/linkedin.py` (config + authorize + callback + post + list), `routes/linkedin_autopost.py` (cron weekly avec Claude Sonnet 4.5)
+  - Frontend : `pages/admin/sections/LinkedInSection.jsx` (config UI, composer, feed, scheduler hebdomadaire avec validation WA)
+  - Cron : `_scheduled_linkedin_autopost` minute-check (publie au jour/heure configurés)
+  - Validation WhatsApp : Liluvine envoie brouillon → user répond OK/STOP/REGEN
+- **Tests** : 8 pytest. **8/8 PASS**.
+
+## S073 — Twitter (X) OAuth + posts
+- **Demande utilisateur** : 2026-02-26 — « On peut faire la même chose sur X et Facebook comme tu le suggères »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ax
+- **Détail** :
+  - OAuth 2.0 **avec PKCE** (S256), scopes `tweet.read tweet.write users.read offline.access`
+  - Backend : `routes/twitter.py` (~330 LOC). Post text ≤ 280 chars + image optionnel via v1.1 media/upload. Refresh token rotation (tokens valides 2h).
+  - Frontend : `pages/admin/sections/TwitterSection.jsx` (config, composer, feed récent)
+- **Tests** : 6 pytest. **6/6 PASS**.
+
+## S074 — Facebook Page OAuth + posts
+- **Demande utilisateur** : 2026-02-26 — Idem S073
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ax
+- **Détail** :
+  - OAuth standard + **Long-lived token exchange** (60 jours) + **Page Access Token** via `/me/accounts`
+  - Backend : `routes/facebook.py` (~290 LOC). Post text via `/{page-id}/feed`, photo via `/{page-id}/photos`
+  - Frontend : `pages/admin/sections/FacebookSection.jsx` (config, list pages, pick active page, composer, feed)
+  - Scopes : `pages_show_list pages_manage_posts pages_read_engagement public_profile email`
+- **Tests** : 7 pytest. **7/7 PASS**.
+
+## S075 — Multi-canal cross-posting Liluvine (LinkedIn → X + FB)
+- **Demande utilisateur** : 2026-02-26 — « Cross-poster automatiquement le post LinkedIn généré aussi sur X et Facebook »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ax (extension de S072)
+- **Détail** :
+  - 2 checkboxes dans `LinkedInSection` : `also_post_twitter` (texte tronqué à 270 chars), `also_post_facebook` (texte intégral)
+  - Le cron `_scheduled_linkedin_autopost` publie sur LinkedIn d'abord, puis cross-poste sur les canaux activés. Échec d'un canal n'empêche pas les autres.
+  - Audit complet dans `db.linkedin_autopost_history` avec statut par canal.
+- **Tests** : 4 pytest. **4/4 PASS**.
+
+## S076 — Officines Geolocation via OpenStreetMap Nominatim
+- **Demande utilisateur** : 2026-02-26 — « Géolocaliser automatiquement nos officines à partir de leur nom + ville pour les afficher sur une carte »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24aw
+- **Détail** :
+  - Backend : `routes/officines_geocode.py`. Cascade Google Places API (si `google_maps_api_key` configuré) → fallback OSM Nominatim (gratuit, 1 req/sec, real User-Agent)
+  - Endpoints : `GET /admin/geocode/config`, `POST /admin/officines-registry/geocode-batch`, `POST /admin/officines-registry/{id}/geocode`
+  - Country bias configurable (`geocode_country_bias`, défaut `BF`)
+  - Settings stockent `latitude_source` (`google_places` | `osm_nominatim` | `manual`) pour audit
+- **Tests** : 8 pytest. **8/8 PASS**.
+
+## S077 — Google Calendar Watch API (Phase 2 push sync)
+- **Demande utilisateur** : 2026-02-26 — « Nous finirons par Google Watch API » (sync temps réel)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ay
+- **Détail** :
+  - Backend : `routes/google_calendar_watch.py` (~280 LOC). `events.watch` + webhook public `/api/google/calendar/webhook` avec validation `X-Goog-Channel-ID` + `X-Goog-Channel-Token`
+  - Sync incrémental via `syncToken`. Gestion `410 Gone` (syncToken expired → réinit)
+  - Cron `_scheduled_gcal_watch_renewal` toutes les 6h (renouvelle si expiration < 24h)
+  - Frontend : `pages/admin/sections/GoogleCalendarWatchPanel.jsx` (status, start/stop/force-sync)
+- **Tests** : 7 pytest. **7/7 PASS**.
+
+## S078 — 3 bugfix P0 : Liluvine KPIs / LinkedIn 500 / Facebook redirect URI
+- **Demande utilisateur** : 2026-02-26 — 3 bugs signalés en PROD : (1) synthèse Liluvine à 0 partout, (2) LinkedIn callback 500, (3) Facebook redirect URI bloqué sur preview.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az (round 1)
+- **Détail** :
+  - **Liluvine** : `routes/synthese.py` — noms de collections corrigés (`tickets`→`support_tickets`, `sms_outbox`→`sms_messages`, `wa_outbox`→`whatsapp_messages`, `suivis`→`user_suivis`, `payments`→`payment_transactions`). Champ `opened_at` pour tickets. Nouveau KPI `bird_sms_sent`. Prompt reformaté en liste FR lisible. `run_synthese_test` expose `kpis` pour debug.
+  - **LinkedIn** : callback enveloppé dans `try/except` global. `_userinfo` et `_list_admin_organizations` tolérants à toute exception (pas seulement HTTPException).
+  - **Facebook** : callback aussi wrappé. UI `FacebookSection.jsx` rendu éditable (input `redirect_uri` + boutons Auto / Cet env).
+- **Tests** : 10 pytest `test_iter71_bugfixes.py`. **10/10 PASS**.
+
+## S079 — Datetime tz fix LinkedIn + Twitter/LinkedIn boutons Auto/Cet env
+- **Demande utilisateur** : 2026-02-26 — « Erreur inattendue durant la callback LinkedIn : can't subtract offset-naive and offset-aware datetimes » + Twitter redirect URI figé sur preview.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az (round 2)
+- **Détail** :
+  - **LinkedIn datetime bug** : `created_at` lu depuis Mongo est tz-naive par défaut (motor `tz_aware=False`). Promu en UTC-aware avant subtraction avec `_now_dt()`.
+  - **Twitter UI** : ajout `<input>` éditable pour `redirect_uri` + boutons **Auto** (clear override) + **Cet env** (préremplit avec `window.location.origin`).
+  - **LinkedIn UI** : mêmes boutons ajoutés pour cohérence (avant : seul un bouton Copy existait).
+- **Tests** : validation curl (override save/clear, datetime tz-naive accepté).
+
+## S080 — Google Maps API Key UI dans Admin Settings
+- **Demande utilisateur** : 2026-02-26 — « Où se configure l'API KEY Google Maps ? » (le champ existait en backend mais n'avait pas d'UI)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az (round 3)
+- **Détail** :
+  - Nouvelle section « Google Maps (Géocodage des Officines) » dans `AdminSettings.jsx` après Google Calendar
+  - Input masqué pour `google_maps_api_key` (déjà dans `GET_MASK_FIELDS`)
+  - Input pour `geocode_country_bias` (défaut `BF`)
+  - Lien vers console GCP avec instructions (activer Geocoding API + Places API)
+
 ---
 
 ## Comment référencer une suggestion

@@ -163,6 +163,67 @@ def attach_facebook_routes(*, api, db, get_current_user, get_current_admin):
             "state": state,
         }
 
+    @api.post("/admin/facebook/test-config", tags=["Admin — Facebook"])
+    async def test_config(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:
+        """Iter43-fix24az-c — Validate App ID + App Secret WITHOUT going through
+        the OAuth dance. Calls Facebook's `client_credentials` grant which
+        returns an App Access Token if both are valid, else returns the exact
+        FB error (e.g. "Error validating client secret").
+
+        Saves the user from doing a full OAuth round-trip just to discover
+        their secret was typed wrong.
+        """
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        app_id = (s.get("facebook_app_id") or "").strip()
+        app_secret = (s.get("facebook_app_secret") or "").strip()
+        if not app_id:
+            raise HTTPException(status_code=400, detail="App ID manquant. Saisissez puis Enregistrer.")
+        if not app_secret:
+            raise HTTPException(status_code=400, detail="App Secret manquant. Saisissez puis Enregistrer.")
+        try:
+            async with httpx.AsyncClient(timeout=DEFAULT_TIMEOUT) as cli:
+                r = await cli.get(FB_TOKEN_URL, params={
+                    "client_id": app_id,
+                    "client_secret": app_secret,
+                    "grant_type": "client_credentials",
+                })
+        except Exception as exc:  # noqa: BLE001
+            return {
+                "ok": False,
+                "status_code": 0,
+                "message": f"Erreur réseau : {str(exc)[:200]}",
+                "app_id_masked": (app_id[:6] + "…" + app_id[-3:]) if len(app_id) > 10 else app_id,
+            }
+        if r.status_code != 200:
+            # Try to extract the FB error structure
+            err: Dict[str, Any] = {}
+            try:
+                err = r.json().get("error", {})
+            except Exception:  # noqa: BLE001
+                err = {}
+            return {
+                "ok": False,
+                "status_code": r.status_code,
+                "fb_error_code": err.get("code"),
+                "fb_error_type": err.get("type"),
+                "fb_error_message": err.get("message") or r.text[:200],
+                "fb_trace_id": err.get("fbtrace_id"),
+                "raw_body": r.text[:500],
+                "app_id_masked": (app_id[:6] + "…" + app_id[-3:]) if len(app_id) > 10 else app_id,
+            }
+        # 200 — App Access Token returned. Keep it ephemeral (don't persist).
+        try:
+            tok_body = r.json()
+        except Exception:  # noqa: BLE001
+            tok_body = {}
+        return {
+            "ok": True,
+            "status_code": 200,
+            "message": "App ID + App Secret VALIDES (Facebook a renvoyé un App Access Token).",
+            "token_type": tok_body.get("token_type"),
+            "app_id_masked": (app_id[:6] + "…" + app_id[-3:]) if len(app_id) > 10 else app_id,
+        }
+
     @api.get("/facebook/oauth/callback", tags=["Facebook"], name="facebook_oauth_callback")
     async def callback(
         request: Request,

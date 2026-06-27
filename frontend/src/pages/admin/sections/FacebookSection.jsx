@@ -20,6 +20,9 @@ const FacebookSection = () => {
   const [posting, setPosting] = useState(false);
   const [feed, setFeed] = useState([]);
   const [reveal, setReveal] = useState(false);
+  // Iter43-fix24az-c — Test config (validates App ID/Secret without OAuth)
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -59,6 +62,21 @@ const FacebookSection = () => {
       toast.success("Config Facebook enregistrée"); load();
     } catch (e) { toast.error(e?.response?.data?.detail || "Erreur"); }
     finally { setSaving(false); }
+  };
+
+  const testConfig = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const r = await apiClient.post("/admin/facebook/test-config");
+      setTestResult(r.data);
+      if (r.data?.ok) toast.success("✓ App ID + Secret valides");
+      else toast.error(`✗ Échec : ${r.data?.fb_error_message || "secret invalide"}`);
+    } catch (e) {
+      const detail = e?.response?.data?.detail || e?.message || "Erreur";
+      setTestResult({ ok: false, fb_error_message: detail, status_code: e?.response?.status || 0 });
+      toast.error(detail);
+    } finally { setTesting(false); }
   };
 
   const connect = async () => {
@@ -197,9 +215,38 @@ const FacebookSection = () => {
             </div>
           </div>
         )}
-        <button onClick={save} disabled={saving} className="text-xs px-3 py-1.5 rounded bg-slate-800 text-white inline-flex items-center gap-1 disabled:opacity-50" data-testid="facebook-save-config">
-          {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Enregistrer
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button onClick={save} disabled={saving} className="text-xs px-3 py-1.5 rounded bg-slate-800 text-white inline-flex items-center gap-1 disabled:opacity-50" data-testid="facebook-save-config">
+            {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Check className="h-3 w-3" />} Enregistrer
+          </button>
+          <button onClick={testConfig} disabled={testing || !cfg?.app_id} className="text-xs px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-700 text-white inline-flex items-center gap-1 disabled:opacity-50" data-testid="facebook-test-config">
+            {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : "🧪"} Tester App ID/Secret
+          </button>
+        </div>
+        {testResult && (
+          <div
+            className={`rounded ring-1 p-2 text-[11px] space-y-1 ${testResult.ok ? "bg-emerald-50 ring-emerald-300 text-emerald-900" : "bg-rose-50 ring-rose-300 text-rose-900"}`}
+            data-testid="facebook-test-result"
+          >
+            <p className="font-semibold">{testResult.ok ? "✅ Credentials valides" : "❌ Credentials rejetés par Facebook"}</p>
+            <p>HTTP <code className="font-mono">{testResult.status_code}</code> · App ID utilisée : <code className="font-mono">{testResult.app_id_masked || "—"}</code></p>
+            {testResult.message && <p>{testResult.message}</p>}
+            {testResult.fb_error_message && (
+              <p className="break-words">
+                <strong>Erreur FB :</strong> <code className="font-mono">{testResult.fb_error_message}</code>
+                {testResult.fb_error_code != null && <span className="ml-2 text-[10px]">(code {testResult.fb_error_code})</span>}
+              </p>
+            )}
+            {testResult.fb_trace_id && <p className="text-[10px] opacity-70">trace_id : <code>{testResult.fb_trace_id}</code></p>}
+            {!testResult.ok && (
+              <p className="text-[10px] italic mt-1">
+                💡 Action : LinkedIn-style → régénérez le secret sur{" "}
+                <a href="https://developers.facebook.com/apps/" target="_blank" rel="noreferrer" className="underline">developers.facebook.com</a>
+                {" "}→ App Settings → Basic → App Secret → <strong>Show</strong> → copiez-collez ici → Enregistrer → Re-tester.
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3 space-y-2">

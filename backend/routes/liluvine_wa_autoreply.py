@@ -748,15 +748,19 @@ async def _build_garde_reply(db) -> str:
     Fallback sur le template hardcodé si non configuré.
     """
     today = datetime.now(timezone.utc).date()
-    # Iter43-fix24az-d (2026-02-26) — Use centralized garde-week resolver
-    # so the `!Garde` command honors the same Saturday-noon rotation toggle
-    # as the public API and the planning UI.
+    # Iter43-fix24az-e (2026-02-26) — Use centralized garde period resolver so
+    # the `!Garde` header dates show the ACTUAL guard period boundaries
+    # (Sat → Sat) instead of the ISO week's Mon → Sun in saturday_noon mode.
     try:
-        from routes.garde_planning import _current_garde_week as _gw
-        year, week, _ = await _gw(db, now=datetime.now(timezone.utc))
+        from routes.garde_planning import _current_garde_period as _gp
+        period = await _gp(db, now=datetime.now(timezone.utc))
+        year, week = period["year"], period["week"]
+        period_start, period_end = period["period_start"], period["period_end"]
     except Exception:  # noqa: BLE001
         iso = today.isocalendar()
         year, week = iso[0], iso[1]
+        period_start = date.fromisocalendar(year, week, 1)
+        period_end = date.fromisocalendar(year, week, 7)
     # Récupère le planning pour cette semaine
     entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
     if not entry:
@@ -785,9 +789,9 @@ async def _build_garde_reply(db) -> str:
     ).sort("name", 1):
         officines.append(o)
     try:
-        monday = date.fromisocalendar(year, week, 1).strftime("%d/%m")
-        sunday = date.fromisocalendar(year, week, 7).strftime("%d/%m")
-    except ValueError:
+        monday = period_start.strftime("%d/%m")
+        sunday = period_end.strftime("%d/%m")
+    except (AttributeError, ValueError):
         monday, sunday = "?", "?"
     # Lookup template configurable + CMS footer/site link (Iter43-fix24al)
     s = await db.settings.find_one(

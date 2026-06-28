@@ -45,6 +45,11 @@ export default function AdminOfficinesRegistry() {
   const [filter, setFilter] = React.useState("pending");
   const [filterActivite, setFilterActivite] = React.useState(""); // Iter43-fix12 (déprécié dans l'UI)
   const [filterRole, setFilterRole] = React.useState(""); // Iter43-fix23 — Filtre par rôle (remplace activité)
+  // Iter43-fix24az-e (2026-02-26) — Filtre par groupe de garde + groupe en
+  // garde courante mis en évidence en rouge.
+  const [filterGardeGroup, setFilterGardeGroup] = React.useState("");
+  const [currentGardeGroup, setCurrentGardeGroup] = React.useState(null);
+  const [gardeGroupsAvailable, setGardeGroupsAvailable] = React.useState([]);
   const [activities, setActivities] = React.useState([]); // Iter43-fix12
   const [roles, setRoles] = React.useState([]); // Iter43-fix23 — liste des rôles disponibles
   const [q, setQ] = React.useState("");
@@ -91,6 +96,45 @@ export default function AdminOfficinesRegistry() {
       setCounts(r.data?.counts || {});
     } finally { setLoading(false); }
   }, [filter, filterRole, q]);
+
+  // Iter43-fix24az-e — Charge le groupe en garde courante + la liste complète des groupes utilisés
+  const loadGardeMeta = React.useCallback(async () => {
+    try {
+      const [cur, year] = [await apiClient.get("/public/officines/garde/current"), new Date().getFullYear()];
+      setCurrentGardeGroup(cur.data?.groupe_garde ?? null);
+      // Liste des groupes disponibles (depuis le planning admin pour avoir les comptes)
+      const plan = await apiClient.get(`/admin/officines-registry/garde-planning?year=${year}`).catch(() => null);
+      const groups = plan?.data?.groups_with_count || [];
+      setGardeGroupsAvailable(groups);
+    } catch { /* noop */ }
+  }, []);
+
+  React.useEffect(() => { loadGardeMeta(); }, [loadGardeMeta]);
+
+  // Filtrage par groupe de garde (client-side, sur les items déjà chargés)
+  const filteredItems = React.useMemo(() => {
+    if (!filterGardeGroup) return items;
+    const target = Number(filterGardeGroup);
+    return items.filter((it) => Number(it.groupe_garde) === target);
+  }, [items, filterGardeGroup]);
+
+  // Suppression d'un groupe vide
+  const deleteEmptyGroup = async (groupNum) => {
+    if (!window.confirm(
+      `Supprimer le groupe ${groupNum} ?\n\n`
+      + "Cette action n'est possible QUE s'il n'y a plus aucune officine assignée à ce groupe. "
+      + "Les semaines du planning qui le référençaient seront nettoyées."
+    )) return;
+    try {
+      const r = await apiClient.delete(`/admin/officines-registry/garde-groups/${groupNum}`);
+      toast.success(`Groupe ${groupNum} supprimé (${r.data?.planning_rows_cleaned ?? 0} entrées planning nettoyées)`);
+      if (Number(filterGardeGroup) === groupNum) setFilterGardeGroup("");
+      await loadGardeMeta();
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Suppression impossible");
+    }
+  };
 
   const loadActivities = React.useCallback(async () => {
     try {
@@ -309,6 +353,49 @@ export default function AdminOfficinesRegistry() {
           <option value="">Tous les rôles</option>
           {roles.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
+        {/* Iter43-fix24az-e — Filtre par groupe de garde + suppression groupe vide */}
+        <select
+          value={filterGardeGroup}
+          onChange={(e) => setFilterGardeGroup(e.target.value)}
+          className="text-xs px-3 py-2 rounded-lg ring-1 ring-slate-200 bg-white hover:bg-slate-50"
+          data-testid="filter-garde-group"
+          title={
+            currentGardeGroup
+              ? `Filtrer par groupe de garde — Groupe ${currentGardeGroup} est EN GARDE cette semaine`
+              : "Filtrer par groupe de garde"
+          }
+          style={{ color: filterGardeGroup && Number(filterGardeGroup) === currentGardeGroup ? "#be123c" : undefined, fontWeight: filterGardeGroup && Number(filterGardeGroup) === currentGardeGroup ? 700 : undefined }}
+        >
+          <option value="">Tous les groupes de garde</option>
+          {gardeGroupsAvailable.map((g) => {
+            const isCurrent = g.groupe_garde === currentGardeGroup;
+            return (
+              <option
+                key={g.groupe_garde}
+                value={g.groupe_garde}
+                style={isCurrent ? { color: "#be123c", fontWeight: 700 } : undefined}
+              >
+                {isCurrent ? "● " : ""}Groupe {g.groupe_garde} ({g.count} officines){isCurrent ? " — EN GARDE" : ""}
+              </option>
+            );
+          })}
+        </select>
+        {filterGardeGroup && (
+          (() => {
+            const g = gardeGroupsAvailable.find((x) => x.groupe_garde === Number(filterGardeGroup));
+            const empty = !g || g.count === 0;
+            return empty ? (
+              <button
+                onClick={() => deleteEmptyGroup(Number(filterGardeGroup))}
+                className="text-xs px-3 py-2 rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-300 hover:bg-rose-100 inline-flex items-center gap-1"
+                data-testid="delete-empty-garde-group"
+                title="Supprimer ce groupe vide"
+              >
+                <Trash2 className="h-3.5 w-3.5" /> Supprimer groupe {filterGardeGroup}
+              </button>
+            ) : null;
+          })()
+        )}
         <button
           onClick={() => setShowRolesAdmin(true)}
           className="text-xs px-3 py-2 rounded-lg bg-white text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50 inline-flex items-center gap-1"
@@ -353,10 +440,14 @@ export default function AdminOfficinesRegistry() {
             </thead>
             <tbody data-testid="registry-table-body">
               {loading && <tr><td colSpan={14} className="px-3 py-6 text-center text-slate-400">Chargement…</td></tr>}
-              {!loading && items.length === 0 && (
-                <tr><td colSpan={14} className="px-3 py-6 text-center text-slate-400">Aucune officine.</td></tr>
+              {!loading && filteredItems.length === 0 && (
+                <tr><td colSpan={14} className="px-3 py-6 text-center text-slate-400">
+                  {items.length === 0
+                    ? "Aucune officine."
+                    : `Aucune officine dans le groupe ${filterGardeGroup}.`}
+                </td></tr>
               )}
-              {items.map((it) => {
+              {filteredItems.map((it) => {
                 const st = STATUS_LABEL[it.status] || { text: it.status, color: "bg-slate-50" };
                 const isSel = selected.has(it.id);
                 return (

@@ -94,6 +94,23 @@ export default function AdminGardePlanning() {
     }
   };
 
+  // Iter43-fix24az-e — Réinitialiser TOUTES les semaines de l'année
+  const resetYear = async () => {
+    if (!window.confirm(
+      `⚠️ RÉINITIALISER TOUT LE PLANNING ${year} ?\n\n`
+      + "Cette action supprime TOUTES les semaines de l'année "
+      + "(manuelles ET automatiques) et le planning retombera sur la rotation séquentielle calculée.\n\n"
+      + "Continuer ?"
+    )) return;
+    try {
+      const r = await apiClient.delete(`/admin/officines-registry/garde-planning/year/${year}`);
+      toast.success(`${r.data?.weeks_deleted ?? 0} semaines réinitialisées`);
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Échec");
+    }
+  };
+
   const stats = useMemo(() => {
     if (!data?.weeks) return { total: 0, manual: 0, auto: 0, suggested: 0 };
     let manual = 0, auto = 0, suggested = 0;
@@ -168,6 +185,12 @@ export default function AdminGardePlanning() {
           <Wand2 className="h-4 w-4" />
           {generating ? "Génération…" : "Générer rotation séquentielle"}
         </button>
+        <button onClick={resetYear}
+                className="inline-flex items-center gap-2 rounded-lg bg-rose-50 text-rose-700 ring-1 ring-rose-300 px-3 py-2 text-xs font-semibold hover:bg-rose-100"
+                data-testid="garde-reset-year-btn"
+                title={`Supprime toutes les semaines (manuelles + auto) de l'année ${year}`}>
+          <RefreshCcw className="h-3 w-3" /> Réinitialiser tout {year}
+        </button>
         <button onClick={load} className="text-xs px-3 py-2 rounded bg-white ring-1 ring-slate-300 hover:bg-slate-50">
           <RefreshCcw className="h-3 w-3 inline mr-1" /> Rafraîchir
         </button>
@@ -183,8 +206,8 @@ export default function AdminGardePlanning() {
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
               <th className="text-left px-3 py-2">Semaine</th>
-              <th className="text-left px-3 py-2">Du lundi</th>
-              <th className="text-left px-3 py-2">Au dimanche</th>
+              <th className="text-left px-3 py-2">Début</th>
+              <th className="text-left px-3 py-2">Fin</th>
               <th className="text-left px-3 py-2">Groupe</th>
               <th className="text-left px-3 py-2">Statut</th>
               <th className="text-right px-3 py-2">Actions</th>

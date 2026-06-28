@@ -2395,6 +2395,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           <span>{messages.length} message(s)</span>
           <span>Les statuts (envoyé / distribué / lu) sont mis à jour via le webhook Meta.</span>
         </div>
+        {/* Iter43-fix24az-e — ContactGroupChips at the VERY bottom of the conversation window */}
+        <div className="px-5 pb-3 border-t border-slate-200">
+          <ContactGroupChips contact={contact} userRole={user?.role} />
+        </div>
       </div>
     </div>
   );

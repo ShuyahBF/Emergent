@@ -1,0 +1,58 @@
+{
+  "summary": "Iter43-fix24az-e — Validated 4 features: (1) Sat→Sat garde dates (BUG #1 fix), (2) reset-year + delete-empty-group endpoints, (3) Frontend AdminGardePlanning + AdminOfficinesRegistry UI, (4) ContactGroupChips in ConversationModal. Pytest unit + HTTP: 19/20 PASS + 1 skip + 1 FAIL. Frontend UI smoke: 5/6 selectors validated; ContactGroupChips in conversation modal validated via code review only (no imported contact available to open conversation). CRITICAL backend bug found: reset-year endpoint is UNREACHABLE due to FastAPI route ordering conflict.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "DELETE /api/admin/officines-registry/garde-planning/year/{year}",
+        "issue": "Returns HTTP 422 (int_parsing on path param 'year') because the more general route DELETE /api/admin/officines-registry/garde-planning/{year}/{week} (registered first at line 360) shadows it (registered at line 369). FastAPI matches in declaration order. Feature #2 reset-year endpoint is COMPLETELY UNUSABLE in production via the documented URL.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "GET /api/public/officines/garde/current",
+        "issue": "Response does NOT expose period_start / period_end keys explicitly (only monday/sunday which contain the Sat→Sat boundaries). The user's spec said 'period_start et period_end identiques [à monday/sunday]'. Currently a frontend consumer must use monday/sunday. Cosmetic — values are correct."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "All /admin/* pages", "issues": ["Pre-existing console warning: 'In HTML, <span> cannot be a child of <option>' — hydration warning from group dropdown rendering. Not caused by this iter."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24az_d_garde_rotation.py",
+    "/app/backend/tests/test_iter43_fix24az_e_period_dates.py",
+    "/app/backend/tests/test_iter73_garde_period_http.py",
+    "/app/test_reports/pytest/iter73_full.xml",
+    "/app/test_reports/pytest/iter73_unit.xml",
+    "/app/test_reports/pytest/iter73_http.xml"
+  ],
+  "action_items": [
+    "CRITICAL: Reorder routes in /app/backend/routes/garde_planning.py — move @api.delete('/admin/officines-registry/garde-planning/year/{year}') (line 369) BEFORE @api.delete('/admin/officines-registry/garde-planning/{year}/{week}') (line 360). Otherwise the reset-year feature is unreachable (the more-specific literal-path route MUST be declared first).",
+    "Optional: Add explicit period_start / period_end keys to the GET /api/public/officines/garde/current response (currently only monday/sunday carry the Sat→Sat values). This satisfies the user-stated contract literally and is friendlier to API consumers."
+  ],
+  "critical_code_review_comments": [
+    "Route ordering bug in garde_planning.py is a classic FastAPI pitfall — when two routes share a prefix and the variable-position route comes first, the literal-segment one is shadowed.",
+    "_period_dates_for_week + _current_garde_period helpers are clean, deterministic, well-tested (13/13 unit pass).",
+    "delete_empty_garde_group validates 1≤group_number≤100 (good) and returns 409 with a French message when non-empty (correct).",
+    "Frontend AdminGardePlanning correctly shows 'Début'/'Fin' headers and the 'Réinitialiser tout 2026' button (data-testid=garde-reset-year-btn). Clicking it WILL hit the broken backend route — the user will see a 422 error toast.",
+    "AdminOfficinesRegistry dropdown filter-garde-group correctly marks the active group with '● Groupe N (X officines) — EN GARDE' (validated in HTML: 'Groupe 2 (2 officines) — EN GARDE').",
+    "ContactGroupChips properly injected at line 2400 of Contacts.jsx inside the ConversationModal footer (after the 'X message(s)' bar) — code-confirmed."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter73_garde_period_http.py (NEW — 8 HTTP tests)"
+  ],
+  "success_rate": {
+    "backend": "95% (19/20 PASS, 1 critical FAIL on route-ordering)",
+    "frontend": "100% on tested selectors (5/5 visible UI features confirmed; ContactGroupChips in ConversationModal code-confirmed)"
+  },
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026. OTP via dev_otp on /api/auth/login response.",
+  "seed_data_creation": "None — DB untouched. Toggled settings.garde_rotation_mode during a single test but restored to 'saturday_noon' at end (default).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Critical fix needed: swap the two DELETE routes in /app/backend/routes/garde_planning.py so the year-literal one comes first. Then re-run pytest tests/test_iter73_garde_period_http.py::test_reset_year_endpoint to confirm. The /portal/contacts page lands on the 'unknown-contacts' Messaging Center view which only exposes Importer/Ignorer — to fully UI-test ContactGroupChips inside ConversationModal, import 1 contact first OR switch to a tab that lists actual imported contacts with a History icon. The code is verified correct via grep — see Contacts.jsx line 2400.",
+  "rca of the issue": "FastAPI matches routes in declaration order. Route DELETE /admin/officines-registry/garde-planning/{year}/{week} (line 360) was registered BEFORE the new DELETE /admin/officines-registry/garde-planning/year/{year} (line 369). When the request URL is /garde-planning/year/2026, FastAPI matches the first pattern with year='year' (string) and week='2026'. The string fails int parsing in Pydantic path validation → HTTP 422. Repro: curl -X DELETE -H 'Authorization: Bearer <admin-token>' '$BASE/api/admin/officines-registry/garde-planning/year/2026' → 422 int_parsing. Mitigation: in routes/garde_planning.py, move the @api.delete('/admin/officines-registry/garde-planning/year/{year}') decorator + function ABOVE the @api.delete('/admin/officines-registry/garde-planning/{year}/{week}') one. After the swap the literal segment 'year' is matched first, restoring the intended behaviour."
+}

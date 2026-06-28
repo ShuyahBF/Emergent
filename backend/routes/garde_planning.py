@@ -98,6 +98,40 @@ async def _current_garde_week(db, *, now: Optional[datetime] = None) -> tuple[in
     return y, w, mode
 
 
+def _period_dates_for_week(year: int, week: int, mode: str) -> tuple[date, date]:
+    """Iter43-fix24az-e (2026-02-26) — Returns the (start, end) dates of the
+    *guard period* labelled by (year, week) under the given rotation mode.
+
+    - monday_midnight : period = Mon → Sun of ISO week (legacy)
+    - saturday_noon   : period = Saturday of ISO week W → Saturday of week W+1
+                        (i.e. the SATURDAY-to-SATURDAY window)
+
+    User reported (28/06/2026 = Sun, week 26):
+      → period_start = Sat 27/06 (start), period_end = Sat 04/07 (end)
+    """
+    if mode == "monday_midnight":
+        return date.fromisocalendar(year, week, 1), date.fromisocalendar(year, week, 7)
+    # saturday_noon
+    try:
+        start = date.fromisocalendar(year, week, 6)  # Saturday of ISO week W
+    except ValueError:
+        # Edge case: week number invalid for the year — fall back
+        return date.fromisocalendar(year, week, 1), date.fromisocalendar(year, week, 7)
+    from datetime import timedelta as _td
+    end = start + _td(days=7)  # Saturday of ISO week W+1 (12:00, but date-only here)
+    return start, end
+
+
+async def _current_garde_period(db, *, now: Optional[datetime] = None) -> dict:
+    """Convenience wrapper used by API + Liluvine !Garde to render correct
+    period boundaries."""
+    if now is None:
+        now = _now_utc()
+    y, w, mode = await _current_garde_week(db, now=now)
+    ps, pe = _period_dates_for_week(y, w, mode)
+    return {"year": y, "week": w, "mode": mode, "period_start": ps, "period_end": pe}
+
+
 def _next_rotation_iso(now: datetime, mode: str) -> str:
     """Return ISO timestamp of the next group rotation moment."""
     from datetime import timedelta as _td
@@ -155,13 +189,19 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         auto_start = first["groupe_garde"] if (first and first.get("auto_generated")) else (
             sorted_groups[0] if sorted_groups else 1
         )
+        # Iter43-fix24az-e — Read rotation mode ONCE for the whole listing so
+        # the "monday/sunday" boundary dates reflect the actual guard period
+        # under saturday_noon (Sat → Sat) vs monday_midnight (Mon → Sun).
+        s_doc = await db.settings.find_one({"_id": "global"}, {"_id": 0, "garde_rotation_mode": 1}) or {}
+        mode_label = (s_doc.get("garde_rotation_mode") or "saturday_noon").strip().lower()
+        if mode_label not in ("saturday_noon", "monday_midnight"):
+            mode_label = "saturday_noon"
         weeks: List[Dict[str, Any]] = []
         for w in range(1, last_week + 1):
             entry = existing.get(w)
-            # Date du lundi de cette semaine ISO
+            # Dates de la PÉRIODE de garde (Sat→Sat ou Mon→Sun selon le mode)
             try:
-                monday = date.fromisocalendar(year, w, 1)
-                sunday = date.fromisocalendar(year, w, 7)
+                period_start, period_end = _period_dates_for_week(year, w, mode_label)
             except ValueError:
                 continue
             if entry:
@@ -171,8 +211,10 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
                     "groupe_garde": entry.get("groupe_garde"),
                     "manual_override": bool(entry.get("manual_override")),
                     "auto_generated": bool(entry.get("auto_generated")),
-                    "monday": monday.isoformat(),
-                    "sunday": sunday.isoformat(),
+                    "monday": period_start.isoformat(),
+                    "sunday": period_end.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
                     "updated_by": entry.get("updated_by"),
                     "updated_at": entry.get("updated_at").isoformat() if isinstance(entry.get("updated_at"), datetime) else entry.get("updated_at"),
                 })
@@ -192,7 +234,9 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
                     "year": year, "week_number": w,
                     "groupe_garde": suggested, "manual_override": False,
                     "auto_generated": False, "is_suggestion": True,
-                    "monday": monday.isoformat(), "sunday": sunday.isoformat(),
+                    "monday": period_start.isoformat(), "sunday": period_end.isoformat(),
+                    "period_start": period_start.isoformat(),
+                    "period_end": period_end.isoformat(),
                 })
         # Semaine ISO en cours
         cur_year, cur_week, _mode = await _current_garde_week(db, now=_now_utc())
@@ -322,6 +366,52 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         await db.garde_planning.delete_one({"year": year, "week_number": week})
         return {"ok": True, "year": year, "week_number": week, "reset": True}
 
+    @api.delete("/admin/officines-registry/garde-planning/year/{year}", tags=["Admin — Officines Registry"])
+    async def reset_garde_year(
+        year: int,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Iter43-fix24az-e (2026-02-26) — Réinitialise TOUTES les semaines
+        d'une année (= supprime tous les documents `garde_planning` de cette
+        année). Le planning retombera sur la rotation séquentielle calculée.
+        """
+        if year < 2024 or year > 2100:
+            raise HTTPException(status_code=400, detail="year hors bornes")
+        res = await db.garde_planning.delete_many({"year": year})
+        logger.info(
+            "[garde] reset year %s — %d weeks deleted by %s",
+            year, res.deleted_count, user.get("email"),
+        )
+        return {"ok": True, "year": year, "weeks_deleted": res.deleted_count}
+
+    @api.delete("/admin/officines-registry/garde-groups/{group_number}", tags=["Admin — Officines Registry"])
+    async def delete_empty_garde_group(
+        group_number: int,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Iter43-fix24az-e — Supprime un groupe de garde S'IL EST VIDE
+        (aucune officine assignée). Refus si au moins 1 officine porte
+        encore `groupe_garde == group_number`."""
+        if group_number < 1 or group_number > 100:
+            raise HTTPException(status_code=400, detail="group_number doit être entre 1 et 100")
+        count = await db.officines.count_documents({"groupe_garde": group_number})
+        if count > 0:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Groupe {group_number} non vide ({count} officine(s)). Réaffectez-les avant suppression.",
+            )
+        # Aussi : nettoie le planning où ce groupe était référencé
+        cleaned = await db.garde_planning.update_many(
+            {"groupe_garde": group_number},
+            {"$set": {"groupe_garde": None, "manual_override": False, "auto_generated": False,
+                      "updated_by": user.get("email"), "updated_at": _now_utc()}},
+        )
+        logger.info(
+            "[garde] empty group %d removed (planning rows cleaned: %d) by %s",
+            group_number, cleaned.modified_count, user.get("email"),
+        )
+        return {"ok": True, "group_number": group_number, "planning_rows_cleaned": cleaned.modified_count}
+
     @api.get("/public/officines/garde/current", tags=["Public — Officines"])
     async def current_garde():
         """Endpoint public : groupe en garde cette semaine + liste des officines.
@@ -360,8 +450,11 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
              "latitude": 1, "longitude": 1},
         ).sort("name", 1):
             officines.append(o)
-        monday = date.fromisocalendar(year, week, 1).isoformat()
-        sunday = date.fromisocalendar(year, week, 7).isoformat()
+        # Iter43-fix24az-e — Use ACTUAL guard period boundaries (Sat→Sat in
+        # saturday_noon mode), not ISO Monday/Sunday — fixes the !Garde dates.
+        period_start, period_end = _period_dates_for_week(year, week, _mode)
+        monday = period_start.isoformat()
+        sunday = period_end.isoformat()
         # Iter43-fix24ak — CMS overrides (admin-editable) for the public page
         s = await db.settings.find_one(
             {"_id": "global"},

@@ -748,8 +748,15 @@ async def _build_garde_reply(db) -> str:
     Fallback sur le template hardcodé si non configuré.
     """
     today = datetime.now(timezone.utc).date()
-    iso = today.isocalendar()
-    year, week = iso[0], iso[1]
+    # Iter43-fix24az-d (2026-02-26) — Use centralized garde-week resolver
+    # so the `!Garde` command honors the same Saturday-noon rotation toggle
+    # as the public API and the planning UI.
+    try:
+        from routes.garde_planning import _current_garde_week as _gw
+        year, week, _ = await _gw(db, now=datetime.now(timezone.utc))
+    except Exception:  # noqa: BLE001
+        iso = today.isocalendar()
+        year, week = iso[0], iso[1]
     # Récupère le planning pour cette semaine
     entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
     if not entry:

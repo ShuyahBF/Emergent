@@ -2,7 +2,7 @@
 // Affiche les 52/53 semaines de l'année avec leur groupe affecté.
 // Permet override manuel + génération auto (séquentielle).
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { Calendar, RefreshCcw, Lock, Unlock, Wand2 } from "lucide-react";
+import { Calendar, RefreshCcw, Lock, Unlock, Wand2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -12,18 +12,43 @@ export default function AdminGardePlanning() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [startGroup, setStartGroup] = useState(1);
+  // Iter43-fix24az-d — Rotation mode toggle (saturday_noon vs monday_midnight)
+  const [rotationMode, setRotationMode] = useState("saturday_noon");
+  const [savingMode, setSavingMode] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const r = await apiClient.get(`/admin/officines-registry/garde-planning?year=${year}`);
+      const [r, sr] = await Promise.all([
+        apiClient.get(`/admin/officines-registry/garde-planning?year=${year}`),
+        apiClient.get("/admin/settings").catch(() => ({ data: {} })),
+      ]);
       setData(r.data);
       if (r.data?.groups?.length) setStartGroup(r.data.groups[0]);
+      const mode = (sr.data?.garde_rotation_mode || "saturday_noon").toLowerCase();
+      setRotationMode(mode);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Erreur chargement planning");
     } finally { setLoading(false); }
   }, [year]);
   useEffect(() => { load(); }, [load]);
+
+  const toggleRotationMode = async (nextMode) => {
+    if (nextMode === rotationMode) return;
+    setSavingMode(true);
+    try {
+      await apiClient.put("/admin/settings", { garde_rotation_mode: nextMode });
+      setRotationMode(nextMode);
+      toast.success(
+        nextMode === "saturday_noon"
+          ? "Mode : rotation Samedi 12h00 activée"
+          : "Mode : rotation Lundi 00h00 (legacy) activée"
+      );
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Échec changement de mode");
+    } finally { setSavingMode(false); }
+  };
 
   const generate = async () => {
     if (!data?.groups?.length) {
@@ -88,6 +113,37 @@ export default function AdminGardePlanning() {
         <Calendar className="h-6 w-6 text-sawali-blue" />
         <h1 className="text-2xl font-display font-bold">Planning des gardes</h1>
       </header>
+
+      {/* Iter43-fix24az-d — Rotation mode toggle (Saturday noon vs legacy) */}
+      <div className="rounded-xl ring-2 ring-rose-400 bg-rose-50/40 p-3 mb-5" data-testid="garde-rotation-mode-card">
+        <div className="flex items-start gap-3 flex-wrap">
+          <Clock className="h-5 w-5 text-rose-600 shrink-0 mt-0.5" />
+          <div className="flex-1 min-w-[280px]">
+            <p className="text-sm font-semibold text-rose-900">Cycle de rotation des groupes</p>
+            <p className="text-[11px] text-rose-700 mt-0.5">
+              Détermine le moment précis où le groupe en garde change. La durée d&apos;une garde reste de 7 jours dans les 2 modes.
+            </p>
+          </div>
+          <div className="flex gap-2 ml-auto">
+            <button
+              onClick={() => toggleRotationMode("saturday_noon")}
+              disabled={savingMode}
+              className={`text-xs px-3 py-1.5 rounded font-semibold ring-1 transition ${rotationMode === "saturday_noon" ? "bg-rose-600 text-white ring-rose-600" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50"} disabled:opacity-50`}
+              data-testid="garde-rotation-saturday-noon"
+            >
+              Samedi 12h00 {rotationMode === "saturday_noon" && "(actif)"}
+            </button>
+            <button
+              onClick={() => toggleRotationMode("monday_midnight")}
+              disabled={savingMode}
+              className={`text-xs px-3 py-1.5 rounded font-semibold ring-1 transition ${rotationMode === "monday_midnight" ? "bg-slate-700 text-white ring-slate-700" : "bg-white text-slate-700 ring-slate-300 hover:bg-slate-50"} disabled:opacity-50`}
+              data-testid="garde-rotation-monday-midnight"
+            >
+              Lundi 00h00 (legacy) {rotationMode === "monday_midnight" && "(actif)"}
+            </button>
+          </div>
+        </div>
+      </div>
 
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4 mb-5 flex flex-wrap items-end gap-3">
         <label className="text-sm">

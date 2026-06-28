@@ -42,6 +42,85 @@ def _iso_week_year(d: date) -> tuple[int, int]:
     return iso[0], iso[1]
 
 
+def _saturday_noon_week_year(now: datetime) -> tuple[int, int]:
+    """Iter43-fix24az-d (2026-02-26) — Compute the « guard week » using a
+    rotation that flips every Saturday at 12:00 (noon) Africa/Abidjan time
+    (UTC ≅ Africa/Abidjan since both are UTC+00:00).
+
+    A *guard period* spans Saturday 12:00 → next Saturday 12:00 (7 days).
+    The associated ISO week is the one containing the Saturday that *starts*
+    the period.
+
+    Examples (assuming UTC):
+      - Tuesday  → most recent Sat was last week's Sat → uses last week's ISO week
+      - Friday   → idem
+      - Saturday 11:59 → most recent Sat 12:00 was 6d 23h ago → previous ISO week
+      - Saturday 12:00 → new period starts → uses this week's ISO week
+      - Sunday  → most recent Sat 12:00 was yesterday → uses this week's ISO week
+    """
+    today = now.date()
+    weekday = now.weekday()  # Mon=0, …, Sat=5, Sun=6
+    if weekday == 5:  # Saturday
+        days_back = 0 if now.hour >= 12 else 7
+    elif weekday == 6:  # Sunday
+        days_back = 1
+    else:  # Mon..Fri
+        # Last Saturday = today - (weekday + 2) days
+        # Mon=0→2 ; Tue=1→3 ; … ; Fri=4→6
+        days_back = weekday + 2
+    from datetime import timedelta as _td
+    ref_date = today - _td(days=days_back)
+    iso = ref_date.isocalendar()
+    return iso[0], iso[1]
+
+
+async def _current_garde_week(db, *, now: Optional[datetime] = None) -> tuple[int, int, str]:
+    """Returns (year, week, mode_used) according to `settings.garde_rotation_mode`.
+
+    Modes:
+      - "saturday_noon" (default, new) → rotation Saturday 12:00
+      - "monday_midnight" (legacy) → rotation Monday 00:00 (pure ISO week)
+    """
+    if now is None:
+        now = _now_utc()
+    try:
+        s = await db.settings.find_one(
+            {"_id": "global"}, {"_id": 0, "garde_rotation_mode": 1},
+        ) or {}
+        mode = (s.get("garde_rotation_mode") or "saturday_noon").strip().lower()
+    except Exception:  # noqa: BLE001
+        mode = "saturday_noon"
+    if mode == "monday_midnight":
+        y, w = _iso_week_year(now.date())
+    else:
+        mode = "saturday_noon"
+        y, w = _saturday_noon_week_year(now)
+    return y, w, mode
+
+
+def _next_rotation_iso(now: datetime, mode: str) -> str:
+    """Return ISO timestamp of the next group rotation moment."""
+    from datetime import timedelta as _td
+    if mode == "monday_midnight":
+        # Next Monday 00:00 UTC
+        weekday = now.weekday()  # Mon=0
+        days_ahead = (7 - weekday) % 7 or 7
+        next_dt = (now + _td(days=days_ahead)).replace(hour=0, minute=0, second=0, microsecond=0)
+        return next_dt.isoformat()
+    # saturday_noon
+    weekday = now.weekday()  # Sat=5
+    if weekday == 5 and now.hour < 12:
+        # Today Saturday morning → next rotation is today at 12:00
+        next_dt = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    else:
+        # Days ahead to NEXT Saturday (strictly after now)
+        days_ahead = (5 - weekday) % 7
+        if days_ahead == 0:  # Saturday and we're past noon → next week's Saturday
+            days_ahead = 7
+        next_dt = (now + _td(days=days_ahead)).replace(hour=12, minute=0, second=0, microsecond=0)
+    return next_dt.isoformat()
+
+
 def setup_garde_planning_routes(*, db, api, get_current_admin):
     """Wire les routes garde planning. À insérer AVANT les catch-all /{officine_id}."""
 
@@ -116,8 +195,7 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
                     "monday": monday.isoformat(), "sunday": sunday.isoformat(),
                 })
         # Semaine ISO en cours
-        today = _now_utc().date()
-        cur_year, cur_week = _iso_week_year(today)
+        cur_year, cur_week, _mode = await _current_garde_week(db, now=_now_utc())
         return {
             "year": year,
             "weeks": weeks,
@@ -125,6 +203,8 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             "groups_with_count": [{"groupe_garde": g, "count": groups[g]} for g in sorted_groups],
             "current_iso_year": cur_year,
             "current_iso_week": cur_week,
+            # Iter43-fix24az-d — surfaced rotation mode for the admin UI
+            "current_rotation_mode": _mode,
         }
 
     @api.post("/admin/officines-registry/garde-planning/generate", tags=["Admin — Officines Registry"])
@@ -255,8 +335,7 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         `cms_image_url` configurés via Admin Settings pour personnaliser
         la page publique sans redéployer.
         """
-        today = _now_utc().date()
-        year, week = _iso_week_year(today)
+        year, week, _mode = await _current_garde_week(db, now=_now_utc())
         entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
         if not entry:
             # Pas de planning → on calcule la rotation automatique
@@ -296,6 +375,9 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             "monday": monday, "sunday": sunday,
             "officines": officines,
             "count": len(officines),
+            # Iter43-fix24az-d — surface rotation mode + next rotation timestamp
+            "rotation_mode": _mode,
+            "next_rotation_at": _next_rotation_iso(_now_utc(), _mode),
             "cms_header": s.get("garde_page_header") or "",
             "cms_footer": s.get("garde_page_footer") or "",
             "cms_image_url": s.get("garde_page_image_url") or "",

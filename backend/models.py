@@ -1067,6 +1067,17 @@ class SettingsUpdate(BaseModel):
     garde_page_image_url: Optional[str] = None
     garde_page_image_caption: Optional[str] = None
 
+    # Iter43-fix24az-d (2026-02-26) — Garde rotation schedule toggle.
+    # "saturday_noon" (défaut nouveau) : rotation Samedi 12h00 (1 semaine
+    # de garde du Samedi 12h00 au Samedi 12h00 suivant).
+    # "monday_midnight" (legacy) : rotation Lundi 00h00 (semaine ISO 8601).
+    garde_rotation_mode: Optional[str] = None
+
+    # Iter43-fix24az-d — Google Maps API + biais pays pour le géocodage des
+    # officines (Google Places + Google Geocode → fallback Nominatim).
+    google_maps_api_key: Optional[str] = None
+    geocode_country_bias: Optional[str] = None
+
 
 class BlacklistedIPCreate(BaseModel):
     cidr: str  # supports single IP or CIDR like 192.168.1.0/24

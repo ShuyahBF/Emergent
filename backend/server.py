@@ -11912,6 +11912,12 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
         if mode not in ("bounded", "lifetime"):
             raise HTTPException(status_code=400, detail="welcome_unread_mode doit être 'bounded' ou 'lifetime'")
         update["welcome_unread_mode"] = mode
+    # Iter43-fix24az-d — Validate garde_rotation_mode
+    if "garde_rotation_mode" in update:
+        gm = (update["garde_rotation_mode"] or "saturday_noon").strip().lower()
+        if gm not in ("saturday_noon", "monday_midnight"):
+            raise HTTPException(status_code=400, detail="garde_rotation_mode doit être 'saturday_noon' ou 'monday_midnight'")
+        update["garde_rotation_mode"] = gm
     # 2026-02 (#3) — Validate liluvine_takeover_default_minutes (5-10080)
     if "liluvine_takeover_default_minutes" in update and update["liluvine_takeover_default_minutes"] is not None:
         try:

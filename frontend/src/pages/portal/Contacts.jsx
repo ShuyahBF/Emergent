@@ -14,6 +14,7 @@ import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPr
 import { useAuth } from "@/contexts/AuthContext";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import CrossTenantSearch from "@/components/CrossTenantSearch";
+import { ContactGroupChips } from "@/components/ContactGroupChips";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 const absoluteFileUrl = (u) => {
@@ -467,10 +468,10 @@ export default function Contacts() {
         />
       )}
       {modal?.type === "wa" && (
-        <WhatsAppModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} />
+        <WhatsAppModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} userRole={user?.role} />
       )}
       {modal?.type === "sms" && (
-        <SmsModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} />
+        <SmsModal contact={modal.contact} onClose={() => setModal(null)} onSent={load} userRole={user?.role} />
       )}
       {modal?.type === "schedule" && (
         <ScheduleModal contact={modal.contact} onClose={() => setModal(null)} onScheduled={load} />
@@ -967,7 +968,7 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
 };
 
 // --- WhatsApp send modal (supports HEADER text/media + BODY variables + URL button params) ---
-const WhatsAppModal = ({ contact, onClose, onSent }) => {
+const WhatsAppModal = ({ contact, onClose, onSent, userRole }) => {
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [templateName, setTemplateName] = useState("");
@@ -1231,6 +1232,8 @@ const WhatsAppModal = ({ contact, onClose, onSent }) => {
               )}
             </div>
           )}
+          {/* Iter43-fix24az-d — Quick contact-group toggler (admin/superviseur/modérateur) */}
+          <ContactGroupChips contact={contact} userRole={userRole} />
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>
@@ -2917,7 +2920,7 @@ const ScheduleModal = ({ contact, onClose, onScheduled }) => {
 
 
 // --- SMS send modal (free-text + tokens + payment link inserter) ---
-const SmsModal = ({ contact, onClose, onSent }) => {
+const SmsModal = ({ contact, onClose, onSent, userRole }) => {
   const [providers, setProviders] = useState({ default: "auto", active: [] });
   const [provider, setProvider] = useState("auto");
   const [message, setMessage] = useState("");
@@ -3034,6 +3037,8 @@ const SmsModal = ({ contact, onClose, onSent }) => {
               }
             </div>
           )}
+          {/* Iter43-fix24az-d — Quick contact-group toggler (admin/superviseur/modérateur) */}
+          <ContactGroupChips contact={contact} userRole={userRole} />
         </div>
         <div className="flex justify-end gap-2 px-5 py-3 border-t border-slate-200">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Fermer</button>

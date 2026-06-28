@@ -357,15 +357,6 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         )
         return {"ok": True, "year": year, "week_number": week, "groupe_garde": gg, "manual_override": True}
 
-    @api.delete("/admin/officines-registry/garde-planning/{year}/{week}", tags=["Admin — Officines Registry"])
-    async def reset_garde_week(
-        year: int, week: int,
-        user: dict = Depends(get_current_admin),
-    ):
-        """Supprime l'override d'une semaine (retombe sur la rotation auto)."""
-        await db.garde_planning.delete_one({"year": year, "week_number": week})
-        return {"ok": True, "year": year, "week_number": week, "reset": True}
-
     @api.delete("/admin/officines-registry/garde-planning/year/{year}", tags=["Admin — Officines Registry"])
     async def reset_garde_year(
         year: int,
@@ -374,6 +365,12 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         """Iter43-fix24az-e (2026-02-26) — Réinitialise TOUTES les semaines
         d'une année (= supprime tous les documents `garde_planning` de cette
         année). Le planning retombera sur la rotation séquentielle calculée.
+
+        IMPORTANT — cette route DOIT être déclarée AVANT la route plus
+        générique `/garde-planning/{year}/{week}` car FastAPI matche les
+        routes dans l'ordre de déclaration. Si on inverse, l'URL
+        `/garde-planning/year/2026` est matchée comme `{year}='year'` →
+        HTTP 422 int_parsing.
         """
         if year < 2024 or year > 2100:
             raise HTTPException(status_code=400, detail="year hors bornes")
@@ -383,6 +380,15 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             year, res.deleted_count, user.get("email"),
         )
         return {"ok": True, "year": year, "weeks_deleted": res.deleted_count}
+
+    @api.delete("/admin/officines-registry/garde-planning/{year}/{week}", tags=["Admin — Officines Registry"])
+    async def reset_garde_week(
+        year: int, week: int,
+        user: dict = Depends(get_current_admin),
+    ):
+        """Supprime l'override d'une semaine (retombe sur la rotation auto)."""
+        await db.garde_planning.delete_one({"year": year, "week_number": week})
+        return {"ok": True, "year": year, "week_number": week, "reset": True}
 
     @api.delete("/admin/officines-registry/garde-groups/{group_number}", tags=["Admin — Officines Registry"])
     async def delete_empty_garde_group(
@@ -466,6 +472,11 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             "year": year, "week_number": week,
             "groupe_garde": gg,
             "monday": monday, "sunday": sunday,
+            # Iter43-fix24az-e — Explicit period boundaries (Sat→Sat under
+            # saturday_noon, Mon→Sun under monday_midnight). Same values as
+            # monday/sunday but with unambiguous names for API consumers.
+            "period_start": period_start.isoformat(),
+            "period_end": period_end.isoformat(),
             "officines": officines,
             "count": len(officines),
             # Iter43-fix24az-d — surface rotation mode + next rotation timestamp

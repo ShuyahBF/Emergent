@@ -1,0 +1,27 @@
+{
+  "summary": "Iter74 — Quick re-test after critical route-ordering fix (iter73 issues). All 4 assertions PASS. (1) DELETE /api/admin/officines-registry/garde-planning/year/2026 now returns 200 ok=true weeks_deleted=int (was 422 int_parsing in iter73). (2) DELETE /api/admin/officines-registry/garde-planning/2026/30 regression OK → 200 ok=true reset=true. (3) GET /api/public/officines/garde/current now exposes period_start AND period_end explicitly + matches monday/sunday values (Sat→Sat under default saturday_noon mode). (4) All 13 unit regression tests (test_iter43_fix24az_d + test_iter43_fix24az_e) still PASS. Total: 16/16 PASS, 0 failures.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter74_garde_route_fix.py",
+    "/app/backend/tests/test_iter43_fix24az_d_garde_rotation.py",
+    "/app/backend/tests/test_iter43_fix24az_e_period_dates.py",
+    "/app/test_reports/pytest/iter74_full.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Route-ordering bug from iter73 properly fixed: reset_garde_year (literal /year/{year}) declared at line 360 BEFORE reset_garde_week (variable /{year}/{week}) at line 384. Inline comment in code explicitly warns about FastAPI declaration-order matching to prevent regression.",
+    "period_start/period_end keys added to /api/public/officines/garde/current response (lines 478-479) — same Sat→Sat values as monday/sunday under saturday_noon mode, unambiguous names for API consumers.",
+    "Unit tests must be run with cwd=/app/backend (not /app) because tests import `from routes.garde_planning import ...`. pytest from /app fails with ModuleNotFoundError. Consider adding /app/backend/conftest.py sys.path injection or a pytest.ini rootdir fix to make tests CWD-independent — minor DX improvement."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter74_garde_route_fix.py (NEW — 3 HTTP smoke tests for the iter73 fix)"
+  ],
+  "success_rate": {"backend": "100% (16/16 PASS)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp on /api/auth/login).",
+  "seed_data_creation": "None — DELETE /year/2026 wiped any leftover garde_planning docs for 2026 (idempotent reset confirmed by weeks_deleted=int>=0).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "iter73 critical issues are FULLY RESOLVED. Both fixes verified end-to-end via HTTP. New regression test file /app/backend/tests/test_iter74_garde_route_fix.py contains 3 smoke tests that should be kept for future iterations to catch any regression on (a) FastAPI route ordering for /year/{year} vs /{year}/{week} and (b) presence of period_start/period_end keys in garde/current. Run pytest from /app/backend (not /app) due to relative imports in legacy unit tests.",
+  "rca of the issue": "Already resolved by main agent in iter74. Original RCA (iter73): FastAPI matches routes in declaration order; literal-segment /year/{year} was registered AFTER the variable-position /{year}/{week} → 422 int_parsing. Fix: moved the literal route declaration ABOVE, with an explanatory comment in code to prevent regression. Verified: 16/16 PASS."
+}

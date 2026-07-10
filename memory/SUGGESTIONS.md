@@ -761,6 +761,43 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - Input pour `geocode_country_bias` (défaut `BF`)
   - Lien vers console GCP avec instructions (activer Geocoding API + Places API)
 
+## S081 — Facebook « Tester App ID/Secret » (validation pré-OAuth)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-c
+- **Détail** : Endpoint POST /api/admin/facebook/test-config qui appelle `grant_type=client_credentials` avec les creds enregistrés → renvoie l'App Access Token si valide, sinon fb_error_message exact. Bouton vert 🧪 dans FacebookSection.jsx.
+
+## S082 — Rotation garde Samedi 12h00 + toggle Admin Settings
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-d
+- **Détail** : `garde_rotation_mode` ∈ {saturday_noon (défaut), monday_midnight (legacy)}. `_saturday_noon_week_year`, `_next_rotation_iso`, `_current_garde_week`. Toggle dans `AdminGardePlanning.jsx`. **Bug critique de dates** (affichait Mon→Sun au lieu de Sat→Sat) fixé en Iter43-fix24az-e.
+
+## S083 — ContactGroupChips dans WA/SMS unitaire + conversation
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-d / e
+- **Détail** : Composant réutilisable dans SendModal WA/SMS et dans ConversationModal (fenêtre 24h). Multi-toggle immédiat pour admin/superviseur/moderateur, lecture seule sinon. Bordure rouge.
+
+## S084 — Reset planning année + filtre groupe garde + suppression groupe vide
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-e
+- **Détail** :
+  - Backend : `DELETE /admin/officines-registry/garde-planning/year/{year}` (déclaré AVANT la route `{year}/{week}` — sinon shadow → 422) ; `DELETE /admin/officines-registry/garde-groups/{N}` avec 409 si non vide.
+  - Frontend : bouton `garde-reset-year-btn` dans AdminGardePlanning ; dropdown `filter-garde-group` (groupe en garde marqué rouge) + `delete-empty-garde-group` dans AdminOfficinesRegistry.
+  - Bornes de période affichées correctement en table (Début/Fin au lieu de Du lundi/Au dimanche).
+
+## S085 — Module Production pour tenants Fabricant
+- **Demande utilisateur** : 2026-02-26 — « Nouveau rôle 'Fabricant' avec sidebar réduite (Caisse, GRH, Officines RO, Catalogue, Production). Module Production : intrants (matières premières, eau, électricité, main d'œuvre, amortissement…), recettes multi-variantes, prix de revient auto, marge 42% par défaut, marge↔prix bidirectionnel, export PDF. Simple à utiliser pour des personnes d'un certain âge. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26) — testing_agent 100% backend + 100% frontend
+- **Fix associé** : Iter43-fix24az-f
+- **Détail** :
+  - **Backend** : nouveau `routes/production.py` (~500 LOC). Collections `production_intrants` + `production_recipes`. 7 catégories d'intrants (raw_material, packaging, water, electricity, labor, amortization, other). Endpoints CRUD + settings + 2 exports PDF (reportlab). Access control `_require_fabricant_admin` : role admin/superviseur ET business_type=fabricant du tenant primaire (via lookup parent client_id).
+  - **Modèle** : `User.business_type` ajouté à `UserCreateAdmin`, `UserUpdateAdmin`, `UserPublic`. Persisté dans `admin_create_client`. `SettingsUpdate.production_default_margin_pct`.
+  - **Frontend** : nouveau `Production.jsx` (~600 LOC) avec 3 tabs (Recettes, Intrants, Paramètres). Calcul temps réel `useMemo` (coût batch, coût unitaire, marge, prix public, bénéfice). Toggle bidirectionnel marge↔prix. Modal Recette avec sélection cochable d'intrants + qté. Modal Intrant avec catégorie+unité+coût.
+  - **Sidebar Fabricant** : `PortalLayout.jsx` — `fabricantAllowedPaths` (allowlist stricte : /portal/cash, catalog, hr, production, /admin/officines-registry). Redirection non-admin autorisée pour fabricant superviseur sur officines-registry.
+  - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
+- **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
+
+
+
 ---
 
 ## Comment référencer une suggestion

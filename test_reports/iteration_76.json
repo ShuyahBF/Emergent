@@ -1,0 +1,42 @@
+{
+  "summary": "Frontend testing of the new Analyses tab in /portal/production (Fabricant). Login via OTP flow, tab navigation, all analytics test-ids, chart rendering, Tout/Aucune buttons, chip toggling, PieChart category detail, regression on other tabs and Nouvelle recette modal all validated successfully.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor: Console warning 'Each child in a list should have a unique key prop' from Geographies component (react-simple-maps) — unrelated to Production module but should be fixed in whichever page uses <Geographies>.",
+    "Non-blocking: 'Exporter tout (PDF)' element with data-testid='production-export-all' returned no href attribute — it appears to be a button rather than an <a> tag. Element is present and clickable; consider making it a real <a href=...> so users can right-click → open in new tab."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "skipped", "frontend": "100%"},
+  "test_credentials": "fab-analytics@sawali-test.com / Analytics@2026 (OTP retrieved via dev_otp from /api/auth/login response).",
+  "seed_data_creation": "None — used existing seed (5 recipes, 12 intrants).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Analyses tab is fully functional. Auth flow works via POST /api/auth/login (returns dev_otp inline for sawali-test.com domain) then POST /api/auth/verify-otp with {session_token, code}; token stored in localStorage as 'sawali_token'. Welcome briefing can be bypassed via sessionStorage/localStorage flag 'sawali_welcome_briefing_seen'='1'. Tab order confirmed: Recettes / Intrants (12) / Analyses / Paramètres.",
+  "verified_flows": [
+    "Login via OTP with dev_otp returned inline: OK",
+    "Sidebar shows 'Production' entry for fabricant tenant: OK",
+    "4 tabs in correct order with correct testids (production-tab-recipes / -intrants / -analytics / -settings): OK",
+    "data-testid='production-analytics' container present: OK",
+    "6 KPI cards: Recettes=5, Coût moyen=512 CFA, Prix public moyen=743 CFA, Marge moyenne=46.4%, Intrants distincts=12, Coût cumulé batches=44 295 CFA: OK",
+    "3 highlight cards (top/expensive/low) with correct testids: OK",
+    "BarChart with 1+ recharts-surface svg + 5 recipe chips (analytics-recipe-toggle-<id>): OK",
+    "Tout button → 5/5 counter, chart re-renders: OK",
+    "Aucune button → 0/5 counter + empty message 'Cochez au moins une recette ci-dessus.': OK",
+    "Single chip toggle → 4/5 counter: OK",
+    "PieChart with recharts-surface + 'Détail par catégorie' listing Main d'œuvre 22 500 CFA 50.8% + 5 other categories with correct percentages: OK",
+    "LineChart with recharts-surface (Évolution des coûts dans le temps): OK",
+    "Recettes tab shows 5 rows: OK",
+    "Intrants tab shows 12 rows: OK",
+    "Paramètres tab shows 'Marge bénéficiaire par défaut' input: OK",
+    "Regression: 'Nouvelle recette' modal opens (data-testid='production-new-recipe'): OK",
+    "Regression: 'Exporter tout (PDF)' element present (data-testid='production-export-all'): OK",
+    "No console errors related to Production/Analyses module (only unrelated Geographies key-prop warning and pre-auth 401s)"
+  ]
+}

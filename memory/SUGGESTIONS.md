@@ -796,6 +796,25 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S086 — Onglet Analyses (Recharts) dans le module Production
+- **Demande utilisateur** : 2026-02-26 — « oui implémente cette suggestion » (après proposition d'ajouter des graphiques Recharts au module Production)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-g
+- **Détail** :
+  - Nouveau 3ème onglet `Analyses` dans `/app/frontend/src/pages/portal/Production.jsx` avec 4 blocs de visualisation :
+    - **6 KPI cards** : recettes, coût moyen, prix public moyen, marge moyenne, intrants distincts, coût cumulé batches.
+    - **3 Highlight cards** : recette la plus rentable (bénéfice/unité), coût de revient le plus élevé, marge la plus faible.
+    - **BarChart** (Recharts) : coût de revient vs prix public vs bénéfice par recette, avec **sélecteur multi-toggle** (chips cochables) + boutons Tout/Aucune. Défaut : top-10 les plus coûteuses cochées.
+    - **PieChart** donut : répartition **agrégée** des coûts d'intrants par catégorie (7 catégories) sur toutes les recettes, avec pourcentages sur le donut + panneau « Détail par catégorie » listant montants CFA et pourcentages exacts.
+    - **LineChart** : évolution des coûts de revient + prix public dans le temps (recettes triées par `created_at`), utile pour détecter l'inflation ou l'amélioration des marges.
+  - Composants extraits : `AnalyticsTab`, `HighlightCard`, `ChartTooltip`, `LineChartTooltip`.
+  - Data-testids : `production-tab-analytics`, `production-analytics`, `analytics-empty`, `analytics-bar-chart`, `analytics-pie-chart`, `analytics-line-chart`, `analytics-highlight-{top|expensive|low}`, `analytics-select-{all|none}`, `analytics-recipe-toggle-{id}`, `analytics-category-list`.
+  - **Note** : le LineChart utilise `created_at` (proxy chronologique) car les coûts historisés ne sont pas conservés — un vrai historique de snapshots serait une feature future (P3).
+- **Tests** :
+  - Pytest `test_analytics_payload_shape` (nouvelle) — valide que `list_recipes` expose `intrants[].category_snapshot`, `quantity`, `unit_cost_snapshot`, `intrants_total_batch`, `created_at` et `summary.{avg_cost_price, avg_public_price, avg_margin_pct}`. → 7/7 tests production pytest passent.
+  - Smoke screenshot preview OK — les 3 charts se rendent correctement avec 5 recettes seed (fab-analytics@sawali-test.com / Analytics@2026).
+  - Testing agent frontend (à lancer post-implémentation) — vérifie navigation entre les 4 tabs, sélecteur BarChart interactif, coupure gracieuse quand 0 recette (empty state).
+
 
 
 ---

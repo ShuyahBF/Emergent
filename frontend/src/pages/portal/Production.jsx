@@ -14,8 +14,13 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Factory, Plus, Trash2, Pencil, Save, X, Download, FileText,
   Package, Droplet, Zap, User as UserIcon, Cog, BarChart3, Loader2,
-  DollarSign, Percent, ArrowRightLeft,
+  DollarSign, Percent, ArrowRightLeft, PieChart as PieIcon, TrendingUp,
+  Trophy, AlertTriangle, LineChart as LineIcon,
 } from "lucide-react";
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, Legend, ResponsiveContainer,
+  PieChart, Pie, Cell, LineChart, Line, CartesianGrid,
+} from "recharts";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -75,6 +80,7 @@ export default function Production() {
         {[
           { id: "recipes", label: "Recettes", icon: Factory },
           { id: "intrants", label: `Intrants (${intrants.length})`, icon: Package },
+          { id: "analytics", label: "Analyses", icon: BarChart3 },
           { id: "settings", label: "Paramètres", icon: Cog },
         ].map((t) => {
           const Icon = t.icon;
@@ -125,6 +131,9 @@ export default function Production() {
                 } catch (e) { toast.error(e?.response?.data?.detail || "Échec"); }
               }}
             />
+          )}
+          {tab === "analytics" && (
+            <AnalyticsTab recipes={recipes} summary={summary} />
           )}
           {tab === "settings" && (
             <SettingsTab
@@ -240,6 +249,354 @@ const KpiCard = ({ label, value, color, icon: Icon }) => (
     </div>
   </div>
 );
+
+/* ────────────────────────────────────────────────────────────────────────── */
+/* Analytics tab — Recharts visualisations                                   */
+/* ────────────────────────────────────────────────────────────────────────── */
+const fmtCFA = (v) =>
+  (Number.isFinite(Number(v)) ? Number(v) : 0).toLocaleString("fr-FR", { maximumFractionDigits: 0 });
+const fmtCFA2 = (v) =>
+  (Number.isFinite(Number(v)) ? Number(v) : 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 });
+
+const ChartTooltip = ({ active, payload, label, suffix = " CFA" }) => {
+  if (!active || !payload || !payload.length) return null;
+  return (
+    <div className="rounded-lg bg-white ring-1 ring-slate-300 shadow-lg px-3 py-2 text-xs">
+      {label && <p className="font-semibold text-slate-800 mb-1">{label}</p>}
+      {payload.map((p, idx) => (
+        <p key={idx} className="flex items-center gap-2 font-mono" style={{ color: p.color || p.payload?.color }}>
+          <span className="inline-block h-2 w-2 rounded-sm" style={{ background: p.color || p.payload?.color }} />
+          <span className="text-slate-600">{p.name}</span>
+          <span className="font-bold">{fmtCFA2(p.value)}{suffix}</span>
+        </p>
+      ))}
+    </div>
+  );
+};
+
+const LineChartTooltip = ({ active, payload }) => {
+  if (!active || !payload || !payload.length) return null;
+  const row = payload[0].payload;
+  return (
+    <div className="rounded-lg bg-white ring-1 ring-slate-300 shadow-lg px-3 py-2 text-xs">
+      <p className="font-semibold text-slate-800 mb-1">{row.name}</p>
+      <p className="text-slate-500">{row.date}</p>
+      <p className="font-mono text-sky-700">Coût : {fmtCFA2(row.cost)} CFA</p>
+      <p className="font-mono text-emerald-700">Prix : {fmtCFA2(row.price)} CFA</p>
+    </div>
+  );
+};
+
+const AnalyticsTab = ({ recipes, summary }) => {
+  const [selected, setSelected] = useState(() => new Set());
+  // Initialize selection: keep top-10 highest-cost recipes selected by default
+  useEffect(() => {
+    if (recipes.length === 0) return;
+    const top = [...recipes].sort((a, b) => (b.cost_price || 0) - (a.cost_price || 0)).slice(0, 10);
+    setSelected(new Set(top.map((r) => r.id)));
+  }, [recipes]);
+
+  const toggle = (id) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  const selectAll = () => setSelected(new Set(recipes.map((r) => r.id)));
+  const selectNone = () => setSelected(new Set());
+
+  // Enriched KPI cards
+  const analytics = useMemo(() => {
+    if (recipes.length === 0) return null;
+    const sorted = [...recipes];
+    const mostProfitable = sorted.slice().sort((a, b) => (b.profit_per_unit || 0) - (a.profit_per_unit || 0))[0];
+    const leastProfitable = sorted.slice().sort((a, b) => (a.margin_pct || 0) - (b.margin_pct || 0))[0];
+    const mostExpensive = sorted.slice().sort((a, b) => (b.cost_price || 0) - (a.cost_price || 0))[0];
+    const uniqueIntrants = new Set();
+    recipes.forEach((r) => (r.intrants || []).forEach((i) => uniqueIntrants.add(i.intrant_id)));
+    const totalBatchCost = recipes.reduce((s, r) => s + (r.intrants_total_batch || 0), 0);
+    return { mostProfitable, leastProfitable, mostExpensive, uniqueIntrantsCount: uniqueIntrants.size, totalBatchCost };
+  }, [recipes]);
+
+  // BarChart data — recipes selected
+  const barData = useMemo(
+    () =>
+      recipes
+        .filter((r) => selected.has(r.id))
+        .map((r) => ({
+          name: r.variant_label ? `${r.name} — ${r.variant_label}` : r.name,
+          cost: Number((r.cost_price || 0).toFixed(2)),
+          price: Number((r.public_price || 0).toFixed(2)),
+          profit: Number((r.profit_per_unit || 0).toFixed(2)),
+        })),
+    [recipes, selected],
+  );
+
+  // PieChart — aggregated cost per category across ALL recipes
+  const pieData = useMemo(() => {
+    const acc = {};
+    recipes.forEach((r) => {
+      (r.intrants || []).forEach((it) => {
+        const c = it.category_snapshot || "raw_material";
+        const cost = (Number(it.quantity) || 0) * (Number(it.unit_cost_snapshot) || 0);
+        acc[c] = (acc[c] || 0) + cost;
+      });
+    });
+    return CATEGORIES.map((c) => ({
+      name: c.label,
+      value: Number((acc[c.value] || 0).toFixed(2)),
+      color: c.color,
+      key: c.value,
+    })).filter((d) => d.value > 0);
+  }, [recipes]);
+  const pieTotal = useMemo(() => pieData.reduce((s, d) => s + d.value, 0), [pieData]);
+
+  // LineChart — cost evolution over time (recipes chronologically by created_at)
+  const lineData = useMemo(
+    () =>
+      [...recipes]
+        .filter((r) => r.created_at)
+        .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))
+        .map((r) => {
+          const d = new Date(r.created_at);
+          const label = Number.isNaN(d.valueOf())
+            ? r.name
+            : d.toLocaleDateString("fr-FR", { month: "short", day: "2-digit" });
+          return {
+            name: r.name,
+            date: label,
+            cost: Number((r.cost_price || 0).toFixed(2)),
+            price: Number((r.public_price || 0).toFixed(2)),
+          };
+        }),
+    [recipes],
+  );
+
+  if (recipes.length === 0) {
+    return (
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-8 text-center text-sm text-slate-500" data-testid="analytics-empty">
+        <BarChart3 className="h-8 w-8 mx-auto mb-2 text-slate-300" />
+        Aucune donnée analytique. Créez au moins une recette pour visualiser les analyses.
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4" data-testid="production-analytics">
+      {/* KPI cards */}
+      {summary && (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
+          <KpiCard label="Recettes" value={summary.total_recipes} color="#4f46e5" icon={Factory} />
+          <KpiCard label="Coût moyen" value={fmtCFA(summary.avg_cost_price) + " CFA"} color="#0284c7" icon={DollarSign} />
+          <KpiCard label="Prix public moyen" value={fmtCFA(summary.avg_public_price) + " CFA"} color="#0891b2" icon={DollarSign} />
+          <KpiCard label="Marge moyenne" value={(summary.avg_margin_pct || 0).toFixed(1) + " %"} color="#059669" icon={Percent} />
+          {analytics && (
+            <KpiCard label="Intrants distincts" value={analytics.uniqueIntrantsCount} color="#7c3aed" icon={Package} />
+          )}
+          {analytics && (
+            <KpiCard label="Coût cumulé batches" value={fmtCFA(analytics.totalBatchCost) + " CFA"} color="#dc2626" icon={TrendingUp} />
+          )}
+        </div>
+      )}
+      {/* Highlight cards */}
+      {analytics && (
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+          <HighlightCard
+            testid="analytics-highlight-top"
+            icon={Trophy}
+            color="#059669"
+            label="Recette la plus rentable"
+            title={analytics.mostProfitable?.name || "—"}
+            subtitle={
+              analytics.mostProfitable
+                ? `Bénéfice/unité : ${fmtCFA2(analytics.mostProfitable.profit_per_unit)} CFA`
+                : ""
+            }
+          />
+          <HighlightCard
+            testid="analytics-highlight-expensive"
+            icon={DollarSign}
+            color="#dc2626"
+            label="Coût de revient le plus élevé"
+            title={analytics.mostExpensive?.name || "—"}
+            subtitle={
+              analytics.mostExpensive
+                ? `${fmtCFA2(analytics.mostExpensive.cost_price)} CFA / unité`
+                : ""
+            }
+          />
+          <HighlightCard
+            testid="analytics-highlight-low"
+            icon={AlertTriangle}
+            color="#f59e0b"
+            label="Marge la plus faible"
+            title={analytics.leastProfitable?.name || "—"}
+            subtitle={
+              analytics.leastProfitable
+                ? `Marge : ${(analytics.leastProfitable.margin_pct || 0).toFixed(1)} %`
+                : ""
+            }
+          />
+        </div>
+      )}
+
+      {/* BarChart + selector */}
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold inline-flex items-center gap-1.5"><BarChart3 className="h-4 w-4 text-indigo-600" /> Coût de revient vs Prix public</h3>
+          <div className="flex items-center gap-1 text-xs">
+            <button onClick={selectAll} className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200" data-testid="analytics-select-all">Tout</button>
+            <button onClick={selectNone} className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200" data-testid="analytics-select-none">Aucune</button>
+            <span className="text-slate-500 ml-2">{selected.size}/{recipes.length}</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-1 mb-3 max-h-24 overflow-y-auto p-1 rounded bg-slate-50 ring-1 ring-slate-200">
+          {recipes.map((r) => {
+            const on = selected.has(r.id);
+            return (
+              <label
+                key={r.id}
+                className={`text-[11px] px-2 py-1 rounded cursor-pointer inline-flex items-center gap-1 ${on ? "bg-indigo-600 text-white" : "bg-white ring-1 ring-slate-300 text-slate-700 hover:bg-slate-100"}`}
+                data-testid={`analytics-recipe-toggle-${r.id}`}
+              >
+                <input type="checkbox" checked={on} onChange={() => toggle(r.id)} className="hidden" />
+                {r.name}{r.variant_label ? ` — ${r.variant_label}` : ""}
+              </label>
+            );
+          })}
+        </div>
+        {barData.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">Cochez au moins une recette ci-dessus.</div>
+        ) : (
+          <div className="h-96" data-testid="analytics-bar-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={barData} margin={{ top: 8, right: 12, left: 0, bottom: 80 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="name"
+                  interval={0}
+                  tick={{ fontSize: 10, fill: "#475569" }}
+                  angle={-28}
+                  textAnchor="end"
+                  height={90}
+                />
+                <YAxis tick={{ fontSize: 11, fill: "#475569" }} tickFormatter={(v) => fmtCFA(v)} />
+                <Tooltip content={<ChartTooltip />} cursor={{ fill: "rgba(79,70,229,0.05)" }} />
+                <Legend verticalAlign="top" align="right" wrapperStyle={{ fontSize: 11, paddingBottom: 8 }} />
+                <Bar dataKey="cost" name="Coût de revient" fill="#0284c7" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="price" name="Prix public" fill="#059669" radius={[4, 4, 0, 0]} />
+                <Bar dataKey="profit" name="Bénéfice" fill="#f59e0b" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* PieChart — aggregate categories */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold inline-flex items-center gap-1.5 mb-2"><PieIcon className="h-4 w-4 text-fuchsia-600" /> Répartition des coûts par catégorie</h3>
+          <p className="text-[11px] text-slate-500 mb-2">Vue agrégée sur toutes les recettes ({recipes.length}).</p>
+          {pieData.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">Aucune donnée à afficher.</div>
+          ) : (
+            <div className="h-80" data-testid="analytics-pie-chart">
+              <ResponsiveContainer width="100%" height="100%">
+                <PieChart>
+                  <Pie
+                    data={pieData}
+                    dataKey="value"
+                    nameKey="name"
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={110}
+                    paddingAngle={2}
+                    label={({ percent }) => (percent > 0.05 ? `${(percent * 100).toFixed(0)}%` : "")}
+                    labelLine={false}
+                  >
+                    {pieData.map((d) => (<Cell key={d.key} fill={d.color} />))}
+                  </Pie>
+                  <Tooltip content={<ChartTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+            </div>
+          )}
+          {pieTotal > 0 && (
+            <p className="text-[11px] text-slate-500 mt-2 text-center">
+              Total des coûts intrants (tous batches confondus) : <span className="font-mono font-bold text-slate-800">{fmtCFA(pieTotal)} CFA</span>
+            </p>
+          )}
+        </div>
+
+        {/* Category legend as list */}
+        <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
+          <h3 className="text-sm font-semibold mb-2 inline-flex items-center gap-1.5"><Package className="h-4 w-4 text-slate-600" /> Détail par catégorie</h3>
+          {pieData.length === 0 ? (
+            <div className="py-8 text-center text-xs text-slate-400">Aucune donnée.</div>
+          ) : (
+            <ul className="text-xs space-y-1.5" data-testid="analytics-category-list">
+              {pieData
+                .slice()
+                .sort((a, b) => b.value - a.value)
+                .map((d) => {
+                  const pct = pieTotal > 0 ? (d.value / pieTotal) * 100 : 0;
+                  return (
+                    <li key={d.key} className="flex items-center gap-2">
+                      <span className="inline-block h-3 w-3 rounded-sm" style={{ background: d.color }} />
+                      <span className="flex-1 truncate">{d.name}</span>
+                      <span className="font-mono font-semibold text-slate-800">{fmtCFA(d.value)} CFA</span>
+                      <span className="text-slate-500 w-12 text-right">{pct.toFixed(1)}%</span>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* LineChart — cost evolution */}
+      <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
+        <h3 className="text-sm font-semibold inline-flex items-center gap-1.5 mb-1"><LineIcon className="h-4 w-4 text-emerald-600" /> Évolution des coûts dans le temps</h3>
+        <p className="text-[11px] text-slate-500 mb-2">Recettes ordonnées par date de création — utile pour détecter l&apos;inflation ou l&apos;amélioration des marges.</p>
+        {lineData.length === 0 ? (
+          <div className="py-8 text-center text-xs text-slate-400">Pas encore d&apos;historique disponible.</div>
+        ) : (
+          <div className="h-72" data-testid="analytics-line-chart">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={lineData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: "#475569" }} />
+                <YAxis tick={{ fontSize: 11, fill: "#475569" }} tickFormatter={(v) => fmtCFA(v)} />
+                <Tooltip content={<LineChartTooltip />} />
+                <Legend wrapperStyle={{ fontSize: 11 }} />
+                <Line type="monotone" dataKey="cost" name="Coût de revient" stroke="#0284c7" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                <Line type="monotone" dataKey="price" name="Prix public" stroke="#059669" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
+
+const HighlightCard = ({ icon: Icon, color, label, title, subtitle, testid }) => (
+  <div
+    className="rounded-xl ring-1 ring-slate-200 bg-white p-3 flex items-center gap-3"
+    data-testid={testid}
+  >
+    <div className="rounded-lg p-2" style={{ background: `${color}15`, color }}>
+      <Icon className="h-5 w-5" />
+    </div>
+    <div className="min-w-0">
+      <p className="text-[10px] uppercase tracking-wider text-slate-500">{label}</p>
+      <p className="text-sm font-bold text-slate-800 truncate" title={title}>{title}</p>
+      <p className="text-[11px] text-slate-500 truncate">{subtitle}</p>
+    </div>
+  </div>
+);
+
 
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Intrants tab                                                              */

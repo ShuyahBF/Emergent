@@ -3227,3 +3227,28 @@ Deux améliorations majeures du système de modale publicitaire publique :
   - Stats endpoint expose le bloc complet `modal.variant_a/b/variant_b_frequency`
 - Régression complète : **36/36 PASS** (9 nouveaux + 7 frequency + 4 placement + 16 anciens)
 - Smoke UI : page publique se charge, endpoint config répond `{modal_global_cap_per_day: 5}` (valeur de test).
+
+---
+
+## 2026-02-26 — Iter43-fix24az-g : Onglet Analyses (Recharts) dans Module Production
+Suite à la demande utilisateur « oui implémente cette suggestion » (S086), ajout d'un 4ème onglet **Analyses** au module Production pour les tenants Fabricant.
+
+### Frontend
+`/app/frontend/src/pages/portal/Production.jsx` :
+- Nouveau tab `analytics` dans la barre de tabs.
+- Nouveau composant `AnalyticsTab({ recipes, summary })` — 4 blocs :
+  1. **6 KPI cards** (Recettes / Coût moyen / Prix public moyen / Marge moyenne / Intrants distincts / Coût cumulé batches).
+  2. **3 HighlightCard** (recette la plus rentable / coût de revient le plus élevé / marge la plus faible).
+  3. **BarChart Recharts** (Coût de revient vs Prix public vs Bénéfice) avec sélecteur multi-toggle et boutons Tout / Aucune.
+  4. **PieChart donut** (répartition agrégée des coûts par catégorie) + panneau « Détail par catégorie » liste triée montants + %.
+  5. **LineChart** (évolution des coûts de revient + prix public dans le temps, tri par `created_at`).
+- Composants extraits : `AnalyticsTab`, `HighlightCard`, `ChartTooltip`, `LineChartTooltip`.
+
+### Backend
+Aucun changement d'API — les endpoints existants `/api/production/recipes` (avec `intrants[].category_snapshot`, `quantity`, `unit_cost_snapshot`, `created_at`, `intrants_total_batch` et `summary`) suffisent.
+
+### Tests
+- Nouveau test pytest `test_analytics_payload_shape` dans `/app/backend/tests/test_iter43_fix24az_f_production.py` — vérifie la présence des champs consommés par l'onglet Analyses.
+- **7/7 tests production PASS**.
+- Smoke screenshot preview OK sur `fab-analytics@sawali-test.com / Analytics@2026` (5 recettes seed).
+

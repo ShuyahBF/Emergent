@@ -176,3 +176,47 @@ def test_user_me_exposes_business_type(fabricant_tenant):
     r = requests.get(f"{API_URL}/api/auth/me", headers={"Authorization": f"Bearer {tok}"}, timeout=10)
     assert r.status_code == 200
     assert r.json().get("business_type") == "fabricant"
+
+
+def test_analytics_payload_shape(fabricant_tenant):
+    """Analyses tab (frontend) requires:
+      * list_recipes returns items[].intrants[] with category_snapshot / quantity /
+        unit_cost_snapshot fields so the PieChart can aggregate costs by category.
+      * summary.{avg_cost_price, avg_public_price, avg_margin_pct} for the KPI cards.
+      * items[].created_at so the LineChart can order by creation date.
+    """
+    tok = fabricant_tenant["token"]
+    H = {"Authorization": f"Bearer {tok}"}
+    # Seed 2 intrants in different categories
+    i_raw = requests.post(f"{API_URL}/api/production/intrants", headers=H, json={
+        "name": "MAT-A", "unit": "ml", "unit_cost": 4.0, "category": "raw_material",
+    }, timeout=10).json()["id"]
+    i_lab = requests.post(f"{API_URL}/api/production/intrants", headers=H, json={
+        "name": "LABOR-A", "unit": "h", "unit_cost": 1000.0, "category": "labor",
+    }, timeout=10).json()["id"]
+    # Create 2 recipes
+    for name, margin in [("REC-1", 40), ("REC-2", 55)]:
+        r = requests.post(f"{API_URL}/api/production/recipes", headers=H, json={
+            "name": name, "output_batch_units": 5, "output_unit_label": "unit",
+            "pricing_mode": "margin_first", "margin_pct": margin,
+            "intrants": [
+                {"intrant_id": i_raw, "quantity": 100},
+                {"intrant_id": i_lab, "quantity": 2},
+            ],
+        }, timeout=10)
+        assert r.status_code == 200, r.text
+
+    resp = requests.get(f"{API_URL}/api/production/recipes", headers=H, timeout=10).json()
+    items = resp.get("items", [])
+    summary = resp.get("summary") or {}
+    assert len(items) >= 2, items
+    # Summary keys the Analyses KPI cards depend on
+    for k in ("total_recipes", "avg_cost_price", "avg_public_price", "avg_margin_pct"):
+        assert k in summary, f"summary missing {k}: {summary}"
+    for it in items:
+        assert "created_at" in it, "created_at required for LineChart ordering"
+        assert "intrants_total_batch" in it, "needed for cumulative-cost KPI"
+        assert isinstance(it.get("intrants"), list) and it["intrants"], it
+        for ing in it["intrants"]:
+            for req_field in ("category_snapshot", "quantity", "unit_cost_snapshot"):
+                assert req_field in ing, f"missing {req_field} in recipe intrant: {ing}"

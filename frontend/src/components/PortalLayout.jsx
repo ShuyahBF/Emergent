@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { LOGO_URL } from "@/lib/brand";
@@ -60,6 +60,9 @@ const clientLinks = [
   // Accessible aux admin/superviseur + comptables (cashAdminOnly).
   { to: "/portal/catalog", label: "Catalogue (produits & analytics)", icon: ShoppingBag, cashAdminOnly: true },
   { to: "/portal/hr", label: "GRH — Ressources Humaines", icon: Users, hrOnly: true },
+  // Iter43-fix24az-f (2026-02-26) — Production module for Fabricant tenants
+  // (visible only when business_type='fabricant' AND role admin/superviseur).
+  { to: "/portal/production", label: "Production", icon: Factory, fabricantOnly: true, adminOrSup: true },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
   // least one of the three meta_* features is enabled for the tenant.
   { to: "/portal/meta", label: "Meta (Facebook/Messenger/Ads)", icon: MessageCircle, metaOnly: true },
@@ -198,6 +201,15 @@ export default function PortalLayout({ admin = false }) {
   const isEditeurVidal = user?.role === "editeur_vidal";
   const isPharmacien = user?.role === "pharmacien";
   const isMedecin = user?.role === "medecin";
+  // Iter43-fix24az-f (2026-02-26) — Business-type Fabricant : sidebar réduite
+  const isFabricant = (user?.business_type || "").toLowerCase() === "fabricant";
+  const fabricantAllowedPaths = new Set([
+    "/portal/cash",
+    "/portal/catalog",
+    "/portal/hr",
+    "/portal/production",
+    "/admin/officines-registry",
+  ]);
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
@@ -211,14 +223,24 @@ export default function PortalLayout({ admin = false }) {
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).
-  const linksWithDelegation = !admin && officinesDelegated
-    ? [...baseLinks, { to: "/admin/officines-registry", label: "Officines", icon: HeartPulse, officinesDelegated: true }]
+  const linksWithDelegation = !admin && (officinesDelegated || isFabricant)
+    ? [...baseLinks, {
+        to: "/admin/officines-registry",
+        label: isFabricant ? "Officines (consultation)" : "Officines",
+        icon: HeartPulse,
+        officinesDelegated: !isFabricant,
+        // For fabricant tenants we don't require the delegation-permission
+        // toggle : all fabricant admin/sup can view.
+      }]
     : baseLinks;
   const links = linksWithDelegation
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
+    // Iter43-fix24az-f — Fabricant tenants : allowlist stricte
+    .filter((l) => !isFabricant || fabricantAllowedPaths.has(l.to))
+    .filter((l) => !l.fabricantOnly || isFabricant)
     .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
     .filter((l) => !l.trackedOnly || isTracked)
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
@@ -269,13 +291,15 @@ export default function PortalLayout({ admin = false }) {
     if (!user) navigate("/login");
     // Iter43-fix24o + 24q — délégation Officines : attendre que les perms soient chargées
     // avant de décider du redirect (sinon race condition → moderator vire vers /portal).
+    // Iter43-fix24az-f — Fabricant admin/superviseur peuvent voir /admin/officines-registry.
     if (admin && user && user.role !== "admin" && permissionsLoaded) {
       const onOfficinesRegistry = location.pathname.startsWith("/admin/officines-registry");
-      if (!(onOfficinesRegistry && officinesDelegated)) {
+      const isFabricantSup = isFabricant && (user.role === "superviseur");
+      if (!(onOfficinesRegistry && (officinesDelegated || isFabricantSup))) {
         navigate("/portal");
       }
     }
-  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname]);
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant]);
 
   // Web Notifications + son sur nouveaux WA
   const waNotifier = useWhatsAppNotifier();

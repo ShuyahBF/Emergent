@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -616,6 +616,25 @@ export default function AdminClients() {
                   </span>
                 </label>
               </div>
+            </div>
+
+            {/* Iter43-fix24az-f (2026-02-26) — Business type (tenant profile) */}
+            <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3">
+              <p className="text-xs font-semibold uppercase text-slate-600 mb-2">
+                Profil d&apos;entreprise (sidebar réduite si Fabricant)
+              </p>
+              <select
+                value={form.business_type || ""}
+                onChange={(e) => setForm({ ...form, business_type: e.target.value })}
+                className="w-full text-sm px-3 py-2 rounded ring-1 ring-slate-300 bg-white"
+                data-testid="business-type-select"
+              >
+                <option value="">Standard (tous les modules visibles)</option>
+                <option value="fabricant">Fabricant — Caisse + GRH + Officines (consultation) + Catalogue + Production</option>
+              </select>
+              <p className="text-[10px] text-slate-500 mt-1">
+                Le profil <strong>Fabricant</strong> réduit la sidebar aux modules pertinents et active le module <strong>Production</strong> (coût de revient, marge, prix de vente).
+              </p>
             </div>
 
             {/* Iter35h — Demo account configuration */}

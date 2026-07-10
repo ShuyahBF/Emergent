@@ -32,6 +32,8 @@ class UserPublic(BaseModel):
     tracked_user_id: Optional[str] = None
     parent_client_id: Optional[str] = None
     can_cash: Optional[bool] = False
+    # Iter43-fix24az-f (2026-02-26) — Business type of the tenant (fabricant → limited sidebar)
+    business_type: Optional[str] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -57,6 +59,8 @@ class UserCreateAdmin(BaseModel):
     # to the given canonical client (same company), preventing the "user
     # creates a fresh root that nobody else sees" footgun.
     link_to_client_id: Optional[str] = None
+    # Iter43-fix24az-f — Business type on tenant creation (fabricant → limited sidebar)
+    business_type: Optional[str] = None
 
 
 class UserUpdateAdmin(BaseModel):
@@ -93,9 +97,18 @@ class UserUpdateAdmin(BaseModel):
     # correspondent pour partager. 'OR' (permissif, multi-succursales) : un
     # seul des deux suffit. À configurer sur la fiche du tenant (admin client).
     tenant_sharing_mode: Optional[str] = None  # "AND" | "OR"
+    # Iter43-fix24az-f (2026-02-26) — Business type on the tenant profile.
+    # `fabricant` → limited sidebar (Caisse, GRH, Officines RO, Catalogue,
+    # Production). Empty/omitted = standard tenant.
+    business_type: Optional[str] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]
+
+# Iter43-fix24az-f (2026-02-26) — Business type (tenant profile) determines
+# which sidebar variant a user sees. Only `fabricant` is treated specially so
+# far (limited menu + Production module). Empty/None = standard tenant.
+BUSINESS_TYPES = ["", "fabricant"]
 
 
 # ====================================================================
@@ -1077,6 +1090,10 @@ class SettingsUpdate(BaseModel):
     # officines (Google Places + Google Geocode → fallback Nominatim).
     google_maps_api_key: Optional[str] = None
     geocode_country_bias: Optional[str] = None
+
+    # Iter43-fix24az-f (2026-02-26) — Production module: default profit margin (%)
+    # used by the Fabricant tenants. Editable from Production settings page.
+    production_default_margin_pct: Optional[float] = None
 
 
 class BlacklistedIPCreate(BaseModel):

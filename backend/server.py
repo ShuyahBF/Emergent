@@ -328,6 +328,9 @@ def _to_user_public(u: dict) -> dict:
         "translator_rate_per_word": u.get("translator_rate_per_word") or 0,
         # 2026-02 (#5) — Admin can force logout without confirm at idle timeout
         "force_logout_on_idle": bool(u.get("force_logout_on_idle", False)),
+        # Iter43-fix24az-f (2026-02-26) — Business type of the tenant. Used
+        # by PortalLayout.jsx to render a Fabricant-specific sidebar.
+        "business_type": u.get("business_type") or "",
     }
 
 
@@ -3747,6 +3750,8 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         ),
         "demo_quotas": payload.demo_quotas or None,
         "demo_usage": {} if payload.role == "demo" else None,
+        # Iter43-fix24az-f — Business type (fabricant → limited sidebar)
+        "business_type": (payload.business_type or "").strip().lower() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -23889,6 +23894,10 @@ _attach_linkedin_autopost(api=api, db=db, get_current_admin=get_current_admin)
 # Iter43-fix24aw (2026-02-26) — Officines GPS geocoding (Google Maps + OSM)
 from routes.officines_geocode import attach_officines_geocode_routes as _attach_officines_geocode  # noqa: E402
 _attach_officines_geocode(api=api, db=db, get_current_admin=get_current_admin)
+
+# Iter43-fix24az-f (2026-02-26) — Production module (Fabricant tenants)
+from routes.production import attach_production_routes as _attach_production  # noqa: E402
+_attach_production(api=api, db=db, get_current_user=get_current_user)
 
 # Iter43-fix24ax (2026-02-26) — Twitter (X) API v2 integration
 from routes.twitter import attach_twitter_routes as _attach_twitter  # noqa: E402

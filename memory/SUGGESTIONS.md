@@ -796,6 +796,46 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S087 — TikTok App Icon + Privacy/TOS visibility + Dosage-based cost model + Officines greyed for Fabricant
+- **Demande utilisateur** : 2026-02-26 — 3 demandes combinées :
+  1. TikTok review a rejeté l'app parce que l'icône n'est pas visible dans le browser tab ni en haut des pages Privacy/Terms.
+  2. Les coûts d'intrants sont donnés par unités de 100 ml — refactoring : dosage_number+dosage_unit sur la recette, multiplier appliqué à tous les intrants, 4 décimales.
+  3. Griser l'option « Officines » de la sidebar du Fabricant.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-h
+- **Détails** :
+  - **Task 1 (TikTok)** :
+    - `/app/frontend/public/index.html` — ajout de `<link rel="icon">`, `<link rel="shortcut icon">`, `<link rel="apple-touch-icon">` pointant vers le logo SAWALI officiel (Emergent CDN).
+    - `/app/frontend/src/pages/public/Privacy.jsx` — nouveau bloc `<div data-testid="app-icon-header">` avec `<img data-testid="app-icon-logo">` + label « sawalismartsystems » en haut de l'en-tête.
+    - `/app/frontend/src/pages/public/TermsOfService.jsx` — même bloc en haut.
+    - Résultat : favicon visible sur tous les onglets, et l'icône + le nom sont affichés en haut des 2 pages légales, conformément à l'exigence TikTok.
+  - **Task 2 (Dosage)** :
+    - Backend `/app/backend/routes/production.py` :
+      - `RecipePayload` : ajout de `dosage_number` (Optional[float]) + `dosage_unit` (Optional[str] default "ml"). `variant_label` devient auto-dérivé.
+      - `RecipeIntrantIn` : `quantity` conservé pour rétrocompat mais ignoré si `dosage_number > 0`.
+      - `_compute_recipe` : deux branches — NEW (`unit_cost × dosage_number` par intrant) vs LEGACY (`quantity × unit_cost` ancien).
+      - `create_recipe` + `update_recipe` : persistent dosage_number/dosage_unit, auto-génèrent variant_label = "N unit".
+      - Précision : arrondi cost_price/intrants_total_batch à 4 décimales, public_price/margin_pct à 2.
+      - PDF exports : quantité affichée = dosage_number pour recettes new-model, sinon quantité legacy. Coût unitaire affiché à 4 décimales.
+    - Frontend `/app/frontend/src/pages/portal/Production.jsx` :
+      - `RecipeModal` : nouveau champ « Dosage (volume) » (input numérique, step=0.0001) + « Unité » (dropdown ml/g/L/kg/unit). `variant_label` retiré (auto-dérivé côté backend).
+      - Suppression du champ per-intrant `quantity`. Chaque intrant sélectionné affiche sa contribution live `= unit_cost × dosage_number`.
+      - Migration douce : si on ouvre une recette legacy, `variant_label` est parsé (regex `50 ml`) pour pré-remplir dosage_number/dosage_unit.
+      - `IntrantModal` : `step="0.0001"` sur le champ coût unitaire, label « CFA / 1 unité » (précision 4 décimales).
+      - `IntrantsTab` : coût unitaire affiché à 4 décimales.
+      - `LiveKpi` : affichage à 4 décimales.
+      - `AnalyticsTab` : PieChart dosage-aware — pour chaque recette, contribution catégorie = `unit_cost_snapshot × dosage_number` (new) ou `quantity × unit_cost_snapshot` (legacy).
+  - **Task 3 (Officines grisée)** :
+    - `PortalLayout.jsx` : le lien Officines pour tenants Fabricant reçoit `disabled: true` + `disabledReason` au lieu d'être cliquable.
+    - Nouveau flag générique `disabled` dans le loop `links.map` — applique `opacity-40 cursor-not-allowed`, empêche la navigation (`e.preventDefault()`), affiche un toast d'information, ajoute un badge **N/A** gris.
+    - `data-testid="badge-disabled--admin-officines-registry"` posé automatiquement.
+- **Tests** :
+  - Pytest backend 8/8 PASS (7 anciens + nouveau `test_dosage_based_cost_model` qui vérifie : dosage×unit_cost×3 intrants, précision 4 décimales, auto-dérivation variant_label "50 ml"/"100 ml", branche legacy si pas de dosage_number).
+  - Smoke screenshot preview OK : modal recette montre Dosage 100 + ml + contribution live par intrant (= 3.1 pour PEG7 à 0.031 CFA/ml × 100 ml).
+  - Privacy + Terms : favicon dans le head + icône visible en tête de page.
+  - Sidebar Officines : badge N/A + curseur interdit visible.
+- **Note importante** : le multiplicateur est le volume du produit directement (option b confirmée par l'utilisateur). Cela suppose que les coûts d'intrants sont saisis comme prix par 1 unité (ex : 3,5 CFA/ml pour ICARIDINE). Les intrants « fixes » comme les flaconnages ne doivent PAS être cochés dans la recette (ils ne scalent pas avec le volume). Le user est libre d'organiser sa data en conséquence.
+
 ## S086 — Onglet Analyses (Recharts) dans le module Production
 - **Demande utilisateur** : 2026-02-26 — « oui implémente cette suggestion » (après proposition d'ajouter des graphiques Recharts au module Production)
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)

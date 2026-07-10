@@ -73,12 +73,21 @@ class IntrantPayload(BaseModel):
 
 class RecipeIntrantIn(BaseModel):
     intrant_id: str
+    # Legacy field kept for backward-compat with old recipes.
+    # Iter43-fix24az-h (2026-02-26) — With the new dosage model, each intrant's
+    # cost contribution = unit_cost × recipe.dosage_number, so the per-intrant
+    # quantity is no longer used for new recipes. It stays 0 by default.
     quantity: float = 0.0
 
 
 class RecipePayload(BaseModel):
     name: str
-    variant_label: Optional[str] = None
+    variant_label: Optional[str] = None  # auto-derived from dosage_* when saved
+    # Iter43-fix24az-h (2026-02-26) — Dosage split into number + unit.
+    # The cost of each intrant in the recipe = intrant.unit_cost × dosage_number.
+    # 4-decimal precision supported for unit_cost.
+    dosage_number: Optional[float] = None
+    dosage_unit: Optional[str] = "ml"
     output_batch_units: float = 1.0
     output_unit_label: Optional[str] = "unit"
     intrants: List[RecipeIntrantIn] = Field(default_factory=list)
@@ -138,15 +147,38 @@ async def _default_margin(db) -> float:
 def _compute_recipe(recipe: Dict[str, Any], default_margin: float) -> Dict[str, Any]:
     """Compute cost_price, public_price, margin_pct from stored recipe data.
 
+    Iter43-fix24az-h (2026-02-26) — Cost model has TWO branches :
+
+    * NEW (dosage-based) : when `recipe.dosage_number` > 0, the cost of each
+      intrant in the recipe = intrant.unit_cost_snapshot × dosage_number.
+      Total cost per batch = Σ(unit_cost_snapshot) × dosage_number.
+      All intrants share the same dosage multiplier (product volume).
+      Supports up to 4 decimals on unit_cost.
+
+    * LEGACY (per-intrant quantity) : older recipes without dosage_number keep
+      the historical formula cost = Σ(quantity × unit_cost_snapshot). This
+      guarantees backward-compatibility for existing data.
+
     Uses each intrant's snapshotted unit_cost so the computation is stable
     even if the intrant's unit_cost is later modified in the library.
     """
     intrants = recipe.get("intrants") or []
+    dosage_number = recipe.get("dosage_number")
+    try:
+        dosage_number = float(dosage_number) if dosage_number is not None else None
+    except (TypeError, ValueError):
+        dosage_number = None
     cost_batch = 0.0
-    for it in intrants:
-        qty = float(it.get("quantity") or 0)
-        cost = float(it.get("unit_cost_snapshot") or 0)
-        cost_batch += qty * cost
+    if dosage_number is not None and dosage_number > 0:
+        # New model
+        for it in intrants:
+            cost_batch += float(it.get("unit_cost_snapshot") or 0) * dosage_number
+    else:
+        # Legacy model
+        for it in intrants:
+            qty = float(it.get("quantity") or 0)
+            cost = float(it.get("unit_cost_snapshot") or 0)
+            cost_batch += qty * cost
     batch_units = float(recipe.get("output_batch_units") or 1.0)
     if batch_units <= 0:
         batch_units = 1.0
@@ -168,11 +200,11 @@ def _compute_recipe(recipe: Dict[str, Any], default_margin: float) -> Dict[str, 
             margin_pct = float(default_margin)
         public_price = cost_price * (1.0 + margin_pct / 100.0)
     profit = public_price - cost_price
-    recipe["cost_price"] = round(cost_price, 2)
+    recipe["cost_price"] = round(cost_price, 4)
     recipe["public_price"] = round(public_price, 2)
     recipe["margin_pct"] = round(margin_pct, 2)
     recipe["profit_per_unit"] = round(profit, 2)
-    recipe["intrants_total_batch"] = round(cost_batch, 2)
+    recipe["intrants_total_batch"] = round(cost_batch, 4)
     return recipe
 
 
@@ -321,11 +353,23 @@ def attach_production_routes(*, api, db, get_current_user):
         now = _now_iso()
         default_m = await _default_margin(db)
         hydrated = await _hydrate_intrants_snapshot(db, tenant, [i.model_dump() for i in payload.intrants])
+        # Iter43-fix24az-h — auto-derive variant_label from dosage_number + dosage_unit
+        # (e.g. dosage_number=50 + dosage_unit="ml" -> "50 ml"). Legacy payloads
+        # that still send variant_label keep priority when dosage is absent.
+        dosage_number = float(payload.dosage_number) if payload.dosage_number is not None else None
+        dosage_unit = (payload.dosage_unit or "ml").strip() or "ml"
+        variant_label = (payload.variant_label or "").strip() or None
+        if variant_label is None and dosage_number is not None and dosage_number > 0:
+            # Prefer integer formatting when dosage_number is a whole number
+            n_str = f"{dosage_number:g}"
+            variant_label = f"{n_str} {dosage_unit}"
         doc: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "client_id": tenant,
             "name": payload.name.strip(),
-            "variant_label": (payload.variant_label or "").strip() or None,
+            "variant_label": variant_label,
+            "dosage_number": dosage_number,
+            "dosage_unit": dosage_unit,
             "output_batch_units": float(payload.output_batch_units),
             "output_unit_label": (payload.output_unit_label or "unit").strip(),
             "intrants": hydrated,
@@ -352,11 +396,19 @@ def attach_production_routes(*, api, db, get_current_user):
         tenant = _tenant_scope(user)
         hydrated = await _hydrate_intrants_snapshot(db, tenant, [i.model_dump() for i in payload.intrants])
         default_m = await _default_margin(db)
+        dosage_number = float(payload.dosage_number) if payload.dosage_number is not None else None
+        dosage_unit = (payload.dosage_unit or "ml").strip() or "ml"
+        variant_label = (payload.variant_label or "").strip() or None
+        if variant_label is None and dosage_number is not None and dosage_number > 0:
+            n_str = f"{dosage_number:g}"
+            variant_label = f"{n_str} {dosage_unit}"
         res = await db.production_recipes.update_one(
             {"id": rid, "client_id": tenant},
             {"$set": {
                 "name": payload.name.strip(),
-                "variant_label": (payload.variant_label or "").strip() or None,
+                "variant_label": variant_label,
+                "dosage_number": dosage_number,
+                "dosage_unit": dosage_unit,
                 "output_batch_units": float(payload.output_batch_units),
                 "output_unit_label": (payload.output_unit_label or "unit").strip(),
                 "intrants": hydrated,
@@ -483,15 +535,28 @@ def _render_recipes_pdf(recipes: List[Dict[str, Any]], *, tenant_name: str) -> b
         header = ["INTRANTS", "COÛT UNIT."] + [_recipe_label(r) for r in recipes]
         data: List[List[Any]] = [header]
         for intrant in int_sorted:
-            row: List[Any] = [intrant["name"], f"{intrant['unit_cost']:.2f} / {intrant['unit']}"]
+            row: List[Any] = [intrant["name"], f"{intrant['unit_cost']:.4f} / {intrant['unit']}"]
             for r in recipes:
-                # Find matching intrant in this recipe
+                # Iter43-fix24az-h — dosage-aware quantity display.
+                dosage_number = r.get("dosage_number")
+                try:
+                    dosage_number = float(dosage_number) if dosage_number is not None else None
+                except (TypeError, ValueError):
+                    dosage_number = None
+                use_dosage = dosage_number is not None and dosage_number > 0
                 q = 0.0
+                present = False
                 for i in r.get("intrants", []):
                     if intrant_key(i) == intrant["name"]:
-                        q = i.get("quantity", 0)
+                        present = True
+                        q = dosage_number if use_dosage else i.get("quantity", 0)
                         break
-                row.append(f"{q:g}" if q else "—")
+                if not present:
+                    row.append("—")
+                elif use_dosage:
+                    row.append(f"{q:g}")
+                else:
+                    row.append(f"{q:g}" if q else "—")
             data.append(row)
         # TOTAL row (cost per batch)
         total_row: List[Any] = ["TOTAL BATCH CFA", ""] + [f"{r.get('intrants_total_batch', 0):.0f}" for r in recipes]
@@ -548,17 +613,31 @@ def _render_single_recipe_pdf(r: Dict[str, Any], *, tenant_name: str) -> bytes:
 
     header = ["Intrant", "Catégorie", "Quantité", "Coût unit.", "Coût partiel"]
     data: List[List[Any]] = [header]
+    # Iter43-fix24az-h — Cost model : each intrant's contribution =
+    # unit_cost × dosage_number when dosage_number is set, else legacy qty×cost.
+    dosage_number = r.get("dosage_number")
+    try:
+        dosage_number = float(dosage_number) if dosage_number is not None else None
+    except (TypeError, ValueError):
+        dosage_number = None
+    use_dosage = dosage_number is not None and dosage_number > 0
+    dosage_unit = r.get("dosage_unit") or "ml"
     for i in r.get("intrants") or []:
-        q = float(i.get("quantity") or 0)
         uc = float(i.get("unit_cost_snapshot") or 0)
+        if use_dosage:
+            q = dosage_number
+            q_display = f"{dosage_number:g} {dosage_unit}"
+        else:
+            q = float(i.get("quantity") or 0)
+            q_display = f"{q:g} {i.get('unit_snapshot', '')}"
         data.append([
             i.get("name_snapshot", "?"),
             _cat_label(i.get("category_snapshot", "raw_material")),
-            f"{q:g} {i.get('unit_snapshot', '')}",
-            f"{uc:.2f}",
-            f"{q * uc:.2f}",
+            q_display,
+            f"{uc:.4f}",
+            f"{q * uc:.4f}",
         ])
-    data.append(["TOTAL BATCH CFA", "", "", "", f"{r.get('intrants_total_batch', 0):.2f}"])
+    data.append(["TOTAL BATCH CFA", "", "", "", f"{r.get('intrants_total_batch', 0):.4f}"])
     t = Table(data, colWidths=[60 * mm, 30 * mm, 30 * mm, 25 * mm, 30 * mm])
     t.setStyle(TableStyle([
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e3a8a")),

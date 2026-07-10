@@ -223,12 +223,16 @@ export default function PortalLayout({ admin = false }) {
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).
+  // Iter43-fix24az-h (2026-02-26) — Pour les tenants Fabricant : le lien
+  // Officines est affiché GRISÉ (disabled) en sidebar plutôt que cliquable.
   const linksWithDelegation = !admin && (officinesDelegated || isFabricant)
     ? [...baseLinks, {
         to: "/admin/officines-registry",
-        label: isFabricant ? "Officines (consultation)" : "Officines",
+        label: isFabricant ? "Officines" : "Officines",
         icon: HeartPulse,
         officinesDelegated: !isFabricant,
+        disabled: isFabricant,
+        disabledReason: isFabricant ? "Non disponible pour votre profil Fabricant" : undefined,
         // For fabricant tenants we don't require the delegation-permission
         // toggle : all fabricant admin/sup can view.
       }]
@@ -363,7 +367,7 @@ export default function PortalLayout({ admin = false }) {
         <WeatherWidget variant="compact" placement="portal" className="w-full justify-start" />
       </div>
       <nav className="space-y-1">
-        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges }) => {
+        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason }) => {
           const count = module ? (badges[module] || 0) : 0;
           const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
           // Iter43-fix (2026-03) — Lit `errors_critical` + `errors_high` en priorité,
@@ -371,6 +375,9 @@ export default function PortalLayout({ admin = false }) {
           const errorHigh = showBadges ? (badges.errors_high ?? badges.errors_exception ?? 0) : 0;
           const errorCritical = showBadges ? (badges.errors_critical ?? badges.errors_fatale ?? 0) : 0;
           const featureDisabled = featureGate && !tenantFeatures[featureGate];
+          // Iter43-fix24az-h — Générique : un lien peut aussi être marqué `disabled`
+          // via `disabled: true` (ex. Officines pour tenants Fabricant).
+          const isDisabled = featureDisabled || disabled;
           // S046 — translate label if a tKey is provided
           // Iter41 Phase 4b — strip parenthetical hints from sidebar labels
           // (e.g. "VIDAL France (médicaments)" → "VIDAL France")
@@ -379,7 +386,7 @@ export default function PortalLayout({ admin = false }) {
           return (
             <NavLink
               key={to}
-              to={featureDisabled ? "#" : to}
+              to={isDisabled ? "#" : to}
               end={end}
               onClick={(e) => {
                 if (featureDisabled) {
@@ -387,15 +394,20 @@ export default function PortalLayout({ admin = false }) {
                   toast.info(`Fonctionnalité « ${displayLabel} » non activée — contactez votre administrateur SAWALI.`);
                   return;
                 }
+                if (disabled) {
+                  e.preventDefault();
+                  if (disabledReason) toast.info(disabledReason);
+                  return;
+                }
                 setOpen(false);
               }}
               className={({ isActive }) =>
-                featureDisabled
+                isDisabled
                   ? "sidebar-link opacity-40 cursor-not-allowed group"
                   : `sidebar-link ${isActive ? "active" : ""} group`
               }
               data-testid={`sidebar-link-${to.replace(/\//g, "-")}`}
-              title={featureDisabled ? `${displayLabel} (non activé)` : undefined}
+              title={featureDisabled ? `${displayLabel} (non activé)` : (disabled ? (disabledReason || `${displayLabel} (non disponible)`) : undefined)}
             >
               <Icon className="h-4 w-4" />
               <span className="flex-1 truncate">{displayLabel}</span>
@@ -406,6 +418,15 @@ export default function PortalLayout({ admin = false }) {
                   title="Non activé"
                 >
                   OFF
+                </span>
+              )}
+              {disabled && !featureDisabled && (
+                <span
+                  className="text-[8px] uppercase tracking-wider font-bold px-1.5 py-0.5 rounded bg-slate-500/30 text-slate-300 ring-1 ring-slate-500/40"
+                  data-testid={`badge-disabled-${to.replace(/\//g, "-")}`}
+                  title={disabledReason || "Non disponible"}
+                >
+                  N/A
                 </span>
               )}
               {soon && (

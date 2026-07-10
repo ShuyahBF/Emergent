@@ -220,3 +220,82 @@ def test_analytics_payload_shape(fabricant_tenant):
         for ing in it["intrants"]:
             for req_field in ("category_snapshot", "quantity", "unit_cost_snapshot"):
                 assert req_field in ing, f"missing {req_field} in recipe intrant: {ing}"
+
+
+def test_dosage_based_cost_model(fabricant_tenant):
+    """Iter43-fix24az-h — New cost model :
+      * Recipe has `dosage_number` + `dosage_unit` (e.g. 50 + "ml").
+      * Each intrant's cost = intrant.unit_cost × dosage_number
+        (all intrants share the same multiplier).
+      * unit_cost supports up to 4 decimals.
+      * variant_label is auto-derived from dosage_number + dosage_unit.
+    """
+    tok = fabricant_tenant["token"]
+    H = {"Authorization": f"Bearer {tok}"}
+    # 3 intrants — one with fractional unit_cost (4-decimal precision).
+    ids = {}
+    for name, cost, cat in [
+        ("ICARIDINE", 3.5000, "raw_material"),   # 3.5 CFA/ml
+        ("ALCOOL",    0.0250, "raw_material"),   # 0.025 CFA/ml — 4-decimal precision
+        ("Eau",       0.0004, "water"),          # 0.0004 CFA/ml — tiny but non-zero
+    ]:
+        r = requests.post(f"{API_URL}/api/production/intrants", headers=H, json={
+            "name": name, "unit": "ml", "unit_cost": cost, "category": cat,
+        }, timeout=10)
+        assert r.status_code == 200, r.text
+        ids[name] = r.json()["id"]
+    # Create a 50 ml recipe.
+    r = requests.post(f"{API_URL}/api/production/recipes", headers=H, json={
+        "name": "SPRAY DOSAGE",
+        "dosage_number": 50,          # <-- 50 ml
+        "dosage_unit": "ml",
+        "output_batch_units": 1,      # 1 unit per batch, so cost_price == cost_batch
+        "pricing_mode": "margin_first", "margin_pct": 40,
+        # Intrants shipped without any quantity — new model.
+        "intrants": [{"intrant_id": ids["ICARIDINE"]},
+                     {"intrant_id": ids["ALCOOL"]},
+                     {"intrant_id": ids["Eau"]}],
+    }, timeout=10)
+    assert r.status_code == 200, r.text
+    rec = r.json()
+    # sum(unit_cost) = 3.5 + 0.025 + 0.0004 = 3.5254
+    # cost_batch = 3.5254 × 50 = 176.27
+    expected_batch = round((3.5000 + 0.0250 + 0.0004) * 50, 4)
+    assert abs(rec["intrants_total_batch"] - expected_batch) < 0.001, rec
+    assert abs(rec["cost_price"] - expected_batch) < 0.001
+    # public_price = cost_price × 1.40
+    assert abs(rec["public_price"] - round(expected_batch * 1.40, 2)) < 0.02
+    # variant_label auto-derived
+    assert rec.get("variant_label") == "50 ml", rec.get("variant_label")
+    assert rec.get("dosage_number") == 50.0
+    assert rec.get("dosage_unit") == "ml"
+
+    # Update to 100 ml → all intrant costs double.
+    r = requests.put(f"{API_URL}/api/production/recipes/{rec['id']}", headers=H, json={
+        "name": "SPRAY DOSAGE",
+        "dosage_number": 100,
+        "dosage_unit": "ml",
+        "output_batch_units": 1,
+        "pricing_mode": "margin_first", "margin_pct": 40,
+        "intrants": [{"intrant_id": ids["ICARIDINE"]},
+                     {"intrant_id": ids["ALCOOL"]},
+                     {"intrant_id": ids["Eau"]}],
+    }, timeout=10)
+    assert r.status_code == 200, r.text
+    rec2 = r.json()
+    expected_100 = round((3.5000 + 0.0250 + 0.0004) * 100, 4)
+    assert abs(rec2["intrants_total_batch"] - expected_100) < 0.001, rec2
+    assert rec2.get("variant_label") == "100 ml"
+
+    # Legacy recipe (no dosage_number) still works via qty × unit_cost.
+    r = requests.post(f"{API_URL}/api/production/recipes", headers=H, json={
+        "name": "LEGACY RECIPE",
+        "output_batch_units": 1,
+        "pricing_mode": "margin_first", "margin_pct": 40,
+        # No dosage_number → legacy branch kicks in.
+        "intrants": [{"intrant_id": ids["ICARIDINE"], "quantity": 25}],
+    }, timeout=10)
+    assert r.status_code == 200
+    legacy_rec = r.json()
+    # cost = 25 × 3.5 = 87.5
+    assert abs(legacy_rec["intrants_total_batch"] - 87.5) < 0.01, legacy_rec

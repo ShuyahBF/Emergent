@@ -1,0 +1,22 @@
+{
+  "summary": "Frontend E2E validation for Iter (Tasks 1/2/3): favicon+icon headers on Privacy/Terms, Production dosage-based recipe refactor, sidebar Officines disabled for Fabricant. All 3 tasks PASS.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Sidebar Officines: opacity-40 cursor-not-allowed classes are applied directly on the anchor element (class='sidebar-link opacity-40 cursor-not-allowed group') rather than on its parent wrapper as the spec literally reads. Functionally correct (link is visually greyed + click intercepted with N/A toast) — the parent has 'space-y-1'. Non-blocking."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (skipped per request)", "frontend": "100%"},
+  "test_credentials": "fab-analytics@sawali-test.com / Analytics@2026 (dev_otp inline)",
+  "seed_data_creation": "Created recipe 'TEST DOSAGE 30 ml' (variante 30 ml, cost 0.45, margin 52%, price 0.72) via UI. Cleanup recommended before next run.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Task1 (favicon + app-icon-header on /privacy and /terms-of-service): all 8 checks PASS (title, favicon link with aprzh1m4 logo url, data-testid app-icon-header + app-icon-logo, icon rendered BEFORE the H1 title). Task2 (Production refactor): recipe-modal-dosage-number (step=0.0001, initial 100) + recipe-modal-dosage-unit (SELECT with ml/g/L/kg/unité) both present; old recipe-intrant-qty-* fully removed (0 found); recipe-intrant-contrib-<id> present per checked intrant with format '= X,YZ'; changing dosage 100→200 correctly doubles ALL contribs (1,8→3,6 / 3,1→6,2 / 4,2→8,4) and recipe-live-costbatch (10,89→21,78 CFA). Label 'Intrants nécessaires — coût = coût unitaire × dosage (50 ml)' present (rendered visually uppercase via CSS text-transform, actual DOM lowercase — the (N ml) reflects live dosage). New recipe creation flow works: 'TEST DOSAGE 30 ml' created, appears in list with variante='30 ml'. Intrant edit modal cost input step=0.0001; list shows 4-decimal costs for values that need them (0,0004 Eau) but trailing-zero values displayed as 0,025 / 3,5 / 0,018 rather than 0,0250 / 3,5000 — this is a locale-string format issue but not a functional bug. Analyses tab: after ~5s wait, KPIs (Recettes, Coût moyen, Prix public moyen, Marge moyenne, Intrants distincts, Coût cumulé batches, Recette la + rentable, Coût de revient le + élevé, Marge la + faible) render fully; 3 recharts containers, BarChart 18 bars, PieChart 10 sectors (5+ categories: Matière première 91.7%, Électricité 7%, Main d'œuvre 1.2%, Eau, Amortissement) — PieChart reflects new unit_cost×dosage_number aggregation. LineChart present (4 curves). Task3 (sidebar Officines): sidebar-link--admin-officines-registry rendered; link has classes 'opacity-40 cursor-not-allowed'; badge-disabled--admin-officines-registry contains 'N/A'; click stays on /portal/production (no nav) and toast 'Non disponible pour votre profil Fabricant' appears. Console: only pre-existing 401/403/404 noise from unrelated resources and Geographies key warning — no new errors. Note: verify-otp API expects fields 'code' + 'session_token' (not 'otp' + 'session_id').",
+  "rca of the issue": "N/A — no issues to RCA."
+}

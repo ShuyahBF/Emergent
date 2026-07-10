@@ -333,18 +333,24 @@ const AnalyticsTab = ({ recipes, summary }) => {
   );
 
   // PieChart — aggregated cost per category across ALL recipes
+  // Iter43-fix24az-h (2026-02-26) — dosage-aware :
+  //   * new model : cost of each intrant contribution = dosage_number × unit_cost
+  //   * legacy    : cost = quantity × unit_cost
   const pieData = useMemo(() => {
     const acc = {};
     recipes.forEach((r) => {
+      const dosageNum = Number(r.dosage_number) || 0;
+      const useDosage = dosageNum > 0;
       (r.intrants || []).forEach((it) => {
         const c = it.category_snapshot || "raw_material";
-        const cost = (Number(it.quantity) || 0) * (Number(it.unit_cost_snapshot) || 0);
+        const uc = Number(it.unit_cost_snapshot) || 0;
+        const cost = useDosage ? uc * dosageNum : uc * (Number(it.quantity) || 0);
         acc[c] = (acc[c] || 0) + cost;
       });
     });
     return CATEGORIES.map((c) => ({
       name: c.label,
-      value: Number((acc[c.value] || 0).toFixed(2)),
+      value: Number((acc[c.value] || 0).toFixed(4)),
       color: c.color,
       key: c.value,
     })).filter((d) => d.value > 0);
@@ -649,7 +655,7 @@ const IntrantsTab = ({ intrants, onEdit, onDelete }) => {
                     <tr key={i.id} className="border-t border-slate-100">
                       <td className="px-3 py-2 font-medium">{i.name}</td>
                       <td className="px-3 py-2 text-slate-500 text-xs">{i.unit}</td>
-                      <td className="px-3 py-2 text-right font-mono">{i.unit_cost?.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}</td>
+                      <td className="px-3 py-2 text-right font-mono">{i.unit_cost?.toLocaleString("fr-FR", { maximumFractionDigits: 4 })}</td>
                       <td className="px-3 py-2 text-right space-x-1">
                         <button onClick={() => onEdit(i)} className="p-1 rounded hover:bg-indigo-100 text-indigo-600" data-testid={`production-edit-intrant-${i.id}`}><Pencil className="h-3.5 w-3.5" /></button>
                         <button onClick={() => onDelete(i.id)} className="p-1 rounded hover:bg-rose-100 text-rose-600"><Trash2 className="h-3.5 w-3.5" /></button>
@@ -741,8 +747,8 @@ const IntrantModal = ({ intrant, onClose, onSaved }) => {
                 {UNITS.map((u) => <option key={u} value={u}>{u}</option>)}
               </select>
             </label>
-            <label className="block"><span className="block text-xs text-slate-600 mb-1">Coût unitaire (CFA)</span>
-              <input type="number" step="0.01" value={f.unit_cost} onChange={(e) => setF({ ...f, unit_cost: Number(e.target.value) })} className="w-full text-sm px-3 py-2 ring-1 ring-slate-300 rounded text-right font-mono" data-testid="intrant-modal-cost" />
+            <label className="block"><span className="block text-xs text-slate-600 mb-1">Coût unitaire (CFA / 1 unité)</span>
+              <input type="number" step="0.0001" value={f.unit_cost} onChange={(e) => setF({ ...f, unit_cost: Number(e.target.value) })} className="w-full text-sm px-3 py-2 ring-1 ring-slate-300 rounded text-right font-mono" data-testid="intrant-modal-cost" />
             </label>
           </div>
           <label className="block"><span className="block text-xs text-slate-600 mb-1">Notes (facultatif)</span>
@@ -762,12 +768,25 @@ const IntrantModal = ({ intrant, onClose, onSaved }) => {
 /* Recipe modal — real-time price computation                                */
 /* ────────────────────────────────────────────────────────────────────────── */
 const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
+  // Iter43-fix24az-h (2026-02-26) — Cost model : each intrant's cost = unit_cost
+  // × recipe.dosage_number. All intrants share the same multiplier (product volume).
+  // Legacy recipes without dosage_number are handled by fallback (see below).
+  const legacy = !recipe.__new && (recipe.dosage_number === undefined || recipe.dosage_number === null);
+  const parsedLegacyDosage = React.useMemo(() => {
+    // Try to auto-migrate from the free-text variant_label (e.g. "50 ml", "100 ml").
+    if (!legacy) return { number: null, unit: null };
+    const m = /^\s*(\d+(?:[.,]\d+)?)\s*(ml|g|l|kg|unit|mg)?\s*$/i.exec(recipe.variant_label || "");
+    if (!m) return { number: null, unit: null };
+    return { number: parseFloat(m[1].replace(",", ".")), unit: (m[2] || "ml").toLowerCase() };
+  }, [legacy, recipe.variant_label]);
+
   const [f, setF] = useState({
     name: recipe.name || "",
-    variant_label: recipe.variant_label || "",
+    dosage_number: recipe.dosage_number ?? parsedLegacyDosage.number ?? "",
+    dosage_unit: recipe.dosage_unit ?? parsedLegacyDosage.unit ?? "ml",
     output_batch_units: recipe.output_batch_units || 1,
     output_unit_label: recipe.output_unit_label || "unit",
-    intrants: recipe.intrants ? recipe.intrants.map((i) => ({ intrant_id: i.intrant_id, quantity: i.quantity })) : [],
+    intrants: recipe.intrants ? recipe.intrants.map((i) => ({ intrant_id: i.intrant_id })) : [],
     pricing_mode: recipe.pricing_mode || "margin_first",
     margin_pct: recipe.margin_pct ?? defaultMargin ?? 42,
     public_price: recipe.public_price ?? 0,
@@ -775,15 +794,17 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
   });
   const [saving, setSaving] = useState(false);
 
-  // Real-time recomputation
+  // Real-time recomputation — dosage-based only (per-intrant quantity removed).
   const computed = useMemo(() => {
     const intrantsById = Object.fromEntries(intrants.map((i) => [i.id, i]));
-    let costBatch = 0;
+    const dosageNum = Number(f.dosage_number) || 0;
+    let sumUnitCosts = 0;
     for (const it of f.intrants) {
       const src = intrantsById[it.intrant_id];
       if (!src) continue;
-      costBatch += (Number(it.quantity) || 0) * (Number(src.unit_cost) || 0);
+      sumUnitCosts += Number(src.unit_cost) || 0;
     }
+    const costBatch = sumUnitCosts * dosageNum;
     const batchUnits = Number(f.output_batch_units) || 1;
     const costPrice = costBatch / (batchUnits > 0 ? batchUnits : 1);
     let publicPrice = 0, marginPct = 0;
@@ -795,9 +816,9 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
       publicPrice = costPrice * (1 + marginPct / 100);
     }
     return {
-      costBatch, costPrice,
-      publicPrice, marginPct,
+      costBatch, costPrice, publicPrice, marginPct,
       profit: publicPrice - costPrice,
+      sumUnitCosts,
     };
   }, [f, intrants]);
 
@@ -805,20 +826,29 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
     setF((p) => {
       const has = p.intrants.find((x) => x.intrant_id === id);
       if (has) return { ...p, intrants: p.intrants.filter((x) => x.intrant_id !== id) };
-      return { ...p, intrants: [...p.intrants, { intrant_id: id, quantity: 0 }] };
+      return { ...p, intrants: [...p.intrants, { intrant_id: id }] };
     });
   };
-  const setQty = (id, q) => setF((p) => ({
-    ...p,
-    intrants: p.intrants.map((x) => (x.intrant_id === id ? { ...x, quantity: Number(q) || 0 } : x)),
-  }));
 
   const save = async () => {
     if (!f.name.trim()) { toast.error("Nom du produit requis"); return; }
     if (f.intrants.length === 0) { toast.error("Cochez au moins un intrant"); return; }
+    const dosageNum = Number(f.dosage_number);
+    if (!(dosageNum > 0)) { toast.error("Le dosage doit être supérieur à 0"); return; }
     setSaving(true);
     try {
-      const payload = { ...f };
+      const payload = {
+        name: f.name,
+        dosage_number: dosageNum,
+        dosage_unit: f.dosage_unit,
+        output_batch_units: f.output_batch_units,
+        output_unit_label: f.output_unit_label,
+        intrants: f.intrants.map((x) => ({ intrant_id: x.intrant_id, quantity: 0 })),
+        pricing_mode: f.pricing_mode,
+        margin_pct: f.margin_pct,
+        public_price: f.public_price,
+        notes: f.notes,
+      };
       if (recipe.__new) await apiClient.post("/production/recipes", payload);
       else await apiClient.put(`/production/recipes/${recipe.id}`, payload);
       toast.success("Recette enregistrée"); onSaved();
@@ -842,12 +872,28 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
         </div>
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
           {/* Product info */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
             <label className="block md:col-span-2"><span className="block text-xs text-slate-600 mb-1">Nom du produit</span>
               <input value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} className="w-full text-sm px-3 py-2 ring-1 ring-slate-300 rounded font-semibold" data-testid="recipe-modal-name" placeholder="ex. SPRAY ICARIDINE" />
             </label>
-            <label className="block"><span className="block text-xs text-slate-600 mb-1">Variante / présentation</span>
-              <input value={f.variant_label} onChange={(e) => setF({ ...f, variant_label: e.target.value })} className="w-full text-sm px-3 py-2 ring-1 ring-slate-300 rounded" data-testid="recipe-modal-variant" placeholder="ex. 50 ml, 4%, boîte 12" />
+            {/* Iter43-fix24az-h — Dosage split : number + unit dropdown.
+                Multiplier appliqué à chaque intrant = dosage_number. */}
+            <label className="block"><span className="block text-xs text-slate-600 mb-1">Dosage (volume)</span>
+              <input type="number" step="0.0001" min="0" value={f.dosage_number}
+                     onChange={(e) => setF({ ...f, dosage_number: e.target.value })}
+                     className="w-full text-sm px-3 py-2 ring-1 ring-indigo-300 rounded text-right font-mono font-bold"
+                     placeholder="50" data-testid="recipe-modal-dosage-number" />
+            </label>
+            <label className="block"><span className="block text-xs text-slate-600 mb-1">Unité</span>
+              <select value={f.dosage_unit} onChange={(e) => setF({ ...f, dosage_unit: e.target.value })}
+                      className="w-full text-sm px-3 py-2 ring-1 ring-indigo-300 rounded"
+                      data-testid="recipe-modal-dosage-unit">
+                <option value="ml">ml</option>
+                <option value="g">g</option>
+                <option value="L">L</option>
+                <option value="kg">kg</option>
+                <option value="unit">unité</option>
+              </select>
             </label>
           </div>
           <div className="grid grid-cols-2 gap-3">
@@ -859,30 +905,44 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
             </label>
           </div>
 
-          {/* Intrants selector */}
+          {/* Intrants selector (no per-intrant quantity anymore) */}
           <div className="rounded-lg ring-1 ring-slate-200 bg-slate-50 p-3">
-            <p className="text-xs font-semibold uppercase text-slate-600 mb-2">Intrants nécessaires (cocher + saisir la quantité par batch)</p>
+            <p className="text-xs font-semibold uppercase text-slate-600 mb-1">
+              Intrants nécessaires — coût = coût unitaire × dosage ({f.dosage_number || 0} {f.dosage_unit})
+            </p>
+            <p className="text-[10px] text-slate-500 mb-2 italic">
+              Toutes les cases cochées partagent le même multiplicateur (le dosage du produit).
+              Le coût unitaire d&apos;un intrant est le prix pour <strong>1 {f.dosage_unit}</strong>.
+            </p>
             {intrants.length === 0 ? (
               <p className="text-xs text-slate-500 italic">Aucun intrant disponible. Créez d&apos;abord des intrants dans l&apos;onglet Intrants.</p>
             ) : (
               CATEGORIES.map((c) => {
                 const items = grouped[c.value] || [];
                 if (!items.length) return null;
+                const dosageNum = Number(f.dosage_number) || 0;
                 return (
                   <div key={c.value} className="mb-2">
                     <p className="text-[10px] font-semibold uppercase mb-1" style={{ color: c.color }}>{c.label}</p>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                       {items.map((i) => {
                         const sel = f.intrants.find((x) => x.intrant_id === i.id);
+                        const contribCost = dosageNum * (Number(i.unit_cost) || 0);
                         return (
                           <div key={i.id} className={`flex items-center gap-2 px-2 py-1.5 rounded ${sel ? "bg-white ring-1 ring-indigo-300" : "hover:bg-slate-100"}`}>
                             <input type="checkbox" checked={!!sel} onChange={() => toggleIntrant(i.id)} data-testid={`recipe-intrant-toggle-${i.id}`} className="cursor-pointer" />
                             <span className="text-xs flex-1 truncate" title={i.name}>{i.name}</span>
-                            <span className="text-[10px] text-slate-500">{i.unit_cost} CFA/{i.unit}</span>
-                            {sel && (
-                              <input type="number" step="0.01" value={sel.quantity} onChange={(e) => setQty(i.id, e.target.value)}
-                                     className="w-20 text-right px-1 py-0.5 text-xs ring-1 ring-slate-300 rounded font-mono"
-                                     placeholder="qté" data-testid={`recipe-intrant-qty-${i.id}`} />
+                            <span className="text-[10px] text-slate-500 font-mono">
+                              {(Number(i.unit_cost) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 4 })} CFA/{i.unit}
+                            </span>
+                            {sel && dosageNum > 0 && (
+                              <span
+                                className="text-[10px] font-mono font-semibold text-emerald-700 min-w-[70px] text-right"
+                                data-testid={`recipe-intrant-contrib-${i.id}`}
+                                title={`Coût dans la recette : ${contribCost.toFixed(4)} CFA`}
+                              >
+                                = {contribCost.toLocaleString("fr-FR", { maximumFractionDigits: 4 })}
+                              </span>
                             )}
                           </div>
                         );
@@ -955,7 +1015,7 @@ const LiveKpi = ({ label, value, suffix, color, testid }) => (
   <div className="rounded bg-white p-2 ring-1 ring-slate-200" data-testid={testid}>
     <p className="text-[9px] uppercase tracking-wider text-slate-500">{label}</p>
     <p className="text-sm font-bold font-mono" style={{ color }}>
-      {(Number.isFinite(value) ? value : 0).toLocaleString("fr-FR", { maximumFractionDigits: 2 })} <span className="text-[10px] text-slate-500 font-normal">{suffix}</span>
+      {(Number.isFinite(value) ? value : 0).toLocaleString("fr-FR", { maximumFractionDigits: 4 })} <span className="text-[10px] text-slate-500 font-normal">{suffix}</span>
     </p>
   </div>
 );

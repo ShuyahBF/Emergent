@@ -3252,3 +3252,34 @@ Aucun changement d'API — les endpoints existants `/api/production/recipes` (av
 - **7/7 tests production PASS**.
 - Smoke screenshot preview OK sur `fab-analytics@sawali-test.com / Analytics@2026` (5 recettes seed).
 
+
+---
+
+## 2026-02-26 — Iter43-fix24az-h : TikTok icon + Dosage-based cost + Officines greyed
+3 tâches simultanées :
+
+### 1. TikTok App Review — favicon + icônes visibles
+- `/app/frontend/public/index.html` : ajout de `<link rel="icon">`, `<link rel="shortcut icon">`, `<link rel="apple-touch-icon">` pointant vers le logo SAWALI officiel.
+- `/app/frontend/src/pages/public/Privacy.jsx` et `TermsOfService.jsx` : bloc `<div data-testid="app-icon-header">` avec icône + « sawalismartsystems » en tête de page.
+
+### 2. Modèle de coût dosage-based (module Production)
+- **Backend** `routes/production.py` :
+  - `RecipePayload` : ajout `dosage_number` + `dosage_unit` (default "ml"). `variant_label` auto-dérivé.
+  - `_compute_recipe` : deux branches. New model → `sum(unit_cost) × dosage_number`. Legacy fallback pour recettes sans dosage_number.
+  - Précision arrondi 4 décimales sur cost_price / intrants_total_batch, 2 décimales sur public_price.
+  - PDF exports mis à jour (quantité = dosage_number pour new-model, sinon quantité legacy).
+- **Frontend** `pages/portal/Production.jsx` :
+  - Recipe modal : suppression per-intrant quantity input. Ajout des champs Dosage (number 0.0001 step) + Unité (ml/g/L/kg/unit).
+  - Contribution live par intrant coché : `= unit_cost × dosage_number`.
+  - Migration douce : parsing regex de `variant_label` pour pré-remplir dosage_number+dosage_unit sur legacy recipes.
+  - Coût unitaire des intrants : step=0.0001, affichage 4 décimales.
+  - AnalyticsTab PieChart : dosage-aware, agrège correctement les deux modèles.
+
+### 3. Officines grisée pour Fabricant
+- `PortalLayout.jsx` : lien Officines reçoit `disabled: true` + `disabledReason` quand `isFabricant`.
+- Nouveau flag générique `disabled` dans le loop `links.map` — appliqué visuellement via `opacity-40 cursor-not-allowed`, empêche navigation (`e.preventDefault()`), badge **N/A**, toast info au clic.
+
+### Tests
+- **Pytest backend 8/8 PASS** — nouveau `test_dosage_based_cost_model` vérifie formule, précision 4 décimales, auto-dérivation variant_label, branche legacy.
+- **Testing agent frontend 100% PASS** (iteration_77.json) — 3 tâches validées : favicon+icônes visibles, refactor dosage complet, sidebar Officines grisée avec badge N/A + toast.
+

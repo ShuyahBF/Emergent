@@ -3283,3 +3283,32 @@ Aucun changement d'API — les endpoints existants `/api/production/recipes` (av
 - **Pytest backend 8/8 PASS** — nouveau `test_dosage_based_cost_model` vérifie formule, précision 4 décimales, auto-dérivation variant_label, branche legacy.
 - **Testing agent frontend 100% PASS** (iteration_77.json) — 3 tâches validées : favicon+icônes visibles, refactor dosage complet, sidebar Officines grisée avec badge N/A + toast.
 
+
+---
+
+## 2026-02-26 — Iter43-fix24az-i : Fabricant landing + Logo local + og:image fix
+
+### 1. Fabricant → /portal/cash (au lieu de /portal)
+- Nouveau composant `PortalIndex` dans `App.js` : quand `user.business_type === "fabricant"`, redirection auto vers `/portal/cash` via `<Navigate>`. Sinon → `<ClientDashboard>` classique.
+- Aucun changement dans le login flow (le hook post-login continue de rediriger vers `/portal`, mais `PortalIndex` intercepte).
+
+### 2. Logo servi localement (fix broken CDN URL)
+- L'URL `aprzh1m4_LogoSawaliSmartSystems-removebg.png` retournait HTTP 403 (Access Denied).
+- Solution : téléchargement du logo qui fonctionne (`2bjpkh5i_Autre Logo SAWALI.png`, 1024×1024 PNG) et hébergement local dans `/app/frontend/public/` :
+  - `logo.png` (1024×1024, 886 KB)
+  - `favicon.ico` (multi-taille 16/32/48/64)
+  - `logo192.png` (57 KB, pour PWA/apple-touch)
+  - `logo512.png` (301 KB, pour og:image/twitter:image)
+- `index.html` mis à jour :
+  - `<link rel="icon" type="image/x-icon" href="%PUBLIC_URL%/favicon.ico">`
+  - `<link rel="icon" type="image/png" sizes="32x32" href="%PUBLIC_URL%/logo.png">`
+  - `<link rel="icon" type="image/png" sizes="192x192" href="%PUBLIC_URL%/logo192.png">`
+  - `<link rel="apple-touch-icon" sizes="512x512" href="%PUBLIC_URL%/logo512.png">`
+  - `<meta property="og:image">` + `<meta name="twitter:image">` → `https://sawalismartsystems.com/logo512.png`
+- `Privacy.jsx` + `TermsOfService.jsx` : `<img src="/logo.png">` (relative → sawalismartsystems.com/logo.png en prod).
+
+### Vérification
+- HTTP 200 sur `/logo.png` (906570 bytes), `/favicon.ico` (904 bytes), `/logo192.png` (58166 bytes) via preview URL.
+- Screenshot Playwright : sur /privacy et /terms-of-service, `document.querySelector("[data-testid='app-icon-logo']").naturalWidth === 1024` et `complete === true` — l'image charge correctement.
+- Fabricant redirection : navigation vers /portal se termine à /portal/cash (Playwright confirme URL finale).
+

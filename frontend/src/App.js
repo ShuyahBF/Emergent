@@ -209,6 +209,18 @@ function OfficinesDelegatedProtected({ children }) {
   return children;
 }
 
+// Iter43-fix24az-i (2026-02-26) — Fabricant tenants have no dashboard/welcome
+// screen. Their entry point should be /portal/cash directly rather than the
+// generic /portal home page.
+function PortalIndex() {
+  const { user } = useAuth();
+  const bt = (user?.business_type || "").toLowerCase();
+  if (bt === "fabricant") {
+    return <Navigate to="/portal/cash" replace />;
+  }
+  return <ClientDashboard />;
+}
+
 export default function App() {
   // Iter40-ui-flags — Apply public branding (title, --brand-primary CSS var)
   // app-wide. The hook fetches once and listens for ui-flags-updated.
@@ -278,7 +290,7 @@ export default function App() {
 
           {/* Client portal */}
           <Route path="/portal" element={<Protected><PortalLayout admin={false} /></Protected>}>
-            <Route index element={<ClientDashboard />} />
+            <Route index element={<PortalIndex />} />
             <Route path="appointments" element={<ClientAppointments />} />
             <Route path="documents" element={<ClientDocuments />} />
             <Route path="interventions" element={<ClientInterventions />} />

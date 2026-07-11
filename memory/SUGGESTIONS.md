@@ -796,6 +796,23 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S088 — Fabricant landing + logo local (fix CDN 403) + og:image
+- **Demande utilisateur** : 2026-02-26 — Trois observations après tentative de déploiement TikTok :
+  1. Le fabricant n'a pas de dashboard, il faut donc atterrir directement sur `/portal/cash` au lieu de `/portal`.
+  2. L'URL du logo TikTok (aprzh1m4_LogoSawaliSmartSystems-removebg.png) retourne HTTP 403 « Access Denied » — le logo n'est pas visible sur Privacy/Terms/browser tab.
+  3. Recommandation TikTok : le logo doit aussi s'afficher dans l'onglet de navigation. Idéalement hébergé sur sawalismartsystems.com plutôt qu'une CDN externe.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-i
+- **Détail** :
+  - Nouveau composant `PortalIndex` dans `App.js` — redirige les fabricants vers `/portal/cash` via `<Navigate>` avant d'atteindre `ClientDashboard`.
+  - Téléchargement local du logo qui fonctionne (`2bjpkh5i_Autre Logo SAWALI.png`, 1024×1024) et hébergement dans `/app/frontend/public/{logo.png,favicon.ico,logo192.png,logo512.png}` — servis désormais depuis `https://sawalismartsystems.com/*` en prod.
+  - `index.html` : `<link rel="icon">` pointant vers les fichiers locaux avec plusieurs tailles (16/32/48/64/192/512). `og:image` et `twitter:image` mis à jour vers `https://sawalismartsystems.com/logo512.png`.
+  - `Privacy.jsx` + `TermsOfService.jsx` : `<img src="/logo.png">` (path relatif).
+- **Tests** :
+  - Curl HTTP 200 sur les 3 assets (`logo.png`, `favicon.ico`, `logo192.png`).
+  - Playwright : `document.querySelector("[data-testid='app-icon-logo']").naturalWidth === 1024` et `complete === true` sur les 2 pages légales.
+  - Fabricant landing : navigation vers /portal termine à /portal/cash (URL finale confirmée).
+
 ## S087 — TikTok App Icon + Privacy/TOS visibility + Dosage-based cost model + Officines greyed for Fabricant
 - **Demande utilisateur** : 2026-02-26 — 3 demandes combinées :
   1. TikTok review a rejeté l'app parce que l'icône n'est pas visible dans le browser tab ni en haut des pages Privacy/Terms.

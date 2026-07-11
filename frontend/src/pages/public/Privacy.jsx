@@ -36,7 +36,7 @@ export default function PrivacyPage() {
             sawalismartsystems en tête de page (obligatoire d'après le reviewer). */}
         <div className="flex items-center gap-3 mb-6" data-testid="app-icon-header">
           <img
-            src="https://customer-assets.emergentagent.com/job_sawali-portal/artifacts/aprzh1m4_LogoSawaliSmartSystems-removebg.png"
+            src="/logo.png"
             alt="sawalismartsystems app icon"
             className="h-12 w-12 rounded-lg ring-1 ring-white/10 bg-white/5 p-1 object-contain"
             data-testid="app-icon-logo"

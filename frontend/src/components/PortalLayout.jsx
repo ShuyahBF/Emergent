@@ -333,13 +333,15 @@ export default function PortalLayout({ admin = false }) {
     }
   }, [admin, user]);
 
-  // Iter35r — Welcome briefing modal: shown once per session after login
+  // Iter35r — Welcome briefing modal: shown once per session after login.
+  // Iter43-fix24az-j (2026-02-26) — Skip Welcome for Fabricant tenants (they
+  // don't have a dashboard/welcome experience and land directly on /portal/cash).
   const [showBriefing, setShowBriefing] = useState(false);
   useEffect(() => {
-    if (user && shouldShowWelcomeBriefing()) {
+    if (user && !isFabricant && shouldShowWelcomeBriefing()) {
       setShowBriefing(true);
     }
-  }, [user]);
+  }, [user, isFabricant]);
 
   if (!user) return null;
 

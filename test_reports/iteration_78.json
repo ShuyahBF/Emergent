@@ -1,0 +1,42 @@
+{
+  "summary": "Iter43-fix24az-l validation: 15/18 tests PASS. Two CRITICAL failures : (P0) cross-tenant leak still present on GET /api/admin/appointments — tenant A sees tenant B's rendez-vous and vice-versa. (P1) POST /api/production/recipes/{rid}/duplicate does NOT append '(copie 2)' on a second call due to unescaped regex parentheses in the uniqueness pre-check. All other flows (documents, interventions, notes reports/suivis/notes, super-admin cross-view, recipe uniqueness 409, dosage-based cost with FIXED categories packaging/other producing 260→460 for 100→200 ml, TikTok privacy toggle SELF_ONLY↔PUBLIC_TO_EVERYONE) validated. Smoke regression fix24az_f_production + fix24az_k_vidal_webhook (14 tests) still green.",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "GET /api/admin/appointments",
+        "issue": "CROSS-TENANT LEAK (P0 blocker). Tenant A (isis-admin) sees tenant B's appointment tagged 'LEAK-TEST for SAWALI SMART SYSTEMS-Client' and vice-versa. Endpoint at server.py:7768 still calls db.appointments.find({}, ...) without scoping by _is_super_admin/_resolve_visible_client_ids. The fix was applied to /me/notes/* and other collections but NOT to /admin/appointments, /admin/interventions, /admin/documents (interventions & documents happen to be empty in the LEAK dataset so they passed — but the same code pattern find({}) leaks whenever data exists).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/production/recipes/{rid}/duplicate",
+        "issue": "Second duplicate of the same recipe produces name '(copie)' again instead of '(copie 2)'. Root cause : routes/production.py:492-497 does find_one({\"name\": {\"$regex\": f\"^{candidate}$\"}}) with candidate='<name> (copie)' — the unescaped parentheses are interpreted as a regex capture group so the query matches 'name copie' but NOT 'name (copie)'. Fix : use re.escape(candidate) around the regex payload, OR do a plain equality query (case-insensitive via collation).",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24az_l_validation.py",
+    "/app/test_reports/pytest/iter43_fix24az_l.xml"
+  ],
+  "action_items": [
+    "P0 URGENT — Scope /api/admin/appointments (server.py:7768-7771) by _is_super_admin/_resolve_visible_client_ids exactly like /me/notes/*. Same audit needed for /api/admin/interventions (7816) and /api/admin/documents (7911) which use the same leaky pattern find({}).",
+    "P1 — Fix routes/production.py:492 duplicate_recipe : escape regex or use exact match on name to guarantee '(copie 2)', '(copie 3)' etc. Add pytest regression once fixed.",
+    "Consider a linter/grep rule to flag any admin GET endpoint that queries db.<collection>.find({}, ...) without a tenant scope check."
+  ],
+  "critical_code_review_comments": [
+    "server.py admin_appointments / admin_interventions / admin_documents at lines 7768/7816/7911 STILL use unrestricted find({}) — they must be adapted to the _is_super_admin pattern already applied around lines 1832, 2333, 2748, 3102, 3122, 9995 (notes) and 22000. This is a governance/consistency gap.",
+    "routes/production.py:492-497 uniqueness-suffix loop does not escape user-controlled recipe name in regex → both a functional bug (parentheses swallowed) AND a potential ReDoS/injection surface if a recipe name contains regex meta-chars. Recommend `re.escape(candidate)` throughout the create/update/duplicate paths (lines 379, 430, 494)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter43_fix24az_l_validation.py"
+  ],
+  "success_rate": {"backend": "83% (15/18)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "isis-admin@test-tenant-a.com / Isis@2026 ; sawali-admin@test-tenant-b.com / Sawali@2026 ; admin@sawalismartsystems.com / Admin@Sawali2026 ; fab-analytics@sawali-test.com / Analytics@2026 (all dev_otp inline).",
+  "seed_data_creation": "None — test creates 3 disposable intrants (TEST_raw_material_*, TEST_packaging_*, TEST_other_*) + 1 recipe (TEST_recipe_*) and cleans them up at end. Duplicate test creates 2 disposable copies then deletes them (though on failure they may remain — cleanup pass may be needed).",
+  "retest_needed": true,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "After fixes land, re-run `pytest backend/tests/test_iter43_fix24az_l_validation.py -v`. Cross-tenant tests are parametrized over 6 endpoints — the leaky one is /admin/appointments. The fixes should apply the exact same _is_super_admin() gating as done in /me/notes/*. Cleanup query if needed : `db.production_recipes.deleteMany({name: /^Gel Hydro Douceur \\(copie/})` and `db.production_intrants.deleteMany({name: /^TEST_/})`. Smoke suite (fix24az_f + k) is green so those regressions are safe.",
+  "rca of the issue": "P0 leak on /admin/appointments — the Iter43-fix24az-l refactor covered all /me/notes/* branches and several other endpoints (via _is_super_admin helper introduced at server.py:659) but missed the three admin_* endpoints declared with the older 'admin bypass = full DB' pattern : admin_appointments (7768), admin_interventions (7816), admin_documents (7911). Interventions & documents happened to have no LEAK data so the test passed by coincidence — the vulnerability is architectural. Duplicate-recipe (copie 2) : Python f-string `f\"^{candidate}$\"` embeds `Gel Hydro Douceur (copie)` verbatim into the regex, so `(copie)` becomes a regex group; MongoDB regex engine matches `Gel Hydro Douceur copie` (no parens) which never appears in the collection, so the loop exits immediately and idx stays at 2 (never used). Solution : re.escape() the candidate."
+}

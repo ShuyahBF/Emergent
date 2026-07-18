@@ -12,7 +12,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Factory, Plus, Trash2, Pencil, Save, X, Download, FileText,
+  Factory, Plus, Trash2, Pencil, Save, X, Download, FileText, Copy,
   Package, Droplet, Zap, User as UserIcon, Cog, BarChart3, Loader2,
   DollarSign, Percent, ArrowRightLeft, PieChart as PieIcon, TrendingUp,
   Trophy, AlertTriangle, LineChart as LineIcon,
@@ -115,6 +115,14 @@ export default function Production() {
                   toast.success("Recette supprimée"); await load();
                 } catch (e) { toast.error(e?.response?.data?.detail || "Échec"); }
               }}
+              onDuplicate={async (id) => {
+                try {
+                  const r = await apiClient.post(`/production/recipes/${id}/duplicate`);
+                  toast.success("Recette dupliquée — définissez le dosage puis enregistrez");
+                  await load();
+                  setEditingRecipe(r.data); // open the copy so user sets the dosage
+                } catch (e) { toast.error(e?.response?.data?.detail || "Échec de la duplication"); }
+              }}
               onExportRecipe={(id) => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/production/export/recipe/${id}.pdf`, "_blank")}
               onExportAll={() => window.open(`${process.env.REACT_APP_BACKEND_URL}/api/production/export/recipes.pdf`, "_blank")}
             />
@@ -172,7 +180,7 @@ export default function Production() {
 /* ────────────────────────────────────────────────────────────────────────── */
 /* Recipes tab                                                               */
 /* ────────────────────────────────────────────────────────────────────────── */
-const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelete, onExportRecipe, onExportAll }) => (
+const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelete, onDuplicate, onExportRecipe, onExportAll }) => (
   <div className="space-y-4">
     <div className="flex flex-wrap items-center gap-2">
       <button
@@ -228,6 +236,7 @@ const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelet
                 <td className="px-3 py-2 text-right font-mono text-emerald-700">{r.profit_per_unit?.toLocaleString("fr-FR", { maximumFractionDigits: 2 })}</td>
                 <td className="px-3 py-2 text-right space-x-1">
                   <button onClick={() => onEdit(r)} className="p-1 rounded hover:bg-indigo-100 text-indigo-600" title="Éditer" data-testid={`production-edit-recipe-${r.id}`}><Pencil className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => onDuplicate(r.id)} className="p-1 rounded hover:bg-fuchsia-100 text-fuchsia-600" title="Dupliquer (sans dosage)" data-testid={`production-duplicate-recipe-${r.id}`}><Copy className="h-3.5 w-3.5" /></button>
                   <button onClick={() => onExportRecipe(r.id)} className="p-1 rounded hover:bg-slate-200" title="Fiche PDF"><Download className="h-3.5 w-3.5" /></button>
                   <button onClick={() => onDelete(r.id)} className="p-1 rounded hover:bg-rose-100 text-rose-600" title="Supprimer"><Trash2 className="h-3.5 w-3.5" /></button>
                 </td>
@@ -333,9 +342,12 @@ const AnalyticsTab = ({ recipes, summary }) => {
   );
 
   // PieChart — aggregated cost per category across ALL recipes
-  // Iter43-fix24az-h (2026-02-26) — dosage-aware :
-  //   * new model : cost of each intrant contribution = dosage_number × unit_cost
-  //   * legacy    : cost = quantity × unit_cost
+  // Iter43-fix24az-h + fix24az-l (2026-02-26) — dosage-aware :
+  //   * new model (dosage_number>0) :
+  //       - packaging/other  → cost = unit_cost (fixed, does NOT scale)
+  //       - other categories → cost = unit_cost × dosage_number
+  //   * legacy : cost = quantity × unit_cost
+  const _FIXED_CATS_ANALYTICS = new Set(["packaging", "other"]);
   const pieData = useMemo(() => {
     const acc = {};
     recipes.forEach((r) => {
@@ -344,7 +356,12 @@ const AnalyticsTab = ({ recipes, summary }) => {
       (r.intrants || []).forEach((it) => {
         const c = it.category_snapshot || "raw_material";
         const uc = Number(it.unit_cost_snapshot) || 0;
-        const cost = useDosage ? uc * dosageNum : uc * (Number(it.quantity) || 0);
+        let cost;
+        if (useDosage) {
+          cost = _FIXED_CATS_ANALYTICS.has(c) ? uc : uc * dosageNum;
+        } else {
+          cost = uc * (Number(it.quantity) || 0);
+        }
         acc[c] = (acc[c] || 0) + cost;
       });
     });
@@ -795,16 +812,23 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
   const [saving, setSaving] = useState(false);
 
   // Real-time recomputation — dosage-based only (per-intrant quantity removed).
+  // Iter43-fix24az-l (2026-02-26) — Packaging + other DO NOT scale with dosage.
+  const _FIXED_CATEGORIES = new Set(["packaging", "other"]);
   const computed = useMemo(() => {
     const intrantsById = Object.fromEntries(intrants.map((i) => [i.id, i]));
     const dosageNum = Number(f.dosage_number) || 0;
-    let sumUnitCosts = 0;
+    let costBatch = 0;
     for (const it of f.intrants) {
       const src = intrantsById[it.intrant_id];
       if (!src) continue;
-      sumUnitCosts += Number(src.unit_cost) || 0;
+      const uc = Number(src.unit_cost) || 0;
+      const cat = src.category || "raw_material";
+      if (_FIXED_CATEGORIES.has(cat)) {
+        costBatch += uc;              // fixed per-batch (does not scale)
+      } else {
+        costBatch += uc * dosageNum;  // scales with dosage
+      }
     }
-    const costBatch = sumUnitCosts * dosageNum;
     const batchUnits = Number(f.output_batch_units) || 1;
     const costPrice = costBatch / (batchUnits > 0 ? batchUnits : 1);
     let publicPrice = 0, marginPct = 0;
@@ -818,7 +842,6 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
     return {
       costBatch, costPrice, publicPrice, marginPct,
       profit: publicPrice - costPrice,
-      sumUnitCosts,
     };
   }, [f, intrants]);
 
@@ -911,8 +934,8 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
               Intrants nécessaires — coût = coût unitaire × dosage ({f.dosage_number || 0} {f.dosage_unit})
             </p>
             <p className="text-[10px] text-slate-500 mb-2 italic">
-              Toutes les cases cochées partagent le même multiplicateur (le dosage du produit).
-              Le coût unitaire d&apos;un intrant est le prix pour <strong>1 {f.dosage_unit}</strong>.
+              Les intrants « matière première / eau / électricité / main d&apos;œuvre / amortissement » multiplient leur coût unitaire par le dosage.
+              Les intrants <span className="font-semibold text-amber-700">Emballage/flaconnage</span> et <span className="font-semibold text-amber-700">Autre</span> sont à <strong>coût fixe</strong> (ne scalent pas avec le dosage).
             </p>
             {intrants.length === 0 ? (
               <p className="text-xs text-slate-500 italic">Aucun intrant disponible. Créez d&apos;abord des intrants dans l&apos;onglet Intrants.</p>
@@ -927,15 +950,21 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                       {items.map((i) => {
                         const sel = f.intrants.find((x) => x.intrant_id === i.id);
-                        const contribCost = dosageNum * (Number(i.unit_cost) || 0);
+                        const isFixed = _FIXED_CATEGORIES.has(i.category || "raw_material");
+                        const contribCost = isFixed
+                          ? (Number(i.unit_cost) || 0)
+                          : dosageNum * (Number(i.unit_cost) || 0);
                         return (
                           <div key={i.id} className={`flex items-center gap-2 px-2 py-1.5 rounded ${sel ? "bg-white ring-1 ring-indigo-300" : "hover:bg-slate-100"}`}>
                             <input type="checkbox" checked={!!sel} onChange={() => toggleIntrant(i.id)} data-testid={`recipe-intrant-toggle-${i.id}`} className="cursor-pointer" />
                             <span className="text-xs flex-1 truncate" title={i.name}>{i.name}</span>
+                            {isFixed && (
+                              <span className="text-[9px] px-1 rounded bg-amber-100 text-amber-800 font-semibold" title="Coût fixe — ne varie pas avec le dosage">FIXE</span>
+                            )}
                             <span className="text-[10px] text-slate-500 font-mono">
                               {(Number(i.unit_cost) || 0).toLocaleString("fr-FR", { maximumFractionDigits: 4 })} CFA/{i.unit}
                             </span>
-                            {sel && dosageNum > 0 && (
+                            {sel && (dosageNum > 0 || isFixed) && (
                               <span
                                 className="text-[10px] font-mono font-semibold text-emerald-700 min-w-[70px] text-right"
                                 data-testid={`recipe-intrant-contrib-${i.id}`}

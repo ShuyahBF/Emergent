@@ -479,6 +479,11 @@ def attach_story_studio_routes(
             "tiktok_client_secret": _mask(st.get("tiktok_client_secret")),
             "tiktok_client_secret_set": bool(st.get("tiktok_client_secret")),
             "tiktok_redirect_uri": st.get("tiktok_redirect_uri"),
+            # Iter43-fix24az-l — TikTok privacy toggle (audit compliance).
+            # SELF_ONLY is required until the TikTok app audit passes ; after
+            # audit, admin can flip to PUBLIC_TO_EVERYONE / MUTUAL_FOLLOW_FRIENDS /
+            # FOLLOWER_OF_CREATOR.
+            "tiktok_privacy_level": st.get("tiktok_privacy_level", "SELF_ONLY"),
             "auto_download_after_generation": st.get("auto_download_after_generation", True),
             "default_caption_template": st.get("default_caption_template", "✨ {title}\n\n#SAWALI #Liluvine"),
         }
@@ -495,6 +500,7 @@ def attach_story_studio_routes(
             "sora_enabled", "sora_default_duration", "sora_default_size",
             "meta_app_id", "meta_app_secret", "meta_redirect_uri",
             "tiktok_client_key", "tiktok_client_secret", "tiktok_redirect_uri",
+            "tiktok_privacy_level",
             "auto_download_after_generation", "default_caption_template",
         }
         secret_fields = {"fal_api_key", "meta_app_secret", "tiktok_client_secret"}
@@ -2168,7 +2174,18 @@ def attach_story_studio_routes(
             )
 
     async def _publish_tiktok_video(*, account_id: str, file_path: str, caption: str) -> Dict[str, Any]:
-        """Publie une vidéo via Direct Post (FILE_UPLOAD, single chunk)."""
+        """Publie une vidéo via Direct Post (FILE_UPLOAD, single chunk).
+
+        Iter43-fix24az-l (2026-02-26) — TikTok App Review compliance:
+          * Unaudited apps can ONLY post to private accounts (SELF_ONLY).
+          * `story_studio.tiktok_privacy_level` in `settings.global` allows the
+            admin to force SELF_ONLY (default, until audit passes) or switch to
+            PUBLIC_TO_EVERYONE / MUTUAL_FOLLOW_FRIENDS / FOLLOWER_OF_CREATOR
+            after successful audit.
+          * We call TikTok's `creator_info/query/` FIRST to validate the
+            requested privacy_level is allowed for the connected account. If
+            not, we return a friendly French error explaining the audit stage.
+        """
         access_token = await _get_valid_tiktok_token(account_id)
         try:
             file_bytes = Path(file_path).read_bytes()
@@ -2178,12 +2195,46 @@ def attach_story_studio_routes(
         if total_size == 0:
             return {"ok": False, "error": "Fichier vide"}
 
+        # Load admin config for the desired privacy level (default SELF_ONLY).
+        settings_doc = await db.settings.find_one({"scope": "global"}) or {}
+        story_cfg = (settings_doc.get("story_studio") or {}) if isinstance(settings_doc, dict) else {}
+        # Also accept legacy top-level key for backward-compat
+        desired_privacy = (
+            story_cfg.get("tiktok_privacy_level")
+            or settings_doc.get("tiktok_privacy_level")
+            or "SELF_ONLY"
+        )
+        # Whitelist
+        if desired_privacy not in ("SELF_ONLY", "PUBLIC_TO_EVERYONE", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR"):
+            desired_privacy = "SELF_ONLY"
+
         async with httpx.AsyncClient(timeout=120.0) as client:
+            # 0) Pre-flight: creator_info/query/ to know allowed privacy levels
+            try:
+                cinfo_resp = await client.post(
+                    "https://open.tiktokapis.com/v2/post/publish/creator_info/query/",
+                    headers={"Authorization": f"Bearer {access_token}",
+                             "Content-Type": "application/json; charset=utf-8"},
+                    json={},
+                )
+                allowed_privacy: List[str] = []
+                if cinfo_resp.status_code < 400:
+                    cdata = cinfo_resp.json().get("data") or {}
+                    allowed_privacy = cdata.get("privacy_level_options") or []
+                # If the account restricts to SELF_ONLY (unaudited scenario), force it.
+                if allowed_privacy and desired_privacy not in allowed_privacy:
+                    if "SELF_ONLY" in allowed_privacy:
+                        desired_privacy = "SELF_ONLY"
+                    else:
+                        desired_privacy = allowed_privacy[0]
+            except httpx.HTTPError:
+                # If creator_info fails, we still try with the configured default.
+                pass
             # 1) Init Direct Post
             init_body = {
                 "post_info": {
                     "title": caption[:150],
-                    "privacy_level": "SELF_ONLY",  # SELF_ONLY garanti pour sandbox; en prod, on peut passer PUBLIC_TO_EVERYONE
+                    "privacy_level": desired_privacy,
                     "disable_duet": False,
                     "disable_comment": False,
                     "disable_stitch": False,
@@ -2202,12 +2253,22 @@ def attach_story_studio_routes(
                          "Content-Type": "application/json; charset=utf-8"},
             )
             if init_resp.status_code >= 400:
-                return {"ok": False, "error": f"TikTok init {init_resp.status_code}: {init_resp.text[:200]}"}
+                # Friendly message for the unaudited-app case.
+                snippet = init_resp.text[:400]
+                if "unaudited_client_can_only_post_to_private_accounts" in snippet:
+                    return {"ok": False, "error": (
+                        "TikTok — application non auditée : la publication n'est autorisée que "
+                        "sur des comptes TikTok en mode PRIVÉ. Rendez votre compte TikTok privé "
+                        "(profil → paramètres → confidentialité), ou attendez la validation de "
+                        "l'audit TikTok avant d'activer les publications publiques."
+                    )}
+                return {"ok": False, "error": f"TikTok init {init_resp.status_code}: {snippet[:200]}"}
             init_data = init_resp.json().get("data") or init_resp.json()
             upload_url = init_data.get("upload_url")
             publish_id = init_data.get("publish_id")
             if not upload_url:
                 return {"ok": False, "error": f"Pas d'upload_url : {init_data!r:.200}"}
+
 
             # 2) Binary upload (single chunk)
             upload_resp = await client.put(

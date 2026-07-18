@@ -149,10 +149,13 @@ def _compute_recipe(recipe: Dict[str, Any], default_margin: float) -> Dict[str, 
 
     Iter43-fix24az-h (2026-02-26) — Cost model has TWO branches :
 
-    * NEW (dosage-based) : when `recipe.dosage_number` > 0, the cost of each
-      intrant in the recipe = intrant.unit_cost_snapshot × dosage_number.
-      Total cost per batch = Σ(unit_cost_snapshot) × dosage_number.
-      All intrants share the same dosage multiplier (product volume).
+    * NEW (dosage-based) : when `recipe.dosage_number` > 0, the cost of most
+      intrants = intrant.unit_cost_snapshot × dosage_number.
+      Iter43-fix24az-l (2026-02-26) — `packaging` and `other` categories do NOT
+      scale with the dosage (they are per-unit fixed costs like flacons,
+      étiquettes). Their contribution stays = unit_cost_snapshot × 1.
+      All OTHER categories (raw_material, water, electricity, labor,
+      amortization) DO scale with dosage.
       Supports up to 4 decimals on unit_cost.
 
     * LEGACY (per-intrant quantity) : older recipes without dosage_number keep
@@ -169,10 +172,17 @@ def _compute_recipe(recipe: Dict[str, Any], default_margin: float) -> Dict[str, 
     except (TypeError, ValueError):
         dosage_number = None
     cost_batch = 0.0
+    # Categories whose cost does NOT scale with the recipe dosage.
+    _FIXED_CATEGORIES = {"packaging", "other"}
     if dosage_number is not None and dosage_number > 0:
         # New model
         for it in intrants:
-            cost_batch += float(it.get("unit_cost_snapshot") or 0) * dosage_number
+            cat = it.get("category_snapshot") or "raw_material"
+            uc = float(it.get("unit_cost_snapshot") or 0)
+            if cat in _FIXED_CATEGORIES:
+                cost_batch += uc  # per-batch fixed cost
+            else:
+                cost_batch += uc * dosage_number
     else:
         # Legacy model
         for it in intrants:
@@ -363,6 +373,18 @@ def attach_production_routes(*, api, db, get_current_user):
             # Prefer integer formatting when dosage_number is a whole number
             n_str = f"{dosage_number:g}"
             variant_label = f"{n_str} {dosage_unit}"
+        # Iter43-fix24az-l — Uniqueness constraint (Task 4) : (name + dosage_number + dosage_unit)
+        _dup_q: Dict[str, Any] = {
+            "client_id": tenant,
+            "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
+            "dosage_number": dosage_number,
+            "dosage_unit": dosage_unit,
+        }
+        if await db.production_recipes.find_one(_dup_q, {"_id": 0, "id": 1}):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Une recette existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
+            )
         doc: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
             "client_id": tenant,
@@ -402,6 +424,19 @@ def attach_production_routes(*, api, db, get_current_user):
         if variant_label is None and dosage_number is not None and dosage_number > 0:
             n_str = f"{dosage_number:g}"
             variant_label = f"{n_str} {dosage_unit}"
+        # Iter43-fix24az-l — Uniqueness on (name + dosage_number + dosage_unit)
+        _dup_q: Dict[str, Any] = {
+            "client_id": tenant,
+            "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
+            "dosage_number": dosage_number,
+            "dosage_unit": dosage_unit,
+            "id": {"$ne": rid},
+        }
+        if await db.production_recipes.find_one(_dup_q, {"_id": 0, "id": 1}):
+            raise HTTPException(
+                status_code=409,
+                detail=f"Une autre recette existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
+            )
         res = await db.production_recipes.update_one(
             {"id": rid, "client_id": tenant},
             {"$set": {
@@ -433,6 +468,60 @@ def attach_production_routes(*, api, db, get_current_user):
         if res.deleted_count == 0:
             raise HTTPException(status_code=404, detail="Recette introuvable")
         return {"ok": True, "id": rid}
+
+    # Iter43-fix24az-l (2026-02-26) — Task 3 : Duplicate a recipe.
+    # The duplicate has the SAME name/intrants/margin/notes but the dosage is
+    # CLEARED (must be set by the user before saving). This preserves the
+    # (name, dosage_number, dosage_unit) uniqueness constraint since a null
+    # dosage differs from the source's dosage.
+    @api.post("/production/recipes/{rid}/duplicate", tags=["Production"])
+    async def duplicate_recipe(rid: str, user: Dict = Depends(get_current_user)):
+        await _require_fabricant_admin(db, user)
+        tenant = _tenant_scope(user)
+        src = await db.production_recipes.find_one({"id": rid, "client_id": tenant}, {"_id": 0})
+        if not src:
+            raise HTTPException(status_code=404, detail="Recette source introuvable")
+        default_m = await _default_margin(db)
+        now = _now_iso()
+        new_id = str(uuid.uuid4())
+        # Compute a unique suffix on the name to avoid the uniqueness clash
+        # when the user later saves without changing the dosage.
+        base_name = src.get("name") or "Recette"
+        candidate = f"{base_name} (copie)"
+        idx = 2
+        while await db.production_recipes.find_one({
+            "client_id": tenant,
+            "name": {"$regex": f"^{candidate}$", "$options": "i"},
+            "dosage_number": None,
+            "dosage_unit": src.get("dosage_unit") or "ml",
+        }, {"_id": 0, "id": 1}):
+            candidate = f"{base_name} (copie {idx})"
+            idx += 1
+        doc: Dict[str, Any] = {
+            "id": new_id,
+            "client_id": tenant,
+            "name": candidate,
+            "variant_label": None,
+            "dosage_number": None,  # cleared — user must set
+            "dosage_unit": src.get("dosage_unit") or "ml",
+            "output_batch_units": float(src.get("output_batch_units") or 1),
+            "output_unit_label": src.get("output_unit_label") or "unit",
+            "intrants": src.get("intrants") or [],
+            "pricing_mode": src.get("pricing_mode") or "margin_first",
+            "margin_pct": src.get("margin_pct"),
+            "public_price": src.get("public_price"),
+            "catalog_product_id": src.get("catalog_product_id"),
+            "notes": src.get("notes") or "",
+            "created_at": now,
+            "updated_at": now,
+            "created_by": user.get("email"),
+            "duplicated_from": rid,
+        }
+        await db.production_recipes.insert_one(doc)
+        doc.pop("_id", None)
+        return _compute_recipe(doc, default_m)
+
+
 
     # ---- SETTINGS ----
     @api.get("/production/settings", tags=["Production"])

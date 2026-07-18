@@ -304,6 +304,32 @@ async def ip_blacklist_middleware(request, call_next):
     return await call_next(request)
 
 
+# Iter43-fix24az-l (2026-02-26) — Cloudflare Error 520 mitigation.
+# 520 is triggered when the origin returns a malformed/empty response, which
+# in FastAPI can happen when an unhandled exception bubbles up above the ASGI
+# middleware stack. We register a catch-all exception handler that guarantees
+# a well-formed JSON response even for unexpected errors. This turns "invalid
+# response" into "500 with body {detail: ...}", which Cloudflare passes back
+# to the client cleanly instead of showing a 520 page.
+@app.exception_handler(Exception)
+async def _sawali_global_exception_handler(request, exc):
+    from fastapi.exceptions import HTTPException as _FastHTTP
+    if isinstance(exc, _FastHTTP):
+        # Let FastAPI's normal handler do its job.
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.detail})
+    # Log the traceback so we can post-mortem later.
+    try:
+        logger.error("[unhandled] %s %s → %s: %s",
+                     request.method, request.url.path,
+                     exc.__class__.__name__, str(exc)[:400], exc_info=True)
+    except Exception:  # noqa: BLE001
+        pass
+    return JSONResponse(status_code=500, content={
+        "detail": "Erreur interne du serveur. Notre équipe a été notifiée.",
+        "error_type": exc.__class__.__name__,
+    })
+
+
 # ====================================================================
 # Helpers
 # ====================================================================
@@ -622,6 +648,28 @@ def _is_elevated_creator(user: dict) -> bool:
     if _is_admin_or_superviseur(user):
         return True
     return _user_tracked_role(user) in ELEVATED_TRACKED_ROLES
+
+
+# Iter43-fix24az-l (2026-02-26) — Cross-tenant data leak fix.
+# The historical pattern `if user.get("role") in ("admin", "superviseur"):
+# db.collection.find({})` was leaking data across tenants : a client-admin
+# (e.g. ISISPHARMA admin) with role=admin could see data belonging to another
+# client-tenant (e.g. SAWALI SMART SYSTEMS). Only the SAWALI internal
+# super-admin (`SUPER_ADMIN_EMAIL`) should have that cross-tenant view.
+def _is_super_admin(user: dict) -> bool:
+    """The SAWALI internal super-admin (SUPER_ADMIN_EMAIL) has cross-tenant
+    read on every collection. All other admin/superviseur roles are scoped to
+    their own tenant/company via `_resolve_visible_client_ids`.
+
+    Iter43-fix24az-l — Fixes the leak on : Rapports / Suivis / Notes / Tâches /
+    Brochures / PVs / Écran de Bienvenue / Documentations / Tickets /
+    Interventions / Rendez-vous / Paiements / Payment Links.
+    """
+    email = (user.get("email") or "").strip().lower()
+    if not email:
+        return False
+    super_email = (os.environ.get("SUPER_ADMIN_EMAIL") or "admin@sawalismartsystems.com").strip().lower()
+    return email == super_email
 
 
 def _can_delete_records(user: dict) -> bool:
@@ -1778,10 +1826,14 @@ async def admin_profile_requests_update(
 @api.get("/me/appointments", tags=["Portail Client"])
 async def me_appointments(user: dict = Depends(get_current_user)):
     """All users belonging to the same client see the same set of RDV.
-    Admin/superviseur see everything. RGPD: anonymizes customer fields per
-    parent-client flags for non-privileged roles."""
-    if user.get("role") in ("admin", "superviseur"):
+    Only the SAWALI super-admin sees ALL tenants (Iter43-fix24az-l). Regular
+    client-admin/superviseur are tenant-scoped. RGPD: anonymizes customer
+    fields per parent-client flags for non-privileged roles."""
+    if _is_super_admin(user):
         items = await db.appointments.find({}, {"_id": 0}).to_list(2000)
+    elif user.get("role") in ("admin", "superviseur"):
+        scope = await _resolve_visible_client_ids(user)
+        items = await db.appointments.find({"client_id": {"$in": scope}}, {"_id": 0}).to_list(2000)
     else:
         scope = user.get("client_id") or user["id"]
         items = await db.appointments.find({"client_id": scope}, {"_id": 0}).to_list(2000)
@@ -2275,10 +2327,17 @@ def _frontend_origin_from_request(request: Request) -> Optional[str]:
 
 @api.get("/me/payments", tags=["Portail Client"])
 async def me_list_payments(user: dict = Depends(get_current_user)):
-    """Liste les paiements récents de l'utilisateur appelant. Admin/superviseur voient tout.
-    Plain users see only their own (privacy : amounts can be sensitive)."""
-    if user.get("role") in ("admin", "superviseur"):
+    """Liste les paiements récents. Only SAWALI super-admin sees ALL tenants.
+    Client-admin sees their tenant. Plain users see only their own.
+    Iter43-fix24az-l — cross-tenant leak fix."""
+    if _is_super_admin(user):
         items = await db.payments.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    elif user.get("role") in ("admin", "superviseur"):
+        scope = await _resolve_visible_client_ids(user)
+        items = await db.payments.find(
+            {"$or": [{"user_id": {"$in": scope}}, {"client_id": {"$in": scope}}]},
+            {"_id": 0}
+        ).sort("created_at", -1).to_list(500)
     else:
         items = await db.payments.find({"user_id": user["id"]}, {"_id": 0}).sort("created_at", -1).to_list(200)
     return items
@@ -2684,8 +2743,15 @@ async def me_create_payment_link(payload: PaymentLinkCreate, user: dict = Depend
 
 @api.get("/me/payment-links", tags=["Portail Client"])
 async def me_list_payment_links(user: dict = Depends(get_current_user)):
-    if user.get("role") in ("admin", "superviseur"):
+    """Iter43-fix24az-l — cross-tenant leak fix. Only SAWALI super-admin sees
+    all; client-admin scoped to their tenant."""
+    if _is_super_admin(user):
         items = await db.payment_links.find({}, {"_id": 0}).sort("created_at", -1).to_list(500)
+    elif user.get("role") in ("admin", "superviseur"):
+        scope = await _resolve_visible_client_ids(user)
+        items = await db.payment_links.find(
+            {"client_id": {"$in": scope}}, {"_id": 0}
+        ).sort("created_at", -1).to_list(500)
     else:
         items = await db.payment_links.find(
             {"client_id": user.get("client_id") or user["id"]}, {"_id": 0}
@@ -3030,9 +3096,16 @@ async def me_create_appointment(
 
 @api.get("/me/documents", tags=["Portail Client"])
 async def me_documents(user: dict = Depends(get_current_user)):
-    """RGPD: anonymizes uploaded_by_email/name for non-privileged roles."""
-    if _can_consult_all_docs(user):
+    """RGPD: anonymizes uploaded_by_email/name for non-privileged roles.
+    Iter43-fix24az-l — cross-tenant leak fix. Only super-admin sees ALL; client
+    admin/superviseur scoped to their tenant."""
+    if _is_super_admin(user):
         items = await db.documents.find({}, {"_id": 0}).to_list(5000)
+    elif _can_consult_all_docs(user):
+        scope = await _resolve_visible_client_ids(user)
+        items = await db.documents.find(
+            {"$or": [{"client_id": {"$in": scope}}, {"is_public": True}]}, {"_id": 0}
+        ).to_list(5000)
     else:
         effective_client_id = user.get("parent_client_id") or user["id"]
         items = await db.documents.find(
@@ -3043,14 +3116,29 @@ async def me_documents(user: dict = Depends(get_current_user)):
 
 @api.get("/me/interventions", tags=["Portail Client"])
 async def me_interventions(user: dict = Depends(get_current_user)):
-    """RGPD: anonymizes the technician name for non-privileged roles."""
-    if _is_elevated_creator(user):
+    """RGPD: anonymizes the technician name for non-privileged roles.
+    Iter43-fix24az-l — cross-tenant leak fix. Only super-admin sees ALL; client
+    admin/elevated_creator scoped to their tenant."""
+    if _is_super_admin(user):
         items = await db.interventions.find({}, {"_id": 0}).to_list(2000)
+    elif _is_elevated_creator(user):
+        scope = await _resolve_visible_client_ids(user)
+        base_q: Dict[str, Any] = {"client_id": {"$in": scope}}
+        # Iter43 — Cross-tenant share: include interventions created by colleagues
+        try:
+            from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
+            visible_owner_ids = await resolve_visible_owner_ids(db, user)
+            colleague_ids = [oid for oid in visible_owner_ids if oid != user["id"]]
+        except Exception:
+            colleague_ids = []
+        if colleague_ids:
+            q = {"$or": [base_q, {"owner_id": {"$in": colleague_ids}, "shared_with_tenant": True}]}
+        else:
+            q = base_q
+        items = await db.interventions.find(q, {"_id": 0}).to_list(2000)
     else:
         effective_client_id = user.get("parent_client_id") or user["id"]
-        base_q: Dict[str, Any] = {"client_id": effective_client_id}
-        # Iter43 — Cross-tenant share: include interventions created by colleagues
-        # (same société/rattachement) flagged shared_with_tenant=True.
+        base_q = {"client_id": effective_client_id}
         try:
             from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
             visible_owner_ids = await resolve_visible_owner_ids(db, user)
@@ -9904,8 +9992,18 @@ async def me_list_notes(
         "owner_id": {"$in": [oid for oid in visible_owner_ids if oid != user["id"]]},
         "shared_with_tenant": True,
     } if len(visible_owner_ids) > 1 else None
-    if user.get("role") in ("admin", "superviseur"):
+    if _is_super_admin(user):
         base: Dict[str, Any] = {}
+    elif user.get("role") in ("admin", "superviseur"):
+        # Iter43-fix24az-l — Client-admin scoped to their tenant (was: {})
+        scope = await _resolve_visible_client_ids(user)
+        base = {
+            "$or": [
+                {"owner_id": {"$in": scope}},
+                {"target_user_ids": {"$in": scope}},
+                {"client_id": {"$in": scope}},
+            ]
+        }
     elif _is_elevated_creator(user):
         clauses = [
             {"is_private": {"$ne": True}},
@@ -21890,18 +21988,17 @@ def _format_ticket_duration(opened_iso: str, closed_iso: str) -> str:
 async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
     """Mongo query filter restricting tickets to the user's effective client scope.
 
-    Bug fix (S-iter39m) : admin/superviseur AND moderators can CREATE a
-    ticket on any client_id (`/me/clients` returns the full list to
-    elevated users), so they must also be able to READ them back. Without
-    this branch, tickets opened from the floating bubble on a client
-    outside the user's `company` became invisible everywhere.
+    Iter43-fix24az-l (2026-02-26) — Cross-tenant leak fix.
+    Only the SAWALI super-admin (SUPER_ADMIN_EMAIL) sees ALL tenants' tickets.
+    Client-admin/superviseur (e.g. ISISPHARMA admin) are scoped to their own
+    tenant via `_resolve_visible_client_ids` (matches on company/parent_client_id).
 
-    Note : moderators can SEE all tickets (they pilot the interventions)
-    but cannot DELETE them — the delete endpoint enforces that via
-    `_can_delete_records()` which only allows admin/superviseur.
+    Note : moderators can SEE all tickets within their tenant (they pilot the
+    interventions) but cannot DELETE them — the delete endpoint enforces that
+    via `_can_delete_records()` which only allows admin/superviseur.
     """
-    if _is_elevated_creator(user):
-        return {}  # no scope restriction for admin/superviseur/moderators
+    if _is_super_admin(user):
+        return {}
     scope = await _resolve_visible_client_ids(user)
     return {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
 

@@ -7,6 +7,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Sparkles, Image as ImageIcon, Video, Wand2, Loader2, Download, RefreshCw, Upload, X, History, Clapperboard, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { LocalMediaImporter } from "@/components/LocalMediaImporter";
 
 const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
@@ -303,6 +304,31 @@ export default function MediaGenerator() {
         </div>
       </div>
       )}
+
+      {/* Iter43-fix24az-l retest — Import local (image ou vidéo) */}
+      <div className="bg-gradient-to-br from-slate-50 to-white border border-slate-200 rounded-2xl p-5">
+        <div className="flex items-start justify-between gap-3 mb-3">
+          <div>
+            <h2 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+              <Upload className="h-4 w-4" /> Importer un média local
+            </h2>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Téléversez une image ou une vidéo depuis votre ordinateur. Elle sera stockée dans votre bibliothèque
+              et pourra ensuite être publiée sur Meta, LinkedIn, X, TikTok, etc.
+            </p>
+          </div>
+        </div>
+        <LocalMediaImporter
+          accept="both"
+          maxSizeMb={100}
+          label="Choisir une image ou une vidéo"
+          testIdPrefix="mediagen-local-import"
+          onImported={(m) => {
+            setCurrent({ url: m.public_url, kind: m.kind });
+            loadHistory();
+          }}
+        />
+      </div>
 
       {/* History */}
       <div>

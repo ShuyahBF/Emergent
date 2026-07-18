@@ -13,8 +13,9 @@ import {
   Trash2, RefreshCw, Wand2, Settings as SettingsIcon, AlertTriangle,
   Smartphone, Copy, X, Clock, Send, Instagram, Facebook, CheckCircle2,
   Plug, PlugZap, Eye, History as HistoryIcon,
-  Wallet, FileText as FileTextIcon, TrendingUp, Coins,
+  Wallet, FileText as FileTextIcon, TrendingUp, Coins, Upload,
 } from "lucide-react";
+import { LocalMediaImporter } from "@/components/LocalMediaImporter";
 
 // Helper formatter pour montants XOF
 const fmtXOF = (n) => `${Number(n || 0).toLocaleString("fr-FR")} XOF`;
@@ -122,7 +123,38 @@ export default function StoryStudio() {
         </div>
       </div>
 
-      {tab === "generate" && <GenerateTab settings={settings} onCreated={loadLibrary} />}
+      {tab === "generate" && (
+        <>
+          {/* Iter43-fix24az-l retest — Import local (alternative à la génération IA) */}
+          <div className="rounded-xl bg-gradient-to-br from-slate-50 to-white ring-1 ring-slate-200 p-5" data-testid="story-local-import-panel">
+            <div className="flex items-start justify-between gap-3 mb-3">
+              <div>
+                <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-2">
+                  <Upload className="h-4 w-4" /> Importer un média local
+                </h3>
+                <p className="text-xs text-slate-500 mt-0.5">
+                  Alternative à la génération IA : téléversez votre propre image ou vidéo,
+                  elle sera ajoutée à la bibliothèque et prête à être publiée sur les réseaux sociaux.
+                </p>
+              </div>
+            </div>
+            <LocalMediaImporter
+              accept="both"
+              maxSizeMb={200}
+              label="Choisir un fichier local"
+              testIdPrefix="story-local-import"
+              endpoint="/admin/story-studio/library/upload"
+              fileField="file"
+              labelField="title"
+              onImported={() => {
+                toast.success("Asset ajouté dans la bibliothèque Story Studio");
+                loadLibrary();
+              }}
+            />
+          </div>
+          <GenerateTab settings={settings} onCreated={loadLibrary} />
+        </>
+      )}
       {tab === "library" && (
         <LibraryTab
           items={library}

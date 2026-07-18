@@ -11,6 +11,7 @@ import {
   LogOut, CheckCircle2, AlertTriangle, Plus, BarChart3,
 } from "lucide-react";
 import { toast } from "sonner";
+import { LocalMediaImporter } from "@/components/LocalMediaImporter";
 
 export default function MetaIntegration() {
   const [params, setParams] = useSearchParams();
@@ -247,10 +248,19 @@ function PagesTab({ status, reload }) {
         {/* Photo uploader */}
         <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
           <h3 className="text-sm font-semibold flex items-center gap-2"><ImageIcon className="h-4 w-4" /> Publier une photo</h3>
+          {/* Iter43-fix24az-l retest — Local media import (image only for FB photo endpoint) */}
+          <LocalMediaImporter
+            accept="image"
+            maxSizeMb={20}
+            label="Importer une image locale"
+            testIdPrefix="meta-photo-local-import"
+            onImported={(m) => setPhoto((p) => ({ ...p, image_url: m.public_url }))}
+          />
           <input
             type="url" value={photo.image_url} onChange={(e) => setPhoto({ ...photo, image_url: e.target.value })}
-            placeholder="URL publique de l'image (https://…)"
+            placeholder="… ou coller une URL publique d'image (https://…)"
             className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm"
+            data-testid="meta-photo-image-url"
           />
           <input
             type="text" value={photo.caption} onChange={(e) => setPhoto({ ...photo, caption: e.target.value })}

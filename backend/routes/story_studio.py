@@ -523,6 +523,112 @@ def attach_story_studio_routes(
         return {"ok": True}
 
     # ========================================================================
+    # Iter43-fix24az-l retest (2026-02-26) — Upload local d'assets Story Studio.
+    # Permet à l'admin d'importer une image ou une vidéo depuis son ordinateur
+    # sans passer par la génération IA (utile pour recycler du contenu existant,
+    # ou pour compléter une story IA avec un visuel externe).
+    # ========================================================================
+    @api.post("/admin/story-studio/library/upload", tags=["Admin — Story Studio"])
+    async def story_studio_upload_local(
+        request: Request,
+        user: dict = Depends(get_admin_or_supervisor),
+    ):
+        """Upload d'un asset local (image ou vidéo) directement dans la
+        bibliothèque Story Studio. Multipart form-data :
+          - file (required) : le fichier binaire
+          - title (optional) : titre lisible
+          - tenant_id (optional) : tenant cible (super-admin peut cibler un autre tenant)
+        Retourne le doc `story_assets` créé (`status="ready"`).
+        """
+        try:
+            form = await request.form()
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail=f"Form invalide : {exc}") from exc
+        file = form.get("file")
+        if not file or not hasattr(file, "filename"):
+            raise HTTPException(status_code=400, detail="Champ 'file' requis (multipart)")
+        title = (form.get("title") or "").strip() or None
+        tenant_id = (form.get("tenant_id") or "").strip() or None
+
+        content_type = (getattr(file, "content_type", None) or "").lower()
+        filename = getattr(file, "filename", "") or "upload"
+        ext = Path(filename).suffix.lower().lstrip(".") or "bin"
+        # Décide kind à partir du content_type OU de l'extension (fallback)
+        if content_type.startswith("video") or ext in ("mp4", "mov", "webm", "mkv", "avi"):
+            kind = "video"
+            default_ext = "mp4"
+        elif content_type.startswith("image") or ext in ("png", "jpg", "jpeg", "webp", "gif"):
+            kind = "image"
+            default_ext = "png"
+        else:
+            raise HTTPException(status_code=400, detail=f"Type non supporté : {content_type or ext}")
+
+        raw_bytes = await file.read()
+        max_bytes = 200 * 1024 * 1024  # 200 Mo
+        if len(raw_bytes) > max_bytes:
+            raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (> {max_bytes // (1024 * 1024)} Mo)")
+        if len(raw_bytes) == 0:
+            raise HTTPException(status_code=400, detail="Fichier vide")
+
+        asset_id = str(uuid.uuid4())
+        safe_ext = ext if ext in ("mp4", "mov", "webm", "mkv", "avi", "png", "jpg", "jpeg", "webp", "gif") else default_ext
+        target_path = STORY_DIR / f"{asset_id}.{safe_ext}"
+        try:
+            target_path.write_bytes(raw_bytes)
+        except Exception as exc:  # noqa: BLE001
+            raise HTTPException(status_code=500, detail=f"Écriture disque échouée : {exc}") from exc
+
+        rel_url = f"/admin/story-studio/library/{asset_id}/media"
+        asset_doc: Dict[str, Any] = {
+            "id": asset_id,
+            "tenant_id": tenant_id or user.get("parent_client_id") or user["id"],
+            "kind": kind,
+            "engine": "import",  # marqueur : asset importé, pas généré IA
+            "model": "local-upload",
+            "prompt": None,
+            "title": title or (filename[:60] if filename else f"Import {kind}"),
+            "duration_seconds": None,
+            "size": None,
+            "generate_audio": False,
+            "status": "ready",
+            "url": rel_url,
+            "file_path": str(target_path),
+            "file_size": len(raw_bytes),
+            "content_type": content_type or f"{kind}/{safe_ext}",
+            "original_filename": filename,
+            "error": None,
+            "created_at": _now_iso(),
+            "created_by_id": user["id"],
+            "created_by_email": user.get("email"),
+            "tags": ["imported"],
+            "caption": None,
+            "usage_estimate": {"tokens": 0, "usd_cost": 0, "xof_cost": 0},
+        }
+
+        # Mirror to Emergent Object Storage (survive redéploiements K8s).
+        try:
+            if _obj_storage.is_enabled() or await _obj_storage.init_storage():
+                obj_meta = await _obj_storage.save_and_log(
+                    db,
+                    data=raw_bytes,
+                    kind="ai_media",
+                    tenant_id=asset_doc["tenant_id"],
+                    ext=safe_ext,
+                    content_type=asset_doc["content_type"],
+                    original_filename=filename,
+                    user_id=user["id"],
+                    metadata={"asset_id": asset_id, "engine": "import", "source": "local_upload"},
+                )
+                asset_doc["storage_path"] = obj_meta["path"]
+                asset_doc["storage_id"] = obj_meta["id"]
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[story_studio] local upload storage mirror failed: %s", exc)
+
+        await db.story_assets.insert_one(asset_doc.copy())
+        asset_doc.pop("_id", None)
+        return asset_doc
+
+    # ========================================================================
     # GÉNÉRATION TEXT-TO-VIDEO (Sora 2 ou Fal.ai)
     # ========================================================================
     @api.post("/admin/story-studio/generate/text-to-video", tags=["Admin — Story Studio"])

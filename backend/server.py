@@ -304,6 +304,54 @@ async def ip_blacklist_middleware(request, call_next):
     return await call_next(request)
 
 
+# Iter43-fix24az-l retest (2026-02-26) — Cloudflare 520 diagnostic middleware.
+# CF 520 usually means the origin returned an empty/malformed response or reset
+# the connection. Our single-worker uvicorn (--workers 1) is vulnerable to
+# event-loop starvation caused by blocking sync operations (PDF generation,
+# PIL watermarking, large MongoDB .to_list() calls). This middleware logs any
+# request that takes > 5s so we can pinpoint the offending route.
+# It also exposes an X-Process-Time header for the frontend to observe.
+import time as _time_perf  # local alias — avoid clashing with other `time` uses
+
+
+@app.middleware("http")
+async def request_timing_middleware(request, call_next):
+    _start = _time_perf.time()
+    try:
+        response = await call_next(request)
+        duration = _time_perf.time() - _start
+        if duration > 5.0:
+            try:
+                logger.warning(
+                    "[slow-request] %s %s took %.2fs status=%s",
+                    request.method,
+                    request.url.path,
+                    duration,
+                    getattr(response, "status_code", "?"),
+                )
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            response.headers["X-Process-Time"] = f"{duration:.3f}"
+        except Exception:  # noqa: BLE001
+            pass
+        return response
+    except Exception as exc:
+        duration = _time_perf.time() - _start
+        try:
+            logger.error(
+                "[failed-request] %s %s failed after %.2fs: %s: %s",
+                request.method,
+                request.url.path,
+                duration,
+                exc.__class__.__name__,
+                str(exc)[:200],
+            )
+        except Exception:  # noqa: BLE001
+            pass
+        raise
+
+
 # Iter43-fix24az-l (2026-02-26) — Cloudflare Error 520 mitigation.
 # 520 is triggered when the origin returns a malformed/empty response, which
 # in FastAPI can happen when an unhandled exception bubbles up above the ASGI

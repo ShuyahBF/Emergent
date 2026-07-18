@@ -556,8 +556,12 @@ def attach_production_routes(*, api, db, get_current_user):
         recipes: List[Dict] = []
         async for r in db.production_recipes.find({"client_id": tenant}, {"_id": 0}).sort("name", 1):
             recipes.append(_compute_recipe(r, default_m))
-        # Also collect all intrants used, for a top header row
-        buf = _render_recipes_pdf(recipes, tenant_name=user.get("company") or user.get("full_name") or "")
+        # Iter43-fix24az-l retest — Offload CPU-intensive ReportLab rendering
+        # to a thread so it doesn't block the uvicorn event loop (Cloudflare 520
+        # mitigation on single-worker deploys).
+        import asyncio as _asyncio  # local alias — module already imports asyncio elsewhere
+        tenant_name = user.get("company") or user.get("full_name") or ""
+        buf = await _asyncio.to_thread(_render_recipes_pdf, recipes, tenant_name=tenant_name)
         return Response(
             content=buf,
             media_type="application/pdf",
@@ -574,7 +578,10 @@ def attach_production_routes(*, api, db, get_current_user):
         if not r:
             raise HTTPException(status_code=404, detail="Recette introuvable")
         rec = _compute_recipe(r, default_m)
-        buf = _render_single_recipe_pdf(rec, tenant_name=user.get("company") or user.get("full_name") or "")
+        # Iter43-fix24az-l retest — Offload CPU-intensive ReportLab rendering.
+        import asyncio as _asyncio
+        tenant_name = user.get("company") or user.get("full_name") or ""
+        buf = await _asyncio.to_thread(_render_single_recipe_pdf, rec, tenant_name=tenant_name)
         return Response(
             content=buf,
             media_type="application/pdf",

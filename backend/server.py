@@ -3373,7 +3373,9 @@ async def me_interventions_pdf(
         ("FONTNAME", (0, -1), (-1, -1), "Helvetica-Bold"),
     ]))
     story.append(tbl)
-    doc.build(story)
+    # Iter43-fix24az-l retest — Offload reportlab doc.build to thread pool
+    # to avoid blocking uvicorn's single-worker event loop (CF 520 mitigation).
+    await asyncio.to_thread(doc.build, story)
     body = buf.getvalue()
     fname = f"interventions-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
     return Response(content=body, media_type="application/pdf",
@@ -3718,7 +3720,9 @@ async def me_intervention_invoice_pdf(inv_id: str, user: dict = Depends(get_curr
                 f"<font color='red'><b>EN RETARD DE {od} JOUR(S)</b></font>",
                 styles["Normal"],
             ))
-    doc.build(story)
+    # Iter43-fix24az-l retest — Offload reportlab doc.build to thread pool
+    # to avoid blocking uvicorn's single-worker event loop (CF 520 mitigation).
+    await asyncio.to_thread(doc.build, story)
     body = buf.getvalue()
     fname = f"{inv['invoice_number']}.pdf"
     return Response(content=body, media_type="application/pdf",
@@ -13798,7 +13802,9 @@ async def me_export_contacts_pdf(user: dict = Depends(get_current_user)):
         ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
     story.append(tbl)
-    doc.build(story)
+    # Iter43-fix24az-l retest — Offload reportlab doc.build to thread pool
+    # to avoid blocking uvicorn's single-worker event loop (CF 520 mitigation).
+    await asyncio.to_thread(doc.build, story)
     body = buf.getvalue()
     fname = f"contacts-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M')}.pdf"
     return Response(content=body, media_type="application/pdf", headers={"Content-Disposition": f'attachment; filename="{fname}"'})
@@ -22866,7 +22872,9 @@ async def me_tickets_cost_summary_pdf(
         ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
     ]))
     story.append(tbl)
-    doc.build(story)
+    # Iter43-fix24az-l retest — Offload reportlab doc.build to thread pool
+    # to avoid blocking uvicorn's single-worker event loop (CF 520 mitigation).
+    await asyncio.to_thread(doc.build, story)
     fname = f"cout-interventions-{data['month']}.pdf"
     return Response(
         content=buf.getvalue(),

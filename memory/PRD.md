@@ -8,6 +8,70 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. _[suggéré 2026-06-16]_
 - **PortalLayout: <span> inside <option> warning** : préexistant non-bloquant — corriger le markup du <select> autour de la ligne 558 de `/app/frontend/src/components/PortalLayout.jsx`. _[noté 2026-02-26 iteration_68]_
 - **WelcomeBriefing modal** : intercepte parfois les clics au premier load. Auto-dismiss après 3s ou close-on-outside-click serait plus user-friendly. _[noté 2026-02-26 iteration_69]_
+- **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
+- **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_
+
+
+## Iter43-fix24az-l retest (2026-07-18) — Cross-tenant leak retest + WA dedup + CF 520 diagnostic + Import local médias ✅
+
+### Iter79 — Retest correctifs P0/P1 (36/36 tests PASS)
+**Blockers restants de l'itération 78** :
+1. **P0 cross-tenant leak persistant sur `/api/admin/appointments`** — tenant A voyait les RDV du tenant B. Le même schéma s'appliquait à `/admin/interventions` et `/admin/documents` (data vide donc masqué mais bug architectural).
+2. **P1 duplication de recette** — 2e appel ne produisait pas '(copie 2)' à cause d'un regex non-échappé sur les parenthèses.
+
+**Correctifs** :
+- **`/app/backend/server.py`** :
+  - `admin_appointments` (line 7768-7781) : ajout du branchement `_is_super_admin` ↔ `_resolve_visible_client_ids` (scope tenant).
+  - `admin_interventions` (line 7822-7834) : idem, filtre par `client_id in scope`.
+  - `admin_documents` (line 7920-7942) : super-admin voit tout, autres voient tenant + docs publics (client_id null OR is_public=true).
+- **`/app/backend/routes/production.py`** :
+  - `create_recipe` (line 379), `update_recipe` (line 431), `duplicate_recipe` (line 494) : wrappent le nom dans `re.escape()` avant le `$regex` — parenthèses désormais traitées comme littéral.
+
+**Nouveau feature : WhatsApp inbound deduplication**
+- **`/app/backend/server.py`** ligne 16895-16915 : `whatsapp_webhook_incoming` court-circuite maintenant lorsqu'un `wa_message_id` est déjà présent dans `db.whatsapp_messages`. Évite les doublons de webhook Meta retries.
+- Index sparse `wa_message_id_sparse` créé au boot pour un lookup O(log n).
+
+**Tests** : `test_iter43_fix24az_l_validation.py` (18 tests) + `test_iter43_fix24az_l_wa_dedup.py` (3 tests) + `test_iter79_dup_copie3.py` — tous PASS.
+
+### Iter80 — CF 520 mitigation + Import local médias (24/24 tests PASS)
+
+**Cloudflare 520 diagnostic middleware** (`/app/backend/server.py` lignes 305-355) :
+- Nouveau `request_timing_middleware` qui log tout endpoint prenant > 5s et expose l'header `X-Process-Time` (secondes).
+- `production.py` : `export_recipes_pdf` + `export_single_recipe_pdf` passent par `asyncio.to_thread(_render_..._pdf)` pour ne PAS bloquer l'event loop uvicorn (single-worker `--reload` en preview).
+- Note : Le RCA du troubleshoot_agent recommande également passage à `--workers 4 --timeout-keep-alive 65` en PROD si CF 520 persiste. Non appliqué en preview (dev only).
+
+**Import local d'images/vidéos dans les 3 AI Media Generators** :
+- **Composant réutilisable `/app/frontend/src/components/LocalMediaImporter.jsx`** (~195 LOC) :
+  - Props : `accept` (image/video/both), `maxSizeMb`, `label`, `onImported(media)`, `endpoint`, `fileField`, `labelField`, `extraFields`, `normalizeResponse`.
+  - Preview local instantané via `URL.createObjectURL`.
+  - Upload multipart/form-data + toast success/error + spinner.
+  - Validation client (taille, type).
+- **Intégré dans 3 pages** :
+  - `/portal/media-generator` (MediaGenerator.jsx) — panneau au-dessus de History.
+  - `/portal/meta` (MetaIntegration.jsx) — dans PagesTab section Photo (avant l'input URL).
+  - `/admin/story-studio` (StoryStudio.jsx) — panneau au-dessus du formulaire de génération.
+- **2 endpoints backend** :
+  - `POST /api/me/media-library` (existant, réutilisé) — pour tenant users.
+  - `POST /api/admin/story-studio/library/upload` (nouveau, ~100 LOC) — super-admin, crée un doc `story_assets` avec `engine="import"`, mirror vers Emergent Object Storage.
+
+**Tests** : `test_iter43_fix24az_l_story_upload.py` (5 tests) + `test_iter80_me_media_library.py` (7 tests) — tous PASS.
+
+### 📊 Cumul tests régression Iter43-fix24az-l
+| Suite | Tests | Statut |
+|-------|-------|--------|
+| fix24az-f-production | 8 | ✅ |
+| fix24az-k-vidal-webhook | 6 | ✅ |
+| fix24az-l-wa-dedup | 3 | ✅ |
+| fix24az-l-story-upload | 5 | ✅ |
+| fix24az-l-validation | 18 | ✅ |
+| iter79-dup-copie3 | 1 | ✅ |
+| iter80-me-media-library | 7 | ✅ |
+| **TOTAL** | **48** | **100%** |
+
+### Actions utilisateur post-livraison
+1. Vérifier en PROD (`sawalismartsystems.com`) : le fix cross-tenant est **critique** — chaque client-admin doit voir SEULEMENT ses données.
+2. Tester l'import local depuis Story Studio (`/admin/story-studio` onglet Créer) : téléverser une image, elle apparaît dans la bibliothèque.
+3. En cas de CF 520 persistant, envisager en PROD : `uvicorn --workers 4 --timeout-keep-alive 65 --limit-concurrency 1000` (au lieu de `--workers 1 --reload`).
 
 
 ## Iter43-fix24az (2026-02-26) — 3 bugs P0 reportés en PROD ✅

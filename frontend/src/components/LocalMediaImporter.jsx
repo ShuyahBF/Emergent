@@ -102,9 +102,7 @@ export function LocalMediaImporter({
       Object.entries(extraFields || {}).forEach(([k, v]) => {
         if (v !== undefined && v !== null && v !== "") fd.append(k, String(v));
       });
-      const r = await apiClient.post(endpoint, fd, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
+      const r = await apiClient.post(endpoint, fd);
       const data = r.data || {};
       const media = typeof normalizeResponse === "function"
         ? normalizeResponse(data, file)

@@ -3312,3 +3312,21 @@ Aucun changement d'API — les endpoints existants `/api/production/recipes` (av
 - Screenshot Playwright : sur /privacy et /terms-of-service, `document.querySelector("[data-testid='app-icon-logo']").naturalWidth === 1024` et `complete === true` — l'image charge correctement.
 - Fabricant redirection : navigation vers /portal se termine à /portal/cash (Playwright confirme URL finale).
 
+
+---
+
+## 2026-02-26 — Iter43-fix24az-j+k : Welcome fabricant OFF + VIDAL Webhook Proxy
+
+### 1. Welcome modale désactivée pour Fabricant
+- `PortalLayout.jsx` : condition `if (user && !isFabricant && shouldShowWelcomeBriefing())`. Vérifié via Playwright : `document.querySelector("[data-testid='welcome-briefing']").count === 0` pour fab-analytics tenant.
+
+### 2. VIDAL Webhook Proxy (mode passerelle bidirectionnel)
+- Nouveau flux : lorsque activé, toutes les requêtes VIDAL (y compris depuis Liluvine) transitent par un webhook externe configurable.
+- **Sortant** : POST JSON `{correlation_id, method, url, params, body, headers, callback_url, ...}` vers `webhook_outbound_url`.
+- **Entrant** : le système externe POST son résultat sur `/api/vidal/webhook/callback` avec `{correlation_id, status_code, body|raw, error}`.
+- Attente synchrone bloquante avec timeout configurable (5-300 s, default 30). Fallback direct VIDAL quand webhook désactivé.
+- **Config admin** : nouveaux champs `webhook_enabled`, `webhook_outbound_url`, `webhook_timeout_seconds` dans `settings.global` + panneau UI dédié dans `S058VidalSection.jsx` + bouton « Tester le webhook » (aller-retour de vérif).
+- **Tests** : 6/6 pytest (config, persistence, 404 correlation inconnue, 422 champ manquant, aller-retour bout-en-bout avec serveur echo Python local, branche timeout). Aucune régression : 23 tests PASS.
+- **Sécurité** : reportée par choix utilisateur (feature-first). HMAC-SHA256 en S089-P2.
+- **Multi-instance** : la map in-memory `_correlations` est adaptée single-pod ; migration MongoDB en S089-P3.
+

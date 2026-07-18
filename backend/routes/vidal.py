@@ -25,9 +25,12 @@ The router is mounted by `server.py` via `attach_vidal_routes(api, db, …)`.
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
+import os
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
@@ -69,6 +72,28 @@ class VidalConfigPayload(BaseModel):
     cache_ttl_hours: Optional[int] = None
     quota_per_user_per_day: Optional[int] = None
     http_timeout: Optional[int] = None
+    # Iter43-fix24az-k (2026-02-26) — VIDAL webhook proxy config.
+    # When webhook_enabled=True, every VIDAL call is routed through
+    # `webhook_outbound_url` (POST JSON) and the backend waits synchronously
+    # for the external system to callback `/api/vidal/webhook/callback` with
+    # the JSON response. Fallback to direct VIDAL when disabled.
+    webhook_enabled: Optional[bool] = None
+    webhook_outbound_url: Optional[str] = None
+    webhook_timeout_seconds: Optional[int] = None
+
+
+class VidalWebhookCallbackPayload(BaseModel):
+    """Payload received on the inbound callback endpoint.
+    The external system MUST include the `correlation_id` returned in the
+    original outbound POST, plus the VIDAL response body + metadata.
+    """
+    correlation_id: str
+    status_code: Optional[int] = 200
+    content_type: Optional[str] = "application/json"
+    # Either `body` (parsed JSON dict/list) OR `raw` (raw string) — one of the two.
+    body: Optional[Any] = None
+    raw: Optional[str] = None
+    error: Optional[str] = None
 
 
 class PrescriptionAnalysisPayload(BaseModel):
@@ -209,6 +234,10 @@ async def _load_config(db, tenant_mode_override: Optional[str] = None) -> Dict[s
         "cache_ttl_hours": int(s.get("vidal_cache_ttl_hours") or DEFAULT_CACHE_TTL_HOURS),
         "quota_per_day": int(s.get("vidal_quota_per_user_per_day") or DEFAULT_QUOTA_PER_DAY),
         "http_timeout": int(s.get("vidal_http_timeout") or DEFAULT_HTTP_TIMEOUT),
+        # Iter43-fix24az-k — webhook proxy config
+        "webhook_enabled": bool(s.get("vidal_webhook_enabled")),
+        "webhook_outbound_url": (s.get("vidal_webhook_outbound_url") or "").strip(),
+        "webhook_timeout_seconds": int(s.get("vidal_webhook_timeout_seconds") or 30),
     }
 
 
@@ -331,6 +360,237 @@ async def _quota_check_and_increment(db, user_id: str, cfg: Dict[str, Any]) -> D
     return {"used": used, "limit": limit, "blocked": False}
 
 
+# ────────────────────────────────────────────────────────────────────────────
+# Iter43-fix24az-k (2026-02-26) — VIDAL Webhook proxy
+#
+# When cfg.webhook_enabled is True, every VIDAL call is routed through an
+# external system (e.g. n8n / Zapier / custom bridge) instead of hitting VIDAL
+# directly. The flow is :
+#
+#   1. Backend generates a correlation_id.
+#   2. Backend POSTs a JSON envelope to `cfg.webhook_outbound_url` describing
+#      the request that would have been sent to VIDAL (method, url, params,
+#      body, headers, callback_url).
+#   3. Backend blocks (asyncio.Event, up to `webhook_timeout_seconds`).
+#   4. External system executes the actual VIDAL request and POSTs the JSON
+#      response to `/api/vidal/webhook/callback` with the same correlation_id.
+#   5. Backend unblocks and returns the response to the caller as if VIDAL had
+#      answered directly.
+#
+# In-memory correlation map — good enough for a single-instance deployment.
+# For multi-instance / horizontally-scaled backends, this should move to
+# MongoDB + polling (future work, S089-P3).
+# ────────────────────────────────────────────────────────────────────────────
+
+_correlation_lock = asyncio.Lock()
+_correlations: Dict[str, Dict[str, Any]] = {}
+
+
+def _dispatch_callback_url() -> str:
+    """Compute the absolute URL of the inbound webhook callback endpoint.
+
+    Priority order:
+      1. `PUBLIC_APP_URL` env var (custom prod domain if set separately)
+      2. `PUBLIC_BASE_URL` env var — canonical name already used elsewhere in
+         SAWALI backend (preview + prod).
+      3. `SAWALI_PUBLIC_BASE_URL` (legacy alias)
+      4. Hardcoded `https://sawalismartsystems.com` (safe production fallback).
+    """
+    base = (
+        os.environ.get("PUBLIC_APP_URL")
+        or os.environ.get("PUBLIC_BASE_URL")
+        or os.environ.get("SAWALI_PUBLIC_BASE_URL")
+        or "https://sawalismartsystems.com"
+    ).rstrip("/")
+    return f"{base}/api/vidal/webhook/callback"
+
+
+async def _dispatch_via_webhook(
+    cfg: Dict[str, Any],
+    method: str,
+    path: str,
+    params: Optional[Dict[str, Any]],
+    body: Optional[Any],
+    return_debug: bool = False,
+    tenant_id: Optional[str] = None,
+    user_email: Optional[str] = None,
+) -> Dict[str, Any]:
+    """Route a single VIDAL request through the configured external webhook.
+
+    Blocks until the callback arrives or the timeout elapses. Returns the
+    same shape as `_vidal_call` so the caller code doesn't have to know
+    which transport was used.
+    """
+    outbound = (cfg.get("webhook_outbound_url") or "").strip()
+    if not outbound:
+        # Config missing — fail loudly so the admin fixes it.
+        return {
+            "raw": "[VIDAL webhook activé mais webhook_outbound_url manquant]",
+            "_error": {
+                "status": 0, "content_type": "text/plain",
+                "message": "Configuration webhook VIDAL incomplète (URL sortante manquante).",
+                "url": "(webhook)",
+            },
+            "_request": {"method": method.upper(), "url": path, "params": params or {}, "body": body},
+        }
+
+    correlation_id = str(uuid.uuid4())
+    # Note: we deliberately do NOT append app_id/app_key here — the external
+    # system is expected to know how to reach VIDAL. The URL we send is just
+    # the endpoint path + base for reference.
+    full_url = f"{cfg.get('base_url', '')}{path}"
+    envelope = {
+        "correlation_id": correlation_id,
+        "tenant_id": tenant_id,
+        "user_email": user_email,
+        "method": method.upper(),
+        "url": full_url,
+        "path": path,
+        "params": params or {},
+        "body": body,
+        "headers": {
+            "Accept": "application/atom+xml, application/xml, application/json;q=0.5",
+        },
+        "callback_url": _dispatch_callback_url(),
+        "timestamp": _now().isoformat(),
+        "vidal_mode": cfg.get("mode"),
+    }
+
+    debug: Dict[str, Any] = {
+        "request": {
+            "method": method.upper(),
+            "url": outbound,
+            "params": {},
+            "body": envelope,
+            "timeout_seconds": cfg.get("webhook_timeout_seconds") or 30,
+            "mode": cfg.get("mode"),
+            "transport": "webhook",
+        },
+        "response": None,
+        "error": None,
+    }
+
+    # Register the correlation entry before the outbound POST (avoid a race
+    # where the external system responds faster than we register).
+    ev = asyncio.Event()
+    async with _correlation_lock:
+        _correlations[correlation_id] = {"event": ev, "response": None, "created_at": _now()}
+
+    try:
+        # Fire the outbound POST.
+        async with httpx.AsyncClient(timeout=int(cfg.get("webhook_timeout_seconds") or 30)) as client:
+            resp = await client.post(outbound, json=envelope, headers={"Content-Type": "application/json"})
+        outbound_status = resp.status_code
+        outbound_snippet = (resp.text or "")[:400]
+        if outbound_status >= 400:
+            async with _correlation_lock:
+                _correlations.pop(correlation_id, None)
+            debug["error"] = f"Outbound webhook returned HTTP {outbound_status}: {outbound_snippet}"
+            if return_debug:
+                return {"_error": True, "_debug": debug}
+            return {
+                "raw": f"[Webhook VIDAL erreur {outbound_status}]\n\n{outbound_snippet}",
+                "_error": {
+                    "status": outbound_status,
+                    "content_type": "text/plain",
+                    "message": f"Webhook sortant a échoué : HTTP {outbound_status}",
+                    "url": outbound,
+                },
+                "_request": envelope,
+            }
+    except httpx.HTTPError as exc:
+        async with _correlation_lock:
+            _correlations.pop(correlation_id, None)
+        debug["error"] = f"Outbound webhook HTTPError: {str(exc)[:300]}"
+        if return_debug:
+            return {"_error": True, "_debug": debug}
+        return {
+            "raw": f"[Webhook VIDAL injoignable]\n\n{exc!s}",
+            "_error": {"status": 0, "content_type": "text/plain",
+                       "message": f"Webhook sortant injoignable : {str(exc)[:300]}",
+                       "url": outbound},
+            "_request": envelope,
+        }
+
+    # Wait for the callback with a timeout.
+    timeout_s = int(cfg.get("webhook_timeout_seconds") or 30)
+    try:
+        await asyncio.wait_for(ev.wait(), timeout=timeout_s)
+    except asyncio.TimeoutError:
+        async with _correlation_lock:
+            _correlations.pop(correlation_id, None)
+        debug["error"] = f"Callback timeout after {timeout_s}s"
+        if return_debug:
+            return {"_error": True, "_debug": debug}
+        return {
+            "raw": f"[Webhook VIDAL — timeout après {timeout_s}s]",
+            "_error": {"status": 504, "content_type": "text/plain",
+                       "message": f"Aucune callback reçue après {timeout_s}s (correlation_id={correlation_id}).",
+                       "url": outbound},
+            "_request": envelope,
+        }
+
+    # Callback arrived — grab & cleanup.
+    async with _correlation_lock:
+        entry = _correlations.pop(correlation_id, None)
+    payload = (entry or {}).get("response") or {}
+
+    resp_body = payload.get("body")
+    raw_str = payload.get("raw")
+    ctype = payload.get("content_type") or "application/json"
+    status_code = int(payload.get("status_code") or 200)
+    error_msg = payload.get("error")
+
+    debug["response"] = {
+        "status_code": status_code,
+        "content_type": ctype,
+        "elapsed_ms": None,  # not tracked here
+        "body_preview": (raw_str or json.dumps(resp_body)[:400] if resp_body is not None else "")[:400],
+    }
+
+    if error_msg or status_code >= 400:
+        if return_debug:
+            return {"_error": True, "_debug": debug}
+        return {
+            "raw": raw_str or (error_msg or f"[VIDAL webhook error {status_code}]"),
+            "_request": envelope,
+            "_error": {"status": status_code, "content_type": ctype,
+                       "message": error_msg or f"HTTP {status_code}",
+                       "url": full_url},
+        }
+
+    # Success — return the response body. Try to preserve `_data` field so
+    # downstream code (which sometimes reads it) still works.
+    result: Dict[str, Any] = {}
+    if resp_body is not None:
+        if isinstance(resp_body, dict):
+            result = dict(resp_body)
+        else:
+            result = {"_data": resp_body}
+    if raw_str is not None:
+        result["raw"] = raw_str
+    if return_debug:
+        result["_debug"] = debug
+    return result
+
+
+async def _webhook_deliver(correlation_id: str, payload: Dict[str, Any]) -> bool:
+    """Store the callback response for `correlation_id` and unblock the waiter.
+
+    Returns True if the correlation was found + delivered ; False if unknown
+    (e.g. timeout already expired).
+    """
+    async with _correlation_lock:
+        entry = _correlations.get(correlation_id)
+        if not entry:
+            return False
+        entry["response"] = payload
+        ev = entry["event"]
+    ev.set()
+    return True
+
+
+
 async def _vidal_call(
     cfg: Dict[str, Any],
     method: str,
@@ -348,6 +608,13 @@ async def _vidal_call(
     exact URL, headers, body and response trace — useful for the admin
     diagnostic UI (`/admin/vidal/test-connection`).
     """
+    # Iter43-fix24az-k (2026-02-26) — Route through the configured external
+    # webhook when enabled. Fallback = direct VIDAL call (block below).
+    if cfg.get("webhook_enabled") and (cfg.get("webhook_outbound_url") or "").strip():
+        return await _dispatch_via_webhook(
+            cfg, method, path, params, body,
+            return_debug=return_debug,
+        )
     qp = dict(params or {})
     qp.setdefault("app_id", cfg["app_id"])
     qp.setdefault("app_key", cfg["app_key"])
@@ -514,6 +781,11 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             "cache_ttl_hours": int(s.get("vidal_cache_ttl_hours") or DEFAULT_CACHE_TTL_HOURS),
             "quota_per_user_per_day": int(s.get("vidal_quota_per_user_per_day") or DEFAULT_QUOTA_PER_DAY),
             "http_timeout": int(s.get("vidal_http_timeout") or DEFAULT_HTTP_TIMEOUT),
+            # Iter43-fix24az-k — webhook proxy config
+            "webhook_enabled": bool(s.get("vidal_webhook_enabled")),
+            "webhook_outbound_url": (s.get("vidal_webhook_outbound_url") or "").strip(),
+            "webhook_timeout_seconds": int(s.get("vidal_webhook_timeout_seconds") or 30),
+            "webhook_callback_url": _dispatch_callback_url(),
         }
 
     @api.put("/admin/vidal/config", tags=["Admin — VIDAL"])
@@ -549,6 +821,13 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             update["vidal_quota_per_user_per_day"] = max(int(payload.quota_per_user_per_day), 0)
         if payload.http_timeout is not None:
             update["vidal_http_timeout"] = max(min(int(payload.http_timeout), 60), 2)
+        # Iter43-fix24az-k — webhook proxy config
+        if payload.webhook_enabled is not None:
+            update["vidal_webhook_enabled"] = bool(payload.webhook_enabled)
+        if payload.webhook_outbound_url is not None:
+            update["vidal_webhook_outbound_url"] = (payload.webhook_outbound_url or "").strip()
+        if payload.webhook_timeout_seconds is not None:
+            update["vidal_webhook_timeout_seconds"] = max(min(int(payload.webhook_timeout_seconds), 300), 5)
         if not update:
             raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
         update["vidal_config_updated_at"] = _now().isoformat()
@@ -595,6 +874,59 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
             "sample_size": len(str(result.get("_data"))[:200]),
             "debug": result.get("_debug"),
         }
+
+    # ─────────────────────────────────────────────────────────────────
+    # Iter43-fix24az-k — VIDAL webhook inbound callback
+    # Called by the external system (n8n/Zapier/etc.) with the JSON
+    # response for a given correlation_id. No auth for now — feature-first
+    # per user's spec (S089). HMAC signing to be added in a follow-up.
+    # ─────────────────────────────────────────────────────────────────
+    @api.post("/vidal/webhook/callback", tags=["VIDAL"])
+    async def vidal_webhook_callback(payload: VidalWebhookCallbackPayload = Body(...)):
+        cid = (payload.correlation_id or "").strip()
+        if not cid:
+            raise HTTPException(status_code=400, detail="correlation_id manquant")
+        delivered = await _webhook_deliver(cid, {
+            "status_code": payload.status_code,
+            "content_type": payload.content_type,
+            "body": payload.body,
+            "raw": payload.raw,
+            "error": payload.error,
+        })
+        if not delivered:
+            # Correlation_id inconnu — soit expiré, soit inventé.
+            raise HTTPException(status_code=404, detail=f"Correlation ID inconnu ou expiré : {cid}")
+        return {"ok": True, "correlation_id": cid}
+
+    # Admin — test webhook trigger (bypass VIDAL, just fire an outbound POST)
+    @api.post("/admin/vidal/webhook/test", tags=["Admin — VIDAL"])
+    async def admin_test_webhook(user: dict = Depends(get_current_admin)):
+        cfg = await _load_config(db)
+        if not cfg.get("webhook_enabled"):
+            return {"ok": False, "error": "Webhook VIDAL désactivé — activez-le d'abord."}
+        if not (cfg.get("webhook_outbound_url") or "").strip():
+            return {"ok": False, "error": "webhook_outbound_url manquant."}
+        result = await _dispatch_via_webhook(
+            cfg, "GET", "/products",
+            params={"q": "doliprane", "_test": "true"},
+            body=None,
+            return_debug=True,
+            tenant_id=None,
+            user_email=user.get("email"),
+        )
+        if result.get("_error"):
+            debug = result.get("_debug") or {}
+            return {
+                "ok": False,
+                "error": (debug.get("error") or "Erreur inconnue"),
+                "debug": debug,
+            }
+        return {
+            "ok": True,
+            "sample": (result.get("raw") or json.dumps(result)[:400]),
+            "debug": result.get("_debug"),
+        }
+
 
     # ---- Public-ish quota status (any authenticated user) ----
     @api.get("/vidal/quota/me", tags=["VIDAL"])

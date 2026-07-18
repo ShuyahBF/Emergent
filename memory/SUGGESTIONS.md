@@ -796,6 +796,42 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S089 — VIDAL Webhook Proxy (mode passerelle bidirectionnel)
+- **Demande utilisateur** : 2026-02-26 — « Toutes les requêtes VIDAL (même celles reçues de Liluvine) exécutent un webhook paramétrable en POST et retournent un JSON résultat. La requête POST envoie à une URL externe (sortant) un JSON dont le body contient l'URL exécutée par la requête (POST/GET) et reçoit sur un webhook dédié (entrant) la réponse JSON de ce Webhook externe. »
+- **Choix utilisateur** :
+  - 1.a (synchrone bloquant, timeout configurable)
+  - 2.c (pas de signature HMAC pour le moment)
+  - 3.c (pas de sécurité entrante pour le moment)
+  - 4.a (fallback direct VIDAL quand webhook désactivé)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24az-k
+- **Détail** :
+  - **Backend** `/app/backend/routes/vidal.py` :
+    - Ajout de 3 champs dans `settings.global` : `vidal_webhook_enabled`, `vidal_webhook_outbound_url`, `vidal_webhook_timeout_seconds` (default 30, plage 5-300 s).
+    - `_load_config()` retourne les 3 champs + `_dispatch_callback_url()` retourne l'URL absolue de callback dynamiquement (priorité : `PUBLIC_APP_URL` > `PUBLIC_BASE_URL` > `SAWALI_PUBLIC_BASE_URL` > fallback `https://sawalismartsystems.com`).
+    - `_dispatch_via_webhook(cfg, method, path, params, body, ...)` :
+      1. Génère un `correlation_id` (UUID)
+      2. Enregistre une entrée `asyncio.Event` dans le map `_correlations` (in-memory)
+      3. POST une enveloppe JSON à `webhook_outbound_url` : `{correlation_id, tenant_id, user_email, method, url, path, params, body, headers, callback_url, timestamp, vidal_mode}`
+      4. `await asyncio.wait_for(ev.wait(), timeout)` — bloque jusqu'à callback ou timeout
+      5. Retourne la réponse (`{_data|raw|_error}`) mise dans le map par le callback endpoint
+    - `_vidal_call()` route vers `_dispatch_via_webhook` quand `cfg.webhook_enabled=True`, sinon fallback direct comportement existant.
+    - Nouveau endpoint `POST /api/vidal/webhook/callback` : body `{correlation_id, status_code, content_type, body|raw, error}` ; look-up + `event.set()` ; renvoie 404 si correlation inconnue, 422 si champ manquant.
+    - Nouveau endpoint `POST /admin/vidal/webhook/test` : déclenche un aller-retour de test (GET /products?q=doliprane via webhook) pour valider la config.
+    - `_correlations` in-memory + `_correlation_lock` asyncio (adapté single-instance ; multi-instance = future work).
+  - **Frontend** `S058VidalSection.jsx` :
+    - Nouveau panneau « Proxy Webhook (mode passerelle) » avec checkbox Activer, URL sortante, Timeout callback, et URL de callback (readonly + bouton copier).
+    - Bouton « Tester le webhook » (dégrisé quand webhook activé) — affiche le résultat inline (succès/erreur).
+    - Icônes Webhook + Info depuis lucide-react.
+    - data-testids : `vidal-webhook-panel`, `vidal-webhook-enabled`, `vidal-webhook-outbound-url`, `vidal-webhook-timeout`, `vidal-webhook-callback-url`, `vidal-test-webhook-btn`, `vidal-webhook-test-result`.
+- **Tests** :
+  - Pytest backend 6/6 PASS (`test_iter43_fix24az_k_vidal_webhook.py`) : config exposée, persistence, callback rejette correlation inconnue (404) ou champ manquant (422), aller-retour bout-en-bout avec serveur echo Python local, timeout après webhook_timeout_seconds sans callback.
+  - Aucune régression : 23 tests VIDAL + Production PASS.
+- **Note pour l'utilisateur** :
+  - L'URL de callback affichée est absolue et se met à jour automatiquement selon l'environnement (preview vs prod).
+  - Sécurité entrante à ajouter : HMAC-SHA256 sur `X-SAWALI-Signature` en itération suivante (S089-P2).
+  - Multi-instance : la map `_correlations` étant in-memory, si le backend a plusieurs pods et que la callback tombe sur un pod différent de celui qui a émis, la callback ne trouvera pas la corrélation. Solution future : persistance MongoDB + polling au lieu d'asyncio.Event (S089-P3).
+
 ## S088 — Fabricant landing + logo local (fix CDN 403) + og:image
 - **Demande utilisateur** : 2026-02-26 — Trois observations après tentative de déploiement TikTok :
   1. Le fabricant n'a pas de dashboard, il faut donc atterrir directement sur `/portal/cash` au lieu de `/portal`.

@@ -6,7 +6,7 @@ import React, { useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
-  Loader2, Save, Stethoscope, Eye, EyeOff, RefreshCw, Trash2, Plug
+  Loader2, Save, Stethoscope, Eye, EyeOff, RefreshCw, Trash2, Plug, Webhook, Copy, Info
 } from "lucide-react";
 import VidalUsageDashboard from "@/pages/admin/sections/VidalUsageDashboard";
 
@@ -127,6 +127,35 @@ export default function S058VidalSection() {
       toast.error(e?.response?.data?.detail || "Erreur");
     }
     setTimeout(() => setPurging(false), 0);
+  };
+
+  // Iter43-fix24az-k — VIDAL Webhook proxy tester
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookResult, setWebhookResult] = useState(null);
+  const testWebhook = async () => {
+    setTestingWebhook(true);
+    setWebhookResult(null);
+    try {
+      const r = await apiClient.post("/admin/vidal/webhook/test");
+      setWebhookResult(r.data);
+      if (r.data?.ok) toast.success("Webhook VIDAL testé avec succès (aller-retour OK)");
+      else toast.error(`Échec webhook : ${r.data?.error || "inconnu"}`);
+    } catch (e) {
+      const detail = e?.response?.data?.detail || "Erreur réseau";
+      setWebhookResult({ ok: false, error: detail });
+      toast.error(detail);
+    }
+    setTimeout(() => setTestingWebhook(false), 0);
+  };
+  const copyCallbackUrl = () => {
+    const u = form.webhook_callback_url || "";
+    if (!u) return;
+    try {
+      navigator.clipboard.writeText(u);
+      toast.success("URL callback copiée dans le presse-papier");
+    } catch (_e) {
+      toast.error("Copie impossible");
+    }
   };
 
   if (loading) return (
@@ -261,6 +290,81 @@ export default function S058VidalSection() {
         />
       </div>
 
+      {/* Iter43-fix24az-k — Webhook proxy config */}
+      <div className="ring-1 ring-fuchsia-200 rounded-lg p-3 bg-fuchsia-50/50" data-testid="vidal-webhook-panel">
+        <div className="flex items-center gap-2 mb-2">
+          <Webhook className="h-4 w-4 text-fuchsia-600" />
+          <h4 className="text-sm font-semibold text-fuchsia-900">Proxy Webhook (mode passerelle)</h4>
+          <label className="ml-auto inline-flex items-center gap-1 text-xs text-slate-700 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.webhook_enabled}
+              onChange={(e) => upd("webhook_enabled", e.target.checked)}
+              data-testid="vidal-webhook-enabled"
+            />
+            <span>Activer</span>
+          </label>
+        </div>
+        <p className="text-[11px] text-slate-600 mb-3 flex items-start gap-1">
+          <Info className="h-3 w-3 mt-0.5 shrink-0 text-fuchsia-600" />
+          <span>
+            Quand activé, chaque requête VIDAL (y compris Liluvine) est envoyée en POST à
+            l&apos;URL sortante ci-dessous au lieu d&apos;appeler VIDAL directement. Le système externe
+            (n8n, Zapier, script custom…) traite la requête puis retourne le résultat en POST sur
+            l&apos;URL de callback affichée à droite.
+          </span>
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field
+            label="URL sortante (POST)"
+            value={form.webhook_outbound_url}
+            onChange={(v) => upd("webhook_outbound_url", v)}
+            placeholder="https://n8n.example.com/webhook/vidal"
+            hint="Reçoit le JSON de requête ; doit répondre 200 pour indiquer prise en compte."
+            testid="vidal-webhook-outbound-url"
+          />
+          <Field
+            label="Timeout callback (secondes)"
+            type="number"
+            value={form.webhook_timeout_seconds}
+            onChange={(v) => upd("webhook_timeout_seconds", v)}
+            placeholder="30"
+            hint="5 à 300. Passé ce délai sans callback, la requête retourne une erreur."
+            testid="vidal-webhook-timeout"
+          />
+        </div>
+        <div className="mt-3">
+          <label className="block text-xs">
+            <span className="block text-slate-600 mb-1">URL de callback (à configurer côté système externe)</span>
+            <div className="flex items-stretch gap-1">
+              <input
+                type="text" readOnly
+                value={form.webhook_callback_url || ""}
+                className="flex-1 text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono bg-white text-slate-700"
+                data-testid="vidal-webhook-callback-url"
+              />
+              <button type="button" onClick={copyCallbackUrl} className="px-2 ring-1 ring-slate-300 rounded text-slate-600 hover:bg-slate-50" title="Copier">
+                <Copy className="h-3 w-3" />
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-1">
+              Votre système externe POST son résultat sur cette URL, avec un JSON
+              <code className="mx-1 px-1 rounded bg-white ring-1 ring-slate-200">{'{"correlation_id":"…","status_code":200,"body":{…}}'}</code>.
+            </p>
+          </label>
+        </div>
+        {webhookResult && (
+          <div
+            className={`mt-3 text-xs rounded p-2 ring-1 ${webhookResult.ok ? "bg-emerald-50 ring-emerald-300 text-emerald-800" : "bg-rose-50 ring-rose-300 text-rose-800"}`}
+            data-testid="vidal-webhook-test-result"
+          >
+            {webhookResult.ok
+              ? <>✅ Aller-retour webhook OK. Extrait : <code className="ml-1">{(webhookResult.sample || "").slice(0, 200)}</code></>
+              : <>❌ {webhookResult.error || "Erreur webhook"}</>}
+          </div>
+        )}
+      </div>
+
       {/* Actions */}
       <div className="flex flex-wrap items-center gap-2 pt-2">
         <button
@@ -278,6 +382,15 @@ export default function S058VidalSection() {
           data-testid="vidal-test-connection-btn"
         >
           {testing ? <Loader2 className="h-3 w-3 animate-spin" /> : <Plug className="h-3 w-3" />} Tester la connexion
+        </button>
+        <button
+          onClick={testWebhook}
+          disabled={testingWebhook || !form.webhook_enabled}
+          title={!form.webhook_enabled ? "Activez d'abord le webhook + saisissez son URL sortante" : "Envoyer un aller-retour de test"}
+          className="text-xs px-3 py-1.5 rounded ring-1 ring-fuchsia-300 text-fuchsia-700 hover:bg-fuchsia-50 inline-flex items-center gap-1 disabled:opacity-60"
+          data-testid="vidal-test-webhook-btn"
+        >
+          {testingWebhook ? <Loader2 className="h-3 w-3 animate-spin" /> : <Webhook className="h-3 w-3" />} Tester le webhook
         </button>
         <button
           onClick={purgeCache}

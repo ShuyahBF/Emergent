@@ -7766,9 +7766,18 @@ async def admin_unset_primary_client(client_id: str, _: dict = Depends(get_curre
 # ADMIN - Appointments
 # ====================================================================
 @api.get("/admin/appointments", tags=["Admin"])
-async def admin_appointments(_: dict = Depends(get_current_admin)):
-    items = await db.appointments.find({}, {"_id": 0}).to_list(5000)
-    return sorted(items, key=lambda x: x["scheduled_at"], reverse=True)
+async def admin_appointments(user: dict = Depends(get_current_admin)):
+    """Iter43-fix24az-l retest — Cross-tenant leak fix. Only SAWALI super-admin
+    sees ALL appointments across tenants ; client-admin/superviseur roles are
+    scoped to their own tenant via `_resolve_visible_client_ids`.
+    """
+    if _is_super_admin(user):
+        query: Dict[str, Any] = {}
+    else:
+        scope = await _resolve_visible_client_ids(user)
+        query = {"client_id": {"$in": scope}}
+    items = await db.appointments.find(query, {"_id": 0}).to_list(5000)
+    return sorted(items, key=lambda x: x.get("scheduled_at") or "", reverse=True)
 
 
 @api.put("/admin/appointments/{appt_id}", tags=["Admin"])
@@ -7814,8 +7823,16 @@ async def admin_delete_appt(appt_id: str, _: dict = Depends(get_current_admin)):
 # ADMIN - Interventions
 # ====================================================================
 @api.get("/admin/interventions", tags=["Admin"])
-async def admin_interventions(_: dict = Depends(get_current_admin)):
-    items = await db.interventions.find({}, {"_id": 0}).to_list(5000)
+async def admin_interventions(user: dict = Depends(get_current_admin)):
+    """Iter43-fix24az-l retest — Cross-tenant leak fix. Only SAWALI super-admin
+    sees ALL interventions ; client-admin/superviseur scoped to their tenant.
+    """
+    if _is_super_admin(user):
+        query: Dict[str, Any] = {}
+    else:
+        scope = await _resolve_visible_client_ids(user)
+        query = {"client_id": {"$in": scope}}
+    items = await db.interventions.find(query, {"_id": 0}).to_list(5000)
     return sorted(items, key=lambda x: x.get("intervention_date", ""), reverse=True)
 
 
@@ -7909,8 +7926,24 @@ async def admin_delete_intervention(int_id: str, _: dict = Depends(get_current_a
 # ADMIN - Documents (catalog, software docs, announcements)
 # ====================================================================
 @api.get("/admin/documents", tags=["Admin"])
-async def admin_documents(_: dict = Depends(get_current_admin)):
-    items = await db.documents.find({}, {"_id": 0}).to_list(5000)
+async def admin_documents(user: dict = Depends(get_current_admin)):
+    """Iter43-fix24az-l retest — Cross-tenant leak fix. Super-admin sees ALL
+    documents (including per-tenant private ones) ; client-admin sees only the
+    documents owned by their tenant PLUS public/shared documents
+    (client_id is None or empty, or is_public=True).
+    """
+    if _is_super_admin(user):
+        query: Dict[str, Any] = {}
+    else:
+        scope = await _resolve_visible_client_ids(user)
+        query = {
+            "$or": [
+                {"client_id": {"$in": scope}},
+                {"client_id": {"$in": [None, ""]}},
+                {"is_public": True},
+            ]
+        }
+    items = await db.documents.find(query, {"_id": 0}).to_list(5000)
     return items
 
 
@@ -16862,6 +16895,22 @@ async def whatsapp_webhook_incoming(request: Request):
             for msg in val.get("messages") or []:
                 extracted_messages += 1
                 try:
+                    # Iter43-fix24az-l (2026-02-26) — WhatsApp message deduplication.
+                    # Meta occasionally retries the same webhook payload (network glitches
+                    # or missing 200 ACK). Without a guard, this creates duplicate
+                    # rows in `db.whatsapp_messages` and re-triggers Liluvine's AI
+                    # auto-reply → the user sees the same message twice + Liluvine
+                    # replies twice. We short-circuit here : if we've already
+                    # persisted this `wa_message_id`, skip the entire pipeline.
+                    wa_msg_id = msg.get("id")
+                    if wa_msg_id:
+                        existing_dup = await db.whatsapp_messages.find_one(
+                            {"wa_message_id": wa_msg_id, "direction": "inbound"},
+                            {"_id": 1},
+                        )
+                        if existing_dup:
+                            errors.append(f"dedup_skip:{wa_msg_id}")
+                            continue
                     from_num = msg.get("from") or ""
                     digits_only = "".join(ch for ch in from_num if ch.isdigit())
                     profile_name = profile_by_wa.get(from_num) or profile_by_wa.get(digits_only)
@@ -20832,6 +20881,11 @@ async def on_startup():
     await db.whatsapp_messages.create_index([("timestamp", -1)])
     await db.whatsapp_messages.create_index("from")
     await db.whatsapp_messages.create_index("to")
+    # Iter43-fix24az-l retest — Speed up wa_message_id dedup lookup on inbound webhook.
+    # Sparse=True because outbound rows only get a wa_message_id after Meta ack.
+    await db.whatsapp_messages.create_index(
+        [("wa_message_id", 1)], sparse=True, name="wa_message_id_sparse"
+    )
     await db.sms_messages.create_index([("created_at", -1)])
     await db.sms_messages.create_index("from")
     await db.sms_messages.create_index("to")

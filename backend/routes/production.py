@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import io
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -376,7 +377,7 @@ def attach_production_routes(*, api, db, get_current_user):
         # Iter43-fix24az-l — Uniqueness constraint (Task 4) : (name + dosage_number + dosage_unit)
         _dup_q: Dict[str, Any] = {
             "client_id": tenant,
-            "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
+            "name": {"$regex": f"^{re.escape(payload.name.strip())}$", "$options": "i"},
             "dosage_number": dosage_number,
             "dosage_unit": dosage_unit,
         }
@@ -427,7 +428,7 @@ def attach_production_routes(*, api, db, get_current_user):
         # Iter43-fix24az-l — Uniqueness on (name + dosage_number + dosage_unit)
         _dup_q: Dict[str, Any] = {
             "client_id": tenant,
-            "name": {"$regex": f"^{payload.name.strip()}$", "$options": "i"},
+            "name": {"$regex": f"^{re.escape(payload.name.strip())}$", "$options": "i"},
             "dosage_number": dosage_number,
             "dosage_unit": dosage_unit,
             "id": {"$ne": rid},
@@ -491,7 +492,7 @@ def attach_production_routes(*, api, db, get_current_user):
         idx = 2
         while await db.production_recipes.find_one({
             "client_id": tenant,
-            "name": {"$regex": f"^{candidate}$", "$options": "i"},
+            "name": {"$regex": f"^{re.escape(candidate)}$", "$options": "i"},
             "dosage_number": None,
             "dosage_unit": src.get("dosage_unit") or "ml",
         }, {"_id": 0, "id": 1}):

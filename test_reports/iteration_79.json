@@ -1,0 +1,27 @@
+{
+  "summary": "Iter79 retest of iter78 P0/P1 blockers + new WhatsApp dedup feature. ALL 36 backend tests PASS (35 from requested suites + 1 supplemental copie 3 regression). P0 cross-tenant leak on /admin/appointments is FIXED (tenant A no longer sees LEAK-TEST for SAWALI SMART SYSTEMS-Client, tenant B no longer sees LEAK-TEST for ISISPHARMA, super-admin sees both). Same pattern verified on /admin/interventions and /admin/documents. P1 recipe duplication suffix incrementation FIXED (re.escape applied) — three successive POST /production/recipes/{rid}/duplicate correctly return (copie), (copie 2), (copie 3). NEW WhatsApp inbound dedup: same wa_message_id posted twice persists ONLY 1 row, different ids from same phone persist 2 rows, sparse index wa_message_id_sparse present on db.whatsapp_messages. Regression suites test_iter43_fix24az_f_production.py (8) + test_iter43_fix24az_k_vidal_webhook.py (6) still green.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24az_l_validation.py",
+    "/app/backend/tests/test_iter43_fix24az_l_wa_dedup.py",
+    "/app/backend/tests/test_iter43_fix24az_f_production.py",
+    "/app/backend/tests/test_iter43_fix24az_k_vidal_webhook.py",
+    "/app/backend/tests/test_iter79_dup_copie3.py",
+    "/app/test_reports/pytest/iter79.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Both P0/P1 fixes match the exact recommendations from iter78 RCA (server.py admin_* endpoints now go through _is_super_admin/_resolve_visible_client_ids scoping ; routes/production.py uses re.escape() on the candidate before the regex uniqueness pre-check). No further code changes required.",
+    "The new WhatsApp dedup uses a sparse unique-lookup approach (index wa_message_id_sparse) which is correct — avoids penalizing legacy rows without wa_message_id.",
+    "Suggestion for a future iteration: consider adding a static-analysis grep guard in CI to flag any new admin_* endpoint that does db.<coll>.find({}) without a scope helper — the leak pattern is easy to reintroduce."
+  ],
+  "updated_files": ["/app/backend/tests/test_iter79_dup_copie3.py"],
+  "success_rate": {"backend": "100% (36/36)", "frontend": "n/a (skipped per request)"},
+  "test_credentials": "isis-admin@test-tenant-a.com/Isis@2026 ; sawali-admin@test-tenant-b.com/Sawali@2026 ; admin@sawalismartsystems.com/Admin@Sawali2026 ; fab-analytics@sawali-test.com/Analytics@2026 (dev_otp inline)",
+  "seed_data_creation": "None persistent — all test copies of recipes and TEST_ intrants deleted in teardown ; WhatsApp fixture rows deleted after each test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter78 blockers fully closed. Full 36-test suite green : pytest backend/tests/test_iter43_fix24az_l_validation.py backend/tests/test_iter43_fix24az_l_wa_dedup.py backend/tests/test_iter43_fix24az_f_production.py backend/tests/test_iter43_fix24az_k_vidal_webhook.py backend/tests/test_iter79_dup_copie3.py -v. If cleanup ever fails, prune with db.production_recipes.delete_many({name: /^Gel Hydro Douceur \\(copie/}) and db.whatsapp_messages.delete_many({wa_message_id: /^wamid\\.DEDUP_/}).",
+  "rca of the issue": "Both iter78 blockers now RESOLVED and validated. P0 fix : admin_appointments (server.py:7768-7781), admin_interventions (7822-7830), admin_documents (7920-7942) all now branch on _is_super_admin() and, for non-super-admins, filter by _resolve_visible_client_ids() — matching the pattern used in /me/notes/*. P1 fix : routes/production.py lines 379/431/494 now wrap candidate names with re.escape() before injecting into the $regex uniqueness pre-check, so parentheses in '(copie)' are no longer interpreted as regex groups and the suffix counter increments correctly."
+}

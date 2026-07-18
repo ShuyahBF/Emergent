@@ -24187,6 +24187,18 @@ _attach_story_studio(
     get_admin_or_supervisor=get_admin_or_supervisor,
 )
 
+# Iter43-fix24az-m (2026-07-18) — Planning médecins (webhook + calendrier)
+from routes.planning import attach_planning_routes as _attach_planning  # noqa: E402
+_attach_planning(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    _is_admin_or_superviseur=_is_admin_or_superviseur,
+    _resolve_visible_client_ids=_resolve_visible_client_ids,
+    _is_super_admin=_is_super_admin,
+    _public_base_url=_public_base_url,
+)
+
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)

@@ -133,6 +133,8 @@ import CashBilling from "@/pages/portal/CashBilling";
 import HumanResources from "@/pages/portal/HumanResources";
 // Iter43-fix24az-f (2026-02-26) — Production module (Fabricant tenants)
 import Production from "@/pages/portal/Production";
+// Iter43-fix24az-m (2026-07-18) — Planning médecins (RDV visualisation temps réel)
+import Planning from "@/pages/portal/Planning";
 import MetaIntegration from "@/pages/portal/MetaIntegration";
 import UnifiedInbox from "@/pages/portal/UnifiedInbox";
 import CatalogStats from "@/pages/portal/CatalogStats";
@@ -323,6 +325,8 @@ export default function App() {
             <Route path="hr" element={<HumanResources />} />
             {/* Iter43-fix24az-f — Production module (Fabricant tenants) */}
             <Route path="production" element={<Production />} />
+            {/* Iter43-fix24az-m (2026-07-18) — Planning médecins */}
+            <Route path="planning" element={<Planning />} />
             <Route path="meta" element={<MetaIntegration />} />
             <Route path="inbox" element={<UnifiedInbox />} />
             <Route path="catalog-stats" element={<CatalogStats />} />

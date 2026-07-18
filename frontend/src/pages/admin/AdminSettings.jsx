@@ -7,6 +7,7 @@ import PasswordInput from "@/components/PasswordInput";
 import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
+import PlanningWebhookSection from "@/pages/admin/sections/PlanningWebhookSection";
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
@@ -755,6 +756,9 @@ export default function AdminSettings() {
 
       <Filterable title="Webhooks Paie (n8n)" anchorId="s-webhooks-paie-n8n">
         <PayrollWebhooksSection />
+      </Filterable>
+      <Filterable title="Webhook Planning consultations (RDV patients)" anchorId="s-webhook-planning">
+        <PlanningWebhookSection />
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />

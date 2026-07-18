@@ -1,0 +1,60 @@
+{
+  "summary": "Iter 81 - Planning consultations médecins module validated. Backend: 27/27 pytest PASS (11 new planning tests + 16 regression). Frontend E2E confirms planning page, admin webhook section, sidebar filtering. TWO functional bugs found on medecin view due to wrong /me endpoint call.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Planning.jsx (portal)", "issue": "fetchMe calls apiClient.get('/me') which returns 404 (correct endpoint is '/auth/me'). Because 'me' stays null, isMedecin=false for the tracked-role Médecin user → the [data-testid='planning-medecin-lock-badge'] is NOT rendered, and [data-testid='planning-doctor-filter'] is NOT disabled. Backend appointment filtering still works correctly (server-side lock via medecin_id_locked), so the 4 seeded appointments still show up. Only the visual lock affordances are broken.", "selector": "[data-testid='planning-medecin-lock-badge']", "priority": "HIGH"}
+    ],
+    "integration_issues": [
+      {"flow": "Planning /me fetch", "issue": "GET /api/me returns 404 (endpoint does not exist). Frontend expects /api/auth/me. Fix: replace apiClient.get('/me') by apiClient.get('/auth/me') in Planning.jsx line ~96.", "affected_selectors": ["[data-testid='planning-medecin-lock-badge']", "[data-testid='planning-doctor-filter'][disabled]"]}
+    ],
+    "design_issues": []
+  },
+  "e2e_verified": {
+    "medecin_view": {
+      "planning-root": "OK",
+      "planning-doctor-filter": "PRESENT but NOT disabled (BUG)",
+      "planning-medecin-lock-badge": "MISSING (BUG - depends on /me)",
+      "planning-now-utc": "OK (auto-refresh every ~1s verified)",
+      "planning-now-indicator": "ABSENT — expected since current UTC ~05:30 is outside 08h-20h grid window (per note, acceptable)",
+      "list_items_count": 4,
+      "sidebar": "Only 'Planning consultations' link (no other menu links) ✓"
+    },
+    "admin_view": {
+      "planning-root": "OK",
+      "planning-doctor-filter": "OK, NOT disabled ✓",
+      "planning-medecin-lock-badge": "ABSENT ✓",
+      "planning-prev-day/next-day/today-btn": "All clickable ✓",
+      "sidebar": "32 links incl. 'Planning consultations' ✓",
+      "doctor_filter_options": "Only ['— Tous les médecins —'] — 'Dr. Aissata Ouedraogo' NOT in dropdown (needs investigation: possibly because tracked-role users are excluded from /me/planning/doctors, or the endpoint returns doctors keyed on different criterion). Backend test test_list_doctors_returns_medecin PASS locally, so likely a tenant/permission scope issue for super-admin view."
+    },
+    "admin_settings_webhook": {
+      "planning-webhook-section": "OK",
+      "planning-webhook-url": "OK - starts with https://sawali-portal.preview.emergentagent.com/api/webhooks/planning/",
+      "planning-webhook-copy-btn": "OK",
+      "planning-webhook-regenerate-btn": "OK",
+      "planning-webhook-example": "OK - contains curl + JSON payload"
+    }
+  },
+  "test_report_links": ["/app/backend/tests/test_iter43_fix24az_m_planning.py", "/app/test_reports/pytest/iter81.xml"],
+  "action_items": [
+    "FIX Planning.jsx (portal) line ~96: change apiClient.get('/me') to apiClient.get('/auth/me') so that isMedecin flag becomes true for tracked-role Médecin users. This will restore the lock badge (data-testid='planning-medecin-lock-badge') and disable the doctor filter select.",
+    "INVESTIGATE super-admin doctor filter dropdown: /me/planning/doctors returns doctors on backend pytest but the admin dropdown only shows the placeholder option '— Tous les médecins —'. Verify tenant/parent_client_id scoping when the caller is super-admin (id != tenant of seeded medecin). May need to broaden the query for admin roles."
+  ],
+  "critical_code_review_comments": [
+    "Planning.jsx uses wrong /me endpoint — causes silent isMedecin=false. Consider throwing/toasting on 404.",
+    "PlanningWebhookSection appears inside a 'Bienvenue / J'ai lu' welcome modal overlay on first admin-settings load — not blocking but slightly awkward UX.",
+    "Doctor filter dropdown for admin should show at least the seeded medecin — potential tenant scope bug in /me/planning/doctors when caller is super-admin."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% (27/27)", "frontend": "75% (medecin lock UI broken, admin doctor list empty)"},
+  "test_credentials": "Super-admin admin@sawalismartsystems.com / Admin@Sawali2026 ; Médecin medecin-test@sawali-test.com / Medecin@2026 (dev_otp inline, session_token required in verify-otp payload).",
+  "seed_data_creation": "None created by testing agent. Pre-seeded 4 appointments in db.planning_appointments (source='seed', code_clinique='CLI-DEMO') verified visible.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend pytest fully green. Two frontend bugs remain: (1) Planning.jsx /me → /auth/me fix, (2) super-admin doctor filter dropdown empty. Verify_otp endpoint requires session_token from login response — not just email+code. Frontend token key is 'sawali_token' in localStorage.",
+  "rca_of_the_issue": "Planning.jsx fetchMe uses apiClient.get('/me'). Since baseURL is REACT_APP_BACKEND_URL+'/api', the resolved URL is /api/me which returns 404 (correct FastAPI route is /api/auth/me). apiClient error handler swallows it, so me stays null → isMedecin computed as (me?.tracked_role) === 'Médecin' is false → conditional UI (lock badge, disabled select) never renders for medecin user. Backend security is unaffected because /me/planning/appointments locks medecin_id server-side."
+}

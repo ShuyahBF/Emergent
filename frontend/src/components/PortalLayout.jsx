@@ -63,6 +63,9 @@ const clientLinks = [
   // Iter43-fix24az-f (2026-02-26) — Production module for Fabricant tenants
   // (visible only when business_type='fabricant' AND role admin/superviseur).
   { to: "/portal/production", label: "Production", icon: Factory, fabricantOnly: true, adminOrSup: true },
+  // Iter43-fix24az-m (2026-07-18) — Planning des consultations médecins (RDV temps réel)
+  // Visible pour tous ; les utilisateurs suivis "Médecin" verront UNIQUEMENT ce lien.
+  { to: "/portal/planning", label: "Planning consultations", icon: Calendar },
   // Iter38h — Meta integration (Pages + Messenger + Ads). Shown only if at
   // least one of the three meta_* features is enabled for the tenant.
   { to: "/portal/meta", label: "Meta (Facebook/Messenger/Ads)", icon: MessageCircle, metaOnly: true },
@@ -192,6 +195,9 @@ export default function PortalLayout({ admin = false }) {
   // Toutes les autres entrées de la sidebar sont masquées. L'utilisateur
   // est forcé d'aller sur Régionalisation au login (route handled in App.js).
   const isTranslator = (user?.tracked_role || "") === "Traducteur";
+  // Iter43-fix24az-m (2026-07-18) — Médecin tracked role : accès UNIQUE au
+  // planning des consultations. La sidebar ne montre QUE cet item.
+  const isMedecinTracked = (user?.tracked_role || "") === "Médecin";
   // Iter42b (2026-02) — Rôles métier réglementaires :
   //   • regulateur     → uniquement /portal/amm + /portal/liluvine
   //   • editeur_vidal  → uniquement /portal/vidal + /portal/amm + /portal/liluvine (lecture seule)
@@ -212,6 +218,7 @@ export default function PortalLayout({ admin = false }) {
   ]);
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
+  const allowedMedecinTrackedPaths = new Set(["/portal/planning"]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
   const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
   // Paths réservés à certains rôles métier (cachés pour les autres)
@@ -219,7 +226,9 @@ export default function PortalLayout({ admin = false }) {
   const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal;
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
-    : (admin ? adminLinks : clientLinks);
+    : (isMedecinTracked
+        ? [{ to: "/portal/planning", label: "Planning consultations", icon: Calendar }]
+        : (admin ? adminLinks : clientLinks));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).
@@ -240,6 +249,7 @@ export default function PortalLayout({ admin = false }) {
   const links = linksWithDelegation
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
+    .filter((l) => !isMedecinTracked || allowedMedecinTrackedPaths.has(l.to))
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
     // Iter43-fix24az-f — Fabricant tenants : allowlist stricte

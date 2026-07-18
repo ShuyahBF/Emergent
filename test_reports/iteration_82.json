@@ -1,0 +1,37 @@
+{
+  "summary": "Retest UI Planning (Iter82) après fix '/me' → '/auth/me' dans Planning.jsx. Les 2 bugs UI d'iter.81 sont résolus. Aucune régression détectée sur les smoke tests UI. Backend non retesté (demandé frontend only).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Planning.jsx ligne 96 correctement corrigée: apiClient.get('/auth/me'). Le useEffect gate (line 133: `if (me) fetchDoctors()`) explique pourquoi ce seul fix résout aussi la dropdown vide côté admin."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested", "frontend": "100%"},
+  "test_credentials": "Médecin: medecin-test@sawali-test.com / Medecin@2026 (dev_otp inline). Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp inline).",
+  "seed_data_creation": "Aucune. Utilisé les 4 RDVs seedés existants (Awa TRAORE, Boukary KABORE, Fatimata KANE, Ismael DIALLO).",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Iter82 retest UI Planning: médecin voit lock badge (data-testid='planning-medecin-lock-badge') visible, dropdown médecin disabled=true, 4 RDVs listés. Admin: dropdown contient l'option 'Dr. Aissata Ouedraogo' (value=5975ec49-f08d-4064-a177-b90bcaed71f2), sélection filtre correctement (4 RDVs restent car unique médecin). Badge UTC data-testid='planning-now-utc' s'actualise chaque seconde. Sidebar admin contient 'Planning consultations'. Sidebar médecin: uniquement 'Planning consultations' (autres liens absents).",
+  "detailed_results": {
+    "medecin_flow": {
+      "planning-medecin-lock-badge_visible": true,
+      "planning-doctor-filter_disabled": true,
+      "rdv_list_items_count": 4,
+      "now_utc_badge_updates_every_second": true
+    },
+    "admin_flow": {
+      "planning-doctor-filter_disabled": false,
+      "dropdown_options_count": 2,
+      "dropdown_contains_Aissata_Ouedraogo": true,
+      "select_doctor_filters_rdv": "OK - 4 RDVs after selection",
+      "lock_badge_absent": true,
+      "sidebar_has_planning_consultations": true
+    }
+  }
+}

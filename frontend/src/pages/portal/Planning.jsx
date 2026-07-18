@@ -93,7 +93,7 @@ export default function Planning() {
   // -------- fetch --------
   const fetchMe = useCallback(async () => {
     try {
-      const r = await apiClient.get("/me");
+      const r = await apiClient.get("/auth/me");
       setMe(r.data);
     } catch (e) {
       toast.error("Impossible de récupérer votre profil");

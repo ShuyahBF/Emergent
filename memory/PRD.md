@@ -13,6 +13,52 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-p (2026-07-22) — Liluvine Extended : Native Media + Timeline + CSV Bulk + Auto-suggest + TikTok Privacy ✅
+
+### Features livrées (45/45 backend pytest + 100% frontend UI validé par testing_agent iteration_85)
+
+**Feature 1 — Native WhatsApp Media** (`routes/liluvine_reactions.py::try_reply_ad_template` + `server.py:24224` passe `wa_send_media=_wa_send_media`) :
+- Quand un template Ad a `response_media_url` + `response_media_kind`, on appelle `_wa_send_media(from, kind, public_url=url, caption=response_text)` au lieu de concaténer l'URL au texte.
+- Types supportés : `image`, `video`, `document` (avec caption embed), `audio` (texte séparé car WA ne permet pas de caption sur audio).
+- Fallback texte + URL si l'envoi natif échoue (résilience).
+- Rendu pro dans WhatsApp mobile : l'utilisateur voit l'image/vidéo directement au lieu d'un lien à cliquer.
+
+**Feature 2 — Contact Timeline** (nouvelle collection `liluvine_contact_interactions`) :
+- Backend : `GET /api/me/contacts/{cid}/liluvine-history` renvoie `{count, items, phone_digits}`. Chaque match Ad-template ET fuzzy_cmd est journalisé avec inbound/response text, template info, matched_score, wa_message_id.
+- Scope check (super-admin voit tout, autres seulement leur tenant).
+- Frontend `Contacts.jsx` : bouton `contact-liluvine-<id>` (icône Sparkles fuchsia) sur chaque ligne → ouvre `LiluvineTimelineModal` (data-testid `liluvine-timeline-modal`) avec badges kind (ad_template/fuzzy_cmd), template name, score, inbound/response body, timestamps.
+
+**Feature 3 — CSV Bulk Upload + Meta Template Guide** :
+- Backend : `POST /api/admin/liluvine/reactions-templates/bulk-csv` accepte `{csv: str, dry_run?: bool}`.
+  - Colonnes obligatoires : `name, trigger_text, response_text`.
+  - Colonnes optionnelles : `trigger_variations` (séparé par `|`), `response_media_url`, `response_media_kind`, `active` (true/1/oui/yes).
+  - Détection auto du délimiteur `,` ou `;` (Excel FR compatible).
+  - Mode dry_run pour prévisualiser sans insertion.
+- Frontend `LiluvineReactionsSection.jsx` :
+  - Bouton `toggle-csv-btn` → panneau `csv-upload-panel` (textarea + file input + template button + prévisualiser + importer).
+  - Bloc collapsible `meta-template-guide` avec instructions détaillées pour créer le template Meta `rdv_reminder_1h_fr` (catégorie UTILITY, langue fr, corps avec 4 variables patient/médecin/heure/motif).
+
+**Feature 4 — Auto-suggest depuis messages non-traités** (nouvelle collection `liluvine_unmatched_messages`) :
+- Backend : Le hook `record_unmatched_message` dans `autoreply_to_inbound` capture chaque message entrant free-text (pas de `!`, pas d'ack, >4 chars) qui n'a matché ni un template ni une commande floue. Dédoublonnage par `normalized_body`, incrément atomique du compteur.
+- Endpoints :
+  - `GET /api/admin/liluvine/unmatched-suggestions?limit=30` : liste triée par count desc (exclut converted + dismissed).
+  - `POST /admin/liluvine/unmatched-suggestions/{sid}/convert {name, response_text}` : crée un template + marque converted.
+  - `DELETE /admin/liluvine/unmatched-suggestions/{sid}` : ignore.
+- Toggle admin : `unmatched_capture_enabled` (default `true`) dans `settings.liluvine_reactions_config`.
+- Frontend : Panneau collapsible `suggestions-panel` (ambre) avec compteur + liste + boutons Convert (inline form name + response) + Dismiss.
+
+**Feature 5 — TikTok Privacy Toggle visibilité** (déjà en backend, exposé côté UI) :
+- `StoryStudio.jsx` Settings tab : nouveau panneau `tiktok-privacy-panel` (border-2 pink, bg-gradient) avec 4 radio options `tiktok-privacy-option-{SELF_ONLY|MUTUAL_FOLLOW_FRIENDS|FOLLOWER_OF_CREATOR|PUBLIC_TO_EVERYONE}` + badge `tiktok-privacy-badge` reflétant l'état.
+- Dans le panneau "Comptes TikTok" (page Studio principale) : badge `tiktok-current-privacy-badge` affiche le mode actif (🔒 Privé/🌐 Public) avec description explicite.
+- Sauvegardé via `PUT /admin/story-studio/settings {tiktok_privacy_level: '...'}` (déjà supporté backend).
+
+**Tests** (`/app/backend/tests/test_iter43_fix24az_p_liluvine_reactions_ext.py`) : **11 nouveaux pytest** — native media call assertion + text-only fallback, contact-history endpoint (200 + 404), unmatched suggestions CRUD lifecycle, CSV bulk (comma, semicolon, dry_run, missing-cols validation), config toggle, auth gates. **Total : 45/45 PASS** (11 nouveaux + 13 iter-o + 3 dedup + 18 cross-tenant).
+
+**Validation testing_agent iteration_85** : 100% backend + 100% frontend (Playwright). Aucun blocker.
+
+
+
+
 ## Iter43-fix24az-o (2026-07-21) — Liluvine Reactions & Ad Auto-Replies ✅
 
 ### Features livrées (33/33 backend + 100% frontend UI)

@@ -88,6 +88,54 @@ def _wa_window_open(last_inbound_iso: Optional[str], window_seconds: int = 24 * 
     return (datetime.now(timezone.utc) - ts).total_seconds() < window_seconds
 
 
+# Iter43-fix24az-u (2026-07-22) — WhatsApp text formatting safety.
+# --------------------------------------------------------------------
+# WhatsApp Cloud API accepts text messages that contain underscores freely,
+# but the WhatsApp mobile CLIENT parser tries to interpret `_..._` as italic.
+# When a message contains identifiers like `Off_07f24ab4` or
+# `Officine_test_20ee07dfa1` (multi-underscore words), the client's italic
+# parser gets confused and can render the whole message BLANK on the phone
+# (only subsequent messages arrive).
+#
+# Fix : insert a zero-width space (\u200B) immediately after every underscore
+# that sits BETWEEN two word characters. Standalone underscores at word
+# boundaries (`_hello_` = intended italic) are left untouched.
+#
+# Result:
+#   - `Off_07f24ab4`  →  `Off_\u200B07f24ab4`  (visually identical, parser skips)
+#   - `_hello world_` →  `_hello world_`       (italic still works)
+#   - `_hello_world_` →  `_hello_\u200Bworld_` (nested `_` neutralised)
+#
+# The insertion is idempotent : running it twice produces the same output
+# (the ZWSP breaks the `\w_\w` pattern for subsequent runs).
+_WA_UNDERSCORE_PATTERN = None  # lazy-compiled regex
+
+
+def _wa_neutralize_underscores(text: str) -> str:
+    """Neutralise multi-underscore words that break the WhatsApp italic parser.
+
+    Public helper — exported for callers that build text via templates and
+    want to sanitize before splitting/joining. `_wa_send_text` already applies
+    this automatically to every outbound text, so most callers don't need
+    to invoke it explicitly.
+    """
+    if not text or "_" not in text:
+        return text
+    global _WA_UNDERSCORE_PATTERN
+    if _WA_UNDERSCORE_PATTERN is None:
+        import re as _re
+        _WA_UNDERSCORE_PATTERN = _re.compile(r"(\w)_(\w)")
+    # ZWSP inserted after every underscore between word chars. Loop until
+    # stable so overlapping groups like `a_b_c` are fully sanitised.
+    _ZWSP = "\u200B"
+    prev = None
+    out = text
+    while out != prev:
+        prev = out
+        out = _WA_UNDERSCORE_PATTERN.sub(lambda m: f"{m.group(1)}_{_ZWSP}{m.group(2)}", out)
+    return out
+
+
 def _wa_apply_image_watermark_qr(
     src_path: Path,
     *,
@@ -254,7 +302,10 @@ def attach_whatsapp_helpers(
             "messaging_product": "whatsapp",
             "to": to_clean,
             "type": "text",
-            "text": {"body": text or "", "preview_url": True},
+            # Iter43-fix24az-u — Neutralize underscores in identifiers so
+            # the WhatsApp mobile client's italic parser doesn't render the
+            # message blank.
+            "text": {"body": _wa_neutralize_underscores(text or ""), "preview_url": True},
         }
         if reply_to_message_id:
             body["context"] = {"message_id": reply_to_message_id}
@@ -310,7 +361,8 @@ def attach_whatsapp_helpers(
             return {"ok": False, "status": None, "message_id": None, "error": f"Type média non géré: {kind}", "raw": None}
         media_obj: Dict[str, Any] = {"link": public_url}
         if caption and kind in ("image", "document", "video"):
-            media_obj["caption"] = caption[:1024]
+            # Iter43-fix24az-u — neutralize underscores in caption too
+            media_obj["caption"] = _wa_neutralize_underscores(caption[:1024])
         if kind == "document" and filename:
             media_obj["filename"] = filename
         body: Dict[str, Any] = {
@@ -547,7 +599,7 @@ def attach_whatsapp_helpers(
             return None
         return doc.get("received_at") or doc.get("created_at")
 
-    logger.info("[whatsapp_helpers] attached (fix24az-q)")
+    logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe)")
     return {
         "_wa_send_template": _wa_send_template,
         "_wa_send_text": _wa_send_text,
@@ -556,4 +608,5 @@ def attach_whatsapp_helpers(
         "_wa_transcribe_audio_file": _wa_transcribe_audio_file,
         "_wa_compute_reply_window": _wa_compute_reply_window,
         "_wa_last_inbound_iso": _wa_last_inbound_iso,
+        "_wa_neutralize_underscores": _wa_neutralize_underscores,
     }

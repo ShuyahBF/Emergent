@@ -8,7 +8,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry`. _[suggéré 2026-06-16]_
 - **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
 - **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_
-- **Auto-actualisation Planning via WebSocket** : remplacer le polling 15s par un push serveur (Socket.IO ou Server-Sent Events). _[suggéré 2026-07-18 iteration_82]_
+- **WhatsApp Template Meta approuvé pour rappels Planning** : configurer un template `rdv_reminder_1h_fr` chez Meta pour utiliser `_wa_send_template` au lieu du texte libre — permettra d'envoyer hors fenêtre 24h. _[suggéré 2026-07-21 iteration_83]_
+
+
+## Iter43-fix24az-n (2026-07-21) — SSE Planning temps réel + Rappels WhatsApp 1h avant RDV ✅
+
+### Features livrées (20/20 backend + 100% frontend UI)
+
+**Feature 1 — SSE Server-Sent Events (remplace polling 15s par push temps réel)** :
+- Endpoint `GET /api/me/planning/stream?token=<JWT>&medecin_id=` (`/app/backend/routes/planning.py`)
+- Auth via query param JWT (EventSource ne supporte pas les headers)
+- Envoie 'event: hello' à la connexion, puis 'event: ping' toutes les 20s (keep-alive)
+- Broadcast 'event: created'/'updated' quand un webhook POST insère/modifie un RDV pour le tenant abonné
+- Filtrage par medecin_id (les médecins ne reçoivent que leurs propres RDV)
+- Reconnexion automatique côté client avec backoff exponentiel (2s, 4s, 8s), fallback polling 30s après 3 échecs
+- Badge visuel `[data-testid='planning-sse-status']` : "Live" (Wifi green) / "Off" (WifiOff gris)
+- Toast `Nouveau RDV : <patient>` sur event 'created'
+
+**Feature 2 — Rappels WhatsApp 1h avant RDV** :
+- Cron `planning_wa_reminders_5min` (toutes les 5min, UTC)
+- Fenêtre `start_at ∈ [now+55min, now+65min]` + `patient_phone` défini + `reminder_sent_at` absent
+- Template configurable avec placeholders `{patient}`, `{medecin}`, `{start_time}`, `{motif}`
+- Endpoint admin `POST /admin/planning/reminders/run` : trigger manuel
+- Fields ajoutés sur `db.planning_appointments` : `patient_phone`, `patient_email`, `reminder_sent_at`, `reminder_status`, `reminder_message_id`, `reminder_error`
+- Webhook accepte désormais `patient_phone` (format E.164)
+- Fallback : si WA non configuré, `reminder_status='failed'`, `reminder_sent_at` set pour éviter retentatives infinies
+- **Note PROD** : Meta autorise l'envoi hors 24h UNIQUEMENT via templates approuvés. Créer un template `rdv_reminder_1h_fr` chez Meta puis basculer sur `_wa_send_template`.
+
+**Config AdminSettings** :
+- `PUT /admin/planning/config { reminder_template }` — persiste dans `settings.global.planning_reminder_template`
+- `GET /admin/planning/config` renvoie `reminder_template` + `sample_payload` avec `patient_phone`
+- Section étendue : textarea + boutons "Enregistrer le template" + "Lancer maintenant"
+
+**Tests** : 6/6 nouveaux tests + 11 régression + 3 WA dedup = **20/20 pytest PASS**.
+
+**Seed today** : 4 RDVs re-seedés avec date d'aujourd'hui pour améliorer l'expérience démo.
 
 
 ## Iter43-fix24az-m (2026-07-18) — Module Planning consultations médecins ✅

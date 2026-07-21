@@ -9,7 +9,7 @@
  *   - Sous le calendrier : liste des RDV du jour, les passés grisés et remontés
  *   - Auto-refresh toutes les 15s (temps réel)
  */
-import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -21,6 +21,8 @@ import {
   RefreshCw,
   Stethoscope,
   Lock,
+  Wifi,
+  WifiOff,
 } from "lucide-react";
 
 // Configuration de la grille horaire (heures affichées, en UTC)
@@ -86,7 +88,7 @@ export default function Planning() {
   const [isMedecinView, setIsMedecinView] = useState(false);
   const [loading, setLoading] = useState(false);
   const [nowUtc, setNowUtc] = useState(new Date());
-  const refreshTimerRef = useRef(null);
+  const [sseConnected, setSseConnected] = useState(false);
 
   const isMedecin = (me?.tracked_role || "") === "Médecin";
 
@@ -133,13 +135,87 @@ export default function Planning() {
   useEffect(() => { if (me) fetchDoctors(); }, [me, fetchDoctors]);
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
 
-  // Auto-refresh toutes les 15s
+  // Iter43-fix24az-n — SSE stream temps réel (remplace le polling 15s)
+  // Se connecte à /api/me/planning/stream avec le JWT en query param.
+  // Fallback : si l'EventSource se déconnecte 3× de suite, on repasse au
+  // polling 30s pour tenir même si CF ferme le stream.
   useEffect(() => {
-    refreshTimerRef.current = setInterval(() => {
-      fetchAppointments();
-    }, 15000);
-    return () => clearInterval(refreshTimerRef.current);
-  }, [fetchAppointments]);
+    if (!me) return;
+    const token = localStorage.getItem("sawali_token");
+    if (!token) return;
+    const params = new URLSearchParams({ token });
+    if (selectedMedecinId) params.append("medecin_id", selectedMedecinId);
+    const baseUrl = process.env.REACT_APP_BACKEND_URL || "";
+    const url = `${baseUrl}/api/me/planning/stream?${params.toString()}`;
+
+    let es;
+    let reconnectAttempts = 0;
+    let fallbackTimer;
+
+    const upsertAppointment = (a) => {
+      if (!a || !a.id) return;
+      // Filtre côté client sur la date sélectionnée
+      const aDate = (a.start_at || "").slice(0, 10);
+      if (aDate !== selectedDate) return;
+      setAppointments((prev) => {
+        const idx = prev.findIndex((x) => x.id === a.id);
+        if (idx >= 0) {
+          const next = [...prev];
+          next[idx] = { ...next[idx], ...a };
+          return next;
+        }
+        return [...prev, a].sort((x, y) => (x.start_at || "").localeCompare(y.start_at || ""));
+      });
+    };
+
+    const openStream = () => {
+      try {
+        es = new EventSource(url);
+        es.addEventListener("hello", () => {
+          reconnectAttempts = 0; // reset backoff
+          setSseConnected(true);
+        });
+        es.addEventListener("ping", () => { /* keep-alive */ });
+        es.addEventListener("created", (ev) => {
+          try {
+            const payload = JSON.parse(ev.data);
+            upsertAppointment(payload.appointment);
+            const p = payload.appointment;
+            if (p && p.patient) toast.success(`Nouveau RDV : ${p.patient}`);
+          } catch (err) { /* noop */ }
+        });
+        es.addEventListener("updated", (ev) => {
+          try {
+            const payload = JSON.parse(ev.data);
+            upsertAppointment(payload.appointment);
+          } catch (err) { /* noop */ }
+        });
+        es.onerror = () => {
+          setSseConnected(false);
+          es.close();
+          reconnectAttempts += 1;
+          if (reconnectAttempts <= 3) {
+            // Exponential backoff : 2s, 4s, 8s
+            const delay = Math.min(2000 * 2 ** (reconnectAttempts - 1), 30000);
+            setTimeout(openStream, delay);
+          } else {
+            // Fallback : polling 30s après 3 échecs
+            fallbackTimer = setInterval(() => {
+              fetchAppointments();
+            }, 30000);
+          }
+        };
+      } catch (err) {
+        setSseConnected(false);
+      }
+    };
+
+    openStream();
+    return () => {
+      if (es) es.close();
+      if (fallbackTimer) clearInterval(fallbackTimer);
+    };
+  }, [me, selectedMedecinId, selectedDate, fetchAppointments]);
 
   // Update UTC time every second (pour la ligne rouge)
   useEffect(() => {
@@ -239,6 +315,18 @@ export default function Planning() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
+          <span
+            className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${
+              sseConnected
+                ? "bg-emerald-50 text-emerald-700 border-emerald-200"
+                : "bg-slate-50 text-slate-500 border-slate-200"
+            }`}
+            data-testid="planning-sse-status"
+            title={sseConnected ? "Push serveur actif — synchronisation temps réel" : "Push serveur inactif — appuyez sur Rafraîchir"}
+          >
+            {sseConnected ? <Wifi className="h-2.5 w-2.5" /> : <WifiOff className="h-2.5 w-2.5" />}
+            {sseConnected ? "Live" : "Off"}
+          </span>
         </div>
       </div>
 

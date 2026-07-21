@@ -21329,6 +21329,19 @@ async def on_startup():
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
+            # Iter43-fix24az-n (2026-07-18) — Rappels WhatsApp 1h avant RDV Planning
+            async def _scheduled_planning_wa_reminders():
+                try:
+                    await _run_planning_wa_reminders()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[planning] reminder job failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_planning_wa_reminders,
+                CronTrigger(minute="*/5", timezone="UTC"),
+                id="planning_wa_reminders_5min",
+                replace_existing=True,
+                misfire_grace_time=600,
+            )
             # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
             try:
                 _scheduler.add_job(
@@ -24189,7 +24202,10 @@ _attach_story_studio(
 
 # Iter43-fix24az-m (2026-07-18) — Planning médecins (webhook + calendrier)
 from routes.planning import attach_planning_routes as _attach_planning  # noqa: E402
-_attach_planning(
+import jwt as _pyjwt_planning  # noqa: E402
+def _planning_jwt_decode(token: str) -> dict:
+    return _pyjwt_planning.decode(token, _JWT_SECRET, algorithms=[_JWT_ALGO])
+_planning_helpers = _attach_planning(
     api=api, db=db,
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
@@ -24197,7 +24213,11 @@ _attach_planning(
     _resolve_visible_client_ids=_resolve_visible_client_ids,
     _is_super_admin=_is_super_admin,
     _public_base_url=_public_base_url,
+    wa_send_text=_wa_send_text,
+    wa_send_template=_wa_send_template,
+    jwt_decode=_planning_jwt_decode,
 )
+_run_planning_wa_reminders = _planning_helpers["run_planning_wa_reminders"]
 
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402

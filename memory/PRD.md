@@ -5,11 +5,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
-- **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry` pour les utilisateurs en `edit_mode=limited`. _[suggéré 2026-06-16]_
-- **PortalLayout: <span> inside <option> warning** : préexistant non-bloquant — corriger le markup du <select> autour de la ligne 558 de `/app/frontend/src/components/PortalLayout.jsx`. _[noté 2026-02-26 iteration_68]_
-- **WelcomeBriefing modal** : intercepte parfois les clics au premier load. Auto-dismiss après 3s ou close-on-outside-click serait plus user-friendly. _[noté 2026-02-26 iteration_69]_
+- **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry`. _[suggéré 2026-06-16]_
 - **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
 - **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_
+- **Auto-actualisation Planning via WebSocket** : remplacer le polling 15s par un push serveur (Socket.IO ou Server-Sent Events). _[suggéré 2026-07-18 iteration_82]_
+
+
+## Iter43-fix24az-m (2026-07-18) — Module Planning consultations médecins ✅
+
+### Feature livrée (27/27 backend + 100% frontend UI tests)
+
+**Backend** (`/app/backend/routes/planning.py`, ~330 LOC) :
+- `POST /api/webhooks/planning/{secret}` — webhook public (no auth) : accepte JSON `{code_clinique, medecin, patient, start, end, motif, id_user, medecin_email, external_id}`. Upsert idempotent sur (tenant, code_clinique, medecin, patient, start_at). Résout `medecin_id` via `medecin_email` → user.id.
+- `GET/PUT /api/admin/planning/config` — gère le secret webhook + expose URL complète + payload sample pour copier chez le prestataire.
+- `GET /api/me/planning/doctors` — liste des médecins (tracked users `role="Médecin"`) du tenant.
+- `GET /api/me/planning/appointments?date=&medecin_id=` — RDV du jour, scope tenant, avec verrouillage automatique `medecin_id_locked` quand `tracked_role=Médecin`.
+
+**Frontend** :
+- `/app/frontend/src/pages/portal/Planning.jsx` (~340 LOC) — grille horaire jour 08h-20h UTC + liste RDV, filtre médecin, ligne rouge live sur l'heure UTC, RDV passés grisés+remontés, auto-refresh 15s.
+- `/app/frontend/src/pages/admin/sections/PlanningWebhookSection.jsx` — section AdminSettings avec URL, bouton Copier + Régénérer, exemple curl.
+- `/app/frontend/src/components/PortalLayout.jsx` — sidebar :
+  - Nouveau lien `Planning consultations` (visible à tous)
+  - `isMedecinTracked` (`tracked_role="Médecin"`) : sidebar réduite à UNIQUEMENT ce lien.
+- `/app/frontend/src/App.js` — route `/portal/planning`.
+
+**Modèle** (`/app/backend/models.py`) — Ajout de `"Médecin"` dans `TRACKED_USER_ROLES`.
+
+**Index Mongo** (`db.planning_appointments`) :
+- `tenant_id`, `(tenant_id, start_at)`, `(tenant_id, medecin_id, start_at)`
+- Unique : `(tenant_id, code_clinique, medecin, patient, start_at)` — nom `planning_unique_key`.
+
+**Compte test** : `medecin-test@sawali-test.com` / `Medecin@2026` (tracked_role=Médecin, parent=super-admin, 4 RDVs seedés le jour courant : 2 passés + 2 futurs).
+
+### Task 2 — uvicorn PROD tuning (Emergent support directive)
+- Modifié `/etc/supervisor/conf.d/supervisord.conf` : ajout de `--timeout-keep-alive 65 --limit-concurrency 1000` (workers reste à 1 en preview, `--reload` conservé).
+- Redémarré via `supervisorctl reread && update`, service healthy.
 
 
 ## Iter43-fix24az-l retest (2026-07-18) — Cross-tenant leak retest + WA dedup + CF 520 diagnostic + Import local médias ✅

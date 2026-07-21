@@ -9,27 +9,77 @@ Feature :
   users avec `role="Médecin"`) du tenant courant
 - Endpoint admin `GET/PUT /api/admin/planning/config` — gère le secret webhook +
   affiche l'URL complète à copier chez le prestataire
+- Iter43-fix24az-n (2026-07-18) — SSE stream `/api/me/planning/stream` :
+  remplace le polling frontend par un push serveur temps réel.
+- Iter43-fix24az-n — Cron 5min `run_planning_wa_reminders` : envoi automatique
+  d'un rappel WhatsApp au patient 1h avant chaque RDV.
 
 Schéma `planning_appointments` :
     { id, tenant_id, code_clinique, medecin, medecin_id, medecin_email,
-      patient, start_at (ISO), end_at (ISO), motif, id_user,
-      external_id, source, created_at, updated_at, received_at }
+      patient, patient_phone, patient_email,
+      start_at (ISO), end_at (ISO), motif, id_user,
+      external_id, source, created_at, updated_at, received_at,
+      reminder_sent_at, reminder_status }
 
 Unicité : (tenant_id, code_clinique, medecin, patient, start_at) — upsert idempotent
 """
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import re
 import secrets
 import uuid
-from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any, Awaitable, Callable, Dict, List, Optional
 
 from fastapi import Body, Depends, HTTPException, Query, Request
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger("sawali.planning")
+
+# ---------------------------------------------------------------------------
+# In-memory SSE pubsub (single-worker uvicorn OK)
+# ---------------------------------------------------------------------------
+# _sse_subscribers: List of dicts { id, tenant_id, user_id, medecin_id (opt), queue }
+# Broadcast helper filters by tenant_id + optional medecin_id match.
+_sse_subscribers: List[Dict[str, Any]] = []
+_sse_lock = asyncio.Lock()
+
+
+async def _sse_broadcast(tenant_id: str, event_type: str, appointment: Dict[str, Any]) -> None:
+    """Push an event to all matching subscribers (same tenant + optional medecin filter)."""
+    if not _sse_subscribers:
+        return
+    payload = {
+        "event": event_type,
+        "appointment": appointment,
+        "ts": datetime.now(timezone.utc).isoformat(),
+    }
+    dead: List[str] = []
+    async with _sse_lock:
+        for sub in list(_sse_subscribers):
+            # Tenant scope check: subscriber has a list of allowed tenants
+            allowed = sub.get("allowed_tenants")
+            if allowed is None:
+                # Super-admin — sees all
+                pass
+            elif tenant_id not in allowed:
+                continue
+            # Filter by medecin_id if set (server locks Médecin users to themselves)
+            filt_medecin = sub.get("medecin_id_filter")
+            if filt_medecin:
+                if appointment.get("medecin_id") != filt_medecin and appointment.get("medecin_email") != sub.get("medecin_email"):
+                    continue
+            try:
+                sub["queue"].put_nowait(payload)
+            except Exception as exc:  # noqa: BLE001
+                logger.debug("[planning] SSE queue full/broken for sub=%s: %s", sub.get("id"), exc)
+                dead.append(sub["id"])
+        if dead:
+            _sse_subscribers[:] = [s for s in _sse_subscribers if s["id"] not in dead]
 
 
 def _now_iso() -> str:
@@ -69,6 +119,7 @@ def _parse_dt(v: Any) -> Optional[str]:
 class PlanningConfigUpdate(BaseModel):
     planning_webhook_secret: Optional[str] = Field(None, description="Secret du webhook (32 chars)")
     regenerate: Optional[bool] = Field(False, description="Génère un nouveau secret aléatoire")
+    reminder_template: Optional[str] = Field(None, description="Template WA (placeholders {patient}, {medecin}, {start_time}, {motif})")
 
 
 def attach_planning_routes(
@@ -81,8 +132,25 @@ def attach_planning_routes(
     _resolve_visible_client_ids,
     _is_super_admin,
     _public_base_url,
+    wa_send_text: Optional[Callable[..., Awaitable[dict]]] = None,
+    wa_send_template: Optional[Callable[..., Awaitable[dict]]] = None,
+    jwt_decode: Optional[Callable[[str], dict]] = None,
+    users_collection_getter: Optional[Callable[[], Any]] = None,
 ):
     """Monte les endpoints du module Planning."""
+
+    async def _get_user_from_token(token: str) -> Optional[dict]:
+        """Résout un utilisateur depuis un JWT (utilisé par les endpoints SSE)."""
+        if not token or not jwt_decode:
+            return None
+        try:
+            payload = jwt_decode(token)
+        except Exception:  # noqa: BLE001
+            return None
+        uid = payload.get("sub")
+        if not uid:
+            return None
+        return await db.users.find_one({"id": uid})
 
     # ---- Bootstrap : index Mongo ----
     async def _ensure_indexes():
@@ -97,6 +165,82 @@ def attach_planning_routes(
             )
         except Exception as exc:  # noqa: BLE001
             logger.warning("[planning] index creation failed (may already exist): %s", exc)
+
+    # -----------------------------------------------------------------
+    # Iter43-fix24az-n — Reminders WA 1h avant RDV (invocable via cron + admin endpoint)
+    # -----------------------------------------------------------------
+    async def run_planning_wa_reminders_impl() -> Dict[str, Any]:
+        """Envoie un rappel WA à chaque patient dont le RDV commence dans ~1h.
+        - Fenêtre : `start_at ∈ [now+55min, now+65min]`
+        - Filtre : `reminder_sent_at` absent + `patient_phone` défini
+        - Template configurable via `settings.global.planning_reminder_template`
+          (placeholders: {patient}, {medecin}, {start_time}, {motif})
+        """
+        if not wa_send_text:
+            return {"ok": False, "sent": 0, "skipped": 0, "error": "wa_send_text non fourni"}
+
+        now = datetime.now(timezone.utc)
+        window_start = now + timedelta(minutes=55)
+        window_end = now + timedelta(minutes=65)
+
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        template = (s.get("planning_reminder_template") or "").strip() or (
+            "Bonjour {patient}, rappel : votre rendez-vous avec {medecin} est prévu à {start_time}. "
+            "Motif : {motif}. Merci de vous présenter 10 minutes en avance. — SAWALI"
+        )
+
+        query = {
+            "start_at": {"$gte": window_start.isoformat(), "$lt": window_end.isoformat()},
+            "patient_phone": {"$ne": None, "$exists": True, "$nin": ["", None]},
+            "$or": [
+                {"reminder_sent_at": None},
+                {"reminder_sent_at": {"$exists": False}},
+            ],
+        }
+
+        sent = 0
+        skipped = 0
+        errors: List[str] = []
+        async for rdv in db.planning_appointments.find(query, {"_id": 0}):
+            patient_phone = (rdv.get("patient_phone") or "").strip()
+            if not patient_phone:
+                skipped += 1
+                continue
+            try:
+                start_iso = rdv.get("start_at") or ""
+                try:
+                    dt = datetime.fromisoformat(start_iso)
+                    start_time = dt.strftime("%H:%M UTC")
+                except Exception:  # noqa: BLE001
+                    start_time = start_iso[11:16] if len(start_iso) > 16 else start_iso
+                text = template.format(
+                    patient=rdv.get("patient") or "",
+                    medecin=rdv.get("medecin") or "",
+                    start_time=start_time,
+                    motif=rdv.get("motif") or "consultation",
+                )
+                result = await wa_send_text(patient_phone, text)
+                status = "sent" if result and result.get("ok") else "failed"
+                await db.planning_appointments.update_one(
+                    {"id": rdv["id"]},
+                    {"$set": {
+                        "reminder_sent_at": _now_iso(),
+                        "reminder_status": status,
+                        "reminder_message_id": (result or {}).get("message_id"),
+                        "reminder_error": (result or {}).get("error"),
+                    }},
+                )
+                if status == "sent":
+                    sent += 1
+                else:
+                    skipped += 1
+                    errors.append(f"{rdv['id']}:{(result or {}).get('error')}")
+            except Exception as exc:  # noqa: BLE001
+                skipped += 1
+                errors.append(f"{rdv['id']}:{exc}")
+        if sent or skipped:
+            logger.info("[planning] WA reminders — sent=%d skipped=%d window=[+55,+65]min", sent, skipped)
+        return {"ok": True, "sent": sent, "skipped": skipped, "errors": errors[:5]}
 
     # -----------------------------------------------------------------
     # ADMIN CONFIG
@@ -117,11 +261,13 @@ def attach_planning_routes(
             "planning_webhook_secret": secret,
             "webhook_url": f"{base}/api/webhooks/planning/{secret}",
             "webhook_created_at": s.get("planning_webhook_created_at"),
+            "reminder_template": s.get("planning_reminder_template") or "",
             "sample_payload": {
                 "code_clinique": "CLI-001",
                 "medecin": "Dr. Aissata Ouedraogo",
                 "medecin_email": "aissata@clinique.bf",
                 "patient": "Fatimata KANE",
+                "patient_phone": "+22670001122",
                 "start": "2026-07-18T09:00:00Z",
                 "end": "2026-07-18T09:30:00Z",
                 "motif": "Consultation générale",
@@ -149,13 +295,16 @@ def attach_planning_routes(
                 )
         else:
             new_secret = current or secrets.token_urlsafe(24)
+        set_doc: Dict[str, Any] = {
+            "planning_webhook_secret": new_secret,
+            "planning_webhook_updated_at": _now_iso(),
+            "planning_webhook_updated_by": user.get("email"),
+        }
+        if payload.reminder_template is not None:
+            set_doc["planning_reminder_template"] = payload.reminder_template.strip()
         await db.settings.update_one(
             {"_id": "global"},
-            {"$set": {
-                "planning_webhook_secret": new_secret,
-                "planning_webhook_updated_at": _now_iso(),
-                "planning_webhook_updated_by": user.get("email"),
-            }},
+            {"$set": set_doc},
             upsert=True,
         )
         base = _public_base_url(request) or str(request.base_url).rstrip("/")
@@ -163,7 +312,15 @@ def attach_planning_routes(
             "ok": True,
             "planning_webhook_secret": new_secret,
             "webhook_url": f"{base}/api/webhooks/planning/{new_secret}",
+            "reminder_template": set_doc.get("planning_reminder_template", ""),
         }
+
+    @api.post("/admin/planning/reminders/run", tags=["Admin — Planning"])
+    async def admin_planning_reminders_run_now(user: dict = Depends(get_current_admin)):
+        """Iter43-fix24az-n — Déclenche manuellement le job de rappels WA
+        (utile pour démo/débug). Retourne le nombre de messages envoyés.
+        """
+        return await run_planning_wa_reminders_impl()
 
     # -----------------------------------------------------------------
     # WEBHOOK PUBLIC (no auth)
@@ -219,6 +376,9 @@ def attach_planning_routes(
         id_user = (body.get("id_user") or body.get("iduser") or "").strip() or None
         motif = (body.get("motif") or body.get("reason") or "").strip() or None
         external_id = (body.get("external_id") or body.get("externalId") or "").strip() or None
+        # Iter43-fix24az-n — coordonnées patient pour les rappels WA 1h avant RDV
+        patient_phone_raw = (body.get("patient_phone") or body.get("phone") or "").strip() or None
+        patient_email = (body.get("patient_email") or "").strip().lower() or None
 
         # Résout le tenant_id : par défaut super-admin du système. Si medecin_email
         # correspond à un utilisateur tracked, on utilise SON tenant.
@@ -252,6 +412,8 @@ def attach_planning_routes(
             "id_user": id_user,
             "motif": motif,
             "external_id": external_id,
+            "patient_phone": patient_phone_raw,
+            "patient_email": patient_email,
             "source": "webhook",
             "updated_at": now,
             "received_at": now,
@@ -274,6 +436,18 @@ def attach_planning_routes(
         except Exception as exc:  # noqa: BLE001
             logger.error("[planning] webhook upsert failed: %s", exc)
             raise HTTPException(status_code=500, detail="Erreur d'enregistrement du RDV") from exc
+
+        # Iter43-fix24az-n — Push l'événement aux abonnés SSE (temps réel)
+        try:
+            fresh = await db.planning_appointments.find_one(upsert_query, {"_id": 0})
+            if fresh:
+                await _sse_broadcast(
+                    tenant_id,
+                    "created" if res.upserted_id else "updated",
+                    fresh,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[planning] SSE broadcast failed: %s", exc)
 
         return {
             "ok": True,
@@ -381,8 +555,82 @@ def attach_planning_routes(
             "items": items,
         }
 
+    # -----------------------------------------------------------------
+    # Iter43-fix24az-n (2026-07-18) — SSE stream temps réel
+    # -----------------------------------------------------------------
+    @api.get("/me/planning/stream", tags=["Portail Client — Planning"])
+    async def planning_sse_stream(
+        request: Request,
+        token: str = Query(..., description="JWT (query param car EventSource ne supporte pas les headers)"),
+        medecin_id: Optional[str] = Query(None),
+    ):
+        """Server-Sent Events : push temps réel des nouveaux RDV/mises à jour.
+        Auth via query param `token` (JWT). Filtre par medecin_id optionnel.
+        Le stream envoie un ping toutes les 20s pour maintenir la connexion vivante
+        (contourne les 60s de Cloudflare + les timeouts uvicorn keep-alive).
+        """
+        user = await _get_user_from_token(token)
+        if not user:
+            raise HTTPException(status_code=401, detail="Token invalide")
+
+        # Résolution tenant + éventuel verrouillage médecin
+        is_medecin = (user.get("tracked_role") or "") == "Médecin"
+        effective_medecin_id = user["id"] if is_medecin else medecin_id
+        if _is_super_admin(user):
+            allowed_tenants = None  # None = no filter (super-admin sees all)
+        else:
+            allowed_tenants = await _resolve_visible_client_ids(user)
+
+        sub_id = str(uuid.uuid4())
+        queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        sub: Dict[str, Any] = {
+            "id": sub_id,
+            "allowed_tenants": allowed_tenants,
+            "user_id": user["id"],
+            "medecin_id_filter": effective_medecin_id,
+            "medecin_email": (user.get("email") or "").lower() if is_medecin else None,
+            "queue": queue,
+        }
+        async with _sse_lock:
+            _sse_subscribers.append(sub)
+        logger.info("[planning] SSE +sub id=%s tenants=%s medecin_filter=%s (total=%d)",
+                    sub_id[:8],
+                    "*" if allowed_tenants is None else f"[{len(allowed_tenants)}]",
+                    (effective_medecin_id or "-")[:8], len(_sse_subscribers))
+
+        async def event_stream():
+            # Hello event
+            yield f"event: hello\ndata: {json.dumps({'sub_id': sub_id, 'ts': _now_iso()})}\n\n"
+            try:
+                while True:
+                    if await request.is_disconnected():
+                        break
+                    try:
+                        payload = await asyncio.wait_for(queue.get(), timeout=20.0)
+                        yield f"event: {payload['event']}\ndata: {json.dumps(payload, default=str)}\n\n"
+                    except asyncio.TimeoutError:
+                        # Keep-alive ping
+                        yield f"event: ping\ndata: {json.dumps({'ts': _now_iso()})}\n\n"
+            finally:
+                async with _sse_lock:
+                    _sse_subscribers[:] = [s for s in _sse_subscribers if s["id"] != sub_id]
+                logger.info("[planning] SSE -sub id=%s (total=%d)", sub_id[:8], len(_sse_subscribers))
+
+        return StreamingResponse(
+            event_stream(),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache, no-transform",
+                "X-Accel-Buffering": "no",  # disable proxy buffering
+                "Connection": "keep-alive",
+            },
+        )
+
     # ---- Startup hook ----
     import asyncio as _asyncio
     _asyncio.create_task(_ensure_indexes())
 
-    logger.info("[planning] routes mounted under /api/webhooks/planning/{secret}, /api/admin/planning/*, /api/me/planning/*")
+    logger.info("[planning] routes mounted under /api/webhooks/planning/{secret}, /api/admin/planning/*, /api/me/planning/*, /api/me/planning/stream")
+
+    # Expose la fonction reminders pour que server.py puisse l'appeler dans un cron
+    return {"run_planning_wa_reminders": run_planning_wa_reminders_impl}

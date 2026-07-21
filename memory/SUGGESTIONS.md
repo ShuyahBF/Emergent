@@ -796,6 +796,151 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S102 — Liluvine Extended : Native WA Media + Contact Timeline + CSV Bulk + Auto-suggest + TikTok Privacy toggle
+- **Demande utilisateur** : 2026-07-22 — « où trouver le toggle 'privé' pour publier sur TikTok en privé? » + 4 tâches liées Liluvine Reactions (médias natifs WA, historique templates par contact, création templates Meta + upload CSV, auto-suggestion depuis messages non-traités).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-p
+- **Détail** :
+  - **Native WA Media** : `try_reply_ad_template` appelle désormais `_wa_send_media(from, kind, public_url=url, caption=text)` quand un template a `response_media_url`. Rendu pro dans WhatsApp mobile (image/vidéo directement affichée, plus de lien à cliquer). Fallback texte+URL si l'envoi natif échoue.
+  - **Contact Timeline** : nouvelle collection `liluvine_contact_interactions` (kind ad_template / fuzzy_cmd, template info, matched_score, inbound/response text, timestamps). Endpoint `GET /api/me/contacts/{cid}/liluvine-history`. UI : bouton `contact-liluvine-<id>` sur chaque contact ouvre `LiluvineTimelineModal` avec badges par type + score.
+  - **CSV Bulk Upload** : `POST /admin/liluvine/reactions-templates/bulk-csv {csv, dry_run?}` — colonnes name/trigger_text/response_text/trigger_variations(|)/response_media_url/response_media_kind/active. Détection auto `,` ou `;` (Excel FR). UI `LiluvineReactionsSection.jsx` : panneau CSV avec file input + textarea + template exemple + prévisualiser/importer.
+  - **Meta Template Guide** : bloc collapsible dans LiluvineReactionsSection avec instructions détaillées pour créer le template Meta `rdv_reminder_1h_fr` (UTILITY, fr, 4 vars patient/médecin/heure/motif).
+  - **Auto-suggest** : hook `record_unmatched_message` dans `autoreply_to_inbound` capture les messages entrants free-text non-matchés (dédup par `normalized_body`, count incrémenté). Endpoints `GET /admin/liluvine/unmatched-suggestions`, `POST .../{sid}/convert`, `DELETE .../{sid}`. Toggle `unmatched_capture_enabled`. UI : panneau Suggestions (ambre) avec Convert (inline form) + Dismiss.
+  - **TikTok Privacy Toggle** : panneau `tiktok-privacy-panel` (Story Studio → Paramètres) avec 4 radio SELF_ONLY/MUTUAL_FOLLOW_FRIENDS/FOLLOWER_OF_CREATOR/PUBLIC_TO_EVERYONE + badge dynamique. Badge `tiktok-current-privacy-badge` dans le panneau "Comptes TikTok" affiche le mode actif avec libellé explicite.
+- **Tests** : 11 nouveaux pytest (`test_iter43_fix24az_p_liluvine_reactions_ext.py`) : native media call assertion + text-only fallback + contact-history 200/404 + suggestions CRUD lifecycle + CSV comma/semicolon/dry_run/missing-cols + config toggle + auth gates. **Total 45/45 PASS**. Testing agent iteration_85 : 100% backend + 100% frontend.
+
+## S101 — Liluvine Reactions & Ad Auto-Replies (fuzzy + templates + auto-contact)
+- **Demande utilisateur** : 2026-07-21 — « détection floue des commandes WhatsApp (faute de frappe), réponses automatiques aux publicités Facebook, ajout automatique des nouveaux contacts au groupe par défaut ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-21)
+- **Fix associé** : Iter43-fix24az-o
+- **Détail** :
+  - **Fuzzy command matching** (`/app/backend/routes/liluvine_reactions.py`) : détecte les intents malgré fautes/espaces/ponctuation (`! garde`, `pharmacies de garde`, `garde pharmacie`) via normalisation NFD sans accent + regex ponctuation + `difflib.SequenceMatcher`. Bonus +90 si synonyme contenu littéralement. Seuil configurable (50-95%, défaut 70%). 7 commandes connues avec synonymes.
+  - **Ad reply templates** (collection `liluvine_ad_templates`) : CRUD `/api/admin/liluvine/reactions-templates` + variations pour matcher plusieurs formulations. Match exact prioritaire, puis fuzzy. Compteurs `received_count`/`replied_count` atomiques. Support media URL (v1 concat, v2 native → S102). Commande `!reactions` renvoie stats formatées.
+  - **Auto-add contacts** : config `auto_add_new_contacts` + `default_new_contact_group_id`. Insertion silencieuse dans `directory_contacts` avec `tags=["auto-liluvine"]`, `source="liluvine_auto"`. Skip si numéro déjà existant.
+  - **Frontend** : `LiluvineReactionsSection.jsx` (~400 LOC) : toggles config + slider seuil + sélecteur groupe + CRUD templates + modal éditeur + table stats live.
+- **Tests** : 13 pytest (`test_iter43_fix24az_o_liluvine_reactions.py`) : unit fuzzy/normalisation/matching + integration CRUD admin. 13/13 PASS.
+
+## S100 — Module Planning consultations médecins avec SSE temps réel + rappels WA 1h avant RDV
+- **Demande utilisateur** : 2026-07-18 — « Module Planning avec calendar temps réel pour les médecins » + upgrade Uvicorn PROD pour éviter CF 520.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-18 → 2026-07-21)
+- **Fix associé** : Iter43-fix24az-m + Iter43-fix24az-n
+- **Détail** :
+  - **Backend Planning** (`/app/backend/routes/planning.py`, ~330 LOC) : webhook public `/api/webhooks/planning/{secret}` (upsert idempotent), endpoints admin config (secret + URL + payload sample), `/me/planning/doctors` + `/me/planning/appointments`.
+  - **SSE Server-Sent Events** (remplace polling 15s) : `GET /api/me/planning/stream?token=<JWT>&medecin_id=` avec auth query param. Envoie `hello`, `ping` toutes les 20s, `created`/`updated` sur webhook insertion. Reconnexion auto avec backoff (2s/4s/8s), fallback polling 30s après 3 échecs. Badge visuel Live/Off.
+  - **Rappels WA 1h** : cron `planning_wa_reminders_5min` toutes les 5min. Fenêtre `[now+55min, now+65min]` + `patient_phone` + pas de `reminder_sent_at`. Template avec placeholders `{patient}` `{medecin}` `{start_time}` `{motif}`. Endpoint admin `/admin/planning/reminders/run` pour trigger manuel.
+  - **Frontend** : `Planning.jsx` (~340 LOC) — grille horaire 08h-20h UTC + liste RDV, filtre médecin, ligne rouge live, RDV passés grisés, SSE badge, toast sur nouveau RDV. `PortalLayout.jsx` : sidebar réduite à Planning uniquement pour `tracked_role="Médecin"`. Route `/portal/planning`.
+  - **Uvicorn PROD tuning** : `--timeout-keep-alive 65 --limit-concurrency 1000` ajouté dans `/etc/supervisor/conf.d/supervisord.conf`.
+- **Compte test** : `medecin-test@sawali-test.com` / `Medecin@2026` + 4 RDVs seedés du jour.
+- **Tests** : 27 pytest planning + 20 pytest SSE/rappels = **47 tests PASS**. Index Mongo : unique `(tenant_id, code_clinique, medecin, patient, start_at)`.
+
+## S099 — Fix cross-tenant leak P0 + WhatsApp dedup + Cloudflare 520 mitigation + Local Media Import
+- **Demande utilisateur** : 2026-07-18 — retest bugs P0/P1 (cross-tenant leak, duplication recette copie-3) + diagnostic CF 520 + import local médias dans StoryStudio/MetaIntegration/MediaGenerator.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-18)
+- **Fix associé** : Iter43-fix24az-l retest
+- **Détail** :
+  - **Cross-tenant leak fix (P0)** : `admin_appointments`, `admin_interventions`, `admin_documents` (server.py lignes 7768/7822/7920) reçoivent désormais le branchement `_is_super_admin` ↔ `_resolve_visible_client_ids`. Chaque tenant ne voit que ses propres données.
+  - **Duplication recette « (copie 2) »** : `create_recipe`/`update_recipe`/`duplicate_recipe` dans `production.py` wrappent le nom dans `re.escape()` avant le `$regex` (parenthèses = littéral).
+  - **WhatsApp inbound deduplication** : `whatsapp_webhook_incoming` (server.py:16895) court-circuite lorsqu'un `wa_message_id` est déjà présent en base. Index sparse `wa_message_id_sparse` au boot.
+  - **Cloudflare 520 mitigation** : middleware `request_timing_middleware` (server.py:305-355) log tout endpoint > 5s + header `X-Process-Time`. PDF exports (`production.py::export_recipes_pdf`, `export_single_recipe_pdf`) passent par `asyncio.to_thread` pour ne pas bloquer l'event loop.
+  - **Local media import** : composant `LocalMediaImporter.jsx` (~195 LOC) intégré dans `MediaGenerator.jsx`, `MetaIntegration.jsx`, `StoryStudio.jsx`. Endpoint admin `POST /api/admin/story-studio/library/upload` (~100 LOC) mirror vers Emergent Object Storage.
+- **Tests** : 48 pytest cumulés (validation cross-tenant 18 + wa-dedup 3 + story-upload 5 + validation 18 + iter79 dup 1 + me-media-library 7) — 100% PASS.
+
+## S098 — Google Calendar Watch API (Phase 2 push sync temps réel)
+- **Demande utilisateur** : 2026-02-26 — « Nous finirons par Google Watch API » (synchronisation temps réel des changements externes).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ay
+- **Détail** :
+  - **Backend** (`/app/backend/routes/google_calendar_watch.py`, ~280 LOC) : `GET/POST/DELETE /admin/google/calendar/watch` (status/start/stop), `POST /admin/google/calendar/sync-now` (force sync incrémental via `syncToken`), `POST /api/google/calendar/webhook` (endpoint public Google, vérifie `X-Goog-Channel-ID`/`Token`, 403 si mismatch, retourne toujours 200). Gère `sync_token expired (410 Gone)`. Cron 6h `_scheduled_gcal_watch_renewal` renouvelle si expiration < 24h. Mappe les events Google vers `db.appointments` avec `google_event_id`, `attendees`, `status=cancelled` pour suppressions.
+  - **Frontend** (`GoogleCalendarWatchPanel.jsx`, ~200 LOC) : badge Active/Inactive, expiration + heures restantes, webhook URL avec bouton Copier, boutons Démarrer/Arrêter/Forcer un sync, affichage dernier résultat (créés/MAJ/supprimés).
+- **Tests** : 7 pytest (`test_iter43_fix24ay_gcal_watch.py`) : status initial, auth admin, webhook rejette sans/mauvais headers, start/sync fail sans connexion.
+
+## S097 — Résolution GPS officines (Google Maps API + OSM Nominatim fallback)
+- **Demande utilisateur** : 2026-02-26 — « Bouton Résoudre géolocalisation, parcours Google Maps pour chaque pharmacie sélectionnée et récupère ses coordonnées GPS ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24aw
+- **Détail** :
+  - **Backend** (`/app/backend/routes/officines_geocode.py`, ~250 LOC) : 2 providers automatiques — **Google Places API** si `google_maps_api_key` configurée (meilleure couverture pharmacies) sinon **OSM Nominatim** (gratuit, 1 req/sec respecté). Endpoints `GET /admin/geocode/config`, `POST /admin/officines-registry/geocode-batch`, `POST /admin/officines-registry/{id}/geocode`. Persistence : `latitude`, `longitude`, `latitude_source`, `latitude_resolved_at`, `latitude_resolved_query`, `latitude_resolved_formatted_address`.
+  - **Frontend** (`AdminOfficinesRegistry.jsx`) : bouton CYAN « 🌍 Résoudre géoloc (N) » (visible si >0 officines sélectionnées) + checkbox overwrite + `GeocodeResultModal` (stats Traitées/Résolues/Échecs/Ignorées + liste détaillée).
+- **Tests** : 7 pytest.
+- **Note importante** : OSM a peu de pharmacies en Afrique de l'Ouest. Recommandation : configurer une clé Google Maps.
+
+## S096 — Twitter (X) + Facebook + Multi-canal auto-post Liluvine (LinkedIn → X → FB)
+- **Demande utilisateur** : 2026-02-26 — « On peut faire la même chose sur X et Facebook comme tu le suggères ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ax
+- **Détail** :
+  - **Twitter OAuth 2.0 avec PKCE S256** (`twitter.py`, ~330 LOC) : config admin, authorize/callback, `/tweets` (text ≤280 + image via v1.1 upload), `/tweets` list 10 derniers, refresh token rotation 2h. Scopes `tweet.read tweet.write users.read offline.access`.
+  - **Facebook Long-lived Token** (`facebook.py`, ~290 LOC) : OAuth standard + exchange 60j + Page Access Token via `/me/accounts`. `/pages` list, `/active-page` selection, `/posts` create (text via `/{page-id}/feed` ou photo via `/photos`). Scopes `pages_show_list pages_manage_posts pages_read_engagement public_profile email`.
+  - **Multi-canal** (`linkedin_autopost.py`) : toggles `linkedin_autopost_also_post_twitter`/`_also_post_facebook`. Helper `_publish_multi_channel` publie LinkedIn (toujours) + Twitter/FB (si activés). `_shorten_for_twitter` tronque à 270 chars. WhatsApp reply OK résume LinkedIn URN + tweet_id + fb post_id.
+  - **Frontend** : `TwitterSection.jsx` + `FacebookSection.jsx` + toggles multi-canal dans `LinkedInSection.jsx`.
+
+## S095 — LinkedIn OAuth complet + Auto-post hebdomadaire (Liluvine) + UX redirect_uri
+- **Demande utilisateur** : 2026-02-26 — « Pour LinkedIn implémente c et d » + « OK implémente cette suggestion d'engagement marketing » (auto-post hebdo).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24au + Iter43-fix24av + Iter43-fix24au-fix1
+- **Détail** :
+  - **LinkedIn OAuth** (`linkedin.py`, ~520 LOC) : config admin, authorize/callback, member + organization posts, refresh auto, cleanup states. Scopes `openid profile email w_member_social r_member_social w_organization_social r_organization_social`.
+  - **UX redirect_uri fix** : endpoint `/preview-redirect-uri` + bandeau ambre `linkedin-redirect-warning` affichant le URI EXACT calculé côté serveur + bouton Copier — évite le mismatch `sawalismartsystems.com` vs preview.
+  - **Auto-post hebdomadaire** (`linkedin_autopost.py`, ~440 LOC) : Claude Sonnet 4.5 génère un post promotionnel chaque semaine. 2 modes — `auto` (publie immédiat) ou `wa_approval` (envoi brouillon WhatsApp → réponse OK/STOP/REGEN). Cron minutely timezone Africa/Abidjan + idempotency guard 60 min. Hashtags fallback si Claude omet.
+  - **Frontend** : `LinkedInSection.jsx` (~600 LOC) — config, connexion pop-up, composer, historique, auto-post hebdo.
+- **Credentials user** : LinkedIn App ID `77rg7lu8v2hd3w` (masked secret).
+- **Tests** : 8 pytest LinkedIn + 7 pytest + 1 skip LLM auto-post.
+
+## S094 — VIDAL Favoris par utilisateur + Copier le code
+- **Demande utilisateur** : 2026-02-26 — « Bouton 📋 Copier le code sur chaque ligne VIDAL + liste Favoris ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24at
+- **Détail** :
+  - **Backend** (`vidal_favorites.py`) : collection `vidal_favorites` unique `(user_id, vidal_id)`. Endpoints `GET/POST/DELETE /api/vidal/favorites`.
+  - **Frontend** (`Vidal.jsx`) : `FavoritesProvider` (Context), `CopyCodeButton` + `FavoriteToggle` sur AtomFeedViewer + ResultTable, nouvel onglet **Favoris** (5e tab) avec Copier + Fiche + Retirer.
+- **Tests** : 3 pytest.
+
+## S093 — Validation TikTok App `sawalismartsystems` : Privacy/TOS + Title exact
+- **Demande utilisateur** : 2026-02-26 — TikTok a rejeté l'app (titre non exact + Privacy/TOS doivent être des URLs séparées).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24as
+- **Détail** :
+  - **Titres exacts** : `<title>sawalismartsystems — SAWALI SMART SYSTEMS Software Engineering</title>` + meta `og:site_name="sawalismartsystems"` + `Home.jsx` `document.title` + `Privacy.jsx` `sawalismartsystems Privacy Policy` + nouvelle page `TermsOfService.jsx` `sawalismartsystems Terms of Service`.
+  - **Routes** : `/privacy-policy` + `/terms-of-service` (+ alias `/privacy` + `/terms`).
+  - **Footer** : liens + « App ID : sawalismartsystems ».
+- **Action utilisateur** : Save to GitHub + redéployer PROD + resoumettre app TikTok.
+
+## S092 — Diagnostic Webhook Meta amélioré + Simulateur pipeline inbound
+- **Demande utilisateur** : 2026-02-26 — « Diagnostic souscription Webhook Meta retournait 'subscribed_apps exception:' sans détail + messages WA entrants de certains utilisateurs ne sont plus reçus + centre messagerie manque des messages traités par l'AI ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
+- **Fix associé** : Iter43-fix24ar
+- **Détail** :
+  - **Token probe préalable** : `GET /me` (cheap) détecte immédiatement un token expiré/invalide (code 190). Court-circuite avec message actionnable « 🔑 Régénérez un System User Token permanent ». Retourne `token_probe.ok`, `http_status`, `raw_response_preview`, `error_type`.
+  - **Bouton Re-souscrire désactivé** si token invalide (tooltip explicatif).
+  - **Simulateur inbound** : `POST /admin/whatsapp/simulate-inbound` synthétise un payload Meta valide et route via le VRAI handler `whatsapp_webhook_incoming`. Vérifie le pipeline `webhook → whatsapp_messages → inbox → notifications` SANS dépendre de Meta. Retourne `inserted`, `webhook_log`, `ai_reply`, `hint`.
+  - **UI** : panneau `WaSimulateInboundPanel` dans Admin Settings.
+- **Tests** : 8 pytest (token 190, exception réseau, 0 apps, config manquante, non-JSON, persistance, diagnostic, validation E.164).
+
+## S091 — Google Calendar OAuth PKCE fix + Test connexion + Health Monitor cron
+- **Demande utilisateur** : 2026-06-17 — Après validation consentement Google : « Aucun refresh_token reçu. (Détail Google : Missing code verifier.) » + besoin d'un bouton pour tester la connexion + monitoring périodique.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06-17)
+- **Fix associé** : Iter43-fix24an + Iter43-fix24ao + Iter43-fix24ap
+- **Détail** :
+  - **PKCE fix** (`google_calendar.py`) : `get_auth_url()` persiste `flow.code_verifier` dans `settings.google_oauth_code_verifier`. `exchange_code()` le lit et l'inclut dans le POST `/token`. Cleanup one-shot après succès. Surface `error_description` Google.
+  - **Test Connexion** : `GET /api/admin/google/test-connection` appelle `gcal.list_upcoming_events(3)` → retourne `{ok, events_count, events, calendar_id}` ou `{ok:false, reason, message, error_type}`. UI : bouton 🧪 « Tester connexion » (visible si connecté).
+  - **Health Monitor cron 4h** : `_scheduled_integration_health` (à *:35 Africa/Abidjan) teste GCal + Meta Webhook subscribed_apps. Persiste dans `integration_health_checks`. Alerte WhatsApp au `integration_health_alert_wa_phone` avec throttle 12h. Endpoints `/admin/integrations/health-check` + `/history`.
+  - **UI** : `IntegrationHealthSection.jsx` — bouton « Lancer un check », toggle alertes, historique 10 derniers.
+- **Tests** : 3 pytest PKCE + 3 pytest test-connection + 5 pytest health monitor.
+
+## S090 — `!garde` footer/image/URL site + Code produit VIDAL entre parenthèses + Images par commande WA
+- **Demande utilisateur** : 2026-06-17 — « Bouton `!garde` doit afficher footer + URL site + image capture » + « Code produit VIDAL absent des résultats WhatsApp/UI » + « Image ne doit plus être jointe à toutes les commandes WhatsApp ».
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-06-17)
+- **Fix associé** : Iter43-fix24al + Iter43-fix24am + Iter43-fix24aq
+- **Détail** :
+  - **`!garde` footer/URL/image** : `_build_garde_reply` lit `garde_reply_footer` + `garde_reply_site_url` + URL toujours ajoutée. Helper `_wa_send_image` (2ème message type=image) accepte URL HTTPS OU base64. 4 nouveaux settings `garde_reply_footer/site_url/image_url/image_caption`.
+  - **VIDAL parser robuste** : `_parseAtomEntries` avec 4 stratégies en cascade (`getElementsByTagName("vidal:id")` → localName scan → URN digits → regex outerHTML). Affichage code entre parens **uniquement si numérique**.
+  - **WA VIDAL results** : `_format_vidal_data_for_wa` extrait `(title, vidal_id)` par entry via regex. Affichage `1. DOLIPRANE 100 mg pdre p sol buv en sachet-dose (*5485*)`.
+  - **Images WA per-command** : dispatcher reconnaît `wa_cmd_<id>_image_url` (override), `wa_default_cmd_image_url` (défaut), `garde_reply_image_url` (legacy compat). Priorité per-command > legacy garde > default. `SettingsUpdate` en `extra="allow"` (Pydantic v2).
+  - **UI** : `WaCommandImagesSection.jsx` (Admin Settings S058f) — image par défaut + image spécifique par commande (auto-listée depuis `/admin/vidal/actions` + 4 builtins). Badge « ✓ configurée » par override.
+- **Tests** : 7 pytest backend + 6 jest frontend (parser multi-stratégies).
+
+
+
 ## S089 — VIDAL Webhook Proxy (mode passerelle bidirectionnel)
 - **Demande utilisateur** : 2026-02-26 — « Toutes les requêtes VIDAL (même celles reçues de Liluvine) exécutent un webhook paramétrable en POST et retournent un JSON résultat. La requête POST envoie à une URL externe (sortant) un JSON dont le body contient l'URL exécutée par la requête (POST/GET) et reçoit sur un webhook dédié (entrant) la réponse JSON de ce Webhook externe. »
 - **Choix utilisateur** :

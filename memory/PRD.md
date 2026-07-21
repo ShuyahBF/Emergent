@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-q (2026-07-22) — Refactor Phase A : Extraction WhatsApp helpers + SUGGESTIONS.md à jour ✅
+
+**Tâche 1 — SUGGESTIONS.md** : Ajout de 12 nouvelles entrées **S090 → S102** couvrant toutes les livraisons depuis février 2026 (`!garde` footer/image, GCal OAuth PKCE, webhook diag Meta, TikTok privacy S087, VIDAL favoris, LinkedIn OAuth+autopost, Twitter/Facebook, Officines geocoding, GCal Watch, cross-tenant leak fix, Planning SSE+rappels, Liluvine Reactions v1+v2). 96 entrées totales dans le registre. Endpoint `/admin/suggestions-registry` retourne désormais le fichier à jour (126 KB).
+
+**Tâche 2 — Refactor server.py Phase A** :
+- Nouveau module `/app/backend/routes/whatsapp_helpers.py` (~520 LOC) contenant 11 helpers WhatsApp extraits :
+  - **Purs (import direct)** : `_normalize_wa_phone`, `_wa_kind_for_mime`, `_wa_window_open`, `_wa_apply_image_watermark_qr`
+  - **DB-bound (factory `attach_whatsapp_helpers`)** : `_wa_send_template`, `_wa_send_text`, `_wa_send_media`, `_wa_download_inbound_media`, `_wa_transcribe_audio_file`, `_wa_compute_reply_window`, `_wa_last_inbound_iso`
+- Factory injecte `db`, `WA_GRAPH_VERSION`, `WA_MEDIA_MAX_BYTES`, `UPLOAD_DIR`, `_uuid`, `_now` — zéro changement de comportement.
+- Bindings sur module globals de `server.py` (`_wa_send_text = _wa_helpers["_wa_send_text"]` etc.) → toutes les callers existantes fonctionnent sans modification.
+- **server.py réduit de 24 604 → 24 092 lignes (−512 lignes soit −2.1%)**.
+- Log de démarrage : `[whatsapp_helpers] attached (fix24az-q)`.
+
+**Tests** :
+- 6 nouveaux pytest (`test_iter43_fix24az_q_wa_helpers_refactor.py`) : pureté helpers, boundaries fenêtre 24h, factory retourne bien 7 coroutines, `server.py` re-export vérifié.
+- Régression : **70/70 pytest PASS** (validation cross-tenant 18 + reactions o 13 + reactions p 11 + dedup 3 + refactor q 6 + garde footer 7 + vidal id 6 + health monitor 6).
+- Curl sanity check : `/api/me/whatsapp/templates` OK, `/api/admin/liluvine/reactions-templates` OK, webhook verify 400 (attendu sans bon token).
+
+**Phase B non-effectuée** (sur choix utilisateur) : extraction des routes FastAPI WhatsApp (`/api/whatsapp/webhook`, `/api/me/whatsapp/*`, `/api/admin/whatsapp/*`) reste dans `server.py` — à faire dans une itération ultérieure.
+
+
+
+
 ## Iter43-fix24az-p (2026-07-22) — Liluvine Extended : Native Media + Timeline + CSV Bulk + Auto-suggest + TikTok Privacy ✅
 
 ### Features livrées (45/45 backend pytest + 100% frontend UI validé par testing_agent iteration_85)

@@ -24219,6 +24219,18 @@ _planning_helpers = _attach_planning(
 )
 _run_planning_wa_reminders = _planning_helpers["run_planning_wa_reminders"]
 
+# Iter43-fix24az-o (2026-07-21) — Liluvine Reactions (fuzzy commands + ad templates + auto-contact)
+from routes.liluvine_reactions import attach_liluvine_reactions_routes as _attach_liluvine_reactions  # noqa: E402
+_liluvine_reactions_helpers = _attach_liluvine_reactions(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    _is_super_admin=_is_super_admin,
+    _resolve_visible_client_ids=_resolve_visible_client_ids,
+)
+# Expose globalement pour que autoreply_to_inbound puisse les appeler
+LILUVINE_REACTIONS_HELPERS = _liluvine_reactions_helpers
+
 # Iter38r-fix9c — Liluvine PRO Knowledge Base
 from routes.liluvine_kb import setup_liluvine_kb_routes as _setup_liluvine_kb_routes  # noqa: E402
 _setup_liluvine_kb_routes(app=api, db=db, get_current_user=get_current_user)

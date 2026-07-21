@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { phonePlaceholder } from "@/lib/tenantMeta";
 import PayrollWebhooksSection from "@/pages/admin/sections/PayrollWebhooksSection";
 import PlanningWebhookSection from "@/pages/admin/sections/PlanningWebhookSection";
+import LiluvineReactionsSection from "@/pages/admin/sections/LiluvineReactionsSection";
 import MetaConfigSection from "@/pages/admin/sections/MetaConfigSection";
 import WeatherWidgetSection from "@/pages/admin/sections/WeatherWidgetSection";
 import LiluvineWaAutoreplySection from "@/pages/admin/sections/LiluvineWaAutoreplySection";
@@ -759,6 +760,9 @@ export default function AdminSettings() {
       </Filterable>
       <Filterable title="Webhook Planning consultations (RDV patients)" anchorId="s-webhook-planning">
         <PlanningWebhookSection />
+      </Filterable>
+      <Filterable title="Liluvine Reactions & Ad Auto-Replies (fuzzy commands, templates FB)" anchorId="s-liluvine-reactions">
+        <LiluvineReactionsSection />
       </Filterable>
       <Filterable title="Intégration Meta (Facebook / Messenger / Ads)" anchorId="s-integration-meta">
         <MetaConfigSection />

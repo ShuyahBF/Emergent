@@ -154,6 +154,73 @@ async def autoreply_to_inbound(
     # Skip if the message is a Liluvine remote command (! / / prefix already handled)
     # EXCEPT for the public commands `!Garde` and `!Meteo`/`!Météo` (handled below).
     cmd_lower = text.lower()
+
+    # Iter43-fix24az-o (2026-07-21) — Liluvine Reactions integration :
+    # PRIORITÉ 1 : match d'un template Ad configuré → répondre + compter.
+    # PRIORITÉ 2 : `!reactions` command → afficher les stats.
+    # PRIORITÉ 3 : Fuzzy command detection (ex: "pharmacies de garde" → `!garde`).
+    # PRIORITÉ 4 : Auto-add nouveau contact au groupe par défaut.
+    from_num = inbound_doc.get("from") or ""
+    try:
+        import server as _server_module
+        reactions_helpers = getattr(_server_module, "LILUVINE_REACTIONS_HELPERS", None) or {}
+    except Exception:  # noqa: BLE001
+        reactions_helpers = {}
+
+    # Auto-add nouveau contact (silencieux, en tâche annexe)
+    if reactions_helpers.get("auto_add_new_contact_if_enabled"):
+        try:
+            await reactions_helpers["auto_add_new_contact_if_enabled"](
+                phone_digits,
+                inbound_doc.get("from_profile_name") or inbound_doc.get("contact_name"),
+                inbound_doc.get("client_id"),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[wa_autoreply] auto_add_contact failed: %s", exc)
+
+    # !reactions — commande spéciale : stats Liluvine Reactions
+    if cmd_lower.startswith("!reactions") or cmd_lower.startswith("!réactions"):
+        if reactions_helpers.get("build_reactions_summary_reply"):
+            summary = await reactions_helpers["build_reactions_summary_reply"]()
+            try:
+                await wa_send_text(from_num, summary)
+                return {"ok": True, "command": "!reactions", "reply": summary[:120]}
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[wa_autoreply] !reactions send failed: %s", exc)
+
+    # Ad template match (message issu de FB Ads pré-défini par l'annonceur)
+    if reactions_helpers.get("try_reply_ad_template"):
+        try:
+            match = await reactions_helpers["try_reply_ad_template"](text, wa_send_text, from_num)
+            if match and match.get("sent"):
+                return {
+                    "ok": True,
+                    "command": f"ad_template:{match['template'].get('id', '')[:8]}",
+                    "reply": (match["template"].get("response_text") or "")[:120],
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[wa_autoreply] ad_template match failed: %s", exc)
+
+    # Fuzzy command detection (texte sans !, ou avec faute de frappe)
+    if reactions_helpers.get("try_fuzzy_command_correction") and not text.startswith("!"):
+        try:
+            fuzzy = await reactions_helpers["try_fuzzy_command_correction"](text)
+            if fuzzy and fuzzy.get("cmd"):
+                # Réécrit le texte en `!cmd` pour que le dispatcher standard réponde
+                # Envoie D'ABORD le message de correction, puis laisse le flux normal
+                # exécuter la commande.
+                correction = fuzzy.get("correction_prefix") or ""
+                if correction:
+                    try:
+                        await wa_send_text(from_num, correction)
+                    except Exception:  # noqa: BLE001
+                        pass
+                text = f"!{fuzzy['cmd']}"
+                cmd_lower = text.lower()
+                logger.info("[wa_autoreply] fuzzy corrected to %s (score=%.1f)", text, fuzzy.get("score", 0))
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("[wa_autoreply] fuzzy correction failed: %s", exc)
+
     is_public_cmd = (
         cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie")
         or cmd_lower.startswith("!meteo") or cmd_lower.startswith("!météo")

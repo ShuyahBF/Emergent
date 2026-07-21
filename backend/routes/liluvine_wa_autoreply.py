@@ -864,6 +864,7 @@ async def _build_garde_reply(db) -> str:
         period_end = date.fromisocalendar(year, week, 7)
     # Récupère le planning pour cette semaine
     entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
+    assist_group = None
     if not entry:
         # Calcule la rotation auto
         groups_set: set = set()
@@ -880,6 +881,8 @@ async def _build_garde_reply(db) -> str:
         gg = groups[(week - 1) % len(groups)]
     else:
         gg = entry.get("groupe_garde")
+        # Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo
+        assist_group = entry.get("assist_group")
     # Liste des officines (status != suspended)
     officines: List[Dict[str, Any]] = []
     async for o in db.officines.find(
@@ -889,6 +892,16 @@ async def _build_garde_reply(db) -> str:
          "latitude": 1, "longitude": 1, "contact_name": 1, "email": 1},
     ).sort("name", 1):
         officines.append(o)
+    # Iter43-fix24az-r — Officines du groupe d'assistance (si défini et distinct)
+    assist_officines: List[Dict[str, Any]] = []
+    if assist_group is not None and assist_group != gg:
+        async for o in db.officines.find(
+            {"groupe_garde": assist_group, "status": {"$ne": "suspended"}},
+            {"_id": 0, "name": 1, "intitule": 1, "phone": 1, "whatsapp": 1,
+             "address": 1, "city": 1, "location_hint": 1,
+             "latitude": 1, "longitude": 1, "contact_name": 1, "email": 1},
+        ).sort("name", 1):
+            assist_officines.append(o)
     try:
         monday = period_start.strftime("%d/%m")
         sunday = period_end.strftime("%d/%m")
@@ -916,6 +929,23 @@ async def _build_garde_reply(db) -> str:
                 lines.append(rendered)
         if len(officines) > 25:
             lines.append(f"\n_…et {len(officines) - 25} autre(s) — liste complète sur le site_")
+    # Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo en italique
+    # (nouvelle réglementation : chaque semaine un groupe standard est appuyé
+    # par un « groupe d'appui » choisi parmi les groupes standards).
+    if assist_officines:
+        lines.append("")
+        lines.append(f"🤝 _Groupe d'appui G{assist_group} — {len(assist_officines)} officine(s) :_")
+        for o in assist_officines[:25]:
+            rendered = _render_garde_officine(template, o)
+            if rendered.strip():
+                # WhatsApp italic wrapping : `_..._`. On enveloppe chaque ligne
+                # rendue (multi-lignes possibles) — on split par ligne et wrap.
+                for sub in rendered.split("\n"):
+                    sub = sub.strip()
+                    if sub:
+                        lines.append(f"_{sub}_")
+        if len(assist_officines) > 25:
+            lines.append(f"_…et {len(assist_officines) - 25} autre(s) officine(s) d'appui._")
     # Iter43-fix24al — Configurable footer (replaces hardcoded "Prompt rétablissement").
     # Also ALWAYS include the site link so contacts can navigate to /garde.
     footer = _render_garde_header(footer_tpl, week=week, year=year, monday=monday,

@@ -4,7 +4,7 @@ import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "l
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin"];
 const TRANSLATOR_LANGS = [
   { code: "en", label: "Anglais (EN)" },
   { code: "ar", label: "Arabe (AR)" },
@@ -35,11 +35,35 @@ export default function AdminTrackedUsers() {
   const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
   const submit = async (e) => {
     e.preventDefault();
+    // Iter43-fix24az-r (2026-07-22) — Bug prod : les EmailStr Pydantic
+    // refusent la chaîne vide "" → 422. On convertit tous les champs
+    // optionnels vides en null AVANT l'envoi.
+    const OPT_STRING_FIELDS = ["email", "phone", "whatsapp_number", "department", "company"];
+    const payload = { ...form };
+    OPT_STRING_FIELDS.forEach((k) => {
+      if (payload[k] === "" || payload[k] === undefined) payload[k] = null;
+    });
+    if (payload.translator_rate_per_word === "" || Number.isNaN(payload.translator_rate_per_word)) {
+      payload.translator_rate_per_word = null;
+    }
     try {
-      if (editing?.id) await apiClient.put(`/admin/tracked-users/${editing.id}`, form);
-      else await apiClient.post("/admin/tracked-users", form);
+      if (editing?.id) await apiClient.put(`/admin/tracked-users/${editing.id}`, payload);
+      else await apiClient.post("/admin/tracked-users", payload);
       toast.success("Enregistré"); close(); await load();
-    } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
+    } catch (err) {
+      // Iter43-fix24az-r — 422 Pydantic renvoie un array `detail`, il faut
+      // le formater pour éviter "[object Object]" ou toast vide.
+      const raw = err?.response?.data?.detail;
+      let msg = "Erreur";
+      if (typeof raw === "string") msg = raw;
+      else if (Array.isArray(raw) && raw.length > 0) {
+        msg = raw.map((e2) => {
+          const path = Array.isArray(e2.loc) ? e2.loc.filter((p) => p !== "body").join(".") : "";
+          return path ? `${path} : ${e2.msg}` : e2.msg;
+        }).join(" · ");
+      }
+      toast.error(msg);
+    }
   };
   const del = async (id) => { if (!window.confirm("Supprimer ?")) return; await apiClient.delete(`/admin/tracked-users/${id}`); await load(); };
   const cName = (id) => clients.find((c) => c.id === id)?.full_name || id;

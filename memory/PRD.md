@@ -13,6 +13,35 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-r (2026-07-22) — Fix prod tracked_user creation + Groupe d'appui hebdo (nouvelle réglementation garde) ✅
+
+### 🐛 Fix Bug Production : Création utilisateur suivi
+**Root cause** : Frontend envoyait `email=""` (chaîne vide) → backend `EmailStr` Pydantic renvoie 422 avec `detail` en **array** (pas string). Le handler d'erreur front affichait `err?.response?.data?.detail || "Erreur"` — vu que `detail` est array truthy, `toast.error(array)` rendait `[object Object]` ou vide. Aucun message clair pour l'utilisateur.
+
+**Fix** :
+- `AdminTrackedUsers.jsx::submit()` : convertit tous les champs optionnels vides `""` → `null` avant POST (`email`, `phone`, `whatsapp_number`, `department`, `company`, `translator_rate_per_word`).
+- Handler d'erreur formatte les 422 (array `detail`) en message lisible : `"email: value is not a valid email address"`.
+- `TRACKED_ROLES` inclut désormais `Médecin` (déjà supporté backend, oubli côté front).
+
+### 🆕 Feature : Groupe d'appui hebdomadaire (assist_group)
+Nouvelle réglementation officines : chaque semaine un groupe standard est appuyé par un **groupe d'appui** choisi parmi les groupes standards.
+
+**Backend** :
+- `garde_planning` doc : nouveau champ `assist_group: Optional[int]`.
+- `PUT /admin/officines-registry/garde-planning/{year}/{week}` accepte désormais `groupe_garde`, `assist_group`, ou les deux. Sanity check : `assist_group != groupe_garde`. Fallback auto : si l'admin définit `assist_group` sans doc existant, le `groupe_garde` auto-calculé est persisté pour éviter un vide.
+- `GET /admin/.../garde-planning` retourne `assist_group` pour chaque semaine.
+- `GET /api/public/officines/garde/current` renvoie désormais `assist_group`, `assist_officines[]`, `assist_count`.
+- `_build_garde_reply` (WhatsApp `!garde`) ajoute après la liste standard une section `🤝 Groupe d'appui G{N} — X officine(s) :` avec chaque officine wrappée en `_..._` (italique WhatsApp).
+
+**Frontend** :
+- `AdminGardePlanning.jsx` : nouvelle colonne **`Assist`** entre GROUPE et STATUT. Dropdown alimenté par la même liste `data.groups` (mais exclut le `groupe_garde` de la semaine courante). Sélection null/"— aucun —" retire l'appui. Handler `overrideAssistGroup(week, newAssist)`.
+- `Garde.jsx` (page publique `/garde`) : nouvelle section `garde-assist-section` (bandeau violet 🤝 avec titre en italique) affichée uniquement si `assist_group` défini + officines >0. Chaque officine d'appui rendue en `italic` avec accents violets pour différencier visuellement du groupe standard.
+
+**Tests** : 10 nouveaux pytest (`test_iter43_fix24az_r_tracked_user_and_assist_group.py`) — bug repro `email=""` → 422, fix `email=null` → 200, rôle Médecin accepté, list planning inclut `assist_group`, set/clear assist, reject assist==standard, reject missing both fields, public endpoint expose assist_officines/count. **68/68 pytest PASS régression cumulée**. Rendering DOM validé screenshot `/garde` — section rendue avec bandeau + 2 officines italique/violet OK.
+
+
+
+
 ## Iter43-fix24az-q (2026-07-22) — Refactor Phase A : Extraction WhatsApp helpers + SUGGESTIONS.md à jour ✅
 
 **Tâche 1 — SUGGESTIONS.md** : Ajout de 12 nouvelles entrées **S090 → S102** couvrant toutes les livraisons depuis février 2026 (`!garde` footer/image, GCal OAuth PKCE, webhook diag Meta, TikTok privacy S087, VIDAL favoris, LinkedIn OAuth+autopost, Twitter/Facebook, Officines geocoding, GCal Watch, cross-tenant leak fix, Planning SSE+rappels, Liluvine Reactions v1+v2). 96 entrées totales dans le registre. Endpoint `/admin/suggestions-registry` retourne désormais le fichier à jour (126 KB).

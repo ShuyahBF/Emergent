@@ -209,6 +209,8 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
                     "year": year,
                     "week_number": w,
                     "groupe_garde": entry.get("groupe_garde"),
+                    # Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo
+                    "assist_group": entry.get("assist_group"),
                     "manual_override": bool(entry.get("manual_override")),
                     "auto_generated": bool(entry.get("auto_generated")),
                     "monday": period_start.isoformat(),
@@ -232,7 +234,9 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
                     suggested = None
                 weeks.append({
                     "year": year, "week_number": w,
-                    "groupe_garde": suggested, "manual_override": False,
+                    "groupe_garde": suggested,
+                    "assist_group": None,  # Iter43-fix24az-r
+                    "manual_override": False,
                     "auto_generated": False, "is_suggestion": True,
                     "monday": period_start.isoformat(), "sunday": period_end.isoformat(),
                     "period_start": period_start.isoformat(),
@@ -335,27 +339,93 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         payload: Dict[str, Any] = Body(...),
         user: dict = Depends(get_current_admin),
     ):
-        """Override manuel d'une semaine spécifique."""
+        """Override manuel d'une semaine spécifique.
+
+        Body accepte :
+          - `groupe_garde` (int) : groupe standard (obligatoire si assist_group absent)
+          - `assist_group` (int|null) : Iter43-fix24az-r — groupe d'assistance
+            qui vient en appui au groupe standard cette semaine. `null` ou
+            `0` désactive l'appui.
+        """
         if year < 2024 or year > 2100:
             raise HTTPException(status_code=400, detail="year hors bornes")
         if week < 1 or week > 53:
             raise HTTPException(status_code=400, detail="week doit être entre 1 et 53")
-        try:
-            gg = int(payload.get("groupe_garde"))
-        except (TypeError, ValueError):
-            raise HTTPException(status_code=400, detail="groupe_garde requis (entier)")
-        if gg < 1 or gg > 100:
-            raise HTTPException(status_code=400, detail="groupe_garde doit être entre 1 et 100")
+
+        set_doc: Dict[str, Any] = {
+            "year": year, "week_number": week,
+            "manual_override": True, "auto_generated": False,
+            "updated_by": user.get("email"), "updated_at": _now_utc(),
+        }
+        # Iter43-fix24az-r — On peut MAJ soit groupe_garde, soit assist_group,
+        # soit les deux. Au moins un des deux doit être fourni.
+        has_gg = "groupe_garde" in payload and payload.get("groupe_garde") is not None
+        has_assist = "assist_group" in payload
+        if not has_gg and not has_assist:
+            raise HTTPException(
+                status_code=400,
+                detail="Fournir au moins `groupe_garde` ou `assist_group` dans le body",
+            )
+        # Charge d'abord l'entrée existante (pour préserver le champ non fourni)
+        existing_doc = await db.garde_planning.find_one(
+            {"year": year, "week_number": week},
+            {"_id": 0, "groupe_garde": 1, "assist_group": 1},
+        ) or {}
+        if has_gg:
+            try:
+                gg = int(payload.get("groupe_garde"))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="groupe_garde requis (entier)")
+            if gg < 1 or gg > 100:
+                raise HTTPException(status_code=400, detail="groupe_garde doit être entre 1 et 100")
+            set_doc["groupe_garde"] = gg
+        elif has_assist and existing_doc.get("groupe_garde") is None:
+            # Iter43-fix24az-r — Cas UX : l'admin veut définir un assist sur
+            # une semaine qui n'a pas encore de doc persistant (rotation auto).
+            # On calcule le groupe standard suggéré et on le persiste pour
+            # ne pas afficher un vide dans la colonne « Groupe ».
+            groups_set: set = set()
+            async for o in db.officines.find({"groupe_garde": {"$nin": [None, ""]}}, {"groupe_garde": 1, "_id": 0}):
+                try:
+                    groups_set.add(int(o["groupe_garde"]))
+                except (TypeError, ValueError):
+                    continue
+            if groups_set:
+                sorted_g = sorted(groups_set)
+                # rotation séquentielle basique (week - 1) % n
+                set_doc["groupe_garde"] = sorted_g[(week - 1) % len(sorted_g)]
+                set_doc["auto_generated"] = True  # groupe standard = auto, seul assist est manuel
+                set_doc["manual_override"] = False
+        if has_assist:
+            assist_raw = payload.get("assist_group")
+            if assist_raw is None or assist_raw == "" or assist_raw == 0:
+                set_doc["assist_group"] = None
+            else:
+                try:
+                    ag = int(assist_raw)
+                except (TypeError, ValueError):
+                    raise HTTPException(status_code=400, detail="assist_group doit être un entier ou null")
+                if ag < 1 or ag > 100:
+                    raise HTTPException(status_code=400, detail="assist_group doit être entre 1 et 100")
+                # Sanity check : l'assist ne doit pas être le même que le groupe standard
+                gg_current = set_doc.get("groupe_garde", existing_doc.get("groupe_garde"))
+                if gg_current is not None and ag == gg_current:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Le groupe d'assistance ({ag}) ne peut pas être identique au groupe standard ({gg_current})",
+                    )
+                set_doc["assist_group"] = ag
         await db.garde_planning.update_one(
             {"year": year, "week_number": week},
-            {"$set": {
-                "year": year, "week_number": week, "groupe_garde": gg,
-                "manual_override": True, "auto_generated": False,
-                "updated_by": user.get("email"), "updated_at": _now_utc(),
-            }},
+            {"$set": set_doc},
             upsert=True,
         )
-        return {"ok": True, "year": year, "week_number": week, "groupe_garde": gg, "manual_override": True}
+        # Renvoie l'entrée complète (pour que le front puisse rafraîchir la ligne)
+        doc = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
+        return {"ok": True, "year": year, "week_number": week,
+                "groupe_garde": doc.get("groupe_garde") if doc else None,
+                "assist_group": doc.get("assist_group") if doc else None,
+                "manual_override": True}
 
     @api.delete("/admin/officines-registry/garde-planning/year/{year}", tags=["Admin — Officines Registry"])
     async def reset_garde_year(
@@ -433,6 +503,7 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
         """
         year, week, _mode = await _current_garde_week(db, now=_now_utc())
         entry = await db.garde_planning.find_one({"year": year, "week_number": week}, {"_id": 0})
+        assist_group: Optional[int] = None
         if not entry:
             # Pas de planning → on calcule la rotation automatique
             groups_set: set = set()
@@ -447,6 +518,7 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             gg = groups[(week - 1) % len(groups)]
         else:
             gg = entry.get("groupe_garde")
+            assist_group = entry.get("assist_group")  # Iter43-fix24az-r
         # Officines de ce groupe (status != suspended)
         officines: List[Dict[str, Any]] = []
         async for o in db.officines.find(
@@ -456,6 +528,16 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
              "latitude": 1, "longitude": 1},
         ).sort("name", 1):
             officines.append(o)
+        # Iter43-fix24az-r — Officines du groupe d'assistance (si défini)
+        assist_officines: List[Dict[str, Any]] = []
+        if assist_group is not None and assist_group != gg:
+            async for o in db.officines.find(
+                {"groupe_garde": assist_group, "status": {"$ne": "suspended"}},
+                {"_id": 0, "id": 1, "name": 1, "intitule": 1, "phone": 1,
+                 "whatsapp": 1, "address": 1, "city": 1, "location_hint": 1,
+                 "latitude": 1, "longitude": 1},
+            ).sort("name", 1):
+                assist_officines.append(o)
         # Iter43-fix24az-e — Use ACTUAL guard period boundaries (Sat→Sat in
         # saturday_noon mode), not ISO Monday/Sunday — fixes the !Garde dates.
         period_start, period_end = _period_dates_for_week(year, week, _mode)
@@ -471,6 +553,10 @@ def setup_garde_planning_routes(*, db, api, get_current_admin):
             "ok": True,
             "year": year, "week_number": week,
             "groupe_garde": gg,
+            # Iter43-fix24az-r — Groupe d'assistance hebdomadaire (nullable)
+            "assist_group": assist_group,
+            "assist_officines": assist_officines,
+            "assist_count": len(assist_officines),
             "monday": monday, "sunday": sunday,
             # Iter43-fix24az-e — Explicit period boundaries (Sat→Sat under
             # saturday_noon, Mon→Sun under monday_midnight). Same values as

@@ -65,6 +65,19 @@ export default function GardePage() {
     );
   });
 
+  // Iter43-fix24az-r (2026-07-22) — Officines du groupe d'appui hebdo (italique)
+  const assistItems = (data?.assist_officines || []).filter((o) => {
+    if (!search.trim()) return true;
+    const q = search.toLowerCase();
+    return (
+      (o.name || "").toLowerCase().includes(q)
+      || (o.intitule || "").toLowerCase().includes(q)
+      || (o.address || "").toLowerCase().includes(q)
+      || (o.city || "").toLowerCase().includes(q)
+      || (o.location_hint || "").toLowerCase().includes(q)
+    );
+  });
+
   const range = data?.ok ? formatDateRange(data.monday, data.sunday) : "";
 
   return (
@@ -193,6 +206,82 @@ export default function GardePage() {
             </li>
           ))}
         </ul>
+      )}
+
+      {/* Iter43-fix24az-r (2026-07-22) — Groupe d'appui hebdomadaire (italique + violet) */}
+      {!loading && data?.ok && data.assist_group && assistItems.length > 0 && (
+        <section className="mt-10" data-testid="garde-assist-section">
+          <div className="rounded-xl ring-1 ring-purple-400/30 bg-purple-500/10 p-4 mb-4 flex items-start gap-3">
+            <div className="text-2xl shrink-0">🤝</div>
+            <div className="min-w-0">
+              <h2 className="text-lg font-display font-semibold text-purple-200 italic">
+                Groupe d&apos;appui — Groupe {data.assist_group}
+              </h2>
+              <p className="text-xs text-purple-300/80 mt-1 italic">
+                Cette semaine, {data.assist_count} officine(s) du groupe {data.assist_group} viennent en appui au groupe standard.
+              </p>
+            </div>
+          </div>
+          <ul className="grid sm:grid-cols-2 gap-4" data-testid="garde-assist-list">
+            {assistItems.map((o) => (
+              <li
+                key={`assist-${o.id}`}
+                className="group rounded-xl ring-1 ring-purple-400/20 bg-purple-500/5 hover:bg-purple-500/10 hover:ring-purple-300/40 p-5 transition italic"
+                data-testid={`garde-assist-officine-${o.id}`}
+              >
+                <div className="flex items-start gap-3">
+                  <img
+                    src={`/api/officines-registry/${o.id}/logo`}
+                    alt=""
+                    className="h-12 w-12 rounded-lg object-contain bg-white/10 ring-1 ring-white/10"
+                    onError={(e) => { e.currentTarget.style.display = "none"; }}
+                    loading="lazy"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-display font-semibold text-purple-100 text-base group-hover:text-purple-50 truncate italic">
+                      {o.name}
+                    </h3>
+                    {o.intitule && o.intitule !== o.name && (
+                      <p className="text-xs text-purple-300/80 italic truncate">{o.intitule}</p>
+                    )}
+                    <div className="mt-2 space-y-1 text-sm">
+                      {(o.location_hint || o.address) && (
+                        <p className="flex items-start gap-1.5 text-purple-200/90 italic">
+                          <MapPin className="h-3.5 w-3.5 mt-0.5 text-purple-300 shrink-0" />
+                          <span className="truncate">
+                            {o.location_hint || o.address}
+                            {o.city ? <span className="text-purple-400/80">, {o.city}</span> : null}
+                          </span>
+                        </p>
+                      )}
+                      <div className="flex flex-wrap items-center gap-2 mt-2 not-italic">
+                        {o.phone && (
+                          <a
+                            href={`tel:${o.phone.replace(/\s/g, "")}`}
+                            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-purple-500/25 text-purple-200 hover:bg-purple-500/40 ring-1 ring-purple-400/40"
+                            data-testid={`garde-assist-call-${o.id}`}
+                          >
+                            <Phone className="h-3 w-3" /> {o.phone}
+                          </a>
+                        )}
+                        {o.whatsapp && (
+                          <a
+                            href={`https://wa.me/${o.whatsapp.replace(/\D/g, "")}`}
+                            target="_blank" rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs px-2 py-1 rounded-full bg-purple-600/30 text-purple-100 hover:bg-purple-600/50 ring-1 ring-purple-500/40"
+                            data-testid={`garde-assist-wa-${o.id}`}
+                          >
+                            <MessageCircle className="h-3 w-3" /> WhatsApp
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       <div className="mt-8 flex items-center justify-between text-xs text-slate-500">

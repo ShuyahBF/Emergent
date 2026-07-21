@@ -83,6 +83,22 @@ export default function AdminGardePlanning() {
     }
   };
 
+  // Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo. Sélection null/"" désactive l'appui.
+  const overrideAssistGroup = async (week, newAssist) => {
+    try {
+      const payload = { assist_group: newAssist === "" || newAssist == null ? null : Number(newAssist) };
+      await apiClient.put(`/admin/officines-registry/garde-planning/${year}/${week}`, payload);
+      if (payload.assist_group === null) {
+        toast.success(`Semaine ${week} : groupe d'appui retiré`);
+      } else {
+        toast.success(`Semaine ${week} : Groupe ${payload.assist_group} désigné comme appui`);
+      }
+      await load();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Échec — groupe d'appui invalide");
+    }
+  };
+
   const resetWeek = async (week) => {
     if (!window.confirm(`Réinitialiser la semaine ${week} en mode automatique ?`)) return;
     try {
@@ -209,6 +225,9 @@ export default function AdminGardePlanning() {
               <th className="text-left px-3 py-2">Début</th>
               <th className="text-left px-3 py-2">Fin</th>
               <th className="text-left px-3 py-2">Groupe</th>
+              <th className="text-left px-3 py-2" title="Groupe d'appui (venir en appui au groupe standard cette semaine)">
+                Assist
+              </th>
               <th className="text-left px-3 py-2">Statut</th>
               <th className="text-right px-3 py-2">Actions</th>
             </tr>
@@ -237,6 +256,25 @@ export default function AdminGardePlanning() {
                       </select>
                     ) : (
                       <span className="text-slate-400">—</span>
+                    )}
+                  </td>
+                  {/* Iter43-fix24az-r — Colonne ASSIST : groupe d'appui hebdomadaire */}
+                  <td className="px-3 py-2">
+                    {data.groups?.length > 1 ? (
+                      <select value={w.assist_group ?? ""}
+                              onChange={(e) => overrideAssistGroup(w.week_number, e.target.value)}
+                              className={`rounded border px-2 py-1 text-sm ${w.assist_group ? "border-purple-500 bg-purple-50 italic font-semibold text-purple-800" : "border-slate-200 bg-slate-50 text-slate-500"}`}
+                              data-testid={`garde-week-${w.week_number}-assist-select`}
+                              title="Groupe d'appui pour cette semaine (facultatif). Ne peut pas être identique au groupe standard.">
+                        <option value="">— aucun —</option>
+                        {data.groups
+                          .filter((g) => g !== w.groupe_garde)
+                          .map((g) => <option key={g} value={g}>Groupe {g}</option>)}
+                      </select>
+                    ) : (
+                      <span className="text-slate-400 text-xs italic" title="Il faut au moins 2 groupes pour désigner un appui">
+                        {data.groups?.length === 1 ? "1 seul groupe" : "—"}
+                      </span>
                     )}
                   </td>
                   <td className="px-3 py-2">

@@ -136,6 +136,67 @@ def _wa_neutralize_underscores(text: str) -> str:
     return out
 
 
+# ---------------------------------------------------------------------------
+# Iter43-fix24az-v (2026-07-22) — WhatsApp text length safety net.
+#
+# The WhatsApp Cloud API hard-caps text body at 4096 characters. Payloads
+# larger than that are silently rejected (the API returns 200 OK but the
+# user's phone shows a blank message). This has caused the `!garde` command
+# to fail in production when the on-duty list grew past ~30 officines.
+#
+# Fix : split any outbound text > _WA_TEXT_MAX (3800, safe margin under 4096)
+# into multiple sequential messages. Split preferentially at :
+#   1) explicit hint markers `_WA_SPLIT_HINT` inserted by the caller (semantic)
+#   2) paragraph breaks `\n\n`
+#   3) line breaks `\n`
+#   4) hard cut at max_len (last resort)
+# ---------------------------------------------------------------------------
+_WA_TEXT_MAX = 3800  # keep safe margin under Meta's 4096 hard limit
+# Invisible unicode separator used as a "prefer split here" hint. Callers
+# that build long lists (garde, produits, ...) can insert this between
+# semantic sections so the auto-splitter breaks at the right place.
+_WA_SPLIT_HINT = "\u2063\u2063"  # U+2063 = INVISIBLE SEPARATOR
+
+
+def _wa_split_long_text(text: str, max_len: int = _WA_TEXT_MAX) -> List[str]:
+    """Split a long WhatsApp text into safe chunks (<= max_len chars each).
+
+    Returns a list with a single element when the text already fits. Splits
+    are attempted at semantic boundaries (explicit hint > `\\n\\n` > `\\n`)
+    before falling back to a hard character cut.
+    """
+    if not text:
+        return [""]
+    if len(text) <= max_len:
+        return [text]
+    # 1) Explicit semantic hint (preferred)
+    if _WA_SPLIT_HINT in text:
+        pieces = text.split(_WA_SPLIT_HINT)
+        out: List[str] = []
+        for p in pieces:
+            out.extend(_wa_split_long_text(p, max_len))
+        return [c for c in out if c.strip()]
+    # 2 → 4) Iterative split at natural boundaries.
+    chunks: List[str] = []
+    remaining = text
+    while len(remaining) > max_len:
+        # Try paragraph break first.
+        cut = remaining.rfind("\n\n", 0, max_len)
+        if cut < max_len // 3:
+            # Try single newline.
+            cut = remaining.rfind("\n", 0, max_len)
+        if cut < max_len // 4:
+            # Last resort — hard cut at max_len.
+            cut = max_len
+        chunk = remaining[:cut].rstrip()
+        if chunk:
+            chunks.append(chunk)
+        remaining = remaining[cut:].lstrip()
+    if remaining:
+        chunks.append(remaining)
+    return chunks
+
+
 def _wa_apply_image_watermark_qr(
     src_path: Path,
     *,
@@ -288,7 +349,15 @@ def attach_whatsapp_helpers(
         reply_to_message_id: Optional[str] = None,
     ) -> dict:
         """Send a free-form WhatsApp text message (Cloud API type=text).
-        Caller must verify the 24h customer-service window before invocation."""
+        Caller must verify the 24h customer-service window before invocation.
+
+        Iter43-fix24az-v (2026-07-22) — Auto-splits texts longer than
+        `_WA_TEXT_MAX` (3800 chars) into multiple sequential messages so
+        Meta's 4096-char cap never silently drops the payload. Only the FIRST
+        chunk carries `reply_to_message_id` (context.message_id). Logs an
+        explicit warning if the API returns `null` for `messages[0].id`
+        (typical symptom of a length/format rejection).
+        """
         s = await db.settings.find_one({"_id": "global"}) or {}
         access_token = s.get("wa_access_token")
         phone_number_id = s.get("wa_phone_number_id")
@@ -298,45 +367,102 @@ def attach_whatsapp_helpers(
         if len(to_clean) < 6:
             return {"ok": False, "status": None, "message_id": None,
                     "error": f"Numéro invalide « {to_e164} » — il doit contenir un indicatif pays", "raw": None}
-        body: Dict[str, Any] = {
-            "messaging_product": "whatsapp",
-            "to": to_clean,
-            "type": "text",
-            # Iter43-fix24az-u — Neutralize underscores in identifiers so
-            # the WhatsApp mobile client's italic parser doesn't render the
-            # message blank.
-            "text": {"body": _wa_neutralize_underscores(text or ""), "preview_url": True},
-        }
-        if reply_to_message_id:
-            body["context"] = {"message_id": reply_to_message_id}
+        # Neutralise underscores once (before splitting so ZWSP is preserved).
+        neutralised = _wa_neutralize_underscores(text or "")
+        chunks = _wa_split_long_text(neutralised)
+        total = len(chunks)
+        if total > 1:
+            logger.info(
+                "[wa_send_text] auto-splitting long text (%d chars) into %d chunks for %s",
+                len(neutralised), total, to_clean,
+            )
         url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/messages"
-        try:
-            async with httpx.AsyncClient(timeout=12) as http:
-                r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
-                try:
-                    raw = r.json()
-                except Exception:
-                    raw = {"text": r.text[:2000]}
-                if r.status_code < 300:
-                    mid = None
-                    if isinstance(raw, dict) and raw.get("messages"):
-                        mid = raw["messages"][0].get("id")
-                    return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
-                err_msg = None
-                err_code = None
-                if isinstance(raw, dict):
-                    err_obj = raw.get("error") or {}
-                    err_msg = err_obj.get("message") or str(raw)[:500]
-                    err_code = err_obj.get("code")
-                    details = (err_obj.get("error_data") or {}).get("details")
-                    if details:
-                        err_msg = f"{err_msg} — {details}"
-                return {"ok": False, "status": r.status_code, "message_id": None,
-                        "error": err_msg or f"HTTP {r.status_code}", "error_code": err_code, "raw": raw}
-        except httpx.TimeoutException:
-            return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
-        except Exception as exc:  # noqa: BLE001
-            return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
+        headers = {"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"}
+        message_ids: List[Optional[str]] = []
+        last_raw: Any = None
+        last_status: Optional[int] = None
+        first_error: Optional[str] = None
+        first_error_code: Any = None
+        parts_failed = 0
+        for idx, chunk in enumerate(chunks, start=1):
+            body: Dict[str, Any] = {
+                "messaging_product": "whatsapp",
+                "to": to_clean,
+                "type": "text",
+                "text": {"body": chunk, "preview_url": True},
+            }
+            # Only the first chunk carries the reply-to context.
+            if idx == 1 and reply_to_message_id:
+                body["context"] = {"message_id": reply_to_message_id}
+            try:
+                async with httpx.AsyncClient(timeout=12) as http:
+                    r = await http.post(url, json=body, headers=headers)
+                    try:
+                        raw = r.json()
+                    except Exception:
+                        raw = {"text": r.text[:2000]}
+                    last_raw = raw
+                    last_status = r.status_code
+                    if r.status_code < 300:
+                        mid = None
+                        if isinstance(raw, dict) and raw.get("messages"):
+                            mid = raw["messages"][0].get("id")
+                        message_ids.append(mid)
+                        if mid is None:
+                            # Guardrail : Meta returned 2xx but no message id →
+                            # likely a length/format rejection (silent drop).
+                            logger.warning(
+                                "[wa_send_text] WhatsApp API returned 2xx but no message_id "
+                                "(chunk %d/%d, %d chars, to=%s) — possible length/format rejection. Raw=%s",
+                                idx, total, len(chunk), to_clean, str(raw)[:400],
+                            )
+                    else:
+                        parts_failed += 1
+                        message_ids.append(None)
+                        err_msg = None
+                        err_code = None
+                        if isinstance(raw, dict):
+                            err_obj = raw.get("error") or {}
+                            err_msg = err_obj.get("message") or str(raw)[:500]
+                            err_code = err_obj.get("code")
+                            details = (err_obj.get("error_data") or {}).get("details")
+                            if details:
+                                err_msg = f"{err_msg} — {details}"
+                        logger.warning(
+                            "[wa_send_text] HTTP %s on chunk %d/%d (to=%s): %s",
+                            r.status_code, idx, total, to_clean, err_msg,
+                        )
+                        if first_error is None:
+                            first_error = err_msg or f"HTTP {r.status_code}"
+                            first_error_code = err_code
+            except httpx.TimeoutException:
+                parts_failed += 1
+                message_ids.append(None)
+                if first_error is None:
+                    first_error = "Timeout"
+                logger.warning("[wa_send_text] timeout on chunk %d/%d (to=%s)", idx, total, to_clean)
+            except Exception as exc:  # noqa: BLE001
+                parts_failed += 1
+                message_ids.append(None)
+                if first_error is None:
+                    first_error = str(exc)[:500]
+                logger.warning("[wa_send_text] exception on chunk %d/%d (to=%s): %s", idx, total, to_clean, exc)
+        # Aggregate result. `message_id` = first non-null id (back-compat with
+        # single-message callers). `message_ids` = full list including nulls.
+        first_mid = next((m for m in message_ids if m), None)
+        all_ok = parts_failed == 0 and first_mid is not None
+        return {
+            "ok": all_ok,
+            "status": last_status,
+            "message_id": first_mid,
+            "message_ids": message_ids,
+            "parts_sent": total - parts_failed,
+            "parts_failed": parts_failed,
+            "parts_total": total,
+            "error": first_error,
+            "error_code": first_error_code,
+            "raw": last_raw,
+        }
 
     async def _wa_send_media(
         to_e164: str,
@@ -599,7 +725,7 @@ def attach_whatsapp_helpers(
             return None
         return doc.get("received_at") or doc.get("created_at")
 
-    logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe)")
+    logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe + fix24az-v auto-split)")
     return {
         "_wa_send_template": _wa_send_template,
         "_wa_send_text": _wa_send_text,
@@ -609,4 +735,7 @@ def attach_whatsapp_helpers(
         "_wa_compute_reply_window": _wa_compute_reply_window,
         "_wa_last_inbound_iso": _wa_last_inbound_iso,
         "_wa_neutralize_underscores": _wa_neutralize_underscores,
+        "_wa_split_long_text": _wa_split_long_text,
+        "_WA_SPLIT_HINT": _WA_SPLIT_HINT,
+        "_WA_TEXT_MAX": _WA_TEXT_MAX,
     }

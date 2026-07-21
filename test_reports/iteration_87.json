@@ -1,0 +1,37 @@
+{
+  "summary": "Backend-only regression + validation of WhatsApp text auto-split safety net (bug !garde silent-drop >4096 chars). All 22 targeted pytest tests (test_iter43_fix24az_r/t/v) pass. Public + admin garde endpoints and version endpoints unaffected. Discovered 1 stale unit test in test_iter43_fix24az_q that needs its expected-helpers set updated (not a functional regression).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {
+        "endpoint": "tests/test_iter43_fix24az_q_wa_helpers_refactor.py::test_factory_returns_all_helpers",
+        "issue": "Stale assertion: expected set of helper keys returned by attach_whatsapp_helpers() does not include the newly exported keys added by this fix (_WA_SPLIT_HINT, _WA_TEXT_MAX, _wa_split_long_text, _wa_neutralize_underscores). The extra exports are legitimate/desired; the test needs its `expected` set updated (or switched to a subset containment check). Not a runtime bug."
+      }
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_iter43_fix24az_v_wa_text_truncation.py",
+    "/app/backend/tests/test_iter43_fix24az_r_tracked_user_and_assist_group.py",
+    "/app/backend/tests/test_iter43_fix24az_t_deployment_fingerprint.py",
+    "/app/test_reports/pytest/iter87_wa_truncation.xml"
+  ],
+  "action_items": [
+    "Update tests/test_iter43_fix24az_q_wa_helpers_refactor.py::test_factory_returns_all_helpers to include the newly exported helpers (_WA_SPLIT_HINT, _WA_TEXT_MAX, _wa_split_long_text, _wa_neutralize_underscores) OR change to `expected.issubset(set(helpers.keys()))` for forward-compatibility."
+  ],
+  "critical_code_review_comments": [
+    "_wa_split_long_text priority order (hint > \\n\\n > \\n > hard cut) with max_len=3800 leaves comfortable margin below Meta's 4096 hard limit — good defensive design.",
+    "_wa_send_text auto-split correctly only attaches reply_to_message_id to first chunk (avoids Meta reply-thread duplication).",
+    "logger.warning on 2xx-without-message_id is the right telemetry to catch future silent-drop regressions.",
+    "_build_garde_reply's per-section dynamic budget (~3200 chars) + automatic 'liste complète' link fallback via settings.garde_reply_site_url properly bounds worst-case payload even with 100+ officines.",
+    "Consider centralising the WA_TEXT_MAX (3800) and the site_url fallback as module constants documented alongside Meta's 4096 hard limit for future maintainers."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100% on targeted r/t/v suite (22/22); 11/12 on q suite (1 stale assertion)", "frontend": "not tested (backend only)"},
+  "test_credentials": "Admin: admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp) — not needed for these tests (they use direct helper calls + JWT signing).",
+  "seed_data_creation": "No persistent seeds added. Existing tests use isolated fake DB / new_event_loop patterns.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "The WA auto-split feature is validated. Main flow: _wa_send_text() now transparently chunks any text > 3800 chars into sequential Meta sends; _build_garde_reply inserts a \\u2063\\u2063 semantic hint between main/assist officines blocks. Regression endpoints verified live via preview URL: GET /api/health OK, GET /api/version v1.102 deploy_seq=102 OK, GET /api/public/officines/garde/current OK. The single failing test in test_iter43_fix24az_q is a stale set-equality assertion — not a code bug.",
+  "rca of the issue": "Original bug: !garde WhatsApp reply text > 4096 chars was silently dropped by Meta (image still delivered). Fix RCA validated: (a) helper _wa_split_long_text splits before send; (b) _wa_send_text auto-splits on outbound; (c) _build_garde_reply now inserts semantic split hint + auto-appends site link when officines exceed per-section budget. Mitigation is centralised so it protects ALL outbound WA text, not only !garde."
+}

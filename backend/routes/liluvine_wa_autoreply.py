@@ -919,16 +919,36 @@ async def _build_garde_reply(db) -> str:
     site_url = s.get("garde_reply_site_url") or "https://sawalismartsystems.com"
     header = _render_garde_header(header_tpl, week=week, year=year, monday=monday,
                                   sunday=sunday, gg=gg, count=len(officines))
+    # Iter43-fix24az-v (2026-07-22) — Import split hint constant so the
+    # centralised auto-splitter in `_wa_send_text` breaks at the right seam
+    # (between the main officines block and the assist officines block).
+    try:
+        from routes.whatsapp_helpers import _WA_SPLIT_HINT, _WA_TEXT_MAX
+    except Exception:  # noqa: BLE001
+        _WA_SPLIT_HINT = "\u2063\u2063"
+        _WA_TEXT_MAX = 3800
+    # Per-section budget: leave ~600 chars margin for header + footer + link.
+    _section_budget = _WA_TEXT_MAX - 600
     lines = [header, ""]
     if not officines:
         lines.append("_Aucune officine dans ce groupe pour cette semaine._")
     else:
-        for o in officines[:25]:  # WhatsApp ~4096 char limit safety
+        rendered_count = 0
+        current_len = sum(len(l_) + 1 for l_ in lines)
+        for o in officines:
             rendered = _render_garde_officine(template, o)
-            if rendered.strip():
-                lines.append(rendered)
-        if len(officines) > 25:
-            lines.append(f"\n_…et {len(officines) - 25} autre(s) — liste complète sur le site_")
+            if not rendered.strip():
+                continue
+            piece_len = len(rendered) + 1
+            if current_len + piece_len > _section_budget:
+                # Budget reached — append site link and stop.
+                remaining = len(officines) - rendered_count
+                lines.append("")
+                lines.append(f"_…et {remaining} autre(s) officine(s) — liste complète :_ {site_url}/garde")
+                break
+            lines.append(rendered)
+            current_len += piece_len
+            rendered_count += 1
     # Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo en italique
     # (nouvelle réglementation : chaque semaine un groupe standard est appuyé
     # par un « groupe d'appui » choisi parmi les groupes standards).
@@ -940,21 +960,38 @@ async def _build_garde_reply(db) -> str:
     # client. Solution : garder l'italique UNIQUEMENT sur le titre de section
     # (safe, aucun `_` dans le libellé), puis préfixer chaque officine avec
     # `↳ ` pour indiquer visuellement l'appartenance au groupe d'appui.
+    #
+    # Iter43-fix24az-v (2026-07-22) — Insert an INVISIBLE SPLIT HINT before
+    # the assist section so `_wa_send_text` can break the payload into two
+    # sequential WhatsApp messages (main / assist) whenever the combined
+    # length would exceed the 4096-char cap.
     if assist_officines:
         lines.append("")
+        lines.append(_WA_SPLIT_HINT)  # semantic seam for auto-splitter
         lines.append(f"🤝 _Groupe d'appui G{assist_group} — {len(assist_officines)} officine(s) :_")
-        for o in assist_officines[:25]:
+        assist_rendered = 0
+        assist_len = 0
+        for o in assist_officines:
             rendered = _render_garde_officine(template, o)
-            if rendered.strip():
-                # Préfixe la 1re ligne avec `↳ ` et indente les suivantes de 2 espaces
-                # pour un rendu visuel cohérent (comme une continuation).
-                parts = [p for p in rendered.split("\n") if p.strip()]
-                if parts:
-                    lines.append(f"↳ {parts[0].strip()}")
-                    for sub in parts[1:]:
-                        lines.append(f"   {sub.strip()}")
-        if len(assist_officines) > 25:
-            lines.append(f"↳ …et {len(assist_officines) - 25} autre(s) officine(s) d'appui.")
+            if not rendered.strip():
+                continue
+            # Préfixe la 1re ligne avec `↳ ` et indente les suivantes de 2 espaces
+            # pour un rendu visuel cohérent (comme une continuation).
+            parts = [p for p in rendered.split("\n") if p.strip()]
+            if not parts:
+                continue
+            block_lines = [f"↳ {parts[0].strip()}"]
+            for sub in parts[1:]:
+                block_lines.append(f"   {sub.strip()}")
+            block_text = "\n".join(block_lines)
+            piece_len = len(block_text) + 1
+            if assist_len + piece_len > _section_budget:
+                remaining = len(assist_officines) - assist_rendered
+                lines.append(f"↳ _…et {remaining} autre(s) officine(s) d'appui — liste complète :_ {site_url}/garde")
+                break
+            lines.extend(block_lines)
+            assist_len += piece_len
+            assist_rendered += 1
     # Iter43-fix24al — Configurable footer (replaces hardcoded "Prompt rétablissement").
     # Also ALWAYS include the site link so contacts can navigate to /garde.
     footer = _render_garde_header(footer_tpl, week=week, year=year, monday=monday,

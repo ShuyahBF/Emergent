@@ -13,6 +13,24 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-s (2026-07-22) — Fix WhatsApp `!garde` reply vide (nom d'officine contenant `_`) ✅
+
+**Bug signalé** : Après l'ajout du groupe d'appui (fix24az-r), la page `/garde` affichait correctement les 2 groupes, mais WhatsApp Liluvine renvoyait un **message VIDE** en réponse à `!garde` — seule l'image de footer (2ème message) arrivait chez l'utilisateur.
+
+**Root cause** : Dans `_build_garde_reply`, chaque officine du groupe d'appui était wrappée dans `_..._` (italique WhatsApp). Mais les noms d'officines contiennent des underscores (`Off_07968122`, `Off_00f61f18`, …) qui **cassent le pattern d'italique** WhatsApp → Meta délivre le message mais le client WA le rend visuellement VIDE.
+
+**Fix** (`/app/backend/routes/liluvine_wa_autoreply.py::_build_garde_reply`) :
+- Garde l'italique **UNIQUEMENT sur le titre de section** `🤝 _Groupe d'appui G{N} — X officine(s) :_` (safe, aucun `_` dans le libellé).
+- Préfixe chaque officine d'appui avec `↳ ` (au lieu de wrap italique). Les lignes suivantes (adresse, téléphone) sont indentées avec 2 espaces pour un rendu visuel cohérent.
+- Résultat : les noms `Off_XXXX` restent dans le texte brut → WhatsApp les affiche normalement.
+
+**Tests** : 6 nouveaux pytest (`test_iter43_fix24az_s_wa_garde_assist_reply.py`) validant : reply non-vide, aucune ligne avec `Off_` wrappée `_..._`, présence titre italique + préfixe `↳`, absence section quand `assist_group=None`, taille <4096 chars avec 12+ officines, endpoint public expose bien les champs. **72/72 pytest PASS** (6 nouveaux + 66 régression cumulée). Validation testing_agent iteration_86 : 100% backend.
+
+**⚠️ Note utilisateur** : Ce fix doit être **redéployé en production** pour prendre effet sur `sawalismartsystems.com`.
+
+
+
+
 ## Iter43-fix24az-r (2026-07-22) — Fix prod tracked_user creation + Groupe d'appui hebdo (nouvelle réglementation garde) ✅
 
 ### 🐛 Fix Bug Production : Création utilisateur suivi

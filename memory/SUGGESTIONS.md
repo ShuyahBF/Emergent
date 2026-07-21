@@ -796,6 +796,41 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S105 — Badge sidebar live "WhatsApp Silent Drops" (indicateur santé en un coup d'œil)
+- **Proposée le** : 2026-07-22 (finish Iter43-fix24az-w)
+- **Statut** : 🔵 PROPOSÉE (en attente décision utilisateur — utilisateur a demandé de la noter)
+- **Détail** :
+  - Ajouter un badge discret dans `SidebarNav.jsx` qui clignote en rouge (petit dot + counter) lorsque `GET /api/admin/wa-silent-drops/stats` retourne `threshold_reached === true`.
+  - Polling léger toutes les 60 s sur l'endpoint (déjà admin-only, très rapide car COUNT sur `wa_silent_drops`).
+  - Click sur le badge → navigation directe vers `/admin/settings#s-wa-silent-drops` pour investigation.
+- **Bénéfice** : évite à l'admin de devoir ouvrir AdminSettings pour vérifier l'état. Signal immédiat quand Meta rejette silencieusement des messages (token expiré, quota, template non approuvé).
+- **Estimation** : ~15 min (nouveau composant `<WaDropsBadge />` + fetch + navigate). Zéro impact perf (polling admin only).
+- **Fichiers à toucher** : `SidebarNav.jsx` (ou composant équivalent qui affiche la nav admin), nouveau `WaDropsBadge.jsx`.
+
+## S104 — WhatsApp Silent Drops : surveillance + alertes email/WA
+- **Demande utilisateur** : 2026-07-22 — « oui implémente dans une section de AdminSettings » (validation de la suggestion post-fix S103).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-w
+- **Détail** :
+  - **Backend** : nouveau module `routes/wa_silent_drops.py` avec 5 endpoints admin (`list`, `stats`, `config`, `test-alert`, `purge`) + observer callback `record_and_notify` injecté dans `attach_whatsapp_helpers(on_silent_drop=…)`.
+  - **Logique** : quand `_wa_send_text` détecte un 2xx sans `message_id` (silent drop Meta), le ctx est enregistré dans `db.wa_silent_drops` (TTL 30 jours). Si `wa_alert_enabled=True` ET `count(drops_in_window) >= threshold` ET cooldown écoulé → alerte email + WhatsApp envoyée à tous les destinataires configurés.
+  - **Config persistée** (`settings.global`) : `wa_alert_enabled` (bool), `wa_alert_threshold` (default 5), `wa_alert_window_minutes` (default 15), `wa_alert_cooldown_minutes` (default 60), `wa_alert_emails` (liste), `wa_alert_wa_phones` (liste E.164 digits-only), `wa_alert_last_sent_at` (auto).
+  - **Sanitisation** : emails invalides droppés, phones normalisés en digits-only ≥ 6 chars.
+  - **Frontend** : `WaSilentDropsSection.jsx` intégrée dans `AdminSettings.jsx` sous ancre `s-wa-silent-drops`. UI : 3 stat cards (15m/1h/24h avec highlight rouge si seuil atteint), toggle activation, 3 champs numériques (threshold/window/cooldown), 2 textareas destinataires, boutons Save/Test-alert/Refresh/Purge, table des 20 derniers drops.
+- **Tests** : 11 pytest (`test_iter43_fix24az_w_wa_silent_drops.py`) : stats defaults, config PUT sanitise/valide/reject-empty, list ordering, test-alert (0 + N destinataires), purge, observer insert, threshold trigger (spies mockés), cooldown short-circuit, disabled short-circuit. **Testing agent iteration_88 = 100% (39/39), 0 issue**.
+
+## S103 — Safety net auto-split WhatsApp (>4096 chars silent-drop Meta)
+- **Demande utilisateur** : 2026-07-22 — « on doit le faire pour tous les messages retournés/envoyés par Liluvine sous WhatsApp » (post prod bug `!garde` texte vide).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-v
+- **Détail** :
+  - **Root cause** : WhatsApp Cloud API cappe le body texte à 4096 chars. Meta renvoyait `200 OK` avec `message_id: null` (silent drop) pour les payloads plus longs → utilisateurs recevaient un message VIDE. Symptôme sur `!garde` en prod (>30 officines → seule l'image arrivait).
+  - **Fix centralisé** (couvre tous les callers WA) : nouveau helper `_wa_split_long_text(text, max_len=3800)` dans `routes/whatsapp_helpers.py` avec priorité de split (a) marqueur invisible `_WA_SPLIT_HINT = "\u2063\u2063"` (hint sémantique inséré par le caller) → (b) paragraphes `\n\n` → (c) lignes `\n` → (d) hard cut au max_len.
+  - **`_wa_send_text()` auto-split** : tout message > 3800 chars est découpé en envois séquentiels ; seul le premier chunk porte `reply_to_message_id`. Log `logger.warning` si l'API renvoie `2xx` sans `message_id` (télémétrie pour S104). Retourne un dict enrichi avec `message_ids: [...]`, `parts_sent`, `parts_failed`, `parts_total`.
+  - **`_build_garde_reply()`** : insère le `_WA_SPLIT_HINT` entre bloc principal et bloc d'appui pour un split sémantique. Budget dynamique par section (~3200 chars) → ajoute `_…et N autre(s) — liste complète :_ {site_url}/garde` quand dépassé.
+- **Bénéfice** : plus jamais de silent drop >4096 sur WhatsApp. Le safety net couvre TOUS les callers sans modification côté caller (`cashier`, `ad_banners`, `download_approvals`, `liluvine_hr_wa`, `liluvine_reactions`, `liluvine_pro`, `liluvine_business_rag`, `liluvine_wa_autoreply`).
+- **Tests** : 7 pytest (`test_iter43_fix24az_v_wa_text_truncation.py`) : short=1 chunk, hint respecté, split \n\n / \n / hard cut, préservation contenu, hint inséré par `_build_garde_reply`, lien site appendé quand budget dépassé. **Testing agent iteration_87 = 100% (28/28)**.
+
 ## S102 — Liluvine Extended : Native WA Media + Contact Timeline + CSV Bulk + Auto-suggest + TikTok Privacy toggle
 - **Demande utilisateur** : 2026-07-22 — « où trouver le toggle 'privé' pour publier sur TikTok en privé? » + 4 tâches liées Liluvine Reactions (médias natifs WA, historique templates par contact, création templates Meta + upload CSV, auto-suggestion depuis messages non-traités).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)

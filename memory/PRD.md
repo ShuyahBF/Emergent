@@ -8,7 +8,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry`. _[suggéré 2026-06-16]_
 - **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
 - **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_
-- **WhatsApp Template Meta approuvé pour rappels Planning** : configurer un template `rdv_reminder_1h_fr` chez Meta pour utiliser `_wa_send_template` au lieu du texte libre — permettra d'envoyer hors fenêtre 24h. _[suggéré 2026-07-21 iteration_83]_
+- **WhatsApp Template Meta approuvé pour rappels Planning** : configurer un template `rdv_reminder_1h_fr` chez Meta pour utiliser `_wa_send_template` au lieu du texte libre. _[suggéré 2026-07-21 iteration_83]_
+- **Registry central pour helpers cross-module** : remplacer le pattern `import server; getattr(_server_module, 'LILUVINE_REACTIONS_HELPERS')` par un registry dédié. _[noté 2026-07-21 iteration_84]_
+- **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
+
+
+## Iter43-fix24az-o (2026-07-21) — Liluvine Reactions & Ad Auto-Replies ✅
+
+### Features livrées (33/33 backend + 100% frontend UI)
+
+**Feature 1 — Fuzzy command matching** (`/app/backend/routes/liluvine_reactions.py`) :
+- Détecte les intents malgré fautes/espaces/ponctuation : `! garde`, `pharmacies de garde`, `pharmacie garde`, `garde pharmacie`, etc. → matche la commande `!garde`.
+- Normalisation : lowercase, sans accent, sans ponctuation via `unicodedata.normalize("NFD")` + regex.
+- Scoring : `difflib.SequenceMatcher` (Ratcliff-Obershelp) + bonus de +90 si le synonyme est contenu littéralement dans le texte.
+- Seuil configurable (50-95%, défaut 70%).
+- 7 commandes connues avec synonymes : garde, meteo, adresse, contact, horaires, stock, reactions.
+- Message de correction personnalisable avec placeholders `{intent}` et `{cmd}`.
+
+**Feature 2 — Ad reply templates** (collection `liluvine_ad_templates`) :
+- CRUD complet via `/api/admin/liluvine/reactions-templates` (+ variations pour matcher plusieurs formulations d'un même intent).
+- Match exact prioritaire, puis fuzzy si seuil dépassé.
+- Compteurs `received_count` / `replied_count` incrémentés atomiquement dans MongoDB.
+- Support media URL (image/vidéo/audio/doc) — concat au texte pour le v1, `_wa_send_media` plus tard.
+- Commande `!reactions` : renvoie un résumé texte formaté des stats par template + total.
+- Endpoint stats `/api/admin/liluvine/reactions-stats` avec reply_rate calculé.
+
+**Feature 3 — Auto-add nouveaux contacts** :
+- Config `auto_add_new_contacts: bool` + `default_new_contact_group_id: Optional[str]`.
+- Insertion silencieuse dans `db.directory_contacts` avec `tags=["auto-liluvine"]` et `source="liluvine_auto"`.
+- Skip si le numéro existe déjà (dedup sur `whatsapp/phone/phone_digits`).
+
+**Integration dans `autoreply_to_inbound`** :
+- Ordre de priorité : (1) auto-add contact silencieux, (2) `!reactions` command, (3) ad template match, (4) fuzzy command correction (envoie correction + réécrit text=`!cmd` pour laisser le dispatcher normal exécuter).
+- Import lazy via `getattr(server_module, "LILUVINE_REACTIONS_HELPERS")` pour éviter les imports circulaires.
+
+**Frontend** :
+- `/app/frontend/src/pages/admin/sections/LiluvineReactionsSection.jsx` (~400 LOC) : toggles config + slider seuil + sélecteur groupe + CRUD templates + modal éditeur + table de stats en direct.
+
+**Tests** : 13 nouveaux tests (`test_iter43_fix24az_o_liluvine_reactions.py`) — 8 unit (fuzzy/normalisation/matching) + 5 integration (CRUD admin) = 13/13 PASS.
 
 
 ## Iter43-fix24az-n (2026-07-21) — SSE Planning temps réel + Rappels WhatsApp 1h avant RDV ✅

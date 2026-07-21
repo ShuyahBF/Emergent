@@ -14370,6 +14370,20 @@ WA_MEDIA_MAX_BYTES = 64 * 1024 * 1024  # Meta's hard cap: 100MB video/document, 
 
 # Iter43-fix24az-q — Attach db-bound WhatsApp helpers from routes/whatsapp_helpers.py.
 # Binds returned coroutines to module globals so existing call sites work unchanged.
+#
+# Iter43-fix24az-w (2026-07-22) — Wire silent-drop observer. Uses a mutable
+# closure so the observer can be created BEFORE wa_send_text (which it needs
+# to send WA alerts) : the callback is a stub at first and gets replaced with
+# the real `record_and_notify` right after wa_silent_drops routes are set up.
+_wa_silent_drop_holder: Dict[str, Any] = {"cb": None}
+
+
+async def _on_silent_drop(ctx: Dict[str, Any]) -> None:
+    cb = _wa_silent_drop_holder.get("cb")
+    if cb is not None:
+        await cb(ctx)
+
+
 _wa_helpers = _attach_whatsapp_helpers(
     db=db,
     wa_graph_version=WA_GRAPH_VERSION,
@@ -14377,6 +14391,7 @@ _wa_helpers = _attach_whatsapp_helpers(
     upload_dir=UPLOAD_DIR,
     uuid_fn=_uuid,
     now_fn=_now,
+    on_silent_drop=_on_silent_drop,
 )
 _wa_send_template = _wa_helpers["_wa_send_template"]
 _wa_send_text = _wa_helpers["_wa_send_text"]
@@ -14385,6 +14400,18 @@ _wa_download_inbound_media = _wa_helpers["_wa_download_inbound_media"]
 _wa_transcribe_audio_file = _wa_helpers["_wa_transcribe_audio_file"]
 _wa_compute_reply_window = _wa_helpers["_wa_compute_reply_window"]
 _wa_last_inbound_iso = _wa_helpers["_wa_last_inbound_iso"]
+
+# Set up wa_silent_drops routes + wire the observer. Import here to avoid
+# any module-load ordering hazards with the FastAPI `api` instance.
+from routes.wa_silent_drops import setup_wa_silent_drops_routes as _setup_wa_silent_drops_routes  # noqa: E402
+_wa_drops_helpers = _setup_wa_silent_drops_routes(
+    api=api,
+    db=db,
+    get_current_admin=get_current_admin,
+    send_email_fn=send_email,
+    wa_send_text_fn=_wa_send_text,
+)
+_wa_silent_drop_holder["cb"] = _wa_drops_helpers["record_and_notify"]
 
 
 def _wa_window_open(last_inbound_iso: Optional[str]) -> bool:

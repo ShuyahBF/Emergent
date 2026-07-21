@@ -23,6 +23,7 @@ import WaCommandImagesSection from "@/pages/admin/sections/WaCommandImagesSectio
 import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEmailsSection";
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
+import WaSilentDropsSection from "@/pages/admin/sections/WaSilentDropsSection";
 import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
@@ -816,6 +817,10 @@ export default function AdminSettings() {
 
       <Filterable title="WhatsApp — Filtre no-toast (numéros silencieux)" anchorId="s-wa-silent-phones">
         <WaSilentPhonesSection />
+      </Filterable>
+
+      <Filterable title="🛡️ WhatsApp — Silent Drops (surveillance rejets Meta 2xx sans message_id)" anchorId="s-wa-silent-drops">
+        <WaSilentDropsSection />
       </Filterable>
 
       <Filterable title="🎨 S057 — Habillage complet (Sidebar / Login / Blocs publics)" anchorId="s-s057-theming">

@@ -276,6 +276,9 @@ def attach_whatsapp_helpers(
     upload_dir: Path,
     uuid_fn,
     now_fn,
+    on_silent_drop=None,  # Iter43-fix24az-w — optional callable(dict) called
+                          # when Meta returns 2xx with null message_id (silent
+                          # drop). Fire-and-forget: exceptions are swallowed.
 ) -> Dict[str, Any]:
     """Factory that returns db-bound helper coroutines. Called once at server startup."""
 
@@ -416,6 +419,23 @@ def attach_whatsapp_helpers(
                                 "(chunk %d/%d, %d chars, to=%s) — possible length/format rejection. Raw=%s",
                                 idx, total, len(chunk), to_clean, str(raw)[:400],
                             )
+                            # Fire-and-forget observer callback (see routes/wa_silent_drops.py).
+                            if on_silent_drop is not None:
+                                try:
+                                    import asyncio as _aio
+                                    _aio.create_task(on_silent_drop({
+                                        "to": to_clean,
+                                        "chunk_index": idx,
+                                        "chunk_total": total,
+                                        "chunk_length": len(chunk),
+                                        "chunk_preview": chunk[:200],
+                                        "http_status": r.status_code,
+                                        "raw": raw,
+                                        "kind": "silent_drop_no_message_id",
+                                        "at": datetime.now(timezone.utc).isoformat(),
+                                    }))
+                                except Exception:  # noqa: BLE001
+                                    logger.exception("[wa_send_text] on_silent_drop callback failed")
                     else:
                         parts_failed += 1
                         message_ids.append(None)

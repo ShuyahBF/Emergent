@@ -13,6 +13,46 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-w (2026-07-22) — WhatsApp Silent Drops : surveillance + alertes email/WhatsApp ✅
+
+**Contexte** : suite au fix Iter43-fix24az-v (auto-split centralisé), on a maintenant un log warning explicite quand Meta rejette silencieusement (`2xx` sans `message_id`). L'utilisateur a validé la suggestion d'exploiter ce signal pour déclencher des alertes automatiques email + WhatsApp aux admins configurés.
+
+**Architecture** :
+
+1. **Observer callback** injecté dans `attach_whatsapp_helpers(..., on_silent_drop=<callable>)`. Quand `_wa_send_text` détecte un silent drop, il fait `asyncio.create_task(on_silent_drop(ctx))` (fire-and-forget). Le `ctx` contient : `to`, `chunk_index`, `chunk_total`, `chunk_length`, `chunk_preview` (200 chars), `http_status`, `raw` (extrait), `kind`, `at`.
+
+2. **`routes/wa_silent_drops.py`** — Nouveau module qui expose 5 endpoints + retourne le `record_and_notify` coroutine :
+   - `GET  /api/admin/wa-silent-drops` — liste (max 100)
+   - `GET  /api/admin/wa-silent-drops/stats` — compteurs 15min/1h/24h + config + threshold_reached
+   - `PUT  /api/admin/wa-silent-drops/config` — persiste enabled/threshold/window/cooldown/emails/wa_phones avec sanitisation (emails invalides droppés, phones normalisés en digits-only >= 6 chars)
+   - `POST /api/admin/wa-silent-drops/test-alert` — bypass seuil+cooldown, envoie un test à chaque destinataire
+   - `DELETE /api/admin/wa-silent-drops` — purge
+
+3. **Logique alerting** (dans `record_and_notify`) :
+   - Insert doc dans `db.wa_silent_drops` (TTL 30 jours via index `created_at`)
+   - Si `enabled=True` ET `count(drops_dans_window) >= threshold` ET `cooldown écoulé` → envoie email + WhatsApp à tous les destinataires configurés, puis persiste `wa_alert_last_sent_at`
+   - Si `enabled=False` ou cooldown actif → short-circuit après insert
+
+4. **Wiring `server.py`** : holder mutable `_wa_silent_drop_holder = {"cb": None}` permet d'attacher `_wa_send_text` AVANT de créer le callback réel (qui dépend lui-même de `_wa_send_text` pour envoyer les alertes WA). Le stub `_on_silent_drop(ctx)` délègue au `cb` du holder quand il est setté.
+
+5. **Frontend** : `pages/admin/sections/WaSilentDropsSection.jsx` intégré dans `AdminSettings.jsx` sous l'ancre `s-wa-silent-drops` (juste après WA Silent Phones). UI avec 3 stat cards (15m/1h/24h), toggle enabled, 3 champs numériques (threshold/window/cooldown), 2 textareas (emails/phones), boutons Save/Test/Refresh/Purge, table des 20 derniers drops. Alerte visuelle rouge quand seuil dépassé. Data-testids partout.
+
+**Settings persistées** (`db.settings._id="global"`) :
+- `wa_alert_enabled` (bool, default False)
+- `wa_alert_threshold` (int, default 5)
+- `wa_alert_window_minutes` (int, default 15)
+- `wa_alert_cooldown_minutes` (int, default 60)
+- `wa_alert_emails` (list[str])
+- `wa_alert_wa_phones` (list[str], digits-only E164 sans +)
+- `wa_alert_last_sent_at` (iso, auto)
+
+**Tests** : 11 nouveaux pytest (`test_iter43_fix24az_w_wa_silent_drops.py`) couvrant : stats defaults, config PUT sanitise/valide/reject-empty, list ordering, test-alert (0 + N destinataires), purge, observer insert, threshold trigger (spies mockés), cooldown short-circuit, disabled short-circuit. **Testing agent iteration_88 = 100% success (39/39), 0 issue.**
+
+**Impact** : L'admin peut désormais être notifié en temps quasi-réel quand des messages WA sont silencieusement rejetés par Meta (token expiré, template non approuvé, quota dépassé, payload malformé). Le safety net auto-split (fix24az-v) supprime déjà la cause principale (dépassement 4096 chars) ; cette surveillance capture les causes résiduelles avant que les clients ne s'en plaignent.
+
+
+
+
 ## Iter43-fix24az-v (2026-07-22) — Safety net WhatsApp — Auto-split messages > 4096 chars ✅
 
 **Root cause** : WhatsApp Cloud API cappe le body texte à **4096 caractères**. Meta renvoyait `200 OK` mais un **`message_id` null** (silent drop) pour les payloads plus longs → utilisateurs recevaient un message VIDE. Symptôme visible sur `!garde` en prod (>30 officines → seule l'image arrivait).

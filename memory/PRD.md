@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-t (2026-07-22) — Refactor fingerprint déploiement fiable ✅
+
+**Root cause du bug prod invisible** : `_bump_deployment_counter_if_needed` fingerpritait uniquement `server.py` (mtime + size). Toute modification dans `routes/*.py`, `models.py` ou `requirements.txt` **ne triggait pas de bump** — la version restait figée à v1.20 même après déploiement de nouveau code.
+
+**Refactor priorité descendante** :
+1. **`DEPLOY_ID` env var** — si présente, source d'autorité absolue (peut être injectée par la plateforme au build/run, par le CI/CD, ou manuellement via Emergent Portal env vars). Solution la plus fiable pour forcer un bump garanti à chaque déploiement.
+2. **Hash SHA-256** (16 chars hex) combiné de tous les fichiers backend critiques : `server.py`, `models.py`, `requirements.txt`, `routes/*.py` (tri lexical pour ordre déterministe). Change dès qu'UN fichier backend est modifié. Idempotent : contenu identique = même hash.
+3. **git HEAD** best-effort (souvent vide en prod car `.git` absent de l'image).
+4. **`APP_VERSION` env var** — override manuel du préfixe majeur.
+
+**Nouveaux champs exposés dans `/api/version-detail`** :
+- `files_hash` (ex: `c6e4a7e766c61859`) — le vrai signal de fraîcheur du code
+- `deploy_id` (ex: `test-deploy-abc123`) — visible si injectée en env
+
+**Storage MongoDB** : `db.app_deployments._id="current"` avec `fingerprint`, `files_hash`, `deploy_id`, `prev_fingerprint`, `deployed_at`, `seq`. Log : `[deploy-counter] bumped seq=97 files_hash=xxx deploy_id=xxx`.
+
+**Tests** : 5 nouveaux pytest (`test_iter43_fix24az_t_deployment_fingerprint.py`) validant : présence des nouveaux champs, priorité DEPLOY_ID, hash inclut bien routes/*.py, idempotence, ≥5 fichiers critiques couverts. Validation manuelle curl : modification `liluvine_reactions.py` (fichier NON server.py) → seq 96→97 (avant fix, ce test ÉCHOUAIT car seul server.py était fingerprint). **72/72 pytest PASS** (5 nouveaux + 67 régression cumulée).
+
+**Impact** : Une fois ce code déployé en prod, tout changement dans routes/models/requirements bumpera immédiatement le `deploy_seq`. Le user peut aussi setter `DEPLOY_ID=<uuid>` dans les env vars Emergent pour forcer un bump garanti sans dépendre du fingerprint.
+
+
+
+
 ## Iter43-fix24az-s (2026-07-22) — Fix WhatsApp `!garde` reply vide (nom d'officine contenant `_`) ✅
 
 **Bug signalé** : Après l'ajout du groupe d'appui (fix24az-r), la page `/garde` affichait correctement les 2 groupes, mais WhatsApp Liluvine renvoyait un **message VIDE** en réponse à `!garde` — seule l'image de footer (2ème message) arrivait chez l'utilisateur.

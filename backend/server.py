@@ -9323,23 +9323,65 @@ _BUILD_VERSION = os.environ.get("APP_VERSION") or "1.0"
 
 
 async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
-    """Iter43-fix24x (2026-06-16) — Increment a sequential deployment number
-    whenever the running build "fingerprint" differs from the previously stored one.
+    """Iter43-fix24x (2026-06-16) → fix24az-t (2026-07-22) — Increment a
+    sequential deployment number whenever the running build "fingerprint"
+    differs from the previously stored one.
 
-    Iter43-fix24ad (2026-06-16) — Le `git rev-parse HEAD` ne marche pas en
-    production (le `.git` n'est pas inclus dans l'image déployée). On utilise
-    désormais une *empreinte de déploiement* combinant :
-      - git HEAD (si disponible)
-      - mtime + size de `server.py` (toujours disponible, change à chaque deploy)
-      - APP_VERSION env var
-    Cela garantit que la version s'incrémente vraiment à chaque deploy en prod.
+    Iter43-fix24az-t (2026-07-22) — REFACTOR : la version précédente ne
+    fingerprinttait QUE `server.py`, donc toute modification dans
+    `routes/*.py` ou `models.py` ne triggait pas de bump — la version restait
+    figée alors que le déploiement contenait bien du nouveau code.
+
+    Nouvelle stratégie (priorité descendante) :
+      1. **DEPLOY_ID** env var — si présente, source d'autorité absolue.
+         Peut être injectée par la plateforme au build/run (via CI/CD).
+      2. **Hash SHA-256** combiné de plusieurs fichiers backend clés
+         (`server.py`, tous les `routes/*.py`, `models.py`, `requirements.txt`).
+         Change dès qu'un fichier critique est modifié.
+      3. **git HEAD** (best-effort) — parfois vide en prod car le `.git`
+         n'est pas dans l'image, mais utile en dev.
+      4. **APP_VERSION** env var — override manuel (garde la compat).
 
     Stored in `db.app_deployments` (single doc with `_id="current"`).
-    Returns the current `{seq, fingerprint, git_head}` snapshot.
+    Returns the current `{seq, fingerprint, git_head, deploy_id}` snapshot.
     """
+    import hashlib
     import subprocess
     import os
-    # 1) git HEAD (best signal when available)
+    from pathlib import Path
+
+    # 1) DEPLOY_ID env var — highest priority, single source of truth.
+    deploy_id = (os.environ.get("DEPLOY_ID") or "").strip()
+
+    # 2) SHA-256 hash of multiple critical backend files. Sorted by relative
+    # path for deterministic ordering. Missing files are skipped silently.
+    files_hash: Optional[str] = None
+    try:
+        h = hashlib.sha256()
+        backend_root = Path("/app/backend")
+        critical_paths: List[Path] = [
+            backend_root / "server.py",
+            backend_root / "models.py",
+            backend_root / "requirements.txt",
+        ]
+        # Include every routes/*.py in sorted order to avoid FS-order flakiness.
+        routes_dir = backend_root / "routes"
+        if routes_dir.is_dir():
+            critical_paths.extend(sorted(routes_dir.glob("*.py")))
+        for p in critical_paths:
+            try:
+                # Feed relative path (deterministic) + content bytes.
+                h.update(str(p.relative_to(backend_root)).encode())
+                h.update(b"\0")
+                h.update(p.read_bytes())
+                h.update(b"\0")
+            except OSError:
+                continue
+        files_hash = h.hexdigest()[:16]  # 16 hex chars ≈ 64 bits — plenty
+    except Exception:  # noqa: BLE001
+        files_hash = None
+
+    # 3) git HEAD (best-effort; often unavailable in a stripped prod image).
     git_head: Optional[str] = None
     try:
         git_head = subprocess.check_output(
@@ -9350,28 +9392,29 @@ async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
         ).decode().strip()
     except Exception:  # noqa: BLE001
         git_head = None
-    # 2) File fingerprint of /app/backend/server.py — changes at each deploy.
-    file_fp: Optional[str] = None
-    try:
-        st = os.stat("/app/backend/server.py")
-        file_fp = f"{int(st.st_mtime)}:{st.st_size}"
-    except OSError:
-        file_fp = None
-    # 3) Combine — prefer git_head if present, else file fingerprint.
-    fingerprint_parts = []
+
+    # 4) APP_VERSION env var — manual override for the major version prefix.
+    env_ver = (os.environ.get("APP_VERSION") or "").strip()
+
+    # Compose the fingerprint (priority = DEPLOY_ID > files_hash > git > env).
+    fingerprint_parts: List[str] = []
+    if deploy_id:
+        fingerprint_parts.append(f"deploy:{deploy_id}")
+    if files_hash:
+        fingerprint_parts.append(f"files:{files_hash}")
     if git_head:
         fingerprint_parts.append(f"git:{git_head[:12]}")
-    if file_fp:
-        fingerprint_parts.append(f"file:{file_fp}")
-    # APP_VERSION as a third signal (override-aware)
-    env_ver = (os.environ.get("APP_VERSION") or "").strip()
     if env_ver:
         fingerprint_parts.append(f"env:{env_ver}")
     fingerprint = "|".join(fingerprint_parts) if fingerprint_parts else None
+
     try:
         current = await db.app_deployments.find_one({"_id": "current"}) or {}
     except Exception:  # noqa: BLE001
-        return {"seq": 0, "git_head": git_head, "fingerprint": fingerprint}
+        return {
+            "seq": 0, "git_head": git_head, "fingerprint": fingerprint,
+            "deploy_id": deploy_id or None, "files_hash": files_hash,
+        }
     prev_fp = current.get("fingerprint") or current.get("git_head")  # bw-compat
     seq = int(current.get("seq") or 0)
     deployed_at = current.get("deployed_at")
@@ -9385,23 +9428,41 @@ async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
                     "seq": seq,
                     "fingerprint": fingerprint,
                     "git_head": git_head,
+                    "deploy_id": deploy_id or None,
+                    "files_hash": files_hash,
                     "deployed_at": _BUILD_TIME_ISO,
                     "prev_fingerprint": prev_fp,
                 }},
                 upsert=True,
             )
             deployed_at = _BUILD_TIME_ISO
+            logger.info(
+                "[deploy-counter] bumped seq=%s files_hash=%s deploy_id=%s",
+                seq, files_hash, deploy_id or "-",
+            )
         except Exception:  # noqa: BLE001
             logger.warning("[deploy-counter] failed to bump", exc_info=True)
-    return {"seq": seq, "git_head": git_head, "fingerprint": fingerprint, "deployed_at": deployed_at}
+    return {
+        "seq": seq, "git_head": git_head, "fingerprint": fingerprint,
+        "deploy_id": deploy_id or None, "files_hash": files_hash,
+        "deployed_at": deployed_at,
+    }
 
 
 @api.get("/version-detail", tags=["Public"])
 async def get_version_detail():
-    """Iter43-fix24x — wrapper public détaillé pour le numéro de déploiement.
+    """Iter43-fix24x → fix24az-t (2026-07-22) — wrapper public détaillé pour
+    le numéro de déploiement.
 
-    Identique à `/api/version` mais expose explicitement `deploy_seq` et
-    `git_head` pour les outils de monitoring / debug.
+    Renvoie :
+      - `version` : "{APP_VERSION}.{seq}" (ex: "1.21")
+      - `started_at` : ISO timestamp du dernier bump
+      - `deploy_seq` : compteur monotone (+1 à chaque déploiement détecté)
+      - `git_head` : short hash (7 chars) — vide en prod sans .git
+      - `files_hash` : hash SHA-256 court (16 chars) des fichiers critiques
+        (server.py + routes/*.py + models.py + requirements.txt). Change dès
+        qu'un fichier backend est modifié — le vrai signal de fraîcheur.
+      - `deploy_id` : valeur brute de `DEPLOY_ID` env var (si injectée par le CI)
     """
     snap = await _bump_deployment_counter_if_needed()
     seq = int(snap.get("seq") or 0)
@@ -9413,6 +9474,9 @@ async def get_version_detail():
         "started_at": snap.get("deployed_at") or _BUILD_TIME_ISO,
         "deploy_seq": seq,
         "git_head": (snap.get("git_head") or "")[:7],  # short hash for UI
+        # Iter43-fix24az-t — nouveaux champs pour debug/monitoring
+        "files_hash": snap.get("files_hash"),
+        "deploy_id": snap.get("deploy_id"),
     }
 
 

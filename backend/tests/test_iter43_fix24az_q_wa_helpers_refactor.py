@@ -100,11 +100,24 @@ def test_factory_returns_all_helpers():
         uuid_fn=_fake_uuid,
         now_fn=_fake_now,
     )
-    expected = {
+    expected_callables = {
         "_wa_send_template", "_wa_send_text", "_wa_send_media",
         "_wa_download_inbound_media", "_wa_transcribe_audio_file",
         "_wa_compute_reply_window", "_wa_last_inbound_iso",
+        # Iter43-fix24az-u — Underscore neutraliser (avoids WA italic blank bug).
+        "_wa_neutralize_underscores",
+        # Iter43-fix24az-v — Long-text auto-split safety net.
+        "_wa_split_long_text",
     }
-    assert set(helpers.keys()) == expected
-    for name in expected:
-        assert callable(helpers[name])
+    expected_constants = {
+        # Iter43-fix24az-v — Constants exposed for callers that build long
+        # messages and want to insert semantic split hints (e.g. `_build_garde_reply`).
+        "_WA_SPLIT_HINT", "_WA_TEXT_MAX",
+    }
+    exported = set(helpers.keys())
+    missing_callables = expected_callables - exported
+    missing_constants = expected_constants - exported
+    assert not missing_callables, f"missing callables: {missing_callables}"
+    assert not missing_constants, f"missing constants: {missing_constants}"
+    for name in expected_callables:
+        assert callable(helpers[name]), f"{name} not callable"

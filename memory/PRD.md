@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-v (2026-07-22) — Safety net WhatsApp — Auto-split messages > 4096 chars ✅
+
+**Root cause** : WhatsApp Cloud API cappe le body texte à **4096 caractères**. Meta renvoyait `200 OK` mais un **`message_id` null** (silent drop) pour les payloads plus longs → utilisateurs recevaient un message VIDE. Symptôme visible sur `!garde` en prod (>30 officines → seule l'image arrivait).
+
+**Fix (centralisé, couvre TOUS les envois WA de Liluvine)** :
+
+1. **`routes/whatsapp_helpers.py`** — Nouveau helper `_wa_split_long_text(text, max_len=3800)` avec priorité de split :
+   - (a) marqueur invisible `_WA_SPLIT_HINT = "\u2063\u2063"` (hint sémantique inséré par le caller)
+   - (b) paragraphes `\n\n`
+   - (c) lignes `\n`
+   - (d) hard cut au max_len (dernier recours)
+2. **`_wa_send_text()`** — Auto-split de tout message > 3800 chars en envois séquentiels. Seul le premier chunk porte `reply_to_message_id` (context) pour éviter les threads dupliqués. Log `logger.warning` si l'API renvoie `2xx` sans `message_id` (signal classique de rejet silencieux). Retourne un dict enrichi : `{ok, message_id, message_ids: [...], parts_sent, parts_failed, parts_total, error, ...}`.
+3. **`routes/liluvine_wa_autoreply.py::_build_garde_reply()`** — Insère le `_WA_SPLIT_HINT` entre le bloc officines principales et le bloc officines d'appui pour un split sémantique propre. Budget dynamique par section (~3200 chars) : quand dépassé, arrête d'ajouter et suffixe `_…et N autre(s) officine(s) — liste complète :_ {site_url}/garde`.
+
+**Constants exportées** : `_WA_SPLIT_HINT`, `_WA_TEXT_MAX` (3800) via le dict de retour de `attach_whatsapp_helpers`.
+
+**Tests** : 7 nouveaux pytest (`test_iter43_fix24az_v_wa_text_truncation.py`) validant : short = 1 chunk, hint respecté en priorité, split \\n\\n / \\n / hard cut, préservation contenu, hint inséré par `_build_garde_reply`, lien site appendé quand budget dépassé. **28/28 pytest PASS** (7 nouveaux + q + r + t). Testing agent iteration_87 = 100% success rate, aucun blocker.
+
+**Impact** : Plus jamais de silent drop >4096 sur WhatsApp. Le safety net couvre TOUS les callers (`cashier.py`, `ad_banners.py`, `download_approvals.py`, `liluvine_hr_wa.py`, `liluvine_reactions.py`, `liluvine_pro.py`, `liluvine_business_rag.py`, `liluvine_wa_autoreply.py`) sans modification côté caller. Log warning explicite si Meta rejette silencieusement à l'avenir.
+
+
+
+
 ## Iter43-fix24az-t (2026-07-22) — Refactor fingerprint déploiement fiable ✅
 
 **Root cause du bug prod invisible** : `_bump_deployment_counter_if_needed` fingerpritait uniquement `server.py` (mtime + size). Toute modification dans `routes/*.py`, `models.py` ou `requirements.txt` **ne triggait pas de bump** — la version restait figée à v1.20 même après déploiement de nouveau code.

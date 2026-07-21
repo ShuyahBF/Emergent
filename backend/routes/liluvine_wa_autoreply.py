@@ -932,20 +932,29 @@ async def _build_garde_reply(db) -> str:
     # Iter43-fix24az-r (2026-07-22) — Groupe d'assistance hebdo en italique
     # (nouvelle réglementation : chaque semaine un groupe standard est appuyé
     # par un « groupe d'appui » choisi parmi les groupes standards).
+    #
+    # Iter43-fix24az-s (2026-07-22) — FIX : ne PAS wrapper chaque ligne
+    # d'officine dans `_..._` (italique WA), car les noms d'officines
+    # contiennent des underscores (`Off_07968122`, `Off_8059c1ee`, ...) qui
+    # cassent le pattern d'italique WhatsApp et rendent le message vide côté
+    # client. Solution : garder l'italique UNIQUEMENT sur le titre de section
+    # (safe, aucun `_` dans le libellé), puis préfixer chaque officine avec
+    # `↳ ` pour indiquer visuellement l'appartenance au groupe d'appui.
     if assist_officines:
         lines.append("")
         lines.append(f"🤝 _Groupe d'appui G{assist_group} — {len(assist_officines)} officine(s) :_")
         for o in assist_officines[:25]:
             rendered = _render_garde_officine(template, o)
             if rendered.strip():
-                # WhatsApp italic wrapping : `_..._`. On enveloppe chaque ligne
-                # rendue (multi-lignes possibles) — on split par ligne et wrap.
-                for sub in rendered.split("\n"):
-                    sub = sub.strip()
-                    if sub:
-                        lines.append(f"_{sub}_")
+                # Préfixe la 1re ligne avec `↳ ` et indente les suivantes de 2 espaces
+                # pour un rendu visuel cohérent (comme une continuation).
+                parts = [p for p in rendered.split("\n") if p.strip()]
+                if parts:
+                    lines.append(f"↳ {parts[0].strip()}")
+                    for sub in parts[1:]:
+                        lines.append(f"   {sub.strip()}")
         if len(assist_officines) > 25:
-            lines.append(f"_…et {len(assist_officines) - 25} autre(s) officine(s) d'appui._")
+            lines.append(f"↳ …et {len(assist_officines) - 25} autre(s) officine(s) d'appui.")
     # Iter43-fix24al — Configurable footer (replaces hardcoded "Prompt rétablissement").
     # Also ALWAYS include the site link so contacts can navigate to /garde.
     footer = _render_garde_header(footer_tpl, week=week, year=year, monday=monday,

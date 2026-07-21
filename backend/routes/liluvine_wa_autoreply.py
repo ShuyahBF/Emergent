@@ -191,7 +191,13 @@ async def autoreply_to_inbound(
     # Ad template match (message issu de FB Ads pré-défini par l'annonceur)
     if reactions_helpers.get("try_reply_ad_template"):
         try:
-            match = await reactions_helpers["try_reply_ad_template"](text, wa_send_text, from_num)
+            match = await reactions_helpers["try_reply_ad_template"](
+                text, wa_send_text, from_num,
+                phone_digits=phone_digits,
+                contact=contact,
+                tenant_id=inbound_doc.get("client_id"),
+                wa_inbound_id=inbound_doc.get("wa_message_id"),
+            )
             if match and match.get("sent"):
                 return {
                     "ok": True,
@@ -215,11 +221,39 @@ async def autoreply_to_inbound(
                         await wa_send_text(from_num, correction)
                     except Exception:  # noqa: BLE001
                         pass
+                # Iter43-fix24az-p — journalise le match dans la timeline du contact
+                if reactions_helpers.get("log_fuzzy_correction"):
+                    try:
+                        await reactions_helpers["log_fuzzy_correction"](
+                            phone_digits=phone_digits,
+                            contact=contact,
+                            tenant_id=inbound_doc.get("client_id"),
+                            cmd=fuzzy["cmd"],
+                            score=float(fuzzy.get("score") or 0),
+                            inbound_text=text,
+                            correction_prefix=correction,
+                            wa_inbound_id=inbound_doc.get("wa_message_id"),
+                        )
+                    except Exception:  # noqa: BLE001
+                        pass
                 text = f"!{fuzzy['cmd']}"
                 cmd_lower = text.lower()
                 logger.info("[wa_autoreply] fuzzy corrected to %s (score=%.1f)", text, fuzzy.get("score", 0))
         except Exception as exc:  # noqa: BLE001
             logger.warning("[wa_autoreply] fuzzy correction failed: %s", exc)
+
+    # Iter43-fix24az-p — Capture les messages non-traités (free-text sans !, sans template
+    # match, sans fuzzy). Le hook alimente le panneau "Suggestions" dans AdminSettings.
+    if not text.startswith("!") and not text.startswith("/") and reactions_helpers.get("record_unmatched_message"):
+        try:
+            await reactions_helpers["record_unmatched_message"](
+                inbound_text=text,
+                phone_digits=phone_digits,
+                contact_name=(contact or {}).get("name") or inbound_doc.get("from_profile_name"),
+                tenant_id=inbound_doc.get("client_id"),
+            )
+        except Exception:  # noqa: BLE001
+            pass
 
     is_public_cmd = (
         cmd_lower.startswith("!garde") or cmd_lower.startswith("!pharmacie")

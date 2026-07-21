@@ -734,6 +734,30 @@ function SocialAccountsTab({ settings }) {
             <strong>⚠️ TikTok App non configuré.</strong> Suivez les instructions dans <em>Paramètres → TikTok</em>.
           </div>
         )}
+        {/* Iter43-fix24az-p — Badge visible du mode privé/public actif */}
+        {tiktokConfigured && (
+          <div className={`rounded-lg p-3 text-xs flex items-start gap-2 ${
+            (settings?.tiktok_privacy_level || "SELF_ONLY") === "SELF_ONLY"
+              ? "bg-emerald-50 ring-1 ring-emerald-200 text-emerald-900"
+              : "bg-orange-50 ring-1 ring-orange-200 text-orange-900"
+          }`} data-testid="tiktok-current-privacy-badge">
+            <span className="text-base">
+              {(settings?.tiktok_privacy_level || "SELF_ONLY") === "SELF_ONLY" ? "🔒" : "🌐"}
+            </span>
+            <div>
+              <strong>Mode de publication actuel : {
+                { SELF_ONLY: "Privé (visible uniquement par vous)",
+                  MUTUAL_FOLLOW_FRIENDS: "Amis mutuels",
+                  FOLLOWER_OF_CREATOR: "Abonnés",
+                  PUBLIC_TO_EVERYONE: "Public (tout le monde)",
+                }[settings?.tiktok_privacy_level || "SELF_ONLY"]
+              }</strong>
+              <p className="mt-0.5 text-[11px] opacity-80">
+                Modifiez ce paramètre dans <em>Paramètres → TikTok → Visibilité par défaut</em>.
+              </p>
+            </div>
+          </div>
+        )}
         {tiktokAccounts.length > 0 && (
           <div className="space-y-2 mt-2">
             {tiktokAccounts.map((a) => (
@@ -1176,6 +1200,8 @@ function SettingsTab({ settings, onSaved }) {
         tiktok_client_key: settings.tiktok_client_key || "",
         tiktok_client_secret: "",
         tiktok_redirect_uri: settings.tiktok_redirect_uri || "",
+        // Iter43-fix24az-p — Toggle "Publier en privé sur TikTok" mis en avant
+        tiktok_privacy_level: settings.tiktok_privacy_level || "SELF_ONLY",
         default_caption_template: settings.default_caption_template || "",
       });
     }
@@ -1301,29 +1327,59 @@ function SettingsTab({ settings, onSaved }) {
                  placeholder={`${window.location.origin}/api/admin/story-studio/oauth/tiktok/callback`}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="settings-tiktok-redirect" />
         </label>
-      </fieldset>
 
-      <fieldset className="space-y-3">
-        <legend className="text-sm font-semibold text-pink-700">🎵 TikTok</legend>
-        <label className="block">
-          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Client Key</span>
-          <input value={form.tiktok_client_key || ""} onChange={update("tiktok_client_key")}
-                 placeholder="awxxxxxxxxxxxxxx"
-                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-tiktok-key" />
-          <p className="text-[10px] text-slate-500 mt-1">À créer sur <a href="https://developers.tiktok.com" target="_blank" rel="noopener noreferrer" className="text-violet-600 hover:underline">developers.tiktok.com</a></p>
-        </label>
-        <label className="block">
-          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Client Secret {settings.tiktok_client_secret_set && <span className="text-[10px] text-emerald-600 ml-1">✓ configurée</span>}</span>
-          <input type="password" value={form.tiktok_client_secret || ""} onChange={update("tiktok_client_secret")}
-                 placeholder={settings.tiktok_client_secret_set ? "Laisser vide pour conserver" : "Client secret"}
-                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono" data-testid="settings-tiktok-secret" />
-        </label>
-        <label className="block">
-          <span className="block text-xs font-semibold text-slate-700 mb-1">TikTok Redirect URI</span>
-          <input value={form.tiktok_redirect_uri || ""} onChange={update("tiktok_redirect_uri")}
-                 placeholder="https://sawalismartsystems.com/admin/story-studio/oauth/tiktok/callback"
-                 className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="settings-tiktok-redirect" />
-        </label>
+        {/* Iter43-fix24az-p — TikTok Privacy Level toggle mis en avant */}
+        <div className="rounded-lg border-2 border-pink-300 bg-gradient-to-br from-pink-50 to-fuchsia-50 p-4 space-y-2" data-testid="tiktok-privacy-panel">
+          <div className="flex items-start gap-2">
+            <div className="mt-0.5">🔒</div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-pink-900">Visibilité par défaut des publications TikTok</p>
+              <p className="text-[11px] text-pink-700 mt-0.5">
+                Sélectionnez le mode de publication par défaut. En Sandbox ou tant que l&apos;app TikTok n&apos;est pas approuvée en review, seul <strong>Privé (SELF_ONLY)</strong> est autorisé.
+              </p>
+            </div>
+            <span className={`text-[11px] font-semibold px-2 py-1 rounded ${
+              (form.tiktok_privacy_level || "SELF_ONLY") === "SELF_ONLY" ? "bg-emerald-100 text-emerald-700" : "bg-orange-100 text-orange-700"
+            }`} data-testid="tiktok-privacy-badge">
+              {(form.tiktok_privacy_level || "SELF_ONLY") === "SELF_ONLY" ? "🔒 Privé" : "🌐 Public"}
+            </span>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            {[
+              { v: "SELF_ONLY", label: "🔒 Privé — visible uniquement par vous", desc: "Aucune diffusion publique. Recommandé en sandbox / audit." },
+              { v: "MUTUAL_FOLLOW_FRIENDS", label: "👥 Amis mutuels", desc: "Visible par les personnes qui vous suivent en réciproque." },
+              { v: "FOLLOWER_OF_CREATOR", label: "🎯 Abonnés", desc: "Visible par vos abonnés." },
+              { v: "PUBLIC_TO_EVERYONE", label: "🌐 Public", desc: "Visible par tous. Nécessite audit approuvé côté TikTok." },
+            ].map((opt) => {
+              const selected = (form.tiktok_privacy_level || "SELF_ONLY") === opt.v;
+              return (
+                <label
+                  key={opt.v}
+                  className={`flex items-start gap-2 p-2 rounded-lg cursor-pointer border-2 transition ${
+                    selected ? "border-pink-500 bg-white shadow-sm" : "border-transparent hover:bg-white/60"
+                  }`}
+                  data-testid={`tiktok-privacy-option-${opt.v}`}
+                >
+                  <input
+                    type="radio"
+                    name="tiktok_privacy_level"
+                    value={opt.v}
+                    checked={selected}
+                    onChange={() => setForm({ ...form, tiktok_privacy_level: opt.v })}
+                    className="mt-1 accent-pink-600"
+                  />
+                  <div className="min-w-0">
+                    <p className="text-xs font-semibold text-slate-800">{opt.label}</p>
+                    <p className="text-[10px] text-slate-500 mt-0.5">{opt.desc}</p>
+                  </div>
+                </label>
+              );
+            })}
+          </div>
+          <p className="text-[10px] text-pink-700 italic pt-1">
+            💡 Ce réglage s&apos;applique à toutes les publications TikTok créées depuis le studio. Le mode réel utilisé peut être ajusté par TikTok si votre app n&apos;a pas encore l&apos;autorisation demandée.
+          </p>
+        </div>
       </fieldset>
 
       <fieldset className="space-y-3">

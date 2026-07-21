@@ -9,6 +9,7 @@ import {
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
   Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft, FolderOpen, ShoppingBag, FileEdit,
+  Sparkles, Loader2,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -448,6 +449,7 @@ export default function Contacts() {
                   onSms={() => setModal({ type: "sms", contact: c })}
                   onSchedule={() => setModal({ type: "schedule", contact: c })}
                   onHistory={() => setModal({ type: "history", contact: c })}
+                  onLiluvine={() => setModal({ type: "liluvine", contact: c })}
                   onDelete={() => del(c.id)}
                   waEnabled={!!smartFeatures.whatsapp}
                   smsEnabled={!!smartFeatures.sms}
@@ -483,12 +485,18 @@ export default function Contacts() {
           onMessagesRead={loadUnread}
         />
       )}
+      {modal?.type === "liluvine" && (
+        <LiluvineTimelineModal
+          contact={modal.contact}
+          onClose={() => setModal(null)}
+        />
+      )}
     </div>
   );
 }
 
 // --- Contact row with inline WhatsApp edit ---
-const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0 }) => {
+const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0 }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
@@ -662,6 +670,14 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
                 {unreadCount > 9 ? "9+" : unreadCount}
               </span>
             )}
+          </button>
+          <button
+            onClick={onLiluvine}
+            title="Historique Liluvine (templates/commandes matchés)"
+            className="inline-flex items-center gap-1 text-[11px] rounded bg-fuchsia-600 text-white px-2 py-1 hover:bg-fuchsia-700"
+            data-testid={`contact-liluvine-${c.id}`}
+          >
+            <Sparkles className="h-3 w-3" /> <span className="hidden 2xl:inline">Liluvine</span>
           </button>
           <button
             onClick={onEdit}
@@ -2403,6 +2419,110 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     </div>
   );
 };
+
+// --- Iter43-fix24az-p — Liluvine contact timeline modal ---
+const LiluvineTimelineModal = ({ contact, onClose }) => {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState({ items: [], count: 0 });
+
+  useEffect(() => {
+    (async () => {
+      setLoading(true);
+      try {
+        const r = await apiClient.get(`/me/contacts/${contact.id}/liluvine-history`);
+        setData(r.data || { items: [], count: 0 });
+      } catch (e) {
+        toast.error(e?.response?.data?.detail || "Erreur chargement timeline");
+      } finally { setLoading(false); }
+    })();
+  }, [contact.id]);
+
+  const renderItem = (it) => {
+    const kindLabel = it.kind === "ad_template" ? "Modèle publicité" : it.kind === "fuzzy_cmd" ? "Commande floue" : it.kind;
+    const kindColor = it.kind === "ad_template" ? "bg-fuchsia-100 text-fuchsia-800" : "bg-amber-100 text-amber-800";
+    return (
+      <li key={it.id} className="p-3 border-b border-slate-100 last:border-0" data-testid={`liluvine-timeline-item-${it.id}`}>
+        <div className="flex items-start gap-2">
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${kindColor}`}>{kindLabel}</span>
+          {it.template_name && <span className="text-xs font-semibold text-slate-800 truncate">{it.template_name}</span>}
+          {it.matched_command && <code className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded">!{it.matched_command}</code>}
+          {it.matched_score != null && <span className="text-[10px] text-slate-400">score : {it.matched_score}%</span>}
+          <span className="text-[10px] text-slate-400 ml-auto">{new Date(it.created_at).toLocaleString("fr-FR")}</span>
+        </div>
+        <div className="mt-1.5 space-y-1">
+          <div className="text-xs text-slate-500">
+            <ArrowDownLeft className="inline h-3 w-3 mr-1 text-emerald-600" />
+            <em>« {it.inbound_text?.slice(0, 200) || "—"} »</em>
+          </div>
+          {it.response_text && (
+            <div className="text-xs text-slate-700 bg-slate-50 rounded p-2">
+              <ArrowUpRight className="inline h-3 w-3 mr-1 text-sawali-blue" />
+              {it.response_text}
+              {it.response_media_url && (
+                <p className="mt-1 text-[10px] text-fuchsia-700">
+                  📎 média natif : {it.response_media_kind || "image"} — {it.response_media_url}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+      </li>
+    );
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40"
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+      data-testid="liluvine-timeline-modal"
+    >
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <div className="flex items-center gap-3 min-w-0">
+            <div className="w-9 h-9 rounded-lg bg-fuchsia-100 flex items-center justify-center">
+              <Sparkles className="h-4 w-4 text-fuchsia-700" />
+            </div>
+            <div className="min-w-0">
+              <h2 className="text-base font-display font-bold">Historique Liluvine</h2>
+              <p className="text-xs text-slate-500 truncate">
+                <strong>{contact.name}</strong>
+                {contact.whatsapp && <code className="ml-2 bg-slate-100 px-1.5 py-0.5 rounded">{contact.whatsapp}</code>}
+              </p>
+            </div>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-900" data-testid="liluvine-timeline-close">
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto">
+          {loading ? (
+            <div className="p-6 text-center text-sm text-slate-500 flex items-center justify-center gap-2">
+              <Loader2 className="h-4 w-4 animate-spin" /> Chargement…
+            </div>
+          ) : data.items?.length === 0 ? (
+            <div className="p-8 text-center" data-testid="liluvine-timeline-empty">
+              <Sparkles className="h-10 w-10 text-slate-300 mx-auto mb-3" />
+              <p className="text-sm text-slate-500">Aucun match Liluvine pour ce contact.</p>
+              <p className="text-[11px] text-slate-400 mt-2">
+                Les templates publicité et les commandes floues appariées apparaîtront ici quand ce contact enverra un message.
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="px-5 py-2 border-b border-slate-100 bg-slate-50 text-[11px] text-slate-500">
+                <strong>{data.count}</strong> interaction(s) enregistrée(s)
+              </div>
+              <ul className="divide-y divide-slate-100" data-testid="liluvine-timeline-list">
+                {data.items.map(renderItem)}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
 
 // --- Iter35m — Save inbound WA media to shared library button ---
 const SaveToLibraryButton = ({ messageId, testid }) => {

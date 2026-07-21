@@ -24227,6 +24227,7 @@ _liluvine_reactions_helpers = _attach_liluvine_reactions(
     get_current_admin=get_current_admin,
     _is_super_admin=_is_super_admin,
     _resolve_visible_client_ids=_resolve_visible_client_ids,
+    wa_send_media=_wa_send_media,  # Iter43-fix24az-p — native media responses
 )
 # Expose globalement pour que autoreply_to_inbound puisse les appeler
 LILUVINE_REACTIONS_HELPERS = _liluvine_reactions_helpers

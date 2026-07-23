@@ -29,9 +29,12 @@ export default function Login() {
 
   // Compute the post-login redirect target. Translators get a dedicated
   // landing page (/admin/i18n) since they have no access to the rest.
+  // Iter43-fix24az-x (2026-07-22) — Médecins tracked land directly on
+  // /portal/planning (no dashboard, no welcome briefing).
   const _postLoginRoute = (u) => {
     if (!u) return "/portal";
     if ((u.tracked_role || "") === "Traducteur") return "/admin/i18n";
+    if ((u.tracked_role || "") === "Médecin") return "/portal/planning";
     return u.role === "admin" ? "/admin" : "/portal";
   };
 
@@ -141,7 +144,7 @@ export default function Login() {
       });
       login(r.data.access_token || r.data.token, r.data.user);
       toast.success("Connexion WhatsApp réussie — bienvenue !");
-      navigate("/portal");
+      navigate(_postLoginRoute(r.data.user));
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Code invalide");
     } finally { setLoading(false); }

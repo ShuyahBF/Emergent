@@ -313,7 +313,13 @@ export default function PortalLayout({ admin = false }) {
         navigate("/portal");
       }
     }
-  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant]);
+    // Iter43-fix24az-x (2026-07-22) — Médecin tracked : redirect vers
+    // /portal/planning si l'utilisateur se retrouve sur une route non
+    // autorisée (ex: /portal, /admin, session stale, deep-link).
+    if (user && isMedecinTracked && !allowedMedecinTrackedPaths.has(location.pathname)) {
+      navigate("/portal/planning");
+    }
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked]);
 
   // Web Notifications + son sur nouveaux WA
   const waNotifier = useWhatsAppNotifier();
@@ -346,12 +352,14 @@ export default function PortalLayout({ admin = false }) {
   // Iter35r — Welcome briefing modal: shown once per session after login.
   // Iter43-fix24az-j (2026-02-26) — Skip Welcome for Fabricant tenants (they
   // don't have a dashboard/welcome experience and land directly on /portal/cash).
+  // Iter43-fix24az-x (2026-07-22) — Skip Welcome for Médecins tracked too
+  // (they land directly on /portal/planning — no dashboard experience).
   const [showBriefing, setShowBriefing] = useState(false);
   useEffect(() => {
-    if (user && !isFabricant && shouldShowWelcomeBriefing()) {
+    if (user && !isFabricant && !isMedecinTracked && shouldShowWelcomeBriefing()) {
       setShowBriefing(true);
     }
-  }, [user, isFabricant]);
+  }, [user, isFabricant, isMedecinTracked]);
 
   if (!user) return null;
 

@@ -382,16 +382,39 @@ def attach_planning_routes(
 
         # Résout le tenant_id : par défaut super-admin du système. Si medecin_email
         # correspond à un utilisateur tracked, on utilise SON tenant.
+        #
+        # Iter43-fix24az-x (2026-07-22) — Bug prod : les médecins créés via
+        # l'ancien chemin (sans bridged users row) OU dont l'email stocké en
+        # base a une casse différente n'étaient pas résolus → tenant_id
+        # tombait sur le super-admin fallback, et la scope du médecin lecteur
+        # ne contenait pas ce tenant_id → tous les RDV invisibles.
+        # Fix : (a) lookup case-insensitive, (b) fallback vers tracked_users
+        # avec propagation de son user_account_id (bridged) comme medecin_id
+        # + client_id (parent) comme tenant_id.
         tenant_id: Optional[str] = None
         medecin_id: Optional[str] = None
         if medecin_email:
+            import re as _re
+            email_regex = f"^{_re.escape(medecin_email)}$"
             u = await db.users.find_one(
-                {"email": medecin_email.lower()},
+                {"email": {"$regex": email_regex, "$options": "i"}},
                 {"_id": 0, "id": 1, "client_id": 1, "parent_client_id": 1},
             )
             if u:
                 medecin_id = u.get("id")
                 tenant_id = u.get("parent_client_id") or u.get("client_id") or u.get("id")
+            else:
+                # Fallback : chercher dans tracked_users (cas d'un médecin
+                # créé sans bridge users row, ou avec casse divergente).
+                tu = await db.tracked_users.find_one(
+                    {"email": {"$regex": email_regex, "$options": "i"}},
+                    {"_id": 0, "id": 1, "client_id": 1, "user_account_id": 1},
+                )
+                if tu:
+                    # Utilise l'id du bridged user si dispo (pour matcher côté
+                    # GET où user.id == bridged users.id), sinon l'id tracked.
+                    medecin_id = tu.get("user_account_id") or tu.get("id")
+                    tenant_id = tu.get("client_id") or medecin_id
         if not tenant_id:
             # Fallback : super-admin comme tenant (le RDV apparaîtra dans le portail admin)
             admin = await db.users.find_one({"email": "admin@sawalismartsystems.com"}, {"_id": 0, "id": 1})
@@ -530,18 +553,55 @@ def attach_planning_routes(
             effective_medecin_id = user.get("id")
 
         # Détermine le scope tenant
+        #
+        # Iter43-fix24az-x (2026-07-22) — Élargissement défensif du scope pour
+        # les médecins tracked : inclure aussi le `client_id` du tracked_users
+        # row (ancien chemin) + l'`id` super-admin en dernier recours si
+        # l'utilisateur n'a pas de parent_client_id explicite. Empêche les
+        # RDV insérés par webhook (avec tenant_id = super-admin fallback)
+        # d'être invisibles pour un médecin dont la bridge est incomplète.
         if _is_super_admin(user):
             q: Dict[str, Any] = {}
         else:
-            scope = await _resolve_visible_client_ids(user)
+            scope = list(await _resolve_visible_client_ids(user))
+            # Si l'utilisateur est un médecin tracked, ajouter aussi le
+            # client_id de son tracked_users row (au cas où il diffère du
+            # parent_client_id du bridged user).
+            if is_medecin:
+                try:
+                    tu = await db.tracked_users.find_one(
+                        {"email": (user.get("email") or "").lower()},
+                        {"_id": 0, "id": 1, "client_id": 1, "user_account_id": 1},
+                    )
+                    if tu:
+                        for cand in (tu.get("client_id"), tu.get("id"), tu.get("user_account_id")):
+                            if cand and cand not in scope:
+                                scope.append(cand)
+                except Exception:  # noqa: BLE001
+                    pass
             q = {"tenant_id": {"$in": scope}}
         q["start_at"] = {"$gte": start_iso, "$lt": end_iso}
         if effective_medecin_id:
-            # Match soit medecin_id OU medecin_email correspondant à cet utilisateur
+            # Match soit medecin_id OU medecin_email correspondant à cet utilisateur.
+            # Case-insensitive email pour tolérer les emails stockés en casse mixte.
             u = await db.users.find_one({"id": effective_medecin_id}, {"_id": 0, "id": 1, "email": 1})
-            or_clauses = [{"medecin_id": effective_medecin_id}]
+            or_clauses: List[Dict[str, Any]] = [{"medecin_id": effective_medecin_id}]
             if u and u.get("email"):
-                or_clauses.append({"medecin_email": u["email"].lower()})
+                import re as _re
+                email_re = f"^{_re.escape(u['email'].lower())}$"
+                or_clauses.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
+            # Egalement : matcher via tracked_users id si le bridge n'a pas
+            # été utilisé au moment de l'insertion (medecin_id contient le
+            # tracked_users.id au lieu du bridged users.id).
+            try:
+                tu = await db.tracked_users.find_one(
+                    {"user_account_id": effective_medecin_id},
+                    {"_id": 0, "id": 1},
+                )
+                if tu and tu.get("id"):
+                    or_clauses.append({"medecin_id": tu["id"]})
+            except Exception:  # noqa: BLE001
+                pass
             q["$or"] = or_clauses
 
         items: List[Dict[str, Any]] = []

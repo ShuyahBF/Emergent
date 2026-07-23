@@ -218,7 +218,7 @@ export default function PortalLayout({ admin = false }) {
   ]);
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
-  const allowedMedecinTrackedPaths = new Set(["/portal/planning"]);
+  const allowedMedecinTrackedPaths = new Set(["/portal/planning", "/portal/my-account"]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
   const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
   // Paths réservés à certains rôles métier (cachés pour les autres)

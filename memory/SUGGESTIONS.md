@@ -796,6 +796,15 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S106 — Fix prod Planning consultations : RDVs webhook invisibles + UX médecin
+- **Demande utilisateur** : 2026-07-22 (bug prod signalé en 2 points : (1) RDVs webhook invisibles pour le médecin `00120.cmco@sawalismartsystems.com` alors que la collection en contient 18 ; (2) le médecin doit atterrir directement sur `/portal/planning` sans dashboard ni modal Welcome).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-x
+- **Détail** :
+  - **Bug 1 — Backend `routes/planning.py`** : le webhook `POST /api/webhooks/planning/{secret}` cherchait le médecin uniquement dans `db.users.find_one({email: lower})`. Échoue si (a) pas de bridge users row, (b) pas de `parent_client_id`, (c) casse divergente. → fallback `tenant_id = super-admin.id`, hors du scope du médecin lecteur → RDV invisible. **Fix** : lookup case-insensitive + fallback dans `db.tracked_users` (utilise `client_id` comme tenant + `user_account_id` comme medecin_id). GET `/me/planning/appointments` : scope élargi avec `tracked_users.client_id`, match email case-insensitive, match `medecin_id` aussi via `tracked_users.id`.
+  - **Bug 2 — Frontend** : `Login.jsx` `_postLoginRoute` retourne `/portal/planning` quand `tracked_role='Médecin'` (appliqué aussi au flow WA OTP verify). `PortalLayout.jsx` : Welcome briefing supprimé pour médecins tracked, useEffect redirect vers `/portal/planning` si pathname ∉ `{planning, my-account}`.
+- **Tests** : 4 nouveaux pytest (`test_iter43_fix24az_x_planning_visibility.py`) reproduisant exactement le scénario prod (médecin sans parent_client_id + client_id intermédiaire), + baseline régression, + case-insensitivity, + multi-RDV. **Testing agent iteration_89 = 100% (43/43 backend + Playwright frontend OK)**.
+
 ## S105 — Badge sidebar live "WhatsApp Silent Drops" (indicateur santé en un coup d'œil)
 - **Proposée le** : 2026-07-22 (finish Iter43-fix24az-w)
 - **Statut** : 🔵 PROPOSÉE (en attente décision utilisateur — utilisateur a demandé de la noter)

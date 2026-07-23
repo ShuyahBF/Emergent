@@ -13,6 +13,40 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-x (2026-07-22) — Bugs prod Planning consultations : RDVs webhook invisibles + UX médecin ✅
+
+**Contexte** : bug prod signalé par l'utilisateur. La collection `planning_appointments` contient 18 RDVs, mais **aucun RDV importé par le webhook n'apparaît dans le portail du médecin** ; seuls ceux insérés manuellement (curl direct DB) sont visibles. Cas concret : le RDV "PALE Nathalie" (webhook) invisible pour `00120.cmco@sawalismartsystems.com`, alors que "Fatimata KANE" (seed) l'est.
+
+**Root cause** :
+1. Le webhook `POST /api/webhooks/planning/{secret}` cherche le médecin uniquement dans `db.users.find_one({email: medecin_email.lower()})`. Deux cas d'échec :
+   - Le médecin n'a pas de ligne bridge dans `db.users` (créé uniquement dans `db.tracked_users`) OU
+   - La ligne bridge existe mais n'a **pas de `parent_client_id`** OU l'email stocké a une casse différente du payload.
+2. Lookup échoue → `u = None` → fallback `tenant_id = super-admin.id`.
+3. Côté GET `/me/planning/appointments`, le scope du médecin (`_resolve_visible_client_ids`) ne contient pas cet `id` fallback → RDV invisible.
+
+**Fix Bug 1 — Backend `routes/planning.py`** :
+- **Webhook** : lookup case-insensitive dans `db.users` (`$regex ^X$ $options: i`) + fallback dans `db.tracked_users`. Si trouvé dans tracked_users, utilise `user_account_id` comme `medecin_id` et `client_id` comme `tenant_id`.
+- **GET** : scope élargi en incluant aussi `tracked_users.client_id`+`id`+`user_account_id` pour les médecins tracked. `$or` élargi pour matcher `medecin_id` = bridged users.id OU tracked_users.id ; match email case-insensitive.
+
+**Fix Bug 2 — Frontend UX médecin** :
+- **`pages/auth/Login.jsx`** : `_postLoginRoute` retourne `/portal/planning` quand `tracked_role === 'Médecin'`. Appliqué aussi au flow WhatsApp OTP verify (précédemment hardcodé `/portal`).
+- **`components/PortalLayout.jsx`** :
+  - Welcome briefing SUPPRIMÉ pour médecins tracked (condition `!isMedecinTracked` ajoutée).
+  - useEffect de redirection : si médecin tracked et pathname ∉ `allowedMedecinTrackedPaths` (`/portal/planning`, `/portal/my-account`), redirect immédiat vers `/portal/planning`.
+
+**Tests** : 4 nouveaux pytest (`test_iter43_fix24az_x_planning_visibility.py`) reproduisant **exactement** le scénario prod :
+1. Baseline régression : médecin avec bridge users row complet voit ses RDVs webhook ✓
+2. **Fix principal** : médecin dont bridge n'a pas de `parent_client_id` (parent_client_id manquant, client_id set dans tracked_users vers un client intermédiaire ≠ super-admin) voit maintenant ses RDVs (AVANT le fix, le test échouait).
+3. Case-insensitivity : payload `medecin_email` en MAJUSCULES retrouvé dans users lowercase.
+4. Multi-RDV : 5 RDVs webhook + 1 seed manuel → tous visibles (count=6).
+
+**Testing agent iteration_89 = 100% (43/43 backend + frontend Playwright validé)** : médecin login → `/portal/planning` direct, WelcomeBriefing absent du DOM, sidebar contient uniquement 'Planning consultations', deep-link `/portal` redirigé.
+
+**Impact** : Les RDVs webhook (le canal principal en prod) sont maintenant visibles pour tous les médecins, quel que soit le mode de création de leur compte. Le médecin ne voit plus le dashboard ni le briefing — expérience directe et professionnelle sur son planning.
+
+
+
+
 ## Iter43-fix24az-w (2026-07-22) — WhatsApp Silent Drops : surveillance + alertes email/WhatsApp ✅
 
 **Contexte** : suite au fix Iter43-fix24az-v (auto-split centralisé), on a maintenant un log warning explicite quand Meta rejette silencieusement (`2xx` sans `message_id`). L'utilisateur a validé la suggestion d'exploiter ce signal pour déclencher des alertes automatiques email + WhatsApp aux admins configurés.

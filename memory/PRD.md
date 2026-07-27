@@ -13,6 +13,43 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-y + z (2026-07-22) — WhatsApp tabs + Planning souligné + placement intelligent ✅
+
+**3 features livrées ensemble** (demandées par l'utilisateur dans l'ordre) :
+
+### T1 — WhatsApp Conversations : 2 onglets Discussion / Groupes(n) [fix24az-y]
+- **Problème** : la zone `ContactGroupChips` (bordure rouge) écrasait la vue conversation sur mobile/tablette.
+- **Fix** : Wrap dans un système de tabs custom à l'intérieur de `ConversationModal` :
+  - Onglet **Discussion** (défaut) = messages + composer + toolbar (comme avant l'insertion des groupes)
+  - Onglet **Groupes (n)** = uniquement le composant ContactGroupChips en pleine hauteur
+- `ContactGroupChips` accepte maintenant une prop `onCountChange` (useEffect notifie le parent à chaque changement de memberships).
+- Hidden mount de `ContactGroupChips` en `sr-only` sur l'onglet Discussion pour garder le compteur `(n)` à jour en temps réel.
+- Data-testids : `wa-tab-discussion`, `wa-tab-groups`, `wa-tab-groups-content`.
+
+### T2 — Planning : souligner les patients AVEC RDV [fix24az-z]
+- **Règle** : `is_rdv=1` (ou legacy `undefined`) → `underline underline-offset-2`. `is_rdv=0` (walk-in) → normal.
+- Appliqué dans le calendrier (`<div className="text-[11px]">…<span underline?>{patient}</span></div>`) ET dans la liste (`<div className="text-sm">…<span underline?>{patient}</span></div>`).
+- Walk-ins **exclus du calendrier** (positioned filtre `a.is_rdv !== 0 && a.start_at`) et affichés uniquement dans la liste au bout, avec badge `#{numero_ordre}` au lieu de l'heure.
+- Data-testids : `planning-patient-{id}`, `planning-list-patient-{id}`.
+
+### T3 — Webhook enrichi + placement intelligent [fix24az-z]
+- **Nouveaux champs payload** :
+  - `is_rdv` (0/1, défaut 1) — 1 = RDV planifié, 0 = walk-in (sans RDV)
+  - `numero_liste` (chaîne libre — ex "L01", "matin", "42")
+  - `numero_ordre` (int, auto-chronologique si vide)
+  - `domaine` (spécialité médicale libre — ex "gyneco", "pediatrie")
+- **Walk-ins (is_rdv=0)** : pas de `start_at` requis. Idempotence sur `(tenant_id, walk_in_list, patient, numero_ordre)`. `walk_in_list = YYMMDD:email:domaine` (`unknown` en fallback). `numero_ordre = MAX(existing) + 1` si absent.
+- **RDV en conflit** : nouvel helper `_find_free_slot(existing_intervals, requested_start, duration_min)` cherche le slot libre le plus proche (gaps entre RDV existants). Décale automatiquement le nouveau RDV au slot le plus proche (avant OU après).
+- **GET `/me/planning/appointments`** enrichi : requête composée en `$and` de `{time_or}` (start_at IN [day_start, day_end] OR walk_in_list `^YYMMDD:`) et `{medecin_or}`. Tri secondaire par `numero_ordre` pour les walk-ins.
+- **Réponse JSON enrichie** : `placed_at`, `placed_end_at`, `original_start_at`, `correction_applied` (bool), `correction_reason` (str), `is_rdv`, `numero_ordre`, `numero_liste`, `domaine`, `walk_in_list`.
+
+**Tests** : 7 nouveaux pytest (`test_iter43_fix24az_z_planning_placement.py`) : nouveaux champs, walk-ins auto-numero, is_rdv=1 sans start=400, conflit RDV, no-conflict, rétro-compat, GET returns both. **Testing agent iteration_90 = 100%** (150/150 pytest cumulatif + code review frontend OK).
+
+**Impact** : Les cliniques peuvent désormais gérer les files d'attente automatiquement. Le médecin n'a plus qu'à "visualiser" — les conflits de créneaux sont résolus par l'algo, les walk-ins sont numérotés dans l'ordre d'arrivée. Le rendu visuel (souligné) permet de distinguer instantanément RDV vs walk-in.
+
+
+
+
 ## Iter43-fix24az-x (2026-07-22) — Bugs prod Planning consultations : RDVs webhook invisibles + UX médecin ✅
 
 **Contexte** : bug prod signalé par l'utilisateur. La collection `planning_appointments` contient 18 RDVs, mais **aucun RDV importé par le webhook n'apparaît dans le portail du médecin** ; seuls ceux insérés manuellement (curl direct DB) sont visibles. Cas concret : le RDV "PALE Nathalie" (webhook) invisible pour `00120.cmco@sawalismartsystems.com`, alors que "Fatimata KANE" (seed) l'est.

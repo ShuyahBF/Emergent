@@ -796,6 +796,29 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
+## S107 — WhatsApp Conversations : 2 onglets Discussion / Groupes(n)
+- **Demande utilisateur** : 2026-07-22 — « Redéfinir le cadre bordure rouge dans la fenêtre de conversations WhatsApp ; sur téléphone/tablette cette zone prend quasiment tout l'espace de la fenêtre de conversation. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-y
+- **Détail** : `ConversationModal` (Contacts.jsx) wrapped in a custom tab system. Onglet `Discussion` (défaut) = messages + composer + toolbar. Onglet `Groupes (n)` = uniquement ContactGroupChips en pleine hauteur. Le compteur `n` se met à jour en temps réel via `onCountChange` prop dans ContactGroupChips (hidden mount `sr-only` sur l'onglet Discussion pour garder le compteur à jour).
+
+## S108 — Planning : soulignage patients avec RDV + walk-in queue
+- **Demande utilisateur** : 2026-07-22 — « Ceux avec rdv apparaîtront avec une police de caractères 'souligné'. Pour les autres la police sera normale. Ces styles seront les mêmes pour le planning et la liste. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-z (frontend part)
+- **Détail** : `<span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"}>{patient}</span>` dans le calendrier et la liste (Planning.jsx). Walk-ins exclus du calendrier (positioned filter) et affichés en fin de liste avec badge `#{numero_ordre}` au lieu de l'heure.
+
+## S109 — Webhook planning enrichi : placement intelligent RDV + walk-ins
+- **Demande utilisateur** : 2026-07-22 — 3 nouveaux champs (`numero_liste`, `numero_ordre` auto-chronologique, `is_rdv` 0/1 défaut 1), placement intelligent avec priorité RDV, retour JSON avec correction.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-z (backend part)
+- **Détail** :
+  - **Backend `routes/planning.py`** : webhook accepte les nouveaux champs. Walk-ins (is_rdv=0) → pas de start_at requis, idempotence sur `(walk_in_list, patient, numero_ordre)`. Clé liste walk-in = `YYMMDD:medecin_email:domaine` (libre texte lowercase).
+  - **Placement intelligent** : nouveau helper `_find_free_slot(existing_intervals, requested_start, duration_min)` cherche le slot libre le plus proche (avant OU après) parmi les gaps entre RDV existants du médecin. Décale automatiquement.
+  - **Réponse JSON enrichie** : `placed_at`, `placed_end_at`, `original_start_at`, `correction_applied` (bool), `correction_reason` (str explicatif), `is_rdv`, `numero_ordre`, `numero_liste`, `domaine`, `walk_in_list`.
+  - **GET /me/planning/appointments** : requête composée en `$and({time_or}, {medecin_or})` où time_or inclut RDV du jour (start_at range) OR walk-in du jour (walk_in_list `^YYMMDD:`). Tri secondaire par numero_ordre.
+- **Tests** : 7 nouveaux pytest (`test_iter43_fix24az_z_planning_placement.py`). **Testing agent iteration_90 = 100%** (150 pytest cumulatif + code review frontend OK).
+
 ## S106 — Fix prod Planning consultations : RDVs webhook invisibles + UX médecin
 - **Demande utilisateur** : 2026-07-22 (bug prod signalé en 2 points : (1) RDVs webhook invisibles pour le médecin `00120.cmco@sawalismartsystems.com` alors que la collection en contient 18 ; (2) le médecin doit atterrir directement sur `/portal/planning` sans dashboard ni modal Welcome).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)

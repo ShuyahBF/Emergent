@@ -24,6 +24,7 @@ import LiluvineBypassEmailsSection from "@/pages/admin/sections/LiluvineBypassEm
 import LiluvineModuleAclSection from "@/pages/admin/sections/LiluvineModuleAclSection";
 import WaSilentPhonesSection from "@/pages/admin/sections/WaSilentPhonesSection";
 import WaSilentDropsSection from "@/pages/admin/sections/WaSilentDropsSection";
+import WaNotificationSoundSection from "@/pages/admin/sections/WaNotificationSoundSection";
 import S057ThemingSection from "@/pages/admin/sections/S057ThemingSection";
 import S058VidalSection from "@/pages/admin/sections/S058VidalSection";
 import S059SyntheseOfficinesSection from "@/pages/admin/sections/S059SyntheseOfficinesSection";
@@ -54,6 +55,8 @@ import QdrantRagSection from "@/components/QdrantRagSection";
 // jump-to-section dropdown built from the list of registered titles.
 // ============================================================
 const NEW_SECTIONS = {
+  // 2026-02 (fork) — Configurable WhatsApp inbound notification sound
+  "🔔 WhatsApp — Son de notification (message entrant)": "2026-02-14",
   // S-iter39o (2026-02 post-handoff) — Qdrant RAG
   "RAG (Qdrant) — Base de connaissance vectorielle (S038)": "2026-02-02",
   // S-iter39k (2026-02 post-handoff) — Liluvine escalation
@@ -821,6 +824,10 @@ export default function AdminSettings() {
 
       <Filterable title="🛡️ WhatsApp — Silent Drops (surveillance rejets Meta 2xx sans message_id)" anchorId="s-wa-silent-drops">
         <WaSilentDropsSection />
+      </Filterable>
+
+      <Filterable title="🔔 WhatsApp — Son de notification (message entrant)" anchorId="s-wa-notification-sound">
+        <WaNotificationSoundSection />
       </Filterable>
 
       <Filterable title="🎨 S057 — Habillage complet (Sidebar / Login / Blocs publics)" anchorId="s-s057-theming">

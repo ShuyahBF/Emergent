@@ -12,6 +12,8 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
+// Iter43-fix24az-ad — Mini heatmap 30 jours en panneau latéral
+import PlanningHeatmap from "@/components/PlanningHeatmap";
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -452,9 +454,11 @@ export default function Planning() {
         )}
       </div>
 
-      {/* Calendar grid */}
-      <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
-        <div className="grid grid-cols-[64px_1fr] relative" data-testid="planning-calendar-grid" style={{ height: TOTAL_HEIGHT + 20 }}>
+      {/* Iter43-fix24az-ad (2026-07-22) — Panneau principal : calendrier + heatmap latérale. */}
+      <div className="grid grid-cols-1 xl:grid-cols-[1fr_240px] gap-4">
+        {/* Calendar grid */}
+        <div className="bg-white border border-slate-200 rounded-2xl shadow-sm overflow-hidden">
+          <div className="grid grid-cols-[64px_1fr] relative" data-testid="planning-calendar-grid" style={{ height: TOTAL_HEIGHT + 20 }}>
           {/* Time column */}
           <div className="border-r border-slate-200 bg-slate-50">
             {slots.map((s, i) => (
@@ -526,6 +530,16 @@ export default function Planning() {
               </div>
             )}
           </div>
+        </div>
+        </div>
+        {/* Heatmap latérale (30 prochains jours) */}
+        <div className="hidden xl:block">
+          <PlanningHeatmap
+            fromDate={selectedDate}
+            medecinId={selectedMedecinId}
+            days={30}
+            onSelectDate={setSelectedDate}
+          />
         </div>
       </div>
 

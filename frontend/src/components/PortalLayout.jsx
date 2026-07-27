@@ -20,6 +20,7 @@ import { useT } from "@/contexts/I18nContext";
 import BrowserNotifications from "@/components/BrowserNotifications";
 import WeatherWidget from "@/components/WeatherWidget";
 import { useWhatsAppNotifier } from "@/hooks/useWhatsAppNotifier";
+import WaSoundPreferences from "@/components/WaSoundPreferences";
 import { useActivityFeedNotifier } from "@/hooks/useActivityFeedNotifier";
 import { useTicketNotifier } from "@/hooks/useTicketNotifier";
 import { useErrorRegistryNotifier } from "@/hooks/useErrorRegistryNotifier";
@@ -221,7 +222,11 @@ export default function PortalLayout({ admin = false }) {
   ]);
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
-  const allowedMedecinTrackedPaths = new Set(["/portal/planning", "/portal/my-account"]);
+  const allowedMedecinTrackedPaths = new Set([
+    "/portal/planning",
+    "/portal/prescription-analysis",  // Iter43-fix24az-ac
+    "/portal/my-account",
+  ]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
   const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
   // Paths réservés à certains rôles métier (cachés pour les autres)
@@ -230,7 +235,11 @@ export default function PortalLayout({ admin = false }) {
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
     : (isMedecinTracked
-        ? [{ to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" }]
+        ? [
+            { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+            // Iter43-fix24az-ac (2026-07-22) — Analyse prescription VIDAL (médecin only)
+            { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle },
+          ]
         : (admin ? adminLinks : clientLinks));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
@@ -566,6 +575,13 @@ export default function PortalLayout({ admin = false }) {
               {!waNotifier.soundAllowedByAdmin ? "Bloqué" : (waNotifier.soundOn ? "Son" : "Muet")}
             </button>
           </div>
+          {waNotifier.soundAllowedByAdmin && waNotifier.soundOn && (
+            <WaSoundPreferences
+              adminDefaults={waNotifier.soundAdminDefaults}
+              disabled={false}
+              onChange={waNotifier.refreshSoundConfig}
+            />
+          )}
           {waNotifier.permission === "default" && waNotifier.desktopOn && (
             <button
               onClick={waNotifier.requestPermission}

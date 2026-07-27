@@ -1,43 +1,23 @@
 /*
   Polls /me/whatsapp/unread every 15s and:
     1. Fires a Web Notification API toast when the unread count grows.
-    2. Plays a short blip sound (Web Audio API, no asset needed).
+    2. Plays a configurable sound (5 built-in presets or a custom MP3 chosen
+       by the admin — see /app/backend/routes/wa_notification_sound.py).
     3. Updates the favicon with a red dot so even an inactive tab signals activity.
 
   No server-side push — keeps things simple and avoids websockets.
   Permission is requested on the first interaction (after login).
   Sound + notification opt-in are persisted in localStorage so the user keeps
-  control. A small bell button in the layout exposes the toggle.
+  control. A small bell button in the layout exposes the toggle. Individual
+  users may also override the preset/volume locally via /portal/account.
 */
 import { useEffect, useRef, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
+import { getEffectiveConfig, playSound } from "@/lib/notificationSounds";
 
 const POLL_MS = 15000;
 const STORAGE_KEY_SOUND = "sawali_wa_notif_sound";
 const STORAGE_KEY_DESKTOP = "sawali_wa_notif_desktop";
-
-// Tiny "bling" generated programmatically via Web Audio — no external file.
-function playBlip(volume = 0.4) {
-  try {
-    const Ctx = window.AudioContext || window.webkitAudioContext;
-    if (!Ctx) return;
-    const ctx = new Ctx();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.type = "sine";
-    osc.frequency.setValueAtTime(880, ctx.currentTime);
-    osc.frequency.exponentialRampToValueAtTime(1320, ctx.currentTime + 0.18);
-    gain.gain.setValueAtTime(volume, ctx.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.4);
-    osc.start();
-    osc.stop(ctx.currentTime + 0.42);
-    osc.onended = () => ctx.close();
-  } catch {
-    /* swallow — sound is best effort */
-  }
-}
 
 let originalFavicon = null;
 function setFaviconBadge(show) {
@@ -80,6 +60,12 @@ export function useWhatsAppNotifier() {
   // parent client, the user's localStorage preference is overridden and the
   // sound never plays. Defaults to true (allowed) until /me/features answers.
   const [soundAllowedByAdmin, setSoundAllowedByAdmin] = useState(true);
+  // Effective sound config resolved from tenant defaults + user localStorage
+  // overrides. Refreshed alongside the feature flags on mount.
+  const [soundConfig, setSoundConfig] = useState({ preset: "bip", url: null, volume: 0.4 });
+  // Raw tenant defaults (no user override applied) so the "Reset to admin"
+  // action in <WaSoundPreferences /> knows what to reset to.
+  const [soundAdminDefaults, setSoundAdminDefaults] = useState({ preset: "bip", url: null, volume: 0.4 });
   const lastSeenRef = useRef(null);
   const intervalRef = useRef(null);
 
@@ -93,6 +79,13 @@ export function useWhatsAppNotifier() {
         const allowed = r.data?.features?.wa_sound_alerts;
         // Treat undefined as allowed (backward-compat with older payloads).
         setSoundAllowedByAdmin(allowed !== false);
+        const raw = {
+          preset: r.data?.wa_notification_sound || "bip",
+          url: r.data?.wa_notification_sound_url || null,
+          volume: typeof r.data?.wa_notification_volume === "number" ? r.data.wa_notification_volume : 0.4,
+        };
+        setSoundAdminDefaults(raw);
+        setSoundConfig(getEffectiveConfig(raw));
       })
       .catch(() => { /* keep default = allowed */ });
     return () => { cancelled = true; };
@@ -126,7 +119,9 @@ export function useWhatsAppNotifier() {
       }
       if (total > lastSeenRef.current) {
         const delta = total - lastSeenRef.current;
-        if (soundOn && soundAllowedByAdmin) playBlip();
+        if (soundOn && soundAllowedByAdmin) {
+          playSound(soundConfig.preset, soundConfig.url, soundConfig.volume);
+        }
         if (desktopOn && typeof Notification !== "undefined" && Notification.permission === "granted" && document.visibilityState !== "visible") {
           try {
             const n = new Notification(`SAWALI — ${delta} nouveau(x) message WhatsApp`, {
@@ -145,7 +140,7 @@ export function useWhatsAppNotifier() {
       }
       lastSeenRef.current = total;
     } catch { /* poll silently */ }
-  }, [soundOn, desktopOn, soundAllowedByAdmin]);
+  }, [soundOn, desktopOn, soundAllowedByAdmin, soundConfig]);
 
   useEffect(() => {
     tick();
@@ -161,8 +156,19 @@ export function useWhatsAppNotifier() {
     permission,
     soundOn,
     soundAllowedByAdmin,
+    soundConfig,
+    soundAdminDefaults,
     desktopOn,
     requestPermission,
+    // Testing helper: preview the current effective sound (used by the popover)
+    previewSound: () => playSound(soundConfig.preset, soundConfig.url, soundConfig.volume),
+    // Called after the user updates their local sound preference so the hook
+    // picks it up without a page refresh.
+    refreshSoundConfig: () => {
+      // Re-resolve the effective config from the raw admin defaults + the
+      // freshly updated localStorage overrides. No network needed.
+      setSoundConfig(getEffectiveConfig(soundAdminDefaults));
+    },
     toggleSound: () => setSoundOn((s) => { const v = !s; persist(v, desktopOn); return v; }),
     toggleDesktop: () => setDesktopOn(async (d) => {
       const v = !d;

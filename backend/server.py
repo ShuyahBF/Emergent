@@ -4402,11 +4402,24 @@ async def me_get_features(user: dict = Depends(get_current_user)):
     extra_flags = {
         "notes_strict_tasks_only": bool(g.get("notes_strict_tasks_only", False)),
     }
+    # WhatsApp inbound notification sound (2026-02 configurable sound).
+    # Exposed on the top-level payload so the frontend hook can play the
+    # tenant-wide default without a separate round-trip.
+    _wa_sound_meta = {
+        "wa_notification_sound": g.get("wa_notification_sound") or "bip",
+        "wa_notification_sound_url": g.get("wa_notification_sound_url") or None,
+        "wa_notification_volume": (
+            float(g["wa_notification_volume"])
+            if isinstance(g.get("wa_notification_volume"), (int, float))
+            else 0.4
+        ),
+    }
     if user.get("role") in ("admin", "superviseur"):
         return {
             "features": {**{k: True for k in DEFAULT_CLIENT_FEATURES}, **extra_flags},
             "pawapay_mnos": list(DEFAULT_CLIENT_PAWAPAY_MNOS),
             "inherited_from": None,
+            **_wa_sound_meta,
         }
     parent_id = user.get("parent_client_id") or user.get("client_id") or user["id"]
     parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "id": 1, "full_name": 1, "company": 1, "features": 1, "pawapay_mnos": 1})
@@ -4421,6 +4434,7 @@ async def me_get_features(user: dict = Depends(get_current_user)):
             "full_name": (parent or {}).get("full_name"),
             "company": (parent or {}).get("company"),
         } if parent and parent_id != user["id"] else None,
+        **_wa_sound_meta,
     }
 
 
@@ -12257,6 +12271,21 @@ async def admin_update_settings(payload: SettingsUpdate, user: dict = Depends(ge
     if "download_approval_whatsapp" in update:
         v = (update["download_approval_whatsapp"] or "").strip()
         update["download_approval_whatsapp"] = v
+    # 2026-02 — Validate WA notification sound preset + volume (see wa_notification_sound.py)
+    if "wa_notification_sound" in update:
+        allowed_presets = ("bip", "ding", "chime", "alert", "subtle", "custom")
+        ps = (update["wa_notification_sound"] or "bip").strip().lower()
+        if ps not in allowed_presets:
+            raise HTTPException(status_code=400, detail=f"wa_notification_sound doit être l'un de {list(allowed_presets)}")
+        update["wa_notification_sound"] = ps
+    if "wa_notification_volume" in update and update["wa_notification_volume"] is not None:
+        try:
+            v = float(update["wa_notification_volume"])
+        except (TypeError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail="wa_notification_volume doit être un nombre") from exc
+        if v < 0.0 or v > 1.0:
+            raise HTTPException(status_code=400, detail="wa_notification_volume doit être entre 0.0 et 1.0")
+        update["wa_notification_volume"] = v
     if not update:
         return {"ok": True}
     # Iter35x — Snapshot previous values BEFORE the update for audit comparison
@@ -23713,6 +23742,10 @@ from routes.google_calendar_watch import (  # noqa: E402
     run_google_calendar_watch_renewal_tick as _run_gcal_watch_renewal,
 )
 _attach_gcal_watch(api=api, db=db, get_current_admin=get_current_admin)
+
+# 2026-02 — Configurable WhatsApp inbound notification sound
+from routes.wa_notification_sound import attach_notification_sound_routes as _attach_wa_notif_sound  # noqa: E402
+_attach_wa_notif_sound(api=api, db=db, get_current_admin=get_current_admin, upload_dir=UPLOAD_DIR)
 
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402

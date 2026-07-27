@@ -141,6 +141,8 @@ import CatalogStats from "@/pages/portal/CatalogStats";
 import PaymentReturn from "@/pages/portal/PaymentReturn";
 import LiluvinePro from "@/pages/portal/LiluvinePro";
 import Vidal from "@/pages/portal/Vidal";
+// Iter43-fix24az-ac — Page standalone d'analyse de prescription (médecin sidebar)
+import PrescriptionAnalysis from "@/pages/portal/PrescriptionAnalysis";
 import AmmEditorPage from "@/pages/portal/AmmEditor";
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
@@ -336,6 +338,8 @@ export default function App() {
             <Route path="liluvine" element={<LiluvinePro />} />
             {/* Iter41 (2026-02) — Module VIDAL France (médicaments / RCP / alertes) */}
             <Route path="vidal" element={<Vidal />} />
+            {/* Iter43-fix24az-ac (2026-07-22) — Page dédiée médecin */}
+            <Route path="prescription-analysis" element={<PrescriptionAnalysis />} />
             {/* Iter41 Phase 2 — Table AMM (numéros d'autorisation de mise sur le marché) */}
             <Route path="amm" element={<AmmEditorPage />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}

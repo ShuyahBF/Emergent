@@ -1124,6 +1124,121 @@ def attach_planning_routes(
         }
 
     # -----------------------------------------------------------------
+    # Iter43-fix24az-ad (2026-07-22) — Heatmap N jours. Retourne un tableau
+    # de compteurs par jour (RDV + walk-ins) pour alimenter la mini-heatmap
+    # latérale du planning. Permet au médecin de repérer les jours chargés
+    # d'un coup d'œil.
+    # -----------------------------------------------------------------
+    @api.get("/me/planning/heatmap", tags=["Portail Client — Planning"])
+    async def planning_heatmap(
+        from_date: Optional[str] = Query(None, description="Date de début YYYY-MM-DD (défaut = aujourd'hui UTC)"),
+        days: int = Query(30, ge=1, le=90, description="Nombre de jours (défaut 30)"),
+        medecin_id: Optional[str] = Query(None, description="Filtre par médecin (admin/superviseur)"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not from_date:
+            from_date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            start_dt = datetime.strptime(from_date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date invalide (YYYY-MM-DD)")
+        end_dt = start_dt + timedelta(days=days)
+
+        # Détermine le médecin (même logique que /counts + /next-busy-day)
+        is_medecin = (user.get("tracked_role") or "") == "Médecin"
+        effective_medecin_id: Optional[str] = None
+        if is_medecin:
+            effective_medecin_id = user.get("id")
+        elif medecin_id:
+            effective_medecin_id = medecin_id
+
+        if _is_super_admin(user):
+            base_q: Dict[str, Any] = {}
+        else:
+            scope = list(await _resolve_visible_client_ids(user))
+            if is_medecin:
+                try:
+                    tu = await db.tracked_users.find_one(
+                        {"email": (user.get("email") or "").lower()},
+                        {"_id": 0, "id": 1, "client_id": 1, "user_account_id": 1},
+                    )
+                    if tu:
+                        for cand in (tu.get("client_id"), tu.get("id"), tu.get("user_account_id")):
+                            if cand and cand not in scope:
+                                scope.append(cand)
+                except Exception:  # noqa: BLE001
+                    pass
+            base_q = {"tenant_id": {"$in": scope}}
+
+        medecin_or: List[Dict[str, Any]] = []
+        if effective_medecin_id:
+            u = await db.users.find_one({"id": effective_medecin_id}, {"_id": 0, "id": 1, "email": 1})
+            medecin_or.append({"medecin_id": effective_medecin_id})
+            if u and u.get("email"):
+                email_re = f"^{re.escape(u['email'].lower())}$"
+                medecin_or.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
+            try:
+                tu = await db.tracked_users.find_one(
+                    {"user_account_id": effective_medecin_id}, {"_id": 0, "id": 1},
+                )
+                if tu and tu.get("id"):
+                    medecin_or.append({"medecin_id": tu["id"]})
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _with_medecin(q: Dict[str, Any]) -> Dict[str, Any]:
+            if medecin_or:
+                return {**base_q, "$and": [q, {"$or": medecin_or}]}
+            return {**base_q, **q}
+
+        # Initialise le tableau : 1 entrée par jour dans la fenêtre.
+        counts_by_day: Dict[str, Dict[str, int]] = {}
+        cursor_day = start_dt
+        while cursor_day < end_dt:
+            iso = cursor_day.strftime("%Y-%m-%d")
+            counts_by_day[iso] = {"date": iso, "rdv_count": 0, "walk_in_count": 0}
+            cursor_day += timedelta(days=1)
+
+        # 1) Compte les RDV — agrège par jour (extrait YYYY-MM-DD de start_at).
+        rdv_q = _with_medecin({
+            "is_rdv": {"$ne": 0},
+            "start_at": {"$gte": start_dt.isoformat(), "$lt": end_dt.isoformat()},
+        })
+        async for doc in db.planning_appointments.find(rdv_q, {"_id": 0, "start_at": 1}):
+            iso = (doc.get("start_at") or "")[:10]
+            if iso in counts_by_day:
+                counts_by_day[iso]["rdv_count"] += 1
+
+        # 2) Compte les walk-ins — extrait YYMMDD du champ walk_in_list.
+        walk_prefix_or: List[Dict[str, Any]] = []
+        cursor_day = start_dt
+        while cursor_day < end_dt:
+            walk_prefix_or.append({"walk_in_list": {"$regex": f"^{cursor_day.strftime('%y%m%d')}:"}})
+            cursor_day += timedelta(days=1)
+        if walk_prefix_or:
+            walk_q = _with_medecin({"is_rdv": 0, "$or": walk_prefix_or})
+            async for doc in db.planning_appointments.find(walk_q, {"_id": 0, "walk_in_list": 1}):
+                key = (doc.get("walk_in_list") or "").split(":", 1)[0]
+                if len(key) == 6 and key.isdigit():
+                    iso = f"20{key[0:2]}-{key[2:4]}-{key[4:6]}"
+                    if iso in counts_by_day:
+                        counts_by_day[iso]["walk_in_count"] += 1
+
+        # Compose la sortie sortée par date + total dérivé.
+        items = []
+        for iso in sorted(counts_by_day.keys()):
+            entry = counts_by_day[iso]
+            entry["total"] = entry["rdv_count"] + entry["walk_in_count"]
+            items.append(entry)
+
+        return {
+            "from_date": from_date,
+            "days": days,
+            "medecin_id": effective_medecin_id,
+            "items": items,
+        }
+
+    # -----------------------------------------------------------------
     # Iter43-fix24az-n (2026-07-18) — SSE stream temps réel
     # -----------------------------------------------------------------
     @api.get("/me/planning/stream", tags=["Portail Client — Planning"])

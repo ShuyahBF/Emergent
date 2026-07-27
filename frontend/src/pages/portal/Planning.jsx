@@ -54,6 +54,13 @@ function addDays(iso, delta) {
   return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
 }
 
+// Iter43-fix24az-aa — Format court FR "DD/MM" à partir d'un ISO YYYY-MM-DD.
+function formatFrDate(iso) {
+  if (!iso) return "";
+  const [y, m, d] = iso.split("-");
+  return `${d}/${m}${y ? "/" + y.slice(-2) : ""}`;
+}
+
 function minutesFromDayStart(iso) {
   // Renvoie les minutes depuis 00:00 UTC pour l'ISO donné
   try {
@@ -89,6 +96,13 @@ export default function Planning() {
   const [loading, setLoading] = useState(false);
   const [nowUtc, setNowUtc] = useState(new Date());
   const [sseConnected, setSseConnected] = useState(false);
+  // Iter43-fix24az-aa (2026-07-22) — Compteur RDVs et walk-ins à VENIR
+  // (à partir de la date sélectionnée + 1 jour, horizon 90 jours).
+  const [upcomingCounts, setUpcomingCounts] = useState({
+    from_date: null,
+    upcoming_rdv_count: 0,
+    upcoming_walk_in_count: 0,
+  });
 
   const isMedecin = (me?.tracked_role || "") === "Médecin";
 
@@ -131,9 +145,26 @@ export default function Planning() {
     }
   }, [selectedDate, selectedMedecinId]);
 
+  // Iter43-fix24az-aa — Fetch upcoming counts (from selectedDate + 1 day).
+  const fetchUpcomingCounts = useCallback(async () => {
+    try {
+      const params = new URLSearchParams({ date: selectedDate });
+      if (selectedMedecinId) params.append("medecin_id", selectedMedecinId);
+      const r = await apiClient.get(`/me/planning/counts?${params.toString()}`);
+      setUpcomingCounts({
+        from_date: r.data?.from_date || null,
+        upcoming_rdv_count: r.data?.upcoming_rdv_count || 0,
+        upcoming_walk_in_count: r.data?.upcoming_walk_in_count || 0,
+      });
+    } catch (e) {
+      /* silencieux */
+    }
+  }, [selectedDate, selectedMedecinId]);
+
   useEffect(() => { fetchMe(); }, [fetchMe]);
   useEffect(() => { if (me) fetchDoctors(); }, [me, fetchDoctors]);
   useEffect(() => { fetchAppointments(); }, [fetchAppointments]);
+  useEffect(() => { fetchUpcomingCounts(); }, [fetchUpcomingCounts]);
 
   // Iter43-fix24az-n — SSE stream temps réel (remplace le polling 15s)
   // Se connecte à /api/me/planning/stream avec le JWT en query param.
@@ -318,6 +349,35 @@ export default function Planning() {
           >
             Aujourd'hui
           </button>
+          {/* Iter43-fix24az-aa (2026-07-22) — Compteur RDV+walk-in à venir
+              à partir du lendemain de la date sélectionnée (horizon 90j). */}
+          {upcomingCounts.from_date &&
+            (upcomingCounts.upcoming_rdv_count > 0 || upcomingCounts.upcoming_walk_in_count > 0) && (
+            <span
+              className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800"
+              title={`À partir du ${formatFrDate(upcomingCounts.from_date)} : ${upcomingCounts.upcoming_rdv_count} patient(s) avec RDV, ${upcomingCounts.upcoming_walk_in_count} sans RDV`}
+              data-testid="planning-upcoming-counters"
+            >
+              <span className="text-[10px] text-indigo-600">
+                Dès le {formatFrDate(upcomingCounts.from_date)} :
+              </span>
+              <span
+                className="inline-flex items-center gap-0.5 font-semibold underline underline-offset-2"
+                data-testid="planning-upcoming-rdv-count"
+              >
+                {upcomingCounts.upcoming_rdv_count}
+                <span className="text-[10px] font-normal no-underline">RDV</span>
+              </span>
+              <span className="text-indigo-300">·</span>
+              <span
+                className="inline-flex items-center gap-0.5 font-semibold"
+                data-testid="planning-upcoming-walkin-count"
+              >
+                {upcomingCounts.upcoming_walk_in_count}
+                <span className="text-[10px] font-normal">sans RDV</span>
+              </span>
+            </span>
+          )}
           <button
             onClick={fetchAppointments}
             className="p-2 rounded-lg hover:bg-slate-100 text-slate-600"

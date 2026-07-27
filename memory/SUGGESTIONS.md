@@ -808,6 +808,16 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fix associé** : Iter43-fix24az-z (frontend part)
 - **Détail** : `<span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"}>{patient}</span>` dans le calendrier et la liste (Planning.jsx). Walk-ins exclus du calendrier (positioned filter) et affichés en fin de liste avec badge `#{numero_ordre}` au lieu de l'heure.
 
+## S110 — Compteurs live planning : sidebar badge + header upcoming
+- **Demande utilisateur** : 2026-07-22 — « Ok implemente ce compteur temps réel et affiche au niveau du planning un compteur dynamique de RDVs a venir du médecin par rapport à la date sélectionnée. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-aa
+- **Détail** :
+  - **Backend** : nouvel endpoint `GET /api/me/planning/counts?date=YYYY-MM-DD` retourne `today_walk_ins_open` (walk-ins d'auj.) + `upcoming_rdv_count` + `upcoming_walk_in_count` (à partir de date+1, horizon 90j). Filtre médecin ou par `medecin_id` (admin).
+  - **Sidebar** : badge emerald-500 sur "Planning consultations" du médecin, alimenté par `refreshBadges()` polling 90s. Format `[N]` où N = walk-ins ouverts aujourd'hui.
+  - **Header planning** : chip indigo-50 juste après "Aujourd'hui" : `Dès le DD/MM : {N souligné} RDV · {M} sans RDV`. Fetch au changement de date/médecin. Chip masqué si aucun RDV/walk-in à venir.
+- **Tests** : 7 nouveaux pytest (`test_iter43_fix24az_aa_planning_counters.py`) tous verts. Suite pytest globale 156/157 (1 flaky sur l_story_upload — passe en run individuel).
+
 ## S109 — Webhook planning enrichi : placement intelligent RDV + walk-ins
 - **Demande utilisateur** : 2026-07-22 — 3 nouveaux champs (`numero_liste`, `numero_ordre` auto-chronologique, `is_rdv` 0/1 défaut 1), placement intelligent avec priorité RDV, retour JSON avec correction.
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)

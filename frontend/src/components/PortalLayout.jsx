@@ -156,6 +156,9 @@ export default function PortalLayout({ admin = false }) {
   // Iter35o — Pending tickets count is fetched from a dedicated endpoint
   // (count is per-client scope, not "unseen" semantics like other badges).
   const [ticketsPending, setTicketsPending] = useState(0);
+  // Iter43-fix24az-aa (2026-07-22) — Live counter for walk-ins waiting TODAY.
+  // Shown as a sidebar badge on "Planning consultations" for médecins.
+  const [walkInsToday, setWalkInsToday] = useState(0);
   // Iter38h — Tenant meta features (loaded from /me/features)
   const [metaEnabled, setMetaEnabled] = useState(false);
   // Iter38r-fix7 — Full features object for per-link gate (visible-but-disabled)
@@ -227,7 +230,7 @@ export default function PortalLayout({ admin = false }) {
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
     : (isMedecinTracked
-        ? [{ to: "/portal/planning", label: "Planning consultations", icon: Calendar }]
+        ? [{ to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" }]
         : (admin ? adminLinks : clientLinks));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
@@ -279,6 +282,14 @@ export default function PortalLayout({ admin = false }) {
     try {
       const r2 = await apiClient.get("/me/tickets/pending-count");
       setTicketsPending(r2.data?.count || 0);
+    } catch { /* noop */ }
+    // Iter43-fix24az-aa — Walk-ins waiting TODAY (Planning sidebar badge).
+    // Only médecins tracked have "Planning" as their main tab, but we fetch
+    // for admins/supervisors too so they see the queue when they open their
+    // planning link. Best effort — ignore errors.
+    try {
+      const r3 = await apiClient.get("/me/planning/counts");
+      setWalkInsToday(r3.data?.today_walk_ins_open || 0);
     } catch { /* noop */ }
   }, [user]);
 
@@ -389,7 +400,13 @@ export default function PortalLayout({ admin = false }) {
       <nav className="space-y-1">
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason }) => {
           const count = module ? (badges[module] || 0) : 0;
-          const liveCount = badgeKey === "tickets_pending" ? ticketsPending : 0;
+          // Iter43-fix24az-aa — Support additional live counters : tickets_pending
+          // (yellow) + walk_ins_today (emerald, only shown to médecins).
+          const liveCount = badgeKey === "tickets_pending"
+            ? ticketsPending
+            : badgeKey === "walk_ins_today"
+              ? walkInsToday
+              : 0;
           // Iter43-fix (2026-03) — Lit `errors_critical` + `errors_high` en priorité,
           // avec fallback sur les anciens noms `errors_fatale` / `errors_exception`.
           const errorHigh = showBadges ? (badges.errors_high ?? badges.errors_exception ?? 0) : 0;
@@ -469,9 +486,17 @@ export default function PortalLayout({ admin = false }) {
               )}
               {liveCount > 0 && (
                 <span
-                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-amber-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D]"
+                  className={`inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] ${
+                    badgeKey === "walk_ins_today"
+                      ? "bg-emerald-500 animate-in fade-in slide-in-from-right-1"
+                      : "bg-amber-500"
+                  }`}
                   data-testid={`badge-${badgeKey}`}
-                  title={`${liveCount} ticket(s) en cours`}
+                  title={
+                    badgeKey === "walk_ins_today"
+                      ? `${liveCount} patient(s) sans RDV en attente aujourd'hui`
+                      : `${liveCount} ticket(s) en cours`
+                  }
                 >
                   {liveCount > 99 ? "99+" : liveCount}
                 </span>

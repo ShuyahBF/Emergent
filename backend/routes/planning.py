@@ -887,6 +887,129 @@ def attach_planning_routes(
         }
 
     # -----------------------------------------------------------------
+    # Iter43-fix24az-aa (2026-07-22) — Live counters (sidebar badge +
+    # planning header). Un seul endpoint alimente 2 usages :
+    #   1) Badge sidebar médecin  → `today_walk_ins_open` (walk-ins d'auj.)
+    #   2) Header planning        → `upcoming_rdv_count` + `upcoming_walk_in_count`
+    #      (à partir de la date sélectionnée + 1 jour, dans les 90j).
+    # -----------------------------------------------------------------
+    @api.get("/me/planning/counts", tags=["Portail Client — Planning"])
+    async def planning_counts(
+        date: Optional[str] = Query(None, description="Date de référence YYYY-MM-DD (défaut = aujourd'hui UTC)"),
+        medecin_id: Optional[str] = Query(None, description="Filtre par médecin (admin/superviseur)"),
+        horizon_days: int = Query(90, ge=1, le=365, description="Fenêtre pour les `upcoming_*` (défaut 90j)"),
+        user: dict = Depends(get_current_user),
+    ):
+        """Compteurs live pour la sidebar et le header planning.
+
+        Retourne :
+          - `today_walk_ins_open` : walk-ins ouverts pour AUJOURD'HUI (peu importe la date)
+          - `upcoming_rdv_count`  : RDV à partir de `date + 1 jour` sur `horizon_days`
+          - `upcoming_walk_in_count` : walk-ins à partir de `date + 1 jour` sur `horizon_days`
+          - `date`, `from_date`, `horizon_days` (echo pour le frontend)
+        """
+        if not date:
+            date = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        try:
+            ref_day = datetime.strptime(date, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date invalide (YYYY-MM-DD)")
+        today = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+        from_day = ref_day + timedelta(days=1)
+        horizon_day = from_day + timedelta(days=horizon_days)
+
+        # Détermine le médecin ciblé (médecin logé se voit lui-même,
+        # admin/superviseur peuvent filtrer par medecin_id).
+        is_medecin = (user.get("tracked_role") or "") == "Médecin"
+        effective_medecin_id: Optional[str] = None
+        if is_medecin:
+            effective_medecin_id = user.get("id")
+        elif medecin_id:
+            effective_medecin_id = medecin_id
+
+        # Tenant scope (élargi si médecin — voir fix24az-x)
+        if _is_super_admin(user):
+            base_q: Dict[str, Any] = {}
+        else:
+            scope = list(await _resolve_visible_client_ids(user))
+            if is_medecin:
+                try:
+                    tu = await db.tracked_users.find_one(
+                        {"email": (user.get("email") or "").lower()},
+                        {"_id": 0, "id": 1, "client_id": 1, "user_account_id": 1},
+                    )
+                    if tu:
+                        for cand in (tu.get("client_id"), tu.get("id"), tu.get("user_account_id")):
+                            if cand and cand not in scope:
+                                scope.append(cand)
+                except Exception:  # noqa: BLE001
+                    pass
+            base_q = {"tenant_id": {"$in": scope}}
+
+        # Match médecin (via medecin_id OU medecin_email)
+        medecin_or: List[Dict[str, Any]] = []
+        if effective_medecin_id:
+            u = await db.users.find_one({"id": effective_medecin_id}, {"_id": 0, "id": 1, "email": 1})
+            medecin_or.append({"medecin_id": effective_medecin_id})
+            if u and u.get("email"):
+                email_re = f"^{re.escape(u['email'].lower())}$"
+                medecin_or.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
+            try:
+                tu = await db.tracked_users.find_one(
+                    {"user_account_id": effective_medecin_id}, {"_id": 0, "id": 1},
+                )
+                if tu and tu.get("id"):
+                    medecin_or.append({"medecin_id": tu["id"]})
+            except Exception:  # noqa: BLE001
+                pass
+
+        def _with_medecin(q: Dict[str, Any]) -> Dict[str, Any]:
+            if medecin_or:
+                return {**base_q, "$and": [q, {"$or": medecin_or}]}
+            return {**base_q, **q}
+
+        # 1) Walk-ins ouverts AUJOURD'HUI (clé walk_in_list préfixée YYMMDD auj.)
+        today_key = today.strftime("%y%m%d")
+        today_walk_ins_open = await db.planning_appointments.count_documents(
+            _with_medecin({
+                "is_rdv": 0,
+                "walk_in_list": {"$regex": f"^{today_key}:"},
+            })
+        )
+
+        # 2) RDV à venir (start_at >= from_day && < horizon)
+        upcoming_rdv_count = await db.planning_appointments.count_documents(
+            _with_medecin({
+                "start_at": {"$gte": from_day.isoformat(), "$lt": horizon_day.isoformat()},
+                "is_rdv": {"$ne": 0},
+            })
+        )
+
+        # 3) Walk-ins à venir (walk_in_list préfixé par un jour dans le futur)
+        # On construit un $or sur les préfixes YYMMDD des jours [from_day, horizon).
+        future_prefixes: List[Dict[str, Any]] = []
+        cursor_day = from_day
+        while cursor_day < horizon_day:
+            prefix = cursor_day.strftime("%y%m%d")
+            future_prefixes.append({"walk_in_list": {"$regex": f"^{prefix}:"}})
+            cursor_day += timedelta(days=1)
+        upcoming_walk_in_count = 0
+        if future_prefixes:
+            upcoming_walk_in_count = await db.planning_appointments.count_documents(
+                _with_medecin({"is_rdv": 0, "$or": future_prefixes})
+            )
+
+        return {
+            "date": date,
+            "from_date": from_day.strftime("%Y-%m-%d"),
+            "horizon_days": horizon_days,
+            "medecin_id": effective_medecin_id,
+            "today_walk_ins_open": today_walk_ins_open,
+            "upcoming_rdv_count": upcoming_rdv_count,
+            "upcoming_walk_in_count": upcoming_walk_in_count,
+        }
+
+    # -----------------------------------------------------------------
     # Iter43-fix24az-n (2026-07-18) — SSE stream temps réel
     # -----------------------------------------------------------------
     @api.get("/me/planning/stream", tags=["Portail Client — Planning"])

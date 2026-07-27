@@ -13,6 +13,43 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-aa (2026-07-22) — Compteurs live sidebar + header planning ✅
+
+**Contexte** : suite immédiate de l'implémentation du placement intelligent (Iter43-fix24az-z). L'utilisateur voulait 2 compteurs visuels :
+1. **Sidebar médecin** : badge live "Planning [N]" avec walk-ins ouverts aujourd'hui.
+2. **Header planning** : compteur dynamique de RDVs à VENIR par rapport à la date sélectionnée. Exemple : "Dès le 28/07 : 5 RDV · 3 sans RDV" (à partir de date+1 jour, horizon 90 jours).
+
+**Fix** :
+
+1. **Backend `routes/planning.py`** — Nouvel endpoint unique `GET /api/me/planning/counts?date=YYYY-MM-DD` retournant :
+   - `today_walk_ins_open` : walk-ins d'AUJOURD'HUI (peu importe la date passée)
+   - `upcoming_rdv_count` : RDV avec `start_at ∈ [from_date, from_date + horizon_days)`
+   - `upcoming_walk_in_count` : walk-ins dont `walk_in_list` préfixé par un jour futur (∈ [from_date, from_date + horizon_days))
+   - `date`, `from_date` (= date + 1 jour), `horizon_days` (défaut 90)
+   - Médecin logué → vue restreinte à ses propres compteurs (via tracked_users + bridged users lookup, comme fix24az-x)
+   - Admin/superviseur → peut filtrer par `medecin_id`
+
+2. **Frontend `components/PortalLayout.jsx`** :
+   - Nouveau state `walkInsToday` alimenté par `refreshBadges()` (polling 90 s comme les autres badges).
+   - `badgeKey: "walk_ins_today"` ajouté sur le lien "Planning consultations" du médecin.
+   - Rendu badge **emerald-500** (différent des tickets amber, des errors orange/red) avec titre `"N patient(s) sans RDV en attente aujourd'hui"`.
+
+3. **Frontend `pages/portal/Planning.jsx`** :
+   - Nouveau state `upcomingCounts` + fetch `fetchUpcomingCounts()` déclenché à chaque changement de `selectedDate` ou `selectedMedecinId`.
+   - Nouveau chip **indigo-50** dans le header (juste après le bouton "Aujourd'hui") : `Dès le DD/MM : {N souligné} RDV · {M} sans RDV`. Le chip disparaît quand aucun RDV ni walk-in n'est prévu (visual noise minimisé).
+   - Le nombre de RDV est souligné (cohérent avec la règle T2 : RDV = souligné). Data-testids `planning-upcoming-counters`, `planning-upcoming-rdv-count`, `planning-upcoming-walkin-count`.
+
+**Tests** : 7 nouveaux pytest (`test_iter43_fix24az_aa_planning_counters.py`) couvrant : shape par défaut, `today_walk_ins_open` limité à aujourd'hui, `upcoming_rdv_count` correct, custom `date` shift la fenêtre, médecin voit uniquement ses compteurs, `date` invalide → 400, admin filtre par `medecin_id`. **7/7 pytest passent** (+ 156 tests régression cumulés).
+
+**Impact** : Le médecin voit **en un coup d'œil** :
+- Combien de walk-ins l'attendent aujourd'hui (badge sidebar rouge/vert, visible depuis n'importe quelle page)
+- Combien de RDV et walk-ins il aura dans les prochains 90 jours à partir du lendemain de la date consultée (planning header)
+
+Cela permet au médecin de planifier sa journée + anticiper sa charge future sans avoir à naviguer entre les jours.
+
+
+
+
 ## Iter43-fix24az-y + z (2026-07-22) — WhatsApp tabs + Planning souligné + placement intelligent ✅
 
 **3 features livrées ensemble** (demandées par l'utilisateur dans l'ordre) :

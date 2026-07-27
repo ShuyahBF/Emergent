@@ -13,6 +13,30 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## Iter43-fix24az-ab (2026-07-22) — Chip cliquable "Next busy day" ✅
+
+**Suite immédiate** de fix24az-aa (compteurs live). L'utilisateur a validé la suggestion de rendre le chip "Dès le DD/MM : X RDV · Y sans RDV" cliquable → saut direct au prochain jour chargé.
+
+**Backend** — Nouvel endpoint `GET /api/me/planning/next-busy-day?after=YYYY-MM-DD&horizon_days=90` :
+- Retourne `next_busy_date` : la plus proche des dates ≥ `after` ayant AU MOINS 1 RDV ou walk-in.
+- Combine 2 lookups : `find_one` sur `start_at≥after` (RDV) + `find_one` sur `walk_in_list` préfixé par un jour futur (walk-ins).
+- Retour : `{after, next_busy_date, has_rdv, has_walk_in, horizon_days}`.
+- Même scope de sécurité que `/counts` (médecin voit ses propres données, admin peut filtrer par `medecin_id`).
+
+**Frontend** — Chip devient un `<button>` avec `onClick` qui :
+1. Fetch `/next-busy-day?after={from_date}&medecin_id={id}`
+2. Si `next_busy_date` → `setSelectedDate(next_busy_date)` + toast success "Saut au DD/MM"
+3. Sinon → toast info "Aucun jour chargé trouvé dans les 90 prochains jours"
+- Hover style ajouté (bg-indigo-100 + border-indigo-300).
+- Icon `ChevronRight` (lucide) ajouté à droite pour indiquer visuellement la nature "action".
+
+**Tests** : 6 nouveaux pytest (`test_iter43_fix24az_ab_next_busy_day.py`) : shape défaut, 1er RDV trouvé, 1er walk-in trouvé, closest between RDV & walk-in, date invalide=400, horizon respecté (rdv à J+100 hors horizon=30j mais dans horizon=180j). **6/6 passent** + 24/24 sur la suite planning complète (x + z + aa + ab).
+
+**Impact** : Le médecin voit le compteur "Dès le 28/07 : 5 RDV · 3 sans RDV" — un clic et il est directement propulsé au jour du prochain RDV/walk-in, gagnant du temps par rapport au manual date-picker.
+
+
+
+
 ## Iter43-fix24az-aa (2026-07-22) — Compteurs live sidebar + header planning ✅
 
 **Contexte** : suite immédiate de l'implémentation du placement intelligent (Iter43-fix24az-z). L'utilisateur voulait 2 compteurs visuels :

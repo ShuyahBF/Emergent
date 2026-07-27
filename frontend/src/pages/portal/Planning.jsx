@@ -350,12 +350,31 @@ export default function Planning() {
             Aujourd'hui
           </button>
           {/* Iter43-fix24az-aa (2026-07-22) — Compteur RDV+walk-in à venir
-              à partir du lendemain de la date sélectionnée (horizon 90j). */}
+              à partir du lendemain de la date sélectionnée (horizon 90j).
+              Iter43-fix24az-ab (2026-07-22) — Chip cliquable : clic → saute
+              au prochain jour chargé (via /me/planning/next-busy-day). */}
           {upcomingCounts.from_date &&
             (upcomingCounts.upcoming_rdv_count > 0 || upcomingCounts.upcoming_walk_in_count > 0) && (
-            <span
-              className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800"
-              title={`À partir du ${formatFrDate(upcomingCounts.from_date)} : ${upcomingCounts.upcoming_rdv_count} patient(s) avec RDV, ${upcomingCounts.upcoming_walk_in_count} sans RDV`}
+            <button
+              type="button"
+              onClick={async () => {
+                try {
+                  const params = new URLSearchParams({ after: upcomingCounts.from_date });
+                  if (selectedMedecinId) params.append("medecin_id", selectedMedecinId);
+                  const r = await apiClient.get(`/me/planning/next-busy-day?${params.toString()}`);
+                  const next = r.data?.next_busy_date;
+                  if (next) {
+                    setSelectedDate(next);
+                    toast.success(`Saut au ${formatFrDate(next)}`);
+                  } else {
+                    toast.info("Aucun jour chargé trouvé dans les 90 prochains jours");
+                  }
+                } catch (e) {
+                  toast.error("Impossible de trouver le prochain jour chargé");
+                }
+              }}
+              className="inline-flex items-center gap-1.5 text-[11px] px-2 py-1 rounded-lg border border-indigo-200 bg-indigo-50 text-indigo-800 hover:bg-indigo-100 hover:border-indigo-300 transition-colors cursor-pointer"
+              title={`À partir du ${formatFrDate(upcomingCounts.from_date)} : ${upcomingCounts.upcoming_rdv_count} patient(s) avec RDV, ${upcomingCounts.upcoming_walk_in_count} sans RDV. Clic → saute au prochain jour chargé.`}
               data-testid="planning-upcoming-counters"
             >
               <span className="text-[10px] text-indigo-600">
@@ -376,7 +395,8 @@ export default function Planning() {
                 {upcomingCounts.upcoming_walk_in_count}
                 <span className="text-[10px] font-normal">sans RDV</span>
               </span>
-            </span>
+              <ChevronRight className="h-3 w-3 text-indigo-500" />
+            </button>
           )}
           <button
             onClick={fetchAppointments}

@@ -1010,6 +1010,120 @@ def attach_planning_routes(
         }
 
     # -----------------------------------------------------------------
+    # Iter43-fix24az-ab (2026-07-22) — Next busy day. Retourne la première
+    # date >= `after` où le médecin a AU MOINS 1 RDV ou walk-in. Alimente
+    # le chip cliquable "Dès le DD/MM" du header planning : clic → saute
+    # au prochain jour chargé.
+    # -----------------------------------------------------------------
+    @api.get("/me/planning/next-busy-day", tags=["Portail Client — Planning"])
+    async def planning_next_busy_day(
+        after: Optional[str] = Query(None, description="Date de départ YYYY-MM-DD (défaut = demain UTC)"),
+        medecin_id: Optional[str] = Query(None, description="Filtre par médecin (admin/superviseur)"),
+        horizon_days: int = Query(90, ge=1, le=365, description="Fenêtre de recherche (défaut 90j)"),
+        user: dict = Depends(get_current_user),
+    ):
+        if not after:
+            after = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
+        try:
+            after_dt = datetime.strptime(after, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date invalide (YYYY-MM-DD)")
+        horizon_dt = after_dt + timedelta(days=horizon_days)
+
+        # Détermine le médecin ciblé (même logique que /counts).
+        is_medecin = (user.get("tracked_role") or "") == "Médecin"
+        effective_medecin_id: Optional[str] = None
+        if is_medecin:
+            effective_medecin_id = user.get("id")
+        elif medecin_id:
+            effective_medecin_id = medecin_id
+
+        # Tenant scope
+        if _is_super_admin(user):
+            base_q: Dict[str, Any] = {}
+        else:
+            scope = list(await _resolve_visible_client_ids(user))
+            if is_medecin:
+                try:
+                    tu = await db.tracked_users.find_one(
+                        {"email": (user.get("email") or "").lower()},
+                        {"_id": 0, "id": 1, "client_id": 1, "user_account_id": 1},
+                    )
+                    if tu:
+                        for cand in (tu.get("client_id"), tu.get("id"), tu.get("user_account_id")):
+                            if cand and cand not in scope:
+                                scope.append(cand)
+                except Exception:  # noqa: BLE001
+                    pass
+            base_q = {"tenant_id": {"$in": scope}}
+
+        # Match médecin
+        medecin_or: List[Dict[str, Any]] = []
+        if effective_medecin_id:
+            u = await db.users.find_one({"id": effective_medecin_id}, {"_id": 0, "id": 1, "email": 1})
+            medecin_or.append({"medecin_id": effective_medecin_id})
+            if u and u.get("email"):
+                email_re = f"^{re.escape(u['email'].lower())}$"
+                medecin_or.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
+            try:
+                tu = await db.tracked_users.find_one(
+                    {"user_account_id": effective_medecin_id}, {"_id": 0, "id": 1},
+                )
+                if tu and tu.get("id"):
+                    medecin_or.append({"medecin_id": tu["id"]})
+            except Exception:  # noqa: BLE001
+                pass
+
+        # 1) 1er RDV avec start_at >= after_dt
+        rdv_q: Dict[str, Any] = {
+            **base_q,
+            "is_rdv": {"$ne": 0},
+            "start_at": {"$gte": after_dt.isoformat(), "$lt": horizon_dt.isoformat()},
+        }
+        if medecin_or:
+            rdv_q["$or"] = medecin_or
+        first_rdv = await db.planning_appointments.find_one(
+            rdv_q, {"_id": 0, "start_at": 1}, sort=[("start_at", 1)],
+        )
+        rdv_date = (first_rdv or {}).get("start_at", "")[:10] if first_rdv else None
+
+        # 2) 1er walk-in avec walk_in_list préfixé par un jour >= after
+        # On construit un $or sur les préfixes YYMMDD des jours de la fenêtre.
+        walk_prefixes: List[Dict[str, Any]] = []
+        cursor_day = after_dt
+        while cursor_day < horizon_dt:
+            walk_prefixes.append({"walk_in_list": {"$regex": f"^{cursor_day.strftime('%y%m%d')}:"}})
+            cursor_day += timedelta(days=1)
+        walk_date: Optional[str] = None
+        if walk_prefixes:
+            walk_q: Dict[str, Any] = {**base_q, "is_rdv": 0, "$or": walk_prefixes}
+            if medecin_or:
+                # $or utilisé pour walk_prefixes, on wrap dans $and pour éviter la collision
+                walk_q = {**base_q, "$and": [{"is_rdv": 0, "$or": walk_prefixes},
+                                              {"$or": medecin_or}]}
+            first_walk = await db.planning_appointments.find_one(
+                walk_q, {"_id": 0, "walk_in_list": 1, "created_at": 1},
+                sort=[("walk_in_list", 1)],
+            )
+            if first_walk and first_walk.get("walk_in_list"):
+                # walk_in_list = YYMMDD:email:domaine → extraire la date
+                key = first_walk["walk_in_list"].split(":", 1)[0]
+                if len(key) == 6 and key.isdigit():
+                    walk_date = f"20{key[0:2]}-{key[2:4]}-{key[4:6]}"
+
+        # Prend la plus proche des deux dates
+        candidates = [d for d in (rdv_date, walk_date) if d]
+        next_date = min(candidates) if candidates else None
+
+        return {
+            "after": after,
+            "next_busy_date": next_date,
+            "has_rdv": bool(rdv_date),
+            "has_walk_in": bool(walk_date),
+            "horizon_days": horizon_days,
+        }
+
+    # -----------------------------------------------------------------
     # Iter43-fix24az-n (2026-07-18) — SSE stream temps réel
     # -----------------------------------------------------------------
     @api.get("/me/planning/stream", tags=["Portail Client — Planning"])

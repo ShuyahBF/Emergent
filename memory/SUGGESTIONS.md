@@ -808,6 +808,15 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Fix associé** : Iter43-fix24az-z (frontend part)
 - **Détail** : `<span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"}>{patient}</span>` dans le calendrier et la liste (Planning.jsx). Walk-ins exclus du calendrier (positioned filter) et affichés en fin de liste avec badge `#{numero_ordre}` au lieu de l'heure.
 
+## S111 — Chip "Dès le DD/MM" cliquable → saut au prochain jour chargé
+- **Demande utilisateur** : 2026-07-22 — validation de la suggestion post-S110 (« Oui implemente »).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
+- **Fix associé** : Iter43-fix24az-ab
+- **Détail** :
+  - **Backend** : nouvel endpoint `GET /api/me/planning/next-busy-day?after=YYYY-MM-DD&horizon_days=90`. Retourne la plus proche des 2 dates : 1er RDV avec `start_at ≥ after`, 1er walk-in avec `walk_in_list` préfixé par un jour futur. Scope sécurisé (médecin voit ses propres data, admin peut filtrer par medecin_id).
+  - **Frontend** : le chip devient un `<button>` cliquable. Clic → fetch next-busy-day → `setSelectedDate(next)` + toast success `Saut au DD/MM`. Icône `ChevronRight` ajoutée. Hover style indigo-100.
+- **Tests** : 6 nouveaux pytest (`test_iter43_fix24az_ab_next_busy_day.py`) : shape, 1er RDV, 1er walk-in, closest between RDV/walk-in, date invalide=400, horizon respecté. **6/6 passent** + 24/24 sur la suite planning cumulative.
+
 ## S110 — Compteurs live planning : sidebar badge + header upcoming
 - **Demande utilisateur** : 2026-07-22 — « Ok implemente ce compteur temps réel et affiche au niveau du planning un compteur dynamique de RDVs a venir du médecin par rapport à la date sélectionnée. »
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)

@@ -18,7 +18,7 @@ import { apiClient } from "@/lib/api";
 
 const TOGGLE_ROLES = new Set(["admin", "superviseur", "moderateur"]);
 
-export const ContactGroupChips = ({ contact, userRole }) => {
+export const ContactGroupChips = ({ contact, userRole, onCountChange }) => {
   const [groups, setGroups] = useState([]);
   const [memberships, setMemberships] = useState(new Set());
   const [loading, setLoading] = useState(true);
@@ -28,6 +28,14 @@ export const ContactGroupChips = ({ contact, userRole }) => {
     () => TOGGLE_ROLES.has(String(userRole || "").toLowerCase()),
     [userRole]
   );
+
+  // Iter43-fix24az-y (2026-07-22) — Notify parent of group-count changes so
+  // the parent (ConversationModal) can display "Groupes (n)" in the tab title.
+  useEffect(() => {
+    if (typeof onCountChange === "function") {
+      onCountChange(memberships.size);
+    }
+  }, [memberships, onCountChange]);
 
   useEffect(() => {
     let mounted = true;

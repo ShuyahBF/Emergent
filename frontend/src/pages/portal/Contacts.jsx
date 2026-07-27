@@ -1451,6 +1451,13 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const scrollEndRef = React.useRef(null);
   const scrollContainerRef = React.useRef(null);
 
+  // Iter43-fix24az-y (2026-07-22) — Split the conversation window into 2 tabs
+  // so the "Groupes de contact" panel doesn't eat the entire viewport on
+  // small screens (mobile/tablet). Default = discussion (everything except
+  // groups). "Groupes (n)" = only the ContactGroupChips panel.
+  const [convTab, setConvTab] = useState("discussion");
+  const [groupCount, setGroupCount] = useState(0);
+
   const load = async () => {
     setLoading(true);
     try {
@@ -1875,6 +1882,59 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             </button>
             <button onClick={onClose} className="text-slate-500 hover:text-slate-900"><X className="h-4 w-4" /></button>
           </div>
+        </div>
+        {/* Iter43-fix24az-y (2026-07-22) — Tabs: Discussion / Groupes(n).
+            Compact tab bar right below the header so small screens don't
+            have the ContactGroupChips permanently eating half the viewport. */}
+        <div className="flex border-b border-slate-200 bg-slate-50/60" role="tablist">
+          <button
+            type="button"
+            onClick={() => setConvTab("discussion")}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              convTab === "discussion"
+                ? "text-sawali-blue border-b-2 border-sawali-blue bg-white"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+            role="tab"
+            aria-selected={convTab === "discussion"}
+            data-testid="wa-tab-discussion"
+          >
+            Discussion
+          </button>
+          <button
+            type="button"
+            onClick={() => setConvTab("groups")}
+            className={`flex-1 py-2 text-sm font-medium transition-colors ${
+              convTab === "groups"
+                ? "text-sawali-blue border-b-2 border-sawali-blue bg-white"
+                : "text-slate-600 hover:text-slate-900 hover:bg-slate-100"
+            }`}
+            role="tab"
+            aria-selected={convTab === "groups"}
+            data-testid="wa-tab-groups"
+          >
+            Groupes ({groupCount})
+          </button>
+        </div>
+        {convTab === "groups" ? (
+          <div className="flex-1 overflow-y-auto px-5 py-4" data-testid="wa-tab-groups-content">
+            <ContactGroupChips
+              contact={contact}
+              userRole={user?.role}
+              onCountChange={setGroupCount}
+            />
+          </div>
+        ) : (
+          <>
+        {/* Hidden mount so groupCount stays accurate even when the user is on
+            the Discussion tab (the callback fires on every membership change).
+            The chips themselves are hidden via `sr-only`. */}
+        <div className="sr-only" aria-hidden="true">
+          <ContactGroupChips
+            contact={contact}
+            userRole={user?.role}
+            onCountChange={setGroupCount}
+          />
         </div>
         {/* Iter35o — Ticket bar (above chat) */}
         <div className="px-5 py-2 border-b border-slate-200 bg-amber-50/50" data-testid="conversation-ticket-bar">
@@ -2411,10 +2471,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
           <span>{messages.length} message(s)</span>
           <span>Les statuts (envoyé / distribué / lu) sont mis à jour via le webhook Meta.</span>
         </div>
-        {/* Iter43-fix24az-e — ContactGroupChips at the VERY bottom of the conversation window */}
-        <div className="px-5 pb-3 border-t border-slate-200">
-          <ContactGroupChips contact={contact} userRole={user?.role} />
-        </div>
+          </>
+        )}
       </div>
     </div>
   );

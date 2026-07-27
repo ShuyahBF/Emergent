@@ -232,23 +232,35 @@ export default function Planning() {
     : null;
 
   // Positionnement des RDVs sur la grille
+  // Iter43-fix24az-z (2026-07-22) — Séparer RDV positionnés sur le calendrier
+  // des walk-ins (patients sans RDV) qui n'ont pas de start_at.
   const positioned = useMemo(() => {
-    return (appointments || []).map((a) => {
-      const startMin = minutesFromDayStart(a.start_at);
-      const endMin = minutesFromDayStart(a.end_at);
-      const top = Math.max(0, (startMin - dayStartMinutes) * PIXELS_PER_MINUTE);
-      const height = Math.max(20, (endMin - startMin) * PIXELS_PER_MINUTE - 2);
-      const isPast = new Date(a.end_at).getTime() < nowUtc.getTime();
-      return { ...a, top, height, isPast, startMin, endMin };
-    });
+    return (appointments || [])
+      .filter((a) => a.is_rdv !== 0 && a.start_at)
+      .map((a) => {
+        const startMin = minutesFromDayStart(a.start_at);
+        const endMin = minutesFromDayStart(a.end_at);
+        const top = Math.max(0, (startMin - dayStartMinutes) * PIXELS_PER_MINUTE);
+        const height = Math.max(20, (endMin - startMin) * PIXELS_PER_MINUTE - 2);
+        const isPast = new Date(a.end_at).getTime() < nowUtc.getTime();
+        return { ...a, top, height, isPast, startMin, endMin };
+      });
   }, [appointments, dayStartMinutes, nowUtc]);
 
-  // Tri liste : passés en premier (grisés), puis à venir triés par start_at
+  // Walk-ins : patients sans RDV, triés par numero_ordre chronologique.
+  const walkIns = useMemo(() => {
+    return (appointments || [])
+      .filter((a) => a.is_rdv === 0)
+      .map((a) => ({ ...a, isPast: false, startMin: 0, endMin: 0 }))
+      .sort((x, y) => (Number(x.numero_ordre) || 0) - (Number(y.numero_ordre) || 0));
+  }, [appointments]);
+
+  // Tri liste : passés en premier (grisés), puis RDV à venir, puis walk-ins.
   const sortedList = useMemo(() => {
     const past = positioned.filter((a) => a.isPast).sort((x, y) => y.startMin - x.startMin);
     const upcoming = positioned.filter((a) => !a.isPast).sort((x, y) => x.startMin - y.startMin);
-    return [...past, ...upcoming];
-  }, [positioned]);
+    return [...past, ...upcoming, ...walkIns];
+  }, [positioned, walkIns]);
 
   // Slots verticaux
   const slots = useMemo(() => {
@@ -410,7 +422,13 @@ export default function Planning() {
                   title={`${a.medecin} — ${a.patient} (${formatTime(a.start_at)}–${formatTime(a.end_at)})`}
                 >
                   <div className="text-[11px] font-semibold truncate leading-tight">
-                    {formatTime(a.start_at)}–{formatTime(a.end_at)} · {a.patient}
+                    {formatTime(a.start_at)}–{formatTime(a.end_at)} ·{" "}
+                    {/* Iter43-fix24az-z (2026-07-22) — Souligner les patients
+                        avec RDV (is_rdv=1 ou legacy sans champ), normal pour
+                        les walk-ins (is_rdv=0). */}
+                    <span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"} data-testid={`planning-patient-${a.id}`}>
+                      {a.patient}
+                    </span>
                   </div>
                   <div className="text-[10px] opacity-80 truncate leading-tight">
                     {a.medecin}
@@ -456,12 +474,17 @@ export default function Planning() {
                   <div className="flex items-start justify-between gap-3 flex-wrap">
                     <div className="flex items-center gap-2 min-w-0 flex-1">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-semibold border ${bg} ${border} ${textColor} shrink-0`}>
-                        {formatTime(a.start_at)}–{formatTime(a.end_at)}
+                        {a.is_rdv === 0
+                          ? `#${a.numero_ordre ?? "?"}`
+                          : `${formatTime(a.start_at)}–${formatTime(a.end_at)}`}
                       </span>
                       <div className="min-w-0">
                         <div className="text-sm font-medium text-slate-800 truncate flex items-center gap-1.5">
                           <User className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-                          {a.patient}
+                          {/* Iter43-fix24az-z — Souligner si RDV (is_rdv=1 ou legacy) */}
+                          <span className={a.is_rdv === 0 ? "" : "underline underline-offset-2"} data-testid={`planning-list-patient-${a.id}`}>
+                            {a.patient}
+                          </span>
                           {a.isPast && (
                             <span className="text-[10px] uppercase tracking-wide text-slate-400 border border-slate-200 rounded px-1 py-0.5 ml-1">
                               Terminé

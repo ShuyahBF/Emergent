@@ -116,6 +116,110 @@ def _parse_dt(v: Any) -> Optional[str]:
     return None
 
 
+# ---------------------------------------------------------------------------
+# Iter43-fix24az-z (2026-07-22) — Intelligent placement algorithm.
+#
+# When a new RDV arrives with a `start_at` that collides with an existing RDV
+# for the same doctor (day), we search for the closest free slot around the
+# requested time (before OR after) and place the appointment there. Returns
+# the corrected (start_at, end_at, correction_applied, correction_reason).
+# ---------------------------------------------------------------------------
+def _find_free_slot(
+    existing_intervals: List[tuple],  # [(start_iso, end_iso), ...] sorted by start
+    requested_start_iso: str,
+    duration_min: int,
+    max_search_days: int = 1,
+) -> tuple:
+    """Search for a free slot of `duration_min` minutes as close as possible
+    to `requested_start_iso`. Explores gaps between existing intervals and
+    picks the one whose start (or end) is closest to the requested time.
+
+    Returns (start_iso, end_iso). If the requested time is already free,
+    returns it unchanged.
+    """
+    try:
+        req_start = datetime.fromisoformat(requested_start_iso.replace("Z", "+00:00"))
+    except (ValueError, AttributeError):
+        return requested_start_iso, requested_start_iso
+    req_end = req_start + timedelta(minutes=duration_min)
+
+    def _overlaps(a_start: datetime, a_end: datetime, b_start_iso: str, b_end_iso: str) -> bool:
+        try:
+            b_start = datetime.fromisoformat(b_start_iso.replace("Z", "+00:00"))
+            b_end = datetime.fromisoformat(b_end_iso.replace("Z", "+00:00"))
+        except (ValueError, AttributeError):
+            return False
+        return a_start < b_end and b_start < a_end
+
+    # 1) Requested slot free ? Return as-is.
+    if not any(_overlaps(req_start, req_end, s, e) for s, e in existing_intervals):
+        return req_start.isoformat(), req_end.isoformat()
+
+    # 2) Compute candidate free gaps :
+    #    - Before the first interval (from start-of-day-window to first.start)
+    #    - Between each pair of intervals
+    #    - After the last interval (until end-of-day-window)
+    day_min = req_start.replace(hour=0, minute=0, second=0, microsecond=0)
+    day_max = day_min + timedelta(days=max_search_days)
+
+    parsed: List[tuple] = []
+    for s, e in existing_intervals:
+        try:
+            parsed.append((
+                datetime.fromisoformat(s.replace("Z", "+00:00")),
+                datetime.fromisoformat(e.replace("Z", "+00:00")),
+            ))
+        except (ValueError, AttributeError):
+            continue
+    parsed.sort(key=lambda t: t[0])
+
+    gaps: List[tuple] = []  # (gap_start_dt, gap_end_dt)
+    prev_end = day_min
+    for s, e in parsed:
+        if s > prev_end:
+            gaps.append((prev_end, s))
+        prev_end = max(prev_end, e)
+    if prev_end < day_max:
+        gaps.append((prev_end, day_max))
+
+    # 3) Filter gaps that can accommodate the requested duration
+    delta = timedelta(minutes=duration_min)
+    fitting = [(gs, ge) for gs, ge in gaps if (ge - gs) >= delta]
+    if not fitting:
+        # Nothing fits within the search window — return requested unchanged
+        # (caller will still upsert, but the correction_reason will note it).
+        return req_start.isoformat(), req_end.isoformat()
+
+    # 4) Pick the gap whose closest edge is nearest to req_start.
+    def _distance(gap: tuple) -> timedelta:
+        gs, ge = gap
+        if req_start >= gs and req_start + delta <= ge:
+            return timedelta(0)  # req fits inside this gap
+        # Closest possible start within the gap
+        candidate_start = min(max(req_start, gs), ge - delta)
+        return abs(candidate_start - req_start)
+
+    best_gap = min(fitting, key=_distance)
+    gs, ge = best_gap
+    # Place at the closest position inside the gap
+    candidate_start = min(max(req_start, gs), ge - delta)
+    return candidate_start.isoformat(), (candidate_start + delta).isoformat()
+
+
+def _walk_in_list_key(day_iso: str, medecin_email: Optional[str], domaine: Optional[str]) -> str:
+    """Build the walk-in list identifier `YYMMDD:medecin_email:domaine`.
+    `medecin_email` and `domaine` are lowercased ; missing values → `unknown`.
+    """
+    try:
+        dt = datetime.fromisoformat(day_iso.replace("Z", "+00:00")) if day_iso else datetime.now(timezone.utc)
+    except (ValueError, AttributeError):
+        dt = datetime.now(timezone.utc)
+    day_key = dt.strftime("%y%m%d")
+    email_key = (medecin_email or "unknown").lower().strip() or "unknown"
+    dom_key = (domaine or "unknown").lower().strip() or "unknown"
+    return f"{day_key}:{email_key}:{dom_key}"
+
+
 class PlanningConfigUpdate(BaseModel):
     planning_webhook_secret: Optional[str] = Field(None, description="Secret du webhook (32 chars)")
     regenerate: Optional[bool] = Field(False, description="Génère un nouveau secret aléatoire")
@@ -358,13 +462,21 @@ def attach_planning_routes(
             raise HTTPException(status_code=400, detail=f"Champs obligatoires manquants : {', '.join(missing)}")
         start_at = _parse_dt(body.get("start") or body.get("start_at") or body.get("debut"))
         end_at = _parse_dt(body.get("end") or body.get("end_at") or body.get("fin"))
-        if not start_at:
-            raise HTTPException(status_code=400, detail="Champ 'start' invalide (ISO 8601 requis)")
-        if not end_at:
+        # Iter43-fix24az-z (2026-07-22) — Walk-ins (is_rdv=0) n'ont pas
+        # d'horaire fixé : ils sont juste stockés dans la liste avec un
+        # `numero_ordre`. Le médecin les appelle dans l'ordre d'arrivée.
+        # Pour les RDV (is_rdv=1), start_at reste obligatoire.
+        raw_is_rdv_check = body.get("is_rdv", 1)
+        try:
+            _is_rdv_early = 1 if int(raw_is_rdv_check) == 1 else 0
+        except Exception:  # noqa: BLE001
+            _is_rdv_early = 1 if str(raw_is_rdv_check).strip().lower() in ("1", "true", "yes", "oui") else 0
+        if _is_rdv_early == 1 and not start_at:
+            raise HTTPException(status_code=400, detail="Champ 'start' invalide (ISO 8601 requis pour un RDV)")
+        if start_at and not end_at:
             # end défaut = start + 30min
             try:
                 sdt = datetime.fromisoformat(start_at)
-                from datetime import timedelta
                 end_at = (sdt + timedelta(minutes=30)).isoformat()
             except Exception:  # noqa: BLE001
                 end_at = start_at
@@ -379,6 +491,32 @@ def attach_planning_routes(
         # Iter43-fix24az-n — coordonnées patient pour les rappels WA 1h avant RDV
         patient_phone_raw = (body.get("patient_phone") or body.get("phone") or "").strip() or None
         patient_email = (body.get("patient_email") or "").strip().lower() or None
+        # Iter43-fix24az-z (2026-07-22) — Nouveaux champs pour gestion
+        # intelligente du planning (RDV vs walk-in / patients sans RDV).
+        #   - `is_rdv`      : 1 = RDV planifié, 0 = walk-in (sans RDV).
+        #                     Défaut : 1 pour rétro-compatibilité.
+        #   - `numero_liste`: numéro de la liste de consultation (optionnel,
+        #                     chaîne libre — ex: "L01", "matin", "42").
+        #   - `numero_ordre`: rang du patient dans la liste. Si vide, on
+        #                     attribue le prochain numéro chronologique.
+        #   - `domaine`     : spécialité médicale libre (gyneco, pédiatrie…).
+        # Les walk-ins (is_rdv=0) n'ont PAS besoin de `start_at`/`end_at` :
+        # le médecin les traite dans l'ordre d'arrivée (`numero_ordre`).
+        raw_is_rdv = body.get("is_rdv", 1)
+        try:
+            is_rdv = 1 if int(raw_is_rdv) == 1 else 0
+        except Exception:  # noqa: BLE001
+            is_rdv = 1 if str(raw_is_rdv).strip().lower() in ("1", "true", "yes", "oui") else 0
+        numero_liste = (str(body.get("numero_liste") or body.get("liste_num") or "").strip() or None)
+        raw_numero_ordre = body.get("numero_ordre")
+        if raw_numero_ordre in (None, "", "null"):
+            numero_ordre = None
+        else:
+            try:
+                numero_ordre = int(raw_numero_ordre)
+            except (TypeError, ValueError):
+                numero_ordre = None
+        domaine = (body.get("domaine") or body.get("specialite") or "").strip().lower() or None
 
         # Résout le tenant_id : par défaut super-admin du système. Si medecin_email
         # correspond à un utilisateur tracked, on utilise SON tenant.
@@ -421,12 +559,110 @@ def attach_planning_routes(
             tenant_id = (admin or {}).get("id") or "_global_"
 
         now = _now_iso()
+
+        # Iter43-fix24az-z — Placement intelligent + gestion walk-ins.
+        correction_applied = False
+        correction_reason: Optional[str] = None
+        original_start = start_at
+        original_end = end_at
+        walk_in_list = None
+        assigned_numero_ordre = numero_ordre
+
+        if is_rdv == 1 and start_at:
+            # RDV : vérifie collisions avec autres RDV du même médecin le
+            # même jour. Si conflit → chercher le slot libre le plus proche.
+            try:
+                day_start_dt = datetime.fromisoformat(start_at.replace("Z", "+00:00")).replace(
+                    hour=0, minute=0, second=0, microsecond=0
+                )
+                day_end_dt = day_start_dt + timedelta(days=1)
+            except (ValueError, AttributeError):
+                day_start_dt = None
+                day_end_dt = None
+            if day_start_dt is not None:
+                # Requête : autres RDV (is_rdv=1) du médecin le même jour
+                # (par medecin_id OU medecin_email).
+                collision_q: Dict[str, Any] = {
+                    "tenant_id": tenant_id,
+                    "start_at": {"$gte": day_start_dt.isoformat(), "$lt": day_end_dt.isoformat()},
+                    "is_rdv": {"$ne": 0},  # inclut RDV existants (défaut = 1)
+                }
+                med_or: List[Dict[str, Any]] = []
+                if medecin_id:
+                    med_or.append({"medecin_id": medecin_id})
+                if medecin_email:
+                    med_or.append({"medecin_email": medecin_email})
+                if med_or:
+                    collision_q["$or"] = med_or
+                # Exclure le doc en cours (upsert idempotent : le doc existant
+                # sur (code_clinique, medecin, patient, start_at) peut être
+                # ré-envoyé sans être considéré comme collision).
+                cursor = db.planning_appointments.find(
+                    collision_q,
+                    {"_id": 0, "start_at": 1, "end_at": 1, "patient": 1, "code_clinique": 1},
+                )
+                existing_intervals: List[tuple] = []
+                async for doc in cursor:
+                    # Skip the "same" doc (same code_clinique + patient + start_at)
+                    if (doc.get("code_clinique") == code_clinique
+                        and doc.get("patient") == patient
+                        and doc.get("start_at") == start_at):
+                        continue
+                    if doc.get("start_at") and doc.get("end_at"):
+                        existing_intervals.append((doc["start_at"], doc["end_at"]))
+                if existing_intervals:
+                    try:
+                        sdt = datetime.fromisoformat(start_at.replace("Z", "+00:00"))
+                        edt = datetime.fromisoformat(end_at.replace("Z", "+00:00"))
+                        duration_min = max(15, int((edt - sdt).total_seconds() / 60))
+                    except (ValueError, AttributeError):
+                        duration_min = 30
+                    new_start, new_end = _find_free_slot(
+                        existing_intervals,
+                        start_at,
+                        duration_min,
+                    )
+                    if new_start != start_at:
+                        correction_applied = True
+                        correction_reason = "créneau occupé par un autre RDV — déplacé au slot libre le plus proche"
+                        start_at, end_at = new_start, new_end
+
+        elif is_rdv == 0:
+            # Walk-in : pas de start_at/end_at requis. On calcule la clé
+            # de liste + on assigne un numero_ordre chronologique si absent.
+            walk_in_list = _walk_in_list_key(
+                start_at or now,
+                medecin_email,
+                domaine,
+            )
+            if assigned_numero_ordre is None:
+                # Prochain numero_ordre = MAX(existing_numero_ordre) + 1
+                cursor2 = db.planning_appointments.find(
+                    {"tenant_id": tenant_id, "walk_in_list": walk_in_list, "is_rdv": 0},
+                    {"_id": 0, "numero_ordre": 1},
+                )
+                max_ord = 0
+                async for d in cursor2:
+                    try:
+                        no = int(d.get("numero_ordre") or 0)
+                        if no > max_ord:
+                            max_ord = no
+                    except (TypeError, ValueError):
+                        pass
+                assigned_numero_ordre = max_ord + 1
+
         upsert_query = {
             "tenant_id": tenant_id,
             "code_clinique": code_clinique,
             "medecin": medecin_name,
             "patient": patient,
             "start_at": start_at,
+        } if is_rdv == 1 else {
+            # Walk-ins n'ont pas de start_at : idempotence sur (list_key, patient, numero_ordre)
+            "tenant_id": tenant_id,
+            "walk_in_list": walk_in_list,
+            "patient": patient,
+            "numero_ordre": assigned_numero_ordre,
         }
         set_doc = {
             "end_at": end_at,
@@ -440,6 +676,15 @@ def attach_planning_routes(
             "source": "webhook",
             "updated_at": now,
             "received_at": now,
+            # Iter43-fix24az-z
+            "is_rdv": is_rdv,
+            "numero_liste": numero_liste,
+            "numero_ordre": assigned_numero_ordre,
+            "domaine": domaine,
+            "walk_in_list": walk_in_list,
+            "original_start_at": original_start,
+            "correction_applied": correction_applied,
+            "correction_reason": correction_reason,
         }
         set_on_insert = {
             "id": str(uuid.uuid4()),
@@ -478,6 +723,17 @@ def attach_planning_routes(
             "modified": res.modified_count > 0,
             "tenant_id": tenant_id,
             "medecin_id": medecin_id,
+            # Iter43-fix24az-z — Retour enrichi pour l'appelant du webhook.
+            "is_rdv": is_rdv,
+            "placed_at": start_at,
+            "placed_end_at": end_at,
+            "original_start_at": original_start,
+            "correction_applied": correction_applied,
+            "correction_reason": correction_reason,
+            "numero_ordre": assigned_numero_ordre,
+            "numero_liste": numero_liste,
+            "domaine": domaine,
+            "walk_in_list": walk_in_list,
         }
 
     # -----------------------------------------------------------------
@@ -580,16 +836,27 @@ def attach_planning_routes(
                 except Exception:  # noqa: BLE001
                     pass
             q = {"tenant_id": {"$in": scope}}
-        q["start_at"] = {"$gte": start_iso, "$lt": end_iso}
+        # Iter43-fix24az-z (2026-07-22) — Include walk-ins (is_rdv=0) qui
+        # n'ont PAS de start_at. Filtre : RDV du jour (start_at in range)
+        # OR walk-in dont walk_in_list commence par YYMMDD:.
+        time_clauses: List[Dict[str, Any]] = [
+            {"start_at": {"$gte": start_iso, "$lt": end_iso}},
+        ]
+        try:
+            _day_key = datetime.fromisoformat(start_iso.replace("Z", "+00:00")).strftime("%y%m%d")
+            time_clauses.append({"walk_in_list": {"$regex": f"^{_day_key}:"}})
+        except (ValueError, AttributeError):
+            pass
+        medecin_or_clauses: List[Dict[str, Any]] = []
         if effective_medecin_id:
             # Match soit medecin_id OU medecin_email correspondant à cet utilisateur.
             # Case-insensitive email pour tolérer les emails stockés en casse mixte.
             u = await db.users.find_one({"id": effective_medecin_id}, {"_id": 0, "id": 1, "email": 1})
-            or_clauses: List[Dict[str, Any]] = [{"medecin_id": effective_medecin_id}]
+            medecin_or_clauses.append({"medecin_id": effective_medecin_id})
             if u and u.get("email"):
                 import re as _re
                 email_re = f"^{_re.escape(u['email'].lower())}$"
-                or_clauses.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
+                medecin_or_clauses.append({"medecin_email": {"$regex": email_re, "$options": "i"}})
             # Egalement : matcher via tracked_users id si le bridge n'a pas
             # été utilisé au moment de l'insertion (medecin_id contient le
             # tracked_users.id au lieu du bridged users.id).
@@ -599,13 +866,17 @@ def attach_planning_routes(
                     {"_id": 0, "id": 1},
                 )
                 if tu and tu.get("id"):
-                    or_clauses.append({"medecin_id": tu["id"]})
+                    medecin_or_clauses.append({"medecin_id": tu["id"]})
             except Exception:  # noqa: BLE001
                 pass
-            q["$or"] = or_clauses
+        # Compose final query with $and to combine time + medecin filters.
+        if medecin_or_clauses:
+            q["$and"] = [{"$or": time_clauses}, {"$or": medecin_or_clauses}]
+        else:
+            q["$or"] = time_clauses
 
         items: List[Dict[str, Any]] = []
-        async for row in db.planning_appointments.find(q, {"_id": 0}).sort("start_at", 1).limit(500):
+        async for row in db.planning_appointments.find(q, {"_id": 0}).sort([("start_at", 1), ("numero_ordre", 1)]).limit(500):
             items.append(row)
         return {
             "date": date,

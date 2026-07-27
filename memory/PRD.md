@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-02-14 (Fork) — Son de notification WhatsApp configurable ✅
+
+**User request** : rendre configurable la tonalité jouée lors d'un nouveau message WhatsApp entrant. Choix retenus : 5 presets programmatiques + upload MP3 personnalisé, stockage sur Object Storage Emergent, réglage `admin par défaut + user override localStorage`, slider de volume + bouton Tester.
+
+**Backend** — `/app/backend/routes/wa_notification_sound.py` (nouveau module, ~180 lignes)
+- `GET /api/notification-sounds/presets` (public) — Liste des 5 clés preset + max_upload_bytes + extensions autorisées.
+- `GET /api/admin/notification-sounds/config` — Retourne `{preset, url, volume}` du tenant.
+- `PUT /api/admin/notification-sounds/config` — Met à jour preset (bip/ding/chime/alert/subtle/custom) et volume (0.0-1.0) avec validation stricte.
+- `POST /api/admin/notification-sounds/upload` — Upload MP3/WAV/OGG/WebM/M4A max 500 KB. Valide extension + MIME. Mirror best-effort vers Emergent Object Storage. Auto-flip preset → `custom` + stockage de l'URL.
+- Extensions de `SettingsUpdate` déjà couvertes par `extra="allow"` ; validation ajoutée dans PUT `/admin/settings`.
+- `/me/features` étendu pour exposer `wa_notification_sound`, `wa_notification_sound_url`, `wa_notification_volume` (payload additif, backward-compatible).
+
+**Frontend**
+- `/app/frontend/src/lib/notificationSounds.js` — Générateurs Web Audio API pour les 5 presets (aucun asset MP3 à shipper) + helpers localStorage pour l'override utilisateur.
+- `/app/frontend/src/pages/admin/sections/WaNotificationSoundSection.jsx` — Section admin (cartes preset, upload MP3, slider volume, boutons Tester/Enregistrer). Placée dans AdminSettings avec l'anchor `s-wa-notification-sound` et badge "NEW".
+- `/app/frontend/src/components/WaSoundPreferences.jsx` — Popover utilisateur dans PortalLayout (à droite du toggle Son). Permet à chaque user de choisir un preset et volume différents, stockés dans `localStorage` (clés `sawali_wa_sound_preset`, `sawali_wa_sound_volume`). Bouton "Défaut admin" pour reset.
+- `/app/frontend/src/hooks/useWhatsAppNotifier.js` — Ancien `playBlip()` hardcodé remplacé par `playSound(preset, url, volume)` résolu depuis `/me/features` + overrides localStorage.
+
+**Tests** — `/app/backend/tests/test_wa_notification_sound.py` : **10/10 pytest verts** (presets public, config roundtrip, invalid preset 400, volume out of range 422, MIME/ext/size upload rejects, upload success auto-flips preset). Testing agent iteration_91 → 100% success rate, retest_needed=false.
+
+**Bénéfice utilisateur** : Admin peut personnaliser la signature sonore du CRM (par tenant), chaque médecin/opérateur ajuste ensuite sa préférence dans son navigateur. Zéro asset MP3 shippé (Web Audio API génère les presets), custom MP3 = < 500 KB.
+
+
 ## Iter43-fix24az-ab (2026-07-22) — Chip cliquable "Next busy day" ✅
 
 **Suite immédiate** de fix24az-aa (compteurs live). L'utilisateur a validé la suggestion de rendre le chip "Dès le DD/MM : X RDV · Y sans RDV" cliquable → saut direct au prochain jour chargé.

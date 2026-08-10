@@ -341,7 +341,10 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                  "created_at": 1, "to_number": 1, "to": 1, "from": 1,
                  "wa_status": 1, "contact_name": 1, "name": 1, "media_url": 1,
                  "message_type": 1, "ai_generated": 1, "ai_source": 1,
-                 "media_filename": 1, "media_content_type": 1},
+                 "media_filename": 1, "media_content_type": 1,
+                 # 2026-02 fork (Delete WA) — surface recall + timing metadata
+                 "is_recalled": 1, "recalled_at": 1, "sent_at": 1,
+                 "delivered_at": 1, "read_at": 1},
             ).sort("created_at", 1).to_list(limit)
             return {"channel": "whatsapp", "thread_id": thread_id, "messages": [
                 {
@@ -356,6 +359,12 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     "status": m.get("wa_status"),
                     "ai_generated": bool(m.get("ai_generated")),
                     "ai_source": m.get("ai_source"),
+                    # 2026-02 fork (Delete WA)
+                    "is_recalled": bool(m.get("is_recalled")),
+                    "recalled_at": m.get("recalled_at"),
+                    "sent_at": m.get("sent_at"),
+                    "delivered_at": m.get("delivered_at"),
+                    "read_at": m.get("read_at"),
                 } for m in msgs
             ]}
         if channel == "messenger":

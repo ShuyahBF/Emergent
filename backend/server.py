@@ -14819,6 +14819,7 @@ class SaveToLibraryRequest(BaseModel):
     label: Optional[str] = None
 
 
+# Iter35m — POST /me/whatsapp/messages/{msg_id}/save-to-library
 @api.post("/me/whatsapp/messages/{msg_id}/save-to-library", tags=["Portail Client"])
 async def me_whatsapp_save_to_library(
     msg_id: str,
@@ -15106,6 +15107,83 @@ async def me_wa_reply_stats(
             })
 
     return {"days": days, "me": me_block, "team": team}
+
+
+# 2026-02 fork — Delete/recall an outbound WhatsApp message the sender changed
+# their mind about. WhatsApp Cloud API does NOT support "delete for everyone",
+# so this is a SOFT-DELETE : the message stays on the recipient's phone but is
+# marked `is_recalled=True` in our DB, hidden from our conversation view, and
+# a "Message rappelé" placeholder appears in its slot. The endpoint refuses
+# hard-recalls when the message has already been read (status='read').
+_RECALL_MAX_AGE_MIN = 15
+
+
+@api.patch("/me/whatsapp/messages/{message_id}/recall", tags=["Portail Client"])
+async def me_whatsapp_recall_message(
+    message_id: str,
+    user: dict = Depends(get_current_user),
+):
+    """Soft-recall an outbound WA message.
+
+    Business rules:
+      - Must be outbound (only the sender can recall).
+      - Must be in caller's visible scope.
+      - Refuses if `wa_status == 'read'` (destinataire l'a déjà lu).
+      - Refuses if message is older than 15 minutes (fenêtre éditeur).
+      - Marks doc with `is_recalled=True`, `recalled_at=now`, `recalled_by_id`.
+    """
+    visible_scope = await _resolve_visible_client_ids(user)
+    msg = await db.whatsapp_messages.find_one(
+        {"id": message_id, "client_id": {"$in": visible_scope}},
+        {"_id": 0},
+    )
+    if not msg:
+        raise HTTPException(status_code=404, detail="Message introuvable ou hors de votre scope")
+    if (msg.get("direction") or "").lower() != "outbound":
+        raise HTTPException(status_code=400, detail="Seuls les messages sortants peuvent être supprimés")
+    if msg.get("is_recalled"):
+        return {"ok": True, "already_recalled": True}
+    wa_status = (msg.get("wa_status") or "").lower()
+    if wa_status == "read":
+        raise HTTPException(
+            status_code=409,
+            detail="Impossible : le destinataire a déjà lu ce message (WhatsApp ne permet pas d'annuler après lecture).",
+        )
+    # Age check — accept `sent_at` if set, else `created_at`, else now
+    ref_iso = msg.get("sent_at") or msg.get("created_at") or _now()
+    try:
+        ref_dt = datetime.fromisoformat(ref_iso)
+        if ref_dt.tzinfo is None:
+            ref_dt = ref_dt.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        ref_dt = datetime.now(timezone.utc)
+    age_min = (datetime.now(timezone.utc) - ref_dt).total_seconds() / 60
+    # Failed messages : always recallable (no delivery ever occurred)
+    if wa_status != "failed" and age_min > _RECALL_MAX_AGE_MIN:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Impossible : au-delà de {_RECALL_MAX_AGE_MIN} min après l'envoi, le rappel n'est plus autorisé (le destinataire l'a très probablement reçu).",
+        )
+    await db.whatsapp_messages.update_one(
+        {"id": message_id},
+        {"$set": {
+            "is_recalled": True,
+            "recalled_at": _now(),
+            "recalled_by_id": user.get("id"),
+            "recalled_by_email": user.get("email"),
+        }},
+    )
+    # Return the recall meta + a warning flag so the UI can display the
+    # "Meta ne supprime pas chez le destinataire" note only when relevant.
+    delivered_before_recall = wa_status in ("delivered", "sent")
+    return {
+        "ok": True,
+        "message_id": message_id,
+        "recalled_at": _now(),
+        "meta_delete_supported": False,
+        "delivered_before_recall": delivered_before_recall,
+        "warning": "Le message reste dans WhatsApp du destinataire (limitation Meta Cloud API). Il est simplement retiré de votre vue CRM." if delivered_before_recall else None,
+    }
 
 
 # ---------- Unread inbound counters + mark-read ----------

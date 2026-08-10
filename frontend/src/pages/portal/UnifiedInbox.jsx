@@ -5,7 +5,7 @@
  */
 import React, { useCallback, useEffect, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign } from "lucide-react";
+import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {
@@ -117,6 +117,42 @@ export default function UnifiedInbox() {
 
   const filtered = threads.filter((t) => filterCh === "all" || t.channel === filterCh);
 
+  // 2026-02 fork (Delete WA) — Recall an outbound message from within its 15min window.
+  const recallMessage = async (m) => {
+    if (!m?.id) return;
+    const confirmMsg = m.status === "read"
+      ? "Ce message a été lu. Rappel impossible (limitation Meta)."
+      : `Rappeler ce message ?\n\nNote : WhatsApp n'efface PAS le message chez le destinataire (limitation Meta), il sera juste retiré de votre vue CRM.`;
+    if (m.status === "read") { toast.error(confirmMsg); return; }
+    if (!window.confirm(confirmMsg)) return;
+    try {
+      const r = await apiClient.patch(`/me/whatsapp/messages/${m.id}/recall`);
+      // Optimistically mark the message recalled in place
+      setMessages((list) => list.map((x) => (
+        x.id === m.id ? { ...x, is_recalled: true, recalled_at: r.data?.recalled_at } : x
+      )));
+      if (r.data?.warning) toast.warning(r.data.warning, { duration: 6000 });
+      else toast.success("Message rappelé");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossible de rappeler ce message");
+    }
+  };
+
+  const canRecall = (m) => {
+    if (m.direction !== "outbound") return false;
+    if (m.is_recalled) return false;
+    // status may be null (Meta hasn't ack'd yet), "sent", "delivered", "read", "failed"
+    if (m.status === "read") return false;
+    // Age check : reject if older than 15 min (same as backend)
+    const ref = m.sent_at || m.at;
+    if (ref) {
+      const ageMin = (Date.now() - new Date(ref).getTime()) / 60000;
+      // For "failed" status age doesn't matter
+      if (m.status !== "failed" && ageMin > 15) return false;
+    }
+    return true;
+  };
+
   return (
     <div className="p-6 space-y-4" data-testid="unified-inbox">
       <div className="flex items-center justify-between flex-wrap gap-3">
@@ -134,7 +170,7 @@ export default function UnifiedInbox() {
                   data-testid="bird-cost-badge"
                 >
                   <CircleDollarSign className="h-3 w-3" />
-                  Aujourd'hui : {birdCost.cost.toLocaleString("fr-FR")} {birdCost.currency} ({birdCost.count} SMS Bird)
+                  Aujourd&apos;hui : {birdCost.cost.toLocaleString("fr-FR")} {birdCost.currency} ({birdCost.count} SMS Bird)
                 </span>
               )}
             </p>
@@ -232,8 +268,33 @@ export default function UnifiedInbox() {
                   <p className="text-xs text-slate-400 italic text-center">Aucun message.</p>
                 ) : messages.map((m, i) => {
                   const isOut = m.direction === "outbound";
+                  const showRecallBtn = isOut && canRecall(m);
+                  if (m.is_recalled) {
+                    return (
+                      <div key={i} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+                        <div
+                          className="max-w-[70%] rounded-2xl px-3 py-2 text-xs italic bg-slate-100 border border-slate-200 text-slate-500 flex items-center gap-1.5"
+                          data-testid={`inbox-message-recalled-${m.id}`}
+                        >
+                          <Trash2 className="h-3 w-3 shrink-0" />
+                          <span>Message rappelé{m.recalled_at ? ` · ${new Date(m.recalled_at).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" })}` : ""}</span>
+                        </div>
+                      </div>
+                    );
+                  }
                   return (
-                    <div key={i} className={`flex ${isOut ? "justify-end" : "justify-start"}`}>
+                    <div key={i} className={`flex group ${isOut ? "justify-end" : "justify-start"}`}>
+                      {showRecallBtn && (
+                        <button
+                          type="button"
+                          onClick={() => recallMessage(m)}
+                          className="opacity-0 group-hover:opacity-100 self-center mr-1 p-1 rounded-md bg-white text-red-600 hover:bg-red-50 border border-red-200 shadow-sm transition-opacity"
+                          title="Rappeler ce message (dans les 15 min après envoi)"
+                          data-testid={`inbox-recall-btn-${m.id}`}
+                        >
+                          <Trash2 className="h-3 w-3" />
+                        </button>
+                      )}
                       <div className={`max-w-[70%] rounded-2xl px-3 py-2 text-sm ${isOut ? "bg-indigo-600 text-white" : "bg-white border border-slate-200 text-slate-800"}`}>
                         <p className="whitespace-pre-wrap break-words">{m.text || <em>(média)</em>}</p>
                         {m.media_url && <a href={m.media_url} target="_blank" rel="noreferrer" className={`text-xs underline mt-1 block ${isOut ? "text-indigo-100" : "text-indigo-600"}`}>📎 Pièce jointe</a>}

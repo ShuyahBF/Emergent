@@ -13,6 +13,30 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-02-14 (Fork iter93) — Suppression / rappel WhatsApp d'un message non lu ✅
+
+**User request** : Ajouter un bouton pour "supprimer un message WhatsApp non encore distribué" — option (c) intelligente selon le statut. Après recherche, **Meta Cloud API ne supporte PAS le "delete for everyone"** (contrairement à WhatsApp Business App). Implémentation SOFT-RECALL : le message reste dans le WhatsApp du destinataire mais est masqué dans notre vue CRM avec un placeholder « Message rappelé ». Toast d'avertissement précise la limite Meta.
+
+**Backend** — `PATCH /api/me/whatsapp/messages/{message_id}/recall` (server.py ligne ~15113)
+- Règles métier : direction=outbound obligatoire (400), scope tenant (404), `wa_status='read'` → 409 (destinataire l'a lu), âge > 15 min → 409 (sauf `wa_status='failed'` toujours autorisé).
+- Réponse : `{ok, message_id, recalled_at, meta_delete_supported: false, delivered_before_recall: bool, warning: string|null}`.
+- Idempotent : deuxième appel retourne `{ok: true, already_recalled: true}`.
+
+**Backend** — `routes/unified_inbox.py` : projection étendue avec `is_recalled`, `recalled_at`, `sent_at`, `delivered_at`, `read_at` retournés à chaque message WA du thread.
+
+**Frontend** — `UnifiedInbox.jsx`
+- Bouton corbeille `🗑` visible au hover sur les messages outbound éligibles (data-testid `inbox-recall-btn-{msg_id}`), calqué sur `canRecall()` (mêmes règles que le backend).
+- Confirm dialog explicite : « WhatsApp n'efface PAS le message chez le destinataire (limitation Meta), il sera juste retiré de votre vue CRM ».
+- Placeholder « Message rappelé · HH:MM » avec icône corbeille (data-testid `inbox-message-recalled-{msg_id}`).
+- Toast warning 6s si le message avait déjà été délivré (statut sent/delivered) précisant la limite Meta.
+
+**Tests** — `test_fork_wa_recall.py` : 7/7 pytest verts (outbound sent OK, read refusé 409, > 15min refusé 409, failed toujours OK, inbound refusé 400, idempotent, 404 sur ID inconnu). Testing agent iteration_93 → 100% success, retest_needed=false.
+
+**Cumulatif fork** : 26/26 pytest verts (10 sound iter91 + 3 P1 + 6 P2 iter92 + 7 recall iter93).
+
+
+
+
 ## 2026-02-14 (Fork iter92) — Pré-déploiement production : 4 correctifs / features ✅
 
 ### P1 — Bug de visibilité des tickets/interventions

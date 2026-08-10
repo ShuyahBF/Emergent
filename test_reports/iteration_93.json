@@ -1,0 +1,33 @@
+{
+  "summary": "Iter93 fork validation — WhatsApp Delete/Recall feature (soft-recall). Backend: 7/7 pytest cases in test_fork_wa_recall.py pass, PATCH /api/me/whatsapp/messages/{id}/recall returns full contract (ok, message_id, recalled_at, meta_delete_supported=false, delivered_before_recall, warning). GET /api/me/inbox/unified/whatsapp/{thread_id} correctly surfaces new fields (is_recalled, recalled_at, sent_at, delivered_at, read_at). Frontend: seeded synthetic outbound message, verified trash icon appears (data-testid=inbox-recall-btn-{id}), confirm() dialog fires with correct Meta-limitation message and is auto-accepted, PATCH executes, and on reload the message is replaced by the italic placeholder 'Message rappelé · HH:MM' (data-testid=inbox-message-recalled-{id}). No recall button appears for recalled messages, and none appear on inbound bubbles.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Login OTP page", "issues": ["Console hydration warning: <span> cannot be child of <option> (pre-existing, unrelated to recall feature)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fork_wa_recall.py",
+    "/app/test_reports/pytest/iter93_wa_recall.xml"
+  ],
+  "action_items": [
+    "Documentation nit: review request states route as /portal/unified-inbox, but actual React route is /portal/inbox (App.js line 333). Consider aligning docs.",
+    "Optional: consider adding a Playwright-friendly close affordance (data-testid) to WelcomeBriefing modal — currently blocks all clicks in Inbox until dismissed."
+  ],
+  "critical_code_review_comments": [
+    "Backend recall endpoint correctly guards direction/read/age with proper HTTP codes (400/404/409) and is idempotent — good design.",
+    "unified_inbox.py projection cleanly adds the 5 new fields with is_recalled cast to bool for safety (defensive good practice).",
+    "Frontend canRecall() mirrors backend rules (direction, is_recalled, status!=read, age<=15min unless failed) — DRY-adjacent but acceptable duplication for UX responsiveness.",
+    "Frontend uses window.confirm() — acceptable for MVP, but a shadcn AlertDialog with data-testids would improve test-friendliness."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (OTP via dev_otp inline)",
+  "seed_data_creation": "Inserted one synthetic outbound WA message (id=ui-recall-475f3a9206, peer +22890000999, contact_name=RecallTestPeer) directly in db.whatsapp_messages for UI test. Cleaned up after test.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Fork iter93 recall feature is fully working end-to-end. Backend contract stable, frontend integration verified. Route is /portal/inbox (not /portal/unified-inbox). WelcomeBriefing modal intercepts clicks on first load — dismiss via page.evaluate remove or sessionStorage.setItem('sawali_welcome_briefing_seen','1') via init script.",
+  "rca of the issue": "N/A — no bugs found"
+}

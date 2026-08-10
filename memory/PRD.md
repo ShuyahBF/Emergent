@@ -13,6 +13,42 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-02-14 (Fork iter92) — Pré-déploiement production : 4 correctifs / features ✅
+
+### P1 — Bug de visibilité des tickets/interventions
+**Symptôme** : `support@sawalismartsystems.com` créait des tickets/interventions mais ne les voyait pas ; seul `admin@sawalismartsystems.com` (super_admin) les voyait.
+**Cause racine** : `_ticket_scope_for_user` et `/me/interventions` filtraient uniquement sur `client_id ∈ scope` résolu par `company`. Un compte admin avec une company différente de celle du client cible ne voyait pas ses propres créations.
+**Fix** : Ajout d'un fallback OR `owner_id == user.id` / `opened_by_id == user.id` dans `_ticket_scope_for_user` et le filtre des interventions. Tests régression `test_fork_p1_own_visibility.py` (3/3 verts).
+
+### P2 — Nouveau rôle « Secrétaire médicale » + CRUD walk-ins
+- `TRACKED_USER_ROLES` étendu avec `"Secrétaire médicale"` (`models.py`, `AdminTrackedUsers.jsx`).
+- 3 nouveaux endpoints tenant :
+  - `POST /me/planning/walk-in` — création (medecin_id, patient, phone, date, motif)
+  - `PATCH /me/planning/walk-in/{id}` — modification (recalcul `walk_in_list`/`numero_ordre` si médecin ou date change)
+  - `DELETE /me/planning/walk-in/{id}`
+- Autorisations : `admin`/`superviseur` OU `tracked_role ∈ {Secrétaire médicale, Administrateur, Superviseur, Moderation, Médecin}`. Le médecin sélectionné doit être dans le scope client.
+- Frontend : modal `WalkInModal.jsx`, bouton `+ Walk-in` dans le header Planning, bouton ✏️ sur chaque ligne walk-in.
+- Sidebar : `Secrétaire médicale` voit UNIQUEMENT `/portal/planning` (menu réduit comme `Médecin`).
+- Tests régression `test_fork_p2_walkin_secretaire.py` (6/6 verts).
+
+### P3a — Automation event `user.login`
+Nouvel événement supporté émis après validation OTP réussie. Contexte disponible dans les templates : `{login_email}`, `{login_full_name}`, `{login_role}`, `{login_tracked_role}`, `{login_ip}`, `{login_time}`. Fire-and-forget via `asyncio.create_task(emit_login_event(user, request))`.
+
+### P3b — Automation event `whatsapp.received` + reply-router masqué
+- Nouvel événement `whatsapp.received` émis à chaque message WA entrant, contexte : `{wa_from}`, `{wa_sender_name}`, `{wa_message}`, `{wa_reply_code}` (code court 4 chars).
+- Nouvelle collection `wa_reply_tokens` : `{code, original_sender, tenant_id, created_at, used}`. Index composé `(code, used)` + prune horaire (>30min) via `_task_reminder_cron`.
+- Reply-router : Si un utilisateur `admin`/`superviseur` (phone matchant) envoie un WA `#Rcode ta réponse`, le webhook (`_try_handle_masked_reply`) relaye le texte au vrai destinataire via `_wa_send_text` sans exposer le numéro admin, marque le token utilisé, envoie un ACK à l'admin. Audit dans `wa_reply_router_audit`.
+
+**Backlog post-déploiement** (validé avec utilisateur) :
+- Suppression d'un message WhatsApp non encore distribué (délai éditeur).
+- Analyse prescription VIDAL : la page dédiée doit afficher le contenu (actuellement page imbriquée vide).
+- Rôle client 'Superviseur' : filtrer les médecins du planning sur le client rattaché à l'utilisateur suivi.
+
+**Testing** : 19/19 pytest verts. Testing agent v3 fork iteration_92 → 100% success, retest_needed=false.
+
+
+
+
 ## 2026-02-14 (Fork) — Son de notification WhatsApp configurable ✅
 
 **User request** : rendre configurable la tonalité jouée lors d'un nouveau message WhatsApp entrant. Choix retenus : 5 presets programmatiques + upload MP3 personnalisé, stockage sur Object Storage Emergent, réglage `admin par défaut + user override localStorage`, slider de volume + bouton Tester.

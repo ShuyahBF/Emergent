@@ -56,6 +56,8 @@ def attach_auth_routes(
     _to_user_public: Callable[[dict], Any] = helpers["_to_user_public"]
     _uuid: Callable[[], str] = helpers["_uuid"]
     _now: Callable[[], str] = helpers["_now"]
+    # 2026-02 fork (P3a) — Optional login automation hook. Fire-and-forget.
+    emit_login_event = helpers.get("emit_login_event")
 
     @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
     async def auth_login(payload: LoginRequest, request: Request):
@@ -102,7 +104,7 @@ def attach_auth_routes(
         return LoginResponse(needs_otp=True, session_token=session, message=msg, dev_otp=dev_otp)
 
     @api.post("/auth/verify-otp", response_model=AuthTokenResponse, tags=["Authentification"])
-    async def auth_verify_otp(payload: OtpVerifyRequest):
+    async def auth_verify_otp(payload: OtpVerifyRequest, request: Request):
         otp = await db.otps.find_one({"session_token": payload.session_token, "used": False})
         if not otp:
             raise HTTPException(status_code=400, detail="Session invalide ou expirée")
@@ -116,6 +118,14 @@ def attach_auth_routes(
             raise HTTPException(status_code=401, detail="Utilisateur introuvable")
         await db.users.update_one({"id": user["id"]}, {"$set": {"last_login": _now()}})
         token = create_access_token(user["id"], user["role"])
+        # 2026-02 fork (P3a) — Emit the `user.login` automation event so the
+        # admin can be alerted (email/phone/role/ip) via a configured WA template.
+        if emit_login_event is not None:
+            try:
+                import asyncio
+                asyncio.create_task(emit_login_event(user, request))
+            except Exception:  # noqa: BLE001
+                pass
         return AuthTokenResponse(access_token=token, user=_to_user_public(user))
 
     @api.post("/auth/resend-otp", tags=["Authentification"])

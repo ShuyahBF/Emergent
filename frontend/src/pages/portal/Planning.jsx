@@ -14,6 +14,8 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 // Iter43-fix24az-ad — Mini heatmap 30 jours en panneau latéral
 import PlanningHeatmap from "@/components/PlanningHeatmap";
+// 2026-02 fork (P2) — Walk-in CRUD modal
+import WalkInModal from "@/components/WalkInModal";
 import {
   Calendar as CalendarIcon,
   Clock,
@@ -25,6 +27,8 @@ import {
   Lock,
   Wifi,
   WifiOff,
+  UserPlus,
+  Pencil,
 } from "lucide-react";
 
 // Configuration de la grille horaire (heures affichées, en UTC)
@@ -107,6 +111,15 @@ export default function Planning() {
   });
 
   const isMedecin = (me?.tracked_role || "") === "Médecin";
+  // 2026-02 fork (P2) — Rôles qui peuvent gérer les walk-ins (CRUD).
+  const canManageWalkins = React.useMemo(() => {
+    if (!me) return false;
+    if (me.role === "admin" || me.role === "superviseur") return true;
+    const tr = me.tracked_role || "";
+    return ["Secrétaire médicale", "Administrateur", "Superviseur", "Moderation", "Médecin"].includes(tr);
+  }, [me]);
+  const [walkInModalOpen, setWalkInModalOpen] = useState(false);
+  const [editingWalkIn, setEditingWalkIn] = useState(null);
 
   // -------- fetch --------
   const fetchMe = useCallback(async () => {
@@ -349,7 +362,7 @@ export default function Planning() {
             className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 text-sm text-slate-700 hover:bg-slate-50"
             data-testid="planning-today-btn"
           >
-            Aujourd'hui
+            Aujourd&apos;hui
           </button>
           {/* Iter43-fix24az-aa (2026-07-22) — Compteur RDV+walk-in à venir
               à partir du lendemain de la date sélectionnée (horizon 90j).
@@ -409,6 +422,16 @@ export default function Planning() {
           >
             <RefreshCw className={`h-4 w-4 ${loading ? "animate-spin" : ""}`} />
           </button>
+          {canManageWalkins && (
+            <button
+              onClick={() => { setEditingWalkIn(null); setWalkInModalOpen(true); }}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium shadow-sm"
+              data-testid="planning-add-walkin-btn"
+              title="Ajouter un patient sans RDV"
+            >
+              <UserPlus className="h-3.5 w-3.5" /> Walk-in
+            </button>
+          )}
           <span
             className={`inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-md border ${
               sseConnected
@@ -592,6 +615,16 @@ export default function Planning() {
                         </div>
                       </div>
                     </div>
+                    {canManageWalkins && a.is_rdv === 0 && (
+                      <button
+                        onClick={() => { setEditingWalkIn(a); setWalkInModalOpen(true); }}
+                        className="shrink-0 p-1.5 rounded-md hover:bg-emerald-100 text-emerald-700 border border-emerald-200"
+                        title="Modifier ce walk-in"
+                        data-testid={`planning-edit-walkin-${a.id}`}
+                      >
+                        <Pencil className="h-3 w-3" />
+                      </button>
+                    )}
                   </div>
                 </li>
               );
@@ -599,6 +632,19 @@ export default function Planning() {
           </ul>
         )}
       </div>
+      {/* 2026-02 fork (P2) — Modal walk-in (création/édition/suppression) */}
+      <WalkInModal
+        open={walkInModalOpen}
+        onClose={() => setWalkInModalOpen(false)}
+        onSaved={(w) => {
+          // Optimistically merge or refetch
+          fetchAppointments();
+        }}
+        onDeleted={() => fetchAppointments()}
+        defaultDate={selectedDate}
+        doctors={doctors}
+        existing={editingWalkIn}
+      />
     </div>
   );
 }

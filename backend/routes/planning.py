@@ -38,6 +38,26 @@ from fastapi import Body, Depends, HTTPException, Query, Request
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
+
+# 2026-02 fork (P2) — Walk-in CRUD payload models (module-level so Pydantic
+# can resolve forward refs when the endpoint uses `Body(...)`).
+class WalkInCreatePayload(BaseModel):
+    medecin_id: str = Field(..., description="ID du médecin (tracked user role=Médecin)")
+    patient: str = Field(..., min_length=1, max_length=120)
+    patient_phone: Optional[str] = Field(None, max_length=32)
+    date: Optional[str] = Field(None, description="YYYY-MM-DD — défaut = aujourd'hui")
+    motif: Optional[str] = Field(None, max_length=300)
+    domaine: Optional[str] = Field(None, max_length=60)
+
+
+class WalkInUpdatePayload(BaseModel):
+    patient: Optional[str] = Field(None, min_length=1, max_length=120)
+    patient_phone: Optional[str] = Field(None, max_length=32)
+    motif: Optional[str] = Field(None, max_length=300)
+    medecin_id: Optional[str] = None
+    date: Optional[str] = None
+    domaine: Optional[str] = Field(None, max_length=60)
+
 logger = logging.getLogger("sawali.planning")
 
 # ---------------------------------------------------------------------------
@@ -1237,6 +1257,216 @@ def attach_planning_routes(
             "medecin_id": effective_medecin_id,
             "items": items,
         }
+
+    # -----------------------------------------------------------------
+    # 2026-02 fork (P2) — Walk-in CRUD (Secrétaire médicale + admin/sup)
+    # -----------------------------------------------------------------
+    def _can_manage_walkins(u: dict) -> bool:
+        """Rôles autorisés à gérer les walk-ins depuis le portail :
+        - admin / superviseur (rôle plateforme)
+        - tracked_role in {"Secrétaire médicale", "Administrateur",
+                           "Superviseur", "Moderation", "Médecin"}
+        """
+        if _is_admin_or_superviseur(u):
+            return True
+        tr = (u.get("tracked_role") or "").strip()
+        return tr in {"Secrétaire médicale", "Administrateur", "Superviseur", "Moderation", "Médecin"}
+
+    async def _walkin_tenant_id_for_user(u: dict) -> str:
+        """Résout le tenant_id à utiliser lors de la création d'un walk-in.
+        Prend `parent_client_id` en priorité (secrétaire attachée à un client),
+        sinon `client_id`, sinon `id`.
+        """
+        return u.get("parent_client_id") or u.get("client_id") or u["id"]
+
+    @api.post("/me/planning/walk-in", tags=["Portail Client — Planning"])
+    async def planning_create_walk_in(
+        payload: WalkInCreatePayload = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """Créer un walk-in (patient sans RDV). Ouvert aux secrétaires médicales
+        et rôles élevés. La date par défaut est aujourd'hui.
+        """
+        if not _can_manage_walkins(user):
+            raise HTTPException(status_code=403, detail="Rôle insuffisant pour créer un walk-in")
+
+        # Résout le médecin choisi + vérifie qu'il est bien dans le scope
+        medecin = await db.users.find_one(
+            {"id": payload.medecin_id, "tracked_role": "Médecin"},
+            {"_id": 0, "id": 1, "email": 1, "full_name": 1, "parent_client_id": 1, "client_id": 1},
+        )
+        if not medecin:
+            raise HTTPException(status_code=404, detail="Médecin introuvable")
+        if not _is_super_admin(user):
+            scope = await _resolve_visible_client_ids(user)
+            m_scope_ids = {medecin.get("parent_client_id"), medecin.get("client_id"), medecin.get("id")}
+            if not any(mid in scope for mid in m_scope_ids if mid):
+                raise HTTPException(status_code=403, detail="Médecin hors de votre scope")
+
+        # Résolution date + walk_in_list
+        day_iso = (payload.date or datetime.now(timezone.utc).strftime("%Y-%m-%d")).strip()
+        try:
+            day_start = datetime.strptime(day_iso, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Date invalide (YYYY-MM-DD)")
+        medecin_email = (medecin.get("email") or "").lower() or None
+        domaine = (payload.domaine or "").strip().lower() or None
+        walk_in_list = _walk_in_list_key(day_start.isoformat(), medecin_email, domaine)
+
+        # Attribue le prochain numero_ordre chronologique
+        tenant_id = await _walkin_tenant_id_for_user(user)
+        max_ord = 0
+        async for d in db.planning_appointments.find(
+            {"tenant_id": tenant_id, "walk_in_list": walk_in_list, "is_rdv": 0},
+            {"_id": 0, "numero_ordre": 1},
+        ):
+            try:
+                no = int(d.get("numero_ordre") or 0)
+                if no > max_ord:
+                    max_ord = no
+            except (TypeError, ValueError):
+                pass
+        numero_ordre = max_ord + 1
+
+        now = _now_iso()
+        doc = {
+            "id": str(uuid.uuid4()),
+            "tenant_id": tenant_id,
+            "code_clinique": "manual",
+            "medecin": medecin.get("full_name") or medecin.get("email") or "",
+            "medecin_id": medecin.get("id"),
+            "medecin_email": medecin_email,
+            "patient": payload.patient.strip(),
+            "patient_phone": (payload.patient_phone or "").strip() or None,
+            "start_at": None,
+            "end_at": None,
+            "motif": (payload.motif or "").strip() or None,
+            "is_rdv": 0,
+            "domaine": domaine,
+            "walk_in_list": walk_in_list,
+            "numero_ordre": numero_ordre,
+            "source": "manual",
+            "created_at": now,
+            "updated_at": now,
+            "received_at": now,
+            "created_by_id": user.get("id"),
+            "created_by_email": user.get("email"),
+        }
+        await db.planning_appointments.insert_one(doc.copy())
+        # Push SSE broadcast so open dashboards refresh instantly
+        try:
+            await _sse_broadcast(tenant_id, "created", doc)
+        except Exception:  # noqa: BLE001
+            pass
+        doc.pop("_id", None)
+        return {"ok": True, "walk_in": doc}
+
+    @api.patch("/me/planning/walk-in/{wid}", tags=["Portail Client — Planning"])
+    async def planning_update_walk_in(
+        wid: str,
+        payload: WalkInUpdatePayload = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """Modifier un walk-in existant (patient, phone, médecin, date, motif)."""
+        if not _can_manage_walkins(user):
+            raise HTTPException(status_code=403, detail="Rôle insuffisant")
+        existing = await db.planning_appointments.find_one({"id": wid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Walk-in introuvable")
+        if existing.get("is_rdv") != 0:
+            raise HTTPException(status_code=400, detail="Cet enregistrement n'est pas un walk-in")
+        if not _is_super_admin(user):
+            scope = await _resolve_visible_client_ids(user)
+            if existing.get("tenant_id") not in scope:
+                raise HTTPException(status_code=403, detail="Walk-in hors de votre scope")
+
+        update: Dict[str, Any] = {"updated_at": _now_iso()}
+        if payload.patient is not None:
+            update["patient"] = payload.patient.strip()
+        if payload.patient_phone is not None:
+            update["patient_phone"] = payload.patient_phone.strip() or None
+        if payload.motif is not None:
+            update["motif"] = payload.motif.strip() or None
+
+        # Change de médecin ou de date → recalcule walk_in_list
+        new_medecin_email = existing.get("medecin_email")
+        new_medecin_name = existing.get("medecin")
+        new_medecin_id = existing.get("medecin_id")
+        if payload.medecin_id and payload.medecin_id != existing.get("medecin_id"):
+            m = await db.users.find_one(
+                {"id": payload.medecin_id, "tracked_role": "Médecin"},
+                {"_id": 0, "id": 1, "email": 1, "full_name": 1, "parent_client_id": 1, "client_id": 1},
+            )
+            if not m:
+                raise HTTPException(status_code=404, detail="Médecin introuvable")
+            new_medecin_email = (m.get("email") or "").lower() or None
+            new_medecin_name = m.get("full_name") or m.get("email") or ""
+            new_medecin_id = m.get("id")
+            update["medecin_id"] = new_medecin_id
+            update["medecin_email"] = new_medecin_email
+            update["medecin"] = new_medecin_name
+
+        new_day_iso: Optional[str] = None
+        if payload.date is not None:
+            try:
+                dt = datetime.strptime(payload.date.strip(), "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                new_day_iso = dt.isoformat()
+            except ValueError:
+                raise HTTPException(status_code=400, detail="Date invalide (YYYY-MM-DD)")
+
+        domaine = existing.get("domaine")
+        if payload.domaine is not None:
+            domaine = (payload.domaine or "").strip().lower() or None
+            update["domaine"] = domaine
+
+        if new_medecin_email != existing.get("medecin_email") or new_day_iso or domaine != existing.get("domaine"):
+            # Regenerate walk_in_list key based on the (potentially updated) day/email/domaine
+            ref_day = new_day_iso or existing.get("received_at") or existing.get("created_at") or _now_iso()
+            walk_in_list = _walk_in_list_key(ref_day, new_medecin_email, domaine)
+            update["walk_in_list"] = walk_in_list
+            # Re-assign numero_ordre if the list changed
+            if walk_in_list != existing.get("walk_in_list"):
+                max_ord = 0
+                async for d in db.planning_appointments.find(
+                    {"tenant_id": existing.get("tenant_id"), "walk_in_list": walk_in_list, "is_rdv": 0},
+                    {"_id": 0, "numero_ordre": 1},
+                ):
+                    try:
+                        no = int(d.get("numero_ordre") or 0)
+                        if no > max_ord:
+                            max_ord = no
+                    except (TypeError, ValueError):
+                        pass
+                update["numero_ordre"] = max_ord + 1
+
+        await db.planning_appointments.update_one({"id": wid}, {"$set": update})
+        fresh = await db.planning_appointments.find_one({"id": wid}, {"_id": 0})
+        try:
+            await _sse_broadcast(existing.get("tenant_id"), "updated", fresh or {})
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "walk_in": fresh}
+
+    @api.delete("/me/planning/walk-in/{wid}", tags=["Portail Client — Planning"])
+    async def planning_delete_walk_in(wid: str, user: dict = Depends(get_current_user)):
+        """Supprimer un walk-in existant."""
+        if not _can_manage_walkins(user):
+            raise HTTPException(status_code=403, detail="Rôle insuffisant")
+        existing = await db.planning_appointments.find_one({"id": wid}, {"_id": 0})
+        if not existing:
+            raise HTTPException(status_code=404, detail="Walk-in introuvable")
+        if existing.get("is_rdv") != 0:
+            raise HTTPException(status_code=400, detail="Cet enregistrement n'est pas un walk-in — utilisez le webhook pour les RDV")
+        if not _is_super_admin(user):
+            scope = await _resolve_visible_client_ids(user)
+            if existing.get("tenant_id") not in scope:
+                raise HTTPException(status_code=403, detail="Walk-in hors de votre scope")
+        await db.planning_appointments.delete_one({"id": wid})
+        try:
+            await _sse_broadcast(existing.get("tenant_id"), "deleted", {"id": wid, **existing})
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "id": wid}
 
     # -----------------------------------------------------------------
     # Iter43-fix24az-n (2026-07-18) — SSE stream temps réel

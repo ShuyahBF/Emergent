@@ -986,6 +986,36 @@ async def version():
 # ====================================================================
 from routes.auth import attach_auth_routes  # noqa: E402
 
+
+async def _emit_login_event(user: dict, request) -> None:
+    """2026-02 fork (P3a) — Fire the `user.login` automation event.
+    Called from auth.verify-otp after a successful OTP validation. Kept as a
+    thin wrapper so we can reference `_emit_event` at call time (it's defined
+    later in this module) and centralise the context extraction.
+    """
+    try:
+        ip = _client_ip_from_request(request) if request is not None else ""
+        extra_ctx = {
+            "login_email": (user.get("email") or "").lower(),
+            "login_full_name": user.get("full_name") or "",
+            "login_role": user.get("role") or "",
+            "login_tracked_role": user.get("tracked_role") or "",
+            "login_ip": ip or "",
+            "login_time": _now(),
+        }
+        # No client_id — automations for login events are typically
+        # `target=fixed` (admin phone). We still pass the user's id so
+        # `target_phone` fallbacks and audit tracking rows have context.
+        target = {
+            "client_id": user.get("parent_client_id") or None,
+            "phone": (user.get("phone") or "").strip() or None,
+            "extra_ctx": extra_ctx,
+        }
+        await _emit_event("user.login", target)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[user.login automation] emit failed: %s", exc)
+
+
 attach_auth_routes(
     api,
     db=db,
@@ -1001,6 +1031,8 @@ attach_auth_routes(
         "_to_user_public": _to_user_public,
         "_uuid": _uuid,
         "_now": _now,
+        # 2026-02 fork (P3a) — Login automation hook
+        "emit_login_event": _emit_login_event,
     },
 )
 
@@ -3171,7 +3203,11 @@ async def me_interventions(user: dict = Depends(get_current_user)):
         items = await db.interventions.find({}, {"_id": 0}).to_list(2000)
     elif _is_elevated_creator(user):
         scope = await _resolve_visible_client_ids(user)
-        base_q: Dict[str, Any] = {"client_id": {"$in": scope}}
+        # 2026-02 fork (P1) — Own-creation fallback : a user always sees the
+        # interventions they authored themselves, even if the target client_id
+        # is outside their tenant scope (e.g. `support@sawali` opening
+        # interventions against various client tenants).
+        base_q: Dict[str, Any] = {"$or": [{"client_id": {"$in": scope}}, {"owner_id": user["id"]}]}
         # Iter43 — Cross-tenant share: include interventions created by colleagues
         try:
             from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
@@ -3186,7 +3222,8 @@ async def me_interventions(user: dict = Depends(get_current_user)):
         items = await db.interventions.find(q, {"_id": 0}).to_list(2000)
     else:
         effective_client_id = user.get("parent_client_id") or user["id"]
-        base_q = {"client_id": effective_client_id}
+        # 2026-02 fork (P1) — Own-creation fallback (see comment above).
+        base_q = {"$or": [{"client_id": effective_client_id}, {"owner_id": user["id"]}]}
         try:
             from routes.tenant_sharing import resolve_visible_owner_ids  # noqa: E402
             visible_owner_ids = await resolve_visible_owner_ids(db, user)
@@ -7608,9 +7645,22 @@ async def admin_delete_task(client_id: str, tid: str, _: dict = Depends(get_curr
 
 async def _task_reminder_cron():
     """Hourly cron: tasks with remind_via_whatsapp=true + due in [now, now+1h] + not yet reminded.
-    Emits a 'task.reminder' event so admins can hook a WhatsApp template via /admin/automations."""
+    Emits a 'task.reminder' event so admins can hook a WhatsApp template via /admin/automations.
+
+    2026-02 fork (P3b) — Also prunes wa_reply_tokens older than 30 minutes
+    (best-effort) so the collection stays small even without a TTL index (our
+    docs store `created_at` as ISO strings, which TTL cannot use directly).
+    """
     now_utc = datetime.now(timezone.utc)
     win_end = (now_utc + timedelta(hours=1)).isoformat()
+    # Prune expired reply-router tokens (older than 30 min, used OR not).
+    try:
+        cutoff = (now_utc - timedelta(minutes=30)).isoformat()
+        res = await db.wa_reply_tokens.delete_many({"created_at": {"$lt": cutoff}})
+        if res.deleted_count:
+            logger.info("[wa_reply_tokens prune] removed %d expired tokens", res.deleted_count)
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("[wa_reply_tokens prune] failed: %s", _exc)
     tasks = await db.client_tasks.find(
         {
             "remind_via_whatsapp": True,
@@ -16486,6 +16536,88 @@ async def whatsapp_webhook_verify(
     raise HTTPException(status_code=403, detail="Invalid verify token")
 
 
+import re as _re_masked_reply
+
+
+async def _generate_reply_code() -> str:
+    """2026-02 fork (P3b) — Short unique code for the admin WA reply router.
+    Format: 4 uppercase alphanumerics (~1.6M combos, > enough for concurrent
+    unresolved messages). Includes a collision check against active tokens
+    younger than 30 min.
+    """
+    import secrets
+    alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"  # skip 0/O/1/I for readability
+    while True:
+        code = "".join(secrets.choice(alphabet) for _ in range(4))
+        exists = await db.wa_reply_tokens.find_one({"code": code, "used": False}, {"_id": 1})
+        if not exists:
+            return code
+
+
+async def _try_handle_masked_reply(*, from_num: str, digits_only: str, text_body: str) -> Optional[dict]:
+    """Return truthy handled-info dict if `text_body` is a `#R<code> <reply>`
+    pattern coming from an authorised admin phone. Otherwise return None so
+    the caller keeps processing the message as regular inbound.
+
+    Authorisation policy:
+      - The sender's E.164 (or digits) matches a user with role in
+        ("admin", "superviseur") — case-insensitive phone match.
+    """
+    m = _re_masked_reply.match(r"^\s*#R([A-Za-z0-9]{3,8})\s+(.+)$", text_body.strip(), _re_masked_reply.DOTALL)
+    if not m:
+        return None
+    code = m.group(1).upper()
+    reply_text = m.group(2).strip()
+    # Verify sender is admin/superviseur (phone match, case-insensitive digits)
+    if not digits_only:
+        return None
+    admin_user = await db.users.find_one(
+        {"role": {"$in": ["admin", "superviseur"]}, "phone": {"$regex": digits_only}},
+        {"_id": 0, "id": 1, "role": 1, "email": 1, "phone": 1},
+    )
+    if not admin_user:
+        return None
+    token = await db.wa_reply_tokens.find_one({"code": code, "used": False}, {"_id": 0})
+    if not token:
+        # Politely tell the admin the code is unknown/expired
+        try:
+            await _wa_send_text(from_num, f"⚠️ Code #R{code} inconnu ou expiré — impossible de router votre réponse.")
+        except Exception:  # noqa: BLE001
+            pass
+        return {"code": code, "routed_to": None, "ok": False, "error": "unknown_code"}
+    original_sender = token.get("original_sender")
+    if not original_sender:
+        return {"code": code, "routed_to": None, "ok": False, "error": "no_sender"}
+    # Fire the outbound message on behalf of Liluvine
+    try:
+        res = await _wa_send_text(original_sender, reply_text)
+    except Exception as exc:  # noqa: BLE001
+        return {"code": code, "routed_to": original_sender, "ok": False, "error": str(exc)[:200]}
+    ok = bool(res.get("ok"))
+    # Mark token used regardless (avoid replay). Save last error if any.
+    await db.wa_reply_tokens.update_one(
+        {"code": code},
+        {"$set": {
+            "used": True,
+            "used_at": _now(),
+            "used_by_admin_id": admin_user.get("id"),
+            "routed_to": original_sender,
+            "reply_text": reply_text[:2000],
+            "wa_send_ok": ok,
+            "wa_send_error": None if ok else (res.get("error") or "unknown")[:200],
+        }},
+    )
+    # Send a discreet ACK back to the admin
+    try:
+        if ok:
+            await _wa_send_text(from_num, f"✅ #R{code} → réponse relayée à {original_sender}")
+        else:
+            await _wa_send_text(from_num, f"❌ #R{code} — envoi échoué : {(res.get('error') or 'inconnu')[:120]}")
+    except Exception:  # noqa: BLE001
+        pass
+    return {"code": code, "routed_to": original_sender, "ok": ok, "error": None if ok else res.get("error")}
+
+
 @api.post("/whatsapp/webhook", tags=["Webhook"])
 async def whatsapp_webhook_incoming(request: Request):
     """Receive Meta Cloud API events: new inbound messages + outbound status updates.
@@ -16665,6 +16797,34 @@ async def whatsapp_webhook_incoming(request: Request):
                         text_body = f"[{mtype} non géré]"
                     ts_raw = int(msg.get("timestamp") or 0)
                     ts_iso = datetime.fromtimestamp(ts_raw, tz=timezone.utc).isoformat() if ts_raw else _now()
+                    # 2026-02 fork (P3b) — Masked reply router.
+                    # If the inbound message comes from an admin phone AND
+                    # starts with `#R<code> <reply text>`, relay it to the
+                    # original sender via _wa_send_text (no admin number
+                    # exposure). The token is consumed once.
+                    if mtype == "text" and isinstance(text_body, str) and text_body.strip().startswith("#R"):
+                        handled = await _try_handle_masked_reply(
+                            from_num=from_num,
+                            digits_only=digits_only,
+                            text_body=text_body,
+                        )
+                        if handled:
+                            # Store an audit row so admins can trace routings
+                            try:
+                                await db.wa_reply_router_audit.insert_one({
+                                    "id": _uuid(),
+                                    "admin_from": from_num,
+                                    "code": handled.get("code"),
+                                    "routed_to": handled.get("routed_to"),
+                                    "ok": handled.get("ok"),
+                                    "error": handled.get("error"),
+                                    "created_at": _now(),
+                                })
+                            except Exception:  # noqa: BLE001
+                                pass
+                            # Skip further processing — this message is not a
+                            # real inbound from a contact but an admin router action.
+                            continue
                     # Find contact by phone within the scope
                     # Bug #3 (2026-02 — rabo.f) — When multiple contacts match
                     # the phone across tenants, PREFER the one in our resolved
@@ -16790,6 +16950,37 @@ async def whatsapp_webhook_incoming(request: Request):
                             logger.warning("WA voice transcribe failed: %s", exc)
                     await db.whatsapp_messages.insert_one(doc)
                     inserted_messages += 1
+                    # 2026-02 fork (P3b) — Emit `whatsapp.received` automation
+                    # event. Create a short-lived reply-router token so an admin
+                    # can respond via WhatsApp using `#R<code> <reply>` and
+                    # Liluvine relays without exposing their number.
+                    try:
+                        reply_code = await _generate_reply_code()
+                        await db.wa_reply_tokens.insert_one({
+                            "id": _uuid(),
+                            "code": reply_code,
+                            "original_sender": from_num,
+                            "original_sender_name": profile_name or (contact or {}).get("name") or "",
+                            "original_message_id": msg.get("id"),
+                            "original_body": (text_body or "")[:2000],
+                            "tenant_id": scope_for_msg,
+                            "created_at": _now(),
+                            "used": False,
+                        })
+                        wa_extra_ctx = {
+                            "wa_from": from_num,
+                            "wa_sender_name": profile_name or (contact or {}).get("name") or from_num,
+                            "wa_message": (text_body or "")[:500],
+                            "wa_reply_code": reply_code,
+                        }
+                        # Fire the automation (fire-and-forget, non-blocking)
+                        import asyncio
+                        asyncio.create_task(_emit_event("whatsapp.received", {
+                            "client_id": scope_for_msg,
+                            "extra_ctx": wa_extra_ctx,
+                        }))
+                    except Exception as _exc:  # noqa: BLE001
+                        logger.warning("[whatsapp.received automation] emit failed: %s", _exc)
                     # Iter34x — activity log for inbound WA
                     await _log_activity(
                         client_id=scope_for_msg,
@@ -18480,6 +18671,15 @@ SUPPORTED_AUTOMATION_EVENTS = {
     "intervention.created",
     "client.created",
     "task.reminder",
+    # 2026-02 fork (P3a) — Nouvelle connexion à la plateforme (login OTP validé).
+    # Context tokens exposed : {login_email}, {login_full_name}, {login_role},
+    # {login_tracked_role}, {login_ip}, {login_time}.
+    "user.login",
+    # 2026-02 fork (P3b) — Nouveau message WhatsApp entrant. Context tokens :
+    # {wa_from}, {wa_sender_name}, {wa_message}, {wa_reply_code}. L'admin peut
+    # répondre en préfixant sa réponse par le code (ex: "#R7X2 Bonjour..."),
+    # Liluvine relaye au client sans exposer le numéro admin.
+    "whatsapp.received",
 }
 
 
@@ -18526,6 +18726,10 @@ async def admin_automation_events(_: dict = Depends(get_current_admin)):
              "description": "Message de bienvenue à un client fraîchement créé."},
             {"value": "task.reminder", "label": "Rappel de tâche",
              "description": "Rappel WhatsApp envoyé 1h avant l'échéance d'une tâche client (cron horaire)."},
+            {"value": "user.login", "label": "Connexion utilisateur",
+             "description": "Nouvelle connexion validée (post-OTP). Contexte : {login_email}, {login_full_name}, {login_role}, {login_tracked_role}, {login_ip}, {login_time}."},
+            {"value": "whatsapp.received", "label": "Nouveau message WhatsApp reçu",
+             "description": "Message WA entrant. Contexte : {wa_from}, {wa_sender_name}, {wa_message}, {wa_reply_code}. L'admin peut répondre en préfixant `#R<code>` — Liluvine relaye au client sans exposer son numéro."},
         ]
     }
 
@@ -20527,6 +20731,20 @@ async def on_startup():
     await db.access_logs.create_index("user_email")
     # Document logs
     await db.document_logs.create_index([("document_id", 1), ("created_at", -1)])
+    # 2026-02 fork (P3b) — WhatsApp reply-router tokens. Auto-expire tokens
+    # 30 minutes after creation to keep the collection lean (matches the
+    # "admin usually reads/answers within 30 min" workflow).
+    try:
+        from datetime import datetime as _dt  # noqa: F401
+        # Convert `created_at` (stored as ISO string) to a Date for the TTL to
+        # work — we rely on MongoDB parsing. Since our writes store ISO strings
+        # (not BSON Date), the TTL will not fire; use a periodic prune instead.
+        # Keep this as a compound index for fast lookup by (code, used).
+        await db.wa_reply_tokens.create_index([("code", 1), ("used", 1)])
+        await db.wa_reply_tokens.create_index("created_at")
+        await db.wa_reply_router_audit.create_index("created_at")
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("[wa_reply_tokens] index creation failed: %s", _exc)
     # Notification badges — lookup by (user_id, module)
     await db.user_module_visits.create_index([("user_id", 1), ("module", 1)], unique=True)
     # Dynamic forms (Phase 4)
@@ -21723,6 +21941,13 @@ async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
     Client-admin/superviseur (e.g. ISISPHARMA admin) are scoped to their own
     tenant via `_resolve_visible_client_ids` (matches on company/parent_client_id).
 
+    2026-02 fork (P1) — Own-creation fallback. A user with a `company` that
+    differs from the target client's tenant (e.g. `support@sawalismartsystems.com`
+    creating tickets against various client companies) could not see the tickets
+    they opened themselves because the filter matched on `client_id ∈ scope`
+    only. We now always OR-merge a `opened_by_id = user.id` clause so a user
+    ALWAYS sees the tickets they authored — regardless of the ticket's client_id.
+
     Note : moderators can SEE all tickets within their tenant (they pilot the
     interventions) but cannot DELETE them — the delete endpoint enforces that
     via `_can_delete_records()` which only allows admin/superviseur.
@@ -21730,7 +21955,9 @@ async def _ticket_scope_for_user(user: dict) -> Dict[str, Any]:
     if _is_super_admin(user):
         return {}
     scope = await _resolve_visible_client_ids(user)
-    return {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
+    scope_clause = {"client_id": {"$in": scope}} if scope else {"client_id": "__none__"}
+    own_clauses = [{"opened_by_id": user.get("id")}, {"owner_id": user.get("id")}]
+    return {"$or": [scope_clause, *own_clauses]}
 
 
 @api.post("/me/contacts/{cid}/ticket", tags=["Portail Client"])

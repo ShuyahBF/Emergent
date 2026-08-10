@@ -202,6 +202,10 @@ export default function PortalLayout({ admin = false }) {
   // Iter43-fix24az-m (2026-07-18) — Médecin tracked role : accès UNIQUE au
   // planning des consultations. La sidebar ne montre QUE cet item.
   const isMedecinTracked = (user?.tracked_role || "") === "Médecin";
+  // 2026-02 fork (P2) — Secrétaire médicale tracked role : accès uniquement
+  // au planning consultations (gestion walk-ins). Menu ultra-réduit comme
+  // le médecin, mais SANS Analyse prescription.
+  const isSecretaireMedicale = (user?.tracked_role || "") === "Secrétaire médicale";
   // Iter42b (2026-02) — Rôles métier réglementaires :
   //   • regulateur     → uniquement /portal/amm + /portal/liluvine
   //   • editeur_vidal  → uniquement /portal/vidal + /portal/amm + /portal/liluvine (lecture seule)
@@ -227,6 +231,10 @@ export default function PortalLayout({ admin = false }) {
     "/portal/prescription-analysis",  // Iter43-fix24az-ac
     "/portal/my-account",
   ]);
+  const allowedSecretaireMedicalePaths = new Set([
+    "/portal/planning",
+    "/portal/my-account",
+  ]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
   const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
   // Paths réservés à certains rôles métier (cachés pour les autres)
@@ -240,7 +248,11 @@ export default function PortalLayout({ admin = false }) {
             // Iter43-fix24az-ac (2026-07-22) — Analyse prescription VIDAL (médecin only)
             { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle },
           ]
-        : (admin ? adminLinks : clientLinks));
+        : (isSecretaireMedicale
+            ? [
+                { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+              ]
+            : (admin ? adminLinks : clientLinks)));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).

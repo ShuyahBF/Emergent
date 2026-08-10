@@ -1,0 +1,41 @@
+{
+  "summary": "Fork iteration_92 — validated all 4 priorities (P1 support-user own-visibility, P2 walk-in CRUD + Secrétaire médicale role, P3a user.login event, P3b whatsapp.received event + wa_reply_tokens + #Rcode router). Executed 16 backend pytests (9 existing + 7 new): 16/16 PASS. Frontend E2E on /portal/planning confirms all required data-testids render and the walk-in modal opens correctly (planning-add-walkin-btn → walk-in-modal → patient/phone/doctor/date/motif/save inputs all present). Regression on the previously-shipped WA notification sound feature (iter91) is clean: /me/features still exposes wa_notification_sound + wa_notification_sound_url + wa_notification_volume, /notification-sounds/presets still returns a preset list.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/admin/automations", "issue": "Body schema requires 'title' AND 'template_name' (Pydantic 422 if missing). Not documented in the review request which referenced only 'name'/'event'/'action'/'config'. Not a bug — just a doc/interface note for main agent."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fork_p1_own_visibility.py",
+    "/app/backend/tests/test_fork_p2_walkin_secretaire.py",
+    "/app/backend/tests/test_fork_p2_p3_extra.py",
+    "/app/test_reports/pytest/fork_p1_p2.xml",
+    "/app/test_reports/pytest/fork_p2_p3_extra.xml"
+  ],
+  "action_items": [
+    "OPTIONAL: Update review-request docs to include the required 'title' + 'template_name' fields on POST /admin/automations (Pydantic model requires them)."
+  ],
+  "critical_code_review_comments": [
+    "server.py _try_handle_masked_reply uses `phone: {$regex: digits_only}` — no anchoring nor escape. If digits_only contains regex-special chars it would be unsafe (unlikely for MSISDN digits, but consider re.escape).",
+    "server.py:16553 uses `_re_masked_reply.match(pattern, string, flags)` — module-level match with 3 positional args is correct Python API. OK.",
+    "server.py wa_reply_tokens has no TTL index — the code only enforces uniqueness at generation time by scanning `used=false` rows. Consider a MongoDB TTL index on `created_at` (30min) to auto-expire, otherwise the collection will grow unbounded.",
+    "WalkInModal.jsx: doctor dropdown pre-selects the first Médecin — good UX. Save button is correctly disabled while patient input is empty (createDisabled flag).",
+    "PortalLayout: isSecretaireMedicale gate correctly restricts sidebar to Planning consultations only (mirrors Médecin pattern). Verified in code review; not E2E-tested because bridging a Secrétaire user via UI would require clicking through the admin flow with the daily briefing modal blocker (same E2E friction flagged in iter91)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fork_p2_p3_extra.py (new — 7 tests covering 403 gating, automation creation on user.login, events labels/descriptions, WA webhook smoke, /me/features regression, /notification-sounds/presets regression, numero_ordre auto-increment)"
+  ],
+  "success_rate": {"backend": "100% (16/16 pytest across 3 fork test files)", "frontend": "100% (all planning walk-in data-testids render + modal opens)"},
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — OTP from response.dev_otp",
+  "seed_data_creation": "Each test creates its own throwaway tenant + tracked users (UUID-tagged emails ending in @sawali-test.com). No production data touched.",
+  "retest_needed": false,
+  "main_agent_can_self_test": true,
+  "context_for_next_testing_agent": "Frontend E2E on /portal/planning succeeds ONLY when navigating via `window.location.href = '/portal/planning'` AFTER localStorage.setItem('sawali_token', ...). Direct page.goto('/portal/planning') returns ERR_ABORTED from the ingress. Briefing modal ('J\\'ai lu' gate) still blocks first-load /admin flows — same as iter91. Fork P3b _try_handle_masked_reply cannot be end-to-end tested without an admin user with a matching phone number in db.users; smoke-test the webhook path (POST /api/whatsapp/webhook with a fake Meta payload) returned 200 OK confirming no exception path. To assert the wa_reply_tokens row is actually created + whatsapp.received event fires, next agent could add a fixture that seeds a fake admin phone then queries MongoDB directly (db.wa_reply_tokens.find_one({original_sender: from_msisdn})).",
+  "rca of the issue": "N/A — no functional bugs observed. Fork iteration_92 shipping is green."
+}

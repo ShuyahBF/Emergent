@@ -246,7 +246,10 @@ export default function PortalLayout({ admin = false }) {
         ? [
             { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
             // Iter43-fix24az-ac (2026-07-22) — Analyse prescription VIDAL (médecin only)
-            { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle },
+            // 2026-02 fork P4 — featureGate ajouté pour masquer le lien quand
+            // le module VIDAL n'est pas activé sur le tenant du médecin
+            // (sinon 403 dead-end en cliquant).
+            { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle, featureGate: "vidal_enabled" },
           ]
         : (isSecretaireMedicale
             ? [

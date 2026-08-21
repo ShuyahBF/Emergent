@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-02-14 (Fork iter94) — P4 (Prescription VIDAL vide) + P5 (Superviseur médecins) ✅
+
+### P4 — Analyse prescription : page dédiée médecin vide
+**Cause racine** : `PrescriptionAnalysis.jsx` enveloppait son contenu dans `<PortalLayout>` alors que la route parente `/portal` fait déjà ce wrap. Double-layout imbriqué → contenu vide.
+**Fix** :
+- Retrait du wrap `<PortalLayout>` du default export.
+- **Bonus UX** : lien sidebar médecin "Analyse prescription" ajouté avec `featureGate: "vidal_enabled"` → masqué si le module VIDAL n'est pas activé sur le tenant du médecin (évite 403 dead-end).
+- **Bonus UX** : state d'erreur inline (`rx-analyze-error`) + toast conservé, résultat nettoyé des champs `_request`/`request`/`raw` (pas de dump URL/app_id VIDAL vers l'utilisateur).
+
+### P5 — Superviseur voit tous les médecins du même client
+**Constat** : la logique `_resolve_visible_client_ids` + `$or: [parent_client_id ∈ scope, client_id ∈ scope]` dans `/me/planning/doctors` fonctionne déjà. Un tracked-user role='Superviseur' bridged sous Client A hérite du `company=Client A` → scope inclut CLI-A + les médecins avec `parent_client_id=CLI-A`.
+**Ajout** : Tests de régression `test_fork_p5_superviseur_doctors.py` (2/2) qui prouvent :
+- Le superviseur voit médecin_A (même client).
+- Le superviseur ne voit PAS médecin_B (client différent).
+- La dropdown du modal walk-in est correctement filtrée.
+
+**Testing** — Testing agent iteration_94 → 100% success (backend + frontend). 28/28 pytest cumulés verts.
+
+**Cumulatif fork** : iter91 (son) + iter92 (P1/P2/P3a/P3b) + iter93 (recall WA) + iter94 (P4/P5) — application prête pour redéploiement production.
+
+
+
+
 ## 2026-02-14 (Fork iter93) — Suppression / rappel WhatsApp d'un message non lu ✅
 
 **User request** : Ajouter un bouton pour "supprimer un message WhatsApp non encore distribué" — option (c) intelligente selon le statut. Après recherche, **Meta Cloud API ne supporte PAS le "delete for everyone"** (contrairement à WhatsApp Business App). Implémentation SOFT-RECALL : le message reste dans le WhatsApp du destinataire mais est masqué dans notre vue CRM avec un placeholder « Message rappelé ». Toast d'avertissement précise la limite Meta.

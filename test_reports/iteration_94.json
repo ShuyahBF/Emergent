@@ -1,0 +1,51 @@
+{
+  "summary": "Iteration 94 fork retest — P4 (/portal/prescription-analysis page vide) and P5 (superviseur doctor scoping). P4 CONFIRMED FIXED: page renders for super-admin AND for tracked Médecin (sidebar link 'Analyse prescription' works); all 11 required data-testids present and visible; add/remove prescription rows work; submit calls /api/vidal/prescription/analyze and renders rx-analyze-result (VIDAL sandbox unreachable -> documented error passthrough). P5 CONFIRMED FIXED end-to-end: seeded Superviseur (client A) sees only med-a (client A) in GET /api/me/planning/doctors, in the walk-in modal dropdown (walk-in-doctor-select) and in planning-doctor-filter; med-b (client B) never leaks. Backend: 30 passed / 1 skipped across the 6 fork test files (incl. new test_fork_p4_p5_extra.py).",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/vidal/prescription/analyze", "issue": "Tracked Médecin (medecin-test@sawali-test.com, parent = super-admin) receives 403 'Module VIDAL non activé pour votre établissement' — the target role of the P4 sidebar link cannot actually run the analysis until features.vidal_enabled is set on his parent tenant. Frontend handles it gracefully (toast) but the feature is unusable for médecins by default."},
+      {"endpoint": "POST /api/vidal/prescription/analyze", "issue": "VIDAL sandbox base URL is a placeholder (https://api-test.vidal.example) with app_id='fake' -> every analysis returns 'Erreur réseau VIDAL / Name or service not known' in the result block. Expected in preview, but the raw JSON dump (incl. request body/url) is shown to end users."},
+      {"endpoint": "GET /api/files/abc-123-def", "issue": "Repeated 404 in browser console on every portal page (placeholder file id referenced by branding/asset code). Pre-existing noise."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "GlobalRouteLoader", "issue": "The centered circular loader (with %) re-appears repeatedly while idle on portal pages (background polling keeps re-triggering the axios interceptor), so a spinner flashes in the middle of the content area every few seconds. Cosmetic but distracting; consider ignoring polling/background calls.", "selector": "[data-testid='global-route-loader']", "priority": "LOW"},
+      {"component": "PrescriptionAnalysisForm", "issue": "Errors are only surfaced via a transient sonner toast; no persistent inline error state on the form (a médecin who misses the toast sees nothing happen after clicking 'Analyser la prescription'). Also the result block dumps raw JSON incl. the outgoing VIDAL request URL/body.", "selector": "[data-testid='rx-analyze-submit']", "priority": "MEDIUM"},
+      {"component": "PortalLayout (médecin sidebar)", "issue": "'Analyse prescription' link is shown to every tracked Médecin regardless of the tenant's features.vidal_enabled flag, leading to a dead-end 403.", "selector": "a[href='/portal/prescription-analysis']", "priority": "MEDIUM"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/portal/prescription-analysis", "issues": ["Date de naissance uses the native browser date input (mm/dd/yyyy, US format) instead of the shadcn calendar used elsewhere — locale mismatch for a FR app", "Large empty area below the form on 1920x1080 (form not vertically balanced)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fork_p4_p5_extra.py",
+    "/app/backend/tests/test_fork_p5_superviseur_doctors.py",
+    "/app/backend/tests/seed_p5_supervisor.py",
+    "/app/test_reports/pytest/iter94_fork.xml"
+  ],
+  "action_items": [
+    "Decide P4 follow-up: either enable features.vidal_enabled for tenants of tracked Médecins (or bypass the gate when parent is super-admin), or hide/disable the 'Analyse prescription' sidebar link when the module is off.",
+    "Add an inline (persistent) error/empty state to PrescriptionAnalysisForm instead of relying only on a toast; avoid dumping the raw VIDAL request (url/body/app_id) to end users.",
+    "Optional: use the shadcn date picker (FR locale) for rx-patient-birth instead of the native <input type=date>.",
+    "Optional: stop GlobalRouteLoader from re-triggering on background polling requests.",
+    "Optional: fix the recurring /api/files/abc-123-def 404 console noise."
+  ],
+  "critical_code_review_comments": [
+    "PrescriptionAnalysis.jsx default export correctly no longer wraps <PortalLayout> — matches the /portal parent route wrapping in App.js:296; no regression seen in the Vidal tab reuse (PrescriptionAnalysisForm is still exported).",
+    "planning.py planning_list_doctors builds the $or on parent_client_id/client_id from _resolve_visible_client_ids and projects {_id:0} — correct tenant isolation, verified with real cross-client seed data.",
+    "vidal analyze result renders JSON.stringify of the whole payload including `_request.body` and `_request.url`; consider whitelisting the fields shown to non-admin users."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_fork_p4_p5_extra.py (new)",
+    "/app/backend/tests/seed_p5_supervisor.py (new seed helper)"
+  ],
+  "success_rate": {"backend": "100% (30 passed, 1 skipped — skip = documented VIDAL tenant gate)", "frontend": "100% of P4/P5 acceptance criteria verified"},
+  "seed_data_creation": "Created via /app/backend/tests/seed_p5_supervisor.py: clients SUPA-p5fe & SUPB-p5fe, tracked Médecins med-a-p5fe@sawali-test.com / med-b-p5fe@sawali-test.com (Med@2026) and Superviseur sup-p5fe@sawali-test.com / Sup@2026 (client A).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp inline); medecin-test@sawali-test.com / Medecin@2026; sup-p5fe@sawali-test.com / Sup@2026 (new superviseur seed)",
+  "context_for_next_testing_agent": "P4 and P5 are verified fixed (UI + API). Login flow: fill login-email/login-password -> submit -> read [data-testid=login-dev-otp] -> fill login-otp-input -> login-verify-otp-button. Always localStorage.clear() before switching accounts (otherwise /login redirects to /portal). Superviseur seed sup-p5fe@sawali-test.com/Sup@2026 shows only med-a-p5fe in walk-in-doctor-select. Remaining open items are UX/gating (VIDAL feature flag for médecins, toast-only errors, GlobalRouteLoader flicker).",
+  "rca_of_the_issue": "P4: the page was blank because PrescriptionAnalysis wrapped its own <PortalLayout> while the /portal parent route already renders one; removing the inner wrapper restored rendering (verified visually and via all 11 data-testids). P5: no code defect — _resolve_visible_client_ids scoping already correct; verified with fresh cross-client seed that med-b (other client) never appears for the superviseur. New finding: the médecin role hits a 403 VIDAL feature gate because features.vidal_enabled is not set on the médecin's parent tenant (routes/vidal.py:_ensure_tenant_can_access)."
+}

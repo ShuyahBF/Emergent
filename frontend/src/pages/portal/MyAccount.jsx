@@ -5,6 +5,9 @@ import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { User, Mail, Phone, MessageCircle, Building2, Calendar, Clock, FileText, Activity, Users as UsersIcon, Send, Lock, ShieldCheck, ArrowRight, Sparkles, Loader2, X, Download } from "lucide-react";
+// 2026-02 fork (P0) — KYC + Smart Communications par tenant
+import TenantKycSection from "@/pages/portal/sections/TenantKycSection";
+import SmartCommunicationsTenantSection from "@/pages/portal/sections/SmartCommunicationsTenantSection";
 
 // Iter34k — Mon compte: read-only profile + request-change form
 const Row = ({ icon: Icon, label, value, mono = false, testid }) => (
@@ -252,6 +255,16 @@ export default function MyAccount() {
               <Row icon={UsersIcon} label="Client lié" value={parent ? `${parent.full_name || "—"}${parent.company ? ` — ${parent.company}` : ""}` : "Aucun (compte principal)"} testid="account-field-parent-client" />
             </div>
           </section>
+
+          {/* 2026-02 fork (P0) — KYC + Smart Communications, visibles pour
+              chaque gestionnaire du tenant : role=admin, role=superviseur
+              OU tracked_role in {'Superviseur','Administrateur'} (aligné backend). */}
+          {(user?.role === "admin" || user?.role === "superviseur" || user?.tracked_role === "Superviseur" || user?.tracked_role === "Administrateur") && (
+            <>
+              <TenantKycSection />
+              <SmartCommunicationsTenantSection />
+            </>
+          )}
 
           {/* Iter34s — Raccourci SMART Communications (admin only).
               Permet à l'admin SAWALI (et plus généralement à tout admin)

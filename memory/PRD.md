@@ -13,6 +13,37 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-02-14 (Fork iter95/96) — P0 : KYC + Smart Communications par tenant ✅ PRÊT PUBLICATION
+
+**User request** : Permettre à chaque tenant/client de documenter (upload PDF/image) ses données KYC (IFU, RCCM, adresse, raison sociale, téléphone, banque, photo, carte d'identité, papier entête) via `/portal/my-account`, ainsi que ses propres paramètres Smart Communications (WABA, Meta, Instagram, X, TikTok, LinkedIn). Choix utilisateur : Q1=a (Emergent Object Storage), Q2=a (chaque tenant voit/édite le sien, admin@sawali seul cross-tenant), Q3=b (override strict), Q4=a (contacts déjà tenant-isolés).
+
+**Backend** — nouveau module `/app/backend/routes/tenant_kyc.py` (~230 lignes)
+- `GET/PUT /api/me/kyc` — CRUD données fiscales (IFU, RCCM, raison sociale, adresse, téléphone, banque). Gate `_is_tenant_manager` = role admin/superviseur OU tracked_role Superviseur/Administrateur (case-insensible).
+- `POST /api/me/kyc/upload/{doc_type}` — Upload PDF/image ≤ 3 MB pour `id_photo`, `id_card`, `letterhead`. Miroir Object Storage best-effort + servi via `/api/files/{id}`.
+- `GET /api/admin/kyc/{tenant_id}` — Cross-tenant, gate strict sur SUPER_ADMIN_EMAIL (SAWALI uniquement).
+- `GET/PUT /api/me/smart-communications` — Configuration Smart Comm par tenant (6 canaux). 11 champs secrets stockés cleartext mais **jamais renvoyés en cleartext** (last-4-chars via `*_masked`).
+- Indexes uniques `tenant_id` sur `tenant_kyc` + `tenant_smart_comm`.
+
+**Frontend** — 2 nouvelles sections dans MyAccount.jsx
+- `TenantKycSection.jsx` — Formulaire données fiscales + 3 uploads (photo/CNI/entête).
+- `SmartCommunicationsTenantSection.jsx` — Tabs par canal (WA/Meta/Insta/X/TikTok/LinkedIn), badge vert "configuré" par onglet, secrets masqués visuellement, valeurs non-secrètes affichées comme value au lieu de placeholder.
+- Gate d'affichage : role=admin/superviseur OU tracked_role ∈ {Superviseur, Administrateur} (aligné avec backend).
+
+**Sécurité** — 3 vulnérabilités critiques identifiées + corrigées (iter95 → iter96)
+1. `/admin/kyc/{tid}` autorisait tout admin (leak cross-tenant) → gate SUPER_ADMIN_EMAIL strict.
+2. `/me/kyc` (tous verbes) laissait passer les tracked users regular → gate `_is_tenant_manager`.
+3. `/me/smart-communications` idem → même gate.
+
+**Tests** — 15/15 pytest verts (test_fork_p0_tenant_kyc.py 8/8 round-trip + test_fork_p0_security_gates.py 7/7 sécurité). Testing agent iter96 → 100% success (43/43 pytest + 6/6 acceptance UI). `should_call_test_agent_after_fix: false`.
+
+**Backlog post-P0** (documenté, non-livré) :
+- **Sender wiring** : brancher `_wa_send_text` (et les autres senders sociaux) pour lire `db.tenant_smart_comm` en priorité (Q3=b strict override). Actuellement les sends utilisent toujours la config globale.
+- Magic-byte sniffing sur uploads KYC (LOW).
+- WelcomeBriefing late-mount qui intercepte les clics (MEDIUM, pré-existant).
+
+
+
+
 ## 2026-02-14 (Fork iter94) — P4 (Prescription VIDAL vide) + P5 (Superviseur médecins) ✅
 
 ### P4 — Analyse prescription : page dédiée médecin vide

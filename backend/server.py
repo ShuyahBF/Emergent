@@ -20823,6 +20823,12 @@ async def on_startup():
         await db.wa_reply_router_audit.create_index("created_at")
     except Exception as _exc:  # noqa: BLE001
         logger.warning("[wa_reply_tokens] index creation failed: %s", _exc)
+    # 2026-02 fork (P0) — Tenant KYC + Smart Comm : unique index per tenant
+    try:
+        await db.tenant_kyc.create_index("tenant_id", unique=True)
+        await db.tenant_smart_comm.create_index("tenant_id", unique=True)
+    except Exception as _exc:  # noqa: BLE001
+        logger.warning("[tenant_kyc/smart_comm] index creation failed: %s", _exc)
     # Notification badges — lookup by (user_id, module)
     await db.user_module_visits.create_index([("user_id", 1), ("module", 1)], unique=True)
     # Dynamic forms (Phase 4)
@@ -24051,6 +24057,17 @@ _attach_gcal_watch(api=api, db=db, get_current_admin=get_current_admin)
 # 2026-02 — Configurable WhatsApp inbound notification sound
 from routes.wa_notification_sound import attach_notification_sound_routes as _attach_wa_notif_sound  # noqa: E402
 _attach_wa_notif_sound(api=api, db=db, get_current_admin=get_current_admin, upload_dir=UPLOAD_DIR)
+
+# 2026-02 fork (P0) — Tenant KYC + per-tenant Smart Communications
+from routes.tenant_kyc import attach_tenant_kyc_routes as _attach_tenant_kyc  # noqa: E402
+_attach_tenant_kyc(
+    api=api, db=db,
+    get_current_user=get_current_user,
+    get_current_admin=get_current_admin,
+    upload_dir=UPLOAD_DIR,
+    is_super_admin=_is_super_admin,
+    super_admin_email=SUPER_ADMIN_EMAIL,
+)
 
 # Iter41 Phase 2 (2026-02) — Table AMM (régulateurs)
 from routes.amm import attach_amm_routes as _attach_amm  # noqa: E402

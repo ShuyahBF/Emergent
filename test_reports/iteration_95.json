@@ -1,0 +1,55 @@
+{
+  "summary": "Iteration 95 — Fork P0 (Tenant KYC + per-tenant Smart Communications). Backend: 21 API tests run against the public preview URL (8 existing test_fork_p0_tenant_kyc.py + 13 new test_fork_p0_extra_kyc.py) → 18 passed, 3 failed (all security/authorization). Verified KYC GET/PUT round-trip persists all 6 fields, uploads accept PDF + PNG/JPG (and /api/files/{id} really serves the bytes with %PDF header), bad extension/bad MIME → 400, >3 MB → 413, unauth → 401/403, /admin/kyc unknown tenant → 404, and that NONE of the 11 Smart-Comm secret fields ever appear in cleartext in GET (blanked + *_masked). Frontend: full E2E on /portal/my-account as super-admin (both sections render, all 10 KYC testids, KYC save + reload persistence OK, all 6 smart-comm tabs render their fields, save works and the secret comes back masked 'UI••••••••••••••9599', real file upload through kyc-file-id_card produced a working /api/files/... link) and as a tracked Médecin (both sections correctly absent from the DOM). 3 authorization defects found + 1 functional gap (per-tenant credentials are stored but never consumed by any sending code).",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "GET /api/admin/kyc/{tenant_id}", "issue": "CROSS-TENANT LEAK: the route only depends on get_current_admin, which any tenant-level role=admin account satisfies. A freshly created tenant admin successfully read the SAWALI super-admin tenant's KYC (200 with ifu 'SUPER-ADMIN-IFU-DONOTLEAK'). Q2 requires only admin@sawali (super-admin) to read other tenants — add a super-admin check or scope by tenant_id.", "priority": "CRITICAL"},
+      {"endpoint": "PUT /api/me/smart-communications", "issue": "PRIVILEGE ESCALATION: a regular tracked user (role=client, tracked_role=Médecin) can overwrite the whole tenant's WhatsApp/Meta/X credentials — PUT {wa_access_token: 'HIJACKED-BY-TRACKED-USER'} returned 200 {ok:true,updated:[wa_access_token,...]}. The role gate exists only in the UI (MyAccount.jsx), not on the API.", "priority": "CRITICAL"},
+      {"endpoint": "PUT /api/me/kyc", "issue": "Same missing role gate: the tracked Médecin wrote the tenant's KYC (ifu='TRACKED-WRITE-TEST') and got 200. GET /me/kyc also returns the parent tenant's full KYC (incl. document URLs) to any tracked user. Add a role in (admin, superviseur) dependency on GET/PUT/upload.", "priority": "HIGH"},
+      {"endpoint": "(integration) tenant_smart_comm collection", "issue": "Q3=b 'override strict' is NOT implemented: `grep tenant_smart_comm` matches only routes/tenant_kyc.py — no WhatsApp/Meta/Instagram/X/TikTok/LinkedIn sender reads this collection, so per-tenant credentials are stored but never used and all outbound traffic still uses settings.global. The feature is currently write-only.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/me/kyc/upload/{doc_type}", "issue": "MIME validation trusts the client-provided Content-Type only (no magic-byte sniffing): a text/plain payload named .pdf is rejected, but arbitrary bytes sent as image/png are accepted and stored."},
+      {"endpoint": "GET /api/me/smart-communications", "issue": "Secrets are stored in cleartext in MongoDB (only masked on read). Other modules in this codebase use a secrets vault / GET_MASK_FIELDS pattern — consider aligning."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "MyAccount role gate", "issue": "The gate is `user?.role === 'admin' || user?.role === 'superviseur'`. Tracked Superviseurs (tracked_users.role='Superviseur', users.role='client' — 7 in DB, e.g. sup-p5fe@sawali-test.com) do NOT see the 2 sections; only the 6 top-level role='superviseur' accounts do. Confirm intent; if tracked Superviseurs must edit KYC, add `user?.tracked_role === 'Superviseur'`.", "selector": "[data-testid='tenant-kyc-section']", "priority": "MEDIUM"},
+      {"component": "WelcomeBriefing overlay", "issue": "Pre-existing: the briefing modal (data-testid='welcome-briefing', z-[60], fixed inset-0) intercepts pointer events over the whole /portal/my-account page on first visit, so kyc-save-btn / smart-comm-tab-* are unclickable until 'J'ai lu' is pressed. Not caused by P0 but it blocks the new controls.", "selector": "[data-testid='welcome-briefing']", "priority": "LOW"},
+      {"component": "GlobalRouteLoader", "issue": "Pre-existing (iter94): centered % spinner keeps re-appearing over the KYC/Smart-Comm sections while idle.", "selector": "[data-testid='global-route-loader']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "/portal/my-account (KYC + Smart Comm)", "issues": ["Smart-Comm 'Enregistrer' is disabled until a field is dirty — good, but there is no visual hint of which channels are already configured (no per-tab 'configuré' badge), so a tenant must click each of the 6 tabs to audit its setup", "Developer-facing wording leaks into the UI: the info banner says '(Q3=b : override strict)' — internal spec notation shown to end users", "Secret fields show the masked value both as placeholder AND as 'Actuel : ...' helper text (redundant)"]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_fork_p0_extra_kyc.py",
+    "/app/backend/tests/test_fork_p0_tenant_kyc.py",
+    "/app/test_reports/pytest/iter95_fork_p0.xml"
+  ],
+  "action_items": [
+    "CRITICAL: restrict GET /api/admin/kyc/{tenant_id} to the SAWALI super-admin (or scope the lookup to the caller's own tenant) — a tenant admin currently reads any other tenant's KYC.",
+    "CRITICAL: add a role gate (admin/superviseur) on PUT /api/me/smart-communications — a tracked Médecin can currently overwrite the tenant's WABA/Meta tokens.",
+    "HIGH: add the same role gate on GET/PUT /api/me/kyc and POST /api/me/kyc/upload/{doc_type} (currently UI-only gating).",
+    "HIGH: wire the per-tenant Smart-Comm config into the actual senders (WA/Meta/Instagram/X/TikTok/LinkedIn) — nothing reads db.tenant_smart_comm today, so Q3=b strict override is not effective.",
+    "MEDIUM: decide whether tracked Superviseurs (users.role='client' + tracked_role='Superviseur') should also see the 2 sections; today only top-level role='superviseur' accounts do.",
+    "LOW: remove the internal 'Q3=b : override strict' wording from the tenant-facing info banner; add a 'configuré' badge per channel tab.",
+    "LOW: sniff magic bytes (not just the client Content-Type) on KYC uploads."
+  ],
+  "critical_code_review_comments": [
+    "routes/tenant_kyc.py:218 admin_get_kyc uses Depends(get_current_admin) — that dependency accepts every role=admin tenant, not just the super-admin. Verified leak (test_tenant_admin_cannot_read_other_tenant_kyc).",
+    "routes/tenant_kyc.py:111/117/136/241 — all /me/* handlers use Depends(get_current_user) with _tenant_id_for_user() resolving to parent_client_id, so any tracked user of the tenant inherits full read/write rights on the tenant's KYC and API credentials. Enforce the same admin/superviseur gate that MyAccount.jsx applies.",
+    "Masking is applied on read only; the cleartext secret stays in db.tenant_smart_comm. Reuse the existing secrets-vault/GET_MASK_FIELDS mechanism for consistency.",
+    "PUT /me/smart-communications treats '' as 'clear the field' server-side while the UI silently drops empty strings — the documented 'empty = keep current' contract is implemented in the frontend only; an API consumer sending '' will wipe a token.",
+    "db.tenant_smart_comm / db.tenant_kyc have no index on tenant_id (upsert by tenant_id on every write) — add a unique index."
+  ],
+  "updated_files": ["/app/backend/tests/test_fork_p0_extra_kyc.py (new)"],
+  "success_rate": {"backend": "86% (18/21 — 3 authorization failures)", "frontend": "100% of the P0 UI acceptance criteria (admin visible + round-trip + masking + upload; tracked user hidden)"},
+  "seed_data_creation": "Per-run throwaway tenants kycx-*@sawali-test.com / Kyc@2026 (role=admin) + tracked user kycx-tr-*@sawali-test.com / Tracked@2026 (Médecin) via /api/admin/clients and /api/admin/tracked-users. Super-admin tenant KYC now contains business_name='SAWALI UI TEST SARL', ifu='UI-IFU-95001' and wa_waba_id='UI-WABA-95' / wa_access_token='UI-SECRET-TOKEN-9599' from the UI test — clean up before production.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 (dev_otp inline); tracked Médecin medecin-test@sawali-test.com / Medecin@2026; tracked Superviseur sup-p5fe@sawali-test.com / Sup@2026 (role=client + tracked_role=Superviseur → sections hidden)",
+  "context_for_next_testing_agent": "Run: cd /app/backend && REACT_APP_BACKEND_URL=<public url> pytest tests/test_fork_p0_tenant_kyc.py tests/test_fork_p0_extra_kyc.py -v. The 3 failing tests are intentional guard tests (test_tenant_admin_cannot_read_other_tenant_kyc, test_tracked_user_cannot_write_smart_comm, test_tracked_user_kyc_access_surface) and must go green once the role gates are added. UI flow: login (login-email/login-password → login-dev-otp → login-otp-input → login-verify-otp-button), then goto /portal/my-account and ALWAYS dismiss the WelcomeBriefing modal (button 'J'ai lu' inside [data-testid=welcome-briefing]) before clicking anything, otherwise all clicks are intercepted. localStorage.clear() before switching accounts.",
+  "rca_of_the_issue": "Both authorization defects come from the dependency choice in routes/tenant_kyc.py: (1) /admin/kyc uses get_current_admin, which is a generic 'is admin role' check and not a super-admin check, so any tenant admin passes and the handler queries tenant_kyc by the path tenant_id with no ownership filter; (2) the /me/* handlers use get_current_user and derive the tenant from parent_client_id, so a tracked user of the tenant is treated exactly like the tenant admin — the admin/superviseur restriction exists only in MyAccount.jsx (JSX conditional), which is trivially bypassable via direct API calls. Separately, the per-tenant Smart-Comm document is never read by any sender module, so the strict-override requirement is unimplemented at runtime."
+}

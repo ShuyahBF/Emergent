@@ -321,6 +321,10 @@ class DocumentCreate(BaseModel):
     client_id: Optional[str] = None  # null = public/all clients
     is_public: bool = False
     cover_image_url: Optional[str] = None
+    # 2026-02 fork (P5) — Liste d'accessibilité stricte : si non-vide, seuls
+    # les tracked users dont le parent_client_id ∈ liste peuvent voir ce doc.
+    # Si vide → comportement historique (visible via client_id/is_public).
+    access_client_ids: Optional[List[str]] = None
 
 
 class DocumentUpdate(BaseModel):
@@ -336,6 +340,7 @@ class DocumentUpdate(BaseModel):
     client_id: Optional[str] = None
     is_public: Optional[bool] = None
     cover_image_url: Optional[str] = None
+    access_client_ids: Optional[List[str]] = None
 
 
 # ====================================================================
@@ -1185,6 +1190,11 @@ class FormationCreate(BaseModel):
     price: Optional[float] = None
     default_credits: int = 0  # credits granted on enrollment
     cover_image_url: Optional[str] = None
+    # 2026-02 fork (P5) — Liste d'accessibilité stricte. Si non-vide, seuls
+    # les tracked users dont `parent_client_id` ∈ liste (ou root ∈ liste)
+    # peuvent voir cette formation. Vide/None → comportement historique
+    # (visible par tout utilisateur suivi si `available=True`).
+    access_client_ids: Optional[List[str]] = None
 
 
 class FormationUpdate(BaseModel):
@@ -1195,6 +1205,7 @@ class FormationUpdate(BaseModel):
     price: Optional[float] = None
     default_credits: Optional[int] = None
     cover_image_url: Optional[str] = None
+    access_client_ids: Optional[List[str]] = None
 
 
 class FormationModuleCreate(BaseModel):

@@ -4,11 +4,13 @@ import { Upload, Trash2, Plus, X, FileText, Image as ImageIcon, Globe, Settings,
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 import { getFileIcon, absoluteFileUrl } from "@/lib/fileIcons";
+import ClientAccessSelector from "@/components/ClientAccessSelector";
 
 const empty = {
   title: "", description: "", category: "documentation",
   file_id: null, file_url: null, file_type: null,
   body_html: "", client_id: "", is_public: false, cover_image_url: "",
+  access_client_ids: [],
 };
 
 export default function AdminDocuments() {
@@ -31,7 +33,7 @@ export default function AdminDocuments() {
 
   const open = (it = null) => {
     setEditing(it);
-    setForm(it ? { ...empty, ...it, client_id: it.client_id || "" } : empty);
+    setForm(it ? { ...empty, ...it, client_id: it.client_id || "", access_client_ids: Array.isArray(it.access_client_ids) ? it.access_client_ids : [] } : empty);
     setIsOpen(true);
   };
   const close = () => { setIsOpen(false); setEditing(null); setForm(empty); };
@@ -211,6 +213,12 @@ export default function AdminDocuments() {
                   </select>
                 </div>
               </div>
+              <ClientAccessSelector
+                value={form.access_client_ids || []}
+                onChange={(ids) => setForm({ ...form, access_client_ids: ids })}
+                label="Clients autorisés à voir ce document"
+                testIdPrefix="doc-access-clients"
+              />
               <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
             </form>
           </div>

@@ -13,6 +13,29 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+
+## 2026-02-22 (Fork iter97) — P5 : Listes d'accessibilité par tenant (Formations / Formulaires / Documents) ✅ PRÊT PUBLICATION
+
+**User request** : Ajouter une liste d'accessibilité `access_client_ids` par tenant sur les Formations spécialisées, les Formulaires et les Documents. Si la liste est vide → comportement historique (visible par tout utilisateur suivi y ayant déjà accès). Si non-vide → restreint aux utilisateurs des clients cochés. Défaut UI = pas de restriction (case vide). Utilisateur retiré d'un tenant autorisé perd immédiatement l'accès (option "a").
+
+**Backend**
+- `models.py` : ajout de `access_client_ids: Optional[List[str]]` sur `FormationCreate/FormationUpdate` et `DocumentCreate/DocumentUpdate` (déjà présent auparavant sur Document, complété sur Formation).
+- `server.py` : ajout d'un champ `access_client_ids` sur `FormCreate/FormUpdate` (module Formulaires).
+- Nouveau helper `_item_accessible_by_tenant(item, user)` : admin bypass, sinon vérifie `user.parent_client_id ∈ access_client_ids` (liste vide = accessible).
+- Filtrage appliqué sur : `GET /me/documents`, `GET /me/formations`, `GET /me/formations/{fid}`, `POST /me/formations/{fid}/enroll` (403 si gaté), `GET /me/forms`, `GET /me/forms/{form_id}` (403 si gaté).
+- Persistance : `POST /me/forms` sauvegarde `access_client_ids`. `PUT /me/forms/{id}`, `PUT /admin/formations/{id}`, `PUT /admin/documents/{id}` mettent à jour le champ (empty list clear).
+
+**Frontend**
+- Nouveau composant `ClientAccessSelector.jsx` : multi-select recherchable (checkboxes, "Tout cocher"/"Vider", indicateur X sélectionnés / italique "Visible par tous les clients suivis" quand vide).
+- Intégration : `AdminFormations.jsx`, `AdminDocuments.jsx`, `FormEditor.jsx` (portail).
+
+**Tests** — 5/5 pytest verts (`test_fork_p5_access_client_ids.py`) : gate Formation (restrict + open + admin bypass), gate Document (public + gated), gate Formulaire (list + détail 403 pour tenant non autorisé), enroll refusé (403).
+
+**Backlog P5 (post-publication)** :
+- Toast "vous avez perdu accès" côté client quand l'admin retire son tenant d'une ressource déjà en cours (option UX future).
+
+
+
 ## 2026-02-14 (Fork iter95/96) — P0 : KYC + Smart Communications par tenant ✅ PRÊT PUBLICATION
 
 **User request** : Permettre à chaque tenant/client de documenter (upload PDF/image) ses données KYC (IFU, RCCM, adresse, raison sociale, téléphone, banque, photo, carte d'identité, papier entête) via `/portal/my-account`, ainsi que ses propres paramètres Smart Communications (WABA, Meta, Instagram, X, TikTok, LinkedIn). Choix utilisateur : Q1=a (Emergent Object Storage), Q2=a (chaque tenant voit/édite le sien, admin@sawali seul cross-tenant), Q3=b (override strict), Q4=a (contacts déjà tenant-isolés).

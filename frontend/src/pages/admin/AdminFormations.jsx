@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Plus, Edit, Trash2, X, GraduationCap, Settings as SettingsIcon, Users, Layers, Coins, Power } from "lucide-react";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
+import ClientAccessSelector from "@/components/ClientAccessSelector";
 
 const STATE_BADGES = {
   inscription: "bg-slate-100 text-slate-700",
@@ -14,7 +15,7 @@ const STATE_BADGES = {
 };
 const stateLabel = (s) => (s || "—").replace("_", " ");
 
-const emptyForm = { name: "", description: "", available: true, access: "free", price: 0, default_credits: 0, cover_image_url: "" };
+const emptyForm = { name: "", description: "", available: true, access: "free", price: 0, default_credits: 0, cover_image_url: "", access_client_ids: [] };
 const emptyModule = { name: "", order: 0, screenshot_url: "", software_path: "", content_html: "", api_url: "", api_auth_type: "none", api_token: "", api_basic_user: "", api_basic_pass: "" };
 
 export default function AdminFormations() {
@@ -27,7 +28,7 @@ export default function AdminFormations() {
   const load = () => apiClient.get("/admin/formations").then((r) => setItems(r.data));
   useEffect(() => { load().catch(() => {}); }, []);
 
-  const open = (it = null) => { setEditing(it); setForm(it ? { ...emptyForm, ...it } : emptyForm); setIsOpen(true); };
+  const open = (it = null) => { setEditing(it); setForm(it ? { ...emptyForm, ...it, access_client_ids: Array.isArray(it.access_client_ids) ? it.access_client_ids : [] } : emptyForm); setIsOpen(true); };
   const close = () => { setIsOpen(false); setEditing(null); setForm(emptyForm); };
 
   const submit = async (e) => {
@@ -102,6 +103,12 @@ export default function AdminFormations() {
               <Field label="Prix (XOF)"><input type="number" value={form.price || 0} onChange={(e) => setForm({ ...form, price: parseFloat(e.target.value) || 0 })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></Field>
               <Field label="Crédits par défaut à l'inscription"><input type="number" value={form.default_credits || 0} onChange={(e) => setForm({ ...form, default_credits: parseInt(e.target.value) || 0 })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" /></Field>
             </div>
+            <ClientAccessSelector
+              value={form.access_client_ids || []}
+              onChange={(ids) => setForm({ ...form, access_client_ids: ids })}
+              label="Clients autorisés à voir cette formation"
+              testIdPrefix="formation-access-clients"
+            />
             <button type="submit" className="w-full rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">Enregistrer</button>
           </form>
         </Modal>

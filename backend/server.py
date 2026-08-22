@@ -727,6 +727,29 @@ def _can_delete_records(user: dict) -> bool:
     return _user_tracked_role(user) in ADMIN_LEVEL_TRACKED_ROLES
 
 
+# 2026-02 fork (P5) — Tenant gating helper for Formations / Formulaires /
+# Documents. When an item exposes a non-empty `access_client_ids` list, only
+# users whose tenant (parent_client_id or own id) figures in the list can see
+# it. Admin/super-admin roles always bypass the gate.
+def _tenant_id_for_gate(user: dict) -> str:
+    return user.get("parent_client_id") or user.get("client_id") or user.get("id") or ""
+
+
+def _item_accessible_by_tenant(item: dict, user: dict) -> bool:
+    """Return True when the item is visible under the P5 access gate.
+
+    - Admin/super-admin (role) → always True.
+    - `access_client_ids` empty / missing → True (legacy behaviour).
+    - Otherwise → True only if the user's tenant is listed.
+    """
+    if _is_admin_or_superviseur(user):
+        return True
+    allow = item.get("access_client_ids") or []
+    if not allow:
+        return True
+    return _tenant_id_for_gate(user) in allow
+
+
 def _can_rate(user: dict) -> bool:
     """Can post 5-star ratings on records."""
     return _can_delete_records(user)
@@ -3178,7 +3201,11 @@ async def me_create_appointment(
 async def me_documents(user: dict = Depends(get_current_user)):
     """RGPD: anonymizes uploaded_by_email/name for non-privileged roles.
     Iter43-fix24az-l — cross-tenant leak fix. Only super-admin sees ALL; client
-    admin/superviseur scoped to their tenant."""
+    admin/superviseur scoped to their tenant.
+
+    2026-02 fork (P5) — Filtre supplémentaire `access_client_ids` : quand
+    non-vide, restreint aux tenants explicitement autorisés.
+    """
     if _is_super_admin(user):
         items = await db.documents.find({}, {"_id": 0}).to_list(5000)
     elif _can_consult_all_docs(user):
@@ -3191,6 +3218,8 @@ async def me_documents(user: dict = Depends(get_current_user)):
         items = await db.documents.find(
             {"$or": [{"client_id": effective_client_id}, {"is_public": True}]}, {"_id": 0}
         ).to_list(500)
+    # 2026-02 fork (P5) — enforce access_client_ids gate for non-admin
+    items = [it for it in items if _item_accessible_by_tenant(it, user)]
     return await _maybe_anon_list(user, items, _apply_anon_to_document)
 
 
@@ -19381,6 +19410,11 @@ class FormCreate(BaseModel):
     is_public: bool = False
     pages: Optional[List[FormPage]] = None
     category_id: Optional[str] = None  # Iter40 (2026-02)
+    # 2026-02 fork (P5) — Liste d'accessibilité stricte par tenant. Si
+    # non-vide, seuls les utilisateurs suivis rattachés à un client_id
+    # figurant dans la liste peuvent voir/importer le formulaire. Vide →
+    # comportement historique (own client + is_public).
+    access_client_ids: Optional[List[str]] = None
 
 
 class FormUpdate(BaseModel):
@@ -19389,6 +19423,7 @@ class FormUpdate(BaseModel):
     is_public: Optional[bool] = None
     pages: Optional[List[FormPage]] = None
     category_id: Optional[str] = None  # Iter40 (2026-02)
+    access_client_ids: Optional[List[str]] = None
 
 
 async def _next_form_number(client_code: str) -> int:
@@ -19417,7 +19452,11 @@ async def _require_owner_or_admin(form: dict, user: dict) -> None:
 
 @api.get("/me/forms", tags=["Formulaires"])
 async def me_list_forms(user: dict = Depends(get_current_user)):
-    """Liste les formulaires : tous ceux du client de l'utilisateur + tous les formulaires publics d'autres clients."""
+    """Liste les formulaires : tous ceux du client de l'utilisateur + tous les formulaires publics d'autres clients.
+
+    2026-02 fork (P5) — filtre supplémentaire `access_client_ids` : quand
+    non-vide, restreint aux tenants explicitement autorisés (admin bypass).
+    """
     client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else None
     if user.get("role") == "admin":
         query = {}
@@ -19431,6 +19470,8 @@ async def me_list_forms(user: dict = Depends(get_current_user)):
             it["is_mine"] = True
         else:
             it["is_mine"] = it.get("client_id") == client_scope
+    # 2026-02 fork (P5) — enforce access_client_ids gate for non-admin
+    items = [it for it in items if _item_accessible_by_tenant(it, user)]
     return items
 
 
@@ -19464,6 +19505,7 @@ async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_u
         "description": payload.description or "",
         "is_public": payload.is_public,
         "category_id": payload.category_id or None,  # Iter40 (2026-02)
+        "access_client_ids": list(payload.access_client_ids or []),  # 2026-02 fork P5
         "pages": [p.model_dump() for p in (payload.pages or [FormPage(id=_uuid(), title="Page 1", fields=[])])],
         "created_by_id": user["id"],
         "created_by_label": user.get("full_name") or user.get("email"),
@@ -19505,6 +19547,9 @@ async def me_get_form(form_id: str, user: dict = Depends(get_current_user)):
     is_mine = form.get("client_id") == client_scope
     if user.get("role") != "admin" and not is_public and not is_mine:
         raise HTTPException(status_code=403, detail="Formulaire non accessible")
+    # 2026-02 fork (P5) — enforce access_client_ids gate
+    if not _item_accessible_by_tenant(form, user):
+        raise HTTPException(status_code=403, detail="Formulaire non accessible pour votre organisation")
     form["is_mine"] = is_mine
     return form
 
@@ -20571,6 +20616,9 @@ async def me_list_formations(user: dict = Depends(get_current_user)):
     for f in formations:
         if not f.get("available") and not _is_elevated_creator(user):
             continue
+        # 2026-02 fork (P5) — enforce access_client_ids gate (admin bypass)
+        if not _item_accessible_by_tenant(f, user):
+            continue
         modules_total = await db.formation_modules.count_documents({"formation_id": f["id"]})
         enr = await db.formation_enrollments.find_one({"formation_id": f["id"], "user_id": user["id"]}, {"_id": 0})
         if enr:
@@ -20594,6 +20642,9 @@ async def me_enroll_formation(fid: str, user: dict = Depends(get_current_user)):
     formation = await db.formations.find_one({"id": fid}, {"_id": 0})
     if not formation or not formation.get("available", True):
         raise HTTPException(status_code=404, detail="Formation indisponible")
+    # 2026-02 fork (P5) — enforce access_client_ids gate on enroll
+    if not _item_accessible_by_tenant(formation, user):
+        raise HTTPException(status_code=403, detail="Formation non accessible pour votre organisation")
     existing = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user["id"]}, {"_id": 0})
     if existing:
         return existing
@@ -20625,6 +20676,9 @@ async def me_get_formation(fid: str, user: dict = Depends(get_current_user)):
         raise HTTPException(status_code=404, detail="Formation introuvable")
     if not (_is_tracked_user(user) or _is_elevated_creator(user)):
         raise HTTPException(status_code=403, detail="Accès réservé")
+    # 2026-02 fork (P5) — enforce access_client_ids gate (admin bypass inside helper)
+    if not _item_accessible_by_tenant(formation, user):
+        raise HTTPException(status_code=403, detail="Formation non accessible pour votre organisation")
     modules = await db.formation_modules.find({"formation_id": fid}, {"_id": 0}).sort("order", 1).to_list(500)
     enr = await db.formation_enrollments.find_one({"formation_id": fid, "user_id": user["id"]}, {"_id": 0})
     if enr:

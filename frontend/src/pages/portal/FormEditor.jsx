@@ -4,6 +4,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Save, Plus, Trash2, ArrowLeft, Globe, Lock, GripVertical, PlayCircle, Share2 } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
+import ClientAccessSelector from "@/components/ClientAccessSelector";
 
 const FIELD_TYPES = [
   { v: "text", l: "Texte court" }, { v: "textarea", l: "Texte long" },
@@ -44,6 +45,7 @@ export default function FormEditor() {
       await apiClient.put(`/me/forms/${fid}`, {
         title: form.title, description: form.description, is_public: form.is_public,
         category_id: form.category_id || null, pages: form.pages,
+        access_client_ids: Array.isArray(form.access_client_ids) ? form.access_client_ids : [],
       });
       toast.success("Formulaire sauvegardé");
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur"); }
@@ -110,6 +112,12 @@ export default function FormEditor() {
             </select>
           </label>
         )}
+        <ClientAccessSelector
+          value={Array.isArray(form.access_client_ids) ? form.access_client_ids : []}
+          onChange={(ids) => setForm({ ...form, access_client_ids: ids })}
+          label="Clients autorisés à voir ce formulaire"
+          testIdPrefix="form-access-clients"
+        />
       </div>
 
       {/* Page tabs */}

@@ -14534,6 +14534,8 @@ _wa_download_inbound_media = _wa_helpers["_wa_download_inbound_media"]
 _wa_transcribe_audio_file = _wa_helpers["_wa_transcribe_audio_file"]
 _wa_compute_reply_window = _wa_helpers["_wa_compute_reply_window"]
 _wa_last_inbound_iso = _wa_helpers["_wa_last_inbound_iso"]
+# 2026-02 fork (P0.5) — Tenant Smart Comm credential resolver (WA)
+_resolve_wa_credentials = _wa_helpers["_resolve_wa_credentials"]
 
 # Set up wa_silent_drops routes + wire the observer. Import here to avoid
 # any module-load ordering hazards with the FastAPI `api` instance.
@@ -24286,9 +24288,21 @@ from routes.bonus_pack_9l import (  # noqa: E402
 
 async def _send_wa_text_for_digest(to: str, text: str, scope_user: Optional[dict] = None) -> bool:
     """Lightweight wrapper used by the WA tasks digest cron. Returns True if the
-    Cloud API accepted the message."""
+    Cloud API accepted the message.
+
+    2026-02 fork (P0.5) — Uses per-tenant Smart Comm credentials when
+    `scope_user` carries a `parent_client_id` / `client_id` / `id`.
+    """
     try:
-        r = await _wa_send_text(to, text)
+        tid: Optional[str] = None
+        if scope_user:
+            tid = (
+                scope_user.get("parent_client_id")
+                or scope_user.get("client_id")
+                or scope_user.get("id")
+                or None
+            )
+        r = await _wa_send_text(to, text, tenant_id=tid)
         return bool(r.get("ok"))
     except Exception:
         logger.exception("[wa_digest] _wa_send_text failed")
@@ -24297,6 +24311,24 @@ async def _send_wa_text_for_digest(to: str, text: str, scope_user: Optional[dict
 
 async def _get_settings_async() -> Dict[str, Any]:
     return await db.settings.find_one({"_id": "global"}) or {}
+
+
+# 2026-02 fork (P0.5) — Diagnostic endpoint to verify the tenant Smart Comm
+# WA credentials resolver. Read-only; secrets never returned verbatim.
+@api.get("/admin/wa-credentials-resolver-diag", tags=["Admin"])
+async def admin_wa_credentials_resolver_diag(
+    tenant_id: Optional[str] = None,
+    _: dict = Depends(get_current_admin),
+):
+    creds = await _resolve_wa_credentials(tenant_id)
+    tok = creds.get("access_token") or ""
+    return {
+        "source": creds["source"],
+        "tenant_id": creds.get("tenant_id"),
+        "phone_number_id": creds.get("phone_number_id") or "",
+        "access_token_len": len(tok),
+        "access_token_present": bool(tok),
+    }
 
 
 _setup_bonus_pack_routes(app=api, db=db, get_current_user=get_current_user)

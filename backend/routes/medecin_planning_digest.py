@@ -9,16 +9,68 @@ Toutes les 5 min, un cron lit tous les médecins qui matchent l'heure courante
 et n'ont pas encore reçu leur digest du jour (idempotence via
 `planning_wa_last_digest_at`). Il expédie un texte WhatsApp listant les RDV
 prévus aujourd'hui pour ce médecin.
+
+2026-02 fork (P3 recap) — Le message WA inclut un DEEP-LINK signé (JWT scope
+`wa_planning_recap`, TTL 30 min) qui permet au médecin d'ouvrir son planning
+sans re-saisir email/mot de passe/OTP. Le frontend `/wa-recap?t=<token>`
+échange ce jeton contre un JWT auth classique via
+`POST /api/auth/wa-planning-exchange`.
 """
 from __future__ import annotations
 
 import logging
+import os
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Awaitable, Dict, List, Optional
 
+import jwt as pyjwt
 from fastapi import Depends, HTTPException
 
 logger = logging.getLogger("sawali.medecin_planning")
+
+# 2026-02 fork (P3 recap) — Signing secret for WA planning recap tokens.
+_RECAP_JWT_SECRET = (
+    os.environ.get("WA_PLANNING_RECAP_SECRET")
+    or os.environ.get("LINK_JWT_SECRET")
+    or (os.environ.get("JWT_SECRET", "fallback-insecure") + "-wa-recap")
+)
+_RECAP_JWT_ALGO = "HS256"
+_RECAP_TTL_SECONDS = 30 * 60  # 30 minutes
+
+
+def _issue_recap_token(user_id: str) -> str:
+    """Sign a scope=wa_planning_recap short-lived JWT for a médecin."""
+    now = int(datetime.now(timezone.utc).timestamp())
+    claims = {
+        "sub": user_id,
+        "scope": "wa_planning_recap",
+        "iat": now,
+        "exp": now + _RECAP_TTL_SECONDS,
+    }
+    return pyjwt.encode(claims, _RECAP_JWT_SECRET, algorithm=_RECAP_JWT_ALGO)
+
+
+def _decode_recap_token(token: str) -> Dict[str, Any]:
+    """Decode + validate a recap token. Raises ValueError on any issue."""
+    try:
+        claims = pyjwt.decode(token, _RECAP_JWT_SECRET, algorithms=[_RECAP_JWT_ALGO])
+    except pyjwt.ExpiredSignatureError as exc:
+        raise ValueError("expired") from exc
+    except Exception as exc:  # noqa: BLE001
+        raise ValueError("invalid") from exc
+    if claims.get("scope") != "wa_planning_recap":
+        raise ValueError("bad_scope")
+    if not claims.get("sub"):
+        raise ValueError("missing_sub")
+    return claims
+
+
+def _public_base_from_env() -> str:
+    """Preview + prod compatible base URL. Priority : PUBLIC_BASE_URL env var
+    (canonical, used by the deploy scripts) → REACT_APP_BACKEND_URL as fallback
+    for dev preview → empty string (link will be relative)."""
+    base = (os.environ.get("PUBLIC_BASE_URL") or os.environ.get("REACT_APP_BACKEND_URL") or "").rstrip("/")
+    return base
 
 
 async def run_medecin_planning_digest(
@@ -89,10 +141,16 @@ async def run_medecin_planning_digest(
             continue
 
         name = (u.get("full_name") or u.get("email") or "").split()[0] or "Docteur"
+        # 2026-02 fork (P3 recap) — Deep-link auto-login (30 min).
+        recap_token = _issue_recap_token(u["id"])
+        base = _public_base_from_env()
+        recap_url = f"{base}/wa-recap?t={recap_token}" if base else f"/wa-recap?t={recap_token}"
         if not rdvs:
             text = (
-                f"Bonjour Dr {name} — aucun rendez-vous programmé aujourd'hui ({today_str}). "
-                "Bonne journée ! — SAWALI"
+                f"Bonjour Dr {name} — aucun rendez-vous programmé aujourd'hui ({today_str}).\n"
+                f"Consulter tout de même mon planning : {recap_url}\n"
+                "(Lien valable 30 min, connexion automatique)\n"
+                "— SAWALI"
             )
         else:
             lines = [f"Bonjour Dr {name}, votre planning du {today_str} :", ""]
@@ -111,7 +169,9 @@ async def run_medecin_planning_digest(
             if len(rdvs) > 20:
                 lines.append(f"... et {len(rdvs) - 20} de plus.")
             lines.append("")
-            lines.append("Bonne journée ! — SAWALI")
+            lines.append(f"Valider / annuler / reprogrammer : {recap_url}")
+            lines.append("(Lien valable 30 min, connexion automatique)")
+            lines.append("— SAWALI")
             text = "\n".join(lines)
 
         try:
@@ -174,5 +234,32 @@ def setup_medecin_planning_digest_routes(app, db, get_current_user):
             raise HTTPException(status_code=403, detail="Réservé aux admins")
         from server import _send_wa_text_for_digest  # type: ignore
         return await run_medecin_planning_digest(db, _send_wa_text_for_digest)
+
+    # 2026-02 fork (P3 recap) — Exchange the short-lived WA planning recap
+    # token for a full-fledged auth JWT (same TTL as a normal login) so the
+    # médecin can act on their planning without re-entering email/password/OTP.
+    @api.post("/auth/wa-planning-exchange", tags=["Portail Client — Planning"])
+    async def wa_planning_exchange(payload: Dict[str, Any]):
+        raw_token = (payload or {}).get("t") or (payload or {}).get("token")
+        if not raw_token:
+            raise HTTPException(status_code=400, detail="Token manquant")
+        try:
+            claims = _decode_recap_token(str(raw_token))
+        except ValueError as exc:
+            reason = str(exc)
+            code = 401 if reason in ("expired", "invalid", "bad_scope", "missing_sub") else 400
+            raise HTTPException(status_code=code, detail=f"Token {reason}")
+        u = await db.users.find_one({"id": claims["sub"]}, {"_id": 0, "password_hash": 0})
+        if not u:
+            raise HTTPException(status_code=404, detail="Compte introuvable")
+        if u.get("account_status") != "active":
+            raise HTTPException(status_code=403, detail="Compte désactivé")
+        if (u.get("tracked_role") or "") != "Médecin":
+            raise HTTPException(status_code=403, detail="Réservé aux comptes Médecin")
+        # Issue a normal auth JWT (12h TTL). Reuse server.create_access_token.
+        from auth import create_access_token as _mint  # type: ignore
+        from server import _to_user_public  # type: ignore
+        access = _mint(u["id"], u.get("role") or "client")
+        return {"access_token": access, "token_type": "Bearer", "user": _to_user_public(u)}
 
     return api

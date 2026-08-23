@@ -282,16 +282,51 @@ def attach_whatsapp_helpers(
 ) -> Dict[str, Any]:
     """Factory that returns db-bound helper coroutines. Called once at server startup."""
 
+    # 2026-02 fork (P0.5) — Per-tenant Smart Comm credentials resolver. When a
+    # tenant has configured `tenant_smart_comm.wa_access_token +
+    # wa_phone_number_id`, we use THOSE (strict override, no fallback merge).
+    # Otherwise we fall back to the global `db.settings` config used by the
+    # legacy senders. This makes every sender tenant-aware without touching
+    # 30+ call sites.
+    async def _resolve_wa_credentials(tenant_id: Optional[str]) -> Dict[str, Any]:
+        tid = (tenant_id or "").strip()
+        if tid:
+            try:
+                smart = await db.tenant_smart_comm.find_one({"tenant_id": tid}, {"_id": 0}) or {}
+            except Exception:  # noqa: BLE001
+                smart = {}
+            token = (smart.get("wa_access_token") or "").strip()
+            phone_id = (smart.get("wa_phone_number_id") or "").strip()
+            if token and phone_id:
+                return {
+                    "access_token": token,
+                    "phone_number_id": phone_id,
+                    "source": "tenant",
+                    "tenant_id": tid,
+                }
+        g = await db.settings.find_one({"_id": "global"}) or {}
+        return {
+            "access_token": (g.get("wa_access_token") or "").strip(),
+            "phone_number_id": (g.get("wa_phone_number_id") or "").strip(),
+            "source": "global",
+            "tenant_id": None,
+        }
+
     async def _wa_send_template(
         to_e164: str,
         template_name: str,
         language_code: str = "fr",
         components: Optional[list] = None,
+        tenant_id: Optional[str] = None,
     ) -> dict:
-        """Send a WhatsApp template message. Returns {ok, status, message_id, error, raw}."""
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        access_token = s.get("wa_access_token")
-        phone_number_id = s.get("wa_phone_number_id")
+        """Send a WhatsApp template message. Returns {ok, status, message_id, error, raw}.
+
+        2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
+        Smart Comm WA credentials instead of the global ones.
+        """
+        creds = await _resolve_wa_credentials(tenant_id)
+        access_token = creds["access_token"]
+        phone_number_id = creds["phone_number_id"]
         if not access_token or not phone_number_id:
             return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
         to_clean = _normalize_wa_phone(to_e164)
@@ -350,6 +385,7 @@ def attach_whatsapp_helpers(
         to_e164: str,
         text: str,
         reply_to_message_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
     ) -> dict:
         """Send a free-form WhatsApp text message (Cloud API type=text).
         Caller must verify the 24h customer-service window before invocation.
@@ -360,10 +396,13 @@ def attach_whatsapp_helpers(
         chunk carries `reply_to_message_id` (context.message_id). Logs an
         explicit warning if the API returns `null` for `messages[0].id`
         (typical symptom of a length/format rejection).
+
+        2026-02 fork (P0.5) — When `tenant_id` is provided, uses that tenant's
+        Smart Comm WA credentials instead of the global ones.
         """
-        s = await db.settings.find_one({"_id": "global"}) or {}
-        access_token = s.get("wa_access_token")
-        phone_number_id = s.get("wa_phone_number_id")
+        creds = await _resolve_wa_credentials(tenant_id)
+        access_token = creds["access_token"]
+        phone_number_id = creds["phone_number_id"]
         if not access_token or not phone_number_id:
             return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
         to_clean = _normalize_wa_phone(to_e164)
@@ -745,7 +784,7 @@ def attach_whatsapp_helpers(
             return None
         return doc.get("received_at") or doc.get("created_at")
 
-    logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe + fix24az-v auto-split)")
+    logger.info("[whatsapp_helpers] attached (fix24az-q + fix24az-u underscore-safe + fix24az-v auto-split + 2026-02 tenant smart-comm)")
     return {
         "_wa_send_template": _wa_send_template,
         "_wa_send_text": _wa_send_text,
@@ -758,4 +797,7 @@ def attach_whatsapp_helpers(
         "_wa_split_long_text": _wa_split_long_text,
         "_WA_SPLIT_HINT": _WA_SPLIT_HINT,
         "_WA_TEXT_MAX": _WA_TEXT_MAX,
+        # 2026-02 fork (P0.5) — Exposé pour permettre aux endpoints d'observer
+        # quels credentials sont utilisés + pour les tests de diagnostic.
+        "_resolve_wa_credentials": _resolve_wa_credentials,
     }

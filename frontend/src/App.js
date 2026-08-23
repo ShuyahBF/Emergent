@@ -111,6 +111,7 @@ import AdminI18n from "@/pages/admin/AdminI18n";
 import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
 import AdminDownloadAudit from "@/pages/admin/AdminDownloadAudit";
 import Launch from "@/pages/public/Launch";
+import WaPlanningRecap from "@/pages/portal/WaPlanningRecap";
 import FormsList from "@/pages/portal/FormsList";
 import FormEditor from "@/pages/portal/FormEditor";
 import FormRunner from "@/pages/portal/FormRunner";
@@ -261,6 +262,8 @@ export default function App() {
           <Route path="/feedback/:token" element={<Feedback />} />
           <Route path="/uptime" element={<StatusPage />} />
           <Route path="/launch" element={<Launch />} />
+          {/* 2026-02 fork (P3 recap) — Deep-link auto-login from médecin planning WA digest */}
+          <Route path="/wa-recap" element={<WaPlanningRecap />} />
           <Route path="/f/:fid" element={<PublicForm />} />
           <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />

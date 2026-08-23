@@ -14,6 +14,45 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-23 (Fork iter99) — P0.5 Smart Comm WA Wiring + P3 Recap Deep-Link ✅ TESTÉ
+
+### P0.5 — Wiring des senders WhatsApp sur les credentials Smart Comm par tenant
+**User request** : Brancher le sender WA sur les credentials Smart Comm du tenant paramétrés en P0 (`tenant_smart_comm.wa_access_token` / `wa_phone_number_id`).
+
+**Backend**
+- `routes/whatsapp_helpers.py` : nouveau helper factory `_resolve_wa_credentials(tenant_id)` qui priorise les credentials du tenant (source="tenant") s'ils sont **tous deux** définis et non-vides, sinon retombe sur `db.settings` (source="global"). Aucun merge partiel (strict override, aligné sur Q3=b).
+- `_wa_send_text` et `_wa_send_template` acceptent un nouveau param optionnel `tenant_id`. Comportement inchangé quand omis.
+- `_send_wa_text_for_digest(to, text, scope_user)` extrait le `tenant_id` depuis `scope_user.parent_client_id | client_id | id` et le passe à `_wa_send_text`. Impacte immédiatement les crons `wa_tasks_digest_5min` et `medecin_planning_digest_5min` sans autre modification.
+- Nouveau endpoint diag `GET /admin/wa-credentials-resolver-diag?tenant_id=…` : renvoie `{source, tenant_id, phone_number_id, access_token_len, access_token_present}` (secret jamais retourné en clair).
+
+**Tests** — 3/3 : global fallback, tenant credentials pickup, non-admin denied (`test_fork_p05_smart_comm_wiring.py`).
+
+### P3 Recap — Deep-link WhatsApp auto-login pour le planning médecin
+**User request** : Ajouter au message WA médecin un deep-link avec token temporaire (30 min) pour valider/annuler/reprogrammer chaque RDV sans se re-connecter.
+
+**Backend**
+- `routes/medecin_planning_digest.py` : nouveau helper `_issue_recap_token(user_id)` qui signe un JWT scope `wa_planning_recap` (TTL 30 min, secret `WA_PLANNING_RECAP_SECRET → LINK_JWT_SECRET → JWT_SECRET+"-wa-recap"` en fallback).
+- Le body WA du cron médecin inclut désormais une ligne finale `Valider / annuler / reprogrammer : {PUBLIC_BASE}/wa-recap?t=<token>` + un rappel "(Lien valable 30 min, connexion automatique)".
+- Nouveau endpoint public `POST /auth/wa-planning-exchange` : valide le token (scope, TTL, sub), vérifie que l'utilisateur est bien Médecin actif, renvoie un JWT auth 12h + `_to_user_public(u)`.
+- Codes d'erreurs distincts : 400 (token manquant), 401 (invalid/expired/bad_scope/missing_sub), 403 (compte désactivé/non-médecin), 404 (compte introuvable).
+
+**Frontend**
+- Nouvelle route publique `/wa-recap` → `WaPlanningRecap.jsx` : lit `?t=…`, POST vers l'exchange, écrit `sawali_token` + `sawali_user`, hard-redirect vers `/portal/planning` (l'AuthContext boot avec le nouveau JWT).
+- Écran d'erreur clair (expiré vs invalide vs non-médecin) + bouton "Se connecter manuellement".
+
+**Tests** — 6/6 : success (roundtrip complet + /auth/me marche), missing token (400), invalid/expired/bad_scope (401), non-médecin (403) — `test_fork_p3_recap_deep_link.py`.
+
+**Total tests fork 2026-02** : 23/23 verts (P3, P4, P5, P0.5, P3-recap).
+
+**Backlog restant (post-publication)** :
+- P2 : Historique des suggestions (statuts PROPOSÉE/IMPLÉMENTÉE)
+- P1 : Logique numéro de génération (abandonné par l'utilisateur pour l'instant)
+- Wiring Meta/LinkedIn/X senders sur credentials Smart Comm par tenant (only WA wired for now)
+- Refactor `liluvine_wa_autoreply.py`
+
+
+
+
 ## 2026-02-23 (Fork iter98) — P4 + P3 : Overrides visibilité + Planning WhatsApp médecin ✅ TESTÉ
 
 ### P4 — Toggles visibilité par tracked user (Dashboard / Welcome / Notifs Messagerie)

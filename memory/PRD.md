@@ -14,6 +14,48 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-24 (Fork iter100) — Meta/LinkedIn/X wiring étendu + Digest Analytics ✅ TESTÉ
+
+### Meta LinkedIn Wiring (extension P0.5)
+**User request** : Étendre le resolver `_resolve_wa_credentials` à Meta / LinkedIn / X / Instagram / TikTok pour que chaque tenant expédie ses posts sociaux sous sa propre identité Smart Comm.
+
+**Backend**
+- **`routes/smart_comm_resolver.py`** : nouveau module centralisé `SmartCommResolver`. 6 canaux supportés (`wa`, `meta`, `instagram`, `linkedin`, `x`, `tiktok`), chacun avec `required_fields` (activation tenant) et `all_fields` (payload complet). Strict override (aligné Q3=b) : tous les `required_fields` doivent être non-vides pour basculer sur `source="tenant"`, sinon `source="global"`.
+- **`_smart_comm_resolver`** exposé dans server.py.
+- Nouveau endpoint **`GET /admin/smart-comm/resolver-diag?channel=<wa|meta|…>&tenant_id=…`** : renvoie l'état résolu, masque tous les secrets (`_len` + `_present` uniquement).
+- **`routes/smart_comm_senders.py`** : nouveau module qui monte des endpoints portail scoped tenant :
+  - `GET /me/social/status` — liste les canaux + drapeau `ready`
+  - `POST /me/social/linkedin/post {text, image_url?, org_urn?}` — publie sur LinkedIn via `POST /rest/posts` avec `linkedin-version: 202401`. Audit dans `linkedin_posts_audit` avec `credentials_source` et `tenant_id`.
+  - `POST /me/social/meta/post {message, page_id?, link?, image_url?}` — publie sur Facebook page feed via Graph v22.0.
+  - `POST /me/social/x/post {text}` — 501 explicite (module `routes/twitter.py` non branché ici, mais credentials tenant détectés).
+- Rôles autorisés : admin / superviseur / moderator / marketing / communication.
+
+### Digest Analytics
+**User request** : Loger chaque envoi de digest médecin + ouverture du lien recap pour donner à l'admin une métrique d'engagement journalière.
+
+**Backend**
+- Nouvelle collection **`planning_digest_events`** : `{id, kind: "sent"|"opened", user_id, email, tenant_id, rdv_count, recipient_digits, recap_token_issued, at}`.
+- Insertion `sent` dans `run_medecin_planning_digest` après envoi WA réussi.
+- Insertion `opened` dans `wa_planning_exchange` après validation du token.
+- Nouveau endpoint **`GET /admin/planning-digest/analytics?days=30`** : retourne `{days, totals: {sent, opened}, engagement_rate_pct, breakdown: [{day, sent, opened, rate}], recent: 20 events}` clampé sur `[1, 365]`.
+
+**Frontend**
+- Nouveau composant **`PlanningDigestAnalytics.jsx`** (admin/) : tuiles Envois / Ouvertures / Taux d'engagement + tableau breakdown 14 jours + section repliable "20 derniers événements". Range picker 7/30/90 jours.
+- Intégration dans `AdminDashboard.jsx` entre `AdminLlmUsageChart` et `AdminAICostChart`.
+
+**Tests** — 11/11 verts (`test_fork_p05_multichannel_analytics.py`) : multi-canal diag, unknown channel 400, tenant credentials pickup, social status, LinkedIn/Meta/X payload validation, analytics empty/admin-only/clamp days, round-trip `opened` event.
+
+**Total tests fork 2026-02** : 34/34 verts (P3, P4, P5, P0.5, P3-recap, Multi-channel + Analytics).
+
+**Backlog restant (post-publication)** :
+- P2 : Historique des suggestions (statuts PROPOSÉE/IMPLÉMENTÉE) — non démarré
+- P1 : Numéro de génération (abandonné)
+- Sender X direct dans `smart_comm_senders.py` (OAuth 1.0a signature)
+- Wire LinkedIn image upload dans `me_social_linkedin_post`
+
+
+
+
 ## 2026-02-23 (Fork iter99) — P0.5 Smart Comm WA Wiring + P3 Recap Deep-Link ✅ TESTÉ
 
 ### P0.5 — Wiring des senders WhatsApp sur les credentials Smart Comm par tenant

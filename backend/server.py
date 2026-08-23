@@ -14537,6 +14537,13 @@ _wa_last_inbound_iso = _wa_helpers["_wa_last_inbound_iso"]
 # 2026-02 fork (P0.5) — Tenant Smart Comm credential resolver (WA)
 _resolve_wa_credentials = _wa_helpers["_resolve_wa_credentials"]
 
+# 2026-02 fork (P0.5 extended) — Multi-channel Smart Comm resolver
+# (Meta, Instagram, LinkedIn, X, TikTok). WA still uses the specialised
+# helper above because it powers extra behaviour (auto-split, silent-drop
+# observer, media downloader).
+from routes.smart_comm_resolver import build_smart_comm_resolver  # noqa: E402
+_smart_comm_resolver = build_smart_comm_resolver(db)
+
 # Set up wa_silent_drops routes + wire the observer. Import here to avoid
 # any module-load ordering hazards with the FastAPI `api` instance.
 from routes.wa_silent_drops import setup_wa_silent_drops_routes as _setup_wa_silent_drops_routes  # noqa: E402
@@ -24331,6 +24338,40 @@ async def admin_wa_credentials_resolver_diag(
     }
 
 
+# 2026-02 fork (P0.5 extended) — Multi-channel resolver diagnostic.
+# Same guarantees as the WA-only variant: read-only, secrets masked.
+_SECRET_FIELD_NAMES = {
+    "wa_access_token", "wa_verify_token",
+    "meta_app_secret", "meta_page_access_token",
+    "instagram_access_token",
+    "linkedin_client_secret", "linkedin_access_token",
+    "x_api_secret", "x_access_secret", "x_access_token",
+    "tiktok_client_secret", "tiktok_access_token",
+}
+
+
+@api.get("/admin/smart-comm/resolver-diag", tags=["Admin"])
+async def admin_smart_comm_resolver_diag(
+    channel: str,
+    tenant_id: Optional[str] = None,
+    _: dict = Depends(get_current_admin),
+):
+    if channel not in _smart_comm_resolver.channels():
+        raise HTTPException(status_code=400, detail=f"Canal invalide. Valeurs : {', '.join(_smart_comm_resolver.channels())}")
+    creds = await _smart_comm_resolver.resolve(channel, tenant_id)
+    masked: Dict[str, Any] = {"source": creds["source"], "tenant_id": creds.get("tenant_id"), "channel": channel}
+    for k, v in creds.items():
+        if k in ("source", "tenant_id"):
+            continue
+        if k in _SECRET_FIELD_NAMES:
+            s = v if isinstance(v, str) else ""
+            masked[f"{k}_len"] = len(s)
+            masked[f"{k}_present"] = bool(s)
+        else:
+            masked[k] = v
+    return masked
+
+
 _setup_bonus_pack_routes(app=api, db=db, get_current_user=get_current_user)
 
 # 2026-02 fork (P3) — Envoi quotidien du planning RDV du médecin par WhatsApp
@@ -24339,6 +24380,14 @@ from routes.medecin_planning_digest import (  # noqa: E402
     setup_medecin_planning_digest_routes as _setup_medecin_planning_digest_routes,
 )
 _setup_medecin_planning_digest_routes(app=api, db=db, get_current_user=get_current_user)
+
+# 2026-02 fork (P0.5 extended) — Tenant-scoped social senders (LinkedIn/Meta/X)
+from routes.smart_comm_senders import setup_smart_comm_senders  # noqa: E402
+setup_smart_comm_senders(
+    app=api, db=db,
+    resolver=_smart_comm_resolver,
+    get_current_user=get_current_user,
+)
 
 # Iter38r-fix9m — AI Media additional models (Veo 3, Imagen 4, ElevenLabs v3)
 from routes.ai_media_9m import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402

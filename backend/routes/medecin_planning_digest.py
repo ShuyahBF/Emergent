@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import logging
 import os
+import uuid
 from datetime import datetime, timezone, timedelta
 from typing import Any, Callable, Awaitable, Dict, List, Optional
 
@@ -185,6 +186,21 @@ async def run_medecin_planning_digest(
                 {"$set": {"planning_wa_last_digest_at": now.isoformat()}},
             )
             sent += 1
+            # 2026-02 fork (analytics) — log a "sent" event for admin metrics
+            try:
+                await db.planning_digest_events.insert_one({
+                    "id": str(uuid.uuid4()),
+                    "kind": "sent",
+                    "user_id": u["id"],
+                    "email": (u.get("email") or "").lower(),
+                    "tenant_id": (u.get("parent_client_id") or u.get("client_id") or u.get("id") or ""),
+                    "rdv_count": len(rdvs),
+                    "recipient_digits": "".join(ch for ch in recipient if ch.isdigit())[-4:],
+                    "recap_token_issued": True,
+                    "at": now.isoformat(),
+                })
+            except Exception:  # noqa: BLE001
+                pass  # analytics is best-effort — never block sending
         else:
             skipped += 1
 
@@ -260,6 +276,74 @@ def setup_medecin_planning_digest_routes(app, db, get_current_user):
         from auth import create_access_token as _mint  # type: ignore
         from server import _to_user_public  # type: ignore
         access = _mint(u["id"], u.get("role") or "client")
+        # 2026-02 fork (analytics) — log the "opened" event
+        try:
+            await db.planning_digest_events.insert_one({
+                "id": str(uuid.uuid4()),
+                "kind": "opened",
+                "user_id": u["id"],
+                "email": (u.get("email") or "").lower(),
+                "tenant_id": (u.get("parent_client_id") or u.get("client_id") or u.get("id") or ""),
+                "at": datetime.now(timezone.utc).isoformat(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
         return {"access_token": access, "token_type": "Bearer", "user": _to_user_public(u)}
+
+    # 2026-02 fork (analytics) — Admin dashboard for the planning digest.
+    @api.get("/admin/planning-digest/analytics", tags=["Admin — Planning"])
+    async def admin_planning_digest_analytics(days: int = 30, user: dict = Depends(get_current_user)):
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux admins")
+        d = max(1, min(365, days))
+        since = (datetime.now(timezone.utc) - timedelta(days=d)).isoformat()
+        pipeline = [
+            {"$match": {"at": {"$gte": since}}},
+            {"$group": {
+                "_id": {
+                    "kind": "$kind",
+                    "day": {"$substrCP": ["$at", 0, 10]},
+                },
+                "count": {"$sum": 1},
+            }},
+        ]
+        try:
+            rows = await db.planning_digest_events.aggregate(pipeline).to_list(4000)
+        except Exception:  # noqa: BLE001
+            rows = []
+
+        by_day: Dict[str, Dict[str, int]] = {}
+        totals = {"sent": 0, "opened": 0}
+        for row in rows:
+            k = row["_id"]["kind"]
+            day = row["_id"]["day"]
+            n = int(row.get("count") or 0)
+            by_day.setdefault(day, {"sent": 0, "opened": 0})
+            if k in ("sent", "opened"):
+                by_day[day][k] += n
+                totals[k] += n
+
+        # Add engagement rate (opened / sent), guard division by zero
+        rate = None
+        if totals["sent"]:
+            rate = round(100.0 * totals["opened"] / totals["sent"], 1)
+
+        # Sorted day breakdown
+        breakdown = [
+            {"day": day, **counts, "rate": (round(100.0 * counts["opened"] / counts["sent"], 1) if counts["sent"] else None)}
+            for day, counts in sorted(by_day.items())
+        ]
+
+        # Recent 20 events (audit stream)
+        recent = await db.planning_digest_events.find(
+            {"at": {"$gte": since}}, {"_id": 0}
+        ).sort("at", -1).to_list(20)
+        return {
+            "days": d,
+            "totals": totals,
+            "engagement_rate_pct": rate,
+            "breakdown": breakdown,
+            "recent": recent,
+        }
 
     return api

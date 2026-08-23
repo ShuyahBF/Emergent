@@ -321,6 +321,9 @@ export default function MyAccount() {
           {/* Iter38r-fix9l — RGPD: Export my data + WA Tasks digest opt-in */}
           <BonusFeaturesSection />
 
+          {/* 2026-02 fork (P3) — Médecin : Planning WhatsApp du jour */}
+          {(user?.tracked_role === "Médecin") && <MedecinPlanningWaDigestSection />}
+
           {/* Request modification */}
           <section className="rounded-xl ring-1 ring-indigo-200 bg-indigo-50/40 p-5" data-testid="account-request-section">
             <h2 className="font-display font-semibold text-sm text-indigo-800 mb-2 flex items-center gap-2">
@@ -464,6 +467,73 @@ function BonusFeaturesSection() {
               data-testid="wa-digest-hour-select"
             >
               {[6, 7, 8, 9, 10, 11, 12, 13, 14, 18, 19, 20].map((h) => (
+                <option key={h} value={h}>{h}h00 (Africa/Abidjan)</option>
+              ))}
+            </select>
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+
+// =====================================================================
+// 2026-02 fork (P3) — Envoi quotidien du planning RDV du médecin via WA
+// =====================================================================
+function MedecinPlanningWaDigestSection() {
+  const [state, setState] = React.useState({ enabled: false, hour: 7, loading: true });
+
+  React.useEffect(() => {
+    apiClient.get("/me/planning-wa-digest")
+      .then((r) => setState({ enabled: !!r.data?.enabled, hour: r.data?.hour ?? 7, loading: false }))
+      .catch(() => setState((s) => ({ ...s, loading: false })));
+  }, []);
+
+  const save = async (next) => {
+    setState((s) => ({ ...s, ...next }));
+    try {
+      await apiClient.put("/me/planning-wa-digest", next);
+      toast.success("Préférence enregistrée");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  return (
+    <section className="rounded-xl ring-1 ring-sky-200 bg-sky-50/40 p-5 space-y-4" data-testid="account-medecin-planning-section">
+      <h2 className="font-display font-semibold text-sm text-sky-800 mb-2 flex items-center gap-2">
+        <Calendar className="h-4 w-4" /> Planning RDV via WhatsApp (Médecin)
+      </h2>
+      <div className="rounded-lg ring-1 ring-sky-200 bg-white p-3 space-y-2" data-testid="planning-wa-digest-row">
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={state.enabled}
+            onChange={(e) => save({ enabled: e.target.checked, hour: state.hour })}
+            disabled={state.loading}
+            className="mt-0.5 h-4 w-4"
+            data-testid="planning-wa-digest-toggle"
+          />
+          <div className="flex-1">
+            <div className="font-semibold text-sm text-slate-800">
+              Recevoir mon planning RDV du jour par WhatsApp
+            </div>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Le message liste tous les rendez-vous du jour à l&apos;heure choisie (fuseau Africa/Abidjan). Utile pour préparer votre matinée sans ouvrir le portail.
+            </p>
+          </div>
+        </label>
+        {state.enabled && (
+          <div className="flex items-center gap-2 pl-7">
+            <span className="text-xs text-slate-600">Heure d&apos;envoi :</span>
+            <select
+              value={state.hour}
+              onChange={(e) => save({ enabled: true, hour: parseInt(e.target.value) })}
+              className="text-sm rounded-lg border border-slate-300 px-2 py-1"
+              data-testid="planning-wa-digest-hour-select"
+            >
+              {[5, 6, 7, 8, 9, 10, 12, 14, 18].map((h) => (
                 <option key={h} value={h}>{h}h00 (Africa/Abidjan)</option>
               ))}
             </select>

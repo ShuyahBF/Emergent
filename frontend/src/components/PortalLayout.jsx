@@ -217,6 +217,28 @@ export default function PortalLayout({ admin = false }) {
   const isMedecin = user?.role === "medecin";
   // Iter43-fix24az-f (2026-02-26) — Business-type Fabricant : sidebar réduite
   const isFabricant = (user?.business_type || "").toLowerCase() === "fabricant";
+
+  // 2026-02 fork (P4) — Overrides visibilité par tracked user.
+  // Résolution : true/false = override explicite ; null/undefined = défaut du rôle.
+  // Le "défaut du rôle" : les rôles à sidebar réduite (Comptable strict,
+  // Traducteur, Médecin, Secrétaire médicale, Fabricant) ne voient PAS le
+  // Dashboard/Welcome/Notifs, tous les autres tracked users OUI.
+  const isRestrictedByRoleForDashboard = isComptaStrict || isTranslator || isMedecinTracked || isSecretaireMedicale || isFabricant;
+  const p4ShowDashboard = user?.show_dashboard === true
+    ? true
+    : user?.show_dashboard === false
+      ? false
+      : !isRestrictedByRoleForDashboard;
+  const p4ShowWelcome = user?.show_welcome_modal === true
+    ? true
+    : user?.show_welcome_modal === false
+      ? false
+      : !(isFabricant || isMedecinTracked);
+  const p4ShowMsgNotifs = user?.show_messaging_notifs === true
+    ? true
+    : user?.show_messaging_notifs === false
+      ? false
+      : true;  // par défaut, les notifs sont ON pour tous ceux qui ont accès au portail
   const fabricantAllowedPaths = new Set([
     "/portal/cash",
     "/portal/catalog",
@@ -274,13 +296,13 @@ export default function PortalLayout({ admin = false }) {
       }]
     : baseLinks;
   const links = linksWithDelegation
-    .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to))
-    .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to))
-    .filter((l) => !isMedecinTracked || allowedMedecinTrackedPaths.has(l.to))
+    .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
+    .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
+    .filter((l) => !isMedecinTracked || allowedMedecinTrackedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
     // Iter43-fix24az-f — Fabricant tenants : allowlist stricte
-    .filter((l) => !isFabricant || fabricantAllowedPaths.has(l.to))
+    .filter((l) => !isFabricant || fabricantAllowedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !l.fabricantOnly || isFabricant)
     .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
     .filter((l) => !l.trackedOnly || isTracked)
@@ -292,7 +314,9 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.moderationOnly || isModerator || isAdminOrSup)
     .filter((l) => !l.adminOrSup || isAdminOrSup)
     .filter((l) => !l.moderatorPlus || isModerator || isAdminOrSup)
-    .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked);
+    .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked)
+    // 2026-02 fork (P4) — Override de masquage explicite du Tableau de bord
+    .filter((l) => l.to !== "/portal" || p4ShowDashboard);
 
   // Fetch badge counts on mount + whenever we navigate (so opening a page
   // that was counted refreshes the list). Also refresh every 90s.
@@ -351,13 +375,19 @@ export default function PortalLayout({ admin = false }) {
     // Iter43-fix24az-x (2026-07-22) — Médecin tracked : redirect vers
     // /portal/planning si l'utilisateur se retrouve sur une route non
     // autorisée (ex: /portal, /admin, session stale, deep-link).
+    // 2026-02 fork (P4) — Si show_dashboard=true est activé, on autorise le
+    // médecin à rester sur /portal (Dashboard) pour la visite explicite.
     if (user && isMedecinTracked && !allowedMedecinTrackedPaths.has(location.pathname)) {
-      navigate("/portal/planning");
+      const dashboardAllowed = location.pathname === "/portal" && p4ShowDashboard;
+      if (!dashboardAllowed) {
+        navigate("/portal/planning");
+      }
     }
-  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked]);
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked, p4ShowDashboard]);
 
   // Web Notifications + son sur nouveaux WA
-  const waNotifier = useWhatsAppNotifier();
+  // 2026-02 fork (P4) — Coupe la surveillance quand `show_messaging_notifs=false`
+  const waNotifier = useWhatsAppNotifier({ enabled: p4ShowMsgNotifs });
   // Iter34x — toasts live des actions des autres utilisateurs liés
   useActivityFeedNotifier(!!user);
   // Iter36b — toasts + son sur nouveaux tickets / changements de statut
@@ -389,12 +419,13 @@ export default function PortalLayout({ admin = false }) {
   // don't have a dashboard/welcome experience and land directly on /portal/cash).
   // Iter43-fix24az-x (2026-07-22) — Skip Welcome for Médecins tracked too
   // (they land directly on /portal/planning — no dashboard experience).
+  // 2026-02 fork (P4) — Override par tracked user via `show_welcome_modal`.
   const [showBriefing, setShowBriefing] = useState(false);
   useEffect(() => {
-    if (user && !isFabricant && !isMedecinTracked && shouldShowWelcomeBriefing()) {
+    if (user && p4ShowWelcome && shouldShowWelcomeBriefing()) {
       setShowBriefing(true);
     }
-  }, [user, isFabricant, isMedecinTracked]);
+  }, [user, p4ShowWelcome]);
 
   if (!user) return null;
 
@@ -423,7 +454,10 @@ export default function PortalLayout({ admin = false }) {
       </div>
       <nav className="space-y-1">
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason }) => {
-          const count = module ? (badges[module] || 0) : 0;
+          const rawCount = module ? (badges[module] || 0) : 0;
+          // 2026-02 fork (P4) — Masque le badge WA non lu sur "Centre de
+          // Messagerie" quand show_messaging_notifs=false.
+          const count = (!p4ShowMsgNotifs && module === "contacts_unread") ? 0 : rawCount;
           // Iter43-fix24az-aa — Support additional live counters : tickets_pending
           // (yellow) + walk_ins_today (emerald, only shown to médecins).
           const liveCount = badgeKey === "tickets_pending"

@@ -402,6 +402,10 @@ def _to_user_public(u: dict) -> dict:
         "translator_rate_per_word": u.get("translator_rate_per_word") or 0,
         # 2026-02 (#5) — Admin can force logout without confirm at idle timeout
         "force_logout_on_idle": bool(u.get("force_logout_on_idle", False)),
+        # 2026-02 fork (P4) — Per-user visibility overrides. None → default.
+        "show_dashboard": u.get("show_dashboard"),
+        "show_welcome_modal": u.get("show_welcome_modal"),
+        "show_messaging_notifs": u.get("show_messaging_notifs"),
         # Iter43-fix24az-f (2026-02-26) — Business type of the tenant. Used
         # by PortalLayout.jsx to render a Fabricant-specific sidebar.
         "business_type": u.get("business_type") or "",
@@ -9822,7 +9826,12 @@ async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get
 
 @api.put("/admin/tracked-users/{tu_id}", tags=["Admin"])
 async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict = Depends(get_current_admin)):
-    update = {k: v for k, v in payload.model_dump().items() if v is not None}
+    # 2026-02 fork (P4) — Visibility overrides must be settable back to null
+    # (default). We keep them in `update` even when the value is None so admin
+    # can reset the toggle via the "Défaut du rôle" option.
+    raw = payload.model_dump()
+    P4_RESETTABLE = {"show_dashboard", "show_welcome_modal", "show_messaging_notifs"}
+    update = {k: v for k, v in raw.items() if v is not None or k in P4_RESETTABLE}
     if "role" in update and update["role"] not in TRACKED_USER_ROLES:
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
     if "email" in update and update["email"] and not is_valid_email_syntax(str(update["email"])):
@@ -9843,7 +9852,15 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
             bridge_update["account_status"] = "active" if update["status"] == "active" else "inactive"
         # 2026-02 — Mirror translator fields & force_logout_on_idle to the
         # bridged user account so the /me endpoint exposes them at login.
-        for f in ("translator_languages", "translator_rate_per_word", "force_logout_on_idle"):
+        # 2026-02 fork (P4) — Mirror per-user visibility overrides too.
+        for f in (
+            "translator_languages",
+            "translator_rate_per_word",
+            "force_logout_on_idle",
+            "show_dashboard",
+            "show_welcome_modal",
+            "show_messaging_notifs",
+        ):
             if f in update:
                 bridge_update[f] = update[f]
         await db.users.update_one({"id": tu_doc["user_account_id"]}, {"$set": bridge_update})
@@ -10010,6 +10027,11 @@ async def admin_set_tracked_password(
                 # user.id` (50+ call sites) correctly inherits the parent's
                 # feature flags + RGPD toggles + shared contacts.
                 "client_id": tu.get("client_id"),
+                # 2026-02 fork (P4) — Mirror per-user visibility overrides so
+                # /me exposes them without needing the tracked_users lookup.
+                "show_dashboard": tu.get("show_dashboard"),
+                "show_welcome_modal": tu.get("show_welcome_modal"),
+                "show_messaging_notifs": tu.get("show_messaging_notifs"),
                 "account_status": "active",
                 "updated_at": _now(),
             }},
@@ -10032,6 +10054,10 @@ async def admin_set_tracked_password(
             "parent_client_id": tu.get("client_id"),
             # Mirror the parent client id (see comment above).
             "client_id": tu.get("client_id"),
+            # 2026-02 fork (P4) — Mirror per-user visibility overrides
+            "show_dashboard": tu.get("show_dashboard"),
+            "show_welcome_modal": tu.get("show_welcome_modal"),
+            "show_messaging_notifs": tu.get("show_messaging_notifs"),
             "created_at": _now(),
             "updated_at": _now(),
         })
@@ -21397,6 +21423,23 @@ async def on_startup():
                 misfire_grace_time=300,
             )
 
+            # 2026-02 fork (P3) — Médecin planning WA digest (every 5 min,
+            # per-user opt-in `planning_wa_digest_enabled` + hour). Idempotent
+            # sur `planning_wa_last_digest_at`.
+            async def _scheduled_medecin_planning_digest():
+                try:
+                    from routes.medecin_planning_digest import run_medecin_planning_digest as _rmpd  # noqa: E402
+                    await _rmpd(db, _send_wa_text_for_digest)
+                except Exception as exc:
+                    logger.warning("[scheduler:medecin_planning_digest] %s", exc)
+            _scheduler.add_job(
+                _scheduled_medecin_planning_digest,
+                CronTrigger(minute="*/5", timezone="Africa/Abidjan"),
+                id="medecin_planning_digest_5min",
+                replace_existing=True,
+                misfire_grace_time=300,
+            )
+
             # Iter43-fix3 (2026-03) — Surveillance quotidienne du token WhatsApp.
             # Alerte par email les admins quand le token expire dans <7 jours ou
             # quand le test fonctionnel échoue (token révoqué, phone suspendu…).
@@ -24257,6 +24300,13 @@ async def _get_settings_async() -> Dict[str, Any]:
 
 
 _setup_bonus_pack_routes(app=api, db=db, get_current_user=get_current_user)
+
+# 2026-02 fork (P3) — Envoi quotidien du planning RDV du médecin par WhatsApp
+from routes.medecin_planning_digest import (  # noqa: E402
+    run_medecin_planning_digest as _run_medecin_planning_digest,
+    setup_medecin_planning_digest_routes as _setup_medecin_planning_digest_routes,
+)
+_setup_medecin_planning_digest_routes(app=api, db=db, get_current_user=get_current_user)
 
 # Iter38r-fix9m — AI Media additional models (Veo 3, Imagen 4, ElevenLabs v3)
 from routes.ai_media_9m import setup_ai_media_routes as _setup_ai_media_routes  # noqa: E402

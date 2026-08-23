@@ -387,6 +387,42 @@ export default function AdminTrackedUsers() {
                   </span>
                 </span>
               </label>
+
+              {/* 2026-02 fork (P4) — Overrides visibilité (Dashboard / Welcome / Notifs) */}
+              <fieldset className="rounded-lg ring-1 ring-sawali-blue/20 bg-sawali-blue/5 p-3">
+                <legend className="text-xs font-semibold px-1 text-sawali-blue">Visibilité personnalisée</legend>
+                <p className="text-[10px] text-slate-600 mb-2">
+                  Laissez la case indéterminée pour garder le comportement par défaut du rôle. Cochez pour forcer l'affichage, décochez pour masquer.
+                </p>
+                {[
+                  { key: "show_dashboard", label: "Tableau de bord", hint: "Menu latéral et page d'accueil du portail" },
+                  { key: "show_welcome_modal", label: "Modale de bienvenue", hint: "Affichée après la connexion (résumé quotidien)" },
+                  { key: "show_messaging_notifs", label: "Notifications du Centre de Messagerie", hint: "Toasts sonores et badge WhatsApp non lu" },
+                ].map(({ key, label, hint }) => (
+                  <div key={key} className="flex items-center gap-2 py-1" data-testid={`p4-toggle-${key}`}>
+                    <select
+                      value={form[key] === true ? "on" : form[key] === false ? "off" : "default"}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setForm({
+                          ...form,
+                          [key]: v === "on" ? true : v === "off" ? false : null,
+                        });
+                      }}
+                      className="rounded border border-slate-300 px-2 py-1 text-xs bg-white"
+                      data-testid={`p4-select-${key}`}
+                    >
+                      <option value="default">Défaut du rôle</option>
+                      <option value="on">Toujours afficher</option>
+                      <option value="off">Toujours masquer</option>
+                    </select>
+                    <span className="flex-1 text-xs">
+                      <strong>{label}</strong>
+                      <span className="block text-[10px] text-slate-500">{hint}</span>
+                    </span>
+                  </div>
+                ))}
+              </fieldset>
               <div>
                 <label className="block text-xs font-semibold mb-1">Statut</label>
                 <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm">

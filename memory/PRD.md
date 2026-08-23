@@ -14,6 +14,55 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-23 (Fork iter98) — P4 + P3 : Overrides visibilité + Planning WhatsApp médecin ✅ TESTÉ
+
+### P4 — Toggles visibilité par tracked user (Dashboard / Welcome / Notifs Messagerie)
+**User request** : Sur la fiche AdminTrackedUsers, 3 toggles individuels par user (Défaut du rôle / Toujours afficher / Toujours masquer) qui override respectivement la visibilité du Tableau de bord, de la modale de bienvenue et des notifications du Centre de Messagerie.
+
+**Backend**
+- `models.py` : `TrackedUserCreate/Update` reçoit `show_dashboard`, `show_welcome_modal`, `show_messaging_notifs` (Optional[bool]).
+- `UserPublic` étendu avec ces 3 champs.
+- `_to_user_public()` expose les 3 valeurs sur /auth/me.
+- Bridge users : `set-password` et `admin_update_tracked` propagent les 3 champs sur `users`.
+- `admin_update_tracked` : allow None-reset explicite via `P4_RESETTABLE` (permet de revenir au "défaut du rôle").
+
+**Frontend**
+- `AdminTrackedUsers.jsx` : fieldset "Visibilité personnalisée" avec 3 selects (Défaut / Toujours afficher / Toujours masquer).
+- `PortalLayout.jsx` :
+  - Résout `p4ShowDashboard`, `p4ShowWelcome`, `p4ShowMsgNotifs` selon override ou défaut du rôle (Comptable strict / Traducteur / Médecin / Sec. médicale / Fabricant = défaut OFF).
+  - Filtre le lien `/portal` selon override.
+  - Bypass Dashboard pour Comptable/Traducteur/Médecin/Fabricant si toggle True.
+  - Redirect Médecin vers /portal/planning uniquement si Dashboard non forcé.
+  - Coupe la modale de bienvenue et le `useWhatsAppNotifier` (poll+badge) selon les toggles.
+- `useWhatsAppNotifier(enabled)` : nouvelle prop qui coupe le poll + reset le badge favicon.
+
+**Tests** — 3/3 : défaut null, set/reset, admin bypass (`test_fork_p4_visibility_overrides.py`).
+
+### P3 — Envoi quotidien du planning RDV via WhatsApp aux médecins
+**User request** : Sur `/portal/my-account`, un toggle "Recevoir mon planning RDV du jour par WhatsApp" avec choix d'heure. Cron backend expédie le planning.
+
+**Backend**
+- Nouveau module `routes/medecin_planning_digest.py` :
+  - `GET /me/planning-wa-digest` — 403 hors médecin, sinon {enabled, hour}
+  - `PUT /me/planning-wa-digest` — valide `hour ∈ [0, 23]` et persiste sur `users`
+  - `POST /admin/planning-wa-digest/run-now` — trigger manuel admin/superviseur
+  - `run_medecin_planning_digest(db, send_wa_fn)` : idempotent via `planning_wa_last_digest_at`, joint les `planning_appointments` du jour matchant `medecin_id | medecin_email`, texte WA formaté (top 20 RDV + tail).
+- Cron : `medecin_planning_digest_5min` (toutes les 5 min, Africa/Abidjan) → cible médecins dont `planning_wa_digest_hour == cur_hour` + opt-in.
+
+**Frontend**
+- `MyAccount.jsx` : nouvelle section `MedecinPlanningWaDigestSection` visible uniquement quand `user.tracked_role === "Médecin"`. Toggle + select heure (5..18h avec préférences 7-8h).
+
+**Tests** — 6/6 : défauts, 403 non-médecin, PUT persist, validation heure 0-23, admin-only run-now, RBAC (`test_fork_p3_medecin_planning_wa.py`).
+
+**Backlog restant (post-publication)** :
+- P2 : Historique des suggestions (statuts PROPOSÉE/IMPLÉMENTÉE)
+- P1 : Logique numéro de génération
+- Brancher senders WA/Meta/LinkedIn/X sur credentials Smart Comm par tenant
+- Refactor `liluvine_wa_autoreply.py`
+
+
+
+
 ## 2026-02-22 (Fork iter97) — P5 : Listes d'accessibilité par tenant (Formations / Formulaires / Documents) ✅ PRÊT PUBLICATION
 
 **User request** : Ajouter une liste d'accessibilité `access_client_ids` par tenant sur les Formations spécialisées, les Formulaires et les Documents. Si la liste est vide → comportement historique (visible par tout utilisateur suivi y ayant déjà accès). Si non-vide → restreint aux utilisateurs des clients cochés. Défaut UI = pas de restriction (case vide). Utilisateur retiré d'un tenant autorisé perd immédiatement l'accès (option "a").

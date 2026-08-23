@@ -51,7 +51,7 @@ function setFaviconBadge(show) {
   } catch { /* noop */ }
 }
 
-export function useWhatsAppNotifier() {
+export function useWhatsAppNotifier({ enabled = true } = {}) {
   const [unread, setUnread] = useState(0);
   const [permission, setPermission] = useState(typeof Notification !== "undefined" ? Notification.permission : "default");
   const [soundOn, setSoundOn] = useState(() => localStorage.getItem(STORAGE_KEY_SOUND) !== "off");
@@ -143,13 +143,20 @@ export function useWhatsAppNotifier() {
   }, [soundOn, desktopOn, soundAllowedByAdmin, soundConfig]);
 
   useEffect(() => {
+    if (!enabled) {
+      // 2026-02 fork (P4) — Admin toggle "show_messaging_notifs=false" cuts
+      // the poll + resets the badge silently.
+      setUnread(0);
+      setFaviconBadge(false);
+      return () => {};
+    }
     tick();
     intervalRef.current = setInterval(tick, POLL_MS);
     return () => {
       clearInterval(intervalRef.current);
       setFaviconBadge(false);
     };
-  }, [tick]);
+  }, [tick, enabled]);
 
   return {
     unread,

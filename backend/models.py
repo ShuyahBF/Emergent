@@ -34,6 +34,12 @@ class UserPublic(BaseModel):
     can_cash: Optional[bool] = False
     # Iter43-fix24az-f (2026-02-26) — Business type of the tenant (fabricant → limited sidebar)
     business_type: Optional[str] = None
+    # 2026-02 fork (P4) — Per-user visibility overrides (Dashboard / Welcome
+    # briefing modal / Messaging notifications). None = default role-based
+    # behaviour ; True/False = admin override on the tracked user's profile.
+    show_dashboard: Optional[bool] = None
+    show_welcome_modal: Optional[bool] = None
+    show_messaging_notifs: Optional[bool] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -393,6 +399,14 @@ class TrackedUserCreate(BaseModel):
     translator_rate_per_word: Optional[float] = None  # base in user currency
     # 2026-02 — Force logout toggle (#5)
     force_logout_on_idle: Optional[bool] = None
+    # 2026-02 fork (P4) — Overrides per-user pour la visibilité du Tableau
+    # de bord, de la modale de bienvenue et des notifications du Centre de
+    # Messagerie. Aucune valeur (None) → comportement par défaut du rôle.
+    # True → force affichage même si le rôle a un menu réduit. False → masque
+    # même pour Consultation/Édition qui le voient d'habitude.
+    show_dashboard: Optional[bool] = None
+    show_welcome_modal: Optional[bool] = None
+    show_messaging_notifs: Optional[bool] = None
 
 
 class TrackedUserUpdate(BaseModel):
@@ -409,6 +423,10 @@ class TrackedUserUpdate(BaseModel):
     translator_languages: Optional[List[str]] = None
     translator_rate_per_word: Optional[float] = None
     force_logout_on_idle: Optional[bool] = None
+    # 2026-02 fork (P4) — Overrides visibilité (voir TrackedUserCreate)
+    show_dashboard: Optional[bool] = None
+    show_welcome_modal: Optional[bool] = None
+    show_messaging_notifs: Optional[bool] = None
 
 
 class SaveContactAsTrackedUser(BaseModel):

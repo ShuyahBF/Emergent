@@ -14,6 +14,55 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-24 (Fork iter101) — Bugfix Pack Prod : `support@` cross-tenant + Email de secours d'automation ✅ DÉPLOYÉ
+
+### 🐛 Bug 1 — `support@sawalismartsystems.com` ne voit pas la liste des clients
+**Symptôme prod** : Le compte `support@sawalismartsystems.com` (tracked-Administrateur sous le super-admin) obtenait une liste vide dans les 3 écrans admin Documents / Formations / Formulaires, alors qu'`admin@sawalismartsystems.com` (super-admin) voyait tous les clients. Le multi-select `ClientAccessSelector` était vide → impossible de définir une liste d'accessibilité par tenant.
+
+**Root cause** : `/admin/clients` exigeait `role=admin` strict (voir `auth.py::get_current_admin`). Or `support@` a `role=client-tracked` avec `tracked_role=Administrateur` → 403 silencieux, dropdown vide.
+
+**Fix** :
+- Backend : nouvel endpoint **`GET /me/access-clients-list`** (`server.py:3867`) ouvert à `role∈{admin, superviseur, moderateur}` **OU** `tracked_role∈ELEVATED_TRACKED_ROLES` — retourne la même shape que `/admin/clients` (moins le super-admin).
+- Frontend :
+  - `AdminDocuments.jsx:31` bascule sur `/me/access-clients-list` (au lieu de `/admin/clients` qui retournait 403 pour support@).
+  - `ClientAccessSelector.jsx` déjà branché sur ce même endpoint (fork P5 précédent) → aucun changement.
+- Formulaires (via `FormEditor.jsx` portail) et Formations (via `AdminFormations.jsx`) utilisent déjà le `ClientAccessSelector` partagé → fix automatique.
+
+### 🐛 Bug 2 — Automations WhatsApp échouent silencieusement → besoin d'un email de secours par automation
+**Symptôme prod** : Les automations `relais_messagewa_pouradmin` et `nouvellecnx_loois` échouaient (token WA expiré / template Meta non approuvé / numéro manquant) sans notifier l'admin → messages perdus.
+
+**Fix** :
+- Nouveau champ **`notification_email: Optional[EmailStr]`** sur `AutomationCreate` / `AutomationUpdate` (`server.py:18866, 18878`). Validation Pydantic → 422 sur email malformé, vide autorisé (= pas de fallback).
+- Dispatch `_dispatch_automation_event` (`server.py:18995+`) étendu avec 2 branches :
+  - **Cas 1** (numéro manquant, ligne 19012) : envoie immédiatement l'email de secours avec sujet `[SAWALI Automation] {title} (WA impossible)` + body détaillé (événement, destinataire prévu, template Meta, contexte substitué).
+  - **Cas 2** (WA échoue à l'envoi, ligne 19096) : après tentative `_wa_send_template`, si `wr.get("ok")==False`, envoie l'email de secours avec l'erreur Meta.
+- Traçabilité : `notification_email`, `email_fallback_sent`, `email_fallback_error` persistés sur la ligne `whatsapp_messages` de chaque tentative.
+- Frontend `AdminAutomations.jsx` — Champ input `notification_email` ajouté au formulaire de création/édition.
+
+### 🧹 Bonus — Correctifs lint bloquant `server.py`
+Le fork précédent avait laissé 3 erreurs lint bloquantes :
+1. `F811 Redefinition of unused ContactCreate` (ligne 13849) → renommé la classe locale annuaire `ContactCreate/ContactUpdate` en **`DirectoryContactCreate/Update`** (plus de collision avec `models.ContactCreate` = formulaire public `/contact`). Mise à jour des 2 endpoints `/me/contacts` (create/update).
+2. `F821 Undefined name contact_doc` + `F821 Undefined name to_number` (ligne 14513, `/me/whatsapp/send`) → résolution du label via `directory_contacts.find_one({id: payload.contact_id})` avec fallback sur le numéro `to` brut. Try/except pour ne jamais bloquer l'envoi.
+
+### Validation
+- Lint `ruff` : **0 erreur** sur `server.py` (avant : 3 blocantes).
+- Curl live tests :
+  - `GET /me/access-clients-list` (admin token) → 200, **294 clients** listés.
+  - `POST /admin/automations {notification_email: valid}` → 200, persistance vérifiée via GET.
+  - `POST /admin/automations {notification_email: invalid}` → **422** (validation Pydantic OK).
+  - `DELETE /admin/automations/{id}` → 200.
+- Backend supervisor RUNNING, `/api/health` = `{"status":"ok"}`.
+- Tests Pytest : `test_fork_bugfix_prod_pack.py` créé (6 cas) — exécutable manuellement en preview.
+
+**Backlog restant (post-publication)** :
+- P2 : Historique des suggestions (statuts PROPOSÉE/IMPLÉMENTÉE) — non démarré.
+- Sender X direct dans `smart_comm_senders.py` (OAuth 1.0a signature).
+- Wire LinkedIn image upload dans `me_social_linkedin_post`.
+- Refactor `server.py` (24 800+ lignes) et `liluvine_wa_autoreply.py`.
+
+
+
+
 ## 2026-02-24 (Fork iter100) — Meta/LinkedIn/X wiring étendu + Digest Analytics ✅ TESTÉ
 
 ### Meta LinkedIn Wiring (extension P0.5)

@@ -20,7 +20,10 @@ export default function ClientAccessSelector({ value, onChange, label = "Clients
   const selected = useMemo(() => new Set(value || []), [value]);
 
   useEffect(() => {
-    apiClient.get("/admin/clients")
+    // 2026-02 fork (bug fix) — Utilise `/me/access-clients-list` (permissif
+    // aux admins ET tracked-Administrateur) au lieu de `/admin/clients` qui
+    // renvoie 403 pour un tracked-elevated en prod (support@) → liste vide.
+    apiClient.get("/me/access-clients-list")
       .then((r) => setClients(Array.isArray(r.data) ? r.data : []))
       .catch(() => setClients([]))
       .finally(() => setLoading(false));

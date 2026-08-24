@@ -15,12 +15,40 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-24 (fork iter100)
+## Dernière mise à jour majeure — 2026-02-24 (fork iter101)
+- **Bugfix pack production** livré : `support@` accède désormais à la liste des clients + Email de secours par automation quand WA échoue.
+- Suggestion **S144** ajoutée ci-dessous.
 - Rattrapage des suggestions du **26/02/2026 (Iter43-fix24az-l)** jusqu'à aujourd'hui.
-- Suggestions **S123 → S143** ajoutées ci-dessous (21 entrées : 8 fixes 24az orphelins + 13 features du fork actuel).
+- Suggestions **S123 → S143** ajoutées (21 entrées : 8 fixes 24az orphelins + 13 features du fork précédent).
 - ⚠️ Collisions historiques connues : les IDs **S108, S109, S110, S111** ont été réutilisés dans le passé (avant la présente convention). Ne pas dédupliquer sans concertation — chaque entrée reste valide dans son contexte historique.
 
 ---
+
+## S144 — Bugfix Pack Prod : Support admin cross-tenant + Email de secours d'automation
+- **Demande utilisateur** : 2026-02-24 — « 1. Le compte `support@sawalismartsystems.com` ne peut pas lister les clients pour les Documents/Formulaires/Formations (liste vide), contrairement à `Admin@...`. 2. Les automations WhatsApp (`relais_messagewa_pouradmin`, `nouvellecnx_loois`) échouent. Ajouter un email de secours par automation. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter101)
+- **Fix associé** : fork-bugfix-prod-pack (2026-02-24)
+- **Détail** :
+  - **Bug 1 — visibilité clients pour `support@`** :
+    - Nouvel endpoint **`GET /me/access-clients-list`** (ouvert aux `role∈{admin, superviseur, moderateur}` OU `tracked_role∈ELEVATED_TRACKED_ROLES`) qui renvoie la même liste de clients/tenants que `/admin/clients` (moins le super-admin) — used par les 3 UI (Documents / Formations / Formulaires) via le `ClientAccessSelector` partagé.
+    - `AdminDocuments.jsx` bascule sa dropdown legacy `client_id` sur `/me/access-clients-list` (fix ligne 31).
+    - `ClientAccessSelector.jsx` déjà branché sur ce même endpoint (fork précédent P5).
+  - **Bug 2 — Email de secours par automation** :
+    - Champ **`notification_email: Optional[EmailStr]`** ajouté aux modèles `AutomationCreate` / `AutomationUpdate` (validation Pydantic → 422 sur email malformé).
+    - Logique dispatch `_dispatch_automation_event` étendue :
+      · Cas 1 (numéro manquant) → envoi immédiat de l'email de secours avec sujet `[SAWALI Automation] {title} (WA impossible)` + body listant l'événement, destinataire prévu, template, contexte substitué.
+      · Cas 2 (WA échoue) → email de secours envoyé avec code d'erreur Meta.
+      · Persiste `notification_email`, `email_fallback_sent`, `email_fallback_error` sur la ligne `whatsapp_messages` pour traçabilité.
+    - Frontend `AdminAutomations.jsx` : champ input `notification_email` visible dans le formulaire de création/édition.
+  - **Correctifs lint bonus** (blocage pré-existant sur `server.py`) :
+    · Renommé la classe locale `ContactCreate/ContactUpdate` (annuaire directory_contacts) en `DirectoryContactCreate/Update` — plus de collision avec `models.ContactCreate` (formulaire public `/contact`).
+    · Fixé les variables non définies `contact_doc`/`to_number` dans `/me/whatsapp/send` (résolution du label via `directory_contacts.find_one` avec fallback sur le numéro `to`).
+- **Impact** :
+  - `support@` (tracked-Administrateur) obtient la même visibilité fonctionnelle qu'`admin@` sur les 3 écrans admin de contenu (Documents / Formations / Formulaires).
+  - Aucun changement de comportement pour les automations existantes sans `notification_email` ; celles qui le renseignent bénéficient d'une couverture email en cas de défaillance WA.
+  - Code linter-clean, plus aucune ambiguïté sur `ContactCreate` (public vs directory).
+- **Tests** : Pytest `test_fork_bugfix_prod_pack.py` (créé) + validation curl live (POST/GET/DELETE `/admin/automations`, GET `/me/access-clients-list`).
+
 
 ## S143 — Digest Analytics + Widget Admin Dashboard (planning médecin WhatsApp)
 - **Demande utilisateur** : 2026-02 fork — « Loger chaque envoi de digest médecin + ouverture du lien recap dans une nouvelle collection pour donner à l'admin une métrique d'engagement journalière. »

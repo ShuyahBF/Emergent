@@ -3864,6 +3864,31 @@ async def supervisor_update_admin_client(
 # ====================================================================
 # ADMIN - Clients
 # ====================================================================
+@api.get("/me/access-clients-list", tags=["Portail Client"])
+async def me_access_clients_list(user: dict = Depends(get_current_user)):
+    """2026-02 fork (bug fix) — Liste minimale de clients/tenants pour peupler
+    le multi-select `access_client_ids` (Documents / Formations / Formulaires).
+
+    Autorisé à :
+      - `role in (admin, superviseur, moderateur)`
+      - OU `tracked_role in ELEVATED_TRACKED_ROLES` (Administrateur / Superviseur / Moderation)
+
+    Cela évite le 403 silencieux subi par le compte `support@` en production
+    (tracked-Administrateur → sidebar admin OK mais `/admin/clients` refusait).
+    """
+    role_ok = user.get("role") in ("admin", "superviseur", "moderateur")
+    tracked_ok = user.get("tracked_role") in ELEVATED_TRACKED_ROLES
+    if not (role_ok or tracked_ok):
+        raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs / superviseurs / modérateurs")
+    # Return the same shape /admin/clients uses so the FE can swap without changes.
+    items = await db.users.find(
+        {"role": {"$in": ["client", "superviseur", "admin", "moderateur"]},
+         "email": {"$nin": [SUPER_ADMIN_EMAIL]}},
+        {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
+    ).sort("full_name", 1).to_list(1000)
+    return items
+
+
 @api.get("/admin/clients", tags=["Admin"])
 async def admin_list_clients(
     include_roles: Optional[str] = None,
@@ -13821,7 +13846,9 @@ def _build_components(
 
 
 # ----- Directory of contacts (per client) -----
-class ContactCreate(BaseModel):
+# NOTE : renommé en `DirectoryContactCreate/Update` (2026-02 fork bugfix) pour
+# ne plus masquer `models.ContactCreate` (formulaire public /contact).
+class DirectoryContactCreate(BaseModel):
     name: str
     phone: Optional[str] = ""
     whatsapp: Optional[str] = ""
@@ -13833,7 +13860,7 @@ class ContactCreate(BaseModel):
     photo_url: Optional[str] = None  # Manually uploaded avatar (à la WhatsApp profile picture)
 
 
-class ContactUpdate(BaseModel):
+class DirectoryContactUpdate(BaseModel):
     name: Optional[str] = None
     phone: Optional[str] = None
     whatsapp: Optional[str] = None
@@ -14026,7 +14053,7 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
 
 
 @api.post("/me/contacts", tags=["Portail Client"])
-async def me_create_contact(payload: ContactCreate, user: dict = Depends(get_current_user)):
+async def me_create_contact(payload: DirectoryContactCreate, user: dict = Depends(get_current_user)):
     # Iter35h — demo: enforce contact-count cap (uses live row count).
     await _enforce_demo_quota(user, QUOTA_KEY_CONTACTS, increment=1)
     # Enforce admin-configured "tag mandatory" policy: at least one tag is
@@ -14082,7 +14109,7 @@ def _is_anon_masked_value(value: Any) -> bool:
 
 
 @api.put("/me/contacts/{cid}", tags=["Portail Client"])
-async def me_update_contact(cid: str, payload: ContactUpdate, user: dict = Depends(get_current_user)):
+async def me_update_contact(cid: str, payload: DirectoryContactUpdate, user: dict = Depends(get_current_user)):
     existing = await db.directory_contacts.find_one({"id": cid}, {"_id": 0})
     if not existing:
         raise HTTPException(status_code=404, detail="Contact introuvable")
@@ -14485,7 +14512,16 @@ async def me_whatsapp_send(payload: WhatsAppSendRequest, user: dict = Depends(ge
     try: await db.whatsapp_messages.insert_one(log.copy())
     except Exception: pass
     if log.get("status") in ("sent", "queued") and log.get("client_id"):
-        await _log_activity(client_id=log["client_id"], kind="whatsapp", action="sent", label=f"→ {contact_doc.get('name') or to_number}", actor=user, target_id=log.get("id"))
+        # 2026-02 fork bugfix — Fetch contact name if provided, else fall back to phone.
+        _label = to
+        if payload.contact_id:
+            try:
+                _cdoc = await db.directory_contacts.find_one({"id": payload.contact_id}, {"_id": 0, "name": 1}) or {}
+                if _cdoc.get("name"):
+                    _label = _cdoc["name"]
+            except Exception:
+                pass
+        await _log_activity(client_id=log["client_id"], kind="whatsapp", action="sent", label=f"→ {_label}", actor=user, target_id=log.get("id"))
     log.pop("_id", None)
     return {"ok": result["ok"], "message_id": result["message_id"], "error": result.get("error"), "http_status": result["status"]}
 
@@ -18835,6 +18871,10 @@ class AutomationCreate(BaseModel):
     target: str = "event_target"  # placeholder for future targets (e.g. fixed phone)
     target_phone: Optional[str] = None  # used when target='fixed'
     enabled: bool = True
+    # 2026-02 fork (bug fix) — Email de secours envoyé quand le WA échoue OU
+    # quand le WA n'est pas configuré. Un email différent peut être défini
+    # sur chaque automation. Vide = pas de fallback.
+    notification_email: Optional[EmailStr] = None
 
 
 class AutomationUpdate(BaseModel):
@@ -18846,6 +18886,7 @@ class AutomationUpdate(BaseModel):
     target: Optional[str] = None
     target_phone: Optional[str] = None
     enabled: Optional[bool] = None
+    notification_email: Optional[EmailStr] = None
 
 
 @api.get("/admin/automations", tags=["Admin"])
@@ -18980,7 +19021,35 @@ async def _emit_event(event: str, target: dict) -> None:
             ctx_rid = rid
 
         if not to_phone:
-            # Skipped silently (cannot send) but still log a tracking row
+            # 2026-02 fork (bug fix) — Email de secours si l'automation
+            # ne peut PAS envoyer le WA (numéro manquant).
+            fallback_email = (au.get("notification_email") or "").strip()
+            email_sent = False
+            email_error: Optional[str] = None
+            base_ctx = _build_recipient_ctx(ctx_kind, ctx_user_doc, ctx_phone or "", ctx_label)
+            for k, v in (target.get("extra_ctx") or {}).items():
+                base_ctx[k] = str(v) if v is not None else ""
+            if fallback_email:
+                try:
+                    subject = f"[SAWALI Automation] {au.get('title') or event} (WA impossible)"
+                    body_lines = [
+                        f"L'automation « {au.get('title') or au['template_name']} » n'a pas pu envoyer de WhatsApp : aucun numéro renseigné pour le destinataire.",
+                        "",
+                        f"Événement : {event}",
+                        f"Destinataire prévu : {ctx_label}",
+                        f"Template WA : {au['template_name']} ({au.get('language_code') or 'fr'})",
+                        "",
+                        "Contexte substitué :",
+                    ]
+                    for k, v in (base_ctx or {}).items():
+                        body_lines.append(f"  · {k} = {v}")
+                    body_text = "\n".join(body_lines)
+                    from email_service import send_email as _send_email
+                    email_sent = await _send_email(fallback_email, subject, body_text)
+                except Exception as exc:  # noqa: BLE001
+                    email_error = str(exc)[:200]
+                    email_sent = False
+            # Skipped WA (cannot send) but still log a tracking row
             try:
                 await db.whatsapp_messages.insert_one({
                     "id": _uuid(),
@@ -18997,6 +19066,9 @@ async def _emit_event(event: str, target: dict) -> None:
                     "status": None,
                     "message_id": None,
                     "error": "Pas de numéro de téléphone",
+                    "notification_email": fallback_email or None,
+                    "email_fallback_sent": email_sent if fallback_email else None,
+                    "email_fallback_error": email_error,
                     "created_at": _now(),
                 })
             except Exception:
@@ -19037,6 +19109,32 @@ async def _emit_event(event: str, target: dict) -> None:
                 wr = await _wa_send_template(to_phone, au["template_name"], au.get("language_code") or "fr", components)
             except Exception as exc:  # noqa: BLE001
                 wr = {"ok": False, "status": 0, "message_id": None, "error": str(exc)[:200]}
+            # 2026-02 fork (bug fix) — Email de secours quand le WA échoue OU
+            # que le WA n'est pas configuré. Ne bloque jamais.
+            fallback_email = (au.get("notification_email") or "").strip()
+            email_sent = False
+            email_error: Optional[str] = None
+            if fallback_email and not wr.get("ok"):
+                try:
+                    subject = f"[SAWALI Automation] {au.get('title') or event}"
+                    body_lines = [
+                        f"L'automation « {au.get('title') or au['template_name']} » n'a pas pu envoyer le WhatsApp attendu.",
+                        "",
+                        f"Événement : {event}",
+                        f"Destinataire prévu : {ctx_label} ({to_phone or 'sans numéro'})",
+                        f"Template WA : {au['template_name']} ({au.get('language_code') or 'fr'})",
+                        f"Erreur WA : {wr.get('error') or wr.get('status') or 'inconnue'}",
+                        "",
+                        "Contexte substitué :",
+                    ]
+                    for k, v in (base_ctx or {}).items():
+                        body_lines.append(f"  · {k} = {v}")
+                    body_text = "\n".join(body_lines)
+                    from email_service import send_email as _send_email  # local import — module-level triangle
+                    email_sent = await _send_email(fallback_email, subject, body_text)
+                except Exception as exc:  # noqa: BLE001
+                    email_error = str(exc)[:200]
+                    email_sent = False
             try:
                 await db.whatsapp_messages.insert_one({
                     "id": _uuid(),
@@ -19053,6 +19151,9 @@ async def _emit_event(event: str, target: dict) -> None:
                     "status": wr["status"],
                     "message_id": wr["message_id"],
                     "error": wr.get("error"),
+                    "notification_email": fallback_email or None,
+                    "email_fallback_sent": email_sent if fallback_email else None,
+                    "email_fallback_error": email_error,
                     "created_at": _now(),
                 })
             except Exception:

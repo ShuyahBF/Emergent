@@ -28,7 +28,10 @@ export default function AdminDocuments() {
   useEffect(() => {
     load().catch(() => {});
     loadCats().catch(() => {});
-    apiClient.get("/admin/clients").then((r) => setClients(r.data));
+    // 2026-02 fork (bug fix) — Utilise `/me/access-clients-list` (permissif
+    // aux admins ET tracked-Administrateur type support@) au lieu de
+    // `/admin/clients` qui exigeait role=admin strict → liste vide pour support@.
+    apiClient.get("/me/access-clients-list").then((r) => setClients(r.data));
   }, []);
 
   const open = (it = null) => {

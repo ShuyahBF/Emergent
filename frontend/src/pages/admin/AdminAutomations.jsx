@@ -51,6 +51,7 @@ export default function AdminAutomations() {
       delay_minutes: 0,
       target: "event_target",
       enabled: true,
+      notification_email: "",
     });
   };
 
@@ -272,6 +273,7 @@ function AutomationModal({ editing, setEditing, events, templates, tokens, onSav
         delay_minutes: parseInt(editing.delay_minutes || 0, 10) || 0,
         target: "event_target",
         enabled: !!editing.enabled,
+        notification_email: (editing.notification_email || "").trim() || null,
       };
       if (isEdit) {
         await apiClient.put(`/admin/automations/${editing.id}`, payload);
@@ -417,6 +419,24 @@ function AutomationModal({ editing, setEditing, events, templates, tokens, onSav
             />
             <span className="text-slate-700">Automation activée</span>
           </label>
+
+          {/* 2026-02 fork (bug fix) — Email de secours si WA échoue */}
+          <div className="pt-2 border-t border-slate-100" data-testid="automation-notification-email-row">
+            <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-1">
+              Email de secours (fallback WhatsApp)
+            </label>
+            <input
+              type="email"
+              value={editing.notification_email || ""}
+              onChange={(e) => setEditing({ ...editing, notification_email: e.target.value })}
+              placeholder="admin@sawalismartsystems.com"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              data-testid="automation-notification-email-input"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Utilisé UNIQUEMENT quand l'envoi WhatsApp échoue (template refusé, numéro manquant, timeout Meta…). Vous pouvez définir un email différent par automation.
+            </p>
+          </div>
         </div>
 
         <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">

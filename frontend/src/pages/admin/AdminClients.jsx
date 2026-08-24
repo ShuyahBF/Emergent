@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -61,6 +61,30 @@ export default function AdminClients() {
 
   const catOf = (slug) => categories.find((c) => c.slug === slug);
 
+  // 2026-02 fork iter103 — Payment-delay helper for the Retard column.
+  // Uses `last_payment_at` if set, else `contract_signed_at`. Returns
+  // `{ days, ref, refField }` OR `null` when no reference date is available.
+  const formatMoney = (amount, currency) => {
+    if (amount == null || amount === "" || Number.isNaN(Number(amount))) return null;
+    try {
+      return new Intl.NumberFormat("fr-FR", { style: "currency", currency: currency || "XOF", maximumFractionDigits: 0 }).format(Number(amount));
+    } catch {
+      return `${Number(amount).toLocaleString("fr-FR")} ${currency || ""}`.trim();
+    }
+  };
+  const computePaymentDelay = (c) => {
+    const refIso = c.last_payment_at || c.contract_signed_at || null;
+    if (!refIso) return null;
+    const d = new Date(refIso);
+    if (Number.isNaN(d.getTime())) return null;
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const start = new Date(d);
+    start.setHours(0, 0, 0, 0);
+    const days = Math.max(0, Math.floor((today.getTime() - start.getTime()) / 86400000));
+    return { days, refIso, refField: c.last_payment_at ? "last_payment_at" : "contract_signed_at" };
+  };
+
   // Iter34p — Group rows by role with a fixed display order. Each section
   // gets a labelled header above the user rows so the admin can scan
   // categories at a glance (Admins, Superviseurs, Clients, Modérateurs…).
@@ -113,9 +137,21 @@ export default function AdminClients() {
 
   const submit = async (e) => {
     e.preventDefault(); setLoading(true);
+    // 2026-02 fork iter103 — Normaliser les champs contrat : chaîne vide → null,
+    // montant vide → null (sinon Pydantic → 422 sur `contract_amount = ""`).
+    const normContract = (f) => {
+      const out = { ...f };
+      for (const k of ["contract_number", "contract_signed_at", "contract_currency", "last_payment_at"]) {
+        if (out[k] === "" || out[k] === undefined) out[k] = null;
+      }
+      const amt = out.contract_amount;
+      if (amt === "" || amt === null || amt === undefined) out.contract_amount = null;
+      else if (typeof amt === "string") out.contract_amount = Number(amt) || 0;
+      return out;
+    };
     try {
       if (editing?.id) {
-        const payload = { ...form };
+        const payload = normContract({ ...form });
         if (!payload.password) delete payload.password;
         const r = await apiClient.put(`/admin/clients/${editing.id}`, payload);
         toast.success("Client mis à jour");
@@ -136,7 +172,7 @@ export default function AdminClients() {
           );
         }
       } else {
-        await apiClient.post("/admin/clients", form);
+        await apiClient.post("/admin/clients", normContract(form));
         toast.success("Client créé");
       }
       close(); await load();
@@ -293,7 +329,7 @@ export default function AdminClients() {
       </div>
 
       <div className="rounded-xl border border-slate-200 bg-white overflow-x-auto">
-        <table className="w-full text-sm min-w-[940px]">
+        <table className="w-full text-sm min-w-[1100px]">
           <thead className="bg-slate-50 text-xs uppercase text-slate-600">
             <tr>
               <th className="text-left px-4 py-3">Nom</th>
@@ -302,18 +338,20 @@ export default function AdminClients() {
               <th className="text-left px-4 py-3">Pays</th>
               <th className="text-left px-4 py-3">Rôle</th>
               <th className="text-left px-4 py-3">Statut</th>
+              <th className="text-left px-4 py-3">N° Contrat</th>
+              <th className="text-left px-4 py-3">Retard</th>
               <th className="text-right px-4 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 && <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
+            {items.length === 0 && <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client.</td></tr>}
             {items.length > 0 && groupedByRole.length === 0 && (
-              <tr><td colSpan={7} className="px-4 py-10 text-center text-slate-500">Aucun client dans cette catégorie de rôle.</td></tr>
+              <tr><td colSpan={9} className="px-4 py-10 text-center text-slate-500">Aucun client dans cette catégorie de rôle.</td></tr>
             )}
             {groupedByRole.map(({ role, label, color, rows }) => (
               <React.Fragment key={role}>
                 <tr className="bg-gradient-to-r from-sky-100/80 via-sky-50/60 to-transparent">
-                  <td colSpan={7} className="px-4 py-2">
+                  <td colSpan={9} className="px-4 py-2">
                     <div className="inline-flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-sawali-blue" data-testid={`clients-group-${role}`}>
                       <UsersIcon className="h-3.5 w-3.5" />
                       <span>{label}</span>
@@ -364,6 +402,45 @@ export default function AdminClients() {
                     </td>
                     <td className="px-4 py-3">
                       <span className={`text-xs px-2 py-1 rounded ${c.account_status === "active" ? "bg-emerald-100 text-emerald-700" : "bg-slate-100 text-slate-700"}`}>{c.account_status}</span>
+                    </td>
+                    {/* 2026-02 fork iter103 — N° contrat + Retard paiement (rendus uniquement si champs renseignés) */}
+                    <td className="px-4 py-3 text-xs" data-testid={`client-contract-${c.id}`}>
+                      {c.contract_number ? (
+                        <div>
+                          <div className="font-mono font-semibold text-teal-700">{c.contract_number}</div>
+                          {(c.contract_amount != null && c.contract_amount !== "") && (
+                            <div className="text-[10px] text-slate-500">{formatMoney(c.contract_amount, c.contract_currency)}</div>
+                          )}
+                          {c.contract_signed_at && (
+                            <div className="text-[10px] text-slate-400">signé le {String(c.contract_signed_at).slice(0, 10)}</div>
+                          )}
+                        </div>
+                      ) : (
+                        <span className="text-slate-300">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-xs" data-testid={`client-payment-delay-${c.id}`}>
+                      {(() => {
+                        const d = computePaymentDelay(c);
+                        if (!d) return <span className="text-slate-300">—</span>;
+                        const cls = d.days === 0
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                          : d.days < 30
+                          ? "bg-slate-100 text-slate-700 border-slate-200"
+                          : d.days < 60
+                          ? "bg-amber-100 text-amber-800 border-amber-200"
+                          : "bg-rose-100 text-rose-800 border-rose-300";
+                        const refLabel = d.refField === "last_payment_at" ? "depuis le dernier règlement" : "depuis la signature";
+                        return (
+                          <span
+                            className={`inline-flex flex-col items-start px-2 py-0.5 rounded border ${cls}`}
+                            title={`${d.days} jour${d.days > 1 ? "s" : ""} ${refLabel} (${String(d.refIso).slice(0,10)})`}
+                          >
+                            <span className="font-mono font-semibold text-[11px]">{d.days} j</span>
+                            <span className="text-[9px] uppercase tracking-wide opacity-70">{d.refField === "last_payment_at" ? "règlement" : "signature"}</span>
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="px-4 py-3 text-right">
                       {c.is_primary_client ? (
@@ -543,6 +620,52 @@ export default function AdminClients() {
                 <Input label="Coût par message" type="number" value={form.wa_unit_cost ?? 0} onChange={(v) => setForm({ ...form, wa_unit_cost: v === "" ? 0 : Number(v) })} testid="client-wa-unit-cost" />
                 <Input label="Devise (XOF, EUR, USD…)" value={form.wa_currency || "XOF"} onChange={(v) => setForm({ ...form, wa_currency: (v || "").toUpperCase() })} testid="client-wa-currency" />
               </div>
+            </div>
+
+            {/* 2026-02 fork iter103 — Contract tracking (optional per tenant). */}
+            <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 p-3 space-y-2" data-testid="client-contract-section">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-sm font-display font-bold text-teal-900">📄 Contrat</span>
+                <span className="text-[10px] text-teal-700">— champs optionnels, laissez vides si non applicables</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Input
+                  label="Numéro de contrat"
+                  value={form.contract_number || ""}
+                  onChange={(v) => setForm({ ...form, contract_number: v })}
+                  testid="client-contract-number"
+                />
+                <Input
+                  label="Date de signature"
+                  type="date"
+                  value={(form.contract_signed_at || "").slice(0, 10)}
+                  onChange={(v) => setForm({ ...form, contract_signed_at: v || "" })}
+                  testid="client-contract-signed-at"
+                />
+                <Input
+                  label="Montant du contrat"
+                  type="number"
+                  value={form.contract_amount ?? ""}
+                  onChange={(v) => setForm({ ...form, contract_amount: v })}
+                  testid="client-contract-amount"
+                />
+                <Input
+                  label="Devise du contrat"
+                  value={form.contract_currency || ""}
+                  onChange={(v) => setForm({ ...form, contract_currency: (v || "").toUpperCase() })}
+                  testid="client-contract-currency"
+                />
+                <Input
+                  label="Date du dernier règlement"
+                  type="date"
+                  value={(form.last_payment_at || "").slice(0, 10)}
+                  onChange={(v) => setForm({ ...form, last_payment_at: v || "" })}
+                  testid="client-last-payment-at"
+                />
+              </div>
+              <p className="text-[11px] text-teal-800 italic">
+                Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>.
+              </p>
             </div>
 
             {/* Iter37c — Tarification interventions (Tickets) */}

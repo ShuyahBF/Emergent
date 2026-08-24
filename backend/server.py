@@ -409,6 +409,12 @@ def _to_user_public(u: dict) -> dict:
         # Iter43-fix24az-f (2026-02-26) — Business type of the tenant. Used
         # by PortalLayout.jsx to render a Fabricant-specific sidebar.
         "business_type": u.get("business_type") or "",
+        # 2026-02 fork iter103 — Contract tracking (only rendered when set).
+        "contract_number": u.get("contract_number") or None,
+        "contract_signed_at": u.get("contract_signed_at") or None,
+        "contract_amount": u.get("contract_amount") if u.get("contract_amount") is not None else None,
+        "contract_currency": u.get("contract_currency") or None,
+        "last_payment_at": u.get("last_payment_at") or None,
     }
 
 
@@ -3987,6 +3993,12 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "demo_usage": {} if payload.role == "demo" else None,
         # Iter43-fix24az-f — Business type (fabricant → limited sidebar)
         "business_type": (payload.business_type or "").strip().lower() or None,
+        # 2026-02 fork iter103 — Contract tracking (optional at creation).
+        "contract_number": (payload.contract_number or "").strip() or None,
+        "contract_signed_at": (payload.contract_signed_at or "").strip() or None,
+        "contract_amount": payload.contract_amount if payload.contract_amount is not None else None,
+        "contract_currency": (payload.contract_currency or "").strip().upper() or None,
+        "last_payment_at": (payload.last_payment_at or "").strip() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -24804,6 +24816,21 @@ async def get_suggestions_registry(_: dict = Depends(get_admin_or_supervisor)):
 # History screen. Extracts each entry (## S### — title) with its status marker
 # (🟢 IMPLÉMENTÉE / 🟡 ACCEPTÉE / 🔵 PROPOSÉE / ⚪ DIFFÉRÉE / 🔴 REFUSÉE) and
 # best-effort date. Returns a compact list sorted by ID desc.
+#
+# 2026-02 fork iter103 — Suggestion Vote (S148 follow-up). Adds a MongoDB
+# override layer `db.suggestion_overrides` that lets admins/superviseurs change
+# a suggestion status from the UI without editing the markdown file directly.
+# The override wins over the marker parsed from SUGGESTIONS.md.
+SUGGESTION_STATUSES = ("implemented", "accepted", "proposed", "deferred", "refused")
+SUGGESTION_STATUS_LABELS = {
+    "implemented": "IMPLÉMENTÉE",
+    "accepted": "ACCEPTÉE",
+    "proposed": "PROPOSÉE",
+    "deferred": "DIFFÉRÉE",
+    "refused": "REFUSÉE",
+}
+
+
 @api.get("/admin/suggestions-history", tags=["Admin"])
 async def get_suggestions_history(
     status: Optional[str] = None,
@@ -24828,6 +24855,13 @@ async def get_suggestions_history(
         ("⚪", "deferred", "DIFFÉRÉE"),
         ("🔴", "refused", "REFUSÉE"),
     ]
+
+    # 2026-02 fork iter103 — Load overrides in one shot.
+    try:
+        overrides_docs = await db.suggestion_overrides.find({}, {"_id": 0}).to_list(2000)
+    except Exception:  # noqa: BLE001
+        overrides_docs = []
+    overrides = {o["suggestion_id"]: o for o in overrides_docs if o.get("suggestion_id")}
 
     import re
     # Split on section headers `## S### — Title` (keeps subsections attached).
@@ -24861,11 +24895,26 @@ async def get_suggestions_history(
         # First non-empty paragraph as summary.
         summary_lines = [line for line in body.splitlines() if line.strip()][:2]
         summary = " ".join(summary_lines)[:240]
+        # Apply DB override (if any).
+        override = overrides.get(sid) or {}
+        overridden_status = (override.get("status") or "").strip().lower() if override else ""
+        applied = canon
+        applied_label = label
+        overridden = False
+        if overridden_status in SUGGESTION_STATUSES:
+            applied = overridden_status
+            applied_label = SUGGESTION_STATUS_LABELS.get(overridden_status, "")
+            overridden = True
         items.append({
             "id": sid,
             "title": title,
-            "status": canon,
-            "status_label": label,
+            "status": applied,
+            "status_label": applied_label,
+            "original_status": canon,
+            "overridden": overridden,
+            "override_reason": (override.get("reason") if overridden else None),
+            "override_by": (override.get("updated_by_email") if overridden else None),
+            "override_at": (override.get("updated_at") if overridden else None),
             "date_iso": date_iso,
             "summary": summary,
         })
@@ -24878,6 +24927,79 @@ async def get_suggestions_history(
         want = status.strip().lower()
         items = [it for it in items if it["status"] == want]
     return {"items": items, "total": len(items), "counts": counts}
+
+
+class SuggestionVotePayload(BaseModel):
+    status: str  # implemented | accepted | proposed | deferred | refused
+    reason: Optional[str] = None
+
+
+@api.patch("/admin/suggestions-history/{sid}/status", tags=["Admin"])
+async def admin_vote_suggestion_status(
+    sid: str,
+    payload: SuggestionVotePayload,
+    user: dict = Depends(get_admin_or_supervisor),
+):
+    """2026-02 fork iter103 — Change a suggestion status via UI (override).
+
+    Persists in `db.suggestion_overrides` so the markdown file is left intact.
+    The GET endpoint merges the override on top of the parsed status.
+    """
+    import re as _re
+    if not _re.match(r"^S\d{3}$", sid or ""):
+        raise HTTPException(status_code=400, detail="Format d'ID invalide, attendu SXXX (ex: S144)")
+    canon = (payload.status or "").strip().lower()
+    if canon not in SUGGESTION_STATUSES:
+        raise HTTPException(status_code=400, detail=f"Statut invalide, attendu l'un de {list(SUGGESTION_STATUSES)}")
+    doc = {
+        "suggestion_id": sid,
+        "status": canon,
+        "reason": (payload.reason or "")[:500].strip() or None,
+        "updated_by_id": user.get("id"),
+        "updated_by_email": user.get("email"),
+        "updated_at": _now(),
+    }
+    await db.suggestion_overrides.update_one(
+        {"suggestion_id": sid},
+        {"$set": doc, "$setOnInsert": {"created_at": _now()}},
+        upsert=True,
+    )
+    # Audit trail
+    try:
+        await db.suggestion_override_audit.insert_one({
+            "id": _uuid(),
+            **doc,
+            "audit_at": _now(),
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, **doc}
+
+
+@api.delete("/admin/suggestions-history/{sid}/status", tags=["Admin"])
+async def admin_clear_suggestion_override(
+    sid: str,
+    user: dict = Depends(get_admin_or_supervisor),
+):
+    """Clear the DB override → back to the markdown-declared status."""
+    import re as _re
+    if not _re.match(r"^S\d{3}$", sid or ""):
+        raise HTTPException(status_code=400, detail="Format d'ID invalide")
+    res = await db.suggestion_overrides.delete_one({"suggestion_id": sid})
+    try:
+        await db.suggestion_override_audit.insert_one({
+            "id": _uuid(),
+            "suggestion_id": sid,
+            "status": "__cleared__",
+            "reason": None,
+            "updated_by_id": user.get("id"),
+            "updated_by_email": user.get("email"),
+            "updated_at": _now(),
+            "audit_at": _now(),
+        })
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "deleted": res.deleted_count or 0}
 
 
 app.include_router(api)

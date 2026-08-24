@@ -1,9 +1,9 @@
-// 2026-02 fork iter102 — Suggestions History (statuses + dates + filters).
-// Backed by GET /api/admin/suggestions-history.
+// 2026-02 fork iter102/iter103 — Suggestions History (statuses + dates + vote).
+// Backed by GET /api/admin/suggestions-history + PATCH/DELETE …/status.
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { History, Loader2, RefreshCw, Search, X } from "lucide-react";
+import { History, Loader2, RefreshCw, Search, X, Vote, RotateCcw } from "lucide-react";
 
 const STATUS_META = {
   implemented: { emoji: "🟢", label: "IMPLÉMENTÉE", color: "emerald", key: "implemented" },
@@ -172,20 +172,21 @@ export default function AdminSuggestionsHistory() {
       )}
 
       {/* Table */}
-      <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
-        <table className="w-full text-sm">
+      <div className="rounded-lg border border-slate-200 bg-white overflow-x-auto">
+        <table className="w-full text-sm min-w-[900px]">
           <thead className="bg-slate-50">
             <tr className="text-left text-xs uppercase tracking-wide text-slate-500">
               <th className="px-4 py-2 w-24">ID</th>
               <th className="px-4 py-2">Titre</th>
               <th className="px-4 py-2 w-40">Statut</th>
               <th className="px-4 py-2 w-32">Date</th>
+              <th className="px-4 py-2 w-56">Voter</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-slate-100">
             {loading && items.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500">
                   <Loader2 className="inline h-4 w-4 animate-spin mr-2" />
                   Chargement…
                 </td>
@@ -193,7 +194,7 @@ export default function AdminSuggestionsHistory() {
             )}
             {!loading && filtered.length === 0 && (
               <tr>
-                <td colSpan={4} className="px-4 py-8 text-center text-slate-500" data-testid="suggestions-history-empty">
+                <td colSpan={5} className="px-4 py-8 text-center text-slate-500" data-testid="suggestions-history-empty">
                   Aucune suggestion ne correspond aux filtres.
                 </td>
               </tr>
@@ -203,7 +204,7 @@ export default function AdminSuggestionsHistory() {
               return (
                 <tr
                   key={it.id}
-                  className="hover:bg-slate-50 transition"
+                  className={`hover:bg-slate-50 transition ${it.overridden ? "bg-indigo-50/40" : ""}`}
                   data-testid={`suggestions-history-row-${it.id}`}
                 >
                   <td className="px-4 py-2 font-mono text-xs font-semibold text-indigo-700">{it.id}</td>
@@ -223,9 +224,21 @@ export default function AdminSuggestionsHistory() {
                       <span>{meta.emoji}</span>
                       <span>{meta.label}</span>
                     </span>
+                    {it.overridden && (
+                      <span
+                        className="ml-2 inline-block text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 border border-indigo-200"
+                        title={`Statut modifié par ${it.override_by || "admin"}${it.override_reason ? ` — ${it.override_reason}` : ""}`}
+                        data-testid={`suggestions-history-override-badge-${it.id}`}
+                      >
+                        modifié · {it.override_by || "admin"}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-2 text-xs text-slate-500 font-mono">
                     {it.date_iso || "—"}
+                  </td>
+                  <td className="px-4 py-2">
+                    <VoteControl item={it} onChanged={load} />
                   </td>
                 </tr>
               );
@@ -238,6 +251,118 @@ export default function AdminSuggestionsHistory() {
         <div className="text-xs text-slate-400" data-testid="suggestions-history-updated-at">
           Dernière actualisation : {new Date(updatedAt).toLocaleString("fr-FR")}
         </div>
+      )}
+    </div>
+  );
+}
+
+
+// ----------------------------------------------------------------------------
+// 2026-02 fork iter103 — Vote control per row : select + submit + clear.
+// Persists via PATCH /admin/suggestions-history/{id}/status (or DELETE to
+// revert to the markdown-declared status).
+// ----------------------------------------------------------------------------
+function VoteControl({ item, onChanged }) {
+  const [choice, setChoice] = useState(item.status);
+  const [reason, setReason] = useState(item.override_reason || "");
+  const [saving, setSaving] = useState(false);
+  const [showReason, setShowReason] = useState(false);
+
+  useEffect(() => {
+    setChoice(item.status);
+    setReason(item.override_reason || "");
+  }, [item.status, item.override_reason]);
+
+  const save = async () => {
+    if (!choice || choice === "unknown") {
+      toast.error("Choisir un statut valide");
+      return;
+    }
+    setSaving(true);
+    try {
+      await apiClient.patch(`/admin/suggestions-history/${item.id}/status`, {
+        status: choice,
+        reason: reason.trim() || null,
+      });
+      toast.success(`${item.id} → ${STATUS_META[choice]?.label || choice}`);
+      setShowReason(false);
+      await onChanged?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const clear = async () => {
+    if (!window.confirm(`Retirer l'override et rétablir le statut du fichier pour ${item.id} ?`)) return;
+    setSaving(true);
+    try {
+      await apiClient.delete(`/admin/suggestions-history/${item.id}/status`);
+      toast.success(`${item.id} : override retiré`);
+      setShowReason(false);
+      await onChanged?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap" data-testid={`suggestions-vote-${item.id}`}>
+      <select
+        value={choice}
+        onChange={(e) => setChoice(e.target.value)}
+        className="text-[11px] rounded border border-slate-300 bg-white px-1.5 py-0.5"
+        data-testid={`suggestions-vote-select-${item.id}`}
+      >
+        {STATUS_ORDER.filter((k) => k !== "unknown").map((k) => (
+          <option key={k} value={k}>
+            {STATUS_META[k].emoji} {STATUS_META[k].label}
+          </option>
+        ))}
+      </select>
+      <button
+        type="button"
+        onClick={() => setShowReason((v) => !v)}
+        className="text-[10px] px-1 py-0.5 rounded text-slate-500 hover:text-slate-700"
+        title="Ajouter un motif"
+      >
+        …
+      </button>
+      <button
+        type="button"
+        onClick={save}
+        disabled={saving || choice === item.status}
+        className="inline-flex items-center gap-1 rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-2 py-0.5 disabled:opacity-50"
+        data-testid={`suggestions-vote-save-${item.id}`}
+      >
+        {saving ? <Loader2 className="h-3 w-3 animate-spin" /> : <Vote className="h-3 w-3" />}
+        Voter
+      </button>
+      {item.overridden && (
+        <button
+          type="button"
+          onClick={clear}
+          disabled={saving}
+          className="inline-flex items-center gap-1 rounded border border-slate-300 hover:bg-slate-100 text-slate-600 text-[11px] px-2 py-0.5"
+          title="Retirer l'override"
+          data-testid={`suggestions-vote-clear-${item.id}`}
+        >
+          <RotateCcw className="h-3 w-3" />
+        </button>
+      )}
+      {showReason && (
+        <input
+          type="text"
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="Motif du vote (facultatif, ≤500)"
+          maxLength={500}
+          className="text-[11px] rounded border border-slate-300 bg-white px-2 py-0.5 flex-1 min-w-[180px]"
+          data-testid={`suggestions-vote-reason-${item.id}`}
+        />
       )}
     </div>
   );

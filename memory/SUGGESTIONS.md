@@ -15,14 +15,72 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-24 (fork iter102)
-- **Bugfix prod escalation** livré : fallback `whatsapp_number` + champ `notification_phone` par automation (S145).
-- **X sender OAuth 1.0a** implémenté dans `smart_comm_senders.py` (S146).
-- **LinkedIn image upload** branché sur `me_social_linkedin_post` (S147).
-- **Écran admin "Historique des suggestions"** avec filtres par statut (S148).
-- Suggestions **S144 → S148** ajoutées ci-dessous.
+## Dernière mise à jour majeure — 2026-02-24 (fork iter103)
+- **Instagram sender direct** (single image / carousel 2-10 / Reels) — S149.
+- **TikTok sender direct** (PULL_FROM_URL, privacy) — S150.
+- **Suggestion Vote** : statut override par admin via UI (persisté en Mongo, jamais dans le markdown) — S151.
+- **Contract tracking sur fiche client/tenant** : numéro, date signature, montant, devise, dernier règlement + colonnes N° Contrat + Retard (nb jours) dans la liste admin — S152.
+- Suggestions **S149 → S152** ajoutées ci-dessous.
 
 ---
+
+## S152 — Contract tracking sur fiche client/tenant + colonnes Retard dans la liste
+- **Demande utilisateur** : 2026-02-24 — « Ajoute de nouveaux champs dans la fiche client/tenant pour éditer la référence d'un numéro de contrat pour le client/tenant, la date de signature, le montant du contrat et la date de dernier règlement. Ces champs ne sont renseignés que s'ils existent. Dans la liste des clients fait apparaitre en plus des autres champs une colonne pour le numéro de contrat et le retard de paiement (en nombre de jours) par rapport à la date du jour. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter103)
+- **Fix associé** : fork-iter103-tenant-contract (2026-02-24)
+- **Détail** :
+  - Backend `models.py` : 5 champs ajoutés à `UserCreateAdmin`, `UserUpdateAdmin`, `UserPublic` — `contract_number: Optional[str]`, `contract_signed_at: Optional[str]` (ISO YYYY-MM-DD), `contract_amount: Optional[float]`, `contract_currency: Optional[str]` (XOF/EUR/USD…), `last_payment_at: Optional[str]`.
+  - Backend `_to_user_public` (`server.py:390+`) : propage les 5 champs (renvoie `None` quand absents).
+  - Endpoint POST `/admin/clients` : persiste les 5 champs à la création (chaîne vide → `None`).
+  - Endpoint PUT `/admin/clients/{id}` : mise à jour via `payload.model_dump()` (`if v is not None`), aucun changement de code.
+  - Frontend `AdminClients.jsx` :
+    - Nouvelle section "📄 Contrat" dans le formulaire (teal), 5 inputs (numéro, date signature, montant, devise, date dernier règlement) + note explicative sur le calcul du retard.
+    - Normalisation `normContract()` avant POST/PUT : chaîne vide → `null`, montant string → number (évite 422 Pydantic).
+    - Table : 2 nouvelles colonnes **N° CONTRAT** (affiche numéro + montant formaté + date signature) et **RETARD** (badge coloré émeraude/slate/ambre/rose selon la fenêtre : 0j / <30j / <60j / ≥60j) — calculé sur `last_payment_at` en priorité, sinon `contract_signed_at`.
+    - Helpers `formatMoney` (Intl.NumberFormat FR, currency XOF/EUR/USD) + `computePaymentDelay` (Math.floor sur `(today - refDate) / 86400000`).
+    - Header colspan mis à jour : 7 → 9, min-width 940 → 1100.
+- **Impact** : L'admin peut désormais tracker la relation contractuelle avec chaque tenant/client, et voir en un clin d'œil quels clients sont en retard de paiement (badge rouge ≥60 jours). Aucune régression : tous les champs sont Optional et affichés uniquement quand renseignés.
+
+## S151 — Suggestion Vote (override statut par admin via UI, sans toucher au markdown)
+- **Demande utilisateur** : 2026-02-24 (Next Action Items iter102) — « Permets aux admins de valider ou rejeter une suggestion PROPOSÉE directement depuis l'écran d'historique. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter103)
+- **Fix associé** : fork-iter103-suggestion-vote (2026-02-24)
+- **Détail** :
+  - Backend : nouvelle collection `db.suggestion_overrides` `{suggestion_id, status, reason, updated_by_id/email, updated_at, created_at}` + audit trail `db.suggestion_override_audit`.
+  - Endpoint **`PATCH /admin/suggestions-history/{sid}/status`** `{status: implemented|accepted|proposed|deferred|refused, reason?: str}` — validation regex `^S\d{3}$`, statut whitelisté. Upsert idempotent.
+  - Endpoint **`DELETE /admin/suggestions-history/{sid}/status`** → retire l'override → rétablit le statut du markdown.
+  - Le GET `/admin/suggestions-history` charge tous les overrides en une passe et fusionne : le statut de l'override écrase celui du markdown. Ajoute les champs `overridden`, `original_status`, `override_reason`, `override_by`, `override_at`.
+  - Frontend `AdminSuggestionsHistory.jsx` :
+    - Nouveau composant `<VoteControl item onChanged>` par ligne : `<select>` avec les 5 statuts, bouton "..." pour ouvrir un input motif optionnel, bouton "Voter" (indigo, désactivé si statut inchangé), bouton retour arrière (rotate-ccw) visible uniquement quand la ligne a un override actif.
+    - Badge "modifié · admin@…" à côté du statut quand `overridden=true` (avec `title` détaillant qui/quand/pourquoi).
+    - Table col span 4 → 5, `min-w-[900px]`.
+- **Impact** : L'admin peut désormais faire évoluer le statut d'une suggestion sans éditer le markdown (contrainte volontaire pour préserver l'historique fichier). Un `RotateCcw` permet un retour au statut d'origine en un clic. Traçabilité complète via l'audit collection.
+
+## S150 — TikTok sender direct dans `smart_comm_senders.py`
+- **Demande utilisateur** : 2026-02-24 (Next Action Items iter102) — « Branche un endpoint direct de post vidéo TikTok dans smart_comm_senders.py pour unifier tous les canaux sociaux. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter103)
+- **Fix associé** : fork-iter103-tiktok-sender (2026-02-24)
+- **Détail** :
+  - Nouvel endpoint **`POST /me/social/tiktok/post`** `{video_url, caption?, privacy?}`.
+  - Résolution `tiktok_access_token` via SmartCommResolver (tenant → global fallback).
+  - Résolution privacy : payload > `settings.global.tiktok_privacy_level` > `SELF_ONLY` (whitelist : `SELF_ONLY | MUTUAL_FOLLOW_FRIENDS | FOLLOWER_OF_CREATOR | PUBLIC_TO_EVERYONE`).
+  - Utilise `POST https://open.tiktokapis.com/v2/post/publish/video/init/` avec `source: PULL_FROM_URL` — l'URL doit être publiquement téléchargeable par les serveurs TikTok. Le titre est limité à 2200 caractères.
+  - Audit persisté dans `tiktok_posts_audit` (`video_url`, `caption`, `privacy`, `publish_id`, `credentials_source`, `tenant_id`).
+- **Impact** : Chaque tenant peut publier une vidéo TikTok avec ses propres credentials Smart Comm (au lieu de dépendre du module `story_studio.py`). Retour `{ok, publish_id, privacy, credentials_source}`.
+
+## S149 — Instagram sender direct (Graph API v22) dans `smart_comm_senders.py`
+- **Demande utilisateur** : 2026-02-24 (Next Action Items iter102) — « Ajoute un endpoint direct de publication Instagram avec image et carousel dans smart_comm_senders.py. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter103)
+- **Fix associé** : fork-iter103-instagram-sender (2026-02-24)
+- **Détail** :
+  - Nouvel endpoint **`POST /me/social/instagram/post`** — 3 modes détectés automatiquement :
+    · **Single image** : `image_url` seul → 1 media container → publish.
+    · **Carousel** : `image_urls` (2-10) → chaque item créé avec `is_carousel_item=true`, puis 1 container CAROUSEL référençant les children → publish.
+    · **Reels** : `video_url` seul → container `media_type=REELS`. Attente polling `_instagram_wait_container_ready` (20 tentatives × 1.5s) jusqu'à `FINISHED` avant `media_publish`.
+  - Résolution `instagram_business_id` + `instagram_access_token` via SmartCommResolver.
+  - Endpoints Graph API v22.0 : `POST /{ig_id}/media` (init) + `POST /{ig_id}/media_publish` (publish).
+  - Audit dans `instagram_posts_audit` : `mode`, `caption`, `media_id`, `creation_id`, `credentials_source`, `tenant_id`.
+- **Impact** : Chaque tenant publie sur SON Instagram Business avec SES credentials Smart Comm. Support natif du carrousel (jusqu'à 10 images) et des Reels (vidéo).
 
 ## S148 — Écran admin "Historique des suggestions" avec filtres par statut
 - **Demande utilisateur** : 2026-02-24 — « Ouvre un écran admin qui liste les suggestions PROPOSÉE/IMPLÉMENTÉE avec leur statut et date. »

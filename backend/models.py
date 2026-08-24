@@ -40,6 +40,12 @@ class UserPublic(BaseModel):
     show_dashboard: Optional[bool] = None
     show_welcome_modal: Optional[bool] = None
     show_messaging_notifs: Optional[bool] = None
+    # 2026-02 fork iter103 — Contract tracking (all optional, hidden when null).
+    contract_number: Optional[str] = None
+    contract_signed_at: Optional[str] = None
+    contract_amount: Optional[float] = None
+    contract_currency: Optional[str] = None
+    last_payment_at: Optional[str] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -67,6 +73,13 @@ class UserCreateAdmin(BaseModel):
     link_to_client_id: Optional[str] = None
     # Iter43-fix24az-f — Business type on tenant creation (fabricant → limited sidebar)
     business_type: Optional[str] = None
+    # 2026-02 fork iter103 — Contract tracking fields (optional, per-tenant).
+    # Only rendered when populated. `contract_amount` in the tenant's currency.
+    contract_number: Optional[str] = None
+    contract_signed_at: Optional[str] = None  # ISO date "YYYY-MM-DD"
+    contract_amount: Optional[float] = None
+    contract_currency: Optional[str] = None   # e.g. "XOF", "EUR"
+    last_payment_at: Optional[str] = None     # ISO date "YYYY-MM-DD"
 
 
 class UserUpdateAdmin(BaseModel):
@@ -107,6 +120,12 @@ class UserUpdateAdmin(BaseModel):
     # `fabricant` → limited sidebar (Caisse, GRH, Officines RO, Catalogue,
     # Production). Empty/omitted = standard tenant.
     business_type: Optional[str] = None
+    # 2026-02 fork iter103 — Contract tracking fields (all optional).
+    contract_number: Optional[str] = None
+    contract_signed_at: Optional[str] = None
+    contract_amount: Optional[float] = None
+    contract_currency: Optional[str] = None
+    last_payment_at: Optional[str] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

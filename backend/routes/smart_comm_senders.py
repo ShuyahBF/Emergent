@@ -141,6 +141,19 @@ class XPostIn(BaseModel):
     text: str = Field(..., min_length=1, max_length=280)
 
 
+class InstagramPostIn(BaseModel):
+    caption: str = Field("", max_length=2200)
+    image_url: Optional[str] = None
+    image_urls: Optional[list] = None  # If provided (2-10 URLs), post as carousel
+    video_url: Optional[str] = None  # If provided, post as Reels (single item)
+
+
+class TikTokPostIn(BaseModel):
+    video_url: str = Field(..., min_length=8)  # publicly-fetchable URL
+    caption: Optional[str] = Field(default="", max_length=2200)
+    privacy: Optional[str] = None  # SELF_ONLY | MUTUAL_FOLLOW_FRIENDS | FOLLOWER_OF_CREATOR | PUBLIC_TO_EVERYONE
+
+
 def setup_smart_comm_senders(
     *,
     app,
@@ -406,6 +419,222 @@ def setup_smart_comm_senders(
         except Exception:  # noqa: BLE001
             pass
         return {"ok": True, "tweet_id": tweet_id, "credentials_source": creds["source"]}
+
+    # --------------------------------------------------------------- Instagram
+    async def _instagram_wait_container_ready(
+        *, cli: httpx.AsyncClient, container_id: str, access_token: str,
+        max_attempts: int = 20, delay_s: float = 1.5,
+    ) -> str:
+        """Poll status_code of a media container until FINISHED or ERROR/EXPIRED."""
+        import asyncio
+        for _ in range(max_attempts):
+            sr = await cli.get(
+                f"https://graph.facebook.com/v22.0/{container_id}",
+                params={"fields": "status_code", "access_token": access_token},
+            )
+            if sr.status_code >= 300:
+                return f"HTTP_{sr.status_code}"
+            code = ((sr.json() or {}).get("status_code") or "").upper()
+            if code == "FINISHED":
+                return "FINISHED"
+            if code in ("ERROR", "EXPIRED"):
+                return code
+            await asyncio.sleep(delay_s)
+        return "TIMEOUT"
+
+    @api.post("/me/social/instagram/post", tags=["Portail Client — Social"])
+    async def me_social_instagram_post(
+        payload: InstagramPostIn = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """2026-02 fork iter103 — Publie une image / carrousel / Reels sur
+        Instagram Business via Graph API v22.
+
+        3 modes :
+          - `image_url` seul → single image
+          - `image_urls` (2-10) → carousel (POST /media?is_carousel_item…)
+          - `video_url` seul → Reels
+        """
+        _require_channel_operator(user)
+        tid = _tenant_id_for(user)
+        creds = await resolver.resolve("instagram", tid)
+        ig_id = (creds.get("instagram_business_id") or "").strip()
+        token = (creds.get("instagram_access_token") or "").strip()
+        if not ig_id or not token:
+            raise HTTPException(status_code=400, detail="Instagram non configuré. Renseignez `instagram_business_id` et `instagram_access_token`.")
+        image_urls = [u for u in (payload.image_urls or []) if (u or "").strip()]
+        if not payload.image_url and not payload.video_url and not image_urls:
+            raise HTTPException(status_code=400, detail="Fournir `image_url`, `image_urls` (2-10) ou `video_url`.")
+        base_url = f"https://graph.facebook.com/v22.0/{ig_id}"
+        caption = (payload.caption or "").strip()
+        creation_id: Optional[str] = None
+        mode = "single_image"
+        try:
+            async with httpx.AsyncClient(timeout=45) as cli:
+                # ------- Carousel ---------------------------------------------
+                if len(image_urls) >= 2:
+                    mode = "carousel"
+                    if len(image_urls) > 10:
+                        raise HTTPException(status_code=400, detail="Carrousel Instagram : maximum 10 items.")
+                    children: list = []
+                    for u_ in image_urls:
+                        cr = await cli.post(
+                            f"{base_url}/media",
+                            params={"access_token": token},
+                            data={"image_url": u_, "is_carousel_item": "true"},
+                        )
+                        if cr.status_code >= 300:
+                            raise HTTPException(status_code=502, detail=f"Instagram refuse un item ({cr.status_code}) : {cr.text[:300]}")
+                        cid = (cr.json() or {}).get("id")
+                        if not cid:
+                            raise HTTPException(status_code=502, detail=f"Instagram : id manquant dans un item ({cr.text[:200]})")
+                        children.append(cid)
+                    r = await cli.post(
+                        f"{base_url}/media",
+                        params={"access_token": token},
+                        data={"media_type": "CAROUSEL", "children": ",".join(children), "caption": caption},
+                    )
+                # ------- Reels ------------------------------------------------
+                elif payload.video_url:
+                    mode = "reels"
+                    r = await cli.post(
+                        f"{base_url}/media",
+                        params={"access_token": token},
+                        data={"media_type": "REELS", "video_url": payload.video_url.strip(), "caption": caption},
+                    )
+                # ------- Single image ----------------------------------------
+                else:
+                    mode = "single_image"
+                    single = (payload.image_url or image_urls[0]).strip()
+                    r = await cli.post(
+                        f"{base_url}/media",
+                        params={"access_token": token},
+                        data={"image_url": single, "caption": caption},
+                    )
+                if r.status_code >= 300:
+                    raise HTTPException(status_code=502, detail=f"Instagram refuse la création ({r.status_code}) : {r.text[:300]}")
+                creation_id = (r.json() or {}).get("id")
+                if not creation_id:
+                    raise HTTPException(status_code=502, detail=f"Instagram : creation_id manquant ({r.text[:200]})")
+                # Reels & carousels need to wait for FINISHED before publish.
+                if mode in ("reels", "carousel"):
+                    status_final = await _instagram_wait_container_ready(
+                        cli=cli, container_id=creation_id, access_token=token
+                    )
+                    if status_final != "FINISHED":
+                        raise HTTPException(status_code=502, detail=f"Instagram : container non prêt ({status_final})")
+                pub = await cli.post(
+                    f"{base_url}/media_publish",
+                    params={"access_token": token},
+                    data={"creation_id": creation_id},
+                )
+        except HTTPException:
+            raise
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"Instagram indisponible : {exc}")
+        if pub.status_code >= 300:
+            raise HTTPException(status_code=502, detail=f"Instagram refuse la publication ({pub.status_code}) : {pub.text[:300]}")
+        try:
+            js = pub.json()
+        except Exception:  # noqa: BLE001
+            js = {"raw": pub.text[:2000]}
+        media_id = js.get("id") if isinstance(js, dict) else None
+        # Audit
+        try:
+            await db.instagram_posts_audit.insert_one({
+                "user_id": user.get("id"),
+                "user_email": user.get("email"),
+                "ig_business_id": ig_id,
+                "mode": mode,
+                "caption": caption[:1000],
+                "media_id": media_id,
+                "creation_id": creation_id,
+                "credentials_source": creds["source"],
+                "tenant_id": tid,
+                "created_at": pub.headers.get("date"),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "media_id": media_id, "mode": mode, "credentials_source": creds["source"]}
+
+    # ------------------------------------------------------------------ TikTok
+    @api.post("/me/social/tiktok/post", tags=["Portail Client — Social"])
+    async def me_social_tiktok_post(
+        payload: TikTokPostIn = Body(...),
+        user: dict = Depends(get_current_user),
+    ):
+        """2026-02 fork iter103 — Publie une vidéo TikTok via l'API Direct-Post.
+
+        Utilise `PULL_FROM_URL` (l'URL doit être publiquement téléchargeable
+        depuis les serveurs TikTok). Le `privacy_level` par défaut est lu
+        depuis `settings.global.tiktok_privacy_level` (fallback SELF_ONLY).
+        """
+        _require_channel_operator(user)
+        tid = _tenant_id_for(user)
+        creds = await resolver.resolve("tiktok", tid)
+        access = (creds.get("tiktok_access_token") or "").strip()
+        if not access:
+            raise HTTPException(status_code=400, detail="TikTok non configuré. Renseignez `tiktok_access_token`.")
+        # Privacy resolution : payload > tenant settings > SELF_ONLY.
+        privacy = (payload.privacy or "").strip().upper()
+        if not privacy:
+            try:
+                s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "tiktok_privacy_level": 1}) or {}
+            except Exception:  # noqa: BLE001
+                s = {}
+            privacy = (s.get("tiktok_privacy_level") or "SELF_ONLY").upper()
+        allowed_privacy = {"SELF_ONLY", "MUTUAL_FOLLOW_FRIENDS", "FOLLOWER_OF_CREATOR", "PUBLIC_TO_EVERYONE"}
+        if privacy not in allowed_privacy:
+            raise HTTPException(status_code=400, detail=f"privacy invalide, attendu l'un de {sorted(allowed_privacy)}")
+        body = {
+            "post_info": {
+                "title": (payload.caption or "").strip()[:2200],
+                "privacy_level": privacy,
+                "disable_duet": False,
+                "disable_comment": False,
+                "disable_stitch": False,
+            },
+            "source_info": {
+                "source": "PULL_FROM_URL",
+                "video_url": payload.video_url.strip(),
+            },
+        }
+        try:
+            async with httpx.AsyncClient(timeout=45) as cli:
+                r = await cli.post(
+                    "https://open.tiktokapis.com/v2/post/publish/video/init/",
+                    headers={
+                        "Authorization": f"Bearer {access}",
+                        "Content-Type": "application/json; charset=UTF-8",
+                    },
+                    json=body,
+                )
+        except httpx.HTTPError as exc:
+            raise HTTPException(status_code=502, detail=f"TikTok indisponible : {exc}")
+        if r.status_code >= 300:
+            raise HTTPException(status_code=502, detail=f"TikTok refuse le post ({r.status_code}) : {r.text[:400]}")
+        try:
+            js = r.json()
+        except Exception:  # noqa: BLE001
+            js = {"raw": r.text[:2000]}
+        data = (js.get("data") or {}) if isinstance(js, dict) else {}
+        publish_id = data.get("publish_id") or data.get("publish_id_v2") or ""
+        # Audit
+        try:
+            await db.tiktok_posts_audit.insert_one({
+                "user_id": user.get("id"),
+                "user_email": user.get("email"),
+                "video_url": payload.video_url,
+                "caption": (payload.caption or "")[:1000],
+                "privacy": privacy,
+                "publish_id": publish_id,
+                "credentials_source": creds["source"],
+                "tenant_id": tid,
+                "created_at": r.headers.get("date"),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        return {"ok": True, "publish_id": publish_id, "privacy": privacy, "credentials_source": creds["source"]}
 
     return api
 

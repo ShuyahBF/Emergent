@@ -14,6 +14,66 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-24 (Fork iter103) — Instagram / TikTok senders + Suggestion Vote + Contract tracking ✅ DÉPLOYÉ
+
+### 📸 Instagram Sender — Direct posting via Graph API v22 (`/me/social/instagram/post`)
+Détection auto du mode selon le payload :
+- `image_url` seul → single image (2 étapes : `/media` + `/media_publish`).
+- `image_urls` (2-10) → carousel (chaque item avec `is_carousel_item=true`, container CAROUSEL, publish).
+- `video_url` → Reels (attente polling status_code=`FINISHED` via `_instagram_wait_container_ready`, 20×1.5s).
+- Audit dans `instagram_posts_audit`, credentials via SmartCommResolver (`instagram_business_id` + `instagram_access_token`).
+
+### 🎵 TikTok Sender — Direct-Post via `PULL_FROM_URL` (`/me/social/tiktok/post`)
+- Endpoint `POST https://open.tiktokapis.com/v2/post/publish/video/init/`.
+- Privacy resolution : payload > `settings.global.tiktok_privacy_level` > `SELF_ONLY`. Whitelist des 4 valeurs API.
+- Video URL doit être publiquement téléchargeable par TikTok. Caption ≤ 2200 chars.
+- Audit dans `tiktok_posts_audit` avec `publish_id` + `credentials_source` + `tenant_id`.
+
+### 🗳️ Suggestion Vote — Statut override par admin sans éditer le markdown
+**User request** : « Permets aux admins de valider ou rejeter une suggestion PROPOSÉE directement depuis l'écran d'historique. »
+
+- Nouvelle collection `db.suggestion_overrides` `{suggestion_id, status, reason, updated_by_id/email, updated_at, created_at}` + audit trail `db.suggestion_override_audit`.
+- **`PATCH /admin/suggestions-history/{sid}/status`** `{status, reason?}` — upsert idempotent, validation regex `^S\d{3}$`.
+- **`DELETE /admin/suggestions-history/{sid}/status`** → retire l'override.
+- Le GET fusionne les overrides sur les statuts du markdown (le fichier reste intact — traçabilité fichier préservée). Renvoie `overridden`, `original_status`, `override_by`, `override_at`, `override_reason`.
+- Frontend `AdminSuggestionsHistory.jsx` : nouveau composant `<VoteControl>` par ligne (select + reason optionnel + boutons Voter/Retour arrière). Badge "modifié · admin@…" à côté du statut quand override actif.
+
+### 📄 Contract Tracking — Nouveau bloc dans la fiche client/tenant + colonnes Retard
+**User request** : « Ajoute de nouveaux champs dans la fiche client/tenant pour éditer la référence d'un numéro de contrat, la date de signature, le montant et la date de dernier règlement. Ces champs ne sont renseignés que s'ils existent. Dans la liste des clients fait apparaitre une colonne pour le numéro de contrat et le retard de paiement (en nombre de jours) par rapport à la date du jour. »
+
+- Backend `models.py` : 5 champs `Optional[…]` ajoutés à `UserCreateAdmin` / `UserUpdateAdmin` / `UserPublic` :
+  - `contract_number: Optional[str]`
+  - `contract_signed_at: Optional[str]` (ISO YYYY-MM-DD)
+  - `contract_amount: Optional[float]`
+  - `contract_currency: Optional[str]` (XOF/EUR/USD…)
+  - `last_payment_at: Optional[str]`
+- Backend `_to_user_public` propage les 5 champs (retourne `None` quand absents). POST create endpoint persiste les 5 champs (chaîne vide → `None`).
+- Frontend `AdminClients.jsx` :
+  - Nouvelle section "📄 Contrat" (teal border) dans le formulaire — 5 inputs alignés en grid + note explicative sur le calcul du retard.
+  - `normContract()` avant POST/PUT : chaîne vide → `null`, montant string → number (évite 422 Pydantic).
+  - Table : 2 nouvelles colonnes **N° CONTRAT** (numéro mono + montant `Intl.NumberFormat("fr-FR", currency)` + date signature) et **RETARD** (badge avec fenêtre colorée : 0j = émeraude, <30j = slate, <60j = ambre, ≥60j = rose). Calcul basé sur `last_payment_at` en priorité, sinon `contract_signed_at`.
+  - Header colspan mis à jour : 7 → 9, min-width `940 → 1100`.
+
+### Validation
+- Lint ruff : **0 erreur** sur `server.py` + `routes/smart_comm_senders.py` + `models.py`. Lint ESLint : **0 erreur**.
+- Backend supervisor RUNNING, `/api/health` = `{"status":"ok"}`.
+- Curl live :
+  - `POST /me/social/instagram/post` → 400 "Instagram non configuré" (attendu, credentials absentes en preview).
+  - `POST /me/social/tiktok/post` → 400 "TikTok non configuré" (idem).
+  - `PATCH /admin/suggestions-history/S001/status {status: accepted}` → 200, override persisté, `overridden=true` retourné.
+  - `DELETE /admin/suggestions-history/S001/status` → 200, cleared.
+  - `POST /admin/clients {contract_*}` → contract fields persistés.
+  - `PUT /admin/clients/{id} {contract_amount: 20000000}` → update propagé.
+- Screenshots preview validés : sidebar admin sans nouvelle entrée, colonnes N° CONTRAT + RETARD dans AdminClients, badge `75 j RÈGLEMENT` sur "Fabricant Analytics Demo".
+
+**Backlog restant (post-publication)** :
+- Refactor `server.py` (25 100+ lignes) et `liluvine_wa_autoreply.py`.
+- Instagram Stories (24h ephemeral) support dans `smart_comm_senders.py`.
+- Historique paiements/relances (extension du contract tracking) : collection `db.tenant_payments`.
+- Alerte email/WA automatique quand retard > 60 jours (utiliser event `contract.overdue`).
+
+
+
 ## 2026-02-24 (Fork iter102) — Bug prod escalation + X OAuth 1.0a + LinkedIn Images + Historique Suggestions ✅ DÉPLOYÉ
 
 ### 🐛 Bug prod escalation — Automation `whatsapp.received` échoue (« Aucun numéro renseigné »)

@@ -52,6 +52,7 @@ export default function AdminAutomations() {
       target: "event_target",
       enabled: true,
       notification_email: "",
+      notification_phone: "",
     });
   };
 
@@ -274,6 +275,7 @@ function AutomationModal({ editing, setEditing, events, templates, tokens, onSav
         target: "event_target",
         enabled: !!editing.enabled,
         notification_email: (editing.notification_email || "").trim() || null,
+        notification_phone: (editing.notification_phone || "").trim() || null,
       };
       if (isEdit) {
         await apiClient.put(`/admin/automations/${editing.id}`, payload);
@@ -435,6 +437,24 @@ function AutomationModal({ editing, setEditing, events, templates, tokens, onSav
             />
             <p className="text-[11px] text-slate-500 mt-1">
               Utilisé UNIQUEMENT quand l'envoi WhatsApp échoue (template refusé, numéro manquant, timeout Meta…). Vous pouvez définir un email différent par automation.
+            </p>
+          </div>
+
+          {/* 2026-02 fork iter102 (bug fix prod) — Numéro WA de secours */}
+          <div data-testid="automation-notification-phone-row">
+            <label className="block text-[11px] uppercase tracking-wider text-slate-500 mb-1">
+              Numéro WhatsApp de secours (E.164, sans « + »)
+            </label>
+            <input
+              type="tel"
+              value={editing.notification_phone || ""}
+              onChange={(e) => setEditing({ ...editing, notification_phone: e.target.value })}
+              placeholder="22670000000"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              data-testid="automation-notification-phone-input"
+            />
+            <p className="text-[11px] text-slate-500 mt-1">
+              Numéro WhatsApp utilisé quand le destinataire résolu par l'événement <em>n'a pas de téléphone ni de whatsapp_number</em> (ex : compte super-admin). Le message WA est alors envoyé à ce numéro à la place. Vide = pas de fallback WA → l'email de secours prend le relais.
             </p>
           </div>
         </div>

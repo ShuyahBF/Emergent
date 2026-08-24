@@ -109,6 +109,7 @@ import AdminPolicies from "@/pages/admin/AdminPolicies";
 import AdminLiluvineHistory from "@/pages/admin/AdminLiluvineHistory";
 import AdminI18n from "@/pages/admin/AdminI18n";
 import AdminSuggestionsRegistry from "@/pages/admin/AdminSuggestionsRegistry";
+import AdminSuggestionsHistory from "@/pages/admin/AdminSuggestionsHistory";
 import AdminDownloadAudit from "@/pages/admin/AdminDownloadAudit";
 import Launch from "@/pages/public/Launch";
 import WaPlanningRecap from "@/pages/portal/WaPlanningRecap";
@@ -394,6 +395,7 @@ export default function App() {
             <Route path="integration-links" element={<AdminIntegrationLinks />} />
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
             <Route path="suggestions" element={<AdminSuggestionsRegistry />} />
+            <Route path="suggestions-history" element={<AdminSuggestionsHistory />} />
             <Route path="download-audit" element={<AdminDownloadAudit />} />
             <Route path="i18n" element={<AdminI18n />} />
             <Route path="notes/:kind" element={<UserNotesPage />} />

@@ -14,6 +14,63 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-24 (Fork iter102) — Bug prod escalation + X OAuth 1.0a + LinkedIn Images + Historique Suggestions ✅ DÉPLOYÉ
+
+### 🐛 Bug prod escalation — Automation `whatsapp.received` échoue (« Aucun numéro renseigné »)
+**Symptôme prod** : L'automation `relais_messagewa_pouradmin` (event `whatsapp.received`, destinataire=SAWALI SMART SYSTEMS admin) déclenchait systématiquement l'email de secours avec `phone = ""` — l'admin ne recevait donc jamais le relais WA des messages entrants Liluvine.
+
+**Root cause** : `_dispatch_automation_event` ne lisait que `user_doc.phone` sur les documents `users` / `tracked_users`. Or le compte super-admin `admin@sawalismartsystems.com` n'a pas de `phone` renseigné (identité machine historique), et le champ `whatsapp_number` (déjà présent sur le modèle User) n'était pas consulté.
+
+**Fix** :
+- Backend `_dispatch_automation_event` (`server.py:18991,18999`) :
+  - Projection users/tracked_users étendue : ajout de `whatsapp_number: 1`.
+  - Ordre de résolution `phone` : `payload.phone` → `user_doc.phone` → `user_doc.whatsapp_number` (chacun trim + non-vide).
+- Nouveau champ **`notification_phone: Optional[str]`** sur `AutomationCreate/Update` — utilisé lorsque le destinataire résolu n'a AUCUN numéro. Bascule le WA sur ce numéro (kind reste "raw" côté audit).
+- Frontend `AdminAutomations.jsx` : nouveau champ input « Numéro WhatsApp de secours (E.164, sans +) » sous l'email de secours.
+
+### 🐦 X (Twitter) — Sender OAuth 1.0a intégré à `smart_comm_senders.py`
+**User request** : « Ajoute la signature OAuth 1.0a dans smart_comm_senders.py pour publier sur X depuis chaque tenant. »
+
+- Nouveau helper `_oauth1_auth_header` (stdlib only : `hmac` + `hashlib` + `secrets`) — construit la signature HMAC-SHA1 canonique OAuth 1.0a :
+  - Params oauth : `consumer_key`, `nonce` (32 hex chars), `signature_method="HMAC-SHA1"`, `timestamp`, `token`, `version="1.0"`.
+  - Base string : `POST&<url_encoded>&<params_encoded>` (params triés, percent-encoded RFC 3986).
+  - Signing key : `<consumer_secret>&<token_secret>` (URL-encoded).
+- Endpoint **`POST /me/social/x/post`** ré-implémenté : résout les 4 clés OAuth via SmartCommResolver, signe et poste sur `POST https://api.twitter.com/2/tweets` (JSON body, exclu de la base string). Audit dans `twitter_posts_audit` avec `credentials_source` + `tenant_id`.
+
+### 🖼️ LinkedIn — Image upload branché sur `me_social_linkedin_post`
+**User request** : « Branche l'upload d'image dans me_social_linkedin_post pour enrichir les posts LinkedIn. »
+
+- Nouveau helper `_linkedin_upload_image` (flow LinkedIn REST v202401 3-steps) :
+  1. `POST /rest/images?action=initializeUpload` avec `{initializeUploadRequest: {owner: org_urn}}` → renvoie `{uploadUrl, image}` (URN).
+  2. `PUT` du binaire (Authorization: Bearer) sur `uploadUrl`.
+  3. Retourne l'URN.
+- Endpoint `POST /me/social/linkedin/post` étendu : si `image_url` fourni, download HTTP (20 MB cap, timeout 20s, follow redirects), upload LinkedIn, référence l'URN dans `body.content.media`. Best-effort : échec download/upload → publication en texte seul + log `image_error` dans `linkedin_posts_audit` (jamais bloquant).
+
+### 📜 Nouveau écran admin — Historique des suggestions
+**User request** : « Ouvre un écran admin qui liste les suggestions PROPOSÉE/IMPLÉMENTÉE avec leur statut et date. »
+
+- Backend endpoint **`GET /admin/suggestions-history?status=...`** — parse `/app/memory/SUGGESTIONS.md`, extrait chaque `## S### — Title`, détecte le marqueur de statut, best-effort date ISO, résumé. Renvoie `{items, total, counts}` triés par ID descendant.
+- Frontend `AdminSuggestionsHistory.jsx` (nouveau, `/admin/suggestions-history`) :
+  - Chips filtres par statut avec compteurs live (Toutes / IMPLÉMENTÉE / ACCEPTÉE / PROPOSÉE / DIFFÉRÉE / REFUSÉE).
+  - Recherche textuelle (ID, titre, résumé).
+  - Table : ID (mono indigo) + Titre + résumé (line-clamp) + badge statut coloré (émeraude/ambre/ciel/ardoise/rose) + date.
+- Sidebar admin : lien "Historique des suggestions" ajouté (icône `History`), sous "Suggestions (registre S###)".
+
+### Validation
+- Lint ruff : **0 erreur** sur `server.py` + `routes/smart_comm_senders.py`.
+- Backend supervisor RUNNING, `/api/health` = `{"status":"ok"}`.
+- Curl live :
+  - `POST /admin/automations {notification_phone: "22670000000"}` → 200, champ persisté.
+  - `GET /admin/suggestions-history` → 200 avec `total=127, counts={implemented:122, accepted:2, proposed:3}`, S144 en tête.
+- Screenshot preview validé : filtre chips, table avec S144 en tête, sidebar link visible.
+
+**Backlog restant (post-publication)** :
+- Sender Instagram (Graph API image + carousel) dans `smart_comm_senders.py`.
+- TikTok video upload direct dans `smart_comm_senders.py` (aujourd'hui géré par module dédié `story_studio.py`).
+- Refactor `server.py` (24 900+ lignes) et `liluvine_wa_autoreply.py`.
+
+
+
 ## 2026-02-24 (Fork iter101) — Bugfix Pack Prod : `support@` cross-tenant + Email de secours d'automation ✅ DÉPLOYÉ
 
 ### 🐛 Bug 1 — `support@sawalismartsystems.com` ne voit pas la liste des clients

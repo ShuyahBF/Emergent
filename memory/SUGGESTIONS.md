@@ -15,14 +15,55 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-24 (fork iter101)
-- **Bugfix pack production** livré : `support@` accède désormais à la liste des clients + Email de secours par automation quand WA échoue.
-- Suggestion **S144** ajoutée ci-dessous.
-- Rattrapage des suggestions du **26/02/2026 (Iter43-fix24az-l)** jusqu'à aujourd'hui.
-- Suggestions **S123 → S143** ajoutées (21 entrées : 8 fixes 24az orphelins + 13 features du fork précédent).
-- ⚠️ Collisions historiques connues : les IDs **S108, S109, S110, S111** ont été réutilisés dans le passé (avant la présente convention). Ne pas dédupliquer sans concertation — chaque entrée reste valide dans son contexte historique.
+## Dernière mise à jour majeure — 2026-02-24 (fork iter102)
+- **Bugfix prod escalation** livré : fallback `whatsapp_number` + champ `notification_phone` par automation (S145).
+- **X sender OAuth 1.0a** implémenté dans `smart_comm_senders.py` (S146).
+- **LinkedIn image upload** branché sur `me_social_linkedin_post` (S147).
+- **Écran admin "Historique des suggestions"** avec filtres par statut (S148).
+- Suggestions **S144 → S148** ajoutées ci-dessous.
 
 ---
+
+## S148 — Écran admin "Historique des suggestions" avec filtres par statut
+- **Demande utilisateur** : 2026-02-24 — « Ouvre un écran admin qui liste les suggestions PROPOSÉE/IMPLÉMENTÉE avec leur statut et date. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter102)
+- **Fix associé** : fork-iter102-suggestions-history (2026-02-24)
+- **Détail** :
+  - Backend : nouvel endpoint **`GET /admin/suggestions-history?status=…`** — parse `/app/memory/SUGGESTIONS.md`, extrait chaque section `## S### — Title`, détecte le marqueur de statut (🟢/🟡/🔵/⚪/🔴), date ISO best-effort, résumé (2 premières lignes non-vides). Renvoie `{items, total, counts}` triés par ID descendant.
+  - Frontend : nouveau composant **`AdminSuggestionsHistory.jsx`** monté sur `/admin/suggestions-history` — chips filtres par statut avec compteurs live, recherche textuelle (ID/titre/résumé), table (ID / Titre + résumé / badge statut coloré / date). Lien sidebar admin "Historique des suggestions" ajouté (icône `History`).
+- **Impact** : L'admin peut désormais parcourir les 127+ suggestions en un clic, filtrer par statut (IMPLÉMENTÉE / ACCEPTÉE / PROPOSÉE / DIFFÉRÉE / REFUSÉE) sans plonger dans le markdown brut.
+
+## S147 — LinkedIn Image Upload dans `me_social_linkedin_post`
+- **Demande utilisateur** : 2026-02-24 — « Branche l'upload d'image dans me_social_linkedin_post pour enrichir les posts LinkedIn. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter102)
+- **Fix associé** : fork-iter102-linkedin-image (2026-02-24)
+- **Détail** :
+  - Nouveau helper `_linkedin_upload_image` (flow 3-étapes v202401) : `POST /rest/images?action=initializeUpload` → PUT binaire sur `uploadUrl` → renvoie l'`image` URN.
+  - Endpoint `POST /me/social/linkedin/post` : si `image_url` fourni, télécharge l'image (timeout 20s, cap 20 MB), upload sur LinkedIn, référence l'URN dans `body.content.media`.
+  - Best-effort : échec du download ou de l'upload → publication en texte seul + log d'erreur `image_error` dans `linkedin_posts_audit` (jamais bloquant).
+  - Audit étendu avec `image_urn` + `image_error`.
+- **Impact** : Les posts LinkedIn cross-tenant peuvent maintenant embarquer une image (produits, événements, PoS) directement depuis une URL — augmente drastiquement l'engagement organique.
+
+## S146 — X (Twitter) sender OAuth 1.0a signé pour `smart_comm_senders.py`
+- **Demande utilisateur** : 2026-02-24 — « Ajoute la signature OAuth 1.0a dans smart_comm_senders.py pour publier sur X depuis chaque tenant. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter102)
+- **Fix associé** : fork-iter102-x-oauth1 (2026-02-24)
+- **Détail** :
+  - Nouveau helper `_oauth1_auth_header` (aucune dépendance externe, utilise `hmac` + `hashlib` + `secrets` stdlib) — construit la signature HMAC-SHA1 canonique OAuth 1.0a : nonce hex 32 chars, timestamp epoch, signature_method=`HMAC-SHA1`, base string `POST&<uri_encoded>&<params_encoded>`, signing_key `<consumer_secret>&<token_secret>`.
+  - Endpoint `POST /me/social/x/post` : résout les 4 clés OAuth 1.0a (`x_api_key/secret`, `x_access_token/secret`) via SmartCommResolver, signe et poste sur `POST https://api.twitter.com/2/tweets` (JSON body — non inclus dans la base string), audit dans `twitter_posts_audit` avec `credentials_source` + `tenant_id`.
+  - Retour 400 si les 4 clés absentes, 502 si X refuse (avec status/text), 200 avec `tweet_id`.
+- **Impact** : Chaque tenant peut désormais publier sur SON propre compte X avec SES credentials Smart Comm — plus de blocage 501, plus de dépendance sur le module OAuth 2.0 PKCE de `routes/twitter.py`.
+
+## S145 — Bugfix prod escalation : fallback `whatsapp_number` + `notification_phone` par automation
+- **Demande utilisateur** : 2026-02-24 (email prod) — « L'automation "Relai NOUVEAU message WhatsApp reçu par Liluvine" échoue : "aucun numéro renseigné pour le destinataire". Destinataire = SAWALI SMART SYSTEMS admin, phone vide. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter102)
+- **Fix associé** : fork-iter102-automation-fallback-phone (2026-02-24)
+- **Détail** :
+  - **Cause racine** : `_dispatch_automation_event` ne lisait que `user_doc.phone`. Or le compte super-admin `admin@sawalismartsystems.com` n'a **pas de phone renseigné** (raison historique — le super-admin est une identité machine). Résultat : `to_phone = ""` → skip WA + fallback email.
+  - **Fix 1 — Fallback `whatsapp_number`** : lookup users ET tracked_users étend maintenant la projection pour inclure `whatsapp_number` (`server.py:18991,18999`). Ordre de résolution : `phone` → `whatsapp_number` (chacun trim + non-vide).
+  - **Fix 2 — Champ `notification_phone` par automation** : nouveau champ `notification_phone: Optional[str]` sur `AutomationCreate/Update` (comme le `notification_email` livré au fork iter101). Si le destinataire résolu n'a NI phone NI whatsapp_number, on bascule sur ce numéro. Le kind d'audit reste attribué au tenant d'origine.
+  - **Fix 3 — Frontend `AdminAutomations.jsx`** : nouveau champ input « Numéro WhatsApp de secours (E.164, sans +) » sous le champ email, avec help text explicitant le comportement.
+- **Impact** : L'admin SAWALI reçoit désormais bien les relais WhatsApp (via son propre numéro configuré sur l'automation). Aucune régression pour les automations existantes (les champs sont Optional[str]).
 
 ## S144 — Bugfix Pack Prod : Support admin cross-tenant + Email de secours d'automation
 - **Demande utilisateur** : 2026-02-24 — « 1. Le compte `support@sawalismartsystems.com` ne peut pas lister les clients pour les Documents/Formulaires/Formations (liste vide), contrairement à `Admin@...`. 2. Les automations WhatsApp (`relais_messagewa_pouradmin`, `nouvellecnx_loois`) échouent. Ajouter un email de secours par automation. »

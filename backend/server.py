@@ -18875,6 +18875,11 @@ class AutomationCreate(BaseModel):
     # quand le WA n'est pas configuré. Un email différent peut être défini
     # sur chaque automation. Vide = pas de fallback.
     notification_email: Optional[EmailStr] = None
+    # 2026-02 fork iter102 (bug fix) — Numéro WA de secours utilisé lorsque le
+    # destinataire résolu par `event_target` n'a pas de téléphone (typique
+    # du compte super-admin qui n'a pas de `phone` renseigné). Format E.164
+    # (ex: `22670000000`). Vide = pas de fallback → l'email prend le relais.
+    notification_phone: Optional[str] = None
 
 
 class AutomationUpdate(BaseModel):
@@ -18887,6 +18892,7 @@ class AutomationUpdate(BaseModel):
     target_phone: Optional[str] = None
     enabled: Optional[bool] = None
     notification_email: Optional[EmailStr] = None
+    notification_phone: Optional[str] = None
 
 
 @api.get("/admin/automations", tags=["Admin"])
@@ -18988,18 +18994,20 @@ async def _emit_event(event: str, target: dict) -> None:
     if target.get("client_id"):
         rid = target["client_id"]
         kind = "client"
-        u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
+        u = await db.users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "full_name": 1, "email": 1, "company": 1, "client_code": 1})
         if u:
             user_doc = u
-            phone = phone or (u.get("phone") or "").strip()
+            # 2026-02 fork bugfix — Fallback sur `whatsapp_number` si `phone` vide.
+            phone = phone or (u.get("phone") or "").strip() or (u.get("whatsapp_number") or "").strip()
             label = u.get("company") or u.get("full_name") or u.get("email")
     elif target.get("tracked_user_id"):
         rid = target["tracked_user_id"]
         kind = "tracked"
-        t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "name": 1, "full_name": 1, "email": 1})
+        t = await db.tracked_users.find_one({"id": rid}, {"_id": 0, "phone": 1, "whatsapp_number": 1, "name": 1, "full_name": 1, "email": 1})
         if t:
             user_doc = t
-            phone = phone or (t.get("phone") or "").strip()
+            # 2026-02 fork bugfix — Fallback sur `whatsapp_number` si `phone` vide.
+            phone = phone or (t.get("phone") or "").strip() or (t.get("whatsapp_number") or "").strip()
             label = t.get("full_name") or t.get("name") or t.get("email")
     label = label or phone or "—"
 
@@ -19019,6 +19027,19 @@ async def _emit_event(event: str, target: dict) -> None:
             ctx_user_doc = user_doc
             ctx_kind = kind
             ctx_rid = rid
+
+        # 2026-02 fork iter102 (bug fix prod) — Numéro WA de secours défini
+        # sur l'automation elle-même. Utilisé quand le destinataire résolu
+        # n'a pas de `phone` NI de `whatsapp_number` (ex : compte super-admin).
+        # Bascule le kind→"raw" pour que le message soit envoyé "au numéro
+        # brut" plutôt que ré-associé au destinataire d'origine.
+        fallback_phone = (au.get("notification_phone") or "").strip()
+        if not to_phone and fallback_phone:
+            to_phone = fallback_phone
+            ctx_phone = fallback_phone
+            ctx_label = f"{ctx_label} → {fallback_phone}" if ctx_label and ctx_label != "—" else fallback_phone
+            # Garde ctx_kind/ctx_rid pour que le log reste attribué au tenant
+            # d'origine (audit + activity feed).
 
         if not to_phone:
             # 2026-02 fork (bug fix) — Email de secours si l'automation
@@ -24777,6 +24798,86 @@ async def get_suggestions_registry(_: dict = Depends(get_admin_or_supervisor)):
         raise
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Erreur lecture: {exc!s}") from exc
+
+
+# 2026-02 fork iter102 — Parsed suggestions history for the admin Suggestions
+# History screen. Extracts each entry (## S### — title) with its status marker
+# (🟢 IMPLÉMENTÉE / 🟡 ACCEPTÉE / 🔵 PROPOSÉE / ⚪ DIFFÉRÉE / 🔴 REFUSÉE) and
+# best-effort date. Returns a compact list sorted by ID desc.
+@api.get("/admin/suggestions-history", tags=["Admin"])
+async def get_suggestions_history(
+    status: Optional[str] = None,
+    _: dict = Depends(get_admin_or_supervisor),
+):
+    """List parsed suggestions from SUGGESTIONS.md.
+
+    Query params:
+      - status : filter by canonical status key (implemented | accepted | proposed | deferred | refused)
+    """
+    from pathlib import Path
+    p = Path("/app/memory/SUGGESTIONS.md")
+    if not p.exists():
+        return {"items": [], "total": 0, "counts": {}}
+    text = p.read_text(encoding="utf-8", errors="replace")
+
+    # Status marker → canonical key.
+    STATUS_MARKERS = [
+        ("🟢", "implemented", "IMPLÉMENTÉE"),
+        ("🟡", "accepted", "ACCEPTÉE"),
+        ("🔵", "proposed", "PROPOSÉE"),
+        ("⚪", "deferred", "DIFFÉRÉE"),
+        ("🔴", "refused", "REFUSÉE"),
+    ]
+
+    import re
+    # Split on section headers `## S### — Title` (keeps subsections attached).
+    parts = re.split(r"^(##\s+S\d{3}\s+.*)$", text, flags=re.MULTILINE)
+    # Result of re.split with capture: [prefix, header, body, header, body, ...]
+    items: List[Dict[str, Any]] = []
+    for i in range(1, len(parts), 2):
+        header = (parts[i] or "").strip()
+        body = (parts[i + 1] if i + 1 < len(parts) else "") or ""
+        # Extract S### id + title.
+        m = re.match(r"##\s+(S\d{3})\s+—\s+(.+)$", header)
+        if not m:
+            m = re.match(r"##\s+(S\d{3})\s+(.+)$", header)
+        if not m:
+            continue
+        sid, title = m.group(1), (m.group(2) or "").strip()
+        # Status detection : first marker found in the body.
+        canon = "unknown"
+        label = ""
+        for marker, key, lab in STATUS_MARKERS:
+            if marker in body:
+                canon = key
+                label = lab
+                break
+        # Best-effort date : `Fix associé : xxx (YYYY-MM-DD)` OR `2026-XX-XX` on
+        # the first 6 lines of the body.
+        date_iso = ""
+        dm = re.search(r"(20\d{2}-\d{2}-\d{2})", body[:800])
+        if dm:
+            date_iso = dm.group(1)
+        # First non-empty paragraph as summary.
+        summary_lines = [line for line in body.splitlines() if line.strip()][:2]
+        summary = " ".join(summary_lines)[:240]
+        items.append({
+            "id": sid,
+            "title": title,
+            "status": canon,
+            "status_label": label,
+            "date_iso": date_iso,
+            "summary": summary,
+        })
+    # Sort by numeric id desc.
+    items.sort(key=lambda it: int(it["id"][1:] or "0"), reverse=True)
+    counts: Dict[str, int] = {}
+    for it in items:
+        counts[it["status"]] = counts.get(it["status"], 0) + 1
+    if status:
+        want = status.strip().lower()
+        items = [it for it in items if it["status"] == want]
+    return {"items": items, "total": len(items), "counts": counts}
 
 
 app.include_router(api)

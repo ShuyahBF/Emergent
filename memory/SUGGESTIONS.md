@@ -15,7 +15,207 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
+## Dernière mise à jour majeure — 2026-02-24 (fork iter100)
+- Rattrapage des suggestions du **26/02/2026 (Iter43-fix24az-l)** jusqu'à aujourd'hui.
+- Suggestions **S123 → S143** ajoutées ci-dessous (21 entrées : 8 fixes 24az orphelins + 13 features du fork actuel).
+- ⚠️ Collisions historiques connues : les IDs **S108, S109, S110, S111** ont été réutilisés dans le passé (avant la présente convention). Ne pas dédupliquer sans concertation — chaque entrée reste valide dans son contexte historique.
+
 ---
+
+## S143 — Digest Analytics + Widget Admin Dashboard (planning médecin WhatsApp)
+- **Demande utilisateur** : 2026-02 fork — « Loger chaque envoi de digest médecin + ouverture du lien recap dans une nouvelle collection pour donner à l'admin une métrique d'engagement journalière. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter100)
+- **Fix associé** : fork-p05-analytics (2026-02-24)
+- **Détail** :
+  - Nouvelle collection **`planning_digest_events`** : `{id, kind: "sent"|"opened", user_id, email, tenant_id, rdv_count, recipient_digits, recap_token_issued, at}`.
+  - Insertion `sent` best-effort dans `run_medecin_planning_digest()` — jamais bloquant.
+  - Insertion `opened` dans `wa_planning_exchange()`.
+  - Endpoint **`GET /admin/planning-digest/analytics?days=N`** (clamp 1-365) : totaux, engagement_rate_pct, breakdown journalier, 20 derniers événements.
+  - Widget frontend `PlanningDigestAnalytics.jsx` monté sur `AdminDashboard` — 3 tuiles + tableau 14 j + audit stream + range picker 7/30/90.
+- **Tests** : Pytest `test_fork_p05_multichannel_analytics.py` — 4 cas analytics incl. round-trip mint → exchange → +1 opened.
+
+## S142 — Wiring multi-canal Smart Comm (Meta / LinkedIn / X / Instagram / TikTok)
+- **Demande utilisateur** : 2026-02 fork — « Étendre `_resolve_wa_credentials` à Meta/LinkedIn/X/Instagram/TikTok pour que chaque tenant expédie ses posts sociaux sous sa propre identité Smart Comm. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter100) — LinkedIn + Meta fonctionnels ; X = 501 (OAuth 1.0a via `routes/twitter.py`)
+- **Fix associé** : fork-p05-multichannel (2026-02-24)
+- **Détail** :
+  - Nouveau module **`routes/smart_comm_resolver.py`** — classe `SmartCommResolver` centralisée. 6 canaux (`wa`, `meta`, `instagram`, `linkedin`, `x`, `tiktok`) avec `required_fields` + `all_fields`.
+  - Nouveau module **`routes/smart_comm_senders.py`** — endpoints portail :
+    - `GET /me/social/status` — liste canaux + drapeau `ready`
+    - `POST /me/social/linkedin/post` — publie via `POST /rest/posts` (LinkedIn-Version 202401), audit dans `linkedin_posts_audit`
+    - `POST /me/social/meta/post` — Graph v22.0 page feed
+    - `POST /me/social/x/post` — retourne 501 explicite
+  - Endpoint diag **`GET /admin/smart-comm/resolver-diag?channel=<>&tenant_id=…`** — source + longueur secrets sans révélation.
+  - RBAC : admin, superviseur, moderator, marketing, communication.
+- **Tests** : Pytest 7/7 (`test_fork_p05_multichannel_analytics.py`).
+
+## S141 — Deep-link WhatsApp auto-login pour le planning médecin (P3 recap)
+- **Demande utilisateur** : 2026-02 fork — « Ajouter au message WA médecin un deep-link avec token temporaire (30 min) pour valider/annuler/reprogrammer chaque RDV sans se re-connecter. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter99)
+- **Fix associé** : fork-p3-recap (2026-02-23)
+- **Détail** :
+  - `medecin_planning_digest.py` : helper `_issue_recap_token(user_id)` — JWT scope `wa_planning_recap`, TTL 30 min, secret `WA_PLANNING_RECAP_SECRET → LINK_JWT_SECRET → JWT_SECRET+"-wa-recap"`.
+  - Body WA du digest inclut `Valider / annuler / reprogrammer : {PUBLIC_BASE}/wa-recap?t=<jwt>`.
+  - Endpoint public **`POST /auth/wa-planning-exchange {t}`** — refuse si non-Médecin actif, renvoie JWT 12h + user public.
+  - Route frontend `/wa-recap` → `WaPlanningRecap.jsx` : POST à l'exchange, stocke `sawali_token`/`sawali_user`, hard-redirect vers `/portal/planning`.
+  - Écrans d'erreur explicites (expiré / invalide / non-médecin) + fallback login.
+  - Codes : 400 (missing), 401 (invalid/expired/bad_scope/missing_sub), 403 (désactivé/non-médecin), 404 (introuvable).
+- **Tests** : `test_fork_p3_recap_deep_link.py` — 6 cas.
+
+## S140 — Wiring senders WhatsApp sur credentials Smart Comm par tenant (P0.5)
+- **Demande utilisateur** : 2026-02 fork — « Brancher le sender WA sur les credentials Smart Comm du tenant paramétrés en P0 (`tenant_smart_comm.wa_access_token` / `wa_phone_number_id`). »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter99)
+- **Fix associé** : fork-p05-wa-wiring (2026-02-23)
+- **Détail** :
+  - `routes/whatsapp_helpers.py` : helper factory `_resolve_wa_credentials(tenant_id)` — strict override (aligné Q3=b, pas de merge partiel).
+  - `_wa_send_text` et `_wa_send_template` acceptent un `tenant_id` optionnel.
+  - `_send_wa_text_for_digest(to, text, scope_user)` extrait `tenant_id` automatiquement → impact immédiat sur `wa_tasks_digest_5min` + `medecin_planning_digest_5min`.
+  - Endpoint diag **`GET /admin/wa-credentials-resolver-diag?tenant_id=…`** (secret masqué).
+- **Tests** : `test_fork_p05_smart_comm_wiring.py` — 3 cas.
+
+## S139 — Planning WhatsApp quotidien du Médecin (P3)
+- **Demande utilisateur** : 2026-02 fork — « Sur /portal/my-account, un toggle 'Recevoir mon planning RDV du jour par WhatsApp' avec choix d'heure. Cron backend expédie le planning. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter98)
+- **Fix associé** : fork-p3-planning (2026-02-23)
+- **Détail** :
+  - Nouveau module **`routes/medecin_planning_digest.py`** :
+    - `GET /me/planning-wa-digest` (403 hors médecin) — {enabled, hour} défaut 7h
+    - `PUT /me/planning-wa-digest` — valide `hour ∈ [0, 23]`, persiste sur `users`
+    - `POST /admin/planning-wa-digest/run-now` — trigger manuel admin/superviseur
+    - `run_medecin_planning_digest(db, send_wa_fn)` — idempotent via `planning_wa_last_digest_at`
+  - Cron `medecin_planning_digest_5min` (Africa/Abidjan).
+  - Frontend `MyAccount.jsx` : `MedecinPlanningWaDigestSection` visible pour `tracked_role="Médecin"` — toggle + select heure.
+- **Tests** : `test_fork_p3_medecin_planning_wa.py` — 6 cas.
+
+## S138 — Overrides visibilité par tracked user (P4)
+- **Demande utilisateur** : 2026-02 fork — « Sur la fiche AdminTrackedUsers, 3 toggles individuels (Défaut du rôle / Toujours afficher / Toujours masquer) qui override Tableau de bord / modale de bienvenue / notifications Messagerie. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter98)
+- **Fix associé** : fork-p4-visibility (2026-02-23)
+- **Détail** :
+  - `models.py` : `TrackedUserCreate/Update` reçoit `show_dashboard`, `show_welcome_modal`, `show_messaging_notifs` (Optional[bool]).
+  - `UserPublic` + `_to_user_public()` exposent les 3 champs sur `/auth/me`.
+  - Bridge users à `set-password` + `admin_update_tracked` propage les overrides. **None-reset explicite** via `P4_RESETTABLE`.
+  - Frontend `AdminTrackedUsers.jsx` : fieldset "Visibilité personnalisée" avec 3 selects (Défaut / Toujours afficher / Toujours masquer).
+  - `PortalLayout.jsx` : résout `p4ShowDashboard/Welcome/MsgNotifs`. Restricted-role bypass si toggle True. Coupe modale + `useWhatsAppNotifier` selon toggles.
+  - `useWhatsAppNotifier(enabled)` : nouvelle prop qui coupe polling + reset badge favicon.
+- **Tests** : `test_fork_p4_visibility_overrides.py` — 3 cas.
+
+## S137 — Listes d'accessibilité par tenant (Formations / Formulaires / Documents) — P5
+- **Demande utilisateur** : 2026-02 fork — « Ajouter une liste d'accessibilité `access_client_ids` par tenant. Vide = comportement historique ; non-vide = restreint aux utilisateurs des clients cochés. Utilisateur retiré perd immédiatement l'accès. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter96)
+- **Fix associé** : fork-p5-access (2026-02-22)
+- **Détail** :
+  - `models.py` : `access_client_ids: Optional[List[str]]` sur `FormationCreate/Update` et `DocumentCreate/Update`.
+  - `server.py` : ajout du champ sur `FormCreate/FormUpdate` (Formulaires).
+  - Helper `_item_accessible_by_tenant(item, user)` — admin bypass, sinon `user.parent_client_id ∈ access_client_ids`.
+  - Filtrage sur : `GET /me/documents`, `GET /me/formations{/id}`, `POST /me/formations/{fid}/enroll` (403 gaté), `GET /me/forms{/id}`.
+  - Frontend : nouveau composant **`ClientAccessSelector.jsx`** (multi-select recherchable) intégré dans `AdminFormations.jsx`, `AdminDocuments.jsx`, `FormEditor.jsx`.
+- **Tests** : `test_fork_p5_access_client_ids.py` — 5 cas.
+
+## S136 — KYC Tenant + Smart Communications configurables par client (P0)
+- **Demande utilisateur** : 2026-02 fork — « Module KYC par client avec Smart Communications configurables (WA, Meta, LinkedIn, etc.) accessible depuis /portal/my-account. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter95)
+- **Fix associé** : fork-p0-kyc-smartcomm (2026-02-21)
+- **Détail** :
+  - Nouveau module **`routes/tenant_kyc.py`** — endpoints `/me/tenant-kyc`, `/me/smart-communications` + variantes admin `/admin/tenant-kyc/{tenant_id}`.
+  - Collections `tenant_kyc` (`{client_id, tax_data, kyc_docs}`) et `tenant_smart_comm` (`{tenant_id, wa_*, meta_*, instagram_*, linkedin_*, x_*, tiktok_*}`).
+  - Frontend `/portal/my-account` : 2 nouvelles sections (Données fiscales + Smart Communications) avec upload Emergent Object Storage.
+  - Audit Security-Testing : 100% de conformité (RBAC + sanitize + secret masking).
+
+## S135 — Rappel/annulation WhatsApp d'un message non distribué (Recall)
+- **Demande utilisateur** : 2026-02 fork — Bouton "Supprimer/Rappeler" pour annuler l'envoi d'un message WA non encore distribué (`sent`/`queued`).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter94)
+- **Fix associé** : fork-wa-recall (2026-02-20)
+- **Détail** :
+  - **`PATCH /me/whatsapp/messages/{message_id}/recall`** — refuse si `delivered_at`/`read_at`, sinon marque `is_recalled=True`, `recalled_at`, `recalled_by_id`.
+  - `UnifiedInbox.jsx` : bouton "Recall" (icône `Undo2`) sur messages sortants encore en `sent`/`queued`.
+  - Cascade : webhooks Meta ultérieurs ignorés pour un message `is_recalled`.
+- **Tests** : `test_fork_wa_recall.py`.
+
+## S134 — Rôle "Secrétaire médicale" pour la gestion des Walk-in
+- **Demande utilisateur** : 2026-02 fork — Rôle tracked "Secrétaire médicale" avec CRUD complet sur les Walk-in sans affecter le reste.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter94)
+- **Fix associé** : fork-secretaire-medicale (2026-02-19)
+- **Détail** :
+  - `models.py` : ajout `"Secrétaire médicale"` à `TRACKED_USER_ROLES`.
+  - `routes/planning.py` : CRUD autorisé sur RDV `is_rdv=false` (Walk-in) ; bloqué sur RDV programmés.
+  - `PortalLayout.jsx` : allowlist réduite à `/portal/planning` uniquement.
+  - Modal `WalkInModal.jsx` dans `Planning.jsx`.
+- **Tests** : `test_fork_p2_walkin_secretaire.py`.
+
+## S133 — Visibilité cross-tenant et self-created tickets pour le compte Support
+- **Demande utilisateur** : 2026-02 fork — Support@ doit voir tous les tickets/interventions qu'il crée + ceux des autres tenants.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter94)
+- **Fix associé** : fork-support-visibility (2026-02-19)
+- **Détail** :
+  - Fallback OR sur `created_by_id == user.id` en plus du filtre tenant pour Support.
+  - Superviseur voit tout le planning des médecins de son client (élargissement scope planning).
+
+## S132 — Notification sonore WhatsApp paramétrable par admin + override user
+- **Demande utilisateur** : 2026-02 fork — Paramétrage du son de notification WA (upload MP3 via Object Storage) avec override local côté client.
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter94)
+- **Fix associé** : fork-wa-notif-sound (2026-02-18)
+- **Détail** :
+  - Nouveau module **`routes/wa_notification_sound.py`** — `/admin/notification-sound` (GET/PUT) + `/admin/notification-sound/upload` (multipart Object Storage).
+  - 5 presets built-in (bip, ding, chime, alert, subtle) + "custom" URL.
+  - `useWhatsAppNotifier.js` : preset admin + override local via `localStorage.wa_notification_sound_local`.
+  - Admin Settings : upload + sélecteur + bouton "Tester le son".
+
+## S131 — Automations : Event Login + WA Masked Reply by Admin
+- **Demande utilisateur** : 2026-02 fork — Ajouter 2 nouveaux triggers d'automation : `user_login` (à chaque connexion) et `wa_masked_reply` (quand admin répond en mode masqué `#R<id> texte`).
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter93)
+- **Fix associé** : fork-automations-triggers (2026-02-17)
+- **Détail** :
+  - `server.py` : helper `_try_handle_masked_reply(from_num, digits_only, text_body)` parse `#R<3-8 alphanum> <texte>` dans les inbound WA.
+  - Automations : trigger `event=user_login` dispatché depuis `/auth/verify-otp`, trigger `event=wa_masked_reply` depuis le webhook Meta après match du pattern.
+  - `AutomationsBuilder.jsx` : 2 nouveaux triggers dans le dropdown.
+
+## S130 — Iter43-fix24az-ad — Planning heatmap N jours (panneau latéral)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-ad
+- **Détail** : Endpoint `GET /me/planning/heatmap?days=N` → `[{date, count, walk_ins}]`. Mini-heatmap 30j en panneau latéral `Planning.jsx` (intensité couleur par charge).
+
+## S129 — Iter43-fix24az-ac — Page standalone d'Analyse de Prescription (Médecin only)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-ac
+- **Détail** : Extraction du formulaire d'analyse VIDAL de `/portal/vidal` vers une page dédiée `/portal/prescription-analysis`. Sidebar Médecin allowlistée. Nouveau composant `PrescriptionAnalysis.jsx` ; `Vidal.jsx` pointeur vide (backward compat).
+
+## S128 — Iter43-fix24az-u — WhatsApp underscore neutraliser
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-u
+- **Détail** : `_wa_neutralize_underscores()` remplace `_` par un caractère quasi-identique dans texts + caption des médias — évite l'italique blanc parasite de Meta sur les `_` séquentiels.
+
+## S127 — Iter43-fix24az-t — Refactor deployment fingerprint
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-t
+- **Détail** : `_bump_deployment_counter_if_needed` : SHA-256 des fichiers backend (`server.py`, `routes/*.py`, `models.py`, `requirements.txt`) → bump `deploy_seq` seulement si hash change. Nouveaux champs debug/monitoring dans `/api/version-detail`.
+- **Tests** : `test_iter43_fix24az_t_deployment_fingerprint.py`.
+
+## S126 — Iter43-fix24az-s — Fix WhatsApp `!garde` reply vide (nom d'officine contenant `_`)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-s
+- **Détail** : `_build_garde_reply` : ne PAS wrapper chaque ligne avec caractères de formatage WA (rendait invisible les `_` dans les noms). Regression tests complets.
+- **Tests** : `test_iter43_fix24az_s_wa_garde_assist_reply.py`.
+
+## S125 — Iter43-fix24az-r — Groupe d'assistance hebdo (Garde Planning)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-r
+- **Détail** : `garde_planning.py` : nouveau champ `assist_group` (int|null) sur chaque planning-week — mutualise plusieurs officines dans un même groupe d'assistance téléphonique/livraison.
+
+## S124 — Iter43-fix24az-q — Extraction WhatsApp helpers (Phase A refactor)
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
+- **Fix associé** : Iter43-fix24az-q
+- **Détail** : Extraction de ~1500 lignes de code WhatsApp de `server.py` vers **`routes/whatsapp_helpers.py`** via factory `attach_whatsapp_helpers(db, ...)`. Server.py binde les helpers au startup. Aucune régression.
+- **Tests** : `test_iter43_fix24az_q_wa_helpers_refactor.py`.
+
+## S123 — Iter43-fix24az-n — Rappels WhatsApp 1h avant RDV Planning + SSE
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-07-18)
+- **Fix associé** : Iter43-fix24az-n
+- **Détail** :
+  - `routes/planning.py` — cron `run_planning_wa_reminders` (5 min) qui sélectionne les RDV entre `now+55min` et `now+65min` puis envoie confirmation WA au patient. Idempotence via `reminder_sent_at`.
+  - SSE stream `/api/me/planning/stream` : push temps réel des nouveaux RDV / walk-ins dans le UI Planning.
+
+
 
 ## S001 — Onglet « Conversion en ligne » sur le rapport public + widget Renouveler la campagne
 - **Proposée le** : 2026-05-31 (après fix9z4)
@@ -796,7 +996,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Admin Clients** : dropdown `business-type-select` dans AdminClients.jsx.
 - **Tests** : 6/6 pytest (`test_iter43_fix24az_f_production.py`) : 403 non-fabricant, CRUD intrants, calcul recette, settings, export PDF, /auth/me expose business_type. Testing agent : Fabricant sidebar 5 links strictement, non-fabricant admin 29 links sans Production, /portal/production 3 tabs OK, calcul temps réel validé, PDF exports OK.
 
-## S107 — WhatsApp Conversations : 2 onglets Discussion / Groupes(n)
+## S122 — WhatsApp Conversations : 2 onglets Discussion / Groupes(n)
 - **Demande utilisateur** : 2026-07-22 — « Redéfinir le cadre bordure rouge dans la fenêtre de conversations WhatsApp ; sur téléphone/tablette cette zone prend quasiment tout l'espace de la fenêtre de conversation. »
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
 - **Fix associé** : Iter43-fix24az-y
@@ -838,7 +1038,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **GET /me/planning/appointments** : requête composée en `$and({time_or}, {medecin_or})` où time_or inclut RDV du jour (start_at range) OR walk-in du jour (walk_in_list `^YYMMDD:`). Tri secondaire par numero_ordre.
 - **Tests** : 7 nouveaux pytest (`test_iter43_fix24az_z_planning_placement.py`). **Testing agent iteration_90 = 100%** (150 pytest cumulatif + code review frontend OK).
 
-## S106 — Fix prod Planning consultations : RDVs webhook invisibles + UX médecin
+## S121 — Fix prod Planning consultations : RDVs webhook invisibles + UX médecin
 - **Demande utilisateur** : 2026-07-22 (bug prod signalé en 2 points : (1) RDVs webhook invisibles pour le médecin `00120.cmco@sawalismartsystems.com` alors que la collection en contient 18 ; (2) le médecin doit atterrir directement sur `/portal/planning` sans dashboard ni modal Welcome).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22, à redéployer en production)
 - **Fix associé** : Iter43-fix24az-x
@@ -847,7 +1047,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Bug 2 — Frontend** : `Login.jsx` `_postLoginRoute` retourne `/portal/planning` quand `tracked_role='Médecin'` (appliqué aussi au flow WA OTP verify). `PortalLayout.jsx` : Welcome briefing supprimé pour médecins tracked, useEffect redirect vers `/portal/planning` si pathname ∉ `{planning, my-account}`.
 - **Tests** : 4 nouveaux pytest (`test_iter43_fix24az_x_planning_visibility.py`) reproduisant exactement le scénario prod (médecin sans parent_client_id + client_id intermédiaire), + baseline régression, + case-insensitivity, + multi-RDV. **Testing agent iteration_89 = 100% (43/43 backend + Playwright frontend OK)**.
 
-## S105 — Badge sidebar live "WhatsApp Silent Drops" (indicateur santé en un coup d'œil)
+## S120 — Badge sidebar live "WhatsApp Silent Drops" (indicateur santé en un coup d'œil)
 - **Proposée le** : 2026-07-22 (finish Iter43-fix24az-w)
 - **Statut** : 🔵 PROPOSÉE (en attente décision utilisateur — utilisateur a demandé de la noter)
 - **Détail** :
@@ -858,7 +1058,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Estimation** : ~15 min (nouveau composant `<WaDropsBadge />` + fetch + navigate). Zéro impact perf (polling admin only).
 - **Fichiers à toucher** : `SidebarNav.jsx` (ou composant équivalent qui affiche la nav admin), nouveau `WaDropsBadge.jsx`.
 
-## S104 — WhatsApp Silent Drops : surveillance + alertes email/WA
+## S119 — WhatsApp Silent Drops : surveillance + alertes email/WA
 - **Demande utilisateur** : 2026-07-22 — « oui implémente dans une section de AdminSettings » (validation de la suggestion post-fix S103).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
 - **Fix associé** : Iter43-fix24az-w
@@ -870,7 +1070,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Frontend** : `WaSilentDropsSection.jsx` intégrée dans `AdminSettings.jsx` sous ancre `s-wa-silent-drops`. UI : 3 stat cards (15m/1h/24h avec highlight rouge si seuil atteint), toggle activation, 3 champs numériques (threshold/window/cooldown), 2 textareas destinataires, boutons Save/Test-alert/Refresh/Purge, table des 20 derniers drops.
 - **Tests** : 11 pytest (`test_iter43_fix24az_w_wa_silent_drops.py`) : stats defaults, config PUT sanitise/valide/reject-empty, list ordering, test-alert (0 + N destinataires), purge, observer insert, threshold trigger (spies mockés), cooldown short-circuit, disabled short-circuit. **Testing agent iteration_88 = 100% (39/39), 0 issue**.
 
-## S103 — Safety net auto-split WhatsApp (>4096 chars silent-drop Meta)
+## S118 — Safety net auto-split WhatsApp (>4096 chars silent-drop Meta)
 - **Demande utilisateur** : 2026-07-22 — « on doit le faire pour tous les messages retournés/envoyés par Liluvine sous WhatsApp » (post prod bug `!garde` texte vide).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
 - **Fix associé** : Iter43-fix24az-v
@@ -882,7 +1082,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Bénéfice** : plus jamais de silent drop >4096 sur WhatsApp. Le safety net couvre TOUS les callers sans modification côté caller (`cashier`, `ad_banners`, `download_approvals`, `liluvine_hr_wa`, `liluvine_reactions`, `liluvine_pro`, `liluvine_business_rag`, `liluvine_wa_autoreply`).
 - **Tests** : 7 pytest (`test_iter43_fix24az_v_wa_text_truncation.py`) : short=1 chunk, hint respecté, split \n\n / \n / hard cut, préservation contenu, hint inséré par `_build_garde_reply`, lien site appendé quand budget dépassé. **Testing agent iteration_87 = 100% (28/28)**.
 
-## S102 — Liluvine Extended : Native WA Media + Contact Timeline + CSV Bulk + Auto-suggest + TikTok Privacy toggle
+## S117 — Liluvine Extended : Native WA Media + Contact Timeline + CSV Bulk + Auto-suggest + TikTok Privacy toggle
 - **Demande utilisateur** : 2026-07-22 — « où trouver le toggle 'privé' pour publier sur TikTok en privé? » + 4 tâches liées Liluvine Reactions (médias natifs WA, historique templates par contact, création templates Meta + upload CSV, auto-suggestion depuis messages non-traités).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-22)
 - **Fix associé** : Iter43-fix24az-p
@@ -895,7 +1095,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **TikTok Privacy Toggle** : panneau `tiktok-privacy-panel` (Story Studio → Paramètres) avec 4 radio SELF_ONLY/MUTUAL_FOLLOW_FRIENDS/FOLLOWER_OF_CREATOR/PUBLIC_TO_EVERYONE + badge dynamique. Badge `tiktok-current-privacy-badge` dans le panneau "Comptes TikTok" affiche le mode actif avec libellé explicite.
 - **Tests** : 11 nouveaux pytest (`test_iter43_fix24az_p_liluvine_reactions_ext.py`) : native media call assertion + text-only fallback + contact-history 200/404 + suggestions CRUD lifecycle + CSV comma/semicolon/dry_run/missing-cols + config toggle + auth gates. **Total 45/45 PASS**. Testing agent iteration_85 : 100% backend + 100% frontend.
 
-## S101 — Liluvine Reactions & Ad Auto-Replies (fuzzy + templates + auto-contact)
+## S116 — Liluvine Reactions & Ad Auto-Replies (fuzzy + templates + auto-contact)
 - **Demande utilisateur** : 2026-07-21 — « détection floue des commandes WhatsApp (faute de frappe), réponses automatiques aux publicités Facebook, ajout automatique des nouveaux contacts au groupe par défaut ».
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-21)
 - **Fix associé** : Iter43-fix24az-o
@@ -906,7 +1106,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Frontend** : `LiluvineReactionsSection.jsx` (~400 LOC) : toggles config + slider seuil + sélecteur groupe + CRUD templates + modal éditeur + table stats live.
 - **Tests** : 13 pytest (`test_iter43_fix24az_o_liluvine_reactions.py`) : unit fuzzy/normalisation/matching + integration CRUD admin. 13/13 PASS.
 
-## S100 — Module Planning consultations médecins avec SSE temps réel + rappels WA 1h avant RDV
+## S115 — Module Planning consultations médecins avec SSE temps réel + rappels WA 1h avant RDV
 - **Demande utilisateur** : 2026-07-18 — « Module Planning avec calendar temps réel pour les médecins » + upgrade Uvicorn PROD pour éviter CF 520.
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-18 → 2026-07-21)
 - **Fix associé** : Iter43-fix24az-m + Iter43-fix24az-n
@@ -919,7 +1119,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Compte test** : `medecin-test@sawali-test.com` / `Medecin@2026` + 4 RDVs seedés du jour.
 - **Tests** : 27 pytest planning + 20 pytest SSE/rappels = **47 tests PASS**. Index Mongo : unique `(tenant_id, code_clinique, medecin, patient, start_at)`.
 
-## S099 — Fix cross-tenant leak P0 + WhatsApp dedup + Cloudflare 520 mitigation + Local Media Import
+## S114 — Fix cross-tenant leak P0 + WhatsApp dedup + Cloudflare 520 mitigation + Local Media Import
 - **Demande utilisateur** : 2026-07-18 — retest bugs P0/P1 (cross-tenant leak, duplication recette copie-3) + diagnostic CF 520 + import local médias dans StoryStudio/MetaIntegration/MediaGenerator.
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-07-18)
 - **Fix associé** : Iter43-fix24az-l retest
@@ -931,7 +1131,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Local media import** : composant `LocalMediaImporter.jsx` (~195 LOC) intégré dans `MediaGenerator.jsx`, `MetaIntegration.jsx`, `StoryStudio.jsx`. Endpoint admin `POST /api/admin/story-studio/library/upload` (~100 LOC) mirror vers Emergent Object Storage.
 - **Tests** : 48 pytest cumulés (validation cross-tenant 18 + wa-dedup 3 + story-upload 5 + validation 18 + iter79 dup 1 + me-media-library 7) — 100% PASS.
 
-## S098 — Google Calendar Watch API (Phase 2 push sync temps réel)
+## S113 — Google Calendar Watch API (Phase 2 push sync temps réel)
 - **Demande utilisateur** : 2026-02-26 — « Nous finirons par Google Watch API » (synchronisation temps réel des changements externes).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24ay
@@ -940,7 +1140,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Frontend** (`GoogleCalendarWatchPanel.jsx`, ~200 LOC) : badge Active/Inactive, expiration + heures restantes, webhook URL avec bouton Copier, boutons Démarrer/Arrêter/Forcer un sync, affichage dernier résultat (créés/MAJ/supprimés).
 - **Tests** : 7 pytest (`test_iter43_fix24ay_gcal_watch.py`) : status initial, auth admin, webhook rejette sans/mauvais headers, start/sync fail sans connexion.
 
-## S097 — Résolution GPS officines (Google Maps API + OSM Nominatim fallback)
+## S112 — Résolution GPS officines (Google Maps API + OSM Nominatim fallback)
 - **Demande utilisateur** : 2026-02-26 — « Bouton Résoudre géolocalisation, parcours Google Maps pour chaque pharmacie sélectionnée et récupère ses coordonnées GPS ».
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24aw
@@ -950,7 +1150,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Tests** : 7 pytest.
 - **Note importante** : OSM a peu de pharmacies en Afrique de l'Ouest. Recommandation : configurer une clé Google Maps.
 
-## S096 — Twitter (X) + Facebook + Multi-canal auto-post Liluvine (LinkedIn → X → FB)
+## S111 — Twitter (X) + Facebook + Multi-canal auto-post Liluvine (LinkedIn → X → FB)
 - **Demande utilisateur** : 2026-02-26 — « On peut faire la même chose sur X et Facebook comme tu le suggères ».
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24ax
@@ -960,7 +1160,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Multi-canal** (`linkedin_autopost.py`) : toggles `linkedin_autopost_also_post_twitter`/`_also_post_facebook`. Helper `_publish_multi_channel` publie LinkedIn (toujours) + Twitter/FB (si activés). `_shorten_for_twitter` tronque à 270 chars. WhatsApp reply OK résume LinkedIn URN + tweet_id + fb post_id.
   - **Frontend** : `TwitterSection.jsx` + `FacebookSection.jsx` + toggles multi-canal dans `LinkedInSection.jsx`.
 
-## S095 — LinkedIn OAuth complet + Auto-post hebdomadaire (Liluvine) + UX redirect_uri
+## S110 — LinkedIn OAuth complet + Auto-post hebdomadaire (Liluvine) + UX redirect_uri
 - **Demande utilisateur** : 2026-02-26 — « Pour LinkedIn implémente c et d » + « OK implémente cette suggestion d'engagement marketing » (auto-post hebdo).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24au + Iter43-fix24av + Iter43-fix24au-fix1
@@ -972,7 +1172,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Credentials user** : LinkedIn App ID `77rg7lu8v2hd3w` (masked secret).
 - **Tests** : 8 pytest LinkedIn + 7 pytest + 1 skip LLM auto-post.
 
-## S094 — VIDAL Favoris par utilisateur + Copier le code
+## S109 — VIDAL Favoris par utilisateur + Copier le code
 - **Demande utilisateur** : 2026-02-26 — « Bouton 📋 Copier le code sur chaque ligne VIDAL + liste Favoris ».
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24at
@@ -981,7 +1181,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Frontend** (`Vidal.jsx`) : `FavoritesProvider` (Context), `CopyCodeButton` + `FavoriteToggle` sur AtomFeedViewer + ResultTable, nouvel onglet **Favoris** (5e tab) avec Copier + Fiche + Retirer.
 - **Tests** : 3 pytest.
 
-## S093 — Validation TikTok App `sawalismartsystems` : Privacy/TOS + Title exact
+## S108 — Validation TikTok App `sawalismartsystems` : Privacy/TOS + Title exact
 - **Demande utilisateur** : 2026-02-26 — TikTok a rejeté l'app (titre non exact + Privacy/TOS doivent être des URLs séparées).
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24as
@@ -991,7 +1191,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **Footer** : liens + « App ID : sawalismartsystems ».
 - **Action utilisateur** : Save to GitHub + redéployer PROD + resoumettre app TikTok.
 
-## S092 — Diagnostic Webhook Meta amélioré + Simulateur pipeline inbound
+## S107 — Diagnostic Webhook Meta amélioré + Simulateur pipeline inbound
 - **Demande utilisateur** : 2026-02-26 — « Diagnostic souscription Webhook Meta retournait 'subscribed_apps exception:' sans détail + messages WA entrants de certains utilisateurs ne sont plus reçus + centre messagerie manque des messages traités par l'AI ».
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-02-26)
 - **Fix associé** : Iter43-fix24ar
@@ -1002,7 +1202,7 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
   - **UI** : panneau `WaSimulateInboundPanel` dans Admin Settings.
 - **Tests** : 8 pytest (token 190, exception réseau, 0 apps, config manquante, non-JSON, persistance, diagnostic, validation E.164).
 
-## S091 — Google Calendar OAuth PKCE fix + Test connexion + Health Monitor cron
+## S106 — Google Calendar OAuth PKCE fix + Test connexion + Health Monitor cron
 - **Demande utilisateur** : 2026-06-17 — Après validation consentement Google : « Aucun refresh_token reçu. (Détail Google : Missing code verifier.) » + besoin d'un bouton pour tester la connexion + monitoring périodique.
 - **Statut** : 🟢 IMPLÉMENTÉE (2026-06-17)
 - **Fix associé** : Iter43-fix24an + Iter43-fix24ao + Iter43-fix24ap

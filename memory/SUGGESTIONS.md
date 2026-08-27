@@ -15,13 +15,29 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-27 (fork iter105)
-- **Sidebar dynamique (S160)** : Documents / Formations / Formulaires masqués quand le tenant n'a rien de visible (endpoint `/me/access-summary`).
-- **Priorité inversée notification_phone (S161)** : `notification_phone` sur automation prend maintenant le pas sur le téléphone du destinataire résolu (au lieu d'être un fallback seulement).
-- **Types de paiement dropdown avec fallback (S162)** : liste prédéfinie (Espèces, Mobile Money, Virement, Chèque, Carte, Autre) quand le tenant n'a pas configuré ses `/payment-methods` + résolution des labels dans la table historique.
-- Suggestions **S160 → S162** ajoutées ci-dessous.
+## Dernière mise à jour majeure — 2026-02-27 (fork iter106)
+- **6 nouveaux tokens automation (S163)** : `{{login_ip}}`, `{{login_time}}` (format FR), `{{login_email}}`, `{{linked_client}}`, `{{identity}}`, `{{tracked_role}}`. Peuplés côté `_emit_login_event`, listés dans `/admin/messaging/variable-tokens` avec libellés FR pour le dropdown "+ Insérer…".
+- Suggestion **S163** ajoutée ci-dessous.
 
 ---
+
+## S163 — 6 nouveaux tokens pour l'insertion dans les templates d'automations
+- **Demande utilisateur** : 2026-02-27 — « Dans les valeurs des tokens à choisir à insérer pour les templates en plus de ceux déjà présents ajoute : adresse ip de connexion, date/heure, email de login, 'client lié', identité, rôle de l'utilisateur suivi. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter106)
+- **Fix associé** : fork-iter106-extended-tokens (2026-02-27)
+- **Détail** :
+  - Backend `_wa_variable_tokens` (`server.py:19077`) : liste enrichie à 16 tokens (contre 7 auparavant). Chaque nouveau token est libellé en français avec un exemple pour aider l'admin à comprendre son usage.
+  - Backend `SUPPORTED_VAR_TOKENS` : ajout de `login_ip`, `login_time`, `login_email`, `linked_client`, `identity`, `tracked_role`.
+  - Backend `_emit_login_event` (`server.py:1026`) : nouveaux champs peuplés côté extra_ctx :
+    · `identity` : `full_name` ou fallback `email`.
+    · `tracked_role` : `tracked_role` du user (ou `role` en fallback).
+    · `linked_client` : lookup `db.users(id=parent_client_id)` → `company > full_name > email`.
+    · `login_time` : reformaté `dd/MM/YYYY HH:MM UTC` (plus lisible qu'un ISO).
+  - Le dropdown "+ Insérer…" de `AdminAutomations.jsx` consomme directement `/admin/messaging/variable-tokens` — aucun changement FE nécessaire, les nouveaux tokens apparaissent automatiquement.
+- **Impact** :
+  - Les automations `nouvellecnx_loois` peuvent désormais afficher `{{login_ip}}`, `{{login_time}}`, `{{login_email}}` avec une mise en forme propre — plus besoin de tokens compound peu lisibles.
+  - `{{linked_client}}` résout le nom du tenant parent (utile pour les relais admin quand plusieurs tenants co-existent).
+  - `{{identity}}` et `{{tracked_role}}` fournissent des alias plus courts et humains aux champs déjà existants.
 
 ## S162 — Types de paiement : dropdown avec fallback + résolution des labels
 - **Demande utilisateur** : 2026-02-27 — « Pour les types de paiement permettre d'utiliser une sélection dans une liste déroulante. Préférable au type UID qui est affiché. »

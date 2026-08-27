@@ -1031,13 +1031,32 @@ async def _emit_login_event(user: dict, request) -> None:
     """
     try:
         ip = _client_ip_from_request(request) if request is not None else ""
+        # 2026-02 fork iter106 — Etendre les tokens disponibles :
+        # `identity` = full_name (ou fallback), `tracked_role` = rôle métier,
+        # `linked_client` = société du tenant parent, `login_time` formaté FR.
+        parent_id = user.get("parent_client_id") or ""
+        linked_client = ""
+        if parent_id:
+            try:
+                p = await db.users.find_one({"id": parent_id}, {"_id": 0, "company": 1, "full_name": 1, "email": 1}) or {}
+                linked_client = (p.get("company") or p.get("full_name") or p.get("email") or "").strip()
+            except Exception:  # noqa: BLE001
+                linked_client = ""
+        try:
+            login_time_fmt = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
+        except Exception:  # noqa: BLE001
+            login_time_fmt = _now()
         extra_ctx = {
             "login_email": (user.get("email") or "").lower(),
             "login_full_name": user.get("full_name") or "",
             "login_role": user.get("role") or "",
             "login_tracked_role": user.get("tracked_role") or "",
             "login_ip": ip or "",
-            "login_time": _now(),
+            "login_time": login_time_fmt,
+            # 2026-02 fork iter106 — Alias / nouveaux tokens
+            "identity": (user.get("full_name") or user.get("email") or "").strip(),
+            "tracked_role": (user.get("tracked_role") or user.get("role") or "").strip(),
+            "linked_client": linked_client,
         }
         # No client_id — automations for login events are typically
         # `target=fixed` (admin phone). We still pass the user's id so
@@ -13929,7 +13948,16 @@ from routes.whatsapp_helpers import (  # noqa: E402
 # like {{full_name}}, {{company}}, {{phone}}, {{email}}, {{client_code}},
 # {{today}}, {{tomorrow}}. At send time they are resolved against the
 # recipient's profile. Positional → mapped to body parameters {{1}} {{2}}…
-SUPPORTED_VAR_TOKENS = {"full_name", "company", "phone", "email", "client_code", "today", "tomorrow"}
+#
+# 2026-02 fork iter106 — Tokens étendus pour couvrir les cas login/relais WA :
+# {{login_ip}}, {{login_time}}, {{login_email}}, {{linked_client}},
+# {{identity}}, {{tracked_role}}. Ces valeurs sont peuplées via `extra_ctx`
+# sur l'emit (voir `_emit_login_event`, dispatch whatsapp.received, etc.).
+SUPPORTED_VAR_TOKENS = {
+    "full_name", "company", "phone", "email", "client_code", "today", "tomorrow",
+    # 2026-02 fork iter106 additions
+    "login_ip", "login_time", "login_email", "linked_client", "identity", "tracked_role",
+}
 
 _VAR_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
@@ -19050,12 +19078,22 @@ def _wa_variable_tokens() -> dict:
     return {
         "tokens": [
             {"token": "{{full_name}}", "label": "Nom complet", "example": "Jean Dupont"},
+            {"token": "{{identity}}", "label": "Identité (nom ou email)", "example": "Jean Dupont"},
             {"token": "{{company}}", "label": "Société", "example": "Acme Corp"},
+            {"token": "{{linked_client}}", "label": "Client lié (tenant parent)", "example": "SAWALI SMART SYSTEMS"},
             {"token": "{{phone}}", "label": "Téléphone", "example": "+225 01 23 45 67"},
             {"token": "{{email}}", "label": "Email", "example": "client@example.com"},
             {"token": "{{client_code}}", "label": "Code client", "example": "ACME"},
+            {"token": "{{tracked_role}}", "label": "Rôle utilisateur suivi", "example": "Comptable"},
             {"token": "{{today}}", "label": "Date du jour", "example": datetime.now(timezone.utc).strftime("%d/%m/%Y")},
             {"token": "{{tomorrow}}", "label": "Date de demain", "example": (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%d/%m/%Y")},
+            # 2026-02 fork iter106 — Tokens spécifiques login / relais
+            {"token": "{{login_email}}", "label": "Email de login", "example": "user@example.com"},
+            {"token": "{{login_ip}}", "label": "Adresse IP de connexion", "example": "102.23.45.12"},
+            {"token": "{{login_time}}", "label": "Date/heure de connexion", "example": "27/08/2026 15:32 UTC"},
+            {"token": "{{login_full_name}}", "label": "Nom complet (login)", "example": "Jean Dupont"},
+            {"token": "{{login_role}}", "label": "Rôle (login)", "example": "superviseur"},
+            {"token": "{{login_tracked_role}}", "label": "Rôle métier (login)", "example": "Administrateur"},
         ]
     }
 

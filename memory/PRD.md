@@ -17,6 +17,26 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-27 (Fork iter106) — 6 nouveaux tokens pour les templates d'automations ✅ DÉPLOYÉ
+
+**User request** : « Dans les valeurs des tokens à choisir à insérer pour les templates en plus de ceux déjà présents ajoute : adresse ip de connexion, date/heure, email de login, 'client lié', identité, rôle de l'utilisateur suivi. »
+
+- Backend `_wa_variable_tokens` : liste enrichie à **16 tokens** (contre 7). Chaque nouveau token est libellé en français avec un exemple :
+  - `{{login_ip}}` — Adresse IP de connexion
+  - `{{login_time}}` — Date/heure de connexion (format FR : `27/08/2026 15:32 UTC`)
+  - `{{login_email}}` — Email de login
+  - `{{linked_client}}` — Client lié (tenant parent)
+  - `{{identity}}` — Identité (nom ou email)
+  - `{{tracked_role}}` — Rôle utilisateur suivi
+  - + `{{login_full_name}}` + `{{login_role}}` + `{{login_tracked_role}}` (déjà présents mais désormais listés dans le dropdown)
+- Backend `SUPPORTED_VAR_TOKENS` : whitelist enrichie pour la validation `_render_variable`.
+- Backend `_emit_login_event` : peuple `identity`, `tracked_role`, `linked_client` (lookup sur `parent_client_id`), reformatte `login_time` en `dd/MM/YYYY HH:MM UTC`.
+- Frontend `AdminAutomations.jsx` : le dropdown "+ Insérer…" consomme `/admin/messaging/variable-tokens` — les 6 nouveaux tokens apparaissent automatiquement, aucun changement FE nécessaire.
+
+Curl validé : les 16 tokens sont renvoyés avec labels FR + exemples. Lint ruff 0 erreur.
+
+---
+
 ## 2026-02-27 (Fork iter105) — Sidebar dynamique + notification_phone priorité + Payment types dropdown ✅ DÉPLOYÉ
 
 ### 🎛️ Sidebar dynamique — Documents / Formations / Formulaires masqués si vide

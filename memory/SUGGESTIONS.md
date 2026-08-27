@@ -20,9 +20,38 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - **Contract Overdue Alert configurable** : seuil global (`settings.contract_overdue_days_default`, défaut 5j) + override par client (`contract_overdue_days`) + scan quotidien 08:15 Africa/Abidjan avec email au super-admin (S154).
 - **Payment History** : collection `tenant_payments`, endpoints CRUD `/admin/clients/{id}/payments`, modal admin avec formulaire + historique + template WA de confirmation auto (S155).
 - **Instagram Stories** : mode `as_story: true` sur `/me/social/instagram/post` (24h éphémère, image ou vidéo) — S156.
-- Suggestions **S153 → S156** ajoutées ci-dessous.
+- **3 suggestions backlog** consignées par l'utilisateur (2026-02-27) : S157/S158/S159 (WA overdue alert, payment reminders, recurring payments).
+- Suggestions **S153 → S159** ajoutées ci-dessous.
 
 ---
+
+## S159 — Recurring Payments : échéanciers mensuels/trimestriels par contrat
+- **Demande utilisateur** : 2026-02-27 (Next Action Item iter104, à consigner pour plus tard) — « Programme des échéances récurrentes mensuelles ou trimestrielles pour chaque contrat client. »
+- **Statut** : 🔵 PROPOSÉE (attente de priorisation)
+- **Idée d'implémentation** :
+  - Backend : nouvelle collection `db.tenant_payment_schedules` `{tenant_id, frequency: monthly|quarterly, amount, day_of_month, start_date, end_date, next_due_at, active}`.
+  - Job APScheduler quotidien qui matérialise les échéances à venir dans `db.tenant_payment_reminders` (voir S158).
+  - Endpoints admin CRUD `/admin/clients/{id}/payment-schedules`.
+  - UI : nouveau panneau "Échéancier" dans le modal Paiements ou sous-modal dédiée (fréquence, montant, jour du mois, dates début/fin).
+
+## S158 — Payment Reminders : rappel WA 3 jours avant échéance
+- **Demande utilisateur** : 2026-02-27 (Next Action Item iter104, à consigner pour plus tard) — « Envoie un rappel WhatsApp automatique au client 3 jours avant l'échéance de la prochaine facture. »
+- **Statut** : 🔵 PROPOSÉE (attente de priorisation)
+- **Idée d'implémentation** :
+  - Prérequis : dépend de S159 (échéanciers récurrents) OU d'un champ `next_due_at` ajouté aux fiches contrat.
+  - Nouveau template WA `rappel_echeance_paiement` (à faire approuver côté Meta).
+  - Job cron quotidien qui scanne `next_due_at` et envoie le rappel J-3 avec le contexte : `full_name`, `amount_due`, `due_date`, `invoice_ref`, `payment_link` (optionnel via PawaPay/Stripe).
+  - Config par tenant : `payment_reminder_lead_days: Optional[int]` (défaut 3), `payment_reminder_template: Optional[str]` (défaut `rappel_echeance_paiement`).
+  - Dedupe : `db.payment_reminder_alerts` (key `tenant_id::due_date::lead_days`).
+
+## S157 — WA Overdue Alert : alerte WhatsApp en plus de l'email
+- **Demande utilisateur** : 2026-02-27 (Next Action Item iter104, à consigner pour plus tard) — « Ajoute une alerte WhatsApp automatique en plus de l'email quand un client dépasse son seuil de retard. »
+- **Statut** : 🔵 PROPOSÉE (attente de priorisation)
+- **Idée d'implémentation** :
+  - Étendre `_run_contract_overdue_alerts` (S154) pour envoyer un WA au super-admin en plus de l'email.
+  - Utiliser `_wa_send_template` avec `settings.super_admin_phone` (ou nouveau champ `contract_overdue_wa_to`).
+  - Template Meta `alerte_retard_paiement` (à créer + faire approuver) avec variables : `client_company`, `days_overdue`, `threshold_days`, `contract_number`, `amount_due`.
+  - Dedupe déjà géré via `db.contract_overdue_alerts.key` — juste ajouter les champs `wa_sent`, `wa_error`.
 
 ## S156 — Instagram Stories (24h éphémère) ajouté à `me_social_instagram_post`
 - **Demande utilisateur** : 2026-02-27 — « Instagram stories »

@@ -5,6 +5,9 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
+- **[S157] WA Overdue Alert** : Ajoute une alerte WhatsApp au super-admin en plus de l'email quand un client dépasse son seuil de retard. Étend `_run_contract_overdue_alerts` avec `_wa_send_template` + template Meta `alerte_retard_paiement` à créer. _[demandé 2026-02-27 iter104]_
+- **[S158] Payment Reminders** : Rappel WhatsApp automatique J-3 avant échéance (dépend de S159 ou champ `next_due_at`). Template `rappel_echeance_paiement`, config `payment_reminder_lead_days` + `payment_reminder_template` par tenant. _[demandé 2026-02-27 iter104]_
+- **[S159] Recurring Payments** : Échéanciers mensuels/trimestriels par contrat (collection `tenant_payment_schedules`), job quotidien de matérialisation, CRUD admin. _[demandé 2026-02-27 iter104]_
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry`. _[suggéré 2026-06-16]_
 - **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
 - **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_

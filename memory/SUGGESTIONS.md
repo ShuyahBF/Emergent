@@ -15,11 +15,49 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-27 (fork iter106)
-- **6 nouveaux tokens automation (S163)** : `{{login_ip}}`, `{{login_time}}` (format FR), `{{login_email}}`, `{{linked_client}}`, `{{identity}}`, `{{tracked_role}}`. Peuplés côté `_emit_login_event`, listés dans `/admin/messaging/variable-tokens` avec libellés FR pour le dropdown "+ Insérer…".
-- Suggestion **S163** ajoutée ci-dessous.
+## Dernière mise à jour majeure — 2026-02-27 (fork iter107)
+- **Notifications push web (S164)** consignées suite à discussion utilisateur ↔ Emmy (agent Emergent) du 22-23/08/2026. À implémenter plus tard.
+- Suggestion **S164** ajoutée ci-dessous.
 
 ---
+
+## S164 — Notifications push web (3 niveaux de contrôle : ciblage rôle + préférences utilisateur + interrupteur global)
+- **Demande utilisateur** : 2026-08-22/23 (via conversation avec l'agent Emergent "Emmy") — « Ajouter des notifications push web avec 3 niveaux de configuration : (1) ciblage des utilisateurs par rôle, (2) gestion des préférences individuelles, (3) contrôle global depuis le dashboard admin. Prévoir aussi un choix pour le type de crédit à utiliser. »
+- **Statut** : 🔵 PROPOSÉE (attente de priorisation — coût estimé par Emmy : 50-100 crédits Emergent)
+- **Contexte utilisateur** : Les notifications push sont destinées aux utilisateurs finaux du portail Sawali (clients, tracked users et administrateurs) qui ont autorisé les notifications sur leur navigateur/téléphone. Cas d'usage cibles :
+  - Alertes de sécurité ou d'état système (capteur déclenché, incident critique).
+  - Notifications de maintenance (mise à jour requise, batterie faible d'un équipement).
+  - Engagement (nouvelles fonctionnalités, rapports d'activité hebdomadaires).
+- **Idée d'implémentation** :
+  - **Backend (nouveaux composants)** :
+    - Collection `db.push_subscriptions` `{id, user_id, tracked_user_id, endpoint, keys, ua, active, created_at, revoked_at}`.
+    - Collection `db.push_notification_logs` `{id, sent_to_user_ids, title, body, url, type, created_by, dispatched_count, failed_count, created_at}`.
+    - Nouveau champ sur `AdminSettings` : `push_notifications_enabled: bool` (interrupteur global) + `push_notifications_default_roles: List[str]` (ciblage par défaut).
+    - Nouveau champ sur `UserPublic/UserUpdate` + `TrackedUser` : `push_notifications_opt_in: Optional[bool]` (préférence individuelle).
+    - Endpoints :
+      - `POST /me/push/subscribe` (payload : endpoint, keys P256DH/auth) — enregistre l'abonnement du navigateur.
+      - `DELETE /me/push/subscribe` — désabonnement.
+      - `PUT /me/push/preferences` — active/désactive côté user.
+      - `POST /admin/push/broadcast` (payload : title, body, url, target_roles, target_user_ids) — envoi ponctuel via `pywebpush` avec VAPID keys.
+      - `POST /admin/push/settings` — toggle master + roles autorisés par défaut.
+    - Job worker : queue simple in-process avec retry exponentiel + log dans `push_notification_logs`.
+    - Utiliser `pywebpush` (stdlib compatible) + génération VAPID keys au premier boot (persistées dans `db.settings.push_vapid_public_key/private_key`).
+  - **Frontend (nouveaux écrans)** :
+    - `PortalLayout` : bouton "🔔 Activer les notifications" dans le header quand `Notification.permission === "default"`. Utilise `serviceWorker.register('/sw.js')` + `pushManager.subscribe`.
+    - Nouveau service worker `frontend/public/sw.js` : gère `push` event + click event pour rediriger vers l'URL cible.
+    - Page `AdminSettings` : nouvelle section "🔔 Notifications Push" — toggle global, sélection multi-rôles autorisés, bouton "Envoyer une notification de test" avec formulaire (title/body/url).
+    - Page `MyProfile` / `MesPreferences` : toggle "Recevoir les notifications push" (opt-in individuel).
+    - Page `AdminUsers` (ou `AdminClients`) : filtre "Ont opt-in push", colonne de statut.
+  - **Choix du type de crédit** (spécifique Emergent) : Emmy mentionne un choix entre "crédits mensuels" et "crédits persistants" — à clarifier avec Emergent Support car ce choix n'existe pas dans notre stack (les crédits Emergent sont facturés côté plateforme, hors app).
+- **Considérations techniques** :
+  - **iOS Safari** : les push notifications web nécessitent d'installer le site en PWA (Add to Home Screen) puis d'utiliser l'API Web Push standard. Prévoir un manifest.json + icon + prompt PWA.
+  - **Firebase Cloud Messaging (FCM) VS pywebpush** : pywebpush suffit pour navigateur web (VAPID auto-hébergé, gratuit) ; FCM serait requis SI on ajoute une app mobile native (hors scope actuel).
+  - **RGPD** : mentionner explicitement dans les CGU/politique de confidentialité que l'endpoint push est stocké côté serveur (identifiant navigateur/appareil).
+- **Impact attendu** :
+  - Meilleur engagement : alerte immédiate sur les événements critiques (incident SAWALI-XXXX, panne réseau détectée par Liluvine, retard paiement dépassé).
+  - Réduction de la latence de réaction du support (30-60 min → quasi temps réel).
+  - Cohérence UX : le même WA/email/push relie chaque événement à l'utilisateur, quel que soit son canal préféré.
+- **Effort estimé** : 3-5 jours de dev, ~50-100 crédits Emergent selon la complexité UI. Priorisable après S157-S159 (WA/payment reminders).
 
 ## S163 — 6 nouveaux tokens pour l'insertion dans les templates d'automations
 - **Demande utilisateur** : 2026-02-27 — « Dans les valeurs des tokens à choisir à insérer pour les templates en plus de ceux déjà présents ajoute : adresse ip de connexion, date/heure, email de login, 'client lié', identité, rôle de l'utilisateur suivi. »

@@ -5,6 +5,7 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
+- **[S164] Web Push Notifications** : Notifications push web avec 3 niveaux de contrôle (ciblage rôle + préférences user + interrupteur global admin). Stack proposée : `pywebpush` + VAPID auto-hébergé + service worker frontend. Prévoir PWA manifest pour iOS. _[suggéré 2026-08-22/23 via Emmy/Emergent]_
 - **[S157] WA Overdue Alert** : Ajoute une alerte WhatsApp au super-admin en plus de l'email quand un client dépasse son seuil de retard. Étend `_run_contract_overdue_alerts` avec `_wa_send_template` + template Meta `alerte_retard_paiement` à créer. _[demandé 2026-02-27 iter104]_
 - **[S158] Payment Reminders** : Rappel WhatsApp automatique J-3 avant échéance (dépend de S159 ou champ `next_due_at`). Template `rappel_echeance_paiement`, config `payment_reminder_lead_days` + `payment_reminder_template` par tenant. _[demandé 2026-02-27 iter104]_
 - **[S159] Recurring Payments** : Échéanciers mensuels/trimestriels par contrat (collection `tenant_payment_schedules`), job quotidien de matérialisation, CRUD admin. _[demandé 2026-02-27 iter104]_

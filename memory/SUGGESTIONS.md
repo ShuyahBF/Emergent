@@ -15,14 +15,57 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-24 (fork iter103)
-- **Instagram sender direct** (single image / carousel 2-10 / Reels) — S149.
-- **TikTok sender direct** (PULL_FROM_URL, privacy) — S150.
-- **Suggestion Vote** : statut override par admin via UI (persisté en Mongo, jamais dans le markdown) — S151.
-- **Contract tracking sur fiche client/tenant** : numéro, date signature, montant, devise, dernier règlement + colonnes N° Contrat + Retard (nb jours) dans la liste admin — S152.
-- Suggestions **S149 → S152** ajoutées ci-dessous.
+## Dernière mise à jour majeure — 2026-02-27 (fork iter104)
+- **Fix bug prod WA #131008** : `_render_variable` remplace toute résolution vide par `—` (Meta refusait `{"type":"text","text":""}`) — S153.
+- **Contract Overdue Alert configurable** : seuil global (`settings.contract_overdue_days_default`, défaut 5j) + override par client (`contract_overdue_days`) + scan quotidien 08:15 Africa/Abidjan avec email au super-admin (S154).
+- **Payment History** : collection `tenant_payments`, endpoints CRUD `/admin/clients/{id}/payments`, modal admin avec formulaire + historique + template WA de confirmation auto (S155).
+- **Instagram Stories** : mode `as_story: true` sur `/me/social/instagram/post` (24h éphémère, image ou vidéo) — S156.
+- Suggestions **S153 → S156** ajoutées ci-dessous.
 
 ---
+
+## S156 — Instagram Stories (24h éphémère) ajouté à `me_social_instagram_post`
+- **Demande utilisateur** : 2026-02-27 — « Instagram stories »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter104)
+- **Fix associé** : fork-iter104-ig-stories (2026-02-27)
+- **Détail** : Nouveau flag `as_story: bool` dans le payload. Quand vrai, `media_type=STORIES` est envoyé au container `/media` avec `image_url` OU `video_url` (mutuellement exclusifs avec le carrousel). Le mode stories déclenche également le polling `FINISHED` quand une vidéo est fournie. Retourne `mode="story"` avec `media_id`.
+- **Impact** : Les tenants publient désormais leurs stories quotidiennes (promo flash, produit du jour) via la même API unifiée que les posts et Reels.
+
+## S155 — Payment History : historique règlements par client + WA de confirmation automatique
+- **Demande utilisateur** : 2026-02-27 — « Payment History : enregistrer les paiements par clients (date, référence facture, montant net, montant payé, type de paiement du module caisse). À l'enregistrement, envoyer un template WA paramétrable dans la fiche client, défaut confirmation_paiement_avecrecu. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter104)
+- **Fix associé** : fork-iter104-payment-history (2026-02-27)
+- **Détail** :
+  - Backend : nouvelle collection `db.tenant_payments` `{id, tenant_id, payment_date, invoice_ref, amount_due, amount_paid, payment_method_id/label, notes, created_by_id/email, created_at}`.
+  - Endpoints `GET/POST /admin/clients/{id}/payments`, `DELETE /admin/clients/{id}/payments/{pid}`.
+  - Side effects du POST : (1) update `users.last_payment_at` avec `payment_date`, (2) résolution du template (`payment_confirmation_template` de la fiche client, fallback `confirmation_paiement_avecrecu`), (3) construction du contexte étendu avec `amount_paid` (formaté avec devise contrat), `payment_date`, `invoice_ref`, `payment_method`, (4) envoi via `_wa_send_template` avec log dans `whatsapp_messages` (context=`tenant_payment`, `payment_id` référencé).
+  - Frontend `AdminClients.jsx` : nouvelle icône `Wallet` (teal) par ligne → ouvre `<PaymentsModal>`. Modal avec : header total réglé/contrat/N° contrat, bouton "+ Nouveau paiement" ouvrant un formulaire (date, réf facture, montant dû/payé, sélection type via `/payment-methods` existant, notes, checkbox "envoyer WA"), table historique (date, réf, dû, payé, type, delete).
+- **Impact** : L'admin dispose désormais d'un vrai suivi financier par tenant (au-delà de la seule `last_payment_at`), avec l'envoi automatique du reçu WA sans friction (aucune double saisie).
+
+## S154 — Contract Overdue Alert configurable (global + override par client)
+- **Demande utilisateur** : 2026-02-27 — « Contract Overdue Alert : permettre de modifier la durée. Défaut 5 jours (au lieu de 60). Global dans AdminSettings mais chaque tenant a son propre seuil (prioritaire si défini). »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter104)
+- **Fix associé** : fork-iter104-overdue-configurable (2026-02-27)
+- **Détail** :
+  - Backend `models.py` : `AdminSettings.contract_overdue_days_default: Optional[int]` (défaut 5) + `UserCreateAdmin/UserUpdateAdmin/UserPublic.contract_overdue_days: Optional[int]`.
+  - Nouveau job APScheduler `contract_overdue_alerts_daily` (cron `08:15 Africa/Abidjan`, misfire grace 3600s).
+  - Helper `_run_contract_overdue_alerts` : scanne `users` avec `last_payment_at` OU `contract_signed_at`, calcule le retard, résout le seuil (`user.contract_overdue_days` > `settings.contract_overdue_days_default` > 5), envoie un email au `health_email_to` (fallback SUPER_ADMIN_EMAIL) avec un summary complet. Dedupe via `db.contract_overdue_alerts` (`key = tenant_id::date_iso`) — 1 alerte par tenant/jour maximum.
+  - Endpoint diag **`POST /admin/contract-overdue/run`** pour lancer le scan à la demande depuis AdminSettings.
+  - Frontend :
+    - `AdminSettings.jsx` : nouvelle section "Contrats — Seuil de retard de paiement (par défaut)" avec input `contract_overdue_days_default` + bouton "Lancer un scan maintenant".
+    - `AdminClients.jsx` : nouveau champ `Seuil de retard (j) — défaut X` dans la section Contrat de la fiche client. Le `overdueDefault` est chargé une fois via `/admin/settings`.
+    - Badge Retard mis à jour : rose foncé si `days >= threshold`, ambre si `days >= 50% du threshold`, émeraude si à jour, slate sinon. Le titre du badge affiche "seuil N j ⚠ en retard".
+- **Impact** : L'admin contrôle finement quand un client doit être considéré en retard (par exemple 3j pour les clients premium, 15j pour la longue traîne). Le scan quotidien évite d'oublier une relance et rend l'écran /admin/clients auto-actionnable via le code couleur du badge.
+
+## S153 — Fix bug prod WA #131008 : substitution vide → « — » (Meta refuse text vide)
+- **Demande utilisateur** : 2026-02-27 — « L'automation nouvellecnx_loois et l'automation relais_messagewa_pouradmin échouent avec (#131008) Required parameter is missing — Parameter of type text is missing text value. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter104)
+- **Fix associé** : fork-iter104-wa-131008 (2026-02-27)
+- **Détail** :
+  - **Cause racine** : Meta Cloud API refuse tout `{"type":"text","text":""}` (chaîne vide) avec l'erreur #131008. Or les templates `nouvellecnx_loois` et `relais_messagewa_pouradmin` contiennent des variables dont la substitution peut être vide (ex : `company`, `client_code` sur le super-admin, `login_tracked_role`, `invoice_ref`, etc.).
+  - **Fix** : Modification de `_render_variable` (`server.py:13731`) — toute substitution qui résoudrait à une chaîne vide (`""` ou blanks) est remplacée par `—` (em dash). Idem pour un token de valeur vide ou une string globale vide.
+  - Cette correction couvre TOUTES les automations (pas seulement les 2 signalées) et tous les envois de templates via `_build_components` (planning digest, receipts, invoices, magic links, etc.).
+- **Impact** : Fin des erreurs #131008 en production. Le WA arrive maintenant avec `—` à la place des champs manquants — le destinataire humain comprend immédiatement qu'une info est absente sans que Meta bloque l'envoi.
 
 ## S152 — Contract tracking sur fiche client/tenant + colonnes Retard dans la liste
 - **Demande utilisateur** : 2026-02-24 — « Ajoute de nouveaux champs dans la fiche client/tenant pour éditer la référence d'un numéro de contrat pour le client/tenant, la date de signature, le montant du contrat et la date de dernier règlement. Ces champs ne sont renseignés que s'ils existent. Dans la liste des clients fait apparaitre en plus des autres champs une colonne pour le numéro de contrat et le retard de paiement (en nombre de jours) par rapport à la date du jour. »

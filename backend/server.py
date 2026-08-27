@@ -415,6 +415,9 @@ def _to_user_public(u: dict) -> dict:
         "contract_amount": u.get("contract_amount") if u.get("contract_amount") is not None else None,
         "contract_currency": u.get("contract_currency") or None,
         "last_payment_at": u.get("last_payment_at") or None,
+        # 2026-02 fork iter104 — Per-tenant overdue threshold + payment template.
+        "contract_overdue_days": u.get("contract_overdue_days") if u.get("contract_overdue_days") is not None else None,
+        "payment_confirmation_template": u.get("payment_confirmation_template") or None,
     }
 
 
@@ -3999,6 +4002,9 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         "contract_amount": payload.contract_amount if payload.contract_amount is not None else None,
         "contract_currency": (payload.contract_currency or "").strip().upper() or None,
         "last_payment_at": (payload.last_payment_at or "").strip() or None,
+        # 2026-02 fork iter104 — Overdue threshold + payment template.
+        "contract_overdue_days": payload.contract_overdue_days if payload.contract_overdue_days is not None else None,
+        "payment_confirmation_template": (payload.payment_confirmation_template or "").strip() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -7593,6 +7599,162 @@ async def _ensure_client_exists(client_id: str) -> dict:
     if not user:
         raise HTTPException(status_code=404, detail="Client introuvable")
     return user
+
+
+# =============================================================================
+# 2026-02 fork iter104 — Tenant payments (Payment History)
+# =============================================================================
+class TenantPaymentCreate(BaseModel):
+    payment_date: str  # ISO YYYY-MM-DD
+    invoice_ref: Optional[str] = None
+    amount_due: Optional[float] = None
+    amount_paid: float
+    payment_method_id: Optional[str] = None
+    payment_method_label: Optional[str] = None
+    notes: Optional[str] = None
+    send_confirmation: Optional[bool] = True
+
+
+@api.get("/admin/clients/{client_id}/payments", tags=["Admin"])
+async def admin_list_client_payments(client_id: str, _: dict = Depends(get_current_admin)):
+    await _ensure_client_exists(client_id)
+    return await db.tenant_payments.find({"tenant_id": client_id}, {"_id": 0}).sort("payment_date", -1).to_list(500)
+
+
+@api.post("/admin/clients/{client_id}/payments", tags=["Admin"])
+async def admin_create_client_payment(
+    client_id: str,
+    payload: TenantPaymentCreate,
+    admin_user: dict = Depends(get_current_admin),
+):
+    """Register a payment received from a client and (optionally) fire the WA
+    receipt confirmation template.
+
+    Side effects on success:
+      1. Inserts a row in `db.tenant_payments`.
+      2. Updates `users.last_payment_at` (so the Retard column recomputes).
+      3. Sends the WA `payment_confirmation_template` (default
+         `confirmation_paiement_avecrecu`) to the client's phone.
+    """
+    client = await db.users.find_one(
+        {"id": client_id},
+        {"_id": 0, "phone": 1, "whatsapp_number": 1, "full_name": 1, "email": 1,
+         "company": 1, "client_code": 1, "payment_confirmation_template": 1,
+         "contract_currency": 1},
+    )
+    if not client:
+        raise HTTPException(status_code=404, detail="Client introuvable")
+    pdate = (payload.payment_date or "").strip()
+    if not pdate:
+        raise HTTPException(status_code=400, detail="`payment_date` requise (YYYY-MM-DD)")
+    try:
+        datetime.strptime(pdate[:10], "%Y-%m-%d")
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400, detail=f"Format `payment_date` invalide (YYYY-MM-DD attendu) — {exc}") from exc
+    amount = float(payload.amount_paid or 0)
+    if amount <= 0:
+        raise HTTPException(status_code=400, detail="`amount_paid` doit être > 0")
+    doc = {
+        "id": _uuid(),
+        "tenant_id": client_id,
+        "payment_date": pdate[:10],
+        "invoice_ref": (payload.invoice_ref or "").strip() or None,
+        "amount_due": float(payload.amount_due) if payload.amount_due is not None else None,
+        "amount_paid": amount,
+        "payment_method_id": (payload.payment_method_id or "").strip() or None,
+        "payment_method_label": (payload.payment_method_label or "").strip() or None,
+        "notes": (payload.notes or "").strip() or None,
+        "created_by_id": admin_user.get("id"),
+        "created_by_email": admin_user.get("email"),
+        "created_at": _now(),
+    }
+    await db.tenant_payments.insert_one(doc.copy())
+    try:
+        await db.users.update_one(
+            {"id": client_id},
+            {"$set": {"last_payment_at": pdate[:10], "updated_at": _now()}},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    wa_result: Optional[dict] = None
+    if payload.send_confirmation is not False:
+        tpl_name = (client.get("payment_confirmation_template") or "").strip() or "confirmation_paiement_avecrecu"
+        to_phone = (client.get("phone") or "").strip() or (client.get("whatsapp_number") or "").strip()
+        if to_phone:
+            base_ctx = _build_recipient_ctx(
+                "client", client, to_phone,
+                client.get("company") or client.get("full_name") or client.get("email"),
+            )
+            currency = (client.get("contract_currency") or "XOF").upper()
+            try:
+                amt_fmt = f"{amount:,.0f}".replace(",", " ")
+            except Exception:  # noqa: BLE001
+                amt_fmt = str(amount)
+            base_ctx["amount_paid"] = f"{amt_fmt} {currency}"
+            base_ctx["payment_date"] = pdate[:10]
+            base_ctx["invoice_ref"] = doc.get("invoice_ref") or "—"
+            base_ctx["payment_method"] = doc.get("payment_method_label") or "—"
+            variables = [
+                "{{full_name}}", "{{amount_paid}}", "{{payment_date}}",
+                "{{invoice_ref}}", "{{payment_method}}",
+            ]
+            components = _build_components(variables, base_ctx)
+            try:
+                wr = await _wa_send_template(to_phone, tpl_name, "fr", components)
+            except Exception as exc:  # noqa: BLE001
+                wr = {"ok": False, "error": str(exc)[:200]}
+            wa_result = {
+                "ok": bool(wr.get("ok")),
+                "template": tpl_name,
+                "to": to_phone,
+                "error": wr.get("error"),
+            }
+            try:
+                await db.whatsapp_messages.insert_one({
+                    "id": _uuid(),
+                    "client_id": client_id,
+                    "to": to_phone,
+                    "template_name": tpl_name,
+                    "language_code": "fr",
+                    "ok": bool(wr.get("ok")),
+                    "status": wr.get("status"),
+                    "message_id": wr.get("message_id"),
+                    "error": wr.get("error"),
+                    "context": "tenant_payment",
+                    "payment_id": doc["id"],
+                    "created_at": _now(),
+                })
+            except Exception:  # noqa: BLE001
+                pass
+        else:
+            wa_result = {"ok": False, "error": "Aucun numéro (phone/whatsapp_number) sur le client"}
+    doc["wa_confirmation"] = wa_result
+    return doc
+
+
+@api.delete("/admin/clients/{client_id}/payments/{payment_id}", tags=["Admin"])
+async def admin_delete_client_payment(
+    client_id: str,
+    payment_id: str,
+    _: dict = Depends(get_current_admin),
+):
+    res = await db.tenant_payments.delete_one({"id": payment_id, "tenant_id": client_id})
+    if res.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Paiement introuvable")
+    try:
+        latest = await db.tenant_payments.find_one(
+            {"tenant_id": client_id},
+            {"_id": 0, "payment_date": 1},
+            sort=[("payment_date", -1)],
+        )
+        await db.users.update_one(
+            {"id": client_id},
+            {"$set": {"last_payment_at": (latest or {}).get("payment_date") or None, "updated_at": _now()}},
+        )
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": True, "deleted": res.deleted_count}
+
 
 
 # ----- Notes -----
@@ -13729,17 +13891,23 @@ _VAR_TOKEN_RE = re.compile(r"\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}")
 
 
 def _render_variable(value: str, ctx: Dict[str, str]) -> str:
-    """Replace {{token}} occurrences in `value` using ctx. Unknown tokens are left blank."""
+    """Replace {{token}} occurrences in `value` using ctx. Unknown tokens are left blank.
+
+    2026-02 fork iter104 — Meta refuse tout paramètre texte vide avec l'erreur
+    (#131008) « Required parameter is missing — Parameter of type text is
+    missing text value ». On force donc une valeur non vide (`—`) sur toute
+    substitution qui résoudrait à une chaîne vide/blanks.
+    """
     if not value:
-        return ""
+        return "—"
 
     def _repl(m):
         key = m.group(1).lower()
-        if key in ctx:
-            return ctx[key] or ""
-        return ""  # unknown token → blank to avoid sending literal "{{x}}"
+        v = (ctx.get(key) or "").strip()
+        return v if v else "—"
 
-    return _VAR_TOKEN_RE.sub(_repl, value)
+    rendered = _VAR_TOKEN_RE.sub(_repl, value)
+    return rendered if rendered.strip() else "—"
 
 
 def _build_recipient_ctx(kind: str, user_doc: Optional[dict], phone: str, label: Optional[str]) -> Dict[str, str]:
@@ -21378,6 +21546,109 @@ async def on_startup():
             }
             await db.contents.insert_one(d_doc.copy())
 
+
+# =============================================================================
+# 2026-02 fork iter104 — Contract Overdue Alert scheduler helper.
+# Sends the super-admin an email (+ WA if configured) once per day per tenant
+# that is past its threshold. De-duplicates through `db.contract_overdue_alerts`.
+# =============================================================================
+async def _run_contract_overdue_alerts() -> Dict[str, Any]:
+    """Scan tenants with contract data and dispatch overdue alerts."""
+    today = datetime.now(timezone.utc).date()
+    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+    default_threshold = int(settings_doc.get("contract_overdue_days_default") or 5)
+    # Only clients with either a `last_payment_at` or `contract_signed_at`.
+    q = {
+        "role": {"$in": ["admin", "client", "client-tracked"]},
+        "$or": [
+            {"last_payment_at": {"$exists": True, "$ne": None, "$ne": ""}},
+            {"contract_signed_at": {"$exists": True, "$ne": None, "$ne": ""}},
+        ],
+    }
+    cursor = db.users.find(q, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1,
+                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1,
+                                "contract_signed_at": 1, "contract_number": 1,
+                                "contract_amount": 1, "contract_currency": 1,
+                                "contract_overdue_days": 1})
+    overdue_tenants: List[Dict[str, Any]] = []
+    async for u in cursor:
+        ref_iso = (u.get("last_payment_at") or u.get("contract_signed_at") or "")[:10]
+        if not ref_iso:
+            continue
+        try:
+            ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
+        except Exception:  # noqa: BLE001
+            continue
+        days = max(0, (today - ref_date).days)
+        threshold = int(u.get("contract_overdue_days") or default_threshold)
+        if days < threshold:
+            continue
+        overdue_tenants.append({
+            **u,
+            "days_overdue": days,
+            "threshold_days": threshold,
+            "ref_field": "last_payment_at" if u.get("last_payment_at") else "contract_signed_at",
+            "ref_iso": ref_iso,
+        })
+    # Dispatch alerts (idempotent per-day).
+    dispatched = 0
+    recipient_email = (settings_doc.get("health_email_to") or SUPER_ADMIN_EMAIL or "").strip().lower()
+    for tenant in overdue_tenants:
+        alert_key = f"{tenant['id']}::{today.isoformat()}"
+        try:
+            existing = await db.contract_overdue_alerts.find_one({"key": alert_key})
+            if existing:
+                continue
+        except Exception:  # noqa: BLE001
+            existing = None
+        subject = f"[SAWALI] Retard de paiement — {tenant.get('company') or tenant.get('email')} ({tenant['days_overdue']} j)"
+        body_lines = [
+            f"Le client « {tenant.get('company') or tenant.get('full_name') or tenant.get('email')} » a dépassé le seuil de retard de paiement.",
+            "",
+            f"  · Retard : {tenant['days_overdue']} jour(s) (seuil : {tenant['threshold_days']} j)",
+            f"  · Basé sur : {tenant['ref_field']} = {tenant['ref_iso']}",
+            f"  · N° contrat : {tenant.get('contract_number') or '—'}",
+            f"  · Montant contrat : {tenant.get('contract_amount') or '—'} {tenant.get('contract_currency') or ''}",
+            f"  · Email client : {tenant.get('email') or '—'}",
+            f"  · Téléphone : {tenant.get('phone') or tenant.get('whatsapp_number') or '—'}",
+            "",
+            "Consultez l'écran /admin/clients pour prendre une action.",
+        ]
+        body_text = "\n".join(body_lines)
+        email_sent = False
+        if recipient_email:
+            try:
+                email_sent = await send_email(recipient_email, subject, body_text)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[contract-overdue] email failed for %s: %s", tenant.get("email"), exc)
+        try:
+            await db.contract_overdue_alerts.insert_one({
+                "id": _uuid(),
+                "key": alert_key,
+                "tenant_id": tenant["id"],
+                "tenant_email": tenant.get("email"),
+                "tenant_company": tenant.get("company"),
+                "days_overdue": tenant["days_overdue"],
+                "threshold_days": tenant["threshold_days"],
+                "ref_field": tenant["ref_field"],
+                "ref_iso": tenant["ref_iso"],
+                "email_recipient": recipient_email,
+                "email_sent": email_sent,
+                "sent_at": _now(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        dispatched += 1
+    return {"scanned": len(overdue_tenants), "dispatched": dispatched, "threshold_default": default_threshold}
+
+
+@api.post("/admin/contract-overdue/run", tags=["Admin"])
+async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
+    """2026-02 fork iter104 — Manually trigger the contract overdue scan (for
+    debugging / on-demand run). The daily cron runs at 08:15 Africa/Abidjan."""
+    return await _run_contract_overdue_alerts()
+
+
     # ---------- Scheduler ----------
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -21475,6 +21746,21 @@ async def on_startup():
                 id="planning_wa_reminders_5min",
                 replace_existing=True,
                 misfire_grace_time=600,
+            )
+            # 2026-02 fork iter104 — Contract Overdue Alert (daily at 08:15 Africa/Abidjan).
+            # Scan all tenants with contract fields set and email/WhatsApp the
+            # super-admin when a tenant is past its threshold.
+            async def _scheduled_contract_overdue_alerts():
+                try:
+                    await _run_contract_overdue_alerts()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[contract-overdue] job failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_contract_overdue_alerts,
+                CronTrigger(hour=8, minute=15, timezone="Africa/Abidjan"),
+                id="contract_overdue_alerts_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
             )
             # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
             try:

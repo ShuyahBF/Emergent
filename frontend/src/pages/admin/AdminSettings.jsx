@@ -2906,6 +2906,38 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* 2026-02 fork iter104 — Retard de paiement (seuil global) */}
+      <Section icon={Webhook} title="Contrats — Seuil de retard de paiement (par défaut)" testid="contract-overdue-section">
+        <p className="text-xs text-slate-500">
+          Nombre de jours après la <em>dernière date de règlement</em> (ou, à défaut, la <em>date de signature</em>) au-delà duquel un client est considéré comme en retard. Chaque fiche client peut fixer sa propre valeur qui prévaut sur ce défaut. Un scan quotidien (08:15 Africa/Abidjan) envoie un email à l'administrateur pour chaque client au-delà du seuil.
+        </p>
+        <div className="grid sm:grid-cols-2 gap-3 items-end">
+          <Input
+            label="Nombre de jours par défaut"
+            type="number"
+            value={s.contract_overdue_days_default ?? 5}
+            onChange={(v) => upd("contract_overdue_days_default", v === "" ? null : Math.max(1, Number(v) || 5))}
+            placeholder="5"
+            testid="contract-overdue-days-default"
+          />
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const r = await apiClient.post("/admin/contract-overdue/run");
+                toast.success(`Scan lancé : ${r.data.dispatched}/${r.data.scanned} clients notifiés (seuil ${r.data.threshold_default} j).`);
+              } catch (e) {
+                toast.error(e?.response?.data?.detail || "Erreur");
+              }
+            }}
+            className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white text-sm px-3 py-2"
+            data-testid="contract-overdue-run-btn"
+          >
+            Lancer un scan maintenant
+          </button>
+        </div>
+      </Section>
+
       <Section icon={Webhook} title="Webhook Interventions (REST API externe)">
         <p className="text-xs text-slate-500">
           À chaque création/mise à jour d'intervention, une requête <strong>POST</strong> est envoyée à

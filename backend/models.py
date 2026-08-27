@@ -46,6 +46,9 @@ class UserPublic(BaseModel):
     contract_amount: Optional[float] = None
     contract_currency: Optional[str] = None
     last_payment_at: Optional[str] = None
+    # 2026-02 fork iter104 — Per-tenant overdue threshold + payment template.
+    contract_overdue_days: Optional[int] = None
+    payment_confirmation_template: Optional[str] = None
 
 
 class UserCreateAdmin(BaseModel):
@@ -80,6 +83,13 @@ class UserCreateAdmin(BaseModel):
     contract_amount: Optional[float] = None
     contract_currency: Optional[str] = None   # e.g. "XOF", "EUR"
     last_payment_at: Optional[str] = None     # ISO date "YYYY-MM-DD"
+    # 2026-02 fork iter104 — Per-tenant overdue threshold (days). If set,
+    # overrides `settings.global.contract_overdue_days_default`. Empty = use global.
+    contract_overdue_days: Optional[int] = None
+    # 2026-02 fork iter104 — WA template used for payment receipts (defaults
+    # to `confirmation_paiement_avecrecu` when empty). Sent automatically each
+    # time a payment is registered via `/admin/clients/{id}/payments`.
+    payment_confirmation_template: Optional[str] = None
 
 
 class UserUpdateAdmin(BaseModel):
@@ -126,6 +136,9 @@ class UserUpdateAdmin(BaseModel):
     contract_amount: Optional[float] = None
     contract_currency: Optional[str] = None
     last_payment_at: Optional[str] = None
+    # 2026-02 fork iter104
+    contract_overdue_days: Optional[int] = None
+    payment_confirmation_template: Optional[str] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]
@@ -888,6 +901,12 @@ class SettingsUpdate(BaseModel):
     health_webhook_basic_pass: Optional[str] = None
     health_email_to: Optional[str] = None  # default: SUPER_ADMIN_EMAIL
     health_timezone: Optional[str] = None  # default Africa/Abidjan
+
+    # 2026-02 fork iter104 — Contract-overdue alert threshold (in days).
+    # Applied to clients WITHOUT a per-tenant `contract_overdue_days` override.
+    # Default: 5 days after `last_payment_at` (or `contract_signed_at` if no
+    # payment has been recorded yet).
+    contract_overdue_days_default: Optional[int] = None
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
     openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)

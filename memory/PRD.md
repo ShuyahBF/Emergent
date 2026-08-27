@@ -14,6 +14,67 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-27 (Fork iter104) — Fix WA #131008 + Overdue Alert + Payment History + IG Stories ✅ DÉPLOYÉ
+
+### 🐛 Fix bug prod WA #131008 (Required parameter is missing — text value)
+**Symptôme prod (email admin)** : Les automations `nouvellecnx_loois` (event `user.login`) et `relais_messagewa_pouradmin` (event `whatsapp.received`) échouaient avec Meta error `(#131008) Required parameter is missing — Parameter of type text is missing text value`.
+
+**Root cause** : Meta Cloud API refuse tout paramètre body `{"type":"text","text":""}` (chaîne vide). Les templates concernés contiennent des variables (`{{company}}`, `{{client_code}}`, `{{login_tracked_role}}`, `{{invoice_ref}}`, `{{wa_from}}` etc.) qui peuvent se résoudre à `""` selon le destinataire — notamment sur le compte super-admin qui n'a pas de `company` ni `client_code`.
+
+**Fix** : `_render_variable` (`server.py:13731`) réécrit — toute substitution vide (`""` ou blanks) → `—` (em dash). Le token complet devient `—` si le résultat final serait vide. Impact global : couvre TOUS les templates WA envoyés via `_build_components` (automations, planning digest, receipts, invoices, magic links…).
+
+### ⏰ Contract Overdue Alert — Seuil global + override par client + scan quotidien
+**User request** : « Contract Overdue Alert : permettre de modifier la durée. Défaut 5 jours (au lieu de 60). Global dans AdminSettings mais chaque tenant a son propre seuil (prioritaire si défini). »
+
+- Backend :
+  - `models.py` : `AdminSettings.contract_overdue_days_default: Optional[int]` (défaut 5) + `UserCreateAdmin/UserUpdateAdmin/UserPublic.contract_overdue_days: Optional[int]`.
+  - Job APScheduler `contract_overdue_alerts_daily` — cron `08:15 Africa/Abidjan`.
+  - Helper `_run_contract_overdue_alerts` : scanne `users` avec `last_payment_at` ou `contract_signed_at`, calcule le retard, résout le seuil (`user.contract_overdue_days > settings.contract_overdue_days_default > 5`), envoie email au `health_email_to` (fallback `SUPER_ADMIN_EMAIL`). Dedupe via `db.contract_overdue_alerts` (`key = tenant_id::date_iso`) — 1 alerte max par tenant/jour.
+  - Endpoint diag `POST /admin/contract-overdue/run` (manual trigger).
+- Frontend :
+  - `AdminSettings.jsx` : nouvelle section "Contrats — Seuil de retard de paiement" avec input `contract_overdue_days_default` + bouton "Lancer un scan maintenant".
+  - `AdminClients.jsx` : nouveau champ `Seuil de retard (j)` dans la section Contrat de la fiche client.
+  - Badge Retard mis à jour dynamiquement selon le seuil résolu (rose foncé ≥ seuil, ambre ≥ 50% du seuil, émeraude si à jour).
+
+### 💰 Payment History — Historique règlements par client + WA confirmation auto
+**User request** : « Enregistrer les paiements par clients (date, référence facture, montant net, montant payé, type de paiement du module caisse). À l'enregistrement, envoyer un template WA paramétrable dans la fiche client, défaut confirmation_paiement_avecrecu. »
+
+- Backend :
+  - Nouvelle collection `db.tenant_payments` `{id, tenant_id, payment_date, invoice_ref, amount_due, amount_paid, payment_method_id/label, notes, created_by, created_at}`.
+  - `UserCreateAdmin/UserUpdateAdmin/UserPublic.payment_confirmation_template: Optional[str]` (défaut `confirmation_paiement_avecrecu` quand vide).
+  - Endpoints `GET/POST /admin/clients/{id}/payments` + `DELETE /admin/clients/{id}/payments/{pid}`.
+  - Side effects du POST : (1) `users.last_payment_at` mis à jour → recalcule automatiquement la colonne Retard, (2) résolution du template (`payment_confirmation_template` client → fallback `confirmation_paiement_avecrecu`), (3) construction du contexte WA étendu (`amount_paid` formaté avec devise contrat, `payment_date`, `invoice_ref`, `payment_method`), (4) envoi WA via `_wa_send_template` avec audit `whatsapp_messages` (context=`tenant_payment`, `payment_id` référencé).
+- Frontend :
+  - `AdminClients.jsx` : nouvelle icône `Wallet` (teal) par ligne → ouvre `<PaymentsModal>`.
+  - Modal : header avec total réglé / contrat / N° contrat, bouton "+ Nouveau paiement" ouvrant un formulaire (date, réf facture, montant dû/payé, sélection type via l'endpoint existant `/payment-methods`, notes, checkbox "envoyer WA"), table historique (date, réf, dû, payé, type, delete).
+  - Champ "Template WA — confirmation paiement" ajouté dans la section Contrat de la fiche client.
+
+### 📸 Instagram Stories (24h éphémère)
+**User request** : « Instagram stories »
+
+- Nouveau flag `as_story: bool` sur `InstagramPostIn` (`smart_comm_senders.py`).
+- Endpoint `POST /me/social/instagram/post` étendu : quand `as_story=true`, `media_type=STORIES` avec `image_url` OU `video_url` (carrousel exclus). Polling `FINISHED` déclenché pour les stories vidéo.
+- Retour `{ok, mode: "story", media_id, credentials_source}`.
+
+### Validation
+- Lint ruff : **0 erreur** sur `server.py` + `routes/smart_comm_senders.py` + `models.py`. Lint ESLint : **0 erreur**.
+- Backend supervisor RUNNING, `/api/health` = `{"status":"ok"}`.
+- Curl live :
+  - `POST /admin/contract-overdue/run` → 200 `{scanned: 2, dispatched: 2, threshold_default: 5}`.
+  - `POST /me/social/instagram/post {as_story: true}` → 400 attendu (credentials absentes).
+  - `POST /admin/clients/{cid}/payments` → 200 avec `wa_confirmation: null` (send_confirmation=false) et `last_payment_at` mis à jour sur le client. `GET` liste → count=1.
+  - `DELETE /admin/clients/{cid}` → 200.
+  - Unit test `_render_variable` : `{{company}}` sur ctx vide → `—`, `{{unknown}}` → `—`, `{{full_name}}` sur `SAWALI-2S` → `SAWALI-2S`.
+- Screenshot preview : modal Paiements affiche header "Total réglé : 1 500 000 F CFA · Contrat : 5 000 000 F CFA" + historique 2 lignes (Espèces + Orange Money). Colonne Retard rendue avec badge `26 j / 15 j` (ambre) et `7 j / 7 j` (seuil atteint).
+
+**Backlog restant (post-publication)** :
+- Alerte WA (en plus de l'email) sur retard de paiement — utiliser `_wa_send_text` sur `settings.super_admin_phone`.
+- Payment recurring schedules (mensuel/trimestriel) avec relance auto avant échéance.
+- Instagram Reels captions étendues (mentions @, hashtags cliquables).
+- Refactor `server.py` (25 300+ lignes) et `liluvine_wa_autoreply.py`.
+
+
+
 ## 2026-02-24 (Fork iter103) — Instagram / TikTok senders + Suggestion Vote + Contract tracking ✅ DÉPLOYÉ
 
 ### 📸 Instagram Sender — Direct posting via Graph API v22 (`/me/social/instagram/post`)

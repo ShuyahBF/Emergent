@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
-import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench } from "lucide-react";
+import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, Activity, MessageCircle, Send, RefreshCw, Inbox, ShieldCheck, Link2, Building2, Users as UsersIcon, Wrench, Wallet } from "lucide-react";
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -27,6 +27,17 @@ export default function AdminClients() {
   // iter32 — Auto-suggest canonical client when a known `company` is typed
   const [companyHint, setCompanyHint] = useState(null);
   const [hintLoading, setHintLoading] = useState(false);
+  // 2026-02 fork iter104 — Global overdue threshold (fetched once from settings).
+  const [overdueDefault, setOverdueDefault] = useState(5);
+  // 2026-02 fork iter104 — Payment History modal state.
+  const [paymentsFor, setPaymentsFor] = useState(null); // client object or null
+
+  useEffect(() => {
+    apiClient.get("/admin/settings").then((r) => {
+      const v = r.data?.contract_overdue_days_default;
+      if (v && Number(v) > 0) setOverdueDefault(Number(v));
+    }).catch(() => {});
+  }, []);
 
   // Trigger hint lookup on company blur (or when editing existing user, skip).
   // The endpoint is admin-only and returns the canonical user for that name
@@ -82,7 +93,15 @@ export default function AdminClients() {
     const start = new Date(d);
     start.setHours(0, 0, 0, 0);
     const days = Math.max(0, Math.floor((today.getTime() - start.getTime()) / 86400000));
-    return { days, refIso, refField: c.last_payment_at ? "last_payment_at" : "contract_signed_at" };
+    // 2026-02 fork iter104 — Threshold : per-client override > global setting > 5.
+    const threshold = Math.max(1, Number(c.contract_overdue_days) || Number(overdueDefault) || 5);
+    return {
+      days,
+      refIso,
+      refField: c.last_payment_at ? "last_payment_at" : "contract_signed_at",
+      threshold,
+      overdue: days >= threshold,
+    };
   };
 
   // Iter34p — Group rows by role with a fixed display order. Each section
@@ -141,12 +160,15 @@ export default function AdminClients() {
     // montant vide → null (sinon Pydantic → 422 sur `contract_amount = ""`).
     const normContract = (f) => {
       const out = { ...f };
-      for (const k of ["contract_number", "contract_signed_at", "contract_currency", "last_payment_at"]) {
+      for (const k of ["contract_number", "contract_signed_at", "contract_currency", "last_payment_at", "payment_confirmation_template"]) {
         if (out[k] === "" || out[k] === undefined) out[k] = null;
       }
       const amt = out.contract_amount;
       if (amt === "" || amt === null || amt === undefined) out.contract_amount = null;
       else if (typeof amt === "string") out.contract_amount = Number(amt) || 0;
+      const od = out.contract_overdue_days;
+      if (od === "" || od === null || od === undefined) out.contract_overdue_days = null;
+      else out.contract_overdue_days = Math.max(1, Number(od) || 5);
       return out;
     };
     try {
@@ -423,21 +445,25 @@ export default function AdminClients() {
                       {(() => {
                         const d = computePaymentDelay(c);
                         if (!d) return <span className="text-slate-300">—</span>;
-                        const cls = d.days === 0
-                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
-                          : d.days < 30
-                          ? "bg-slate-100 text-slate-700 border-slate-200"
-                          : d.days < 60
+                        // 2026-02 fork iter104 — Retard basé sur le seuil (par client
+                        // ou global). Vert = à jour ; ambre = 50-99% du seuil ;
+                        // rose foncé = seuil atteint/dépassé.
+                        const ratio = d.days / d.threshold;
+                        const cls = d.overdue
+                          ? "bg-rose-100 text-rose-800 border-rose-300"
+                          : ratio >= 0.5
                           ? "bg-amber-100 text-amber-800 border-amber-200"
-                          : "bg-rose-100 text-rose-800 border-rose-300";
+                          : d.days === 0
+                          ? "bg-emerald-100 text-emerald-800 border-emerald-200"
+                          : "bg-slate-100 text-slate-700 border-slate-200";
                         const refLabel = d.refField === "last_payment_at" ? "depuis le dernier règlement" : "depuis la signature";
                         return (
                           <span
                             className={`inline-flex flex-col items-start px-2 py-0.5 rounded border ${cls}`}
-                            title={`${d.days} jour${d.days > 1 ? "s" : ""} ${refLabel} (${String(d.refIso).slice(0,10)})`}
+                            title={`${d.days} jour${d.days > 1 ? "s" : ""} ${refLabel} (${String(d.refIso).slice(0,10)}) — seuil ${d.threshold} j${d.overdue ? " ⚠ en retard" : ""}`}
                           >
                             <span className="font-mono font-semibold text-[11px]">{d.days} j</span>
-                            <span className="text-[9px] uppercase tracking-wide opacity-70">{d.refField === "last_payment_at" ? "règlement" : "signature"}</span>
+                            <span className="text-[9px] uppercase tracking-wide opacity-70">/ {d.threshold} j {d.overdue ? "⚠" : ""}</span>
                           </span>
                         );
                       })()}
@@ -455,6 +481,15 @@ export default function AdminClients() {
                       <Link to={`/admin/clients/${c.id}/timeline`} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`timeline-client-${c.id}`} title="Timeline CRM"><Activity className="h-4 w-4 inline" /></Link>
                       <Link to={`/admin/clients/${c.id}/features`} className="text-slate-500 hover:text-fuchsia-600 mr-3" data-testid={`features-client-${c.id}`} title="SMART Communications"><ShieldCheck className="h-4 w-4 inline" /></Link>
                       <button onClick={() => setWaStats(c)} className="text-slate-500 hover:text-emerald-600 mr-3" data-testid={`wa-stats-${c.id}`} title="Consommation WhatsApp"><MessageCircle className="h-4 w-4 inline" /></button>
+                      {/* 2026-02 fork iter104 — Payments panel */}
+                      <button
+                        onClick={() => setPaymentsFor(c)}
+                        className="text-slate-500 hover:text-teal-600 mr-3"
+                        data-testid={`payments-${c.id}`}
+                        title="Paiements / historique règlements"
+                      >
+                        <Wallet className="h-4 w-4 inline" />
+                      </button>
                       <button
                         onClick={() => repairContact(c)}
                         className="text-slate-500 hover:text-fuchsia-600 mr-3"
@@ -662,9 +697,23 @@ export default function AdminClients() {
                   onChange={(v) => setForm({ ...form, last_payment_at: v || "" })}
                   testid="client-last-payment-at"
                 />
+                {/* 2026-02 fork iter104 — Per-tenant overdue threshold override */}
+                <Input
+                  label={`Seuil de retard (j) — défaut ${overdueDefault}`}
+                  type="number"
+                  value={form.contract_overdue_days ?? ""}
+                  onChange={(v) => setForm({ ...form, contract_overdue_days: v })}
+                  testid="client-contract-overdue-days"
+                />
+                <Input
+                  label="Template WA — confirmation paiement"
+                  value={form.payment_confirmation_template || ""}
+                  onChange={(v) => setForm({ ...form, payment_confirmation_template: v })}
+                  testid="client-payment-confirmation-template"
+                />
               </div>
               <p className="text-[11px] text-teal-800 italic">
-                Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>.
+                Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>. Le <em>seuil de retard</em> propre au client (si renseigné) prévaut sur la valeur globale des paramètres. Le <em>template WA</em> par défaut est <code>confirmation_paiement_avecrecu</code>.
               </p>
             </div>
 
@@ -815,6 +864,15 @@ export default function AdminClients() {
           client={waStats}
           onClose={() => setWaStats(null)}
           onCostUpdated={async () => { await load(); }}
+        />
+      )}
+
+      {/* 2026-02 fork iter104 — Payment history modal */}
+      {paymentsFor && (
+        <PaymentsModal
+          client={paymentsFor}
+          onClose={() => setPaymentsFor(null)}
+          onChanged={async () => { await load(); }}
         />
       )}
     </div>
@@ -1135,3 +1193,228 @@ const Modal = ({ children, onClose, title }) => (
     </div>
   </div>
 );
+
+// ---------------------------------------------------------------------------
+// 2026-02 fork iter104 — PaymentsModal
+// Register a payment + list previous ones for a client. Automatically triggers
+// the WA confirmation template via the backend (POST /admin/clients/{id}/payments).
+// ---------------------------------------------------------------------------
+const PaymentsModal = ({ client, onClose, onChanged }) => {
+  const [items, setItems] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [methods, setMethods] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [showForm, setShowForm] = useState(false);
+  const [draft, setDraft] = useState({
+    payment_date: new Date().toISOString().slice(0, 10),
+    invoice_ref: "",
+    amount_due: "",
+    amount_paid: "",
+    payment_method_id: "",
+    payment_method_label: "",
+    notes: "",
+    send_confirmation: true,
+  });
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      const [r1, r2] = await Promise.all([
+        apiClient.get(`/admin/clients/${client.id}/payments`),
+        apiClient.get("/payment-methods").catch(() => ({ data: [] })),
+      ]);
+      setItems(r1.data || []);
+      setMethods(r2.data || []);
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Chargement paiements impossible");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); /* eslint-disable-next-line */ }, [client.id]);
+
+  const save = async () => {
+    if (!draft.payment_date || !draft.amount_paid) {
+      toast.error("Date et montant payé requis");
+      return;
+    }
+    setSaving(true);
+    try {
+      const payload = {
+        payment_date: draft.payment_date,
+        invoice_ref: draft.invoice_ref || null,
+        amount_due: draft.amount_due === "" ? null : Number(draft.amount_due),
+        amount_paid: Number(draft.amount_paid),
+        payment_method_id: draft.payment_method_id || null,
+        payment_method_label: draft.payment_method_label || null,
+        notes: draft.notes || null,
+        send_confirmation: !!draft.send_confirmation,
+      };
+      const r = await apiClient.post(`/admin/clients/${client.id}/payments`, payload);
+      const wa = r.data?.wa_confirmation;
+      if (payload.send_confirmation && wa) {
+        if (wa.ok) toast.success(`Paiement enregistré + WA envoyé (${wa.template})`);
+        else toast.warning(`Paiement enregistré mais WA échoué : ${wa.error || "erreur inconnue"}`);
+      } else {
+        toast.success("Paiement enregistré");
+      }
+      setShowForm(false);
+      setDraft({
+        payment_date: new Date().toISOString().slice(0, 10),
+        invoice_ref: "", amount_due: "", amount_paid: "",
+        payment_method_id: "", payment_method_label: "", notes: "",
+        send_confirmation: true,
+      });
+      await load();
+      await onChanged?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async (pid) => {
+    if (!window.confirm("Supprimer ce paiement ?")) return;
+    try {
+      await apiClient.delete(`/admin/clients/${client.id}/payments/${pid}`);
+      toast.success("Paiement supprimé");
+      await load();
+      await onChanged?.();
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  const formatMoney = (amount, currency) => {
+    if (amount == null || amount === "" || Number.isNaN(Number(amount))) return "—";
+    try {
+      return new Intl.NumberFormat("fr-FR", { style: "currency", currency: currency || "XOF", maximumFractionDigits: 0 }).format(Number(amount));
+    } catch {
+      return `${Number(amount).toLocaleString("fr-FR")} ${currency || ""}`.trim();
+    }
+  };
+
+  const currency = client.contract_currency || "XOF";
+  const totalPaid = items.reduce((sum, p) => sum + (Number(p.amount_paid) || 0), 0);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose} data-testid="payments-modal">
+      <div className="bg-white rounded-xl w-full max-w-3xl max-h-[92vh] overflow-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between p-4 border-b bg-gradient-to-r from-teal-50 to-white">
+          <div>
+            <h3 className="font-display font-semibold text-lg text-teal-900">Paiements — {client.company || client.full_name || client.email}</h3>
+            <p className="text-xs text-slate-500 mt-0.5">
+              Total réglé : <strong className="text-teal-700">{formatMoney(totalPaid, currency)}</strong>
+              {client.contract_amount ? <> · Contrat : <strong>{formatMoney(client.contract_amount, currency)}</strong></> : null}
+              {client.contract_number ? <> · N° {client.contract_number}</> : null}
+            </p>
+          </div>
+          <button onClick={onClose} className="text-slate-500 hover:text-slate-700"><X className="h-5 w-5" /></button>
+        </div>
+
+        <div className="p-4 space-y-4">
+          <div className="flex justify-between items-center">
+            <h4 className="text-sm font-semibold text-slate-700">Historique ({items.length})</h4>
+            {!showForm && (
+              <button
+                onClick={() => setShowForm(true)}
+                className="inline-flex items-center gap-1.5 rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-3 py-1.5 text-sm"
+                data-testid="payments-add-btn"
+              >
+                <Plus className="h-4 w-4" /> Nouveau paiement
+              </button>
+            )}
+          </div>
+
+          {showForm && (
+            <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 p-3 space-y-3" data-testid="payments-form">
+              <div className="grid grid-cols-2 gap-3">
+                <Input label="Date du paiement" type="date" value={draft.payment_date} onChange={(v) => setDraft({ ...draft, payment_date: v })} testid="payments-date" />
+                <Input label="Référence facture" value={draft.invoice_ref} onChange={(v) => setDraft({ ...draft, invoice_ref: v })} testid="payments-invoice-ref" />
+                <Input label={`Montant net à payer (${currency})`} type="number" value={draft.amount_due} onChange={(v) => setDraft({ ...draft, amount_due: v })} testid="payments-amount-due" />
+                <Input label={`Montant payé (${currency})`} type="number" value={draft.amount_paid} onChange={(v) => setDraft({ ...draft, amount_paid: v })} testid="payments-amount-paid" />
+                <div>
+                  <label className="block text-xs font-semibold mb-1 text-slate-700">Type de paiement</label>
+                  <select
+                    value={draft.payment_method_id}
+                    onChange={(e) => {
+                      const id = e.target.value;
+                      const m = methods.find((x) => x.id === id);
+                      setDraft({ ...draft, payment_method_id: id, payment_method_label: m?.label || "" });
+                    }}
+                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                    data-testid="payments-method"
+                  >
+                    <option value="">— Sélectionner —</option>
+                    {methods.map((m) => (
+                      <option key={m.id} value={m.id}>{m.label}</option>
+                    ))}
+                  </select>
+                </div>
+                <Input label="Notes (optionnel)" value={draft.notes} onChange={(v) => setDraft({ ...draft, notes: v })} testid="payments-notes" />
+              </div>
+              <label className="inline-flex items-center gap-2 text-xs cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={!!draft.send_confirmation}
+                  onChange={(e) => setDraft({ ...draft, send_confirmation: e.target.checked })}
+                  data-testid="payments-send-confirm"
+                />
+                <span>Envoyer automatiquement le WhatsApp de confirmation (template <code className="bg-white px-1 rounded">{client.payment_confirmation_template || "confirmation_paiement_avecrecu"}</code>)</span>
+              </label>
+              <div className="flex justify-end gap-2">
+                <button onClick={() => setShowForm(false)} className="text-sm px-3 py-1.5 text-slate-600 hover:text-slate-800">Annuler</button>
+                <button
+                  onClick={save}
+                  disabled={saving}
+                  className="rounded-lg bg-teal-600 hover:bg-teal-700 text-white px-4 py-1.5 text-sm disabled:opacity-50"
+                  data-testid="payments-save-btn"
+                >
+                  {saving ? "Enregistrement…" : "Enregistrer"}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {loading ? (
+            <p className="text-sm text-slate-500 text-center py-8">Chargement…</p>
+          ) : items.length === 0 ? (
+            <p className="text-sm text-slate-500 text-center py-8" data-testid="payments-empty">Aucun paiement enregistré.</p>
+          ) : (
+            <table className="w-full text-sm border-t">
+              <thead className="text-xs uppercase text-slate-500">
+                <tr>
+                  <th className="text-left px-2 py-1">Date</th>
+                  <th className="text-left px-2 py-1">Réf. facture</th>
+                  <th className="text-right px-2 py-1">Dû</th>
+                  <th className="text-right px-2 py-1">Payé</th>
+                  <th className="text-left px-2 py-1">Type</th>
+                  <th className="text-right px-2 py-1"></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((p) => (
+                  <tr key={p.id} className="hover:bg-slate-50" data-testid={`payment-row-${p.id}`}>
+                    <td className="px-2 py-1.5 font-mono text-xs">{p.payment_date}</td>
+                    <td className="px-2 py-1.5">{p.invoice_ref || "—"}</td>
+                    <td className="px-2 py-1.5 text-right text-slate-600 font-mono text-xs">{formatMoney(p.amount_due, currency)}</td>
+                    <td className="px-2 py-1.5 text-right text-teal-700 font-semibold font-mono text-xs">{formatMoney(p.amount_paid, currency)}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-600">{p.payment_method_label || "—"}</td>
+                    <td className="px-2 py-1.5 text-right">
+                      <button onClick={() => remove(p.id)} className="text-slate-400 hover:text-rose-600" title="Supprimer" data-testid={`payment-delete-${p.id}`}>
+                        <Trash2 className="h-3 w-3" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+

@@ -146,6 +146,9 @@ class InstagramPostIn(BaseModel):
     image_url: Optional[str] = None
     image_urls: Optional[list] = None  # If provided (2-10 URLs), post as carousel
     video_url: Optional[str] = None  # If provided, post as Reels (single item)
+    # 2026-02 fork iter104 — When True, publish as a 24h ephemeral Story
+    # (mutually exclusive with carousel). Uses `image_url` OR `video_url`.
+    as_story: Optional[bool] = False
 
 
 class TikTokPostIn(BaseModel):
@@ -471,8 +474,26 @@ def setup_smart_comm_senders(
         mode = "single_image"
         try:
             async with httpx.AsyncClient(timeout=45) as cli:
+                # ------- Story (24h ephemeral) --------------------------------
+                # 2026-02 fork iter104 — mutually exclusive with carousel.
+                if payload.as_story:
+                    mode = "story"
+                    if not payload.image_url and not payload.video_url:
+                        raise HTTPException(status_code=400, detail="Story Instagram : `image_url` ou `video_url` requis.")
+                    if image_urls and len(image_urls) >= 2:
+                        raise HTTPException(status_code=400, detail="Story Instagram : le carrousel n'est pas supporté (1 image OU 1 vidéo).")
+                    story_data = {"media_type": "STORIES"}
+                    if payload.video_url:
+                        story_data["video_url"] = payload.video_url.strip()
+                    else:
+                        story_data["image_url"] = payload.image_url.strip()
+                    r = await cli.post(
+                        f"{base_url}/media",
+                        params={"access_token": token},
+                        data=story_data,
+                    )
                 # ------- Carousel ---------------------------------------------
-                if len(image_urls) >= 2:
+                elif len(image_urls) >= 2:
                     mode = "carousel"
                     if len(image_urls) > 10:
                         raise HTTPException(status_code=400, detail="Carrousel Instagram : maximum 10 items.")
@@ -517,7 +538,9 @@ def setup_smart_comm_senders(
                 if not creation_id:
                     raise HTTPException(status_code=502, detail=f"Instagram : creation_id manquant ({r.text[:200]})")
                 # Reels & carousels need to wait for FINISHED before publish.
-                if mode in ("reels", "carousel"):
+                # Stories with video need it too.
+                needs_wait = mode in ("reels", "carousel") or (mode == "story" and payload.video_url)
+                if needs_wait:
                     status_final = await _instagram_wait_container_ready(
                         cli=cli, container_id=creation_id, access_token=token
                     )

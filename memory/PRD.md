@@ -17,6 +17,41 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 
+## 2026-02-27 (Fork iter105) — Sidebar dynamique + notification_phone priorité + Payment types dropdown ✅ DÉPLOYÉ
+
+### 🎛️ Sidebar dynamique — Documents / Formations / Formulaires masqués si vide
+**User request** : « N'afficher les options de la Sidebar que si un client lié, de l'utilisateur suivi connecté, peut "voir" des documents, formations ou formulaires. »
+
+- Backend : nouvel endpoint **`GET /me/access-summary`** retournant `{has_documents, has_formations, has_forms}`. Bypass admin/super-admin/superviseur (tous à true). Sinon probe sur `documents`/`forms`/`formations` filtrées par `_item_accessible_by_tenant` (P5 gate `access_client_ids` + `client_id` + `is_public`). Retourne true dès qu'un item passe.
+- Frontend `PortalLayout.jsx` : fetch `/me/access-summary` sur mount, stocké dans `accessSummary`. Nouveau filtre dans le pipeline sidebar : masque les entrées `/portal/documents|formations|forms` quand `has_*=false`.
+
+### 📞 Automation `notification_phone` — Priorité inversée
+**User request** : « Pour les automations, le numéro WA de l'administrateur est prioritaire. Si dans l'automation le 'Numéro WhatsApp de secours' est défini alors utiliser le 'Numéro WhatsApp de secours'. »
+
+- Backend `_dispatch_automation_event` : quand `notification_phone` est défini, il **écrase** le téléphone résolu du destinataire (même si non vide). Label d'audit devient `<destinataire> → <notification_phone>` pour tracer la redirection.
+- Cas d'usage : relais admin (`relais_messagewa_pouradmin`, `nouvellecnx_loois`) où l'admin veut recevoir la notification sur SON numéro, pas sur celui du destinataire de l'événement.
+
+### 💳 Payment types — Dropdown avec fallback prédéfini + résolution des labels
+**User request** : « Pour les types de paiement permettre d'utiliser une sélection dans une liste déroulante. Préférable au type UID qui est affiché. »
+
+- Frontend `AdminClients.jsx` `PaymentsModal` : quand `/payment-methods` renvoie vide, fallback vers 6 types prédéfinis (Espèces, Mobile Money, Virement bancaire, Chèque, Carte bancaire, Autre). Table historique : `resolvedType = payment_method_label || methods.find(id).label || "—"` — plus aucun UUID affiché.
+
+### Validation
+- Lint ruff + ESLint : 0 erreur.
+- Backend supervisor RUNNING, `/api/health` OK.
+- Curl live :
+  - `GET /me/access-summary` (admin token) → `{has_documents:true, has_formations:true, has_forms:true}`.
+  - `POST /admin/automations {notification_phone: "22690000001"}` → persistance vérifiée.
+- Screenshot preview : sidebar admin affiche "Documentation (4)" et "Forms" mais pas "Formations" (tenant sans formation). Comportement attendu.
+
+**Backlog restant (post-publication)** :
+- S157 WA Overdue Alert (email + WA au super-admin).
+- S158 Payment Reminders J-3 avant échéance.
+- S159 Recurring Payments (échéanciers mensuels/trimestriels).
+- Refactor `server.py` (25 400+ lignes) et `liluvine_wa_autoreply.py`.
+
+
+
 ## 2026-02-27 (Fork iter104) — Fix WA #131008 + Overdue Alert + Payment History + IG Stories ✅ DÉPLOYÉ
 
 ### 🐛 Fix bug prod WA #131008 (Required parameter is missing — text value)

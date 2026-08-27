@@ -3210,6 +3210,50 @@ async def me_create_appointment(
     return doc
 
 
+
+# =============================================================================
+# 2026-02 fork iter105 — Sidebar access summary
+# Returns whether the CURRENT user has at least one visible item in each of
+# the tenant-scoped sections (Documents / Formations / Formulaires). Used by
+# the frontend PortalLayout to hide sidebar entries that would land the user
+# on an empty page. Admins/super-admins always see the entries.
+# =============================================================================
+@api.get("/me/access-summary", tags=["Portail Client"])
+async def me_access_summary(user: dict = Depends(get_current_user)):
+    """Ultra-light probe : counts documents/formations/forms visible to the
+    current user, respecting `access_client_ids` gates and tenant scope. Only
+    returns booleans (has_XXX)."""
+    # Super-admin / admin / superviseur : always visible.
+    if _is_super_admin(user) or (user.get("role") in ("admin", "superviseur", "moderator")):
+        return {"has_documents": True, "has_formations": True, "has_forms": True}
+
+    # Resolve the tenant scope.
+    effective_client_id = user.get("parent_client_id") or user.get("client_id") or user.get("id")
+
+    async def _probe(coll_name: str) -> bool:
+        try:
+            cursor = db[coll_name].find(
+                {"$or": [{"client_id": effective_client_id}, {"is_public": True}]},
+                {"_id": 0, "access_client_ids": 1, "client_id": 1, "is_public": 1},
+            )
+            async for doc in cursor:
+                if _item_accessible_by_tenant(doc, user):
+                    return True
+        except Exception:  # noqa: BLE001
+            return False
+        return False
+
+    has_docs = await _probe("documents")
+    has_forms = await _probe("forms")
+    has_formations = await _probe("formations")
+    return {
+        "has_documents": has_docs,
+        "has_formations": has_formations,
+        "has_forms": has_forms,
+    }
+
+
+
 @api.get("/me/documents", tags=["Portail Client"])
 async def me_documents(user: dict = Depends(get_current_user)):
     """RGPD: anonymizes uploaded_by_email/name for non-privileged roles.
@@ -19208,18 +19252,19 @@ async def _emit_event(event: str, target: dict) -> None:
             ctx_kind = kind
             ctx_rid = rid
 
-        # 2026-02 fork iter102 (bug fix prod) — Numéro WA de secours défini
-        # sur l'automation elle-même. Utilisé quand le destinataire résolu
-        # n'a pas de `phone` NI de `whatsapp_number` (ex : compte super-admin).
-        # Bascule le kind→"raw" pour que le message soit envoyé "au numéro
-        # brut" plutôt que ré-associé au destinataire d'origine.
+        # 2026-02 fork iter105 — Priorité inversée sur demande utilisateur :
+        # Le `notification_phone` défini sur l'automation prend le PAS sur le
+        # téléphone du destinataire résolu (auparavant c'était l'inverse). Le
+        # cas d'usage cible = automations "relais admin" (`relais_messagewa_pouradmin`,
+        # `nouvellecnx_loois`) où l'administrateur veut recevoir le message sur
+        # SON numéro, pas sur celui du destinataire d'événement.
         fallback_phone = (au.get("notification_phone") or "").strip()
-        if not to_phone and fallback_phone:
+        if fallback_phone:
+            # Notification_phone défini → il gagne, même si `to_phone` existe.
+            if to_phone and to_phone != fallback_phone:
+                ctx_label = f"{ctx_label} → {fallback_phone}" if ctx_label and ctx_label != "—" else fallback_phone
             to_phone = fallback_phone
             ctx_phone = fallback_phone
-            ctx_label = f"{ctx_label} → {fallback_phone}" if ctx_label and ctx_label != "—" else fallback_phone
-            # Garde ctx_kind/ctx_rid pour que le log reste attribué au tenant
-            # d'origine (audit + activity feed).
 
         if not to_phone:
             # 2026-02 fork (bug fix) — Email de secours si l'automation
@@ -21561,8 +21606,8 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
     q = {
         "role": {"$in": ["admin", "client", "client-tracked"]},
         "$or": [
-            {"last_payment_at": {"$exists": True, "$ne": None, "$ne": ""}},
-            {"contract_signed_at": {"$exists": True, "$ne": None, "$ne": ""}},
+            {"last_payment_at": {"$exists": True, "$nin": [None, ""]}},
+            {"contract_signed_at": {"$exists": True, "$nin": [None, ""]}},
         ],
     }
     cursor = db.users.find(q, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1,

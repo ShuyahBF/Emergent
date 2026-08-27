@@ -218,6 +218,16 @@ export default function PortalLayout({ admin = false }) {
   const isMedecin = user?.role === "medecin";
   // Iter43-fix24az-f (2026-02-26) — Business-type Fabricant : sidebar réduite
   const isFabricant = (user?.business_type || "").toLowerCase() === "fabricant";
+  // 2026-02 fork iter105 — Sidebar entries Documents/Formations/Formulaires
+  // hidden when the user's linked tenant has no accessible items. Fetched once
+  // via `/me/access-summary`. Admins/super-admins always see the entries.
+  const [accessSummary, setAccessSummary] = React.useState(null);
+  React.useEffect(() => {
+    if (!user) return;
+    apiClient.get("/me/access-summary")
+      .then((r) => setAccessSummary(r.data || {}))
+      .catch(() => setAccessSummary(null));
+  }, [user?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // 2026-02 fork (P4) — Overrides visibilité par tracked user.
   // Résolution : true/false = override explicite ; null/undefined = défaut du rôle.
@@ -307,6 +317,16 @@ export default function PortalLayout({ admin = false }) {
     .filter((l) => !l.fabricantOnly || isFabricant)
     .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
     .filter((l) => !l.trackedOnly || isTracked)
+    // 2026-02 fork iter105 — Cache Documents / Formations / Formulaires quand
+    // le tenant lié n'a rien de visible. Admin/superviseur bypass via `accessSummary=null`
+    // (l'endpoint retourne toujours has_XXX=true pour eux).
+    .filter((l) => {
+      if (!accessSummary) return true;
+      if (l.to === "/portal/documents") return accessSummary.has_documents !== false;
+      if (l.to === "/portal/formations") return accessSummary.has_formations !== false;
+      if (l.to === "/portal/forms") return accessSummary.has_forms !== false;
+      return true;
+    })
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
     .filter((l) => !l.cashOnly || canCash || isComptable)
     .filter((l) => !l.hrOnly || canHR)

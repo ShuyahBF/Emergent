@@ -15,15 +15,44 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-27 (fork iter104)
-- **Fix bug prod WA #131008** : `_render_variable` remplace toute résolution vide par `—` (Meta refusait `{"type":"text","text":""}`) — S153.
-- **Contract Overdue Alert configurable** : seuil global (`settings.contract_overdue_days_default`, défaut 5j) + override par client (`contract_overdue_days`) + scan quotidien 08:15 Africa/Abidjan avec email au super-admin (S154).
-- **Payment History** : collection `tenant_payments`, endpoints CRUD `/admin/clients/{id}/payments`, modal admin avec formulaire + historique + template WA de confirmation auto (S155).
-- **Instagram Stories** : mode `as_story: true` sur `/me/social/instagram/post` (24h éphémère, image ou vidéo) — S156.
-- **3 suggestions backlog** consignées par l'utilisateur (2026-02-27) : S157/S158/S159 (WA overdue alert, payment reminders, recurring payments).
-- Suggestions **S153 → S159** ajoutées ci-dessous.
+## Dernière mise à jour majeure — 2026-02-27 (fork iter105)
+- **Sidebar dynamique (S160)** : Documents / Formations / Formulaires masqués quand le tenant n'a rien de visible (endpoint `/me/access-summary`).
+- **Priorité inversée notification_phone (S161)** : `notification_phone` sur automation prend maintenant le pas sur le téléphone du destinataire résolu (au lieu d'être un fallback seulement).
+- **Types de paiement dropdown avec fallback (S162)** : liste prédéfinie (Espèces, Mobile Money, Virement, Chèque, Carte, Autre) quand le tenant n'a pas configuré ses `/payment-methods` + résolution des labels dans la table historique.
+- Suggestions **S160 → S162** ajoutées ci-dessous.
 
 ---
+
+## S162 — Types de paiement : dropdown avec fallback + résolution des labels
+- **Demande utilisateur** : 2026-02-27 — « Pour les types de paiement permettre d'utiliser une sélection dans une liste déroulante. Préférable au type UID qui est affiché. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter105)
+- **Fix associé** : fork-iter105-payment-types-fallback (2026-02-27)
+- **Détail** :
+  - Frontend `AdminClients.jsx` — `PaymentsModal` : quand `/payment-methods` renvoie une liste vide, fallback vers 6 types prédéfinis (Espèces, Mobile Money, Virement bancaire, Chèque, Carte bancaire, Autre). Empêche l'affichage d'un UUID stocké dans une ancienne ligne sans label.
+  - Table historique : `resolvedType = p.payment_method_label || methods.find(m => m.id === p.payment_method_id)?.label || "—"`. Aucun UUID n'est plus affiché à l'utilisateur.
+- **Impact** : Les admins peuvent désormais choisir un type de paiement immédiatement au premier usage, même sans configuration préalable du module Caisse. Les paiements historiques affichent toujours un libellé humain.
+
+## S161 — Automation : `notification_phone` prend le PAS sur le téléphone du destinataire
+- **Demande utilisateur** : 2026-02-27 — « Pour les automations, le numéro WA de l'administrateur est prioritaire. Si dans l'automation le 'Numéro WhatsApp de secours' est défini alors utiliser le numéro 'Numéro WhatsApp de secours'. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter105)
+- **Fix associé** : fork-iter105-notification-phone-priority (2026-02-27)
+- **Détail** :
+  - Backend `_dispatch_automation_event` (`server.py:19022+`) : ordre de résolution modifié.
+    · **Avant** : `payload.phone > user_doc.phone > user_doc.whatsapp_number` → fallback `notification_phone` uniquement si tout était vide.
+    · **Après** : si `notification_phone` est défini sur l'automation, il **écrase** systématiquement le téléphone résolu — même si le destinataire d'événement en avait un. Le label d'audit devient `<destinataire d'origine> → <notification_phone>` pour tracer la redirection.
+  - Cas d'usage cible : automations "relais admin" (`relais_messagewa_pouradmin`, `nouvellecnx_loois`) où l'administrateur veut recevoir le message sur SON numéro, pas sur celui du destinataire de l'événement (ex : nouveau login → l'admin reçoit une notification, pas l'utilisateur qui vient de se connecter).
+- **Impact** : Les relais admin fonctionnent enfin comme attendu. Le champ `notification_phone` de l'automation devient LE numéro à utiliser, sans que l'admin ait à renseigner le téléphone sur chaque compte super-admin.
+
+## S160 — Sidebar dynamique : masque Documents/Formations/Formulaires quand le tenant n'a rien de visible
+- **Demande utilisateur** : 2026-02-27 — « N'afficher les options de la Sidebar que si un client lié, de l'utilisateur suivi connecté, peut "voir" des documents, formations ou formulaires. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-02 fork iter105)
+- **Fix associé** : fork-iter105-sidebar-access-summary (2026-02-27)
+- **Détail** :
+  - Backend : nouvel endpoint **`GET /me/access-summary`** — retourne `{has_documents, has_formations, has_forms}` en booleans.
+    · Bypass admin/super-admin/superviseur/moderator (tous à true).
+    · Sinon, probe async sur `db.documents/forms/formations` filtrées via `_item_accessible_by_tenant` (P5 access gate + client_id + is_public). Retourne `true` dès qu'au moins un item passe le filtre.
+  - Frontend `PortalLayout.jsx` : `apiClient.get('/me/access-summary')` sur le mount, stocke dans `accessSummary`. Nouveau filtre dans le pipeline de la sidebar : cache les entrées `/portal/documents`, `/portal/formations`, `/portal/forms` quand `has_*=false`. Admins/superviseurs voient toujours tout (endpoint retourne always-true pour eux).
+- **Impact** : Les utilisateurs suivis d'un tenant qui n'a rien à voir (par exemple un Comptable dans un tenant sans Formations) ne verront plus les 3 entrées inutiles, ce qui réduit la friction cognitive et évite les clics vers des listes vides.
 
 ## S159 — Recurring Payments : échéanciers mensuels/trimestriels par contrat
 - **Demande utilisateur** : 2026-02-27 (Next Action Item iter104, à consigner pour plus tard) — « Programme des échéances récurrentes mensuelles ou trimestrielles pour chaque contrat client. »

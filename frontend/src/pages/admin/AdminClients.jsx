@@ -1224,7 +1224,22 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
         apiClient.get("/payment-methods").catch(() => ({ data: [] })),
       ]);
       setItems(r1.data || []);
-      setMethods(r2.data || []);
+      // 2026-02 fork iter105 — Fallback list when the tenant hasn't configured
+      // any payment method yet. Prevents empty dropdown & the "UID displayed"
+      // symptom by always offering a labelled selection.
+      const list = r2.data || [];
+      if (list.length === 0) {
+        setMethods([
+          { id: "cash", label: "Espèces" },
+          { id: "mobile_money", label: "Mobile Money" },
+          { id: "bank_transfer", label: "Virement bancaire" },
+          { id: "check", label: "Chèque" },
+          { id: "card", label: "Carte bancaire" },
+          { id: "other", label: "Autre" },
+        ]);
+      } else {
+        setMethods(list);
+      }
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Chargement paiements impossible");
     } finally {
@@ -1395,20 +1410,28 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {items.map((p) => (
+                {items.map((p) => {
+                  // 2026-02 fork iter105 — Resolve label from methods list when
+                  // the stored `payment_method_label` is missing (legacy rows or
+                  // when only the id was persisted). Prevents raw UUIDs showing.
+                  const resolvedType = (p.payment_method_label && p.payment_method_label.trim())
+                    || methods.find((m) => m.id === p.payment_method_id)?.label
+                    || (p.payment_method_id ? "—" : "—");
+                  return (
                   <tr key={p.id} className="hover:bg-slate-50" data-testid={`payment-row-${p.id}`}>
                     <td className="px-2 py-1.5 font-mono text-xs">{p.payment_date}</td>
                     <td className="px-2 py-1.5">{p.invoice_ref || "—"}</td>
                     <td className="px-2 py-1.5 text-right text-slate-600 font-mono text-xs">{formatMoney(p.amount_due, currency)}</td>
                     <td className="px-2 py-1.5 text-right text-teal-700 font-semibold font-mono text-xs">{formatMoney(p.amount_paid, currency)}</td>
-                    <td className="px-2 py-1.5 text-xs text-slate-600">{p.payment_method_label || "—"}</td>
+                    <td className="px-2 py-1.5 text-xs text-slate-600">{resolvedType}</td>
                     <td className="px-2 py-1.5 text-right">
                       <button onClick={() => remove(p.id)} className="text-slate-400 hover:text-rose-600" title="Supprimer" data-testid={`payment-delete-${p.id}`}>
                         <Trash2 className="h-3 w-3" />
                       </button>
                     </td>
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}

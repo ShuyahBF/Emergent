@@ -253,7 +253,7 @@ async def run_google_calendar_watch_renewal_tick(db):
         logger.error("[gcal.watch] renewal tick error: %s", exc, exc_info=True)
 
 
-def attach_google_calendar_watch_routes(*, api, db, get_current_admin):
+def attach_google_calendar_watch_routes(*, api, db, get_current_admin, get_current_user=None):
 
     @api.get("/admin/google/calendar/watch", tags=["Admin — Google Calendar"])
     async def get_watch_status(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:
@@ -293,6 +293,19 @@ def attach_google_calendar_watch_routes(*, api, db, get_current_admin):
 
     @api.post("/admin/google/calendar/sync-now", tags=["Admin — Google Calendar"])
     async def sync_now(_: dict = Depends(get_current_admin)) -> Dict[str, Any]:
+        s = await db.settings.find_one({"_id": "global"}) or {}
+        calendar_id = s.get("google_calendar_watch_calendar_id") or s.get("google_calendar_email") or "primary"
+        result = await _sync_events_incremental(db, calendar_id)
+        return {"ok": True, **result}
+
+    # 2026-02 fork iter107 — Bouton "Synchroniser" côté portail client
+    # (/portal/appointments) : accessible à tout utilisateur authentifié,
+    # renvoie le même résumé que le sync admin.
+    # 2026-02 fork iter108 fix — Ajout de l'auth pour prévenir un abus
+    # d'endpoint anonyme (rapport testing_agent iter97).
+    _auth_dep = get_current_user or get_current_admin
+    @api.post("/me/appointments/gcal-sync", tags=["Portail Client"])
+    async def me_gcal_sync_now(_: dict = Depends(_auth_dep)) -> Dict[str, Any]:
         s = await db.settings.find_one({"_id": "global"}) or {}
         calendar_id = s.get("google_calendar_watch_calendar_id") or s.get("google_calendar_email") or "primary"
         result = await _sync_events_incremental(db, calendar_id)

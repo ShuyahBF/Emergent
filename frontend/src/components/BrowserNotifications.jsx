@@ -14,9 +14,15 @@
 //
 // The component is mounted globally inside `PortalLayout` so every signed-in
 // route gets this behaviour for free.
+//
+// 2026-02 fork iter108 — S164 (Emmy) — Respects the admin global switch
+// `browser_notifications_enabled` (via /public/ui-flags) AND the per-user
+// opt-out flag (user.browser_notifications_optout) so users who find the
+// alerts intrusive can silence them from their profile settings.
 import { useEffect, useRef } from "react";
 import { useAuth } from "@/contexts/AuthContext";
 import { apiClient } from "@/lib/api";
+import { useUIFlags } from "@/lib/useUIFlags";
 
 const POLL_MS = 25_000;
 const BLINK_MS = 1_200;
@@ -24,6 +30,16 @@ const BASE_TITLE = "SAWALI · Espace Loois";
 
 export default function BrowserNotifications() {
   const { user } = useAuth();
+  const flags = useUIFlags();
+  // S164 — Admin global switch (default true when field missing).
+  const globalEnabled = flags?.browser_notifications_enabled !== false;
+  // S164 — Per-user opt-out stored in localStorage so users can silence
+  // toasts they find intrusive without needing an admin round-trip.
+  const userOptedOut = (() => {
+    try { return localStorage.getItem("sawali_browser_notifs_optout") === "1"; }
+    catch { return false; }
+  })();
+  const featureActive = globalEnabled && !userOptedOut;
   const baseTitleRef = useRef(BASE_TITLE);
   const totalRef = useRef(0);
   const lastShownRef = useRef(0);
@@ -40,6 +56,7 @@ export default function BrowserNotifications() {
   // Ask the user once (politely) for notification permission.
   useEffect(() => {
     if (!user || permRequestedRef.current) return;
+    if (!featureActive) return;  // S164 — Respect admin/user toggle
     if (typeof window === "undefined" || !("Notification" in window)) return;
     if (Notification.permission === "default") {
       // Defer the request a bit so it doesn't compete with login redirects.
@@ -50,7 +67,7 @@ export default function BrowserNotifications() {
       permRequestedRef.current = true;
       return () => clearTimeout(t);
     }
-  }, [user]);
+  }, [user, featureActive]);
 
   // Compute the total across all badge categories.
   const sumCounts = (countsObj) => {
@@ -99,6 +116,11 @@ export default function BrowserNotifications() {
   // Poll the counts endpoint and react to deltas.
   useEffect(() => {
     if (!user) return undefined;
+    if (!featureActive) {
+      // S164 — Feature disabled globally or by user; stop blinking / no toast.
+      stopBlinking();
+      return undefined;
+    }
     let cancelled = false;
 
     const tick = async () => {
@@ -146,7 +168,7 @@ export default function BrowserNotifications() {
     tick();
     const timer = setInterval(tick, POLL_MS);
     return () => { cancelled = true; clearInterval(timer); stopBlinking(); };
-  }, [user]);
+  }, [user, featureActive]);
 
   return null;
 }

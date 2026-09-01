@@ -1119,6 +1119,38 @@ export default function AdminSettings() {
         </p>
       </Section>
 
+      {/* 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications */}
+      <Section icon={Bell} title="Notifications navigateur — Alerte temps réel">
+        <p className="text-xs text-slate-500">
+          Active les notifications système du navigateur (Windows / macOS / Android) et le clignotement
+          du titre de l'onglet dès qu'un nouveau ticket, RDV, message WhatsApp ou paiement arrive
+          <strong> pendant que l'onglet est en arrière-plan</strong>. L'utilisateur doit accepter la
+          permission au premier chargement (invitation automatique 5s après connexion).
+          Chaque utilisateur peut aussi désactiver ces alertes depuis son profil via l'option
+          « Silencer les notifications navigateur » stockée en local (localStorage).
+        </p>
+        <label className="inline-flex items-center gap-2 text-sm cursor-pointer">
+          <input
+            type="checkbox"
+            checked={s.browser_notifications_enabled !== false}
+            onChange={(e) => {
+              upd("browser_notifications_enabled", e.target.checked);
+              try { window.dispatchEvent(new CustomEvent("ui-flags-updated")); } catch { /* ignore */ }
+            }}
+            data-testid="browser-notifications-enabled"
+          />
+          <span>
+            Activer les notifications navigateur pour tous les utilisateurs du portail
+            <span className="ml-1 text-[10px] text-slate-500">(décocher = plus aucun toast système ni clignotement du titre)</span>
+          </span>
+        </label>
+        <p className="text-[10px] text-slate-500 italic">
+          Référence : <code>/app/memory/SUGGESTIONS.md → S164 (Emmy)</code>. Infrastructure Notification API native — aucune
+          dépendance externe (VAPID, Service Worker, Firebase). Fallback automatique : le titre de l'onglet
+          clignote même si l'utilisateur refuse la permission.
+        </p>
+      </Section>
+
       {/* Iter40-ui-flags — Public branding (exposed via /api/public/ui-flags) */}
       <Section icon={Sparkles} title="Identité publique — marque, logo, couleur">
         <p className="text-xs text-slate-500">

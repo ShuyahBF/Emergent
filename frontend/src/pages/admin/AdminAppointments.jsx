@@ -140,8 +140,50 @@ export const EditAppointmentModal = ({ appt, onClose, onSaved, updateUrl }) => {
     scheduled_at_local: toLocalInput(appt.scheduled_at),
     duration_min: appt.duration_min || 30,
     status: appt.status || "pending",
+    // 2026-02 fork iter107 — Participants + reminder_minutes
+    participants: appt.participants || [],
+    reminder_minutes: appt.reminder_minutes ?? "",
   });
   const [saving, setSaving] = useState(false);
+  const [contacts, setContacts] = useState([]);
+  const [contactQuery, setContactQuery] = useState("");
+
+  useEffect(() => {
+    apiClient.get("/me/contacts")
+      .then((r) => setContacts(Array.isArray(r.data) ? r.data : (r.data?.items || [])))
+      .catch(() => setContacts([]));
+  }, []);
+
+  const clientScopeContacts = React.useMemo(() => {
+    // Only contacts of the same client as the appointment.
+    if (!appt.client_id) return contacts;
+    return contacts.filter((c) => c.client_id === appt.client_id || !c.client_id);
+  }, [contacts, appt.client_id]);
+
+  const filteredContacts = React.useMemo(() => {
+    const q = contactQuery.trim().toLowerCase();
+    const selectedIds = new Set(form.participants.map((p) => p.contact_id).filter(Boolean));
+    return clientScopeContacts
+      .filter((c) => !selectedIds.has(c.id))
+      .filter((c) => !q || (c.name || "").toLowerCase().includes(q) || (c.phone || "").includes(q))
+      .slice(0, 6);
+  }, [clientScopeContacts, contactQuery, form.participants]);
+
+  const addParticipant = (c) => {
+    setForm((f) => ({
+      ...f,
+      participants: [...(f.participants || []), {
+        contact_id: c.id,
+        name: c.name || "",
+        phone: c.phone || c.whatsapp || "",
+      }],
+    }));
+    setContactQuery("");
+  };
+
+  const removeParticipant = (idx) => {
+    setForm((f) => ({ ...f, participants: f.participants.filter((_, i) => i !== idx) }));
+  };
 
   const save = async () => {
     if (!form.subject.trim()) { toast.error("Sujet requis"); return; }
@@ -154,9 +196,14 @@ export const EditAppointmentModal = ({ appt, onClose, onSaved, updateUrl }) => {
         scheduled_at: new Date(form.scheduled_at_local).toISOString(),
         duration_min: Number(form.duration_min) || 30,
         status: form.status,
+        // 2026-02 fork iter107
+        participants: form.participants || [],
+        reminder_minutes: form.reminder_minutes === "" ? null : Math.max(1, Number(form.reminder_minutes) || 0),
       };
       await apiClient.put(updateUrl, payload);
-      toast.success("Rendez-vous mis à jour");
+      toast.success(payload.participants.length > 0
+        ? `Rendez-vous mis à jour — WhatsApp envoyé aux ${payload.participants.length} participant(s).`
+        : "Rendez-vous mis à jour");
       onSaved();
     } catch (err) {
       toast.error(err?.response?.data?.detail || "Erreur");
@@ -229,6 +276,91 @@ export const EditAppointmentModal = ({ appt, onClose, onSaved, updateUrl }) => {
           >
             {STATUS.map((s) => <option key={s.v} value={s.v}>{s.l}</option>)}
           </select>
+        </div>
+
+        {/* 2026-02 fork iter107 — Reminder minutes */}
+        <div>
+          <label className="block text-xs font-semibold mb-1">
+            Rappel WhatsApp (mn ou h avant le RDV) — laisser vide pour utiliser la valeur globale
+          </label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min="1"
+              value={form.reminder_minutes ?? ""}
+              onChange={(e) => setForm({ ...form, reminder_minutes: e.target.value })}
+              placeholder="ex : 30 (mn) ou 60 (1h)"
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+              data-testid="appt-edit-reminder-minutes"
+            />
+            <span className="text-xs text-slate-500 whitespace-nowrap">minutes</span>
+          </div>
+        </div>
+
+        {/* 2026-02 fork iter107 — Participants picker */}
+        <div className="rounded-lg border-2 border-teal-200 bg-teal-50/40 p-3 space-y-2" data-testid="appt-edit-participants">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-semibold text-teal-900">👥 Participants</span>
+            <span className="text-[10px] text-teal-700">
+              — parmi les contacts du client lié{form.participants.length > 0 ? ` · ${form.participants.length} sélectionné(s)` : ""}
+            </span>
+          </div>
+          {form.participants.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {form.participants.map((p, idx) => (
+                <span
+                  key={p.contact_id || `${p.name}-${idx}`}
+                  className="inline-flex items-center gap-1 bg-white border border-teal-300 rounded-full px-2 py-0.5 text-xs"
+                  data-testid={`appt-participant-${idx}`}
+                >
+                  <span className="font-medium text-teal-800">{p.name}</span>
+                  {p.phone && <span className="text-[10px] text-slate-500 font-mono">({p.phone})</span>}
+                  <button
+                    onClick={() => removeParticipant(idx)}
+                    className="text-slate-400 hover:text-rose-600 ml-0.5"
+                    title="Retirer"
+                    data-testid={`appt-participant-remove-${idx}`}
+                  >
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
+          <div className="relative">
+            <input
+              type="text"
+              value={contactQuery}
+              onChange={(e) => setContactQuery(e.target.value)}
+              placeholder="Rechercher un contact (nom ou téléphone)…"
+              className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm"
+              data-testid="appt-participant-search"
+            />
+            {contactQuery && filteredContacts.length > 0 && (
+              <div className="absolute z-10 top-full mt-1 left-0 right-0 bg-white border border-slate-200 rounded-lg shadow-lg max-h-48 overflow-y-auto" data-testid="appt-participant-suggestions">
+                {filteredContacts.map((c) => (
+                  <button
+                    key={c.id}
+                    type="button"
+                    onClick={() => addParticipant(c)}
+                    className="w-full text-left px-3 py-2 text-sm hover:bg-teal-50 flex items-center justify-between"
+                    data-testid={`appt-participant-suggest-${c.id}`}
+                  >
+                    <span className="font-medium">{c.name}</span>
+                    <span className="text-xs text-slate-500 font-mono">{c.phone || c.whatsapp || "—"}</span>
+                  </button>
+                ))}
+              </div>
+            )}
+            {contactQuery && filteredContacts.length === 0 && (
+              <p className="text-[11px] text-slate-500 mt-1" data-testid="appt-participant-empty">
+                Aucun contact ne correspond dans le registre du client lié.
+              </p>
+            )}
+          </div>
+          <p className="text-[10px] text-teal-800 italic">
+            Un modèle WhatsApp est envoyé à chaque participant sélectionné à la création / modification du RDV. Si la liste est vide, aucun WA n'est envoyé.
+          </p>
         </div>
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>

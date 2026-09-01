@@ -1,7 +1,7 @@
 """Pydantic models for SAWALI SMART SYSTEMS API."""
 from datetime import datetime, timezone
-from typing import Optional, List, Any, Dict
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
+from typing import Optional, List, Any, Dict, Union
+from pydantic import BaseModel, Field, EmailStr, ConfigDict, field_validator
 import uuid
 
 
@@ -11,6 +11,29 @@ def _uuid() -> str:
 
 def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+# 2026-02 fork iter108 fix — Normalise appointment `participants` to always be
+# List[Dict[str, Any]] on the backend, but accept either List[str] (phone-only
+# strings coming from the portal quick form) OR List[Dict] from admin flows.
+# Kept as a free function so AppointmentCreate/Update/Appointment can share it.
+def _normalise_participants(value: Any) -> Optional[List[Dict[str, Any]]]:
+    if value is None:
+        return None
+    if not isinstance(value, list):
+        raise ValueError("participants must be a list")
+    out: List[Dict[str, Any]] = []
+    for item in value:
+        if isinstance(item, dict):
+            out.append(item)
+        elif isinstance(item, str):
+            phone = item.strip()
+            if not phone:
+                continue
+            out.append({"phone": phone, "name": phone})
+        else:
+            raise ValueError("participants item must be str or dict")
+    return out
 
 
 # ====================================================================
@@ -49,6 +72,9 @@ class UserPublic(BaseModel):
     # 2026-02 fork iter104 — Per-tenant overdue threshold + payment template.
     contract_overdue_days: Optional[int] = None
     payment_confirmation_template: Optional[str] = None
+    # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
+    contract_billing_period: Optional[str] = None  # "monthly" | "quarterly" | "annual" | null
+    auto_suspend_after_overdue_days: Optional[int] = None  # null = disabled
 
 
 class UserCreateAdmin(BaseModel):
@@ -90,6 +116,9 @@ class UserCreateAdmin(BaseModel):
     # to `confirmation_paiement_avecrecu` when empty). Sent automatically each
     # time a payment is registered via `/admin/clients/{id}/payments`.
     payment_confirmation_template: Optional[str] = None
+    # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
+    contract_billing_period: Optional[str] = None  # "monthly" | "quarterly" | "annual" | null
+    auto_suspend_after_overdue_days: Optional[int] = None  # null = disabled
 
 
 class UserUpdateAdmin(BaseModel):
@@ -139,6 +168,9 @@ class UserUpdateAdmin(BaseModel):
     # 2026-02 fork iter104
     contract_overdue_days: Optional[int] = None
     payment_confirmation_template: Optional[str] = None
+    # 2026-02 fork iter108 — S158 + S159
+    contract_billing_period: Optional[str] = None
+    auto_suspend_after_overdue_days: Optional[int] = None
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]
@@ -276,6 +308,19 @@ class ClientAppointmentRequest(BaseModel):
     message: Optional[str] = None
     scheduled_at: str
     duration_min: int = 30
+    # 2026-02 fork iter107 — Participants : liste d'IDs de contacts pris parmi le
+    # registre `directory_contacts` du client lié. Si non vide, un template WA est
+    # envoyé à chacun. Format : [{"contact_id": "...", "name": "...", "phone": "..."}].
+    # 2026-02 fork iter108 fix — Accepte aussi List[str] (numéros de téléphone bruts
+    # depuis le formulaire portail) et normalise en List[Dict].
+    participants: Optional[List[Union[str, Dict[str, Any]]]] = None
+    # Notification WA envoyée N minutes avant le RDV (défaut = valeur globale du planning).
+    reminder_minutes: Optional[int] = None
+
+    @field_validator("participants", mode="before")
+    @classmethod
+    def _norm_participants(cls, v):  # noqa: N805
+        return _normalise_participants(v)
 
 
 class AppointmentUpdate(BaseModel):
@@ -285,6 +330,14 @@ class AppointmentUpdate(BaseModel):
     duration_min: Optional[int] = None
     subject: Optional[str] = None
     message: Optional[str] = None
+    # 2026-02 fork iter107 + iter108 fix (voir AppointmentCreate)
+    participants: Optional[List[Union[str, Dict[str, Any]]]] = None
+    reminder_minutes: Optional[int] = None
+
+    @field_validator("participants", mode="before")
+    @classmethod
+    def _norm_participants(cls, v):  # noqa: N805
+        return _normalise_participants(v)
 
 
 class Appointment(BaseModel):
@@ -302,6 +355,9 @@ class Appointment(BaseModel):
     status: str = "pending"
     notes: Optional[str] = None
     gcal_event_id: Optional[str] = None
+    # 2026-02 fork iter107
+    participants: Optional[List[Dict[str, Any]]] = None
+    reminder_minutes: Optional[int] = None
     created_at: str
 
 
@@ -513,6 +569,14 @@ class SettingsUpdate(BaseModel):
     # during in-flight API calls is hidden. Defaults to true. Useful for users
     # who find the indicator intrusive on fast connections.
     global_route_loader_enabled: Optional[bool] = None
+
+    # --- 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications ---
+    # Global switch enabling native Notification API for portal users (tab-blink
+    # + system toast when new ticket/RDV/message arrives while tab is hidden).
+    # Infrastructure already exists (BrowserNotifications.jsx). Setting this
+    # to false disables both the permission prompt and the toast dispatch
+    # globally for all users. Defaults to true.
+    browser_notifications_enabled: Optional[bool] = None
 
     # --- Iter40-ui-flags — Public branding customization ---
     # Exposed via /api/public/ui-flags (anonymous endpoint) so resellers can

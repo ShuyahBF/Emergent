@@ -5,16 +5,53 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 
 
 ## 📋 Backlog Enhancements (idées en attente — à reprendre sur demande utilisateur)
-- **[S164] Web Push Notifications** : Notifications push web avec 3 niveaux de contrôle (ciblage rôle + préférences user + interrupteur global admin). Stack proposée : `pywebpush` + VAPID auto-hébergé + service worker frontend. Prévoir PWA manifest pour iOS. _[suggéré 2026-08-22/23 via Emmy/Emergent]_
 - **[S157] WA Overdue Alert** : Ajoute une alerte WhatsApp au super-admin en plus de l'email quand un client dépasse son seuil de retard. Étend `_run_contract_overdue_alerts` avec `_wa_send_template` + template Meta `alerte_retard_paiement` à créer. _[demandé 2026-02-27 iter104]_
-- **[S158] Payment Reminders** : Rappel WhatsApp automatique J-3 avant échéance (dépend de S159 ou champ `next_due_at`). Template `rappel_echeance_paiement`, config `payment_reminder_lead_days` + `payment_reminder_template` par tenant. _[demandé 2026-02-27 iter104]_
-- **[S159] Recurring Payments** : Échéanciers mensuels/trimestriels par contrat (collection `tenant_payment_schedules`), job quotidien de matérialisation, CRUD admin. _[demandé 2026-02-27 iter104]_
 - **Filtre auto sur "leurs" officines pour utilisateurs délégués** : ajouter un champ `delegated_to: List[str]` sur les officines + filtre serveur dans `list_registry`. _[suggéré 2026-06-16]_
 - **Refactor `server.py` (~25k lignes)** : extraire les handlers WhatsApp vers `/routes/whatsapp.py`. _[recommandé 2026-07-18 iteration_79]_
 - **Auto-traduction i18n Gulmancema (lg1) + Mooré (lg2)** : ~241 clés à traduire via LLM. _[demande utilisateur en attente]_
 - **WhatsApp Template Meta approuvé pour rappels Planning** : configurer un template `rdv_reminder_1h_fr` chez Meta pour utiliser `_wa_send_template` au lieu du texte libre. _[suggéré 2026-07-21 iteration_83]_
 - **Registry central pour helpers cross-module** : remplacer le pattern `import server; getattr(_server_module, 'LILUVINE_REACTIONS_HELPERS')` par un registry dédié. _[noté 2026-07-21 iteration_84]_
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
+
+
+## 2026-02-27 (Fork iter108) — S164 Push + S158 Recurring + S159 Auto-suspend ✅ DÉPLOYÉ
+
+**User request** : « d + testing agent à la fin de tout + déploiement » — attaquer 3 items du backlog (S164, S158, S159).
+
+### 🔔 S164 — Notifications navigateur (Emmy)
+- Backend `models.SettingsUpdate` + `/public/ui-flags` : nouveau flag `browser_notifications_enabled` (default true) exposé à tous les clients.
+- Frontend `BrowserNotifications.jsx` : consomme `useUIFlags()`, respecte l'interrupteur admin ET l'opt-out local `sawali_browser_notifs_optout` (localStorage). Titre qui clignote + toast système désactivés proprement quand OFF.
+- Frontend `AdminSettings.jsx` : nouvelle section « Notifications navigateur — Alerte temps réel » avec toggle global.
+- Frontend `MyAccount.jsx` : composant `BrowserNotificationsPrefSection` auto-suffisant (bouton « Silencer sur cet appareil » + permission navigateur).
+- **Aucune dépendance externe** (pas de VAPID, pas de service worker, pas de FCM) : utilise l'API Notification native.
+
+### 📅 S158 — Rappels de facturation récurrente
+- Backend `models` : nouveaux champs `contract_billing_period` (monthly | quarterly | annual | null) sur User + UserUpdateAdmin + UserPublic.
+- Backend `server.py` : nouveau cron `_run_recurring_billing_reminders` (07:45 Africa/Abidjan, id `recurring_billing_reminders_daily`). Pour chaque tenant avec périodicité configurée, calcule `next_billing = last_payment_at (ou contract_signed_at) + period_days`. Si J-3 ≤ next_billing ≤ J → envoi WA + Email au tenant. Dédoublonnage via `db.billing_reminders`. Retourne `{scanned, dispatched, details:[...]}`.
+- Backend endpoint admin `POST /admin/billing-reminders/run` pour déclenchement manuel/test.
+- Frontend `AdminClients.jsx` : dropdown « Périodicité facturation (S158) » dans le modal client (mensuelle / trimestrielle / annuelle / aucune).
+
+### 🚫 S159 — Auto-suspension sur impayés
+- Backend `models` : nouveau champ `auto_suspend_after_overdue_days` sur User + UserUpdateAdmin + UserPublic.
+- Backend `_run_contract_overdue_alerts` étendu : le seuil d'auto-suspension est évalué **indépendamment** du seuil d'alerte. Quand `days_overdue >= auto_suspend_after_overdue_days`, marque `account_status="suspended"` + `suspended_at` + `suspended_reason` explicite. Retourne `{suspended: N, suspended_details: [...]}`.
+- Backend `record_manual_payment` : projection MongoDB inclut désormais `account_status` (fix critique iter97). Quand un paiement est enregistré sur un compte suspendu, auto-réactivation (`account_status="active"`, `reactivated_at`, `reactivated_reason`).
+- Backend `routes/auth.py` : message d'erreur explicite « Compte suspendu : {reason} Contactez votre administrateur. » avec HTTP 403.
+- Frontend `AdminClients.jsx` : champ « Auto-suspension après (j) — vide = désactivé » dans le modal client.
+
+### 🩹 Fixes issus des rapports testing_agent iter97 & iter98
+- **Backend security** : `POST /me/appointments/gcal-sync` requiert désormais l'auth (Depends `get_current_user`).
+- **Backend contract** : `AppointmentCreate`/`AppointmentUpdate.participants` accepte maintenant `List[Union[str, Dict]]` avec normalisation via `_normalise_participants` (helper partagé, plus de 422 lorsque le portail envoie des strings téléphone).
+- **Frontend Tickets.jsx** : bloc « Motif complet » + bouton « Ré-envoyer » utilisent maintenant `t.motif || t.reason` (le backend retourne `motif`).
+- **Frontend Appointments.jsx** : formulaire complet avec `[data-testid=rdv-participants]` (input téléphones) et `[data-testid=rdv-reminder-minutes]` (dropdown 15/30/60/120/1440 min + aucun). Helper `formatApiError` normalise les 422 pour éviter le crash React.
+- **Frontend WelcomeBriefing.jsx** : bouton « J'ai lu » toujours cliquable + click-outside-close (plus de blocage app-wide).
+
+### 🧹 Cleanup lint deployment-blocker
+- **8 erreurs `ephemeral-upload-storage` résolues** via nouveau helper `storage.save_upload_and_cache()` (upload vers Emergent Object Storage + cache local via `os.open` bas-niveau).
+- **2 erreurs ruff F811** résolues (tests SMS webhook + payment page shape).
+- `deployment_agent` doit maintenant passer.
+
+---
+
 
 
 

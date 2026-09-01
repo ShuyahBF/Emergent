@@ -83,7 +83,7 @@ async def test_body_shape_matches_pawapay_v2(env, monkeypatch):
         def __init__(self, *args, **kwargs): pass
         async def __aenter__(self): return self
         async def __aexit__(self, *args): return False
-        async def post(self, url, headers=None, json=None):
+        async def post(self, url, headers=None, json=None):  # noqa: F811 - `json` is a kwarg name required by aiohttp signature
             captured.append({"url": url, "json": json})
             return _FakeResponse()
 

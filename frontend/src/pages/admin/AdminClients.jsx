@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -169,6 +169,13 @@ export default function AdminClients() {
       const od = out.contract_overdue_days;
       if (od === "" || od === null || od === undefined) out.contract_overdue_days = null;
       else out.contract_overdue_days = Math.max(1, Number(od) || 5);
+      // 2026-02 fork iter108 — S159 : sanitize auto_suspend_after_overdue_days
+      const susp = out.auto_suspend_after_overdue_days;
+      if (susp === "" || susp === null || susp === undefined) out.auto_suspend_after_overdue_days = null;
+      else out.auto_suspend_after_overdue_days = Math.max(1, Number(susp) || 30);
+      // 2026-02 fork iter108 — S158 : normalize billing period
+      const bp = (out.contract_billing_period || "").toLowerCase();
+      out.contract_billing_period = ["monthly", "quarterly", "annual"].includes(bp) ? bp : null;
       return out;
     };
     try {
@@ -711,9 +718,36 @@ export default function AdminClients() {
                   onChange={(v) => setForm({ ...form, payment_confirmation_template: v })}
                   testid="client-payment-confirmation-template"
                 />
+                {/* 2026-02 fork iter108 — S158 : Recurring billing period */}
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Périodicité facturation (S158)</label>
+                  <select
+                    value={form.contract_billing_period || ""}
+                    onChange={(e) => setForm({ ...form, contract_billing_period: e.target.value || null })}
+                    className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm bg-white"
+                    data-testid="client-contract-billing-period"
+                  >
+                    <option value="">— Aucune (paiement unique) —</option>
+                    <option value="monthly">Mensuelle (30 j)</option>
+                    <option value="quarterly">Trimestrielle (90 j)</option>
+                    <option value="annual">Annuelle (365 j)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-500 italic mt-1">
+                    Envoi automatique d&apos;un rappel WA + Email 3 jours avant chaque échéance.
+                  </p>
+                </div>
+                {/* 2026-02 fork iter108 — S159 : Auto-suspend on unpaid */}
+                <Input
+                  label="Auto-suspension après (j) — vide = désactivé"
+                  type="number"
+                  value={form.auto_suspend_after_overdue_days ?? ""}
+                  onChange={(v) => setForm({ ...form, auto_suspend_after_overdue_days: v })}
+                  testid="client-auto-suspend-days"
+                />
               </div>
               <p className="text-[11px] text-teal-800 italic">
                 Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>. Le <em>seuil de retard</em> propre au client (si renseigné) prévaut sur la valeur globale des paramètres. Le <em>template WA</em> par défaut est <code>confirmation_paiement_avecrecu</code>.
+                <br /><strong>S158</strong> : périodicité active un rappel automatique 3 jours avant échéance. <strong>S159</strong> : auto-suspension bloque le login au-delà du seuil de jours de retard — la réactivation est automatique dès qu&apos;un paiement est enregistré.
               </p>
             </div>
 

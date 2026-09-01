@@ -1,0 +1,112 @@
+{
+  "summary": "Iter108 E2E testing of S164 (browser notifications flag), S158 (recurring billing reminders), S159 (auto-suspend/auto-reactivate) + untested Iter107 features (RDV participants/rappel/GCal sync, Tickets declarant/resend WA/motif). Backend: new pytest suite /app/backend/tests/test_iter108_s164_s158_s159.py -> 18/21 passed (85.7%). Frontend: Playwright E2E on the public preview URL with real admin OTP login. S164 (both admin toggle + portal localStorage opt-out) and S158/S159 admin client modal fields work end-to-end and persist. Three real defects found: (1) S159 auto-reactivation on payment NEVER works (missing projection field), (2) Iter107 Tickets 'Motif complet' + 'Ré-envoyer WA' block is dead code (field name mismatch motif vs reason), (3) Iter107 RDV participants + rappel_minutes have zero UI in /portal/appointments (backend supports them). Also found an unauthenticated endpoint (/api/me/appointments/gcal-sync).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/admin/clients/{id}/payments",
+        "issue": "S159 AUTO-REACTIVATION IS BROKEN. server.py L7722-7727 projects only phone/whatsapp_number/full_name/email/company/client_code/payment_confirmation_template/contract_currency — `account_status` is NOT in the projection, so `client.get('account_status')` is always None at L7761 and the `if ... == 'suspended'` branch never runs. Verified: suspended client stays account_status='suspended' after a valid payment and login keeps returning 403 'Compte suspendu'. FIX: add \"account_status\": 1 to the projection (or drop the projection).",
+        "priority": "CRITICAL"
+      },
+      {
+        "endpoint": "POST /api/me/appointments/gcal-sync",
+        "issue": "SECURITY — endpoint has NO auth dependency (routes/google_calendar_watch.py L304-309, `async def me_gcal_sync_now()` with no Depends(get_current_user)). Unauthenticated POST reaches the handler (returns 400 'Google Calendar non configuré' instead of 401/403). Any anonymous caller can trigger a Google Calendar incremental sync / consume quota. FIX: add `_: dict = Depends(get_current_user)`.",
+        "priority": "HIGH"
+      }
+    ],
+    "minor": [
+      {
+        "endpoint": "POST /api/admin/contract-overdue/run",
+        "issue": "S159 auto-suspend is gated behind the ALERT threshold: the loop `continue`s when days < contract_overdue_days (default 5) before evaluating auto_suspend_after_overdue_days (server.py L21702 vs L21714). A client with auto_suspend_after_overdue_days=1 and 3 days overdue is never suspended. The two thresholds should be evaluated independently."
+      },
+      {
+        "endpoint": "POST /api/admin/billing-reminders/run",
+        "issue": "Works ({scanned, dispatched}) and is idempotent per next_billing date, but the response does not expose which tenants were reminded (no `details` list), unlike contract-overdue/run which returns suspended_details. Minor observability gap."
+      }
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "portal/Tickets.jsx",
+        "issue": "Iter107 DEAD CODE — the 'Motif complet' panel and the '📱 Ré-envoyer' WA button are rendered only when `t.reason` is truthy (L628), but the API returns the field as `motif` (backend server.py L23002/23191/24116) and the same component reads `t.motif` in the row header (L573). Result: after expanding any of the 16 existing tickets, 0 `ticket-full-reason-*` blocks and 0 `ticket-*-resend-wa` buttons render. Both Iter107 ticket features are unreachable in the UI. FIX: use `t.motif` (or `t.reason || t.motif`).",
+        "selector": "[data-testid^=\"ticket-full-reason-\"], [data-testid$=\"-resend-wa\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "portal/Appointments.jsx",
+        "issue": "Iter107 NOT IMPLEMENTED in the UI — the RDV creation form ([data-testid=\"client-rdv-form\"]) contains only Sujet + Message + slot picker. There is NO participants (phone list) input and NO 'Rappel (minutes)' input, and the POST payload never sends participants/reminder_minutes. The backend fully supports them (verified via API: participants[2] + reminder_minutes=60 persist and are returned by GET /api/me/appointments). Users cannot use the feature.",
+        "selector": "[data-testid=\"client-rdv-form\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "WelcomeBriefing",
+        "issue": "The 'BRIEFING — Bienvenue' modal ([data-testid=\"welcome-briefing\"]) is a full-screen z-[60] overlay that intercepts pointer events on EVERY page right after login (blocked clicks on new-rdv-toggle, tickets-bubble-trigger, browser-notifs-optout-toggle in the first run). Its 'J'ai lu' button is disabled until the user scrolls to the bottom while the content is still loading, so for several seconds the whole app is unclickable. Consider a non-blocking placement or an always-enabled close.",
+        "selector": "[data-testid=\"welcome-briefing\"]",
+        "priority": "MEDIUM"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "S159 payment -> auto-reactivation (admin/clients)",
+        "issue": "Front-end 'Enregistrer un paiement' cannot lift a suspension because the backend never flips account_status (see backend critical #1). The UI will keep showing statut=suspended after a payment.",
+        "affected_selectors": ["[data-testid^=\"payments-\"]"]
+      },
+      {
+        "flow": "Iter107 GCal manual sync (/portal/appointments)",
+        "issue": "The [data-testid=\"rdv-gcal-sync\"] 'Synchroniser' button is present, clickable and calls the API, but returns an error toast 'Google Calendar non configuré' (GCal not configured in this env). Functionally wired; only unverifiable end-to-end here.",
+        "affected_selectors": ["[data-testid=\"rdv-gcal-sync\"]"]
+      },
+      {
+        "flow": "TicketsBubble declarant autocomplete",
+        "issue": "The declarant input is wired to a native <datalist id=\"tickets-bubble-rapporteur-list\"> and auto-fill/save-contact prompts exist in code, but for the first client selected in the dropdown (139 clients) the datalist returned 0 options, so the autocomplete showed nothing. Needs seeded directory contacts to be verifiable; also the save-contact prompt uses window.confirm (native blocking dialog) rather than an in-app modal.",
+        "affected_selectors": ["[data-testid=\"tickets-bubble-contact-name\"]", "[data-testid=\"tickets-bubble-client\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "admin/clients — client edit modal & tickets bubble",
+        "issues": [
+          "Native browser date pickers are used (placeholders render as 'mm/dd/yyyy' / 'mm/dd/yyyy, --:-- --') on a French-language app — US format is shown to FR users; a locale-aware date component is expected.",
+          "The contract block help text is a long italic paragraph in small (10-11px) slate type inside a teal panel — low readability."
+        ]
+      },
+      {
+        "screen": "portal/my-account — Notifications navigateur",
+        "issues": [
+          "Red inline warning 'Le navigateur bloque les notifications pour ce site' sits directly under the opt-out row with no icon/spacing separation; it reads like a form error on the checkbox."
+        ]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter108_s164_s158_s159.py",
+    "/app/backend/tests/cleanup_iter108.py",
+    "/app/test_reports/pytest/iter108.xml"
+  ],
+  "action_items": [
+    "CRITICAL: add \"account_status\": 1 to the projection in admin_create_client_payment (server.py ~L7724) so S159 auto-reactivation works.",
+    "HIGH (security): add an auth dependency to POST /api/me/appointments/gcal-sync (routes/google_calendar_watch.py L304).",
+    "HIGH: portal/Tickets.jsx L628/L632 — replace `t.reason` with `t.motif` so the 'Motif complet' panel and the 'Ré-envoyer' WA button actually render.",
+    "HIGH: implement the Iter107 participants + rappel_minutes inputs in portal/Appointments.jsx and send them in the POST /me/appointments payload (backend already persists them).",
+    "MEDIUM: decouple auto_suspend_after_overdue_days from contract_overdue_days in _run_contract_overdue_alerts so a low auto-suspend threshold is honoured.",
+    "MEDIUM: make the WelcomeBriefing overlay non-blocking (or keep its close button always enabled) — it currently blocks all clicks app-wide after login.",
+    "LOW: return a `details` list from /api/admin/billing-reminders/run for parity with contract-overdue/run."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 25,700 lines — far beyond the 700-line guideline. The two bugs found here (missing projection field, motif/reason mismatch) are exactly the class of defect this size causes. The deferred refactor should be prioritised.",
+    "Projection-based find_one calls that are later used for conditional business logic are fragile; prefer fetching the full doc (minus _id) or a single-source-of-truth projection constant.",
+    "Frontend/backend field naming is not contract-checked (motif vs reason). A shared response type or a smoke assertion on rendered fields would have caught the dead Iter107 ticket UI.",
+    "auto_suspend_after_overdue_days is sent from the client modal as a sanitized number (AdminClients.jsx L173-175) — good; but `contract_billing_period` is sent as null on empty which relies on Optional[str] — verified OK."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter108_s164_s158_s159.py (new)",
+    "/app/backend/tests/cleanup_iter108.py (new)"
+  ],
+  "success_rate": {"backend": "86%", "frontend": "60%"},
+  "seed_data_creation": "Created and then deleted two temporary clients (test_s158_billing@sawali-test.com with contract_billing_period=monthly + last_payment_at=J-28, test_s159_suspend@sawali-test.com with auto_suspend_after_overdue_days=1 + contract_signed_at=J-30), their billing_reminders/contract_overdue_alerts/tenant_payments docs, and one TEST_ITER107 appointment. All removed via /app/backend/tests/cleanup_iter108.py. One pre-existing admin client had contract_billing_period/auto_suspend_after_overdue_days temporarily set via the UI and was reverted to empty.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — 2-step: POST /api/auth/login returns dev_otp + session_token, then POST /api/auth/verify-otp {session_token, code} returns access_token. In the UI the OTP is displayed at [data-testid=\"login-dev-otp\"].",
+  "context_for_next_testing_agent": "Run `python -m pytest tests/test_iter108_s164_s158_s159.py -p no:randomly -v` from /app/backend, then `python tests/cleanup_iter108.py`. Currently 3 known failures: test_05_payment_reactivates + test_06_login_works_after_reactivation (backend projection bug) and test_03_gcal_sync_endpoint_requires_auth (missing auth). PASSING and verified: S164 ui-flags default true + admin toggle OFF/ON propagation, S158 create/update/scan/idempotency, S159 suspension + 403 login block + suspended_details, Iter107 appointment participants/reminder_minutes persistence via API. For Playwright: the WelcomeBriefing overlay must be dismissed (click its buttons with force=True) and sonner toasts removed before clicking anything; admin client edit buttons are [data-testid^=\"edit-client-\"] (299 rows); RDV slots outside 09:00-17:30 or weekends are rejected with 409 'Hors des heures ouvrables'.",
+  "rca_of_the_issue": "S159 auto-reactivation: admin_create_client_payment fetches the client with an explicit MongoDB projection that omits `account_status`, then branches on `client.get('account_status') == 'suspended'` — always False, so the reactivation $set is never applied. Reproduction: create client with auto_suspend_after_overdue_days=1 and contract_signed_at=J-30, POST /api/admin/contract-overdue/run (account becomes suspended, login 403), POST /api/admin/clients/{id}/payments (200) → account_status stays 'suspended' and login still 403. Mitigation: include account_status in the projection. Iter107 tickets: the component reads t.motif in the collapsed header but t.reason in the Iter107 detail block, and the API only returns `motif`, so the block and its resend button never mount."
+}

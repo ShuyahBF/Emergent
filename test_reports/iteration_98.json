@@ -1,0 +1,63 @@
+{
+  "summary": "Iter109 re-validation of the 5 fixes reported in iteration_97 + regressions. Backend: /app/backend/tests/test_iter108_s164_s158_s159.py extended to 25 tests -> 24 passed / 1 failed (96%). ALL 5 previously-reported defects are FIXED and verified: (1) S159 auto-reactivation on payment now flips account_status back to 'active' and login returns 200 after OTP, (2) S159 auto-suspend is now independent of the alert threshold (client with contract_overdue_days=99 + auto_suspend_after_overdue_days=1 + contract_signed_at=J-5 IS suspended), (3) POST /api/me/appointments/gcal-sync now returns 401 unauthenticated and 200/400 authenticated, (4) S158 /api/admin/billing-reminders/run returns {scanned, dispatched, details:[...]}, (5) frontend Tickets.jsx 'Motif complet' panel + '📱 Ré-envoyer' WA button now render, WelcomeBriefing is closable by all 3 mechanisms (J'ai lu never disabled, backdrop click, X). Frontend Appointments.jsx now shows [data-testid=rdv-participants] + [data-testid=rdv-reminder-minutes] (15/30/60/120/1440 + 'Aucun rappel'). HOWEVER one NEW CRITICAL regression was introduced by the Appointments fix: submitting the form WITH participants returns HTTP 422 and crashes the React app (white 'Uncaught runtime errors' screen).",
+  "backend_issues": {
+    "critical": [
+      {
+        "endpoint": "POST /api/me/appointments",
+        "issue": "CONTRACT MISMATCH — models.py L291/L304/L324 declare `participants: Optional[List[Dict[str, Any]]]` but Appointments.jsx sends a list of phone STRINGS (`participants.split(',')`). Result: every RDV created from the portal UI with participants filled in fails with 422 (`dict_type: Input should be a valid dictionary`). Reproduced by API (test_05_participants_as_plain_strings_frontend_contract) AND end-to-end in the browser. Fix on ONE side only: either accept `List[Union[str, Dict]]` (normalising strings to {'phone': x, 'name': x}) in the model, or make the frontend send [{name, phone}] objects. NB: _dispatch_appointment_participants (server.py L19252) does `p.get('phone')` so it also needs dicts — plain strings would silently no-op the WA invitation inside its try/except.",
+        "priority": "CRITICAL"
+      }
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "portal/Appointments.jsx (submit error handler)",
+        "issue": "When POST /me/appointments returns a FastAPI 422, `toast.error(err?.response?.data?.detail)` receives an ARRAY of validation objects -> React throws 'Objects are not valid as a React child (found: object with keys {type, loc, msg, input, url})' and the whole page is replaced by the red 'Uncaught runtime errors' overlay (app unusable until reload). Error handling must stringify/normalise `detail` when it is not a string (this pattern is likely copy-pasted across other pages).",
+        "selector": "[data-testid=\"submit-rdv\"]",
+        "priority": "CRITICAL"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Portal RDV creation with participants + rappel",
+        "issue": "UI inputs exist and are wired, but the POST payload shape is rejected (422) so the Iter107 feature is still unusable end-to-end. RDV creation WITHOUT participants works (200, appears in list, reminder_minutes accepted).",
+        "affected_selectors": ["[data-testid=\"rdv-participants\"]", "[data-testid=\"rdv-reminder-minutes\"]", "[data-testid=\"submit-rdv\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "portal/tickets — Motif complet panel",
+        "issues": ["The '📱 Ré-envoyer' button only renders when the ticket has contact_phone/contact_whatsapp; all 16 seeded tickets have contact_phone=null so the button is invisible in practice (verified by temporarily seeding a phone: the button then renders and is enabled). Not a bug, but the empty 'Téléphone —' state gives no hint that resend is unavailable."]
+      }
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter108_s164_s158_s159.py",
+    "/app/backend/tests/cleanup_iter108.py",
+    "/app/test_reports/pytest/iter109.xml"
+  ],
+  "action_items": [
+    "CRITICAL: align the `participants` contract for POST/PUT /api/me/appointments (accept List[str] in models.py and normalise to {'name','phone'} dicts, or send objects from Appointments.jsx). Currently the UI feature 422s.",
+    "CRITICAL: normalise FastAPI 422 `detail` arrays before passing them to toast.error in portal/Appointments.jsx (and audit other pages using `err.response.data.detail` directly) — rendering the array crashes React.",
+    "LOW: after the participants fix, re-verify that _dispatch_appointment_participants actually sends the WA invitations (its try/except silently swallows shape errors — consider logging at ERROR)."
+  ],
+  "critical_code_review_comments": [
+    "The Iter108 fixes are all correctly implemented and commented (projection with account_status, suspend threshold evaluated before the alert-threshold `continue`, Depends auth on /me/appointments/gcal-sync, details in billing-reminders, t.motif || t.reason fallback, briefing dismiss on backdrop/X/always-enabled ack).",
+    "New UI fields were added without a matching backend model change — the same class of contract defect as the previous motif/reason bug. A single shared schema or a smoke E2E on submit would have caught it.",
+    "`toast.error(err?.response?.data?.detail || 'Erreur')` is unsafe for 422 responses; wrap in a helper (e.g. formatApiError) used app-wide.",
+    "_dispatch_appointment_participants wraps the whole participant loop in one try/except and only logs at WARNING — a malformed payload silently disables all WA invitations."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter108_s164_s158_s159.py (added S158 `details` assertion, TestS159SuspendGateIndependence class, participants-as-strings contract test)",
+    "/app/backend/tests/cleanup_iter108.py (added test_s159_gate@sawali-test.com)"
+  ],
+  "success_rate": {"backend": "96%", "frontend": "85%"},
+  "seed_data_creation": "Temporary: clients test_s158_billing@, test_s159_suspend@, test_s159_gate@sawali-test.com (+ their billing_reminders/contract_overdue_alerts/tenant_payments), appointments 'TEST_ITER107 *', and contact_phone=+22670000009 temporarily set on ticket 487dd4c0 (CLIENT CO 1EBCCD48). ALL reverted/deleted (cleanup_iter108.py + manual revert of the ticket phone). DB verified clean.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@sawalismartsystems.com / Admin@Sawali2026 — POST /api/auth/login returns dev_otp + session_token, then POST /api/auth/verify-otp. UI testids: login-email, login-password, login-submit-button, login-otp-input, login-dev-otp, login-verify-otp-button.",
+  "context_for_next_testing_agent": "Run `python -m pytest tests/test_iter108_s164_s158_s159.py -p no:randomly -v` from /app/backend then `python tests/cleanup_iter108.py`. Only known failure: TestIter107Appointments::test_05_participants_as_plain_strings_frontend_contract (422 participants contract mismatch) — it should PASS once the fix lands. Verified PASSING: S164 ui-flags+toggle, S158 create/scan/idempotency/details, S159 suspend+403+reactivation+login200, S159 gate independence, gcal-sync 401/200. Frontend verified: login+OTP, admin dashboard, WelcomeBriefing closable via ack/backdrop/X, /portal/tickets motif panel + resend WA (needs a ticket with contact_phone — none seeded by default), /portal/appointments participants+reminder inputs, RDV without participants creates OK (portal-day-N tabs then portal-slot-<iso>; day index 0 = today is fully disabled), /portal/my-account browser-notifs-optout-toggle present. Note: there is no [data-testid=browser-notifs-pref-section]; the toggle testid is browser-notifs-optout-toggle.",
+  "rca_of_the_issue": "Appointments participants 422: the Iter108 frontend fix builds `participants` from a comma-separated phone string producing List[str], while AppointmentCreate/Update in /app/backend/models.py declares List[Dict[str, Any]]; Pydantic rejects each item with dict_type. The 422 body's `detail` is an array of error objects which Appointments.jsx passes straight to toast.error, and React refuses to render an object as a child, crashing the page. Reproduction: /portal/appointments -> Nouveau rendez-vous -> pick a slot on a future weekday -> fill rdv-participants '+22670000001,+22670000002' -> Confirmer => POST 422 + red runtime-error overlay."
+}

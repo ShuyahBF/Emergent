@@ -15,13 +15,63 @@ Ce fichier est mis à jour à chaque nouvelle suggestion ou changement de statut
 - Une suggestion peut générer plusieurs fonctionnalités → ID parent + bullet enfants
 - Référencer dans le code via commentaire : `# Suggestion S008 — bouton Appliquer le plan IA`
 
-## Dernière mise à jour majeure — 2026-02-27 (fork iter107)
-- **Notifications push web (S164)** consignées suite à discussion utilisateur ↔ Emmy (agent Emergent) du 22-23/08/2026. À implémenter plus tard.
-- Suggestion **S164** ajoutée ci-dessous.
+## Dernière mise à jour majeure — 2026-09-01 (fork iter107)
+- **S157 WA Overdue Alert** : alerte WhatsApp (template `alerte_retard_paiement`) au super-admin en plus de l'email, avec traçabilité `wa_sent/wa_error` dans `contract_overdue_alerts`.
+- **S165 RDV Participants + reminder_minutes** : liste multi-select depuis `directory_contacts`, envoi WA template `appointment.created/updated` à chacun, champ minutes avant rappel.
+- **S166 RDV Bouton Synchroniser** : `POST /me/appointments/gcal-sync` accessible côté portail client (auparavant admin-only).
+- **S167 Nouveau Ticket** : prompt "sauvegarder ce rapporteur comme contact ?" quand nom saisi hors registre + prompt "forcer l'enregistrement sans WA ?" quand aucun téléphone.
+- **S168 /portal/tickets** : bloc "Motif complet" (whitespace-pre-wrap) + bouton "📱 Ré-envoyer" par ligne (`POST /me/tickets/{tid}/resend-wa`) sélectionne le template selon le statut (ouverture / clôture).
+- Suggestions **S157, S165 → S168** ajoutées ci-dessous.
 
 ---
 
-## S164 — Notifications push web (3 niveaux de contrôle : ciblage rôle + préférences utilisateur + interrupteur global)
+## S168 — `/portal/tickets` : motif complet + bouton "Ré-envoyer" WA
+- **Demande utilisateur** : 2026-09-01 — « Dans /portal/tickets, permettre d'afficher dans la ligne déroulée un affichage complet du motif et permettre de cliquer sur un bouton "Ré-envoyer" pour envoyer un message WA au rapporteur en fonction du statut du ticket. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-09 fork iter107)
+- **Détail** :
+  - Backend : nouvel endpoint **`POST /me/tickets/{tid}/resend-wa`** — résout le template selon le statut (`open|in_progress` → `wa_template_ticket_open` ou `ouvertureticket` ; `closed|resolved` → `wa_template_ticket_close` ou `clotureticket`), reconstruit les components via `_ticket_components`, envoie via `_wa_send_template`, log dans `whatsapp_messages` (context=`ticket_resend`, `by_user_id/email` audités). 404 si ticket absent, 400 si aucun `contact_phone/whatsapp`.
+  - Frontend `Tickets.jsx` : nouveau bloc "Motif complet" dans le row expander (whitespace-pre-wrap, break-words) + bouton "📱 Ré-envoyer" (emerald) qui déclenche `window.confirm` avec le contexte (ouverture vs clôture) puis appelle le POST et affiche le résultat en toast (`Envoi WA échoué : ...` en erreur).
+- **Impact** : Support technique peut relancer un rapporteur en un clic sans quitter la liste, avec le bon template pour le statut courant.
+
+## S167 — Nouveau Ticket : sauvegarde contact + force save sans téléphone
+- **Demande utilisateur** : 2026-09-01 — « Si un Rapporteur est saisi et qu'aucun numéro de téléphone n'est saisi ou aucune correspondance sélectionnée dans la liste demander s'il faut forcer l'enregistrement du ticket. + Si un nom est saisi mais n'existe pas parmi les contacts, l'enregistrement des informations pour le rapporteur sont proposées à l'enregistrement. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-09 fork iter107)
+- **Détail** :
+  - Frontend `TicketsBubble.jsx` (nouveau ticket modal) :
+    - Avant submit : si aucun téléphone/WA renseigné **ET** le rapporteur ne correspond à aucun contact du client lié → `window.confirm("Aucun numéro (Téléphone ou WhatsApp) n'est renseigné, et le rapporteur ne correspond à aucun contact du client lié. Forcer l'enregistrement du ticket (aucun WA ne sera envoyé) ?")`. Bloc si l'utilisateur clique Annuler.
+    - Après création réussie : si le rapporteur n'existe pas dans les contacts liés **ET** qu'un téléphone a été saisi → `window.confirm("Le rapporteur ... n'existe pas dans le registre des contacts. L'ajouter automatiquement ?")` → si oui, POST `/me/contacts` avec name/phone/whatsapp/company.
+  - L'autocomplete existant (liste `linkedContacts` filtrée par `form.client_id` + auto-fill phone/whatsapp sur match exact) est conservé — la datalist HTML5 native gère déjà le filtrage au fur et à mesure de la saisie.
+- **Impact** : Le rapporteur peut désormais être créé/complété directement depuis la modale ticket, sans passer par un autre écran. Réduit la friction de saisie et évite les doublons.
+
+## S166 — RDV : bouton "Synchroniser" Google Calendar sur `/portal/appointments`
+- **Demande utilisateur** : 2026-09-01 — « Un bouton "Synchroniser" dans /portal/appointments pour forcer la synchronisation manuellement Google Calendar avec les programmes de RDV. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-09 fork iter107)
+- **Détail** :
+  - Backend `routes/google_calendar_watch.py` : nouvel endpoint **`POST /me/appointments/gcal-sync`** (accessible à tout utilisateur authentifié, contrairement au `/admin/google/calendar/sync-now` réservé aux admins). Résout le calendrier via `settings.google_calendar_watch_calendar_id > google_calendar_email > "primary"` puis appelle `_sync_events_incremental`.
+  - Frontend `Appointments.jsx` : nouveau bouton **"Synchroniser"** (teal) à côté d'Actualiser et Nouveau rendez-vous. Toast résumé `{inserted, updated, deleted}` sur succès.
+- **Impact** : Les utilisateurs suivis peuvent forcer une resync manuelle sans dépendre du cron ou d'un admin.
+
+## S165 — RDV Participants (registre des contacts) + reminder_minutes
+- **Demande utilisateur** : 2026-09-01 — « Permettre d'éditer la liste des participants parmi les contacts du client lié (registre des contacts) du centre de messagerie. Si des noms figurent parmi la liste des participants, un modèle de message WA est envoyé à tous les noms de la liste sinon aucun envoi. Dans la même fenêtre d'édition du RDV, un champ de notification permet de renseigner le nombre de mn ou h avant le RDV. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-09 fork iter107)
+- **Détail** :
+  - Backend `models.py` : `ClientAppointmentRequest`, `AppointmentUpdate`, `Appointment` étendus avec `participants: Optional[List[Dict[str,Any]]]` (`[{contact_id, name, phone}]`) + `reminder_minutes: Optional[int]`.
+  - Backend `_dispatch_appointment_participants` (nouveau, `server.py:19240`) : pour chaque participant avec phone, appelle `_emit_event(event, {phone, extra_ctx: {full_name, appointment_date FR, appointment_subject, linked_client, reminder_minutes, organizer_name}})`. Événements ciblés : `appointment.created` et `appointment.updated`.
+  - Hooks POST `/me/appointments` et PUT `/me/appointments/{id}` : `asyncio.create_task(_dispatch_appointment_participants(...))` après persistance/GCal push. Best-effort, jamais bloquant.
+  - Frontend `AdminAppointments.jsx` `EditAppointmentModal` : nouvelle section teal "👥 Participants" avec input de recherche live filtrée sur `/me/contacts` (limité aux contacts du même `client_id` que le RDV), suggestions dropdown (top 6), chips supprimables. Champ "Rappel WhatsApp (mn ou h avant le RDV)" séparé — vide = utilise la valeur globale du planning.
+  - Toast succès différencié : `"Rendez-vous mis à jour — WhatsApp envoyé aux N participant(s)."` quand `participants.length > 0`.
+- **Impact** : Les organisateurs peuvent inviter un groupe de participants (ex : chef technique + responsable client + comptable) en un clic avec confirmation WA automatique. Les templates `appointment.created` / `appointment.updated` deviennent réutilisables pour ces cas.
+
+## S157 — Contract Overdue : alerte WhatsApp en plus de l'email
+- **Demande utilisateur** : 2026-02-27 (Next Action Item iter104) — « Ajoute une alerte WhatsApp automatique en plus de l'email quand un client dépasse son seuil de retard. »
+- **Statut** : 🟢 IMPLÉMENTÉE (2026-09 fork iter107)
+- **Détail** :
+  - Backend `_run_contract_overdue_alerts` étendu : après l'envoi de l'email, si `settings.super_admin_phone` défini, envoie un template WA (nom résolu depuis `settings.contract_overdue_wa_template`, fallback `alerte_retard_paiement`) avec 5 variables : `full_name/company`, `days_overdue`, `threshold_days`, `contract_number`, `amount_due`.
+  - Persistance étendue dans `db.contract_overdue_alerts` : `wa_recipient`, `wa_template`, `wa_sent`, `wa_error`. Le dedupe `key = tenant_id::date_iso` reste intact (1 alerte par tenant/jour, WA+email inclus).
+  - **⚠ Prérequis production** : créer et faire approuver côté Meta le template `alerte_retard_paiement` (langue `fr`) avec 5 paramètres. Sans ce template, seul l'email fonctionne (comportement inchangé).
+- **Impact** : Le super-admin est notifié en temps réel sur WA (canal préféré) en plus de l'email pour ne rater aucun retard critique.
+
+## S164 — Notifications push web (3 niveaux de contrôle)
 - **Demande utilisateur** : 2026-08-22/23 (via conversation avec l'agent Emergent "Emmy") — « Ajouter des notifications push web avec 3 niveaux de configuration : (1) ciblage des utilisateurs par rôle, (2) gestion des préférences individuelles, (3) contrôle global depuis le dashboard admin. Prévoir aussi un choix pour le type de crédit à utiliser. »
 - **Statut** : 🔵 PROPOSÉE (attente de priorisation — coût estimé par Emmy : 50-100 crédits Emergent)
 - **Contexte utilisateur** : Les notifications push sont destinées aux utilisateurs finaux du portail Sawali (clients, tracked users et administrateurs) qui ont autorisé les notifications sur leur navigateur/téléphone. Cas d'usage cibles :

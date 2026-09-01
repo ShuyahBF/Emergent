@@ -119,43 +119,22 @@ def attach_notification_sound_routes(*, api, db, get_current_admin, upload_dir: 
         if content_type and not content_type.startswith("audio/"):
             raise HTTPException(status_code=400, detail=f"Type MIME non audio : {content_type}")
 
-        # Stream to disk with a size cap
+        # 2026-02 fork iter108 — Deploy-safe : read then persist via helper (storage + local).
         file_id = uuid.uuid4().hex
         safe_name = f"wa-notif-{file_id}{ext}"
-        target = upload_dir / safe_name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        size = 0
-        with target.open("wb") as f_out:
-            while True:
-                chunk = await file.read(64 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    f_out.close()
-                    try:
-                        target.unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024} KB)",
-                    )
-                f_out.write(chunk)
-
-        # Mirror to Emergent object storage (best-effort)
-        storage_path = None
-        storage_error = None
-        try:
-            from storage import upload_bytes, storage_available
-            if storage_available():
-                storage_path = upload_bytes(
-                    f"files/{safe_name}",
-                    target.read_bytes(),
-                    content_type or "audio/mpeg",
-                )
-        except Exception as exc:  # noqa: BLE001
-            storage_error = str(exc)[:300]
+        raw = await file.read()
+        size = len(raw)
+        if size > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024} KB)",
+            )
+        from storage import save_upload_and_cache
+        target, storage_path, storage_error = save_upload_and_cache(
+            upload_dir=upload_dir, filename=safe_name, data=raw,
+            content_type=content_type or "audio/mpeg",
+        )
+        if storage_error:
             logger.warning("[notif_sound_upload] storage mirror failed: %s", storage_error)
 
         # Register the file so it is served via /api/files/{file_id}

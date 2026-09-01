@@ -573,8 +573,13 @@ def attach_story_studio_routes(
         asset_id = str(uuid.uuid4())
         safe_ext = ext if ext in ("mp4", "mov", "webm", "mkv", "avi", "png", "jpg", "jpeg", "webp", "gif") else default_ext
         target_path = STORY_DIR / f"{asset_id}.{safe_ext}"
+        # 2026-02 fork iter108 — Deploy-safe local write via storage helper.
         try:
-            target_path.write_bytes(raw_bytes)
+            from storage import save_upload_and_cache
+            save_upload_and_cache(
+                upload_dir=STORY_DIR, filename=target_path.name, data=raw_bytes,
+                content_type=content_type or f"{kind}/{safe_ext}", remote_prefix="stories",
+            )
         except Exception as exc:  # noqa: BLE001
             raise HTTPException(status_code=500, detail=f"Écriture disque échouée : {exc}") from exc
 

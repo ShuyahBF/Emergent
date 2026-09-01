@@ -121,7 +121,15 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
   }
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-start justify-center p-4 sm:p-8 bg-black/50 overflow-y-auto" data-testid="welcome-briefing">
+    <div
+      className="fixed inset-0 z-[60] flex items-start justify-center p-4 sm:p-8 bg-black/50 overflow-y-auto"
+      data-testid="welcome-briefing"
+      onClick={(e) => {
+        // 2026-02 fork iter108 fix — Allow click-outside to dismiss so the
+        // overlay never traps the user on other pages (rapport testing_agent).
+        if (e.target === e.currentTarget) dismiss();
+      }}
+    >
       <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl my-auto">
         <header className="px-6 py-4 border-b border-slate-200 flex items-center justify-between">
           <div>
@@ -561,25 +569,17 @@ export default function WelcomeBriefing({ onClose, isComptaStrict = false }) {
           </div>
         )}
 
-        <footer className="px-6 py-3 border-t border-slate-200 flex items-center justify-between gap-3">
-          <p
-            className={`text-[11px] transition-opacity ${canAcknowledge ? "opacity-0 pointer-events-none" : "text-slate-500"}`}
-            data-testid="welcome-briefing-scroll-hint"
-          >
-            ↓ Faites défiler jusqu&apos;en bas pour activer le bouton
-          </p>
+        <footer className="px-6 py-3 border-t border-slate-200 flex items-center justify-end gap-3">
+          {/* 2026-02 fork iter108 fix — Bouton "J'ai lu" toujours cliquable
+              (le blocage jusqu'au scroll bas piégeait l'utilisateur en cas
+              de contenu long ; rapport testing_agent iter97). */}
           <button
             onClick={dismiss}
-            disabled={!canAcknowledge}
-            className={`inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition ${
-              canAcknowledge
-                ? "bg-sawali-blue text-white hover:opacity-90 cursor-pointer"
-                : "bg-slate-200 text-slate-500 cursor-not-allowed"
-            }`}
+            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium transition bg-sawali-blue text-white hover:opacity-90 cursor-pointer"
             data-testid="welcome-briefing-ack"
-            title={canAcknowledge ? "Marquer comme lu" : "Lisez tout le contenu pour activer"}
+            title="Marquer comme lu"
           >
-            <CheckCircle2 className="h-4 w-4" /> J'ai lu
+            <CheckCircle2 className="h-4 w-4" /> J&apos;ai lu
           </button>
         </footer>
       </div>

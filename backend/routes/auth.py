@@ -65,6 +65,13 @@ def attach_auth_routes(
         if not user or not verify_password(payload.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants invalides")
         if user.get("account_status") != "active":
+            # 2026-02 fork iter108 — S159 : Friendlier message when the account
+            # has been auto-suspended because of overdue payments. The admin
+            # dashboard can lift the suspension by recording a payment.
+            status = (user.get("account_status") or "").lower()
+            if status == "suspended":
+                reason = user.get("suspended_reason") or "Suspension pour retard de paiement."
+                raise HTTPException(status_code=403, detail=f"Compte suspendu : {reason} Contactez votre administrateur.")
             raise HTTPException(status_code=403, detail="Compte désactivé")
         captcha = await verify_recaptcha(payload.captcha_token, request=request)
         if not captcha["success"]:

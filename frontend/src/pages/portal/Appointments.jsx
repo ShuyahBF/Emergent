@@ -6,6 +6,24 @@ import { EditAppointmentModal } from "@/pages/admin/AdminAppointments";
 
 const formatDate = (d) => d.toISOString().slice(0, 10);
 
+// 2026-02 fork iter108 fix — FastAPI 422 renvoie `detail` sous forme d'ARRAY
+// d'objets Pydantic ; rendre cet array directement dans <toast> fait planter
+// React ('Objects are not valid as a React child'). Ce helper normalise
+// n'importe quel format en string affichable.
+function formatApiError(err, fallback = "Erreur") {
+  const d = err?.response?.data?.detail;
+  if (!d) return err?.message || fallback;
+  if (typeof d === "string") return d;
+  if (Array.isArray(d)) {
+    return d.map((e) => {
+      if (typeof e === "string") return e;
+      const loc = Array.isArray(e?.loc) ? e.loc.filter((x) => x !== "body").join(".") : "";
+      return loc ? `${loc}: ${e?.msg || "invalide"}` : (e?.msg || "invalide");
+    }).join(" • ");
+  }
+  return JSON.stringify(d);
+}
+
 export default function ClientAppointments() {
   const [items, setItems] = useState([]);
   const [showForm, setShowForm] = useState(false);
@@ -13,7 +31,7 @@ export default function ClientAppointments() {
   const [date, setDate] = useState(null);
   const [slots, setSlots] = useState([]);
   const [slot, setSlot] = useState(null);
-  const [form, setForm] = useState({ subject: "", message: "" });
+  const [form, setForm] = useState({ subject: "", message: "", participants: "", reminder_minutes: 60 });
   const [loading, setLoading] = useState(false);
   const [editing, setEditing] = useState(null);
 
@@ -27,7 +45,7 @@ export default function ClientAppointments() {
       toast.success("Supprimé");
       await load();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(formatApiError(err));
     }
   };
 
@@ -50,12 +68,28 @@ export default function ClientAppointments() {
     if (!slot) return toast.error("Choisissez un créneau");
     setLoading(true);
     try {
-      await apiClient.post("/me/appointments", { subject: form.subject, message: form.message, scheduled_at: slot.start, duration_min: 30 });
+      // 2026-02 fork iter107 — Participants (téléphones séparés par virgule) + rappel_minutes
+      const participants = (form.participants || "")
+        .split(/[,;\n]/)
+        .map((s) => s.trim())
+        .filter(Boolean);
+      const reminder = Number(form.reminder_minutes);
+      const payload = {
+        subject: form.subject,
+        message: form.message,
+        scheduled_at: slot.start,
+        duration_min: 30,
+      };
+      if (participants.length > 0) payload.participants = participants;
+      if (!Number.isNaN(reminder) && reminder > 0) payload.reminder_minutes = reminder;
+      await apiClient.post("/me/appointments", payload);
       toast.success("Rendez-vous demandé");
-      setShowForm(false); setForm({ subject: "", message: "" }); setSlot(null);
+      setShowForm(false);
+      setForm({ subject: "", message: "", participants: "", reminder_minutes: 60 });
+      setSlot(null);
       await load();
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      toast.error(formatApiError(err));
     } finally { setLoading(false); }
   };
 
@@ -69,6 +103,24 @@ export default function ClientAppointments() {
         <div className="flex gap-2 flex-wrap">
           <button onClick={() => load()} className="inline-flex items-center gap-2 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-3 py-2 text-sm" data-testid="rdv-refresh">
             <RefreshCw className="h-4 w-4" /> Actualiser
+          </button>
+          {/* 2026-02 fork iter107 — Bouton Synchroniser Google Calendar */}
+          <button
+            onClick={async () => {
+              try {
+                const r = await apiClient.post("/me/appointments/gcal-sync");
+                const d = r.data || {};
+                toast.success(`Synchronisation réussie : ${d.inserted || 0} ajout(s), ${d.updated || 0} mise(s) à jour, ${d.deleted || 0} suppr.`);
+                await load();
+              } catch (err) {
+                toast.error(formatApiError(err, "Google Calendar non configuré"));
+              }
+            }}
+            className="inline-flex items-center gap-2 rounded-lg border border-teal-300 bg-teal-50 text-teal-700 hover:bg-teal-100 px-3 py-2 text-sm"
+            data-testid="rdv-gcal-sync"
+            title="Forcer la synchronisation manuelle avec Google Calendar"
+          >
+            <RefreshCw className="h-4 w-4" /> Synchroniser
           </button>
           <button onClick={() => setShowForm((v) => !v)} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light" data-testid="new-rdv-toggle">
             <Plus className="h-4 w-4" /> {showForm ? "Annuler" : "Nouveau rendez-vous"}
@@ -114,6 +166,42 @@ export default function ClientAppointments() {
             <label className="block text-xs font-semibold text-slate-700 mb-1">Message</label>
             <textarea rows={3} value={form.message} onChange={(e) => setForm({ ...form, message: e.target.value })}
                       className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="rdv-message" />
+          </div>
+          {/* 2026-02 fork iter107 — Participants (téléphones) + rappel personnalisable */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Participants — n° WhatsApp <span className="text-slate-400 font-normal">(séparés par virgule)</span>
+              </label>
+              <input
+                value={form.participants}
+                onChange={(e) => setForm({ ...form, participants: e.target.value })}
+                placeholder="+22670000001, +22670000002"
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+                data-testid="rdv-participants"
+              />
+              <p className="text-[10px] text-slate-500 mt-1">
+                Chaque numéro reçoit une invitation WhatsApp à la création du RDV et un rappel automatique.
+              </p>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Rappel avant le RDV
+              </label>
+              <select
+                value={form.reminder_minutes}
+                onChange={(e) => setForm({ ...form, reminder_minutes: Number(e.target.value) })}
+                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm bg-white"
+                data-testid="rdv-reminder-minutes"
+              >
+                <option value={0}>Aucun rappel</option>
+                <option value={15}>15 minutes avant</option>
+                <option value={30}>30 minutes avant</option>
+                <option value={60}>1 heure avant</option>
+                <option value={120}>2 heures avant</option>
+                <option value={1440}>24 heures avant</option>
+              </select>
+            </div>
           </div>
           <button type="submit" disabled={loading} className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light disabled:opacity-50" data-testid="submit-rdv">
             {loading ? "Envoi..." : "Confirmer"} <ArrowRight className="h-4 w-4" />

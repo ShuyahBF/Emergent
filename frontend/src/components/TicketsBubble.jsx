@@ -81,14 +81,23 @@ export default function TicketsBubble() {
 
   const submit = async (e) => {
     e.preventDefault();
-    // Validation v2: client + reason + rapporteur + date + (phone OR whatsapp)
+    // Validation v2: client + reason + rapporteur + date
     if (!form.client_id) { toast.error("Sélectionnez un client lié"); return; }
     if (!form.reason.trim()) { toast.error("Le motif est obligatoire"); return; }
     if (!form.contact_name.trim()) { toast.error("Le rapporteur est obligatoire"); return; }
     if (!form.incident_at) { toast.error("La date de l'incident est obligatoire"); return; }
-    if (!form.contact_phone.trim() && !form.contact_whatsapp.trim()) {
-      toast.error("Téléphone OU WhatsApp obligatoire (au moins un)");
-      return;
+    // 2026-02 fork iter107 — Si aucun téléphone n'est renseigné et qu'aucun
+    // contact ne correspond au rapporteur, demander confirmation pour forcer
+    // l'enregistrement (au lieu de bloquer).
+    const hasPhone = form.contact_phone.trim() || form.contact_whatsapp.trim();
+    if (!hasPhone) {
+      const matched = linkedContacts.find((c) => (c.name || "").toLowerCase() === form.contact_name.toLowerCase());
+      if (!matched) {
+        const ok = window.confirm(
+          "Aucun numéro (Téléphone ou WhatsApp) n'est renseigné, et le rapporteur ne correspond à aucun contact du client lié.\n\nForcer l'enregistrement du ticket (aucun WA ne sera envoyé) ?"
+        );
+        if (!ok) return;
+      }
     }
     setSubmitting(true);
     try {
@@ -97,7 +106,7 @@ export default function TicketsBubble() {
         reason: form.reason,
         contact_name: form.contact_name,
         // backend uses a single `contact_phone` field; pass WA if no phone
-        contact_phone: form.contact_phone || form.contact_whatsapp,
+        contact_phone: form.contact_phone || form.contact_whatsapp || undefined,
         contact_whatsapp: form.contact_whatsapp || undefined,
         incident_at: new Date(form.incident_at).toISOString(),
         software: form.software || undefined,
@@ -106,6 +115,28 @@ export default function TicketsBubble() {
       };
       const r = await apiClient.post("/me/tickets", payload);
       toast.success("Ticket créé. Modèle WA envoyé au contact si numéro fourni.");
+      // 2026-02 fork iter107 — Proposer d'ajouter le rapporteur au registre des
+      // contacts s'il n'existe pas déjà (et si un téléphone a été saisi).
+      const matched = linkedContacts.find((c) => (c.name || "").toLowerCase() === form.contact_name.toLowerCase());
+      if (!matched && (form.contact_phone.trim() || form.contact_whatsapp.trim())) {
+        const save = window.confirm(
+          `Le rapporteur "${form.contact_name}" n'existe pas dans le registre des contacts du client lié.\n\nL'ajouter automatiquement pour les prochaines saisies ?`
+        );
+        if (save) {
+          try {
+            await apiClient.post("/me/contacts", {
+              name: form.contact_name.trim(),
+              phone: form.contact_phone.trim() || "",
+              whatsapp: form.contact_whatsapp.trim() || "",
+              company: (clients.find((c) => c.id === form.client_id)?.company) || "",
+              shared: false,
+            });
+            toast.success("Contact ajouté au registre.");
+          } catch (err) {
+            toast.warning("Ticket créé mais l'ajout du contact a échoué : " + (err?.response?.data?.detail || "erreur"));
+          }
+        }
+      }
       setOpen(false);
       navigate(`/portal/interventions${r.data?.id ? `?focus=${r.data.id}` : ""}`);
       setForm({ client_id: "", reason: "", contact_name: "", contact_phone: "", contact_whatsapp: "", incident_at: "", software: "", notes: "" });

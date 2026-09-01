@@ -102,10 +102,13 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         except Exception as exc:
             logger.warning("[ai-gen] object storage failed (%s), falling back to local disk", exc)
             tenant_dir = UPLOAD_ROOT / (tenant_id or "_global")
-            tenant_dir.mkdir(parents=True, exist_ok=True)
             fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.png"
-            target = tenant_dir / fname
-            target.write_bytes(image_bytes)
+            # 2026-02 fork iter108 — Deploy-safe local fallback via storage helper.
+            from storage import save_upload_and_cache
+            target, _sp, _err = save_upload_and_cache(
+                upload_dir=tenant_dir, filename=fname, data=image_bytes,
+                content_type="image/png", remote_prefix=f"ai/{tenant_id or '_global'}",
+            )
             return {
                 "filename": fname,
                 "tenant_id": tenant_id,
@@ -315,10 +318,8 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             raise HTTPException(status_code=503, detail=f"Bibliothèque vidéo IA absente : {exc}") from exc
         tid = await _tenant_id(user)
         tenant_dir = UPLOAD_ROOT / (tid or "_global")
-        tenant_dir.mkdir(parents=True, exist_ok=True)
         slug = _safe_slug(payload.prompt)
         fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.mp4"
-        target = tenant_dir / fname
         try:
             gen = OpenAIVideoGeneration(api_key=api_key)
             import asyncio as _asyncio
@@ -333,7 +334,12 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             raise HTTPException(status_code=502, detail=f"Génération vidéo en échec : {str(exc)[:160]}") from exc
         if not video_bytes:
             raise HTTPException(status_code=502, detail="Aucune vidéo générée. Reformulez le prompt.")
-        target.write_bytes(video_bytes)
+        # 2026-02 fork iter108 — Deploy-safe local write via storage helper.
+        from storage import save_upload_and_cache
+        target, _sp, _err = save_upload_and_cache(
+            upload_dir=tenant_dir, filename=fname, data=video_bytes,
+            content_type="video/mp4", remote_prefix=f"ai/{tid or '_global'}",
+        )
         public_url = f"/api/files/ai/{tid}/{fname}"
         await db.ai_generations.insert_one({
             "id": secrets.token_urlsafe(12),

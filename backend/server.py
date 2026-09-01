@@ -418,6 +418,9 @@ def _to_user_public(u: dict) -> dict:
         # 2026-02 fork iter104 — Per-tenant overdue threshold + payment template.
         "contract_overdue_days": u.get("contract_overdue_days") if u.get("contract_overdue_days") is not None else None,
         "payment_confirmation_template": u.get("payment_confirmation_template") or None,
+        # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
+        "contract_billing_period": u.get("contract_billing_period") or None,
+        "auto_suspend_after_overdue_days": u.get("auto_suspend_after_overdue_days") if u.get("auto_suspend_after_overdue_days") is not None else None,
     }
 
 
@@ -3146,6 +3149,13 @@ async def me_update_appointment(
             )
         except Exception as exc:
             logger.warning("GCal update failed: %s", exc)
+    # 2026-02 fork iter107 — Notifier les participants lors d'une mise à jour.
+    try:
+        asyncio.create_task(_dispatch_appointment_participants(
+            refreshed or {**existing, **update}, user, event="appointment.updated",
+        ))
+    except Exception:  # noqa: BLE001
+        pass
     return {"ok": True}
 
 
@@ -3190,6 +3200,9 @@ async def me_create_appointment(
         "status": "pending",
         "notes": None,
         "gcal_event_id": None,
+        # 2026-02 fork iter107 — Participants + reminder_minutes.
+        "participants": payload.participants or [],
+        "reminder_minutes": payload.reminder_minutes,
         "created_at": _now(),
     }
     end_iso = (
@@ -3226,6 +3239,10 @@ async def me_create_appointment(
     except Exception:
         pass
     asyncio.create_task(_fire_agenda_n8n("created", doc, user))
+    # 2026-02 fork iter107 — Dispatch WA aux participants sélectionnés.
+    asyncio.create_task(_dispatch_appointment_participants(
+        doc, user, event="appointment.created",
+    ))
     return doc
 
 
@@ -4068,6 +4085,9 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         # 2026-02 fork iter104 — Overdue threshold + payment template.
         "contract_overdue_days": payload.contract_overdue_days if payload.contract_overdue_days is not None else None,
         "payment_confirmation_template": (payload.payment_confirmation_template or "").strip() or None,
+        # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
+        "contract_billing_period": (payload.contract_billing_period or "").strip().lower() or None,
+        "auto_suspend_after_overdue_days": payload.auto_suspend_after_overdue_days if payload.auto_suspend_after_overdue_days is not None else None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -7703,7 +7723,9 @@ async def admin_create_client_payment(
         {"id": client_id},
         {"_id": 0, "phone": 1, "whatsapp_number": 1, "full_name": 1, "email": 1,
          "company": 1, "client_code": 1, "payment_confirmation_template": 1,
-         "contract_currency": 1},
+         "contract_currency": 1,
+         # 2026-02 fork iter108 fix — Required by S159 auto-reactivation branch below.
+         "account_status": 1},
     )
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
@@ -7733,9 +7755,21 @@ async def admin_create_client_payment(
     }
     await db.tenant_payments.insert_one(doc.copy())
     try:
+        # 2026-02 fork iter108 — S159 : Auto-reactivate on payment.
+        # When a payment is registered on a `suspended` account (because the
+        # overdue cron auto-suspended it), we lift the suspension so the
+        # tenant can log in again immediately.
+        update_fields: Dict[str, Any] = {"last_payment_at": pdate[:10], "updated_at": _now()}
+        if (client.get("account_status") or "").lower() == "suspended":
+            update_fields["account_status"] = "active"
+            update_fields["suspended_at"] = None
+            update_fields["suspended_reason"] = None
+            update_fields["reactivated_at"] = _now()
+            update_fields["reactivated_reason"] = "Paiement reçu — auto-réactivation"
+            logger.info("[payment] auto-reactivated suspended tenant %s after payment", client.get("email"))
         await db.users.update_one(
             {"id": client_id},
-            {"$set": {"last_payment_at": pdate[:10], "updated_at": _now()}},
+            {"$set": update_fields},
         )
     except Exception:  # noqa: BLE001
         pass
@@ -8692,24 +8726,15 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    size = target.stat().st_size
-    # Iter35q — Mirror to Emergent Object Storage so the file survives prod redeploys.
-    # We keep the local disk copy as a hot cache; the remote copy is the source of truth.
-    storage_path = None
-    storage_error = None
-    try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            data = target.read_bytes()
-            storage_path = upload_bytes(
-                f"files/{safe_name}", data,
-                file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream",
-            )
-    except Exception as exc:  # noqa: BLE001
-        storage_error = str(exc)[:300]
+    content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    data = file.file.read()
+    size = len(data)
+    target, storage_path, storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
+    )
+    if storage_error:
         logger.warning("[admin_upload] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id,
@@ -8861,22 +8886,19 @@ async def admin_upload_policy(
     if suffix != ".pdf" and (file.content_type or "") != "application/pdf":
         raise HTTPException(status_code=400, detail="Format invalide : PDF requis")
     target = _policy_path(slot)
-    tmp = target.with_suffix(".pdf.tmp")
-    size = 0
-    with tmp.open("wb") as f:
-        while True:
-            chunk = await file.read(1024 * 64)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > POLICY_MAX_SIZE:
-                tmp.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {POLICY_MAX_SIZE // (1024*1024)} Mo)")
-            f.write(chunk)
+    # 2026-02 fork iter108 — Deploy-safe : read entirely into memory, size-check,
+    # then persist via helper (object storage + local cache).
+    raw = await file.read()
+    size = len(raw)
+    if size > POLICY_MAX_SIZE:
+        raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {POLICY_MAX_SIZE // (1024*1024)} Mo)")
     if size == 0:
-        tmp.unlink(missing_ok=True)
         raise HTTPException(status_code=400, detail="Fichier vide")
-    tmp.replace(target)
+    from storage import save_upload_and_cache
+    save_upload_and_cache(
+        upload_dir=target.parent, filename=target.name, data=raw,
+        content_type="application/pdf", remote_prefix="policies",
+    )
     doc = {
         "slot": slot,
         "label": POLICY_SLOTS[slot],
@@ -8961,14 +8983,10 @@ async def serve_file(request: Request, file_id: str):
         rehydrated = False
         storage_path = meta.get("storage_path") or f"files/{meta['stored_name']}"
         try:
-            from storage import fetch_bytes, storage_available
-            if storage_available():
-                data, _ct = fetch_bytes(storage_path)
-                if data:
-                    path.parent.mkdir(parents=True, exist_ok=True)
-                    path.write_bytes(data)
-                    rehydrated = True
-                    logger.info("[serve_file] rehydrated %s from storage (%d bytes)", file_id, len(data))
+            from storage import rehydrate_from_storage
+            rehydrated = rehydrate_from_storage(local_path=path, remote_path=storage_path)
+            if rehydrated:
+                logger.info("[serve_file] rehydrated %s from storage", file_id)
         except Exception as exc:  # noqa: BLE001
             logger.warning("[serve_file] rehydrate failed for %s: %s", file_id, exc)
         if not rehydrated:
@@ -9176,24 +9194,19 @@ async def me_media_library_create(
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    size = target.stat().st_size
     ext = (suffix.lstrip(".") or "").lower()
     public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     kind = "image" if content_type.startswith("image") else ("video" if content_type.startswith("video") else "document")
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
-    # Iter38r-fix8 — Mirror to Emergent Object Storage so the file survives prod redeploys.
-    storage_path = None
-    storage_error = None
-    try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), content_type)
-    except Exception as exc:  # noqa: BLE001
-        storage_error = str(exc)[:300]
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    data = file.file.read()
+    size = len(data)
+    target, storage_path, storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
+    )
+    if storage_error:
         logger.warning("[media_library_upload] storage mirror failed: %s", storage_error)
     # Register in the regular files collection (so /api/files/{id} can serve it)
     file_doc = {
@@ -11351,34 +11364,20 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    with target.open("wb") as f:
-        shutil.copyfileobj(file.file, f)
-    size = target.stat().st_size
-    # Iter35h — demo storage cap (post-write check, rollback if exceeded).
+    content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    data = file.file.read()
+    size = len(data)
+    # Iter35h — demo storage cap (post-read check to avoid disk waste on abort).
     if _is_demo(user):
-        try:
-            await _enforce_demo_quota(user, QUOTA_KEY_STORAGE, increment=size)
-        except HTTPException:
-            try:
-                target.unlink(missing_ok=True)
-            except Exception:
-                pass
-            raise
+        await _enforce_demo_quota(user, QUOTA_KEY_STORAGE, increment=size)
+    target, storage_path, storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
+    )
     ext_suffix = (suffix.lstrip(".") or "").lower()
     public_path = f"/api/files/{file_id}{('.' + ext_suffix) if ext_suffix else ''}"
-    # Iter35q — Mirror to Emergent Object Storage (best-effort)
-    storage_path = None
-    storage_error = None
-    try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            storage_path = upload_bytes(
-                f"files/{safe_name}", target.read_bytes(),
-                file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream",
-            )
-    except Exception as exc:  # noqa: BLE001
-        storage_error = str(exc)[:300]
+    if storage_error:
         logger.warning("[me_upload] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id,
@@ -12474,6 +12473,8 @@ async def public_ui_flags():
     return {
         "global_route_loader_enabled": s.get("global_route_loader_enabled") is not False,
         "download_gauge_enabled": s.get("download_gauge_enabled") is not False,
+        # 2026-02 fork iter108 — S164 (Emmy) — Browser Push Notifications global switch
+        "browser_notifications_enabled": s.get("browser_notifications_enabled") is not False,
         # Iter40-ui-flags — Public branding (null/empty = use default)
         "public_brand_name": (s.get("public_brand_name") or "").strip() or None,
         "public_brand_color": (s.get("public_brand_color") or "").strip() or None,
@@ -14434,30 +14435,18 @@ async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile =
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower() or ".png"
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    size = 0
-    with target.open("wb") as f:
-        while True:
-            chunk = await file.read(64 * 1024)
-            if not chunk:
-                break
-            size += len(chunk)
-            if size > 5 * 1024 * 1024:
-                f.close()
-                target.unlink(missing_ok=True)
-                raise HTTPException(status_code=413, detail="Photo trop lourde (max 5 Mo)")
-            f.write(chunk)
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    data = await file.read()
+    size = len(data)
+    if size > 5 * 1024 * 1024:
+        raise HTTPException(status_code=413, detail="Photo trop lourde (max 5 Mo)")
+    target, storage_path, storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=ctype,
+    )
     ext_suffix = suffix.lstrip(".")
     public_path = f"/api/files/{file_id}.{ext_suffix}" if ext_suffix else f"/api/files/{file_id}"
-    # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort)
-    storage_path = None
-    storage_error = None
-    try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), ctype)
-    except Exception as exc:  # noqa: BLE001
-        storage_error = str(exc)[:300]
+    if storage_error:
         logger.warning("[contact_photo] storage mirror failed: %s", storage_error)
     await db.files.insert_one({
         "id": file_id, "filename": file.filename, "stored_name": safe_name,
@@ -15013,8 +15002,13 @@ async def me_whatsapp_send_media(
 
     file_id = _uuid()
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    target.write_bytes(raw)
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    target, _wa_storage_path, _wa_storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=raw, content_type=content_type,
+    )
+    if _wa_storage_error:
+        logger.warning("[wa_send_media] storage mirror failed: %s", _wa_storage_error)
 
     # Optional image watermark + QR
     if kind == "image":
@@ -19230,6 +19224,51 @@ async def admin_delete_automation(aid: str, _: dict = Depends(get_current_admin)
     return {"ok": True}
 
 
+
+async def _dispatch_appointment_participants(
+    appt_doc: dict,
+    actor_user: dict,
+    *,
+    event: str = "appointment.created",
+) -> None:
+    """2026-02 fork iter107 — Envoie un template WA à chaque participant listé
+    sur le RDV.
+
+    - Si `appt_doc.participants` est vide → no-op (comportement demandé : « Si des
+      noms figurent parmi la liste des participants, un modèle de message WA est
+      envoyé à tous les noms, sinon aucun envoi »).
+    - Le template Meta utilisé est déterminé par les automations actives pour
+      `event` — on route chaque participant comme un `event_target` distinct.
+    """
+    parts = appt_doc.get("participants") or []
+    if not parts:
+        return
+    try:
+        sched_human = appt_doc.get("scheduled_at") or ""
+        try:
+            sched_human = datetime.fromisoformat(sched_human.replace("Z", "+00:00")).strftime("%d/%m/%Y à %Hh%M")
+        except Exception:  # noqa: BLE001
+            pass
+        for p in parts:
+            phone = (p.get("phone") or p.get("whatsapp") or "").strip()
+            if not phone:
+                continue
+            await _emit_event(event, {
+                "phone": phone,
+                "extra_ctx": {
+                    "full_name": p.get("name") or phone,
+                    "appointment_date": sched_human,
+                    "appointment_subject": appt_doc.get("subject") or "",
+                    "linked_client": actor_user.get("company") or actor_user.get("full_name") or "",
+                    "reminder_minutes": str(appt_doc.get("reminder_minutes") or ""),
+                    "organizer_name": actor_user.get("full_name") or "",
+                },
+            })
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[appointment/participants] dispatch failed: %s", exc)
+
+
+
 async def _emit_event(event: str, target: dict) -> None:
     """Fire-and-forget : exécute toutes les automations actives pour cet event.
 
@@ -20087,21 +20126,16 @@ async def me_form_upload_file(
     file_id = _uuid()
     suffix = Path(file.filename or "").suffix.lower()
     safe_name = f"{file_id}{suffix}"
-    target = UPLOAD_DIR / safe_name
-    target.write_bytes(raw)
     ext = (suffix.lstrip(".") or "").lower()
     public_path = f"/api/files/{file_id}{('.' + ext) if ext else ''}"
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
-    # Iter38r-fix8 — Mirror to Emergent Object Storage (best-effort)
-    storage_path = None
-    storage_error = None
-    try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            storage_path = upload_bytes(f"files/{safe_name}", raw, content_type)
-    except Exception as exc:  # noqa: BLE001
-        storage_error = str(exc)[:300]
+    # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
+    from storage import save_upload_and_cache
+    target, storage_path, storage_error = save_upload_and_cache(
+        upload_dir=UPLOAD_DIR, filename=safe_name, data=raw, content_type=content_type,
+    )
+    if storage_error:
         logger.warning("[form_attachment] storage mirror failed: %s", storage_error)
     file_doc = {
         "id": file_id, "filename": file.filename, "stored_name": safe_name,
@@ -21652,8 +21686,11 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
                                 "phone": 1, "whatsapp_number": 1, "last_payment_at": 1,
                                 "contract_signed_at": 1, "contract_number": 1,
                                 "contract_amount": 1, "contract_currency": 1,
-                                "contract_overdue_days": 1})
+                                "contract_overdue_days": 1,
+                                "auto_suspend_after_overdue_days": 1,
+                                "account_status": 1})
     overdue_tenants: List[Dict[str, Any]] = []
+    suspended_tenants: List[Dict[str, Any]] = []
     async for u in cursor:
         ref_iso = (u.get("last_payment_at") or u.get("contract_signed_at") or "")[:10]
         if not ref_iso:
@@ -21664,6 +21701,38 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
             continue
         days = max(0, (today - ref_date).days)
         threshold = int(u.get("contract_overdue_days") or default_threshold)
+        # 2026-02 fork iter108 fix — S159 : Auto-suspend must be evaluated
+        # INDEPENDENTLY of the alert threshold so a tenant with a low
+        # auto_suspend_after_overdue_days (e.g. 1) but a high alert threshold
+        # (default 5) still gets suspended on time.
+        suspend_threshold = u.get("auto_suspend_after_overdue_days")
+        if (
+            suspend_threshold is not None
+            and int(suspend_threshold) > 0
+            and days >= int(suspend_threshold)
+            and (u.get("account_status") or "active").lower() != "suspended"
+        ):
+            try:
+                await db.users.update_one(
+                    {"id": u["id"]},
+                    {"$set": {
+                        "account_status": "suspended",
+                        "suspended_at": _now(),
+                        "suspended_reason": f"Auto-suspension : {days} jours de retard (seuil {suspend_threshold} j).",
+                        "updated_at": _now(),
+                    }},
+                )
+                suspended_tenants.append({
+                    "tenant_id": u["id"],
+                    "email": u.get("email"),
+                    "company": u.get("company"),
+                    "days_overdue": days,
+                    "threshold": int(suspend_threshold),
+                })
+                logger.info("[contract-overdue] auto-suspended tenant %s (%d j retard)", u.get("email"), days)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[contract-overdue] auto-suspend failed for %s: %s", u.get("email"), exc)
+        # Alert threshold gate — only queue an email/WA alert once we hit it.
         if days < threshold:
             continue
         overdue_tenants.append({
@@ -21699,11 +21768,38 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
         ]
         body_text = "\n".join(body_lines)
         email_sent = False
+        wa_sent = False
+        wa_error: Optional[str] = None
         if recipient_email:
             try:
                 email_sent = await send_email(recipient_email, subject, body_text)
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[contract-overdue] email failed for %s: %s", tenant.get("email"), exc)
+        # 2026-02 fork iter107 (S157) — Alerte WhatsApp au super-admin en plus
+        # de l'email. Nécessite `settings.super_admin_phone` défini et un
+        # template Meta `alerte_retard_paiement` approuvé (variables 1-5).
+        super_wa = (settings_doc.get("super_admin_phone") or "").strip()
+        wa_template = (settings_doc.get("contract_overdue_wa_template") or "alerte_retard_paiement").strip()
+        if super_wa and wa_template:
+            ctx = {
+                "full_name": tenant.get("company") or tenant.get("full_name") or "—",
+                "days_overdue": str(tenant["days_overdue"]),
+                "threshold_days": str(tenant["threshold_days"]),
+                "contract_number": tenant.get("contract_number") or "—",
+                "amount_due": f"{tenant.get('contract_amount') or ''} {tenant.get('contract_currency') or ''}".strip() or "—",
+            }
+            variables = [
+                "{{full_name}}", "{{days_overdue}}", "{{threshold_days}}",
+                "{{contract_number}}", "{{amount_due}}",
+            ]
+            components = _build_components(variables, ctx)
+            try:
+                wr = await _wa_send_template(super_wa, wa_template, "fr", components)
+                wa_sent = bool(wr.get("ok"))
+                wa_error = wr.get("error")
+            except Exception as exc:  # noqa: BLE001
+                wa_error = str(exc)[:200]
+                logger.warning("[contract-overdue] WA failed: %s", exc)
         try:
             await db.contract_overdue_alerts.insert_one({
                 "id": _uuid(),
@@ -21717,12 +21813,143 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
                 "ref_iso": tenant["ref_iso"],
                 "email_recipient": recipient_email,
                 "email_sent": email_sent,
+                "wa_recipient": super_wa or None,
+                "wa_template": wa_template if super_wa else None,
+                "wa_sent": wa_sent,
+                "wa_error": wa_error,
                 "sent_at": _now(),
             })
         except Exception:  # noqa: BLE001
             pass
         dispatched += 1
-    return {"scanned": len(overdue_tenants), "dispatched": dispatched, "threshold_default": default_threshold}
+    return {"scanned": len(overdue_tenants), "dispatched": dispatched, "threshold_default": default_threshold,
+            "suspended": len(suspended_tenants), "suspended_details": suspended_tenants}
+
+
+# =============================================================================
+# 2026-02 fork iter108 — S158 : Recurring contract billing reminders.
+# Cron-invoked helper. Runs daily at 07:45 Africa/Abidjan. For each tenant with
+# `contract_billing_period` set (monthly / quarterly / annual), compute the
+# next billing date = `last_payment_at` (or `contract_signed_at`) + period.
+# If it falls within the next 3 days (inclusive today), fire a WA + Email
+# reminder to the tenant. De-duplicates via `db.billing_reminders`.
+# =============================================================================
+PERIOD_DAYS_MAP = {"monthly": 30, "quarterly": 90, "annual": 365}
+
+
+async def _run_recurring_billing_reminders() -> Dict[str, Any]:
+    today = datetime.now(timezone.utc).date()
+    q = {
+        "role": {"$in": ["admin", "client", "client-tracked"]},
+        "contract_billing_period": {"$in": list(PERIOD_DAYS_MAP.keys())},
+        "$or": [
+            {"last_payment_at": {"$exists": True, "$nin": [None, ""]}},
+            {"contract_signed_at": {"$exists": True, "$nin": [None, ""]}},
+        ],
+    }
+    cursor = db.users.find(q, {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1,
+                                "phone": 1, "whatsapp_number": 1, "last_payment_at": 1,
+                                "contract_signed_at": 1, "contract_billing_period": 1,
+                                "contract_amount": 1, "contract_currency": 1,
+                                "contract_number": 1})
+    reminders: List[Dict[str, Any]] = []
+    async for u in cursor:
+        period = (u.get("contract_billing_period") or "").lower()
+        period_days = PERIOD_DAYS_MAP.get(period)
+        if not period_days:
+            continue
+        ref_iso = (u.get("last_payment_at") or u.get("contract_signed_at") or "")[:10]
+        if not ref_iso:
+            continue
+        try:
+            ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
+        except Exception:  # noqa: BLE001
+            continue
+        next_billing = ref_date + timedelta(days=period_days)
+        days_to_billing = (next_billing - today).days
+        # Fire reminder in the [0, 3] day window before due date.
+        if days_to_billing < 0 or days_to_billing > 3:
+            continue
+        reminders.append({
+            **u,
+            "next_billing": next_billing.isoformat(),
+            "days_to_billing": days_to_billing,
+        })
+    # Dispatch with idempotency per-day.
+    dispatched = 0
+    for t in reminders:
+        key = f"{t['id']}::{t['next_billing']}"
+        try:
+            if await db.billing_reminders.find_one({"key": key}):
+                continue
+        except Exception:  # noqa: BLE001
+            pass
+        subject = f"[SAWALI] Rappel de facturation — {t.get('company') or t.get('email')} (J-{t['days_to_billing']})"
+        due_hint = "aujourd'hui" if t['days_to_billing'] == 0 else f"dans {t['days_to_billing']} jour(s)"
+        body_text = (
+            f"Bonjour {t.get('full_name') or t.get('email')},\n\n"
+            f"Votre prochaine échéance contractuelle est le {t['next_billing']} "
+            f"({due_hint}).\n\n"
+            f"  · Contrat : {t.get('contract_number') or '—'}\n"
+            f"  · Montant : {t.get('contract_amount') or '—'} {t.get('contract_currency') or ''}\n"
+            f"  · Périodicité : {t.get('contract_billing_period')}\n\n"
+            "Merci de préparer le règlement dans les délais pour éviter toute suspension d'accès.\n\n"
+            "L'équipe SAWALI SMART SYSTEMS."
+        )
+        email_sent = False
+        wa_sent = False
+        wa_error: Optional[str] = None
+        recipient_email = (t.get("email") or "").strip().lower()
+        if recipient_email:
+            try:
+                email_sent = await send_email(recipient_email, subject, body_text)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[billing-reminder] email failed for %s: %s", recipient_email, exc)
+        # Best-effort WA reminder to the tenant's own phone (if configured).
+        wa_number = (t.get("whatsapp_number") or t.get("phone") or "").strip()
+        if wa_number:
+            try:
+                # Reuse the confirmation_paiement_avecrecu template as a generic reminder.
+                # If the tenant has a more specific template configured, fall back to plain text.
+                wr = await _wa_send_text(wa_number, body_text)
+                wa_sent = bool(wr.get("ok"))
+                wa_error = wr.get("error")
+            except Exception as exc:  # noqa: BLE001
+                wa_error = str(exc)[:200]
+                logger.warning("[billing-reminder] WA failed for %s: %s", wa_number, exc)
+        try:
+            await db.billing_reminders.insert_one({
+                "id": _uuid(),
+                "key": key,
+                "tenant_id": t["id"],
+                "tenant_email": t.get("email"),
+                "next_billing": t["next_billing"],
+                "days_to_billing": t["days_to_billing"],
+                "email_sent": email_sent,
+                "wa_sent": wa_sent,
+                "wa_error": wa_error,
+                "sent_at": _now(),
+            })
+        except Exception:  # noqa: BLE001
+            pass
+        dispatched += 1
+    # 2026-02 fork iter108 fix — return `details` for parity with contract-overdue/run.
+    details = [{
+        "tenant_id": t["id"],
+        "email": t.get("email"),
+        "company": t.get("company"),
+        "next_billing": t["next_billing"],
+        "days_to_billing": t["days_to_billing"],
+    } for t in reminders]
+    return {"scanned": len(reminders), "dispatched": dispatched, "details": details}
+
+
+@api.post("/admin/billing-reminders/run", tags=["Admin"])
+async def admin_run_billing_reminders_now(_: dict = Depends(get_current_admin)):
+    """2026-02 fork iter108 — Manually trigger the recurring-billing scan
+    (for debugging / on-demand run). The daily cron runs at 07:45 Africa/Abidjan."""
+    return await _run_recurring_billing_reminders()
+
 
 
 @api.post("/admin/contract-overdue/run", tags=["Admin"])
@@ -21842,6 +22069,19 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                 _scheduled_contract_overdue_alerts,
                 CronTrigger(hour=8, minute=15, timezone="Africa/Abidjan"),
                 id="contract_overdue_alerts_daily",
+                replace_existing=True,
+                misfire_grace_time=3600,
+            )
+            # 2026-02 fork iter108 — S158 : Recurring billing reminders (daily at 07:45 Africa/Abidjan).
+            async def _scheduled_recurring_billing_reminders():
+                try:
+                    await _run_recurring_billing_reminders()
+                except Exception as exc:  # noqa: BLE001
+                    logger.warning("[billing-reminder] job failed: %s", exc)
+            _scheduler.add_job(
+                _scheduled_recurring_billing_reminders,
+                CronTrigger(hour=7, minute=45, timezone="Africa/Abidjan"),
+                id="recurring_billing_reminders_daily",
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
@@ -23961,6 +24201,61 @@ async def me_delete_ticket_motif_template(tpl_id: str, user: dict = Depends(get_
     return {"ok": True}
 
 
+# 2026-02 fork iter107 — Re-send ticket WA template based on current status.
+# Called from the /portal/tickets row expander to nudge the reporter again.
+@api.post("/me/tickets/{tid}/resend-wa", tags=["Portail Client"])
+async def me_ticket_resend_wa(tid: str, user: dict = Depends(get_current_user)):
+    """Renvoie le template WA correspondant au statut courant du ticket au
+    rapporteur / contact d'origine. Statuts pris en charge :
+      - `open` ou `in_progress` → template d'ouverture (`wa_template_ticket_open`)
+      - `closed`                → template de clôture (`wa_template_ticket_close`)
+    """
+    scope = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    ticket = await db.tickets.find_one({"id": tid, "client_id": scope}, {"_id": 0})
+    if not ticket:
+        raise HTTPException(status_code=404, detail="Ticket introuvable")
+    phone = (ticket.get("contact_phone") or ticket.get("contact_whatsapp") or "").strip()
+    if not phone:
+        raise HTTPException(status_code=400, detail="Aucun numéro de contact sur ce ticket — impossible de renvoyer un WhatsApp.")
+    s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "wa_template_ticket_open": 1, "wa_template_ticket_close": 1}) or {}
+    status = (ticket.get("status") or "open").lower()
+    if status in ("closed", "resolved"):
+        tpl_name = (s.get("wa_template_ticket_close") or "").strip() or "clotureticket"
+        duration = _format_ticket_duration(ticket.get("created_at") or "", ticket.get("closed_at") or _now())
+        components = _ticket_components(ticket.get("number") or tid, motif="", duration=duration)
+    else:
+        tpl_name = (s.get("wa_template_ticket_open") or "").strip() or "ouvertureticket"
+        motif = (ticket.get("reason") or "")[:200]
+        components = _ticket_components(ticket.get("number") or tid, motif=motif)
+    try:
+        wr = await _wa_send_template(phone, tpl_name, "fr", components)
+    except Exception as exc:  # noqa: BLE001
+        wr = {"ok": False, "error": str(exc)[:200]}
+    log_entry = {
+        "id": _uuid(),
+        "ticket_id": tid,
+        "client_id": scope,
+        "to": phone,
+        "template_name": tpl_name,
+        "language_code": "fr",
+        "ok": bool(wr.get("ok")),
+        "status": wr.get("status"),
+        "message_id": wr.get("message_id"),
+        "error": wr.get("error"),
+        "context": "ticket_resend",
+        "by_user_id": user.get("id"),
+        "by_user_email": user.get("email"),
+        "created_at": _now(),
+    }
+    try:
+        await db.whatsapp_messages.insert_one(log_entry.copy())
+    except Exception:  # noqa: BLE001
+        pass
+    return {"ok": bool(wr.get("ok")), "template": tpl_name, "to": phone, "error": wr.get("error")}
+
+
+
+
 # ---- Resolution-time stats --------------------------------------------
 @api.get("/me/dashboard/ticket-stats", tags=["Portail Client"])
 async def me_dashboard_ticket_stats(
@@ -24661,7 +24956,7 @@ from routes.google_calendar_watch import (  # noqa: E402
     attach_google_calendar_watch_routes as _attach_gcal_watch,
     run_google_calendar_watch_renewal_tick as _run_gcal_watch_renewal,
 )
-_attach_gcal_watch(api=api, db=db, get_current_admin=get_current_admin)
+_attach_gcal_watch(api=api, db=db, get_current_admin=get_current_admin, get_current_user=get_current_user)
 
 # 2026-02 — Configurable WhatsApp inbound notification sound
 from routes.wa_notification_sound import attach_notification_sound_routes as _attach_wa_notif_sound  # noqa: E402

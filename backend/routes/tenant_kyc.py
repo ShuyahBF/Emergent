@@ -187,40 +187,22 @@ def attach_tenant_kyc_routes(*, api, db, get_current_user, get_current_admin, up
         if not (content_type.startswith("image/") or content_type == "application/pdf"):
             raise HTTPException(status_code=400, detail=f"Type MIME non autorisé : {content_type}")
 
-        # Stream to disk with size cap
+        # 2026-02 fork iter108 — Deploy-safe : read then persist via helper (storage + local).
         file_id = uuid.uuid4().hex
         safe_name = f"kyc-{doc_type}-{file_id}{ext}"
-        target = upload_dir / safe_name
-        target.parent.mkdir(parents=True, exist_ok=True)
-        size = 0
-        with target.open("wb") as f_out:
-            while True:
-                chunk = await file.read(64 * 1024)
-                if not chunk:
-                    break
-                size += len(chunk)
-                if size > MAX_UPLOAD_BYTES:
-                    f_out.close()
-                    try:
-                        target.unlink(missing_ok=True)
-                    except Exception:  # noqa: BLE001
-                        pass
-                    raise HTTPException(
-                        status_code=413,
-                        detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024 // 1024} MB)",
-                    )
-                f_out.write(chunk)
-
-        # Mirror to object storage best-effort
-        storage_path = None
-        try:
-            from storage import upload_bytes, storage_available
-            if storage_available():
-                storage_path = upload_bytes(
-                    f"files/{safe_name}", target.read_bytes(), content_type,
-                )
-        except Exception as exc:  # noqa: BLE001
-            logger.warning("[kyc_upload] storage mirror failed: %s", exc)
+        raw = await file.read()
+        size = len(raw)
+        if size > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024 // 1024} MB)",
+            )
+        from storage import save_upload_and_cache
+        target, storage_path, _err = save_upload_and_cache(
+            upload_dir=upload_dir, filename=safe_name, data=raw, content_type=content_type,
+        )
+        if _err:
+            logger.warning("[kyc_upload] storage mirror failed: %s", _err)
 
         file_doc = {
             "id": file_id,

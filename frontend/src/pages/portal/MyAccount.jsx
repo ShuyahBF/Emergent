@@ -40,6 +40,111 @@ const FIELD_OPTIONS = [
   { id: "company", label: "Société / entreprise" },
 ];
 
+// 2026-02 fork iter108 — S164 (Emmy) — Self-contained user preference section
+// for silencing browser notifications on this device. Stored in localStorage
+// so no backend endpoint is needed. Respects the admin global toggle: when the
+// admin has disabled notifications for everyone, we display a note instead of
+// the checkbox.
+function BrowserNotificationsPrefSection() {
+  const [flags, setFlags] = useState({ browser_notifications_enabled: true });
+  const [optedOut, setOptedOut] = useState(false);
+  const [permission, setPermission] = useState(
+    typeof Notification !== "undefined" ? Notification.permission : "unsupported",
+  );
+
+  useEffect(() => {
+    try {
+      setOptedOut(localStorage.getItem("sawali_browser_notifs_optout") === "1");
+    } catch { /* ignore */ }
+    const base = (process.env.REACT_APP_BACKEND_URL || "").replace(/\/$/, "");
+    fetch(`${base}/api/public/ui-flags`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (d) setFlags(d); })
+      .catch(() => {});
+  }, []);
+
+  const globalOn = flags?.browser_notifications_enabled !== false;
+
+  const toggleOptOut = (checked) => {
+    setOptedOut(checked);
+    try {
+      if (checked) localStorage.setItem("sawali_browser_notifs_optout", "1");
+      else localStorage.removeItem("sawali_browser_notifs_optout");
+      // Force BrowserNotifications component to pick up the new state on next
+      // page refresh (it reads localStorage on mount only for perf).
+      toast.success(checked ? "Notifications silencées sur cet appareil" : "Notifications réactivées sur cet appareil");
+    } catch { /* ignore */ }
+  };
+
+  const requestPerm = () => {
+    if (typeof Notification === "undefined") return;
+    Notification.requestPermission().then((p) => setPermission(p));
+  };
+
+  return (
+    <section className="rounded-xl ring-1 ring-slate-200 bg-white p-5 space-y-3" data-testid="account-browser-notifs-pref">
+      <div className="flex items-center gap-2">
+        <div className="rounded-lg bg-sky-100 ring-1 ring-sky-200 p-2">
+          <Sparkles className="h-4 w-4 text-sky-600" />
+        </div>
+        <div>
+          <h2 className="font-display font-semibold text-sm text-slate-900">
+            Notifications navigateur
+          </h2>
+          <p className="text-xs text-slate-500">
+            Toast système + clignotement du titre quand un ticket / RDV / message arrive et que l&apos;onglet est en arrière-plan.
+          </p>
+        </div>
+      </div>
+
+      {!globalOn ? (
+        <p className="text-xs text-amber-700 bg-amber-50 ring-1 ring-amber-200 rounded-lg px-3 py-2">
+          Les notifications navigateur ont été désactivées globalement par l&apos;administrateur.
+        </p>
+      ) : (
+        <>
+          <label className="flex items-start gap-2 cursor-pointer" data-testid="browser-notifs-optout-toggle">
+            <input
+              type="checkbox"
+              checked={optedOut}
+              onChange={(e) => toggleOptOut(e.target.checked)}
+              className="mt-0.5 h-4 w-4"
+            />
+            <div className="flex-1">
+              <div className="text-sm text-slate-800">
+                Silencer les notifications sur cet appareil
+              </div>
+              <p className="text-xs text-slate-500 mt-0.5">
+                Le clignotement du titre et les toasts système seront désactivés uniquement sur ce navigateur. Vos collègues sur d&apos;autres appareils continueront à les recevoir.
+              </p>
+            </div>
+          </label>
+          {permission === "default" && (
+            <button
+              type="button"
+              onClick={requestPerm}
+              className="text-xs font-semibold text-sky-700 hover:text-sky-900 underline"
+              data-testid="browser-notifs-request-perm"
+            >
+              Autoriser les notifications système (permission navigateur requise)
+            </button>
+          )}
+          {permission === "denied" && (
+            <p className="text-[11px] text-rose-600">
+              Le navigateur bloque les notifications pour ce site. Réautorisez-les depuis la barre d&apos;adresse (🔒).
+            </p>
+          )}
+          {permission === "granted" && (
+            <p className="text-[11px] text-emerald-700">
+              Notifications système autorisées ✓ (Windows / macOS / Android natif).
+            </p>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
 export default function MyAccount() {
   const { user } = useAuth();
   const [data, setData] = useState(null);
@@ -265,6 +370,11 @@ export default function MyAccount() {
               <SmartCommunicationsTenantSection />
             </>
           )}
+
+          {/* 2026-02 fork iter108 — S164 (Emmy) — Personal browser-notification opt-out.
+              Stored in localStorage (per-device) so users can silence system toasts
+              without contacting an admin. Respects the global admin toggle. */}
+          <BrowserNotificationsPrefSection />
 
           {/* Iter34s — Raccourci SMART Communications (admin only).
               Permet à l'admin SAWALI (et plus généralement à tout admin)

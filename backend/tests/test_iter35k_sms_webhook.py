@@ -42,7 +42,7 @@ class TestSmsWebhookBridge:
 
     def test_n8n_error_shape_surfaces_message(self):
         """When a webhook returns the n8n-style error shape, surface the message."""
-        from server import _sms_send_via_webhook
+        from server import _sms_send_via_webhook  # noqa: F401
         # httpbin lets us echo a fixed JSON via response endpoint
         # We use the /status/200 + custom JSON: cleaner is /anything which echoes
         # the body. We're not picky here; the real validation is the parsing logic
@@ -50,7 +50,6 @@ class TestSmsWebhookBridge:
         # NB: since we cannot easily force a remote server to return our exact
         # JSON, we test the parsing logic by directly mocking what _sms_send_via_webhook
         # would receive. Direct unit test:
-        from server import _sms_send_via_webhook  # noqa: F401
         # Validate via internal call paths is enough — already covered by integration.
         assert True
 

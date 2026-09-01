@@ -624,6 +624,42 @@ function TicketRow({ t, reload, targets }) {
               <Field label="💰 Coût" value={`${Number(t.cost_amount).toLocaleString("fr-FR")} XOF ${t.cost_mode === "flat" ? "(forfait)" : t.active_hours != null ? `(${t.active_hours}h × ${Number(t.cost_hourly_rate || 0).toLocaleString("fr-FR")})` : ""}`} />
             )}
           </div>
+          {/* 2026-02 fork iter107 — Motif complet + bouton Ré-envoyer WA.
+              2026-02 fork iter108 fix — Le backend expose `motif` (pas `reason`),
+              fallback sur `reason` pour compat future. */}
+          {(t.motif || t.reason) && (
+            <div className="rounded-lg border border-slate-200 bg-white p-3" data-testid={`ticket-full-reason-${t.id}`}>
+              <div className="flex items-center justify-between gap-3 mb-1">
+                <span className="text-[11px] font-semibold text-slate-500 uppercase tracking-wide">Motif complet</span>
+                {(t.contact_phone || t.contact_whatsapp) && (
+                  <button
+                    onClick={async () => {
+                      const confirmMsg = t.status === "done" || t.status === "cancelled"
+                        ? `Renvoyer un WhatsApp de clôture au rapporteur (${t.contact_name || "—"} — ${t.contact_phone || t.contact_whatsapp}) ?`
+                        : `Renvoyer un WhatsApp d'ouverture au rapporteur (${t.contact_name || "—"} — ${t.contact_phone || t.contact_whatsapp}) ?`;
+                      if (!window.confirm(confirmMsg)) return;
+                      try {
+                        const r = await apiClient.post(`/me/tickets/${t.id}/resend-wa`);
+                        if (r.data?.ok) {
+                          toast.success(`WhatsApp renvoyé (template ${r.data.template}).`);
+                        } else {
+                          toast.error(`Envoi WA échoué : ${r.data?.error || "erreur inconnue"}`);
+                        }
+                      } catch (err) {
+                        toast.error(err?.response?.data?.detail || "Erreur");
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded-md bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] px-2 py-1"
+                    data-testid={`ticket-${t.id}-resend-wa`}
+                    title="Renvoyer le WhatsApp au rapporteur selon le statut courant"
+                  >
+                    📱 Ré-envoyer
+                  </button>
+                )}
+              </div>
+              <p className="text-xs text-slate-700 whitespace-pre-wrap break-words">{t.motif || t.reason}</p>
+            </div>
+          )}
           {!isClosed && targets && targets.length > 0 && (
             <div className="flex items-center gap-2 text-xs">
               <label className="text-slate-500 font-semibold">Affecter à :</label>

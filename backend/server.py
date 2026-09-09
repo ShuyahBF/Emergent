@@ -17036,6 +17036,45 @@ async def _try_handle_masked_reply(*, from_num: str, digits_only: str, text_body
     except Exception as exc:  # noqa: BLE001
         return {"code": code, "routed_to": original_sender, "ok": False, "error": str(exc)[:200]}
     ok = bool(res.get("ok"))
+    # La réponse #R part bien vers l'expéditeur d'origine via _wa_send_text,
+    # mais celui-ci ne fait qu'appeler l'API Graph — rien n'était jusqu'ici
+    # enregistré dans `whatsapp_messages`, donc la réponse relayée
+    # n'apparaissait jamais dans la fenêtre de conversation du contact
+    # (GET /me/contacts/{cid}/messages matche par client_id + phone_digits).
+    # On journalise ici avec le même format que /me/whatsapp/send-text, plus
+    # un marqueur `via_masked_reply` pour que le frontend affiche un badge
+    # "relayé" distinct d'un envoi normal depuis le portail.
+    try:
+        dest_digits = "".join(ch for ch in (original_sender or "") if ch.isdigit())
+        relay_log = {
+            "id": _uuid(),
+            "client_id": token.get("tenant_id"),
+            "direction": "outbound",
+            "sender_id": admin_user.get("id"),
+            "sender_label": admin_user.get("full_name") or admin_user.get("email"),
+            "to": original_sender,
+            "phone_digits": dest_digits,
+            "template_name": None,
+            "language_code": None,
+            "message_type": "text",
+            "body": reply_text,
+            "contact_id": None,
+            "tracked_user_id": None,
+            "ok": ok,
+            "status": res.get("status"),
+            "message_id": res.get("message_id"),
+            "error": None if ok else res.get("error"),
+            "wa_status": "sent" if ok else "failed",
+            "sent_at": _now() if ok else None,
+            "failed_at": None if ok else _now(),
+            "created_at": _now(),
+            "reply_to_message_id": token.get("original_message_id"),
+            "via_masked_reply": True,
+            "masked_reply_code": code,
+        }
+        await db.whatsapp_messages.insert_one(relay_log)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("[masked reply] whatsapp_messages log failed: %s", exc)
     # Mark token used regardless (avoid replay). Save last error if any.
     await db.wa_reply_tokens.update_one(
         {"code": code},

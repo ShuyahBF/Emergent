@@ -2683,6 +2683,15 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
               {m.template_name}
             </code>
           )}
+          {outbound && m.via_masked_reply && (
+            <span
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/20 text-white"
+              title={`Répondu par WhatsApp via #R${m.masked_reply_code || ""}${m.sender_label ? ` — ${m.sender_label}` : ""}`}
+              data-testid={`msg-relayed-${m.id}`}
+            >
+              <Share2 className="h-2.5 w-2.5" /> Relayé
+            </span>
+          )}
         </div>
 
         {/* 2026-02 (#4) — Aperçu du contenu réellement délivré */}

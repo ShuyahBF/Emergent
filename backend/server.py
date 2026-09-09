@@ -50,6 +50,7 @@ from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from db import db, serialize, serialize_many
 from models import (
+    _upper,
     UserPublic,
     UserCreateAdmin,
     UserUpdateAdmin,
@@ -23113,6 +23114,13 @@ class QuickTicketPayload(BaseModel):
     # Iter43 — Partage tenant
     shared_with_tenant: Optional[bool] = None
     editable_by_tenant: Optional[bool] = None
+
+    # Convention SAWALI (bulle flottante "Nouveau ticket") : mêmes champs texte
+    # que le ticket créé depuis Contacts.jsx, toujours en MAJUSCULES.
+    @field_validator("reason", "contact_name", "software", "notes", mode="before")
+    @classmethod
+    def _uppercase_text_fields(cls, v):
+        return _upper(v)
 
 
 @api.post("/me/tickets", tags=["Portail Client"])

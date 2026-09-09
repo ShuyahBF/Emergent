@@ -189,14 +189,14 @@ export default function TicketsBubble() {
                 <span className="text-xs font-medium text-slate-600">Motif *</span>
                 {reasons.length > 0 ? (
                   <>
-                    <select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="tickets-bubble-reason-select">
+                    <select value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="tickets-bubble-reason-select">
                       <option value="">-- Choisir un motif ou saisir librement --</option>
                       {reasons.map((r) => <option key={r.id || r.label} value={r.label}>{r.label}</option>)}
                     </select>
-                    <input type="text" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} placeholder="… ou motif libre" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
+                    <input type="text" value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} placeholder="… OU MOTIF LIBRE" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
                   </>
                 ) : (
-                  <input type="text" required value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
+                  <input type="text" required value={form.reason} onChange={(e) => setForm({ ...form, reason: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-reason-free" />
                 )}
               </label>
 
@@ -209,8 +209,8 @@ export default function TicketsBubble() {
                   required
                   list="tickets-bubble-rapporteur-list"
                   value={form.contact_name}
-                  onChange={(e) => setForm({ ...form, contact_name: e.target.value })}
-                  placeholder={form.client_id && linkedContacts.length > 0 ? "Sélectionner ou saisir librement" : "Nom du rapporteur"}
+                  onChange={(e) => setForm({ ...form, contact_name: e.target.value.toUpperCase() })}
+                  placeholder={form.client_id && linkedContacts.length > 0 ? "SÉLECTIONNER OU SAISIR LIBREMENT" : "NOM DU RAPPORTEUR"}
                   className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2"
                   data-testid="tickets-bubble-contact-name"
                 />
@@ -259,13 +259,13 @@ export default function TicketsBubble() {
                 </label>
                 <label className="block">
                   <span className="text-xs font-medium text-slate-600">Logiciel utilisé</span>
-                  <input type="text" value={form.software} onChange={(e) => setForm({ ...form, software: e.target.value })} placeholder="téléphone / WA / SAWALI…" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-software" />
+                  <input type="text" value={form.software} onChange={(e) => setForm({ ...form, software: e.target.value.toUpperCase() })} placeholder="TÉLÉPHONE / WA / SAWALI…" className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2" data-testid="tickets-bubble-software" />
                 </label>
               </div>
 
               <label className="block">
                 <span className="text-xs font-medium text-slate-600">Complément d'information</span>
-                <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 resize-y" data-testid="tickets-bubble-notes" />
+                <textarea rows={3} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value.toUpperCase() })} className="mt-1 w-full text-sm rounded-lg border border-slate-300 px-3 py-2 resize-y" data-testid="tickets-bubble-notes" />
               </label>
 
               <label className="flex items-center gap-2 text-xs text-slate-600">

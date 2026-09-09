@@ -834,16 +834,16 @@ function MotifTemplatesModal({ templates, onClose, onChange }) {
             <p className="text-[11px] uppercase tracking-wider font-semibold text-slate-600">Nouveau modèle</p>
             <input
               value={label}
-              onChange={(e) => setLabel(e.target.value)}
-              placeholder="Étiquette courte (60 chars max)"
+              onChange={(e) => setLabel(e.target.value.toUpperCase())}
+              placeholder="ÉTIQUETTE COURTE (60 CHARS MAX)"
               maxLength={60}
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
               data-testid="motif-tpl-new-label"
             />
             <textarea
               value={motif}
-              onChange={(e) => setMotif(e.target.value)}
-              placeholder="Texte du motif injecté (200 chars max)"
+              onChange={(e) => setMotif(e.target.value.toUpperCase())}
+              placeholder="TEXTE DU MOTIF INJECTÉ (200 CHARS MAX)"
               rows={2}
               maxLength={200}
               className="w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm resize-none"

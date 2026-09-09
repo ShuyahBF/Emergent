@@ -2217,7 +2217,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                       onChange={(e) => {
                         const i = parseInt(e.target.value, 10);
                         if (!isNaN(i) && ticketTemplates[i]) {
-                          setTicketMotif(ticketTemplates[i].motif || "");
+                          setTicketMotif((ticketTemplates[i].motif || "").toUpperCase());
                         }
                       }}
                       className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300"
@@ -2239,10 +2239,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   </label>
                   <textarea
                     value={ticketMotif}
-                    onChange={(e) => setTicketMotif(e.target.value)}
+                    onChange={(e) => setTicketMotif(e.target.value.toUpperCase())}
                     rows={3}
                     maxLength={200}
-                    placeholder="Brève description de l'intervention demandée (max 200 caractères)"
+                    placeholder="BRÈVE DESCRIPTION DE L'INTERVENTION DEMANDÉE (MAX 200 CARACTÈRES)"
                     className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 resize-none"
                     data-testid="ticket-create-motif-input"
                     disabled={ticketSubmitting}

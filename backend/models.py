@@ -13,6 +13,15 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
+def _upper(value: Optional[str]) -> Optional[str]:
+    """Convention SAWALI : certains champs texte (Interventions, Tickets)
+    sont toujours stockés en MAJUSCULES, quelle que soit la casse saisie
+    côté portail ou admin. Les accents sont conservés."""
+    if value is None:
+        return value
+    return value.upper()
+
+
 # 2026-02 fork iter108 fix — Normalise appointment `participants` to always be
 # List[Dict[str, Any]] on the backend, but accept either List[str] (phone-only
 # strings coming from the portal quick form) OR List[Dict] from admin flows.
@@ -380,6 +389,17 @@ class InterventionCreate(BaseModel):
     # Iter43 — Partage tenant cross-utilisateur
     shared_with_tenant: Optional[bool] = None
     editable_by_tenant: Optional[bool] = None
+    # Rapporteur — contact du registre (Centre de Messagerie) à l'origine de
+    # la demande. reporter_contact_id référence directory_contacts.id quand
+    # le nom correspond à un contact existant du client ; sinon None (nom
+    # libre, éventuellement proposé à la création dans le registre).
+    reporter_contact_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+
+    @field_validator("title", "description", "technician", "reporter_name", mode="before")
+    @classmethod
+    def _uppercase_text_fields(cls, v):
+        return _upper(v)
 
 
 class InterventionUpdate(BaseModel):
@@ -397,6 +417,13 @@ class InterventionUpdate(BaseModel):
     # Iter43 — Partage tenant cross-utilisateur
     shared_with_tenant: Optional[bool] = None
     editable_by_tenant: Optional[bool] = None
+    reporter_contact_id: Optional[str] = None
+    reporter_name: Optional[str] = None
+
+    @field_validator("title", "description", "technician", "reporter_name", mode="before")
+    @classmethod
+    def _uppercase_text_fields(cls, v):
+        return _upper(v)
 
 
 # ====================================================================
@@ -1381,6 +1408,11 @@ class TicketOpenPayload(BaseModel):
     # this contact (orphan or stuck). Marked as `outcome="force_released"`.
     force_release: Optional[bool] = False
 
+    @field_validator("motif", mode="before")
+    @classmethod
+    def _uppercase_motif(cls, v):
+        return _upper(v)
+
 
 class TicketUpdatePayload(BaseModel):
     status: Optional[str] = None  # open|in_progress|suspended (closing uses /close)
@@ -1389,6 +1421,11 @@ class TicketUpdatePayload(BaseModel):
     # 0-4 (2026-02) — Admin / supervisor can re-attach a ticket to a
     # different client (tenant). Must be a real user from the same group.
     client_id: Optional[str] = None
+
+    @field_validator("motif", mode="before")
+    @classmethod
+    def _uppercase_motif(cls, v):
+        return _upper(v)
 
 
 class TicketClosePayload(BaseModel):
@@ -1405,7 +1442,17 @@ class TicketAssignPayload(BaseModel):
 class TicketReopenPayload(BaseModel):
     motif: Optional[str] = None  # if empty, reuse parent's motif
 
+    @field_validator("motif", mode="before")
+    @classmethod
+    def _uppercase_motif(cls, v):
+        return _upper(v)
+
 
 class TicketMotifTemplatePayload(BaseModel):
     label: str  # short button label (e.g. "Panne onduleur")
     motif: str  # the actual motif text injected when picked
+
+    @field_validator("label", "motif", mode="before")
+    @classmethod
+    def _uppercase_text_fields(cls, v):
+        return _upper(v)

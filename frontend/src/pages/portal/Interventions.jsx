@@ -30,6 +30,8 @@ export default function ClientInterventions() {
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
   const [clients, setClients] = useState([]);
+  // Rapporteur — registre de contacts (Centre de Messagerie) du client connecté.
+  const [contacts, setContacts] = useState([]);
   // Iter34y — Filtre par client lié (en-tête de colonne)
   const [clientFilter, setClientFilter] = useState("all");
   // Iter43-fix — Filtre temporel + taux horaire + bouton Imprimer
@@ -68,6 +70,12 @@ export default function ClientInterventions() {
       setClients(r.data || []);
     } catch { /* noop */ }
   };
+  const loadContacts = async () => {
+    try {
+      const r = await apiClient.get("/me/contacts");
+      setContacts(r.data || []);
+    } catch { /* noop */ }
+  };
   // Iter43-fix6 — Charge les factures émises (admin/sup voient tout, tenant voit les siennes)
   const loadInvoices = async () => {
     setInvoicesLoading(true);
@@ -78,7 +86,7 @@ export default function ClientInterventions() {
       toast.error(err?.response?.data?.detail || "Erreur chargement factures");
     } finally { setInvoicesLoading(false); }
   };
-  useEffect(() => { load(); loadClients(); }, []);
+  useEffect(() => { load(); loadClients(); loadContacts(); }, []);
 
   const clientLabel = (cid) => {
     const c = clients.find((x) => x.id === cid);
@@ -337,6 +345,7 @@ export default function ClientInterventions() {
                 </div>
               </th>
               <th className="text-left px-4 py-3">Date</th>
+              <th className="text-left px-4 py-3">Rapporteur</th>
               <th className="text-left px-4 py-3">Technicien</th>
               <th className="text-right px-4 py-3" data-testid="interventions-col-duration">Durée (h)</th>
               <th className="text-left px-4 py-3">Statut</th>
@@ -346,9 +355,9 @@ export default function ClientInterventions() {
             </tr>
           </thead>
           <tbody>
-            {loading && <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
+            {loading && <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-500">Chargement…</td></tr>}
             {!loading && filtered.length === 0 && (
-              <tr><td colSpan={11} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
+              <tr><td colSpan={12} className="px-4 py-10 text-center text-slate-500">{clientFilter === "all" && !fromDate && !toDate && statusFilter === "all" ? "Aucune intervention enregistrée." : "Aucune intervention pour ces critères."}</td></tr>
             )}
             {filtered.map((i) => {
               const status = STATUSES.find((s) => s.value === i.status) || { label: i.status, color: "bg-slate-100 text-slate-700" };
@@ -380,6 +389,7 @@ export default function ClientInterventions() {
                     </span>
                   </td>
                   <td className="px-4 py-3">{i.intervention_date && new Date(i.intervention_date).toLocaleDateString("fr-FR")}</td>
+                  <td className="px-4 py-3">{i.reporter_name || "-"}</td>
                   <td className="px-4 py-3">{i.technician || "-"}</td>
                   <td className="px-4 py-3 text-right font-mono text-xs" data-testid={`intervention-duration-${i.id}`}>
                     {dh > 0 ? dh.toFixed(2) : "—"}
@@ -450,6 +460,8 @@ export default function ClientInterventions() {
         <CreateInterventionModal
           user={user}
           clients={clients}
+          contacts={contacts}
+          onContactCreated={loadContacts}
           onClose={() => setShowCreate(false)}
           onCreated={() => { setShowCreate(false); load(); }}
         />
@@ -484,6 +496,8 @@ export default function ClientInterventions() {
         <EditInterventionModal
           intervention={editing}
           clients={clients}
+          contacts={contacts}
+          onContactCreated={loadContacts}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); load(); }}
         />
@@ -495,7 +509,7 @@ export default function ClientInterventions() {
 // ============================================================
 // Iter34y — Create intervention modal with Client picker + voice note
 // ============================================================
-const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
+const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, onClose, onCreated }) => {
   const [form, setForm] = useState({
     title: "",
     description: "",
@@ -506,6 +520,8 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
     client_id: user?.client_id || user?.parent_client_id || user?.id || "",
     voice_note_url: "",
     voice_note_transcript: "",
+    reporter_name: "",
+    reporter_contact_id: null,
   });
   const [saving, setSaving] = useState(false);
 
@@ -513,6 +529,7 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
     if (!form.client_id) { toast.error("Client lié requis"); return; }
     if (!form.title.trim()) { toast.error("Le titre est requis"); return; }
     if (!form.intervention_date) { toast.error("Date requise"); return; }
+    if (!form.reporter_name.trim()) { toast.error("Rapporteur requis"); return; }
     setSaving(true);
     try {
       const payload = {
@@ -526,6 +543,8 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
         attachments: [],
         voice_note_url: form.voice_note_url || null,
         voice_note_transcript: form.voice_note_transcript || null,
+        reporter_name: form.reporter_name.trim(),
+        reporter_contact_id: form.reporter_contact_id || null,
       };
       await apiClient.post("/me/interventions", payload);
       toast.success("Intervention créée");
@@ -560,13 +579,22 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
             ))}
           </select>
         </div>
+
+        <ReporterField
+          contacts={contacts}
+          companyLabel={user?.company}
+          name={form.reporter_name}
+          onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
+          onContactCreated={onContactCreated}
+        />
+
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>
-          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value })} placeholder="Mise à jour du logiciel comptable" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-title" />
+          <input value={form.title} onChange={(e) => setForm({ ...form, title: e.target.value.toUpperCase() })} placeholder="MISE À JOUR DU LOGICIEL COMPTABLE" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-title" />
         </div>
         <div>
           <label className="block text-xs font-semibold mb-1">Description</label>
-          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })} rows={3} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-description" />
+          <textarea value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value.toUpperCase() })} rows={3} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-description" />
         </div>
         <div className="grid sm:grid-cols-2 gap-3">
           <div>
@@ -581,12 +609,9 @@ const CreateInterventionModal = ({ user, clients, onClose, onCreated }) => {
           </div>
           <div>
             <label className="block text-xs font-semibold mb-1">Technicien</label>
-            <input value={form.technician} onChange={(e) => setForm({ ...form, technician: e.target.value })} placeholder="Nom du technicien" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-technician" />
+            <input value={form.technician} onChange={(e) => setForm({ ...form, technician: e.target.value.toUpperCase() })} placeholder="NOM DU TECHNICIEN" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-technician" />
           </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Durée (heures)</label>
-            <input type="number" step="0.25" value={form.duration_hours} onChange={(e) => setForm({ ...form, duration_hours: e.target.value })} placeholder="2.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="intervention-field-duration" />
-          </div>
+          <DurationField value={form.duration_hours} onChange={(v) => setForm({ ...form, duration_hours: v })} />
         </div>
 
         <VoiceNoteRecorder
@@ -759,12 +784,188 @@ function VoiceNoteRecorder({ value, transcript, onChange, onTranscriptChange }) 
 
 
 // ============================================================
+// Rapporteur — recherche parmi les contacts du registre (Centre de
+// Messagerie) du client, avec proposition de création du contact quand le
+// nom saisi ne correspond à aucun contact existant. Toujours en MAJUSCULES
+// (normalisé aussi côté backend, voir models.InterventionCreate/Update).
+// ============================================================
+function ReporterField({ contacts, companyLabel, name, onChange, onContactCreated }) {
+  const [query, setQuery] = useState(name || "");
+  const [open, setOpen] = useState(false);
+  const [pendingCreate, setPendingCreate] = useState(false);
+  const [creating, setCreating] = useState(false);
+
+  useEffect(() => { setQuery(name || ""); }, [name]);
+
+  const norm = (s) => (s || "").trim().toUpperCase();
+
+  const matches = useMemo(() => {
+    const q = norm(query);
+    const list = q ? contacts.filter((c) => norm(c.name).includes(q)) : contacts;
+    return list.slice(0, 8);
+  }, [contacts, query]);
+
+  const exact = contacts.find((c) => norm(c.name) === norm(query));
+
+  const pick = (contact) => {
+    const upper = norm(contact.name);
+    setQuery(upper);
+    onChange(upper, contact.id);
+    setOpen(false);
+    setPendingCreate(false);
+  };
+
+  const typeInput = (v) => {
+    const upper = v.toUpperCase();
+    setQuery(upper);
+    onChange(upper, null);
+    setPendingCreate(false);
+  };
+
+  const createContact = async () => {
+    const trimmed = query.trim();
+    if (!trimmed) return;
+    setCreating(true);
+    try {
+      const r = await apiClient.post("/me/contacts", { name: trimmed });
+      const created = r.data;
+      toast.success("Contact ajouté au registre");
+      onChange(norm(trimmed), created?.id || null);
+      onContactCreated?.();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur lors de la création du contact");
+    } finally { setCreating(false); setPendingCreate(false); }
+  };
+
+  return (
+    <div>
+      <label className="block text-xs font-semibold mb-1 inline-flex items-center gap-1">
+        <Building2 className="h-3 w-3 text-sawali-blue" /> Rapporteur *
+      </label>
+      <div className="relative">
+        <input
+          value={query}
+          onChange={(e) => typeInput(e.target.value)}
+          onFocus={() => setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          placeholder="RECHERCHER UN CONTACT…"
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          data-testid="intervention-field-reporter"
+        />
+        {open && (
+          <div className="absolute z-10 left-0 right-0 mt-1 rounded-lg border border-slate-200 bg-white shadow-lg max-h-56 overflow-auto" data-testid="intervention-reporter-suggestions">
+            {matches.map((c) => (
+              <button type="button" key={c.id} onMouseDown={() => pick(c)}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-sky-50 flex items-center gap-2">
+                {c.name}{c.company ? <span className="text-xs text-slate-400">· {c.company}</span> : null}
+              </button>
+            ))}
+            {matches.length === 0 && (
+              <div className="px-3 py-2 text-xs text-slate-400">Aucun contact — continuez à taper</div>
+            )}
+            {query.trim() && !exact && (
+              <button type="button" onMouseDown={() => setPendingCreate(true)}
+                      className="w-full text-left px-3 py-2 text-sm text-sawali-blue hover:bg-sky-50 border-t border-slate-100 font-medium"
+                      data-testid="intervention-reporter-use-new">
+                + Utiliser « {norm(query)} » (pas encore dans le registre)
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <p className="text-[10px] text-slate-500 mt-1">
+        Contacts du registre{companyLabel ? ` de ${companyLabel}` : ""} — Centre de Messagerie.
+      </p>
+      {exact && !pendingCreate && (
+        <p className="text-[10px] text-emerald-600 mt-1">Trouvé dans le registre de contacts.</p>
+      )}
+      {pendingCreate && !exact && query.trim() && (
+        <div className="mt-2 rounded-lg bg-amber-50 ring-1 ring-amber-200 p-2 text-xs text-amber-900 space-y-2" data-testid="intervention-reporter-create-banner">
+          <p>Aucun contact « <strong>{norm(query)}</strong> » dans le registre{companyLabel ? ` de ${companyLabel}` : ""}. Voulez-vous l'ajouter ?</p>
+          <div className="flex gap-2">
+            <button type="button" onClick={createContact} disabled={creating}
+                    className="rounded bg-amber-600 text-white px-2 py-1 text-xs hover:bg-amber-700 disabled:opacity-50"
+                    data-testid="intervention-reporter-create-yes">
+              {creating ? "Ajout…" : "Ajouter au registre"}
+            </button>
+            <button type="button" onClick={() => setPendingCreate(false)}
+                    className="rounded bg-white ring-1 ring-amber-300 px-2 py-1 text-xs hover:bg-amber-100"
+                    data-testid="intervention-reporter-create-no">
+              Non, juste pour cette fois
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
+// Durée — saisie directe (pas de 0.25h) ou calcul automatique à partir d'un
+// Début/Fin. Le résultat calculé est TOUJOURS arrondi au quart d'heure
+// INFÉRIEUR (jamais vers le haut) pour ne pas sur-facturer le client.
+// ============================================================
+function DurationField({ value, onChange }) {
+  const [mode, setMode] = useState("simple");
+  const [start, setStart] = useState("");
+  const [end, setEnd] = useState("");
+
+  const floorQuarterHour = (hours) => Math.floor(hours * 4) / 4;
+
+  useEffect(() => {
+    if (mode !== "range" || !start || !end) return;
+    const s = new Date(start), e = new Date(end);
+    if (isNaN(s.getTime()) || isNaN(e.getTime()) || e <= s) return;
+    const hours = (e - s) / 3600000;
+    onChange(String(floorQuarterHour(hours)));
+  }, [start, end, mode]);
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1">
+        <label className="block text-xs font-semibold">Durée (heures)</label>
+        <div className="inline-flex rounded-md ring-1 ring-slate-300 overflow-hidden text-[10px]">
+          <button type="button" onClick={() => setMode("simple")}
+                  className={`px-2 py-1 ${mode === "simple" ? "bg-sawali-blue text-white" : "bg-white text-slate-600"}`}
+                  data-testid="intervention-duration-mode-simple">
+            Durée
+          </button>
+          <button type="button" onClick={() => setMode("range")}
+                  className={`px-2 py-1 ${mode === "range" ? "bg-sawali-blue text-white" : "bg-white text-slate-600"}`}
+                  data-testid="intervention-duration-mode-range">
+            Début → Fin
+          </button>
+        </div>
+      </div>
+      {mode === "simple" ? (
+        <input type="number" step="0.25" value={value}
+               onChange={(e) => onChange(e.target.value)}
+               placeholder="2.5" className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+               data-testid="intervention-field-duration" />
+      ) : (
+        <div className="space-y-2 rounded-lg bg-slate-50 ring-1 ring-slate-200 p-2">
+          <input type="datetime-local" value={start} onChange={(e) => setStart(e.target.value)}
+                 className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
+                 data-testid="intervention-duration-start" />
+          <input type="datetime-local" value={end} onChange={(e) => setEnd(e.target.value)}
+                 className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
+                 data-testid="intervention-duration-end" />
+          <p className="text-[11px] text-slate-600">
+            = {value || "—"} h <span className="text-slate-400">(arrondi au quart d'heure inférieur)</span>
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ============================================================
 // Iter43-fix4 — Modale d'édition Admin/Superviseur d'une intervention
 // Permet de corriger : client (tenant), titre, statut, date, technicien,
 // durée. Les interventions facturées sont rejetées par le backend (409)
 // et le bouton « Modifier » est masqué côté UI dans ce cas.
 // ============================================================
-const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
+const EditInterventionModal = ({ intervention, clients, contacts, onContactCreated, onClose, onSaved }) => {
   const [form, setForm] = useState({
     client_id: intervention.client_id || "",
     title: intervention.title || "",
@@ -773,12 +974,15 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
     intervention_date: (intervention.intervention_date || "").slice(0, 10),
     technician: intervention.technician || "",
     duration_hours: intervention.duration_hours ?? "",
+    reporter_name: intervention.reporter_name || "",
+    reporter_contact_id: intervention.reporter_contact_id || null,
   });
   const [saving, setSaving] = useState(false);
 
   const submit = async () => {
     if (!form.client_id) { toast.error("Client lié requis"); return; }
     if (!form.title.trim()) { toast.error("Titre requis"); return; }
+    if (!form.reporter_name.trim()) { toast.error("Rapporteur requis"); return; }
     setSaving(true);
     try {
       const payload = {
@@ -791,6 +995,8 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
         duration_hours: form.duration_hours === "" || form.duration_hours === null
           ? null
           : Number(form.duration_hours),
+        reporter_name: form.reporter_name.trim(),
+        reporter_contact_id: form.reporter_contact_id || null,
       };
       await apiClient.put(`/admin/interventions/${intervention.id}`, payload);
       toast.success("Intervention mise à jour");
@@ -833,10 +1039,17 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
           <p className="text-[10px] text-slate-500 mt-1">Le tenant détermine le taux horaire appliqué lors de la facturation.</p>
         </div>
 
+        <ReporterField
+          contacts={contacts}
+          name={form.reporter_name}
+          onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
+          onContactCreated={onContactCreated}
+        />
+
         <div>
           <label className="block text-xs font-semibold mb-1">Titre *</label>
           <input value={form.title}
-                 onChange={(e) => setForm({ ...form, title: e.target.value })}
+                 onChange={(e) => setForm({ ...form, title: e.target.value.toUpperCase() })}
                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                  data-testid="intervention-edit-field-title" />
         </div>
@@ -844,7 +1057,7 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
         <div>
           <label className="block text-xs font-semibold mb-1">Description</label>
           <textarea value={form.description}
-                    onChange={(e) => setForm({ ...form, description: e.target.value })}
+                    onChange={(e) => setForm({ ...form, description: e.target.value.toUpperCase() })}
                     rows={3}
                     className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                     data-testid="intervention-edit-field-description" />
@@ -870,19 +1083,11 @@ const EditInterventionModal = ({ intervention, clients, onClose, onSaved }) => {
           <div>
             <label className="block text-xs font-semibold mb-1">Technicien</label>
             <input value={form.technician}
-                   onChange={(e) => setForm({ ...form, technician: e.target.value })}
+                   onChange={(e) => setForm({ ...form, technician: e.target.value.toUpperCase() })}
                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                    data-testid="intervention-edit-field-technician" />
           </div>
-          <div>
-            <label className="block text-xs font-semibold mb-1">Durée (heures)</label>
-            <input type="number" step="0.25" min="0"
-                   value={form.duration_hours}
-                   onChange={(e) => setForm({ ...form, duration_hours: e.target.value })}
-                   placeholder="2.5"
-                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-                   data-testid="intervention-edit-field-duration" />
-          </div>
+          <DurationField value={form.duration_hours} onChange={(v) => setForm({ ...form, duration_hours: v })} />
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

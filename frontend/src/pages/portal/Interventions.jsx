@@ -569,7 +569,7 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
           </label>
           <select
             value={form.client_id}
-            onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+            onChange={(e) => setForm({ ...form, client_id: e.target.value, reporter_name: "", reporter_contact_id: null })}
             className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             data-testid="intervention-field-client"
           >
@@ -582,7 +582,8 @@ const CreateInterventionModal = ({ user, clients, contacts, onContactCreated, on
 
         <ReporterField
           contacts={contacts}
-          companyLabel={user?.company}
+          companyLabel={clients.find((c) => c.id === form.client_id)?.company || clients.find((c) => c.id === form.client_id)?.full_name}
+          clientId={form.client_id}
           name={form.reporter_name}
           onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
           onContactCreated={onContactCreated}
@@ -789,7 +790,7 @@ function VoiceNoteRecorder({ value, transcript, onChange, onTranscriptChange }) 
 // nom saisi ne correspond à aucun contact existant. Toujours en MAJUSCULES
 // (normalisé aussi côté backend, voir models.InterventionCreate/Update).
 // ============================================================
-function ReporterField({ contacts, companyLabel, name, onChange, onContactCreated }) {
+function ReporterField({ contacts, companyLabel, clientId, name, onChange, onContactCreated }) {
   const [query, setQuery] = useState(name || "");
   const [open, setOpen] = useState(false);
   const [pendingCreate, setPendingCreate] = useState(false);
@@ -799,13 +800,22 @@ function ReporterField({ contacts, companyLabel, name, onChange, onContactCreate
 
   const norm = (s) => (s || "").trim().toUpperCase();
 
+  // Un utilisateur élevé gère plusieurs sociétés-clientes ("Client lié") : le
+  // registre de contacts doit rester scopé au client sélectionné, exactement
+  // comme le fait déjà la bulle flottante (TicketsBubble.linkedContacts).
+  // Chercher parmi tous les clients confondus était une erreur de conception.
+  const clientContacts = useMemo(
+    () => (clientId ? contacts.filter((c) => c.client_id === clientId) : []),
+    [contacts, clientId]
+  );
+
   const matches = useMemo(() => {
     const q = norm(query);
-    const list = q ? contacts.filter((c) => norm(c.name).includes(q)) : contacts;
+    const list = q ? clientContacts.filter((c) => norm(c.name).includes(q)) : clientContacts;
     return list.slice(0, 8);
-  }, [contacts, query]);
+  }, [clientContacts, query]);
 
-  const exact = contacts.find((c) => norm(c.name) === norm(query));
+  const exact = clientContacts.find((c) => norm(c.name) === norm(query));
 
   const pick = (contact) => {
     const upper = norm(contact.name);
@@ -848,11 +858,12 @@ function ReporterField({ contacts, companyLabel, name, onChange, onContactCreate
           onChange={(e) => typeInput(e.target.value)}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          placeholder="RECHERCHER UN CONTACT…"
-          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          disabled={!clientId}
+          placeholder={clientId ? "RECHERCHER UN CONTACT…" : "SÉLECTIONNEZ D'ABORD UN CLIENT"}
+          className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:cursor-not-allowed"
           data-testid="intervention-field-reporter"
         />
-        {open && (
+        {open && clientId && (
           <div className="absolute z-10 left-0 right-0 mt-1 rounded-lg border border-slate-200 bg-white shadow-lg max-h-56 overflow-auto" data-testid="intervention-reporter-suggestions">
             {matches.map((c) => (
               <button type="button" key={c.id} onMouseDown={() => pick(c)}
@@ -1028,7 +1039,7 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
             <Building2 className="h-3 w-3 text-sawali-blue" /> Client lié *
           </label>
           <select value={form.client_id}
-                  onChange={(e) => setForm({ ...form, client_id: e.target.value })}
+                  onChange={(e) => setForm({ ...form, client_id: e.target.value, reporter_name: "", reporter_contact_id: null })}
                   className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   data-testid="intervention-edit-field-client">
             <option value="">— Sélectionnez un client —</option>
@@ -1041,6 +1052,8 @@ const EditInterventionModal = ({ intervention, clients, contacts, onContactCreat
 
         <ReporterField
           contacts={contacts}
+          companyLabel={clients.find((c) => c.id === form.client_id)?.company || clients.find((c) => c.id === form.client_id)?.full_name}
+          clientId={form.client_id}
           name={form.reporter_name}
           onChange={(name, contactId) => setForm({ ...form, reporter_name: name, reporter_contact_id: contactId })}
           onContactCreated={onContactCreated}

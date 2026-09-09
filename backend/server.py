@@ -14112,6 +14112,11 @@ class DirectoryContactCreate(BaseModel):
     tags: Optional[List[str]] = []
     shared: bool = False
     photo_url: Optional[str] = None  # Manually uploaded avatar (à la WhatsApp profile picture)
+    # Cible optionnelle pour un créateur élevé gérant plusieurs sociétés-
+    # clientes (ex. depuis le champ Rapporteur des Interventions/Tickets) :
+    # honoré uniquement si l'appelant est élevé ET si ce client existe
+    # (voir me_create_contact) ; ignoré sinon (le scope reste self).
+    client_id: Optional[str] = None
 
 
 class DirectoryContactUpdate(BaseModel):
@@ -14317,6 +14322,17 @@ async def me_create_contact(payload: DirectoryContactCreate, user: dict = Depend
     if s.get("contacts_require_tag") and not (payload.tags and any((t or "").strip() for t in payload.tags)):
         raise HTTPException(status_code=400, detail="Au moins un tag est requis (politique d'administration)")
     client_scope = (user.get("client_id") or user.get("id"))
+    # A un créateur élevé peut créer un contact pour une AUTRE société-cliente
+    # que la sienne (ex. "Ajouter au registre" depuis le Rapporteur d'une
+    # intervention/ticket qui vise un client différent) — même règle de
+    # confiance que POST /me/interventions, qui accepte déjà n'importe quel
+    # client_id existant pour un créateur élevé. Ignoré pour tout le monde
+    # d'autre : le scope reste self.
+    if payload.client_id and _is_elevated_creator(user):
+        target = await db.users.find_one({"id": payload.client_id}, {"_id": 0, "id": 1})
+        if not target:
+            raise HTTPException(status_code=404, detail="Client lié introuvable")
+        client_scope = payload.client_id
     # Generate the inalterable unique business code (YYYY-CLIENTCODE-NNNN).
     # We pull the parent client doc to derive the prefix; fall back to a slug
     # if the parent has no `client_code` set.
@@ -14326,6 +14342,7 @@ async def me_create_contact(payload: DirectoryContactCreate, user: dict = Depend
     ) or {"id": client_scope}
     unique_code = await _next_contact_unique_code(client_doc)
     payload_data = payload.model_dump()
+    payload_data.pop("client_id", None)  # resolved into client_scope above — never spread raw
     # Iter29 collaborative model: every contact is shared across the client's
     # users by design. The `shared` flag is forced True so any legacy code path
     # that still inspects it (filters, exports, integrations) keeps working

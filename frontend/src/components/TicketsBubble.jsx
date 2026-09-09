@@ -130,6 +130,7 @@ export default function TicketsBubble() {
               whatsapp: form.contact_whatsapp.trim() || "",
               company: (clients.find((c) => c.id === form.client_id)?.company) || "",
               shared: false,
+              client_id: form.client_id,
             });
             toast.success("Contact ajouté au registre.");
           } catch (err) {

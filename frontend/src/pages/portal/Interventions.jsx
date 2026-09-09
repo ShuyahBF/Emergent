@@ -837,7 +837,7 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
     if (!trimmed) return;
     setCreating(true);
     try {
-      const r = await apiClient.post("/me/contacts", { name: trimmed });
+      const r = await apiClient.post("/me/contacts", { name: trimmed, client_id: clientId });
       const created = r.data;
       toast.success("Contact ajouté au registre");
       onChange(norm(trimmed), created?.id || null);

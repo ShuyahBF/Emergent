@@ -801,12 +801,15 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
   const norm = (s) => (s || "").trim().toUpperCase();
 
   // Un utilisateur élevé gère plusieurs sociétés-clientes ("Client lié") : le
-  // registre de contacts doit rester scopé au client sélectionné, exactement
-  // comme le fait déjà la bulle flottante (TicketsBubble.linkedContacts).
-  // Chercher parmi tous les clients confondus était une erreur de conception.
+  // registre de contacts doit rester scopé au client sélectionné. Le
+  // rapprochement se fait sur le champ texte "Société (client)" de la fiche
+  // contact (contact.company) comparé au nom du client sélectionné —
+  // PAS sur contact.client_id, qui souffre de désalignements historiques
+  // documentés côté backend (_resolve_visible_client_ids) et ne correspond
+  // pas forcément au "Client lié" réellement affiché à l'écran.
   const clientContacts = useMemo(
-    () => (clientId ? contacts.filter((c) => c.client_id === clientId) : []),
-    [contacts, clientId]
+    () => (companyLabel ? contacts.filter((c) => norm(c.company) === norm(companyLabel)) : []),
+    [contacts, companyLabel]
   );
 
   const matches = useMemo(() => {
@@ -837,7 +840,7 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
     if (!trimmed) return;
     setCreating(true);
     try {
-      const r = await apiClient.post("/me/contacts", { name: trimmed, client_id: clientId });
+      const r = await apiClient.post("/me/contacts", { name: trimmed, client_id: clientId, company: companyLabel || "" });
       const created = r.data;
       toast.success("Contact ajouté au registre");
       onChange(norm(trimmed), created?.id || null);
@@ -858,12 +861,12 @@ function ReporterField({ contacts, companyLabel, clientId, name, onChange, onCon
           onChange={(e) => typeInput(e.target.value)}
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          disabled={!clientId}
-          placeholder={clientId ? "RECHERCHER UN CONTACT…" : "SÉLECTIONNEZ D'ABORD UN CLIENT"}
+          disabled={!companyLabel}
+          placeholder={companyLabel ? "RECHERCHER UN CONTACT…" : "SÉLECTIONNEZ D'ABORD UN CLIENT"}
           className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm disabled:bg-slate-100 disabled:cursor-not-allowed"
           data-testid="intervention-field-reporter"
         />
-        {open && clientId && (
+        {open && companyLabel && (
           <div className="absolute z-10 left-0 right-0 mt-1 rounded-lg border border-slate-200 bg-white shadow-lg max-h-56 overflow-auto" data-testid="intervention-reporter-suggestions">
             {matches.map((c) => (
               <button type="button" key={c.id} onMouseDown={() => pick(c)}

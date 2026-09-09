@@ -59,11 +59,20 @@ export default function TicketsBubble() {
     });
   }, [open]);
 
-  // When a Client lié is selected, derive the linked contacts (datalist)
+  // When a Client lié is selected, derive the linked contacts (datalist).
+  // Matched on contact.company ("Société (client)", texte libre sur la
+  // fiche contact) contre le nom du client sélectionné — PAS sur
+  // contact.client_id, qui souffre de désalignements historiques et ne
+  // correspond pas forcément au "Client lié" affiché à l'écran.
+  const selectedClientCompany = useMemo(() => {
+    const c = clients.find((x) => x.id === form.client_id);
+    return c ? (c.company || c.full_name || "") : "";
+  }, [clients, form.client_id]);
   const linkedContacts = useMemo(() => {
-    if (!form.client_id) return [];
-    return contacts.filter((c) => c.client_id === form.client_id);
-  }, [form.client_id, contacts]);
+    if (!selectedClientCompany) return [];
+    const target = selectedClientCompany.trim().toUpperCase();
+    return contacts.filter((c) => (c.company || "").trim().toUpperCase() === target);
+  }, [selectedClientCompany, contacts]);
 
   // Auto-fill phone/whatsapp when the user types/picks an existing contact name
   useEffect(() => {
@@ -128,7 +137,7 @@ export default function TicketsBubble() {
               name: form.contact_name.trim(),
               phone: form.contact_phone.trim() || "",
               whatsapp: form.contact_whatsapp.trim() || "",
-              company: (clients.find((c) => c.id === form.client_id)?.company) || "",
+              company: selectedClientCompany,
               shared: false,
               client_id: form.client_id,
             });

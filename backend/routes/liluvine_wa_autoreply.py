@@ -135,6 +135,7 @@ async def autoreply_to_inbound(
     contact: Optional[Dict[str, Any]],
     settings_doc: Dict[str, Any],
     wa_send_text,  # callable(to_e164, text, reply_to_message_id=None)
+    wa_send_interactive_button=None,  # callable(to_e164, body_text, button_id, button_title)
 ) -> Dict[str, Any]:
     """Top-level entrypoint called from the webhook handler. Decides + sends.
 
@@ -320,9 +321,22 @@ async def autoreply_to_inbound(
             vidal_cmd_token = (m_v.group(1) or "").lower()
             vidal_cmd_args = m_v.group(2) or ""
         if vidal_cmd_token:
-            vidal_res = await _build_vidal_reply(
-                db, vidal_cmd_token, vidal_cmd_args, phone_digits,
-            )
+            # `!doc` / `!rech` — synonymes, recherche riche DCI + équivalences
+            # (routes/vidal_riche.py), distincte des actions VIDAL génériques
+            # configurables ci-dessous (str.format_map sur un endpoint REST).
+            if vidal_cmd_token in ("doc", "rech"):
+                try:
+                    from routes.vidal_riche import build_riche_command_reply
+                    vidal_res = await build_riche_command_reply(
+                        db, vidal_cmd_args, phone_digits, contact,
+                    )
+                except Exception:  # noqa: BLE001
+                    logger.exception("[wa_autoreply][vidal_riche] failed for !%s", vidal_cmd_token)
+                    vidal_res = None
+            else:
+                vidal_res = await _build_vidal_reply(
+                    db, vidal_cmd_token, vidal_cmd_args, phone_digits,
+                )
             if vidal_res is not None:
                 # The command matched a configured VIDAL action — send reply.
                 reply_v = vidal_res.get("text") or "…"
@@ -335,6 +349,19 @@ async def autoreply_to_inbound(
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[wa_autoreply][vidal] send failed: %s", exc)
                     send_v = {"ok": False, "error": str(exc)}
+                # !doc/!rech avec équivalents disponibles → bouton WA de suivi
+                # "Équivalences" (ne bloque jamais la réponse principale).
+                if vidal_res.get("vmp_id") and wa_send_interactive_button is not None:
+                    try:
+                        equiv_btn_id = f"vidal_equiv:{vidal_res['vmp_id']}:{vidal_res.get('product_id') or ''}"
+                        await wa_send_interactive_button(
+                            to_e164_v,
+                            "Des produits équivalents (même DCI + dosage) sont disponibles.",
+                            equiv_btn_id,
+                            "Équivalences",
+                        )
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning("[wa_autoreply][vidal_riche] equivalents button send failed: %s", exc)
                 try:
                     await db.whatsapp_messages.insert_one({
                         "id": uuid.uuid4().hex, "direction": "outbound",
@@ -714,8 +741,22 @@ async def autoreply_to_inbound(
     if not reply.strip():
         reply = "Merci pour votre message. Un agent humain va vous recontacter rapidement."
 
-    signature = (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip()
-    if signature is None or signature == "":
+    # Signature nominative : jusqu'à 5 agents (prénom + spécialité), paramétrés
+    # par l'admin. L'agent dont le rôle correspond au contenu du message signe
+    # la réponse à la place de la signature générique — même si c'est bien
+    # l'IA qui a exécuté le prompt système et rédigé le texte. Les commandes
+    # `!...` ne passent JAMAIS ici (interceptées plus haut, avant should_autoreply).
+    persona_signature = None
+    try:
+        from routes.liluvine_agents import get_agents, match_agent_for_message, build_signature
+        agents = await get_agents(db)
+        matched_agent = match_agent_for_message(agents, text)
+        if matched_agent:
+            persona_signature = build_signature(matched_agent)
+    except Exception:  # noqa: BLE001
+        logger.exception("[wa_autoreply][agents] persona matching failed")
+    signature = persona_signature or (settings_doc.get("liluvine_wa_autoreply_signature") or "").strip()
+    if not signature:
         signature = "— 🤖 Réponse automatique Liluvine PRO"
     final_text = f"{reply}\n\n{signature}" if signature else reply
 

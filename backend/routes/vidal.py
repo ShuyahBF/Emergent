@@ -1211,4 +1211,15 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
         quota_check_fn=_quota_check_and_increment,
     )
 
+    # `!doc` / `!rech` — recherche riche (DCI + équivalences), quota simple/riche.
+    from routes.vidal_riche import attach_vidal_riche_routes
+    attach_vidal_riche_routes(api=api, db=db, get_current_admin=get_current_admin)
+
+    # Agents Liluvine (signature nominative des réponses auto — max 5).
+    # Pas spécifique à VIDAL, mais monté ici pour limiter la chirurgie dans
+    # server.py : ce point d'attache existe déjà et est appelé une seule fois
+    # au démarrage.
+    from routes.liluvine_agents import attach_liluvine_agents_routes
+    attach_liluvine_agents_routes(api=api, db=db, get_current_admin=get_current_admin)
+
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

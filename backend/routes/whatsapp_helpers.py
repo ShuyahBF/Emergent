@@ -523,6 +523,71 @@ def attach_whatsapp_helpers(
             "raw": last_raw,
         }
 
+    async def _wa_send_interactive_button(
+        to_e164: str,
+        body_text: str,
+        button_id: str,
+        button_title: str,
+        tenant_id: Optional[str] = None,
+    ) -> dict:
+        """Send a free-form WhatsApp interactive message with a single reply
+        button (Cloud API type=interactive/button). Unlike a template button,
+        this works within the 24h customer-service window without any Meta
+        template pre-approval — used for the "Équivalences" follow-up prompt
+        after a `!doc`/`!rech` reply (see routes/vidal_riche.py).
+
+        WhatsApp caps: body text 1024 chars, button id 256 chars, button
+        title 20 chars — all silently truncated here rather than rejected.
+        """
+        creds = await _resolve_wa_credentials(tenant_id)
+        access_token = creds["access_token"]
+        phone_number_id = creds["phone_number_id"]
+        if not access_token or not phone_number_id:
+            return {"ok": False, "error": "WhatsApp non configuré (token ou phone_number_id manquant)", "status": None, "message_id": None, "raw": None}
+        to_clean = _normalize_wa_phone(to_e164)
+        if len(to_clean) < 6:
+            return {"ok": False, "status": None, "message_id": None,
+                    "error": f"Numéro invalide « {to_e164} »", "raw": None}
+        body: Dict[str, Any] = {
+            "messaging_product": "whatsapp",
+            "to": to_clean,
+            "type": "interactive",
+            "interactive": {
+                "type": "button",
+                "body": {"text": _wa_neutralize_underscores((body_text or "")[:1024])},
+                "action": {
+                    "buttons": [{
+                        "type": "reply",
+                        "reply": {"id": (button_id or "")[:256], "title": (button_title or "")[:20]},
+                    }],
+                },
+            },
+        }
+        url = f"https://graph.facebook.com/{wa_graph_version}/{phone_number_id}/messages"
+        try:
+            async with httpx.AsyncClient(timeout=12) as http:
+                r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
+                try:
+                    raw = r.json()
+                except Exception:
+                    raw = {"text": r.text[:2000]}
+                if r.status_code < 300:
+                    mid = None
+                    if isinstance(raw, dict) and raw.get("messages"):
+                        mid = raw["messages"][0].get("id")
+                    return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
+                err_msg = None
+                if isinstance(raw, dict):
+                    err_obj = raw.get("error") or {}
+                    err_msg = err_obj.get("message") or str(raw)[:500]
+                logger.warning("[wa-send] FAIL interactive_button status=%s body=%s", r.status_code, json.dumps(body)[:800])
+                return {"ok": False, "status": r.status_code, "message_id": None,
+                        "error": err_msg or f"HTTP {r.status_code}", "raw": raw}
+        except httpx.TimeoutException:
+            return {"ok": False, "status": None, "message_id": None, "error": "Timeout", "raw": None}
+        except Exception as exc:  # noqa: BLE001
+            return {"ok": False, "status": None, "message_id": None, "error": str(exc)[:500], "raw": None}
+
     async def _wa_send_media(
         to_e164: str,
         kind: str,
@@ -788,6 +853,7 @@ def attach_whatsapp_helpers(
     return {
         "_wa_send_template": _wa_send_template,
         "_wa_send_text": _wa_send_text,
+        "_wa_send_interactive_button": _wa_send_interactive_button,
         "_wa_send_media": _wa_send_media,
         "_wa_download_inbound_media": _wa_download_inbound_media,
         "_wa_transcribe_audio_file": _wa_transcribe_audio_file,

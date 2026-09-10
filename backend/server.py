@@ -14112,6 +14112,10 @@ class DirectoryContactCreate(BaseModel):
     tags: Optional[List[str]] = []
     shared: bool = False
     photo_url: Optional[str] = None  # Manually uploaded avatar (à la WhatsApp profile picture)
+    # Niveau VIDAL riche (nouveau champ dédié, distinct des tags) : True =
+    # accès illimité aux actions VIDAL riches (!doc/!rech), False/absent =
+    # accès simple avec quota quotidien. Voir routes/vidal_riche.py.
+    vidal_riche: Optional[bool] = None
     # Cible optionnelle pour un créateur élevé gérant plusieurs sociétés-
     # clientes (ex. depuis le champ Rapporteur des Interventions/Tickets) :
     # honoré uniquement si l'appelant est élevé ET si ce client existe
@@ -14129,6 +14133,7 @@ class DirectoryContactUpdate(BaseModel):
     tags: Optional[List[str]] = None
     shared: Optional[bool] = None
     photo_url: Optional[str] = None
+    vidal_riche: Optional[bool] = None
 
 
 @api.get("/me/contacts/export.csv", tags=["Portail Client"])
@@ -14824,6 +14829,7 @@ _wa_helpers = _attach_whatsapp_helpers(
 )
 _wa_send_template = _wa_helpers["_wa_send_template"]
 _wa_send_text = _wa_helpers["_wa_send_text"]
+_wa_send_interactive_button = _wa_helpers["_wa_send_interactive_button"]
 _wa_send_media = _wa_helpers["_wa_send_media"]
 _wa_download_inbound_media = _wa_helpers["_wa_download_inbound_media"]
 _wa_transcribe_audio_file = _wa_helpers["_wa_transcribe_audio_file"]
@@ -17261,6 +17267,23 @@ async def whatsapp_webhook_incoming(request: Request):
                         interactive = msg.get("interactive") or {}
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
                         text_body = reply.get("title") or reply.get("id")
+                        # VIDAL riche — clic sur le bouton "Équivalences" affiché
+                        # après une réponse `!doc`/`!rech` (voir vidal_riche.py).
+                        btn_id = reply.get("id") or ""
+                        if btn_id.startswith("vidal_equiv:"):
+                            try:
+                                parts = btn_id.split(":", 2)
+                                vmp_id = parts[1] if len(parts) > 1 else ""
+                                exclude_id = parts[2] if len(parts) > 2 else ""
+                                from routes.vidal_riche import build_equivalents_reply
+                                from routes.vidal import _load_config, _vidal_call, _ensure_active
+                                cfg_eq = await _load_config(db)
+                                _ensure_active(cfg_eq)
+                                eq_text = await build_equivalents_reply(_vidal_call, cfg_eq, vmp_id, exclude_id or None)
+                                await _wa_send_text(from_num, eq_text)
+                            except Exception:  # noqa: BLE001
+                                logger.warning("[wa_inbound][vidal_riche] equivalents button handling failed", exc_info=True)
+                            continue
                         # S025 — Intercept button_reply id (carries the payload)
                         try:
                             if await _dl_handle_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
@@ -17321,12 +17344,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         if client_scope:
                             contact = await db.directory_contacts.find_one(
                                 {"$and": [phone_match, {"client_id": client_scope}]},
-                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
+                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1, "vidal_riche": 1},
                             )
                         if not contact:
                             contact = await db.directory_contacts.find_one(
                                 phone_match,
-                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1},
+                                {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1, "vidal_riche": 1},
                             )
                     # Bug #3 — If the inbound sender is a REGISTERED system user
                     # (e.g. a moderator writing to the WA bot), auto-create their
@@ -17702,6 +17725,7 @@ async def whatsapp_webhook_incoming(request: Request):
                                 contact=contact,
                                 settings_doc=s_root,
                                 wa_send_text=_wa_send_text,
+                                wa_send_interactive_button=_wa_send_interactive_button,
                             )
                             if ar_result.get("ok"):
                                 logger.info("[wa_autoreply] sent for %s (cmd=%s, msg_id=%s)",

@@ -967,6 +967,21 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             <button onClick={addTag} className="text-xs rounded bg-slate-900 text-white px-3">Ajouter</button>
           </div>
         </div>
+        <div className="p-2.5 rounded-lg bg-fuchsia-50 ring-1 ring-fuchsia-200" data-testid="contact-field-vidal-riche">
+          <label className="flex items-center gap-2 text-xs font-semibold text-fuchsia-900 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.vidal_riche}
+              onChange={(e) => setForm({ ...form, vidal_riche: e.target.checked })}
+              data-testid="contact-field-vidal-riche-checkbox"
+            />
+            💊 Niveau VIDAL riche
+          </label>
+          <p className="text-[10px] text-fuchsia-700 mt-1 leading-snug">
+            Activé : réponses VIDAL (!doc/!rech) illimitées — ex. médecins abonnés. Désactivé : accès
+            simple avec quota quotidien — ex. infirmiers, étudiants.
+          </p>
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
           <button

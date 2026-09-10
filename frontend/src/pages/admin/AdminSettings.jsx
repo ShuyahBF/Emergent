@@ -16,6 +16,8 @@ import LiluvineKnowledgeBaseSection from "@/pages/admin/sections/LiluvineKnowled
 import LiluvineBrandingSection from "@/pages/admin/sections/LiluvineBrandingSection";
 import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPromptSection";
 import VidalActionsSection from "@/components/admin/VidalActionsSection";
+import VidalRicheSection from "@/components/admin/VidalRicheSection";
+import LiluvineAgentsSection from "@/components/admin/LiluvineAgentsSection";
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
 import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
 import IntegrationHealthSection from "@/pages/admin/sections/IntegrationHealthSection";
@@ -841,6 +843,16 @@ export default function AdminSettings() {
       {/* Iter43-fix24ac (2026-06-16) — VIDAL Actions configurables */}
       <Filterable title="⚙️ S058b — VIDAL : Actions configurables (boutons portail + commandes WhatsApp)" anchorId="s-s058b-vidal-actions">
         <VidalActionsSection />
+      </Filterable>
+
+      {/* VIDAL riche — !doc/!rech, DCI + équivalences, quota simple/riche */}
+      <Filterable title="💊 S058d — Actions VIDAL riches (!doc/!rech, DCI, équivalences)" anchorId="s-s058d-vidal-riche">
+        <VidalRicheSection />
+      </Filterable>
+
+      {/* Agents Liluvine — signature nominative des réponses auto */}
+      <Filterable title="🧑‍💼 S058e — Agents Liluvine (signature des réponses auto)" anchorId="s-s058e-liluvine-agents">
+        <LiluvineAgentsSection />
       </Filterable>
 
       {/* Iter43-fix24ai (2026-06-17) — Template configurable de la réponse `!garde` */}

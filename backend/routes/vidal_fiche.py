@@ -51,7 +51,15 @@ _VIDAL_NS = "http://api.vidal.net/-/spec/vidal-api/1.0/"
 _CATEGORIES_RE = re.compile(
     r'<entry\b[^>]*\bcategories="([^"]*)"[^>]*>(.*?)</entry>', re.DOTALL | re.IGNORECASE
 )
-_NAME_RE = re.compile(r"<(?:[a-z][a-z0-9]*:)?name>([^<]*)</(?:[a-z][a-z0-9]*:)?name>", re.IGNORECASE)
+# ATTENTION : ne PAS extraire le nom via un `<name>`/`<vidal:name>` générique.
+# Confirmé par capture réelle (Mongo `site_meetafrican.maf_vidal_api_cache`,
+# path `/product/5485`) : CHAQUE entrée Atom VIDAL (PRODUCT, ROUTE, DOCUMENT)
+# commence par `<author><name>VIDAL</name></author>` (nom de la marque/API,
+# pas de l'item) AVANT le vrai `<vidal:name>`/`<title>` — un `re.search` sur
+# `<name>` tombe donc TOUJOURS sur "VIDAL" en premier. C'est la cause du bug
+# "VIDAL" en voie d'administration remonté par l'utilisateur. Le SEUL tag fiable,
+# unique par entrée et toujours correct, est `<title>` (même logique déjà
+# utilisée et validée en réel par `_parse_atom_entries`/`!doc`/`!rech`).
 _ID_RE = re.compile(r"<(?:[a-z][a-z0-9]*:)?id>\s*(\d+)\s*</(?:[a-z][a-z0-9]*:)?id>", re.IGNORECASE)
 _VMP_RE = re.compile(r'<(?:[a-z][a-z0-9]*:)?vmp\b[^>]*\bvidalId="(\d+)"', re.IGNORECASE)
 _ITEM_TYPE_RE = re.compile(r'<(?:[a-z][a-z0-9]*:)?itemType\b[^>]*\bname="([^"]*)"', re.IGNORECASE)
@@ -82,16 +90,16 @@ def parse_product_detail(raw: Optional[str]) -> Dict[str, Any]:
     for categories, block in _CATEGORIES_RE.findall(raw):
         cats = categories.upper()
         if "PRODUCT" in cats:
-            name_m = _NAME_RE.search(block)
-            name = name_m.group(1).strip() if name_m else name
+            title_m = _TITLE_RE.search(block)
+            name = title_m.group(1).strip() if title_m else name
             vmp_m = _VMP_RE.search(block)
             vmp_id = vmp_m.group(1) if vmp_m else vmp_id
         elif "ROUTE" in cats:
             id_m = _ID_RE.search(block)
-            name_m = _NAME_RE.search(block)
+            title_m = _TITLE_RE.search(block)
             routes.append({
                 "id": id_m.group(1) if id_m else None,
-                "name": name_m.group(1).strip() if name_m else None,
+                "name": title_m.group(1).strip() if title_m else None,
             })
         elif "DOCUMENT" in cats:
             type_m = _ITEM_TYPE_RE.search(block)

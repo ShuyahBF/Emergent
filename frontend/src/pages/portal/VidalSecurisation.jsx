@@ -23,6 +23,7 @@ import {
 import { AlertTriangle, Loader2, Plus, ShieldCheck, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
+import { highlightMatch } from "@/lib/highlightMatch";
 
 const ALERT_TYPE_LABELS = {
   CONTRA_INDICATION: "Contre-indication", ALLERGY: "Allergie",
@@ -148,7 +149,7 @@ function ReferentialTagInput({ label, kind, values, onChange, testId }) {
                 onMouseDown={(e) => { e.preventDefault(); addResult(r); }}
                 className="w-full text-left px-3 py-1.5 hover:bg-muted"
               >
-                {r.label}
+                {highlightMatch(r.label, draft)}
               </button>
             </li>
           ))}

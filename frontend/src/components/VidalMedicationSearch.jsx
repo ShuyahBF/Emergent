@@ -7,6 +7,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { Loader2, Search, X } from "lucide-react";
+import { highlightMatch } from "@/lib/highlightMatch";
 
 const DEBOUNCE_MS = 350;
 
@@ -97,7 +98,7 @@ export default function VidalMedicationSearch({
                 className="w-full text-left px-3 py-2 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center justify-between gap-2"
                 data-testid={`${testId}-result-${i}`}
               >
-                <span className="truncate text-slate-800 dark:text-slate-100">{item.title}</span>
+                <span className="truncate text-slate-800 dark:text-slate-100">{highlightMatch(item.title, query)}</span>
                 {item.vidal_id && (
                   <span className="shrink-0 font-mono text-[10px] text-slate-400">#{item.vidal_id}</span>
                 )}

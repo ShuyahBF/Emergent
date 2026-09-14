@@ -309,10 +309,25 @@ export default function AdminTrackedUsers() {
                   {clients.map((c) => <option key={c.id} value={c.id}>{c.full_name}{c.company ? ` (${c.company})` : ""}</option>)}
                 </select>
               </div>
-              {[["name", "Nom *", "text", true], ["email", "Email", "email", false], ["phone", "Téléphone", "tel", false], ["whatsapp_number", "N° WhatsApp (E.164)", "tel", false], ["company", "Société", "text", false], ["department", "Service", "text", false]].map(([k, l, t, req]) => (
+              {(() => {
+                // Numéro WhatsApp obligatoire pour Médecin/Pharmacien (demande
+                // explicite) : ces rôles sont rattachés automatiquement à un
+                // groupe de contacts pour les envois groupés (voir
+                // backend/routes/tracked_user_groups.py) — sans numéro, rien à
+                // rattacher. Validé aussi côté backend (400 si absent).
+                const whatsappRequired = form.role === "Médecin" || form.role === "Pharmacien";
+                return [
+                  ["name", "Nom *", "text", true],
+                  ["email", "Email", "email", false],
+                  ["phone", "Téléphone", "tel", false],
+                  ["whatsapp_number", whatsappRequired ? "N° WhatsApp (E.164) * — obligatoire pour Médecin/Pharmacien" : "N° WhatsApp (E.164)", "tel", whatsappRequired],
+                  ["company", "Société", "text", false],
+                  ["department", "Service", "text", false],
+                ];
+              })().map(([k, l, t, req]) => (
                 <div key={k}>
                   <label className="block text-xs font-semibold mb-1">{l}</label>
-                  <input type={t} required={req} value={form[k] || ""} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" />
+                  <input type={t} required={req} value={form[k] || ""} onChange={(e) => setForm({ ...form, [k]: e.target.value })} className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid={`tracked-field-${k}`} />
                 </div>
               ))}
               <div>

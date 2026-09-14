@@ -10091,6 +10091,12 @@ async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
     if payload.email and not is_valid_email_syntax(str(payload.email)):
         raise HTTPException(status_code=400, detail="Email invalide (syntaxe)")
+    from routes.tracked_user_groups import AUTO_GROUP_ROLES
+    if payload.role in AUTO_GROUP_ROLES and not (payload.whatsapp_number or payload.phone):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Numéro WhatsApp obligatoire pour le rôle {payload.role} (nécessaire pour les envois groupés).",
+        )
     client = await db.users.find_one({"id": payload.client_id}, {"_id": 0})
     if not client:
         raise HTTPException(status_code=404, detail="Client introuvable")
@@ -10115,6 +10121,16 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
         raise HTTPException(status_code=400, detail=f"Rôle invalide. Valeurs: {', '.join(TRACKED_USER_ROLES)}")
     if "email" in update and update["email"] and not is_valid_email_syntax(str(update["email"])):
         raise HTTPException(status_code=400, detail="Email invalide (syntaxe)")
+    from routes.tracked_user_groups import AUTO_GROUP_ROLES
+    existing_before = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0})
+    final_role = update.get("role", (existing_before or {}).get("role"))
+    final_whatsapp = update.get("whatsapp_number", (existing_before or {}).get("whatsapp_number"))
+    final_phone = update.get("phone", (existing_before or {}).get("phone"))
+    if final_role in AUTO_GROUP_ROLES and not (final_whatsapp or final_phone):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Numéro WhatsApp obligatoire pour le rôle {final_role} (nécessaire pour les envois groupés).",
+        )
     update["updated_at"] = _now()
     await db.tracked_users.update_one({"id": tu_id}, {"$set": update})
     # Propagate role/name/email/status changes to the bridged users row, if any

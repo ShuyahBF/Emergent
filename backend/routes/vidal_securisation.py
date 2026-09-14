@@ -3,33 +3,41 @@
 Remplace, pour la NOUVELLE page "Sécurisation" (`/portal/vidal-securisation`),
 le générateur XML "best-effort" historique (`vidal._build_alerts_xml`, qui
 sérialise juste les clés du payload telles quelles — jamais vérifié contre
-le manuel). Cette version reprend la structure vérifiée ligne à ligne dans
-le Manuel d'intégration API REST VIDAL Sécurisation France (MI_APIREST,
-REV_03) telle que documentée et exploitée dans la maquette site-meetafrican
-(`frontend/src/secure/content/securisation.html::buildXml`).
+le manuel). Cette version reprend la structure du corps de requête ET DE LA
+RÉPONSE de `/alerts/full`, vérifiées ligne à ligne contre le Manuel
+d'intégration API REST VIDAL Sécurisation France (MI_APIREST, REV_03,
+partagé par l'utilisateur) — pas seulement la maquette site-meetafrican, qui
+n'avait jamais eu la réponse réelle sous les yeux (ses propres cartes
+d'alerte étaient explicitement "Aperçu illustratif").
 
 L'ancien endpoint `/vidal/prescription/analyze` (routes/vidal.py) N'EST PAS
 modifié : il reste utilisé tel quel par l'ancienne page `PrescriptionAnalysis.jsx`
 (toujours liée depuis l'onglet "Analyse prescription" de Vidal.jsx) — aucune
 régression sur du code déjà déployé.
 
-Champ volontairement OMIS de l'XML plutôt qu'inventé :
-  - `indication` par ligne de prescription : aucun endpoint de référence,
-    même deviné, n'est mentionné nulle part pour ce champ (contrairement aux
-    allergies/pathologies/molécules ci-dessous) — jamais envoyé.
+Allergies/pathologies/molécules/indications — recherche référentielle RÉELLE
+ET CONFIRMÉE dans le manuel (chapitre "Les allergies" / "Saisie d'une
+pathologie CIM10" / "prescription-line") :
+  - `/rest/api/allergies?q=...` renvoie À LA FOIS des classes d'allergie
+    (catégorie ALLERGY) et des molécules (catégorie MOLECULE) — même
+    endpoint pour les deux recherches, l'utilisateur choisit dans quelle
+    liste (allergie ou molécule) ranger le résultat.
+  - `/rest/api/pathologies?q=...&type=CIM10` pour les pathologies.
+  - `/rest/api/product/{id}/indications` pour les indications compatibles
+    d'un produit donné (référence `vidal://indication/{id}`) — Sécurisation
+    ET Posologie utilisent ce même endpoint, au même titre que les voies
+    d'administration (`/product/{id}/detail`, déjà réel).
 
-Allergies/pathologies/molécules — recherche référentielle réelle mais
-NON CONFIRMÉE : `/vidal/referential/search` appelle `/allergies?q=...` et
-`/pathologies?q=...`, par analogie avec `/products?q=...` (confirmé) et les
-commentaires de la maquette site-meetafrican (`securisation.html`) qui citent
-ces chemins sans les avoir testés contre l'API réelle. Si ces chemins
-s'avèrent incorrects une fois testés en production, la recherche échoue
-proprement (l'utilisateur retombe sur la saisie libre, jamais transmise à
-VIDAL) — mais un tag RÉSOLU par cette recherche (avec une vraie référence
-`vidal://...` renvoyée par VIDAL) est, lui, bien envoyé dans le XML.
+Réponse `/alerts/full` — schéma confirmé (voir `parse_alerts_response`) :
+un résumé par catégorie (`<vidal:max...Severity severity="...">`) en tête de
+flux, puis des `<entry vidal:categories="ALERT">` avec au minimum `<title>`,
+`<content>`, `<vidal:alertType name="...">`, `<vidal:severity>` (NO_ALERT/
+INFO/LEVEL_1..4, croissant en gravité), `<vidal:subType name="...">`, et
+souvent `<vidal:detail>`/`<vidal:triggeredBy>`/`<vidal:source>`.
 """
 from __future__ import annotations
 
+import re
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -104,6 +112,13 @@ def _build_line(lines_el: ET.Element, line: Dict[str, Any]) -> None:
     if route_ref:
         routes_el = ET.SubElement(li, "routes")
         _set_text(routes_el, "route", f"vidal://route/{route_ref}")
+    # Indication thérapeutique — confirmée dans le manuel (`<indications><indication>
+    # vidal://indication/{id}</indication></indications>`), résolue via
+    # /vidal/product/{id}/indications (même logique que les voies d'administration).
+    indication_ref = line.get("indication")
+    if indication_ref:
+        indications_el = ET.SubElement(li, "indications")
+        _set_text(indications_el, "indication", indication_ref)
     posologies = line.get("posologies") or []
     if posologies:
         dosages_el = ET.SubElement(li, "dosages")
@@ -154,16 +169,91 @@ def build_prescription_xml(
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
 
 
-# Chemin VIDAL deviné + schéma d'URI de référence, par type de recherche —
-# voir la note en tête de fichier : jamais testés contre l'API réelle.
+# Chemins et schémas d'URI de référence — CONFIRMÉS dans le manuel MI_APIREST
+# REV_03 (chapitre "Les allergies" / "Saisie d'une pathologie CIM10").
+# Allergie ET molécule utilisent le MÊME endpoint (`/allergies?q=...` renvoie
+# les deux catégories mélangées, distinguées par la terminologie de la
+# source côté VIDAL) — c'est l'utilisateur qui choisit dans quelle liste
+# (allergie ou molécule) ranger le résultat choisi, pas un paramètre de requête.
 _REFERENTIAL = {
     "allergy": {"path": "/allergies", "scheme": "allergy"},
-    "pathology": {"path": "/pathologies", "scheme": "cim10"},
-    # Mockup : "même référentiel que les allergies (terme MOLECULE)" — on
-    # tente le même chemin que les allergies avec un paramètre `type`
-    # supplémentaire, faute de mieux ; à corriger si le vrai chemin diffère.
-    "molecule": {"path": "/allergies", "scheme": "molecule", "extra_params": {"type": "MOLECULE"}},
+    "molecule": {"path": "/allergies", "scheme": "molecule"},
+    "pathology": {"path": "/pathologies", "scheme": "cim10", "extra_params": {"type": "CIM10"}},
 }
+
+
+# ---------------------------------------------------------------------------
+# Réponse /alerts/full — schéma confirmé (manuel MI_APIREST REV_03)
+# ---------------------------------------------------------------------------
+_SUMMARY_RE = re.compile(
+    r'<vidal:(max\w+Severity)\b[^>]*\bseverity="([^"]*)"[^>]*>(.*?)</vidal:\1>',
+    re.DOTALL | re.IGNORECASE,
+)
+_ALERT_ENTRY_RE = re.compile(
+    r'<entry\b[^>]*\bvidal:categories="ALERT"[^>]*>(.*?)</entry>', re.DOTALL | re.IGNORECASE,
+)
+_TITLE_RE = re.compile(r"<title[^>]*>(.*?)</title>", re.DOTALL | re.IGNORECASE)
+_CONTENT_RE = re.compile(r'<content\b[^>]*>(.*?)</content>', re.DOTALL | re.IGNORECASE)
+_ALERT_TYPE_RE = re.compile(r'<vidal:alertType\b[^>]*\bname="([^"]*)"[^>]*>(.*?)</vidal:alertType>', re.DOTALL | re.IGNORECASE)
+_SEVERITY_RE = re.compile(r"<vidal:severity>(.*?)</vidal:severity>", re.DOTALL | re.IGNORECASE)
+_SUBTYPE_RE = re.compile(r'<vidal:subType\b[^>]*\bname="([^"]*)"[^>]*>(.*?)</vidal:subType>', re.DOTALL | re.IGNORECASE)
+_DETAIL_RE = re.compile(r'<vidal:detail\b[^>]*>(.*?)</vidal:detail>', re.DOTALL | re.IGNORECASE)
+_TRIGGERED_BY_RE = re.compile(
+    r'<vidal:triggeredBy\b[^>]*\bid="([^"]*)"[^>]*\btype="([^"]*)"[^>]*>(.*?)</vidal:triggeredBy>',
+    re.DOTALL | re.IGNORECASE,
+)
+_SOURCE_RE = re.compile(r'<vidal:source\b[^>]*\bdate="([^"]*)"[^>]*>(.*?)</vidal:source>', re.DOTALL | re.IGNORECASE)
+_TAG_STRIP_RE = re.compile(r"<[^>]+>")
+
+# Gravité croissante — sert à trier les alertes et à choisir une couleur.
+_SEVERITY_ORDER = {"NO_ALERT": 0, "INFO": 1, "LEVEL_1": 2, "LEVEL_2": 3, "LEVEL_3": 4, "LEVEL_4": 5}
+
+
+def _clean(text: Optional[str]) -> str:
+    if not text:
+        return ""
+    return _TAG_STRIP_RE.sub("", text).strip()
+
+
+def parse_alerts_response(raw: Optional[str]) -> Dict[str, Any]:
+    """Parse la réponse `/alerts/full` selon le schéma confirmé du manuel :
+    un résumé par catégorie en tête de flux, puis des `<entry vidal:categories=
+    "ALERT">` détaillées. Dégrade proprement (listes vides) si le format
+    diffère — jamais d'exception remontée à l'appelant."""
+    summary: List[Dict[str, Any]] = []
+    alerts: List[Dict[str, Any]] = []
+    if not isinstance(raw, str) or "<" not in raw:
+        return {"summary": summary, "alerts": alerts}
+
+    for category, severity, label in _SUMMARY_RE.findall(raw):
+        summary.append({"category": category, "severity": severity, "label": _clean(label)})
+
+    for block in _ALERT_ENTRY_RE.findall(raw):
+        title_m = _TITLE_RE.search(block)
+        content_m = _CONTENT_RE.search(block)
+        type_m = _ALERT_TYPE_RE.search(block)
+        severity_m = _SEVERITY_RE.search(block)
+        subtype_m = _SUBTYPE_RE.search(block)
+        detail_m = _DETAIL_RE.search(block)
+        triggered_m = _TRIGGERED_BY_RE.search(block)
+        source_m = _SOURCE_RE.search(block)
+        alerts.append({
+            "title": _clean(title_m.group(1)) if title_m else None,
+            "content": _clean(content_m.group(1)) if content_m else None,
+            "alert_type": type_m.group(1) if type_m else None,
+            "alert_type_label": _clean(type_m.group(2)) if type_m else None,
+            "severity": severity_m.group(1).strip() if severity_m else None,
+            "sub_type": subtype_m.group(1) if subtype_m else None,
+            "sub_type_label": _clean(subtype_m.group(2)) if subtype_m else None,
+            "detail": _clean(detail_m.group(1)) if detail_m else None,
+            "triggered_by_id": triggered_m.group(1) if triggered_m else None,
+            "triggered_by_type": triggered_m.group(2) if triggered_m else None,
+            "triggered_by_label": _clean(triggered_m.group(3)) if triggered_m else None,
+            "source_date": source_m.group(1) if source_m else None,
+            "source_label": _clean(source_m.group(2)) if source_m else None,
+        })
+    alerts.sort(key=lambda a: _SEVERITY_ORDER.get(a.get("severity"), -1), reverse=True)
+    return {"summary": summary, "alerts": alerts}
 
 
 def attach_vidal_securisation_routes(*, api, db, get_current_user):
@@ -204,7 +294,24 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
             {"label": e["title"], "ref": f"vidal://{spec['scheme']}/{e['vidal_id']}"}
             for e in entries if e.get("title") and e.get("vidal_id")
         ]
-        return {"kind": kind, "query": q, "results": results, "confirmed": False}
+        return {"kind": kind, "query": q, "results": results, "confirmed": True}
+
+    # ---- Indications compatibles d'un produit (réel, confirmé — même schéma que /detail) ----
+    @api.get("/vidal/product/{product_id}/indications", tags=["VIDAL"])
+    async def product_indications(product_id: str, user: dict = Depends(get_current_user)):
+        from routes.vidal import _ensure_tenant_can_access, _ensure_active, _quota_check_and_increment, _vidal_call
+        from routes.vidal_riche import _parse_atom_entries
+
+        cfg = await _ensure_tenant_can_access(db, user)
+        _ensure_active(cfg)
+        await _quota_check_and_increment(db, user["id"], cfg)
+        data = await _vidal_call(cfg, "GET", f"/product/{product_id}/indications")
+        entries = _parse_atom_entries((data or {}).get("raw"))
+        results = [
+            {"label": e["title"], "ref": f"vidal://indication/{e['vidal_id']}"}
+            for e in entries if e.get("title") and e.get("vidal_id")
+        ]
+        return {"product_id": product_id, "indications": results}
 
     @api.post("/vidal/securisation/analyze", tags=["VIDAL"])
     async def securisation_analyze(
@@ -226,6 +333,7 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         ]
         xml_body = build_prescription_xml(payload.patient, all_lines, payload.alert_types)
         data = await _vidal_call(cfg, "POST", "/alerts/full", body=xml_body)
+        parsed = parse_alerts_response((data or {}).get("raw"))
         try:
             await db.vidal_prescription_audit.insert_one({
                 "user_id": user["id"], "user_email": user.get("email"),
@@ -235,4 +343,4 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
             })
         except Exception:  # noqa: BLE001
             pass
-        return {"data": data, "request_xml": xml_body}
+        return {"data": data, "request_xml": xml_body, "parsed": parsed}

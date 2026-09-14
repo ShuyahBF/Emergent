@@ -1,9 +1,10 @@
 // Portage site-meetafrican (frontend/src/secure/content/posologie.html) —
 // module Posologie : profil patient (chips + champs détaillés), sélection
 // réelle du médicament (recherche VIDAL, remplace la maquette 100% simulée),
-// voie d'administration réelle (venant de /vidal/product/{id}/detail),
-// indication libre (non confirmée côté schéma VIDAL — voir note ci-dessous),
-// et recherche de posologie EXPÉRIMENTALE (endpoint jamais validé en réel).
+// voie d'administration ET indication réelles (confirmées contre le manuel
+// VIDAL, voir /vidal/product/{id}/detail et /vidal/product/{id}/indications),
+// et recherche de posologie EXPÉRIMENTALE (endpoint /posology-descriptors
+// jamais validé en réel, contrairement aux deux listes ci-dessus).
 import React, { useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -46,7 +47,9 @@ export default function VidalPosologie() {
   const [routes, setRoutes] = useState([]);
   const [routesLoading, setRoutesLoading] = useState(false);
   const [routeId, setRouteId] = useState("");
-  const [indication, setIndication] = useState("");
+  const [indications, setIndications] = useState([]);
+  const [indicationsLoading, setIndicationsLoading] = useState(false);
+  const [indicationRef, setIndicationRef] = useState("");
 
   const [searching, setSearching] = useState(false);
   const [result, setResult] = useState(null);
@@ -72,15 +75,23 @@ export default function VidalPosologie() {
     setMedQuery("");
     setRoutes([]);
     setRouteId("");
+    setIndications([]);
+    setIndicationRef("");
     if (!item.vidal_id) return;
     setRoutesLoading(true);
+    setIndicationsLoading(true);
     try {
-      const r = await apiClient.get(`/vidal/product/${item.vidal_id}/detail`);
-      setRoutes(r.data?.routes || []);
+      const [detailRes, indicationsRes] = await Promise.all([
+        apiClient.get(`/vidal/product/${item.vidal_id}/detail`),
+        apiClient.get(`/vidal/product/${item.vidal_id}/indications`).catch(() => null),
+      ]);
+      setRoutes(detailRes.data?.routes || []);
+      setIndications(indicationsRes?.data?.indications || []);
     } catch (e) {
       toast.error(e?.response?.data?.detail || "Voies d'administration indisponibles");
     }
     setRoutesLoading(false);
+    setIndicationsLoading(false);
   };
 
   const runSearch = async () => {
@@ -94,7 +105,7 @@ export default function VidalPosologie() {
       const r = await apiClient.get(`/vidal/product/${medication.vidal_id}/posology-descriptors`, {
         params: {
           route: routeId || undefined,
-          indication: indication || undefined,
+          indication: indicationRef || undefined,
         },
       });
       setResult(r.data);
@@ -217,9 +228,9 @@ export default function VidalPosologie() {
         <CardContent className="space-y-3">
           <VidalMedicationSearch
             query={medication?.title ? medication.title : medQuery}
-            onQueryChange={(q) => { setMedQuery(q); setMedication(null); setRoutes([]); setRouteId(""); }}
+            onQueryChange={(q) => { setMedQuery(q); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); }}
             onSelect={selectMedication}
-            onClear={() => { setMedQuery(""); setMedication(null); setRoutes([]); setRouteId(""); }}
+            onClear={() => { setMedQuery(""); setMedication(null); setRoutes([]); setRouteId(""); setIndications([]); setIndicationRef(""); }}
             testId="poso-med-search"
           />
           <div className="grid sm:grid-cols-2 gap-3">
@@ -238,11 +249,18 @@ export default function VidalPosologie() {
               </Select>
             </div>
             <div>
-              <Label className="text-xs">
-                Indication{" "}
-                <span className="text-muted-foreground">(libre — non confirmée côté schéma VIDAL)</span>
+              <Label className="text-xs flex items-center gap-1">
+                Indication
+                {indicationsLoading && <Loader2 className="h-3 w-3 animate-spin" />}
               </Label>
-              <Input value={indication} onChange={(e) => setIndication(e.target.value)} placeholder="ex : douleur, fièvre…" data-testid="poso-indication" />
+              <Select value={indicationRef} onValueChange={setIndicationRef} disabled={!indications.length}>
+                <SelectTrigger data-testid="poso-indication"><SelectValue placeholder={indications.length ? "Choisir…" : "Sélectionnez un médicament d'abord"} /></SelectTrigger>
+                <SelectContent>
+                  {indications.map((ind) => (
+                    <SelectItem key={ind.ref} value={ind.ref}>{ind.label}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardContent>
@@ -270,9 +288,10 @@ export default function VidalPosologie() {
         <Card className="border-dashed" data-testid="poso-admin-notes">
           <CardContent className="pt-6 text-xs text-muted-foreground space-y-1">
             <p className="font-semibold text-foreground">Notes VIDAL (admin)</p>
-            <p>Champs réels et validés par test API : recherche médicament, voies d'administration (via /detail).</p>
-            <p>Champs non confirmés : indication (aucun endpoint de référence trouvé), et le résultat de
-              /posology-descriptors lui-même — jamais appelé en conditions réelles avant ce lot.
+            <p>Champs réels, confirmés contre le manuel MI_APIREST REV_03 : recherche médicament, voies
+              d'administration (/detail) et indications (/product/{"{id}"}/indications).</p>
+            <p>Non confirmé : le résultat de /posology-descriptors lui-même — endpoint jamais appelé en
+              conditions réelles.
             </p>
           </CardContent>
         </Card>

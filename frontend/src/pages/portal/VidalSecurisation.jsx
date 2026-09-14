@@ -1,16 +1,14 @@
 // Portage site-meetafrican (frontend/src/secure/content/securisation.html) —
-// remplace "Analyse prescription" pour les médecins. Schéma XML réel
-// (manuel VIDAL, voir backend/routes/vidal_securisation.py), calculateurs
-// IMC + clairance de Cockcroft & Gault, 18 types d'alerte réels, recherche
-// médicament réelle + voie d'administration réelle par produit.
-//
-// Allergies/pathologies/molécules : recherche référentielle réelle mais
-// NON CONFIRMÉE (endpoints devinés par analogie — voir vidal_securisation.py).
-// Un tag résolu par cette recherche (avec une vraie référence VIDAL) est
-// transmis dans le XML ; un tag saisi en texte libre (recherche indisponible
-// ou aucun résultat choisi) reste purement informatif, jamais envoyé.
-// Le champ "indication" par ligne, lui, n'a aucun endpoint deviné nulle
-// part — toujours omis (même limite déjà actée pour Posologie).
+// remplace "Analyse prescription" pour les médecins. Schéma de requête ET de
+// réponse vérifiés contre le manuel d'intégration VIDAL (MI_APIREST REV_03,
+// partagé par l'utilisateur) — voir backend/routes/vidal_securisation.py.
+// Calculateurs IMC + clairance de Cockcroft & Gault, 18 types d'alerte
+// réels, recherche médicament + voie d'administration + indication réelles
+// par produit, allergies/pathologies/molécules par recherche référentielle
+// réelle (un résultat choisi porte une vraie référence VIDAL et est transmis
+// dans l'analyse ; un tag en texte libre reste informatif, jamais transmis).
+// Résultat affiché en cartes d'alerte triées par gravité (schéma de réponse
+// confirmé), avec repli sur la réponse brute si le format ne correspond pas.
 import React, { useState, useEffect, useRef } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -62,7 +60,11 @@ function computeBmi(weight, height) {
 }
 
 function emptyLine() {
-  return { vidal_id: "", label: "", query: "", dose: "", unitId: "", duration: "", durationType: "", frequencyType: "", route: "", routes: [], routesLoading: false };
+  return {
+    vidal_id: "", label: "", query: "", dose: "", unitId: "", duration: "", durationType: "",
+    frequencyType: "", route: "", routes: [], routesLoading: false,
+    indication: "", indications: [], indicationsLoading: false,
+  };
 }
 
 // Tags allergies/pathologies/molécules : recherche référentielle VIDAL en
@@ -163,13 +165,23 @@ function ReferentialTagInput({ label, kind, values, onChange, testId }) {
 
 function MedicationLine({ line, onChange, onRemove, testId }) {
   const selectMedication = async (item) => {
-    onChange({ vidal_id: item.vidal_id || "", label: item.title || "", query: "", route: "", routes: [], routesLoading: true });
+    onChange({
+      vidal_id: item.vidal_id || "", label: item.title || "", query: "",
+      route: "", routes: [], routesLoading: true,
+      indication: "", indications: [], indicationsLoading: true,
+    });
     if (!item.vidal_id) return;
     try {
-      const r = await apiClient.get(`/vidal/product/${item.vidal_id}/detail`);
-      onChange({ routes: r.data?.routes || [], routesLoading: false });
+      const [detailRes, indicationsRes] = await Promise.all([
+        apiClient.get(`/vidal/product/${item.vidal_id}/detail`),
+        apiClient.get(`/vidal/product/${item.vidal_id}/indications`).catch(() => null),
+      ]);
+      onChange({
+        routes: detailRes.data?.routes || [], routesLoading: false,
+        indications: indicationsRes?.data?.indications || [], indicationsLoading: false,
+      });
     } catch {
-      onChange({ routesLoading: false });
+      onChange({ routesLoading: false, indicationsLoading: false });
     }
   };
   return (
@@ -188,7 +200,7 @@ function MedicationLine({ line, onChange, onRemove, testId }) {
           <X className="h-4 w-4" />
         </Button>
       </div>
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-6 gap-2">
         <Input placeholder="Dose" value={line.dose} onChange={(e) => onChange({ dose: e.target.value })} data-testid={`${testId}-dose`} />
         <Input placeholder="Fréquence" value={line.frequencyType} onChange={(e) => onChange({ frequencyType: e.target.value })} data-testid={`${testId}-frequency`} />
         <Input placeholder="Durée" value={line.duration} onChange={(e) => onChange({ duration: e.target.value })} data-testid={`${testId}-duration`} />
@@ -197,6 +209,12 @@ function MedicationLine({ line, onChange, onRemove, testId }) {
           <SelectTrigger data-testid={`${testId}-route`}><SelectValue placeholder={line.routes.length ? "Voie" : "—"} /></SelectTrigger>
           <SelectContent>
             {line.routes.map((r) => <SelectItem key={r.id} value={r.id}>{r.name}</SelectItem>)}
+          </SelectContent>
+        </Select>
+        <Select value={line.indication} onValueChange={(v) => onChange({ indication: v })} disabled={!line.indications?.length}>
+          <SelectTrigger data-testid={`${testId}-indication`}><SelectValue placeholder={line.indications?.length ? "Indication" : "—"} /></SelectTrigger>
+          <SelectContent>
+            {(line.indications || []).map((ind) => <SelectItem key={ind.ref} value={ind.ref}>{ind.label}</SelectItem>)}
           </SelectContent>
         </Select>
       </div>
@@ -236,6 +254,7 @@ export default function VidalSecurisation() {
   const toLinePayload = (l) => ({
     drugRef: l.vidal_id || null, dose: l.dose || null, durationType: l.durationType || null,
     duration: l.duration || null, frequencyType: l.frequencyType || null, route: l.route || null,
+    indication: l.indication || null,
   });
 
   const run = async () => {
@@ -413,33 +432,99 @@ export default function VidalSecurisation() {
         </Card>
       )}
 
-      {result && (
-        <Card data-testid="sec-result">
-          <CardHeader><CardTitle className="text-sm">Réponse VIDAL</CardTitle></CardHeader>
-          <CardContent className="space-y-2">
-            <Badge variant="outline">Analyse envoyée</Badge>
-            <p className="text-xs text-muted-foreground">
-              Affichage brut de la réponse VIDAL ci-dessous — le format exact de{" "}
-              <code className="px-1 rounded bg-muted">/alerts/full</code> n'a pas encore été validé en conditions
-              réelles dans ce projet ; une vue structurée (cartes d'alertes par gravité) suivra une fois ce format confirmé.
-            </p>
-            <pre className="text-[11px] bg-muted rounded p-3 overflow-auto max-h-96">
-              {JSON.stringify(result.data?.raw ? { raw: result.data.raw } : result.data, null, 2).slice(0, 8000)}
-            </pre>
-          </CardContent>
-        </Card>
-      )}
+      {result && (() => {
+        const alerts = result.parsed?.alerts || [];
+        const summary = result.parsed?.summary || [];
+        const hasStructured = alerts.length > 0 || summary.length > 0;
+        return (
+          <Card data-testid="sec-result">
+            <CardHeader><CardTitle className="text-sm">Résultat de l'analyse VIDAL</CardTitle></CardHeader>
+            <CardContent className="space-y-3">
+              {hasStructured ? (
+                <>
+                  {summary.length > 0 && (
+                    <div className="flex flex-wrap gap-2" data-testid="sec-result-summary">
+                      {summary.filter((s) => s.severity && s.severity !== "NO_ALERT").map((s, i) => (
+                        <SeverityBadge key={i} severity={s.severity} label={s.label || s.category} />
+                      ))}
+                      {summary.every((s) => !s.severity || s.severity === "NO_ALERT") && (
+                        <Badge variant="outline" className="text-emerald-600 border-emerald-300">Aucune alerte détectée</Badge>
+                      )}
+                    </div>
+                  )}
+                  <div className="space-y-2" data-testid="sec-result-alerts">
+                    {alerts.map((a, i) => (
+                      <div key={i} className={`rounded-lg border p-3 ${severityBg(a.severity)}`} data-testid={`sec-alert-card-${i}`}>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-sm font-semibold">{a.title}</p>
+                          <SeverityBadge severity={a.severity} label={a.alert_type_label} />
+                        </div>
+                        {a.content && <p className="text-xs mt-1">{a.content}</p>}
+                        {a.detail && <p className="text-xs text-muted-foreground mt-1">{a.detail}</p>}
+                        {a.source_label && <p className="text-[10px] text-muted-foreground mt-1.5">Source : {a.source_label}</p>}
+                      </div>
+                    ))}
+                    {alerts.length === 0 && (
+                      <p className="text-xs text-muted-foreground">Aucune alerte détaillée dans la réponse.</p>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <Badge variant="outline">Analyse envoyée</Badge>
+                  <p className="text-xs text-muted-foreground">
+                    La réponse VIDAL ne correspond pas au format attendu (patient/prescription vides côté VIDAL, ou
+                    structure inhabituelle) — affichage brut ci-dessous.
+                  </p>
+                </>
+              )}
+              {vidalAdminNotes && (
+                <details className="text-xs" data-testid="sec-result-raw">
+                  <summary className="cursor-pointer text-muted-foreground">Réponse brute (Notes VIDAL admin)</summary>
+                  <pre className="text-[11px] bg-muted rounded p-3 overflow-auto max-h-96 mt-2">
+                    {JSON.stringify(result.data?.raw ? { raw: result.data.raw } : result.data, null, 2).slice(0, 8000)}
+                  </pre>
+                </details>
+              )}
+            </CardContent>
+          </Card>
+        );
+      })()}
 
       {vidalAdminNotes && (
         <Card className="border-dashed" data-testid="sec-admin-notes">
           <CardContent className="pt-6 text-xs text-muted-foreground space-y-1">
             <p className="font-semibold text-foreground">Notes VIDAL (admin)</p>
-            <p>Schéma XML (patient/prescription-lines/alert-types) vérifié contre le manuel d'intégration VIDAL — voir backend/routes/vidal_securisation.py.</p>
-            <p>Allergies/pathologies/molécules et l'indication par ligne restent informatifs : aucune référence VIDAL fiable disponible sans recherche référentielle testée en réel.</p>
-            <p>Le format de réponse réel de /alerts/full n'a pas été validé — la vue structurée par gravité (critique/précaution/info) est différée jusqu'à confirmation.</p>
+            <p>Schéma de requête ET de réponse (patient/prescription-lines/alert-types, résumé + entrées d'alerte) vérifiés contre le manuel d'intégration VIDAL MI_APIREST REV_03 — voir backend/routes/vidal_securisation.py.</p>
+            <p>Allergies/pathologies/molécules/indications : recherche référentielle réelle et confirmée (mêmes chapitres du manuel).</p>
           </CardContent>
         </Card>
       )}
     </div>
   );
+}
+
+const SEVERITY_META = {
+  LEVEL_4: { label: "Critique", cls: "bg-rose-600 text-white" },
+  LEVEL_3: { label: "Élevée", cls: "bg-orange-500 text-white" },
+  LEVEL_2: { label: "Modérée", cls: "bg-amber-500 text-white" },
+  LEVEL_1: { label: "À prendre en compte", cls: "bg-sky-500 text-white" },
+  INFO: { label: "Info", cls: "bg-slate-400 text-white" },
+  NO_ALERT: { label: "Aucune alerte", cls: "bg-emerald-500 text-white" },
+};
+
+function SeverityBadge({ severity, label }) {
+  const meta = SEVERITY_META[severity] || { label: severity || "—", cls: "bg-muted text-foreground" };
+  return (
+    <span className={`text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded-full ${meta.cls}`} title={label}>
+      {label ? `${label} — ${meta.label}` : meta.label}
+    </span>
+  );
+}
+
+function severityBg(severity) {
+  if (severity === "LEVEL_4") return "border-rose-300 bg-rose-50 dark:bg-rose-950/40 dark:border-rose-800";
+  if (severity === "LEVEL_3") return "border-orange-300 bg-orange-50 dark:bg-orange-950/40 dark:border-orange-800";
+  if (severity === "LEVEL_2") return "border-amber-300 bg-amber-50 dark:bg-amber-950/40 dark:border-amber-800";
+  return "border-border bg-muted/40";
 }

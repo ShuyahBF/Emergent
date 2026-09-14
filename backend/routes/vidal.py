@@ -1238,4 +1238,12 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     from routes.vidal_securisation import attach_vidal_securisation_routes
     attach_vidal_securisation_routes(api=api, db=db, get_current_user=get_current_user)
 
+    # Historique patient (bouton "Enregistrer"/"Historique" de Sécurisation).
+    from routes.vidal_patients import attach_vidal_patients_routes
+    attach_vidal_patients_routes(api=api, db=db, get_current_user=get_current_user)
+
+    # Ordonnance PDF sécurisée (2 versions + QR de vérification pharmacie).
+    from routes.vidal_ordonnance import attach_vidal_ordonnance_routes
+    attach_vidal_ordonnance_routes(api=api, db=db, get_current_user=get_current_user)
+
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

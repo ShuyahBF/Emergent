@@ -265,6 +265,11 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         current_treatments: List[Dict[str, Any]] = []
         new_prescription_lines: List[Dict[str, Any]] = []
         alert_types: Optional[List[str]] = None
+        # Identifiant du patient enregistré (bouton "Enregistrer"/"Historique",
+        # voir routes/vidal_patients.py) — optionnel : une consultation non
+        # enregistrée n'a pas de patient_id, et se comporte exactement comme
+        # avant (aucun historique conservé).
+        patient_id: Optional[str] = None
 
     # ---- Recherche référentielle allergies/pathologies/molécules (NON CONFIRMÉE) ----
     @api.get("/vidal/referential/search", tags=["VIDAL"])
@@ -343,4 +348,10 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
             })
         except Exception:  # noqa: BLE001
             pass
+        if payload.patient_id:
+            from routes.vidal_patients import record_consultation
+            await record_consultation(
+                db, patient_id=payload.patient_id, user_id=user["id"],
+                new_prescription_lines=payload.new_prescription_lines,
+            )
         return {"data": data, "request_xml": xml_body, "parsed": parsed}

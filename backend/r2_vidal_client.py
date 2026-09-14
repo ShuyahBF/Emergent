@@ -85,6 +85,14 @@ def put_json(key: str, data: Dict[str, Any]) -> None:
     _get_client().put_object(Bucket=_bucket(), Key=key, Body=body, ContentType="application/json")
 
 
+def put_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
+    """Upload binaire générique (ex: PDF d'ordonnance anonymisé archivé pour
+    le module Sécurisation — voir routes/vidal_ordonnance.py). Appelé via
+    `asyncio.to_thread` par les appelants, jamais directement dans une
+    coroutine (boto3 est bloquant)."""
+    _get_client().put_object(Bucket=_bucket(), Key=key, Body=data, ContentType=content_type)
+
+
 def list_keys(prefix: str) -> list[str]:
     keys: list[str] = []
     client = _get_client()

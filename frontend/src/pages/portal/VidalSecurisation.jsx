@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Heart, Loader2, Plus, X } from "lucide-react";
+import { AlertTriangle, Heart, History, Loader2, Plus, Printer, Save, Search, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { highlightMatch } from "@/lib/highlightMatch";
@@ -243,6 +243,20 @@ export default function VidalSecurisation() {
   const [result, setResult] = useState(null);
   const [errorState, setErrorState] = useState(null);
 
+  // Historique patient (lot 11) — "Enregistrer" persiste le profil + les
+  // traitements en cours pour cette consultation, "Historique" recharge un
+  // patient déjà suivi (les deux scopés au praticien connecté, jamais
+  // partagés — voir backend/routes/vidal_patients.py).
+  const [patientId, setPatientId] = useState(null);
+  const [patientName, setPatientName] = useState("");
+  const [patientWhatsapp, setPatientWhatsapp] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [historyResults, setHistoryResults] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [printing, setPrinting] = useState(false);
+
   const clairance = computeClairance(dob, gender, weight, creatinine);
   const bmi = computeBmi(weight, height);
 
@@ -253,10 +267,118 @@ export default function VidalSecurisation() {
     setAlertTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
 
   const toLinePayload = (l) => ({
-    drugRef: l.vidal_id || null, dose: l.dose || null, durationType: l.durationType || null,
-    duration: l.duration || null, frequencyType: l.frequencyType || null, route: l.route || null,
+    drugRef: l.vidal_id || null, label: l.label || null, dose: l.dose || null,
+    durationType: l.durationType || null, duration: l.duration || null,
+    frequencyType: l.frequencyType || null, route: l.route || null,
     indication: l.indication || null,
   });
+
+  // Reconstruit une ligne MedicationLine à partir d'un "traitement en cours"
+  // sauvegardé (voir toLinePayload) — routes/indications sont re-chargées
+  // depuis VIDAL pour repeupler les listes déroulantes avec la bonne valeur
+  // déjà sélectionnée, plutôt que de laisser les selects vides.
+  const hydrateLine = async (l) => {
+    const base = {
+      ...emptyLine(), vidal_id: l.drugRef || "", label: l.label || "",
+      dose: l.dose || "", durationType: l.durationType || "", duration: l.duration || "",
+      frequencyType: l.frequencyType || "", route: l.route || "", indication: l.indication || "",
+    };
+    if (!base.vidal_id) return base;
+    try {
+      const [detailRes, indicationsRes] = await Promise.all([
+        apiClient.get(`/vidal/product/${base.vidal_id}/detail`),
+        apiClient.get(`/vidal/product/${base.vidal_id}/indications`).catch(() => null),
+      ]);
+      base.routes = detailRes.data?.routes || [];
+      base.indications = indicationsRes?.data?.indications || [];
+    } catch {
+      // Les listes resteront vides mais la valeur textuelle (route/indication
+      // déjà choisie) reste correcte et sera bien transmise à VIDAL.
+    }
+    return base;
+  };
+
+  const savePatient = async () => {
+    if (!patientName.trim() && !patientWhatsapp.trim()) {
+      toast.warning("Renseignez un nom ou un n° WhatsApp pour enregistrer le patient.");
+      return;
+    }
+    setSaving(true);
+    try {
+      const r = await apiClient.post("/vidal/patients", {
+        patient_id: patientId || undefined,
+        name: patientName || undefined,
+        whatsapp_number: patientWhatsapp || undefined,
+        patient: {
+          dateOfBirth: dob || null, gender, height: height || null, weight: weight || null,
+          creatinine: creatinine || null, hepaticInsufficiency: hepatic,
+          allergies, pathologies, molecules,
+        },
+      });
+      setPatientId(r.data.id);
+      toast.success("Patient enregistré — les traitements en cours seront repris à la prochaine consultation.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Impossible d'enregistrer le patient");
+    }
+    setSaving(false);
+  };
+
+  const openHistory = async (q) => {
+    setHistoryOpen(true);
+    setHistoryLoading(true);
+    try {
+      const r = await apiClient.get("/vidal/patients", { params: q ? { q } : {} });
+      setHistoryResults(r.data?.results || []);
+    } catch {
+      setHistoryResults([]);
+    }
+    setHistoryLoading(false);
+  };
+
+  const loadPatient = async (p) => {
+    setPatientId(p.id);
+    setPatientName(p.name || "");
+    setPatientWhatsapp(p.whatsapp_number || "");
+    const pr = p.profile || {};
+    setDob(pr.dateOfBirth || ""); setGender(pr.gender || "FEMALE");
+    setHeight(pr.height || ""); setWeight(pr.weight || "");
+    setCreatinine(pr.creatinine || ""); setHepatic(pr.hepaticInsufficiency || "NONE");
+    setAllergies(pr.allergies || []); setPathologies(pr.pathologies || []); setMolecules(pr.molecules || []);
+    setHistoryOpen(false);
+    const hydrated = await Promise.all((p.current_treatments || []).map(hydrateLine));
+    setCurrentTreatments(hydrated);
+    toast.success(`Patient « ${p.name || p.whatsapp_number} » chargé — traitements en cours repris.`);
+  };
+
+  const printOrdonnance = async () => {
+    const lines = newLines.filter((l) => l.vidal_id).map((l) => ({
+      label: l.label, dose: l.dose, unit: l.unitId, duration: l.duration, durationType: l.durationType,
+      frequency: l.frequencyType,
+      route: (l.routes.find((r) => r.id === l.route) || {}).name || l.route || null,
+    }));
+    if (!lines.length) {
+      toast.warning("Ajoutez au moins un médicament avant d'imprimer l'ordonnance.");
+      return;
+    }
+    setPrinting(true);
+    try {
+      const r = await apiClient.post(
+        "/vidal/ordonnance/generate",
+        {
+          patient_name: patientName || undefined, patient_whatsapp: patientWhatsapp || undefined,
+          patient: { dateOfBirth: dob || null, gender, height: height || null, weight: weight || null },
+          lines,
+          alerts_summary: result?.parsed?.summary || [],
+        },
+        { responseType: "blob" },
+      );
+      const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
+      window.open(url, "_blank");
+    } catch (e) {
+      toast.error("Impossible de générer l'ordonnance");
+    }
+    setPrinting(false);
+  };
 
   const run = async () => {
     const hasLine = [...currentTreatments, ...newLines].some((l) => l.vidal_id);
@@ -286,6 +408,9 @@ export default function VidalSecurisation() {
         current_treatments: currentTreatments.filter((l) => l.vidal_id).map(toLinePayload),
         new_prescription_lines: newLines.filter((l) => l.vidal_id).map(toLinePayload),
         alert_types: alertTypes,
+        // Patient enregistré (facultatif) : le backend reprendra la nouvelle
+        // prescription comme "traitements en cours" à la prochaine consultation.
+        patient_id: patientId || undefined,
       });
       setResult(r.data);
     } catch (e) {
@@ -298,18 +423,82 @@ export default function VidalSecurisation() {
 
   return (
     <div className="space-y-4" data-testid="vidal-securisation-page">
-      <div className="flex items-center gap-3">
-        {/* Rouge #BB2323 = couleur exacte de l'icône cœur de la maquette d'origine
-            (échantillonnée sur capture réelle), à la place du rose Tailwind
-            générique utilisé avant — demande explicite de rendu identique. */}
-        <div className="w-10 h-10 rounded-lg bg-[#BB2323]/10 dark:bg-[#BB2323]/20 ring-1 ring-[#BB2323]/25 flex items-center justify-center">
-          <Heart className="h-5 w-5 text-[#BB2323]" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          {/* Rouge #BB2323 = couleur exacte de l'icône cœur de la maquette d'origine
+              (échantillonnée sur capture réelle), à la place du rose Tailwind
+              générique utilisé avant — demande explicite de rendu identique. */}
+          <div className="w-10 h-10 rounded-lg bg-[#BB2323]/10 dark:bg-[#BB2323]/20 ring-1 ring-[#BB2323]/25 flex items-center justify-center">
+            <Heart className="h-5 w-5 text-[#BB2323]" />
+          </div>
+          <div>
+            <h1 className="text-lg font-semibold text-foreground">Sécurisation</h1>
+            <p className="text-xs text-muted-foreground">Analyse VIDAL — interactions, contre-indications, posologie.</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-lg font-semibold text-foreground">Sécurisation</h1>
-          <p className="text-xs text-muted-foreground">Analyse VIDAL — interactions, contre-indications, posologie.</p>
+        <div className="relative">
+          <Button type="button" variant="outline" size="sm" onClick={() => (historyOpen ? setHistoryOpen(false) : openHistory())} data-testid="sec-history-toggle">
+            <History className="h-3.5 w-3.5 mr-1.5" /> Historique
+          </Button>
+          {historyOpen && (
+            <Card className="absolute right-0 z-30 mt-2 w-80 shadow-lg" data-testid="sec-history-panel">
+              <CardContent className="pt-4 space-y-2">
+                <div className="relative">
+                  <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+                  <Input
+                    className="pl-8 h-8 text-xs" placeholder="Nom ou n° WhatsApp…" value={historyQuery}
+                    onChange={(e) => { setHistoryQuery(e.target.value); openHistory(e.target.value); }}
+                    data-testid="sec-history-search"
+                  />
+                </div>
+                {historyLoading && <p className="text-xs text-muted-foreground">Recherche…</p>}
+                {!historyLoading && historyResults.length === 0 && (
+                  <p className="text-xs text-muted-foreground">Aucun patient enregistré pour l'instant.</p>
+                )}
+                <div className="max-h-56 overflow-auto space-y-1">
+                  {historyResults.map((p) => (
+                    <button
+                      key={p.id} type="button" onClick={() => loadPatient(p)}
+                      className="w-full text-left text-xs px-2.5 py-2 rounded hover:bg-muted"
+                      data-testid={`sec-history-item-${p.id}`}
+                    >
+                      <div className="font-medium">{p.name || "—"}</div>
+                      <div className="text-muted-foreground">{p.whatsapp_number || "sans n° WhatsApp"}</div>
+                    </button>
+                  ))}
+                </div>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
+
+      <Card data-testid="sec-patient-bar">
+        <CardContent className="pt-4 space-y-2">
+          <div className="grid sm:grid-cols-2 gap-2">
+            <Input
+              placeholder="N° WhatsApp du patient (optionnel — pour l'envoi de l'ordonnance)"
+              value={patientWhatsapp} onChange={(e) => setPatientWhatsapp(e.target.value)}
+              data-testid="sec-patient-whatsapp"
+            />
+            <div className="flex gap-2">
+              <Input
+                placeholder="Nom du patient (usage interne uniquement — jamais transmis à VIDAL)"
+                value={patientName} onChange={(e) => setPatientName(e.target.value)}
+                data-testid="sec-patient-name"
+              />
+              <Button type="button" variant="outline" onClick={savePatient} disabled={saving} data-testid="sec-patient-save">
+                {saving ? <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                Enregistrer
+              </Button>
+            </div>
+          </div>
+          <p className="text-[10px] text-muted-foreground">
+            Consultation non mémorisée par défaut : aucune donnée patient ne sera conservée après l'analyse.
+            Cliquez sur « Enregistrer » pour suivre ce patient dans le temps.
+          </p>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader><CardTitle className="text-sm">Profil du patient</CardTitle></CardHeader>
@@ -423,15 +612,24 @@ export default function VidalSecurisation() {
         </CardContent>
       </Card>
 
-      {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
-          (échantillonné sur capture réelle) — remplace le bleu par défaut. */}
-      <Button
-        onClick={run} disabled={loading} data-testid="sec-submit"
-        className="bg-[#9C1616] hover:bg-[#7F1212] text-white"
-      >
-        {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Heart className="h-4 w-4 mr-2" />}
-        Sécuriser
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
+            (échantillonné sur capture réelle) — remplace le bleu par défaut. */}
+        <Button
+          onClick={run} disabled={loading} data-testid="sec-submit"
+          className="bg-[#9C1616] hover:bg-[#7F1212] text-white"
+        >
+          {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Heart className="h-4 w-4 mr-2" />}
+          Sécuriser
+        </Button>
+        <Button
+          type="button" variant="outline" onClick={printOrdonnance} disabled={printing || !result}
+          data-testid="sec-print-ordonnance"
+        >
+          {printing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
+          Imprimer Ordonnance
+        </Button>
+      </div>
 
       {errorState && (
         <Card className="border-amber-300 dark:border-amber-700" data-testid="sec-error">

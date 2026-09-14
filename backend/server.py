@@ -246,7 +246,10 @@ app.add_middleware(
     allow_headers=["*"],
     # Iter38p — Expose custom headers (e.g., X-Blocking-Ticket-Number sent by
     # the ticket-create endpoint on 409) so the frontend can read them.
-    expose_headers=["X-Blocking-Ticket-Id", "X-Blocking-Ticket-Number"],
+    # Lot 11 — X-Ordonnance-Id : la réponse de /vidal/ordonnance/generate est
+    # le PDF lui-même (Content-Type application/pdf), pas du JSON ; l'id doit
+    # donc voyager en en-tête pour que le bouton "Envoi WA" puisse l'utiliser.
+    expose_headers=["X-Blocking-Ticket-Id", "X-Blocking-Ticket-Number", "X-Ordonnance-Id"],
 )
 
 
@@ -25025,6 +25028,10 @@ _attach_vidal(
     api=api, db=db,
     get_current_user=get_current_user,
     get_current_admin=get_current_admin,
+    # Lot 11 — "Envoi WA" de l'ordonnance sécurisée : mêmes coroutines déjà
+    # utilisées pour !doc/!rech, déjà résolues plus haut (_wa_helpers).
+    wa_send_media=_wa_send_media,
+    wa_send_text=_wa_send_text,
 )
 
 # Iter43-fix24at (2026-02-26) — Favoris VIDAL par utilisateur

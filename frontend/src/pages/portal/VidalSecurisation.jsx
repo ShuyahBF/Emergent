@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Heart, History, Loader2, Plus, Printer, Save, Search, X } from "lucide-react";
+import { AlertTriangle, Heart, History, Loader2, MessageCircle, Plus, Printer, Save, Search, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { highlightMatch } from "@/lib/highlightMatch";
@@ -256,6 +256,8 @@ export default function VidalSecurisation() {
   const [historyResults, setHistoryResults] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [printing, setPrinting] = useState(false);
+  const [lastOrdonnanceId, setLastOrdonnanceId] = useState(null);
+  const [sendingWa, setSendingWa] = useState(false);
 
   const clairance = computeClairance(dob, gender, weight, creatinine);
   const bmi = computeBmi(weight, height);
@@ -374,10 +376,32 @@ export default function VidalSecurisation() {
       );
       const url = window.URL.createObjectURL(new Blob([r.data], { type: "application/pdf" }));
       window.open(url, "_blank");
+      // L'id voyage en en-tête (le corps de la réponse est le PDF lui-même) —
+      // nécessaire pour proposer "Envoi WA" juste après.
+      setLastOrdonnanceId(r.headers?.["x-ordonnance-id"] || null);
     } catch (e) {
       toast.error("Impossible de générer l'ordonnance");
     }
     setPrinting(false);
+  };
+
+  const sendOrdonnanceWhatsapp = async () => {
+    if (!lastOrdonnanceId) {
+      toast.warning("Imprimez d'abord l'ordonnance (elle doit être générée avant l'envoi).");
+      return;
+    }
+    if (!patientWhatsapp.trim()) {
+      toast.warning("Renseignez le n° WhatsApp du patient avant d'envoyer.");
+      return;
+    }
+    setSendingWa(true);
+    try {
+      await apiClient.post(`/vidal/ordonnance/${lastOrdonnanceId}/send-whatsapp`, { phone: patientWhatsapp });
+      toast.success("Ordonnance envoyée sur WhatsApp.");
+    } catch (e) {
+      toast.error(e?.response?.data?.detail || "Envoi WhatsApp impossible");
+    }
+    setSendingWa(false);
   };
 
   const run = async () => {
@@ -389,6 +413,7 @@ export default function VidalSecurisation() {
     setLoading(true);
     setErrorState(null);
     setResult(null);
+    setLastOrdonnanceId(null);
     try {
       const r = await apiClient.post("/vidal/securisation/analyze", {
         patient: {
@@ -628,6 +653,13 @@ export default function VidalSecurisation() {
         >
           {printing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
           Imprimer Ordonnance
+        </Button>
+        <Button
+          type="button" onClick={sendOrdonnanceWhatsapp} disabled={sendingWa || !lastOrdonnanceId}
+          className="bg-emerald-500 hover:bg-emerald-600 text-white" data-testid="sec-send-whatsapp"
+        >
+          {sendingWa ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <MessageCircle className="h-4 w-4 mr-2" />}
+          Envoi WA
         </Button>
       </div>
 

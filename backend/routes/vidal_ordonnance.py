@@ -149,7 +149,12 @@ def build_ordonnance_pdf(data: Dict[str, Any], *, anonymized: bool, verify_url: 
     return buf.getvalue()
 
 
-def attach_vidal_ordonnance_routes(*, api, db, get_current_user):
+def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=None, wa_send_text=None):
+    """`wa_send_media`/`wa_send_text` : coroutines exposées par
+    `routes/whatsapp_helpers.py` (déjà utilisées pour `!doc`/`!rech`),
+    passées depuis `server.py` → `routes/vidal.py::attach_vidal_routes`.
+    Optionnelles : sans elles, "Envoi WA" renvoie une 503 explicite plutôt
+    que de planter — même règle que pour les autres modules VIDAL."""
     from fastapi import Body, Depends, HTTPException, Response
     from pydantic import BaseModel
 
@@ -179,8 +184,14 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user):
             raise HTTPException(status_code=400, detail="Au moins une ligne de prescription est requise")
         oid = str(uuid.uuid4())
         qr_token = uuid.uuid4().hex
+        # Jeton DISTINCT du qr_token : le qr_token est imprimé/encodé en QR sur
+        # le document (n'importe qui peut le scanner → sert la version
+        # ANONYMISÉE uniquement). full_token n'est jamais imprimé, seulement
+        # utilisé côté serveur pour le lien "document" envoyé PAR WhatsApp
+        # directement au patient concerné (voir send_ordonnance_whatsapp).
+        full_token = uuid.uuid4().hex
         doc_data = {
-            "id": oid, "qr_token": qr_token, "user_id": user["id"],
+            "id": oid, "qr_token": qr_token, "full_token": full_token, "user_id": user["id"],
             "doctor_name": user.get("full_name") or user.get("email"),
             "patient_name": payload.patient_name, "patient_whatsapp": payload.patient_whatsapp,
             "patient": payload.patient, "lines": [l.model_dump() for l in payload.lines],
@@ -205,7 +216,12 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user):
         full_pdf = build_ordonnance_pdf(doc_data, anonymized=False, verify_url=verify_url)
         return Response(
             content=full_pdf, media_type="application/pdf",
-            headers={"Content-Disposition": f'inline; filename="ordonnance-{oid[:8]}.pdf"'},
+            headers={
+                "Content-Disposition": f'inline; filename="ordonnance-{oid[:8]}.pdf"',
+                # L'id est nécessaire côté frontend pour proposer "Envoi WA" —
+                # le corps de la réponse est le PDF lui-même, pas du JSON.
+                "X-Ordonnance-Id": oid,
+            },
         )
 
     @api.get("/vidal/ordonnance/verify/{token}", tags=["VIDAL"])
@@ -226,3 +242,64 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user):
                 "Cache-Control": "public, max-age=300",
             },
         )
+
+    @api.get("/vidal/ordonnance/full-pdf/{full_token}", tags=["VIDAL"])
+    async def full_pdf_ordonnance(full_token: str):
+        """Public (pas d'auth) — requis pour que les serveurs WhatsApp/Meta
+        puissent récupérer le média lors de l'envoi (même contrainte que
+        `/api/public/receipt-pdf/{token}` dans routes/cashier.py). `full_token`
+        est distinct du `qr_token` imprimé sur le document : il n'est utilisé
+        QUE côté serveur pour le lien envoyé directement au patient concerné,
+        jamais affiché ni scanné par un tiers."""
+        doc = await db.vidal_ordonnances.find_one({"full_token": full_token}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Ordonnance introuvable ou invalide")
+        base = _public_base_url()
+        verify_url = f"{base}/api/vidal/ordonnance/verify/{doc['qr_token']}" if base else None
+        pdf = build_ordonnance_pdf(doc, anonymized=False, verify_url=verify_url)
+        return Response(
+            content=pdf, media_type="application/pdf",
+            headers={
+                "Content-Disposition": f'inline; filename="ordonnance-{doc["id"][:8]}.pdf"',
+                "Cache-Control": "private, max-age=300",
+            },
+        )
+
+    class SendWhatsappPayload(BaseModel):
+        phone: Optional[str] = None  # écrase le n° enregistré sur l'ordonnance, si fourni
+
+    @api.post("/vidal/ordonnance/{ordonnance_id}/send-whatsapp", tags=["VIDAL"])
+    async def send_ordonnance_whatsapp(
+        ordonnance_id: str,
+        payload: SendWhatsappPayload = Body(default_factory=SendWhatsappPayload),
+        user: dict = Depends(get_current_user),
+    ):
+        if wa_send_media is None and wa_send_text is None:
+            raise HTTPException(status_code=503, detail="Envoi WhatsApp non configuré côté serveur")
+        doc = await db.vidal_ordonnances.find_one({"id": ordonnance_id, "user_id": user["id"]}, {"_id": 0})
+        if not doc:
+            raise HTTPException(status_code=404, detail="Ordonnance introuvable")
+        phone = (payload.phone or doc.get("patient_whatsapp") or "").strip()
+        if not phone:
+            raise HTTPException(status_code=400, detail="Aucun n° WhatsApp pour ce patient — renseigne-le sur l'ordonnance ou dans le champ patient.")
+        base = _public_base_url()
+        if not base:
+            raise HTTPException(status_code=503, detail="PUBLIC_BASE_URL non configuré — impossible de générer un lien accessible par WhatsApp")
+        pdf_url = f"{base}/api/vidal/ordonnance/full-pdf/{doc['full_token']}"
+        caption = f"📄 Ordonnance sécurisée VIDAL — {doc.get('doctor_name') or 'votre médecin'}"
+
+        result = {"ok": False}
+        method = None
+        # Message média libre en premier (aucun modèle Meta à préconfigurer,
+        # fonctionne tant que la fenêtre de service client de 24h est ouverte
+        # — même mécanisme déjà utilisé pour !doc/!rech WhatsApp).
+        if wa_send_media is not None:
+            result = await wa_send_media(phone, "document", public_url=pdf_url, caption=caption, filename="ordonnance.pdf")
+            method = "document"
+        if not result.get("ok") and wa_send_text is not None:
+            text = f"{caption}\nTéléchargez votre ordonnance : {pdf_url}"
+            result = await wa_send_text(phone, text)
+            method = "text"
+        if not result.get("ok"):
+            raise HTTPException(status_code=502, detail=result.get("error") or "Envoi WhatsApp échoué")
+        return {"ok": True, "method": method}

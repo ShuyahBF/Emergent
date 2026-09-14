@@ -761,9 +761,13 @@ async def _vidal_call(
 # --------------------------------------------------------------------------- #
 # Route attachment
 # --------------------------------------------------------------------------- #
-def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
+def attach_vidal_routes(*, api, db, get_current_user, get_current_admin, wa_send_media=None, wa_send_text=None):
     """Mount the VIDAL endpoints under `/api/vidal/*` and the admin config
-    endpoints under `/api/admin/vidal/*`."""
+    endpoints under `/api/admin/vidal/*`.
+
+    `wa_send_media`/`wa_send_text` (lot 11) : passés jusqu'à
+    `vidal_ordonnance.py` pour "Envoi WA" — mêmes coroutines déjà utilisées
+    pour `!doc`/`!rech` (routes/whatsapp_helpers.py), optionnelles."""
 
     # ---- Admin config (GET + PUT) ----
     @api.get("/admin/vidal/config", tags=["Admin — VIDAL"])
@@ -1242,8 +1246,12 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     from routes.vidal_patients import attach_vidal_patients_routes
     attach_vidal_patients_routes(api=api, db=db, get_current_user=get_current_user)
 
-    # Ordonnance PDF sécurisée (2 versions + QR de vérification pharmacie).
+    # Ordonnance PDF sécurisée (2 versions + QR de vérification pharmacie +
+    # envoi WhatsApp direct au patient).
     from routes.vidal_ordonnance import attach_vidal_ordonnance_routes
-    attach_vidal_ordonnance_routes(api=api, db=db, get_current_user=get_current_user)
+    attach_vidal_ordonnance_routes(
+        api=api, db=db, get_current_user=get_current_user,
+        wa_send_media=wa_send_media, wa_send_text=wa_send_text,
+    )
 
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

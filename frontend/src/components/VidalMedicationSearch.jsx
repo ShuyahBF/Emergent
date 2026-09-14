@@ -25,9 +25,22 @@ export default function VidalMedicationSearch({
   const [loading, setLoading] = useState(false);
   const debounceRef = useRef(null);
   const blurTimeoutRef = useRef(null);
+  // Après une sélection, le parent remonte `query` = le libellé du
+  // médicament choisi (voir Sécurisation/Posologie : `line.label ||
+  // line.query`). Sans ce garde-fou, ce changement de `query` est
+  // indiscernable d'une frappe utilisateur et relance aussitôt une
+  // recherche VIDAL sur ce même libellé, qui rouvre la liste par-dessus la
+  // ligne qu'on vient de remplir — donnant l'impression que la sélection a
+  // été effacée (bogue remonté en test réel sur Sécurisation).
+  const justSelectedRef = useRef(false);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    if (justSelectedRef.current) {
+      justSelectedRef.current = false;
+      setResults([]);
+      return;
+    }
     const q = (query || "").trim();
     if (q.length < 2) {
       setResults([]);
@@ -48,6 +61,7 @@ export default function VidalMedicationSearch({
   }, [query]);
 
   const pick = (item) => {
+    justSelectedRef.current = true;
     onSelect?.(item);
     setOpen(false);
     setResults([]);

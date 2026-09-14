@@ -13,14 +13,20 @@ modifié : il reste utilisé tel quel par l'ancienne page `PrescriptionAnalysis.
 (toujours liée depuis l'onglet "Analyse prescription" de Vidal.jsx) — aucune
 régression sur du code déjà déployé.
 
-Champs volontairement OMIS de l'XML plutôt qu'inventés :
-  - `indication` par ligne de prescription : le manuel ne confirme pas ce
-    champ (même limite déjà actée pour Posologie) — jamais envoyé.
-  - `allergies`/`pathologies`/`molecules` : le manuel exige des références
-    `vidal://...` résolues via une recherche référentielle
-    (`/rest/api/allergies?q=...` etc.) qui n'a jamais été testée en réel
-    dans ce projet — plutôt que d'inventer une référence, ces champs restent
-    de simples tags informatifs côté UI et ne sont PAS transmis à VIDAL.
+Champ volontairement OMIS de l'XML plutôt qu'inventé :
+  - `indication` par ligne de prescription : aucun endpoint de référence,
+    même deviné, n'est mentionné nulle part pour ce champ (contrairement aux
+    allergies/pathologies/molécules ci-dessous) — jamais envoyé.
+
+Allergies/pathologies/molécules — recherche référentielle réelle mais
+NON CONFIRMÉE : `/vidal/referential/search` appelle `/allergies?q=...` et
+`/pathologies?q=...`, par analogie avec `/products?q=...` (confirmé) et les
+commentaires de la maquette site-meetafrican (`securisation.html`) qui citent
+ces chemins sans les avoir testés contre l'API réelle. Si ces chemins
+s'avèrent incorrects une fois testés en production, la recherche échoue
+proprement (l'utilisateur retombe sur la saisie libre, jamais transmise à
+VIDAL) — mais un tag RÉSOLU par cette recherche (avec une vraie référence
+`vidal://...` renvoyée par VIDAL) est, lui, bien envoyé dans le XML.
 """
 from __future__ import annotations
 
@@ -62,6 +68,27 @@ def _build_patient(el: ET.Element, patient: Dict[str, Any]) -> None:
     clairance = patient.get("clairance")
     _set_text(el, "creatin", f"{clairance:.1f}" if isinstance(clairance, (int, float)) else None)
     _set_text(el, "hepaticInsufficiency", patient.get("hepaticInsufficiency"))
+    # Allergies/pathologies/molécules : envoyées à VIDAL UNIQUEMENT quand une
+    # vraie référence `vidal://...` a été résolue par recherche référentielle
+    # (voir /vidal/referential/search, endpoints devinés par analogie avec
+    # /products?q=..., jamais confirmés par un appel réel) — un tag saisi en
+    # texte libre sans sélection n'a pas de référence et n'est jamais envoyé,
+    # plutôt que d'en inventer une. `ref` doit être l'URI complète telle que
+    # renvoyée par la recherche (ex. `vidal://cim10/4703` pour une pathologie,
+    # `vidal://allergy/12` pour une allergie — le schéma d'URI varie par type,
+    # voir la maquette securisation.html, pas de préfixe reconstruit ici).
+    _build_ref_block(el, "allergies", "allergy", patient.get("allergies"))
+    _build_ref_block(el, "molecules", "molecule", patient.get("molecules"))
+    _build_ref_block(el, "pathologies", "pathology", patient.get("pathologies"))
+
+
+def _build_ref_block(parent: ET.Element, block_tag: str, item_tag: str, items: Any) -> None:
+    refs = [it.get("ref") for it in (items or []) if isinstance(it, dict) and it.get("ref")]
+    if not refs:
+        return
+    block_el = ET.SubElement(parent, block_tag)
+    for ref in refs:
+        _set_text(block_el, item_tag, ref)
 
 
 def _build_line(lines_el: ET.Element, line: Dict[str, Any]) -> None:
@@ -127,8 +154,20 @@ def build_prescription_xml(
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + xml_str
 
 
+# Chemin VIDAL deviné + schéma d'URI de référence, par type de recherche —
+# voir la note en tête de fichier : jamais testés contre l'API réelle.
+_REFERENTIAL = {
+    "allergy": {"path": "/allergies", "scheme": "allergy"},
+    "pathology": {"path": "/pathologies", "scheme": "cim10"},
+    # Mockup : "même référentiel que les allergies (terme MOLECULE)" — on
+    # tente le même chemin que les allergies avec un paramètre `type`
+    # supplémentaire, faute de mieux ; à corriger si le vrai chemin diffère.
+    "molecule": {"path": "/allergies", "scheme": "molecule", "extra_params": {"type": "MOLECULE"}},
+}
+
+
 def attach_vidal_securisation_routes(*, api, db, get_current_user):
-    from fastapi import Body, Depends, HTTPException
+    from fastapi import Body, Depends, HTTPException, Query
     from pydantic import BaseModel
 
     class SecurisationPayload(BaseModel):
@@ -136,6 +175,36 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         current_treatments: List[Dict[str, Any]] = []
         new_prescription_lines: List[Dict[str, Any]] = []
         alert_types: Optional[List[str]] = None
+
+    # ---- Recherche référentielle allergies/pathologies/molécules (NON CONFIRMÉE) ----
+    @api.get("/vidal/referential/search", tags=["VIDAL"])
+    async def referential_search(
+        kind: str = Query(..., regex="^(allergy|pathology|molecule)$"),
+        q: str = Query(..., min_length=2),
+        user: dict = Depends(get_current_user),
+    ):
+        from routes.vidal import _ensure_tenant_can_access, _ensure_active, _quota_check_and_increment, _vidal_call
+        from routes.vidal_riche import _parse_atom_entries
+
+        cfg = await _ensure_tenant_can_access(db, user)
+        _ensure_active(cfg)
+        spec = _REFERENTIAL[kind]
+        try:
+            await _quota_check_and_increment(db, user["id"], cfg)
+            params = {"q": q, **spec.get("extra_params", {})}
+            data = await _vidal_call(cfg, "GET", spec["path"], params=params)
+            if (data or {}).get("_error"):
+                raise HTTPException(status_code=502, detail="Recherche référentielle indisponible")
+            entries = _parse_atom_entries((data or {}).get("raw"))
+        except HTTPException:
+            raise
+        except Exception as exc:  # noqa: BLE001 — chemin deviné : dégrade proprement, jamais d'erreur 500
+            raise HTTPException(status_code=502, detail=f"Recherche référentielle indisponible : {str(exc)[:150]}") from exc
+        results = [
+            {"label": e["title"], "ref": f"vidal://{spec['scheme']}/{e['vidal_id']}"}
+            for e in entries if e.get("title") and e.get("vidal_id")
+        ]
+        return {"kind": kind, "query": q, "results": results, "confirmed": False}
 
     @api.post("/vidal/securisation/analyze", tags=["VIDAL"])
     async def securisation_analyze(

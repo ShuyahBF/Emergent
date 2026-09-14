@@ -4,11 +4,14 @@
 // IMC + clairance de Cockcroft & Gault, 18 types d'alerte réels, recherche
 // médicament réelle + voie d'administration réelle par produit.
 //
-// Ce qui reste volontairement informatif (non transmis à VIDAL) : allergies/
-// pathologies/molécules (nécessiteraient une recherche référentielle jamais
-// testée en réel) et le champ "indication" par ligne — même limite déjà
-// actée pour Posologie, pas d'invention de référence VIDAL.
-import React, { useState } from "react";
+// Allergies/pathologies/molécules : recherche référentielle réelle mais
+// NON CONFIRMÉE (endpoints devinés par analogie — voir vidal_securisation.py).
+// Un tag résolu par cette recherche (avec une vraie référence VIDAL) est
+// transmis dans le XML ; un tag saisi en texte libre (recherche indisponible
+// ou aucun résultat choisi) reste purement informatif, jamais envoyé.
+// Le champ "indication" par ligne, lui, n'a aucun endpoint deviné nulle
+// part — toujours omis (même limite déjà actée pour Posologie).
+import React, { useState, useEffect, useRef } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -62,21 +65,62 @@ function emptyLine() {
   return { vidal_id: "", label: "", query: "", dose: "", unitId: "", duration: "", durationType: "", frequencyType: "", route: "", routes: [], routesLoading: false };
 }
 
-function TagInput({ label, hint, values, onChange, testId }) {
+// Tags allergies/pathologies/molécules : recherche référentielle VIDAL en
+// direct (debounced) — un résultat CHOISI dans la liste porte une vraie
+// référence `vidal://...` (transmise à VIDAL) ; Entrée sans sélection ajoute
+// un tag "libre" (jamais transmis) — la recherche peut échouer sans jamais
+// bloquer la saisie manuelle (chemin d'API deviné, non confirmé).
+function ReferentialTagInput({ label, kind, values, onChange, testId }) {
   const [draft, setDraft] = useState("");
-  const add = () => {
+  const [results, setResults] = useState([]);
+  const [open, setOpen] = useState(false);
+  const [searchDisabled, setSearchDisabled] = useState(false);
+  const debounceRef = useRef(null);
+
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    const q = draft.trim();
+    if (searchDisabled || q.length < 2) {
+      setResults([]);
+      return;
+    }
+    debounceRef.current = setTimeout(async () => {
+      try {
+        const r = await apiClient.get("/vidal/referential/search", { params: { kind, q } });
+        setResults(r.data?.results || []);
+        setOpen(true);
+      } catch {
+        // Chemin d'API deviné, non confirmé : une erreur désactive
+        // simplement la recherche pour cette session, sans bloquer la
+        // saisie libre (déjà pleinement fonctionnelle sans elle).
+        setSearchDisabled(true);
+        setResults([]);
+      }
+    }, 350);
+  }, [draft, kind, searchDisabled]);
+
+  const addFree = () => {
     const v = draft.trim();
     if (!v) return;
-    onChange([...values, v]);
-    setDraft("");
+    onChange([...values, { label: v, ref: null }]);
+    setDraft(""); setOpen(false); setResults([]);
   };
+  const addResult = (item) => {
+    onChange([...values, { label: item.label, ref: item.ref }]);
+    setDraft(""); setOpen(false); setResults([]);
+  };
+
   return (
-    <div>
+    <div className="relative">
       <Label className="text-xs">{label}</Label>
       <div className="flex flex-wrap gap-1.5 p-2 rounded border min-h-[42px]" data-testid={testId}>
         {values.map((v, i) => (
-          <span key={i} className="inline-flex items-center gap-1 text-xs bg-muted rounded-full px-2.5 py-1">
-            {v}
+          <span
+            key={i}
+            className={`inline-flex items-center gap-1 text-xs rounded-full px-2.5 py-1 ${v.ref ? "bg-primary/10 text-primary" : "bg-muted"}`}
+            title={v.ref ? "Référence VIDAL résolue — transmise à l'analyse" : "Texte libre — informatif, non transmis à VIDAL"}
+          >
+            {v.label}
             <button type="button" onClick={() => onChange(values.filter((_, j) => j !== i))}>
               <X className="h-3 w-3" />
             </button>
@@ -85,12 +129,34 @@ function TagInput({ label, hint, values, onChange, testId }) {
         <input
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
-          placeholder="Ajouter… (Entrée)"
+          onFocus={() => results.length > 0 && setOpen(true)}
+          onBlur={() => setTimeout(() => setOpen(false), 150)}
+          onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); addFree(); } }}
+          placeholder={searchDisabled ? "Ajouter en texte libre… (Entrée)" : "Rechercher ou ajouter en texte libre… (Entrée)"}
           className="flex-1 min-w-[100px] text-xs outline-none bg-transparent"
+          data-testid={`${testId}-input`}
         />
       </div>
-      {hint && <p className="text-[10px] text-muted-foreground mt-1">{hint}</p>}
+      {open && results.length > 0 && (
+        <ul className="absolute z-20 mt-1 w-full max-h-40 overflow-auto rounded ring-1 ring-border bg-popover shadow-lg text-xs" data-testid={`${testId}-results`}>
+          {results.map((r, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onMouseDown={(e) => { e.preventDefault(); addResult(r); }}
+                className="w-full text-left px-3 py-1.5 hover:bg-muted"
+              >
+                {r.label}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <p className="text-[10px] text-muted-foreground mt-1">
+        {searchDisabled
+          ? "Recherche référentielle indisponible — saisie libre uniquement (informatif, non transmis à VIDAL)."
+          : "Choisissez un résultat pour une référence VIDAL réelle (transmise à l'analyse) ; sinon reste informatif."}
+      </p>
     </div>
   );
 }
@@ -190,6 +256,12 @@ export default function VidalSecurisation() {
           height: height || null,
           clairance,
           hepaticInsufficiency: hepatic,
+          // Seuls les tags avec une vraie référence VIDAL (résolue par
+          // recherche référentielle) sont réellement exploités par le
+          // backend — les tags "libres" voyagent mais sont ignorés côté XML.
+          allergies,
+          pathologies,
+          molecules,
         },
         current_treatments: currentTreatments.filter((l) => l.vidal_id).map(toLinePayload),
         new_prescription_lines: newLines.filter((l) => l.vidal_id).map(toLinePayload),
@@ -272,12 +344,9 @@ export default function VidalSecurisation() {
             </div>
           </div>
           <div className="grid sm:grid-cols-3 gap-3">
-            <TagInput label="Allergies connues" values={allergies} onChange={setAllergies} testId="sec-allergies"
-              hint="Informatif — non transmis à VIDAL (recherche référentielle non branchée)." />
-            <TagInput label="Pathologies connues" values={pathologies} onChange={setPathologies} testId="sec-pathologies"
-              hint="Informatif — non transmis à VIDAL." />
-            <TagInput label="Molécules à éviter" values={molecules} onChange={setMolecules} testId="sec-molecules"
-              hint="Informatif — non transmis à VIDAL." />
+            <ReferentialTagInput label="Allergies connues" kind="allergy" values={allergies} onChange={setAllergies} testId="sec-allergies" />
+            <ReferentialTagInput label="Pathologies connues" kind="pathology" values={pathologies} onChange={setPathologies} testId="sec-pathologies" />
+            <ReferentialTagInput label="Molécules à éviter" kind="molecule" values={molecules} onChange={setMolecules} testId="sec-molecules" />
           </div>
         </CardContent>
       </Card>

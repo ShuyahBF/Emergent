@@ -268,11 +268,32 @@ export default function VidalSecurisation() {
   const clairance = computeClairance(dob, gender, weight, creatinine);
   const bmi = computeBmi(weight, height);
 
-  const updateLine = (list, setList, idx, patch) =>
-    setList(list.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
+  // Lot 15 — 3e cause (distincte des 2 précédentes, côté enfant) du même
+  // bogue "sélection médicament impossible", cette fois ici, dans le parent.
+  // `selectMedication` (MedicationLine) appelle `onChange` deux fois : tout
+  // de suite (nom choisi), puis à nouveau après l'attente réseau des voies/
+  // indications. Avec `setList(list.map(...))`, la 2e passe réutilisait la
+  // variable `list` capturée AU MOMENT du rendu où `onChange` a été créé —
+  // donc la version D'AVANT la sélection (la 1ère passe avait déjà déclenché
+  // un nouveau rendu entre-temps). Le 2e appel écrasait donc la ligne avec
+  // cet instantané périmé, effaçant nom/référence tout juste choisis et
+  // restaurant le texte tapé — rouvrant la liste, avec l'air que "rien n'a
+  // été sélectionné". Confirmé en reproduisant l'enchaînement exact vu dans
+  // la vidéo fournie. Corrigé en passant par la forme fonctionnelle de
+  // `setState`, qui lit toujours l'état le plus récent au moment où chaque
+  // appel s'applique, quel que soit le rendu où la fonction a été créée.
+  const updateLine = (setList, idx, patch) =>
+    setList((prev) => prev.map((l, i) => (i === idx ? { ...l, ...patch } : l)));
 
   const toggleAlertType = (t) =>
     setAlertTypes((prev) => (prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]));
+
+  // Lot 15 — lien "Tout cocher"/"Tout décocher" (absent jusqu'ici, présent
+  // sur la maquette de référence) au-dessus de la liste des 18 types
+  // d'alerte, avec le compteur "N sélectionnée(s) sur 18".
+  const allAlertCodes = Object.keys(ALERT_TYPE_LABELS);
+  const toggleAllAlertTypes = () =>
+    setAlertTypes((prev) => (prev.length === allAlertCodes.length ? [] : allAlertCodes));
 
   const toLinePayload = (l) => ({
     drugRef: l.vidal_id || null, label: l.label || null, dose: l.dose || null,
@@ -679,7 +700,7 @@ export default function VidalSecurisation() {
           {currentTreatments.map((line, idx) => (
             <MedicationLine
               key={idx} line={line} testId={`sec-prev-${idx}`}
-              onChange={(patch) => updateLine(currentTreatments, setCurrentTreatments, idx, patch)}
+              onChange={(patch) => updateLine(setCurrentTreatments, idx, patch)}
               onRemove={() => setCurrentTreatments(currentTreatments.filter((_, i) => i !== idx))}
             />
           ))}
@@ -695,7 +716,7 @@ export default function VidalSecurisation() {
           {newLines.map((line, idx) => (
             <MedicationLine
               key={idx} line={line} testId={`sec-new-${idx}`}
-              onChange={(patch) => updateLine(newLines, setNewLines, idx, patch)}
+              onChange={(patch) => updateLine(setNewLines, idx, patch)}
               onRemove={() => newLines.length > 1 && setNewLines(newLines.filter((_, i) => i !== idx))}
             />
           ))}
@@ -706,7 +727,21 @@ export default function VidalSecurisation() {
       </Card>
 
       <Card>
-        <CardHeader><CardTitle className="text-sm">Alertes à vérifier</CardTitle></CardHeader>
+        <CardHeader className="space-y-1.5">
+          <CardTitle className="text-sm">Alertes à vérifier</CardTitle>
+          <div className="flex items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground" data-testid="sec-alert-count">
+              {alertTypes.length} sélectionnée{alertTypes.length > 1 ? "s" : ""} sur {allAlertCodes.length}
+            </p>
+            <button
+              type="button" onClick={toggleAllAlertTypes}
+              className="text-xs font-medium text-[#9C1616] hover:underline"
+              data-testid="sec-alert-toggle-all"
+            >
+              {alertTypes.length === allAlertCodes.length ? "Tout décocher" : "Tout cocher"}
+            </button>
+          </div>
+        </CardHeader>
         <CardContent className="flex flex-wrap gap-2">
           {Object.entries(ALERT_TYPE_LABELS).map(([code, label]) => (
             <button

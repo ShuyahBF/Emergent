@@ -294,4 +294,15 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
             params["indication"] = indication
         path = f"/product/{product_id}/posology-descriptors"
         data = await _call_and_log(cfg, "GET", path, params, user.get("email"))
+        # Lot 15 — `_vidal_call` ne lève jamais sur une erreur VIDAL (>= 400) :
+        # elle attache `_error` à `data` et renvoie 200, pour l'usage
+        # diagnostic admin (voir vidal.py). Ce endpoint praticien-facing ne
+        # doit PAS afficher cette page d'erreur VIDAL brute (HTML "Oops!...")
+        # comme si c'était un résultat — remonté par l'utilisateur (capture
+        # d'écran). On la convertit ici en vraie erreur HTTP.
+        if isinstance(data, dict) and data.get("_error"):
+            raise HTTPException(
+                status_code=502,
+                detail="VIDAL n'a pas retourné de posologie pour ce produit (endpoint expérimental).",
+            )
         return {"experimental": True, "data": data}

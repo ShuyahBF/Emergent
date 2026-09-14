@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Heart, History, Loader2, MessageCircle, Plus, Printer, Save, Search, X } from "lucide-react";
+import { AlertTriangle, Heart, History, Loader2, MessageCircle, Plus, Printer, RotateCcw, Save, Search, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { highlightMatch } from "@/lib/highlightMatch";
@@ -258,6 +258,12 @@ export default function VidalSecurisation() {
   const [printing, setPrinting] = useState(false);
   const [lastOrdonnanceId, setLastOrdonnanceId] = useState(null);
   const [sendingWa, setSendingWa] = useState(false);
+  // Historique de TOUTES les sécurisations (distinct des patients
+  // enregistrés ci-dessus) — chaque analyse lancée par ce praticien,
+  // qu'un patient ait été enregistré ou non.
+  const [analysisHistory, setAnalysisHistory] = useState([]);
+  const [analysisHistoryLoading, setAnalysisHistoryLoading] = useState(false);
+  const [viewingHistoryAnalysis, setViewingHistoryAnalysis] = useState(null); // {created_at, patient_name} | null
 
   const clairance = computeClairance(dob, gender, weight, creatinine);
   const bmi = computeBmi(weight, height);
@@ -328,6 +334,7 @@ export default function VidalSecurisation() {
   const openHistory = async (q) => {
     setHistoryOpen(true);
     setHistoryLoading(true);
+    setAnalysisHistoryLoading(true);
     try {
       const r = await apiClient.get("/vidal/patients", { params: q ? { q } : {} });
       setHistoryResults(r.data?.results || []);
@@ -335,6 +342,16 @@ export default function VidalSecurisation() {
       setHistoryResults([]);
     }
     setHistoryLoading(false);
+    // Historique de TOUTES les sécurisations — indépendant de la recherche
+    // par nom/WhatsApp ci-dessus (patients enregistrés uniquement) : liste
+    // chaque consultation lancée par ce praticien, dans l'ordre chronologique.
+    try {
+      const r2 = await apiClient.get("/vidal/securisation/history");
+      setAnalysisHistory(r2.data?.results || []);
+    } catch {
+      setAnalysisHistory([]);
+    }
+    setAnalysisHistoryLoading(false);
   };
 
   const loadPatient = async (p) => {
@@ -350,6 +367,32 @@ export default function VidalSecurisation() {
     const hydrated = await Promise.all((p.current_treatments || []).map(hydrateLine));
     setCurrentTreatments(hydrated);
     toast.success(`Patient « ${p.name || p.whatsapp_number} » chargé — traitements en cours repris.`);
+  };
+
+  // Consulte une sécurisation passée (lecture seule) — réutilise la même
+  // carte de résultat que pour une analyse en direct, avec un bandeau
+  // indiquant qu'il s'agit d'un historique. N'affecte pas le formulaire en
+  // cours (patient/lignes/etc.) : "Imprimer Ordonnance"/"Envoi WA" restent
+  // rattachés à la dernière analyse EN DIRECT, pas à celle consultée ici.
+  const viewAnalysis = async (a) => {
+    try {
+      const r = await apiClient.get(`/vidal/securisation/history/${a.id}`);
+      setResult({ parsed: r.data?.parsed, data: null });
+      setViewingHistoryAnalysis({ created_at: r.data?.created_at, patient_name: r.data?.patient_name });
+      setHistoryOpen(false);
+    } catch {
+      toast.error("Impossible de charger cette analyse.");
+    }
+  };
+
+  const resetForm = () => {
+    setDob(""); setGender("FEMALE"); setWeight(""); setHeight(""); setCreatinine(""); setHepatic("NONE");
+    setAllergies([]); setPathologies([]); setMolecules([]);
+    setCurrentTreatments([]); setNewLines([emptyLine()]); setAlertTypes(DEFAULT_ALERT_TYPES);
+    setResult(null); setErrorState(null); setViewingHistoryAnalysis(null);
+    setPatientId(null); setPatientName(""); setPatientWhatsapp("");
+    setLastOrdonnanceId(null);
+    toast.success("Formulaire réinitialisé.");
   };
 
   const printOrdonnance = async () => {
@@ -414,6 +457,7 @@ export default function VidalSecurisation() {
     setErrorState(null);
     setResult(null);
     setLastOrdonnanceId(null);
+    setViewingHistoryAnalysis(null);
     try {
       const r = await apiClient.post("/vidal/securisation/analyze", {
         patient: {
@@ -436,6 +480,11 @@ export default function VidalSecurisation() {
         // Patient enregistré (facultatif) : le backend reprendra la nouvelle
         // prescription comme "traitements en cours" à la prochaine consultation.
         patient_id: patientId || undefined,
+        // Affichage uniquement, pour que "Historique" (toutes les
+        // sécurisations, pas seulement les patients enregistrés) montre un
+        // nom plutôt qu'une ligne anonyme.
+        patient_name: patientName || undefined,
+        patient_whatsapp: patientWhatsapp || undefined,
       });
       setResult(r.data);
     } catch (e) {
@@ -480,7 +529,7 @@ export default function VidalSecurisation() {
                 {!historyLoading && historyResults.length === 0 && (
                   <p className="text-xs text-muted-foreground">Aucun patient enregistré pour l'instant.</p>
                 )}
-                <div className="max-h-56 overflow-auto space-y-1">
+                <div className="max-h-40 overflow-auto space-y-1">
                   {historyResults.map((p) => (
                     <button
                       key={p.id} type="button" onClick={() => loadPatient(p)}
@@ -491,6 +540,42 @@ export default function VidalSecurisation() {
                       <div className="text-muted-foreground">{p.whatsapp_number || "sans n° WhatsApp"}</div>
                     </button>
                   ))}
+                </div>
+
+                {/* Historique de TOUTES les sécurisations — indépendant des
+                    patients enregistrés ci-dessus (une consultation non
+                    enregistrée apparaît quand même ici). */}
+                <div className="border-t pt-2 mt-2">
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground mb-1">
+                    Analyses récentes
+                  </p>
+                  {analysisHistoryLoading && <p className="text-xs text-muted-foreground">Chargement…</p>}
+                  {!analysisHistoryLoading && analysisHistory.length === 0 && (
+                    <p className="text-xs text-muted-foreground">Aucune sécurisation effectuée pour l'instant.</p>
+                  )}
+                  <div className="max-h-56 overflow-auto space-y-1">
+                    {analysisHistory.map((a) => {
+                      const meta = SEVERITY_META[a.top_severity];
+                      const when = a.created_at ? new Date(a.created_at).toLocaleString("fr-FR") : "—";
+                      return (
+                        <button
+                          key={a.id || when} type="button" onClick={() => viewAnalysis(a)} disabled={!a.id}
+                          className="w-full text-left text-xs px-2.5 py-2 rounded hover:bg-muted flex items-center justify-between gap-2 disabled:opacity-50"
+                          data-testid={`sec-analysis-history-item-${a.id}`}
+                        >
+                          <span>
+                            <span className="font-medium">{a.patient_name || "Sans nom"}</span>
+                            <span className="block text-muted-foreground">{when} · {a.lines_count ?? 0} médicament(s)</span>
+                          </span>
+                          {meta && (
+                            <span className={`shrink-0 text-[9px] font-semibold uppercase px-1.5 py-0.5 rounded-full ${meta.cls}`}>
+                              {meta.label}
+                            </span>
+                          )}
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
               </CardContent>
             </Card>
@@ -638,6 +723,20 @@ export default function VidalSecurisation() {
       </Card>
 
       <div className="flex flex-wrap gap-2">
+        {/* Boutons "outline" avec bordure/texte explicites (au lieu du
+            variant outline générique) : en thème sombre, ses couleurs par
+            défaut (border-input, sans texte forcé) tombent à un contraste
+            trop faible une fois combinées à l'opacité de désactivation
+            (disabled:opacity-50) — le bouton devient quasi invisible sur
+            fond sombre. Remonté en test réel sur "Imprimer Ordonnance". */}
+        <Button
+          type="button" variant="outline" onClick={resetForm}
+          className="border-slate-300 dark:border-slate-500 dark:text-slate-100"
+          data-testid="sec-reset"
+        >
+          <RotateCcw className="h-4 w-4 mr-2" />
+          Réinitialiser
+        </Button>
         {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
             (échantillonné sur capture réelle) — remplace le bleu par défaut. */}
         <Button
@@ -649,6 +748,7 @@ export default function VidalSecurisation() {
         </Button>
         <Button
           type="button" variant="outline" onClick={printOrdonnance} disabled={printing || !result}
+          className="border-slate-300 dark:border-slate-500 dark:text-slate-100"
           data-testid="sec-print-ordonnance"
         >
           {printing ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Printer className="h-4 w-4 mr-2" />}
@@ -679,6 +779,15 @@ export default function VidalSecurisation() {
           <Card data-testid="sec-result">
             <CardHeader><CardTitle className="text-sm">Résultat de l'analyse VIDAL</CardTitle></CardHeader>
             <CardContent className="space-y-3">
+              {viewingHistoryAnalysis && (
+                <div
+                  className="text-xs rounded border border-sky-300 dark:border-sky-700 bg-sky-50 dark:bg-sky-950/40 text-sky-800 dark:text-sky-200 px-3 py-2"
+                  data-testid="sec-viewing-history-banner"
+                >
+                  Historique — analyse du {viewingHistoryAnalysis.created_at ? new Date(viewingHistoryAnalysis.created_at).toLocaleString("fr-FR") : "—"}
+                  {viewingHistoryAnalysis.patient_name ? ` pour ${viewingHistoryAnalysis.patient_name}` : ""} (lecture seule).
+                </div>
+              )}
               {hasStructured ? (
                 <>
                   {summary.length > 0 && (

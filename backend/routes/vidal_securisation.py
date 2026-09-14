@@ -38,6 +38,7 @@ souvent `<vidal:detail>`/`<vidal:triggeredBy>`/`<vidal:source>`.
 from __future__ import annotations
 
 import re
+import uuid
 import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
@@ -270,6 +271,11 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         # enregistrée n'a pas de patient_id, et se comporte exactement comme
         # avant (aucun historique conservé).
         patient_id: Optional[str] = None
+        # Affichage uniquement (usage interne, jamais transmis à VIDAL) — pour
+        # que l'historique des sécurisations (toutes consultations, avec ou
+        # sans patient_id) affiche un nom plutôt qu'une ligne anonyme.
+        patient_name: Optional[str] = None
+        patient_whatsapp: Optional[str] = None
 
     # ---- Recherche référentielle allergies/pathologies/molécules (NON CONFIRMÉE) ----
     @api.get("/vidal/referential/search", tags=["VIDAL"])
@@ -339,9 +345,16 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
         xml_body = build_prescription_xml(payload.patient, all_lines, payload.alert_types)
         data = await _vidal_call(cfg, "POST", "/alerts/full", body=xml_body)
         parsed = parse_alerts_response((data or {}).get("raw"))
+        audit_id = str(uuid.uuid4())
+        top_severity = None
+        severities = [s.get("severity") for s in parsed.get("summary", []) if s.get("severity")]
+        if severities:
+            top_severity = max(severities, key=lambda s: _SEVERITY_ORDER.get(s, -1))
         try:
             await db.vidal_prescription_audit.insert_one({
-                "user_id": user["id"], "user_email": user.get("email"),
+                "id": audit_id, "user_id": user["id"], "user_email": user.get("email"),
+                "patient_name": payload.patient_name, "patient_whatsapp": payload.patient_whatsapp,
+                "lines_count": len(all_lines), "top_severity": top_severity, "parsed": parsed,
                 "request_xml": xml_body[:4000], "response_summary": str(data)[:1500],
                 "mode": cfg["mode"], "source": "securisation_v2",
                 "created_at": datetime.now(timezone.utc),
@@ -354,4 +367,26 @@ def attach_vidal_securisation_routes(*, api, db, get_current_user):
                 db, patient_id=payload.patient_id, user_id=user["id"],
                 new_prescription_lines=payload.new_prescription_lines,
             )
-        return {"data": data, "request_xml": xml_body, "parsed": parsed}
+        return {"data": data, "request_xml": xml_body, "parsed": parsed, "id": audit_id}
+
+    # ---- Historique de TOUTES les sécurisations (bouton "Historique" en
+    # haut de page) — distinct de routes/vidal_patients.py qui ne suit que
+    # les patients explicitement "Enregistrés" : ici, chaque consultation
+    # lancée par ce praticien apparaît, avec ou sans patient enregistré. ----
+    @api.get("/vidal/securisation/history", tags=["VIDAL"])
+    async def securisation_history(user: dict = Depends(get_current_user)):
+        cursor = db.vidal_prescription_audit.find(
+            {"user_id": user["id"], "source": "securisation_v2"},
+            {"_id": 0, "id": 1, "created_at": 1, "patient_name": 1, "patient_whatsapp": 1,
+             "lines_count": 1, "top_severity": 1},
+        ).sort("created_at", -1).limit(50)
+        return {"results": await cursor.to_list(length=50)}
+
+    @api.get("/vidal/securisation/history/{analysis_id}", tags=["VIDAL"])
+    async def securisation_history_detail(analysis_id: str, user: dict = Depends(get_current_user)):
+        doc = await db.vidal_prescription_audit.find_one(
+            {"id": analysis_id, "user_id": user["id"]}, {"_id": 0},
+        )
+        if not doc:
+            raise HTTPException(status_code=404, detail="Analyse introuvable")
+        return doc

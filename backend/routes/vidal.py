@@ -1234,4 +1234,8 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     from routes.vidal_audit import attach_vidal_audit_routes
     attach_vidal_audit_routes(api=api, db=db, get_current_admin=get_current_admin)
 
+    # Sécurisation — schéma XML réel (manuel VIDAL), nouvelle page dédiée.
+    from routes.vidal_securisation import attach_vidal_securisation_routes
+    attach_vidal_securisation_routes(api=api, db=db, get_current_user=get_current_user)
+
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

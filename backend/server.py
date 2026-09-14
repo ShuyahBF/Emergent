@@ -10096,6 +10096,9 @@ async def admin_create_tracked(payload: TrackedUserCreate, _: dict = Depends(get
         raise HTTPException(status_code=404, detail="Client introuvable")
     doc = {"id": _uuid(), **payload.model_dump(), "created_at": _now(), "updated_at": _now()}
     await db.tracked_users.insert_one(doc.copy())
+    # Rattachement auto au groupe de contacts "Médecin"/"Pharmacien" (demande explicite).
+    from routes.tracked_user_groups import sync_tracked_role_group
+    await sync_tracked_role_group(db, doc)
     doc.pop("_id", None)
     return doc
 
@@ -10140,6 +10143,11 @@ async def admin_update_tracked(tu_id: str, payload: TrackedUserUpdate, _: dict =
             if f in update:
                 bridge_update[f] = update[f]
         await db.users.update_one({"id": tu_doc["user_account_id"]}, {"$set": bridge_update})
+    # Rattachement auto au groupe de contacts "Médecin"/"Pharmacien" (demande explicite) —
+    # aussi utile quand le rôle change APRÈS création (ex. passage à Pharmacien).
+    if tu_doc:
+        from routes.tracked_user_groups import sync_tracked_role_group
+        await sync_tracked_role_group(db, tu_doc)
     return {"ok": True}
 
 

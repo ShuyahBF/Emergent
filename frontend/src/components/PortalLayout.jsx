@@ -87,6 +87,8 @@ const clientLinks = [
   { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
   // Portage site-meetafrican — Posologie (profil patient + recherche posologie)
   { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
+  // Portage site-meetafrican — Sécurisation (schéma XML réel, calculateurs, alertes)
+  { to: "/portal/vidal-securisation", label: "Sécurisation", icon: AlertTriangle, featureGate: "vidal_enabled" },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs
@@ -224,6 +226,11 @@ function PortalLayoutInner({ admin = false }) {
   // Iter43-fix24az-m (2026-07-18) — Médecin tracked role : accès UNIQUE au
   // planning des consultations. La sidebar ne montre QUE cet item.
   const isMedecinTracked = (user?.tracked_role || "") === "Médecin";
+  // Portage site-meetafrican — Pharmacien tracked role : accès UNIQUE à
+  // Posologie (pas de Sécurisation, contrairement au médecin). Sert de pont
+  // vers l'"officine-registry" — même session utilisateur suivi, pas de JWT
+  // séparé (option retenue explicitement par l'utilisateur).
+  const isPharmacienTracked = (user?.tracked_role || "") === "Pharmacien";
   // 2026-02 fork (P2) — Secrétaire médicale tracked role : accès uniquement
   // au planning consultations (gestion walk-ins). Menu ultra-réduit comme
   // le médecin, mais SANS Analyse prescription.
@@ -255,7 +262,7 @@ function PortalLayoutInner({ admin = false }) {
   // Le "défaut du rôle" : les rôles à sidebar réduite (Comptable strict,
   // Traducteur, Médecin, Secrétaire médicale, Fabricant) ne voient PAS le
   // Dashboard/Welcome/Notifs, tous les autres tracked users OUI.
-  const isRestrictedByRoleForDashboard = isComptaStrict || isTranslator || isMedecinTracked || isSecretaireMedicale || isFabricant;
+  const isRestrictedByRoleForDashboard = isComptaStrict || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale || isFabricant;
   const p4ShowDashboard = user?.show_dashboard === true
     ? true
     : user?.show_dashboard === false
@@ -265,7 +272,7 @@ function PortalLayoutInner({ admin = false }) {
     ? true
     : user?.show_welcome_modal === false
       ? false
-      : !(isFabricant || isMedecinTracked);
+      : !(isFabricant || isMedecinTracked || isPharmacienTracked);
   const p4ShowMsgNotifs = user?.show_messaging_notifs === true
     ? true
     : user?.show_messaging_notifs === false
@@ -282,11 +289,20 @@ function PortalLayoutInner({ admin = false }) {
   const allowedTranslatorPaths = new Set(["/admin/i18n"]);
   const allowedMedecinTrackedPaths = new Set([
     "/portal/planning",
-    "/portal/prescription-analysis",  // Iter43-fix24az-ac
-    // Portage site-meetafrican — un médecin suivi doit aussi voir Fiche
-    // produit VIDAL et Posologie (mêmes options qu'un compte médecin/pharmacien
-    // à rôle système, demandé explicitement par l'utilisateur).
+    "/portal/prescription-analysis",  // Iter43-fix24az-ac — conservé pour compatibilité, plus lié en sidebar
+    // Portage site-meetafrican — Sécurisation remplace "Analyse prescription"
+    // en sidebar (même page conceptuelle, enrichie — voir VidalSecurisation.jsx).
+    "/portal/vidal-securisation",
+    // Un médecin suivi doit aussi voir Fiche produit VIDAL et Posologie
+    // (mêmes options qu'un compte médecin/pharmacien à rôle système).
     "/portal/vidal-fiche",
+    "/portal/vidal-posologie",
+    "/portal/my-account",
+  ]);
+  // Portage site-meetafrican — Pharmacien suivi : Posologie uniquement (pas
+  // de Sécurisation, ni Fiche produit — accès volontairement plus étroit
+  // que le médecin, demandé explicitement par l'utilisateur).
+  const allowedPharmacienTrackedPaths = new Set([
     "/portal/vidal-posologie",
     "/portal/my-account",
   ]);
@@ -297,33 +313,45 @@ function PortalLayoutInner({ admin = false }) {
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
   const allowedEditeurVidalPaths = new Set([
     "/portal/vidal", "/portal/amm", "/portal/liluvine",
-    "/portal/vidal-fiche", "/portal/vidal-posologie",
+    "/portal/vidal-fiche", "/portal/vidal-posologie", "/portal/vidal-securisation",
   ]);
   // Paths réservés à certains rôles métier (cachés pour les autres)
   const restrictedVidalPaths = new Set([
-    "/portal/vidal", "/portal/amm", "/portal/vidal-fiche", "/portal/vidal-posologie",
+    "/portal/vidal", "/portal/amm", "/portal/vidal-fiche", "/portal/vidal-posologie", "/portal/vidal-securisation",
   ]);
-  const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal;
+  // Correctif — sans isMedecinTracked/isPharmacienTracked ici, ce filtre
+  // masquait les liens Fiche produit/Posologie/Sécurisation qu'on vient
+  // d'ajouter à leur sidebar réduite (leur `role` système est "client",
+  // le contrôle d'accès réel pour eux vient déjà de leur propre allowlist
+  // ci-dessus — ce filtre global ne doit pas les re-bloquer en plus).
+  const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal || isMedecinTracked || isPharmacienTracked;
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
     : (isMedecinTracked
         ? [
             { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
-            // Iter43-fix24az-ac (2026-07-22) — Analyse prescription VIDAL (médecin only)
-            // 2026-02 fork P4 — featureGate ajouté pour masquer le lien quand
-            // le module VIDAL n'est pas activé sur le tenant du médecin
-            // (sinon 403 dead-end en cliquant).
-            { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle, featureGate: "vidal_enabled" },
+            // Iter43-fix24az-ac (2026-07-22) — devenu "Sécurisation" (portage
+            // site-meetafrican) : même page conceptuelle, enrichie — voir
+            // VidalSecurisation.jsx. featureGate conservé pour masquer le
+            // lien quand le module VIDAL n'est pas activé sur le tenant.
+            { to: "/portal/vidal-securisation", label: "Sécurisation", icon: AlertTriangle, featureGate: "vidal_enabled" },
             // Portage site-meetafrican — même accès VIDAL riche qu'un compte
             // médecin à rôle système (demandé explicitement par l'utilisateur).
             { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
             { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
           ]
-        : (isSecretaireMedicale
+        : (isPharmacienTracked
             ? [
-                { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+                // Portage site-meetafrican — pont vers "officine-registry" :
+                // même session utilisateur suivi, sidebar réduite à Posologie
+                // uniquement (pas de Sécurisation ni Fiche produit).
+                { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
               ]
-            : (admin ? adminLinks : clientLinks)));
+            : (isSecretaireMedicale
+                ? [
+                    { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
+                  ]
+                : (admin ? adminLinks : clientLinks))));
   // Iter43-fix24o — Ajoute le lien "Officines" pour les utilisateurs délégués
   // (non-admin listés dans `officines_menu_allowed_emails`). Visible UNIQUEMENT
   // dans le portail client (admin layout l'affiche déjà via adminLinks).
@@ -345,6 +373,7 @@ function PortalLayoutInner({ admin = false }) {
     .filter((l) => !isComptaStrict || allowedComptaPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isTranslator || allowedTranslatorPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isMedecinTracked || allowedMedecinTrackedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
+    .filter((l) => !isPharmacienTracked || allowedPharmacienTrackedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
     // Iter43-fix24az-f — Fabricant tenants : allowlist stricte
@@ -439,7 +468,16 @@ function PortalLayoutInner({ admin = false }) {
         navigate("/portal/planning");
       }
     }
-  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked, p4ShowDashboard]);
+    // Portage site-meetafrican — Pharmacien tracked : redirigé vers Posologie
+    // ("officine-registry", même session) plutôt que /portal/planning — un
+    // pharmacien n'a pas de planning de consultations.
+    if (user && isPharmacienTracked && !allowedPharmacienTrackedPaths.has(location.pathname)) {
+      const dashboardAllowed = location.pathname === "/portal" && p4ShowDashboard;
+      if (!dashboardAllowed) {
+        navigate("/portal/vidal-posologie");
+      }
+    }
+  }, [user, admin, navigate, officinesDelegated, permissionsLoaded, location.pathname, isFabricant, isMedecinTracked, isPharmacienTracked, p4ShowDashboard]);
 
   // Web Notifications + son sur nouveaux WA
   // 2026-02 fork (P4) — Coupe la surveillance quand `show_messaging_notifs=false`

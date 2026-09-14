@@ -495,7 +495,7 @@ class ContactCreate(BaseModel):
 # ====================================================================
 # USERS TRACKING (sub-users of a client)
 # ====================================================================
-TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale"]
+TRACKED_USER_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien"]
 
 
 class TrackedUserCreate(BaseModel):

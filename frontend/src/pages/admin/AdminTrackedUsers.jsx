@@ -4,7 +4,7 @@ import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "l
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
-const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale"];
+const TRACKED_ROLES = ["Consultation", "Edition", "Moderation", "Administrateur", "Superviseur", "Comptable", "Caissier", "Traducteur", "Médecin", "Secrétaire médicale", "Pharmacien"];
 const TRANSLATOR_LANGS = [
   { code: "en", label: "Anglais (EN)" },
   { code: "ar", label: "Arabe (AR)" },

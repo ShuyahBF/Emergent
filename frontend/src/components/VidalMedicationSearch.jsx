@@ -33,35 +33,50 @@ export default function VidalMedicationSearch({
   // ligne qu'on vient de remplir — donnant l'impression que la sélection a
   // été effacée (bogue remonté en test réel sur Sécurisation).
   const justSelectedRef = useRef(false);
+  // Deuxième bogue trouvé en reproduisant l'interaction en local (course
+  // réseau) : une requête lancée AVANT la sélection (ex: pour "dolip",
+  // tapé puis complété en "dolipra" avant que la réponse ne revienne) peut
+  // encore être en vol au moment du clic. `justSelectedRef` ne protège que
+  // contre le changement de `query` provoqué par la sélection elle-même —
+  // il ne annule pas une réponse déjà en cours qui arrive APRÈS coup et
+  // rouvrirait la liste malgré tout. `requestIdRef` identifie la requête
+  // "courante" : toute réponse qui arrive alors qu'elle n'est plus la plus
+  // récente (nouvelle frappe OU sélection entre-temps) est ignorée.
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
     if (justSelectedRef.current) {
       justSelectedRef.current = false;
+      requestIdRef.current += 1; // invalide toute requête déjà en vol
       setResults([]);
       return;
     }
     const q = (query || "").trim();
     if (q.length < 2) {
+      requestIdRef.current += 1;
       setResults([]);
       return;
     }
+    const myRequestId = ++requestIdRef.current;
     debounceRef.current = setTimeout(async () => {
       setLoading(true);
       try {
         const r = await apiClient.get("/vidal/search/parsed", { params: { q } });
+        if (requestIdRef.current !== myRequestId) return; // réponse obsolète (frappe ou sélection plus récente)
         setResults(r.data?.results || []);
         setOpen(true);
       } catch {
-        setResults([]);
+        if (requestIdRef.current === myRequestId) setResults([]);
       }
-      setLoading(false);
+      if (requestIdRef.current === myRequestId) setLoading(false);
     }, DEBOUNCE_MS);
     return () => clearTimeout(debounceRef.current);
   }, [query]);
 
   const pick = (item) => {
     justSelectedRef.current = true;
+    requestIdRef.current += 1; // invalide toute recherche encore en vol au moment du clic
     onSelect?.(item);
     setOpen(false);
     setResults([]);

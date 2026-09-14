@@ -15,7 +15,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Baby, Loader2, Pill, Stethoscope, User, Users } from "lucide-react";
+import { AlertTriangle, Baby, Loader2, Pill, Search, Stethoscope, User, Users } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 
@@ -118,8 +118,11 @@ export default function VidalPosologie() {
   return (
     <div className="space-y-4" data-testid="vidal-posologie-page">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 ring-1 ring-primary/20 flex items-center justify-center">
-          <Stethoscope className="h-5 w-5 text-primary" />
+        {/* #FDECEC/#BB2323 = couleurs exactes de l'icône d'en-tête de la
+            maquette d'origine (échantillonnées sur capture réelle), à la
+            place du bleu générique — même rouge que Sécurisation. */}
+        <div className="w-10 h-10 rounded-lg bg-[#BB2323]/10 dark:bg-[#BB2323]/20 ring-1 ring-[#BB2323]/25 flex items-center justify-center">
+          <Stethoscope className="h-5 w-5 text-[#BB2323]" />
         </div>
         <div>
           <h1 className="text-lg font-semibold text-foreground">Posologie</h1>
@@ -266,8 +269,14 @@ export default function VidalPosologie() {
         </CardContent>
       </Card>
 
-      <Button onClick={runSearch} disabled={searching} data-testid="poso-search-submit">
-        {searching ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Stethoscope className="h-4 w-4 mr-2" />}
+      {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
+          (échantillonné sur capture réelle), pleine largeur — remplace le
+          bleu par défaut, pour un rendu identique à Sécurisation. */}
+      <Button
+        onClick={runSearch} disabled={searching} data-testid="poso-search-submit"
+        className="w-full bg-[#9C1616] hover:bg-[#7F1212] text-white"
+      >
+        {searching ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Search className="h-4 w-4 mr-2" />}
         Rechercher la posologie indiquée
       </Button>
 

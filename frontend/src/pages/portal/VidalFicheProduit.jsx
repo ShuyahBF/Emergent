@@ -61,8 +61,11 @@ export default function VidalFicheProduit() {
   return (
     <div className="space-y-4" data-testid="vidal-fiche-page">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-primary/10 ring-1 ring-primary/20 flex items-center justify-center">
-          <Pill className="h-5 w-5 text-primary" />
+        {/* #BB2323 = même rouge que Sécurisation/Posologie (échantillonné sur
+            capture réelle de la maquette d'origine), à la place du bleu
+            générique — cohérence visuelle de tout le module VIDAL. */}
+        <div className="w-10 h-10 rounded-lg bg-[#BB2323]/10 dark:bg-[#BB2323]/20 ring-1 ring-[#BB2323]/25 flex items-center justify-center">
+          <Pill className="h-5 w-5 text-[#BB2323]" />
         </div>
         <div>
           <h1 className="text-lg font-semibold text-foreground">Fiche produit VIDAL</h1>

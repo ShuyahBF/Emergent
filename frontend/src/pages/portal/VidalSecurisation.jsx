@@ -20,7 +20,7 @@ import { Badge } from "@/components/ui/badge";
 import {
   Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from "@/components/ui/select";
-import { AlertTriangle, Loader2, Plus, ShieldCheck, X } from "lucide-react";
+import { AlertTriangle, Heart, Loader2, Plus, X } from "lucide-react";
 import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 import { useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { highlightMatch } from "@/lib/highlightMatch";
@@ -299,8 +299,11 @@ export default function VidalSecurisation() {
   return (
     <div className="space-y-4" data-testid="vidal-securisation-page">
       <div className="flex items-center gap-3">
-        <div className="w-10 h-10 rounded-lg bg-rose-100 dark:bg-rose-950 ring-1 ring-rose-200 dark:ring-rose-800 flex items-center justify-center">
-          <ShieldCheck className="h-5 w-5 text-rose-600 dark:text-rose-400" />
+        {/* Rouge #BB2323 = couleur exacte de l'icône cœur de la maquette d'origine
+            (échantillonnée sur capture réelle), à la place du rose Tailwind
+            générique utilisé avant — demande explicite de rendu identique. */}
+        <div className="w-10 h-10 rounded-lg bg-[#BB2323]/10 dark:bg-[#BB2323]/20 ring-1 ring-[#BB2323]/25 flex items-center justify-center">
+          <Heart className="h-5 w-5 text-[#BB2323]" />
         </div>
         <div>
           <h1 className="text-lg font-semibold text-foreground">Sécurisation</h1>
@@ -410,7 +413,7 @@ export default function VidalSecurisation() {
             <button
               key={code} type="button" onClick={() => toggleAlertType(code)}
               className={`text-xs px-3 py-1.5 rounded-full border transition-colors ${
-                alertTypes.includes(code) ? "bg-primary text-primary-foreground border-primary" : "bg-transparent text-muted-foreground"
+                alertTypes.includes(code) ? "bg-[#9C1616] text-white border-[#9C1616]" : "bg-transparent text-muted-foreground"
               }`}
               data-testid={`sec-alert-${code}`}
             >
@@ -420,8 +423,13 @@ export default function VidalSecurisation() {
         </CardContent>
       </Card>
 
-      <Button onClick={run} disabled={loading} data-testid="sec-submit">
-        {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <ShieldCheck className="h-4 w-4 mr-2" />}
+      {/* #9C1616 = rouge exact du bouton d'action de la maquette d'origine
+          (échantillonné sur capture réelle) — remplace le bleu par défaut. */}
+      <Button
+        onClick={run} disabled={loading} data-testid="sec-submit"
+        className="bg-[#9C1616] hover:bg-[#7F1212] text-white"
+      >
+        {loading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Heart className="h-4 w-4 mr-2" />}
         Sécuriser
       </Button>
 

@@ -2,9 +2,10 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
 import { LOGO_URL } from "@/lib/brand";
 import { apiClient } from "@/lib/api";
 import AdBannerSlot from "@/components/AdBannerSlot";
@@ -82,6 +83,10 @@ const clientLinks = [
   { to: "/portal/vidal", label: "VIDAL France (médicaments)", icon: HeartPulse, featureGate: "vidal_enabled" },
   // Iter41 Phase 2 — Table AMM (régulateurs / admins / superviseurs)
   { to: "/portal/amm", label: "Numéros AMM (régulateur)", icon: ScrollText, featureGate: "vidal_enabled" },
+  // Portage site-meetafrican — Fiche produit VIDAL (voies + documents + équivalences)
+  { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
+  // Portage site-meetafrican — Posologie (profil patient + recherche posologie)
+  { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
   // S-iter39b — PV de réunions internes (autonumérotés, impression/PDF)
   { to: "/portal/meetings", label: "PV de réunions", icon: ClipboardList },
   // S-iter39d (fix #2) — Liluvine PRO Historique accessible aux modérateurs
@@ -147,8 +152,22 @@ const adminLinks = [
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 
-export default function PortalLayout({ admin = false }) {
+// Portage site-meetafrican (SecureLayout.jsx "Réglages") — thème
+// clair/sombre (tous les utilisateurs connectés) et "Notes VIDAL (admin)"
+// (admin/superviseur uniquement). Le composant exporté par défaut n'enveloppe
+// que le provider ; toute la logique reste dans PortalLayoutInner pour
+// pouvoir consommer `useVidalUiSettings()`.
+export default function PortalLayout(props) {
+  return (
+    <VidalUiSettingsProvider>
+      <PortalLayoutInner {...props} />
+    </VidalUiSettingsProvider>
+  );
+}
+
+function PortalLayoutInner({ admin = false }) {
   const { user, logout } = useAuth();
+  const { theme, setTheme, vidalAdminNotes, setVidalAdminNotes } = useVidalUiSettings();
   const t = useT();
   const navigate = useNavigate();
   const location = useLocation();
@@ -262,6 +281,11 @@ export default function PortalLayout({ admin = false }) {
   const allowedMedecinTrackedPaths = new Set([
     "/portal/planning",
     "/portal/prescription-analysis",  // Iter43-fix24az-ac
+    // Portage site-meetafrican — un médecin suivi doit aussi voir Fiche
+    // produit VIDAL et Posologie (mêmes options qu'un compte médecin/pharmacien
+    // à rôle système, demandé explicitement par l'utilisateur).
+    "/portal/vidal-fiche",
+    "/portal/vidal-posologie",
     "/portal/my-account",
   ]);
   const allowedSecretaireMedicalePaths = new Set([
@@ -269,9 +293,14 @@ export default function PortalLayout({ admin = false }) {
     "/portal/my-account",
   ]);
   const allowedRegulateurPaths = new Set(["/portal/amm", "/portal/liluvine"]);
-  const allowedEditeurVidalPaths = new Set(["/portal/vidal", "/portal/amm", "/portal/liluvine"]);
+  const allowedEditeurVidalPaths = new Set([
+    "/portal/vidal", "/portal/amm", "/portal/liluvine",
+    "/portal/vidal-fiche", "/portal/vidal-posologie",
+  ]);
   // Paths réservés à certains rôles métier (cachés pour les autres)
-  const restrictedVidalPaths = new Set(["/portal/vidal", "/portal/amm"]);
+  const restrictedVidalPaths = new Set([
+    "/portal/vidal", "/portal/amm", "/portal/vidal-fiche", "/portal/vidal-posologie",
+  ]);
   const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal;
   const baseLinks = isTranslator
     ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
@@ -283,6 +312,10 @@ export default function PortalLayout({ admin = false }) {
             // le module VIDAL n'est pas activé sur le tenant du médecin
             // (sinon 403 dead-end en cliquant).
             { to: "/portal/prescription-analysis", label: "Analyse prescription", icon: AlertTriangle, featureGate: "vidal_enabled" },
+            // Portage site-meetafrican — même accès VIDAL riche qu'un compte
+            // médecin à rôle système (demandé explicitement par l'utilisateur).
+            { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
+            { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
           ]
         : (isSecretaireMedicale
             ? [
@@ -662,6 +695,43 @@ export default function PortalLayout({ admin = false }) {
             </button>
           )}
         </div>
+
+        {/* Portage site-meetafrican — Réglages : thème (tous) + Notes VIDAL
+            admin (admin/superviseur uniquement). */}
+        <div className="px-3 py-2 mt-1 rounded-lg bg-white/5 ring-1 ring-white/10 space-y-1.5" data-testid="portal-ui-settings">
+          <p className="text-[10px] uppercase tracking-wider text-slate-400">Réglages</p>
+          <button
+            type="button"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+            className="w-full flex items-center justify-between text-xs text-slate-200 hover:text-white"
+            data-testid="toggle-theme"
+          >
+            <span className="inline-flex items-center gap-1.5">
+              {theme === "dark" ? <Moon className="h-3.5 w-3.5" /> : <Sun className="h-3.5 w-3.5" />}
+              Mode sombre
+            </span>
+            <span className={`inline-block w-8 h-[18px] rounded-full relative transition-colors ${theme === "dark" ? "bg-sawali-blue" : "bg-white/15"}`}>
+              <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${theme === "dark" ? "translate-x-[14px]" : ""}`} />
+            </span>
+          </button>
+          {isAdminOrSup && (
+            <button
+              type="button"
+              onClick={() => setVidalAdminNotes(!vidalAdminNotes)}
+              className="w-full flex items-center justify-between text-xs text-slate-200 hover:text-white"
+              data-testid="toggle-vidal-admin-notes"
+            >
+              <span className="inline-flex items-center gap-1.5">
+                <StickyNote className="h-3.5 w-3.5" />
+                Notes VIDAL (admin)
+              </span>
+              <span className={`inline-block w-8 h-[18px] rounded-full relative transition-colors ${vidalAdminNotes ? "bg-sawali-blue" : "bg-white/15"}`}>
+                <span className={`absolute top-[2px] left-[2px] w-[14px] h-[14px] rounded-full bg-white transition-transform ${vidalAdminNotes ? "translate-x-[14px]" : ""}`} />
+              </span>
+            </button>
+          )}
+        </div>
+
         <button
           onClick={() => { logout(); navigate("/"); }}
           className="sidebar-link w-full text-left mt-2"
@@ -675,7 +745,7 @@ export default function PortalLayout({ admin = false }) {
   );
 
   return (
-    <div className="h-screen bg-slate-50 flex overflow-hidden">
+    <div className="h-screen bg-slate-50 dark:bg-slate-950 flex overflow-hidden">
       {/* Desktop sidebar — full screen height, never moves; its own scroll
           when the menu is taller than the viewport. Using a non-sticky
           shell prevents the "pinned-then-truncated" bug some browsers
@@ -716,16 +786,16 @@ export default function PortalLayout({ admin = false }) {
       )}
 
       {/* Main column scrolls independently — keeps the sidebar perfectly stable. */}
-      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden">
+      <div className="flex-1 flex flex-col min-w-0 h-screen overflow-y-auto overflow-x-hidden dark:bg-slate-950">
         <DemoBanner />
         <IncidentBanner />
-        <header className="lg:hidden sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 h-14">
+        <header className="lg:hidden sticky top-0 z-40 bg-white dark:bg-slate-900 dark:border-slate-800 border-b flex items-center justify-between px-4 h-14">
           <button onClick={() => setOpen(true)} aria-label="Menu" data-testid="portal-menu-toggle">
             <Menu className="h-5 w-5" />
           </button>
           <div className="flex items-center gap-2">
             {admin ? <ShieldCheck className="h-4 w-4 text-sawali-blue" /> : <Mail className="h-4 w-4 text-sawali-blue" />}
-            <span className="font-display font-semibold text-sm">{admin ? "Admin SAWALI" : "Espace Loois"}</span>
+            <span className="font-display font-semibold text-sm dark:text-white">{admin ? "Admin SAWALI" : "Espace Loois"}</span>
           </div>
           <LanguageSelector compact />
         </header>

@@ -25007,6 +25007,11 @@ _attach_vidal(
 from routes.vidal_favorites import attach_vidal_favorites_routes as _attach_vidal_favorites  # noqa: E402
 _attach_vidal_favorites(api=api, db=db, get_current_user=get_current_user)
 
+# Portage site-meetafrican — Fiche produit VIDAL (voies + documents + vmp_id),
+# recherche structurée, équivalences, proxy documents et Posologie (expérimental).
+from routes.vidal_fiche import attach_vidal_fiche_routes as _attach_vidal_fiche  # noqa: E402
+_attach_vidal_fiche(api=api, db=db, get_current_user=get_current_user)
+
 # Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth2 + Posts API)
 from routes.linkedin import attach_linkedin_routes as _attach_linkedin  # noqa: E402
 _attach_linkedin(

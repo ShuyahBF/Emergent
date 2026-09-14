@@ -146,6 +146,9 @@ import Vidal from "@/pages/portal/Vidal";
 // Iter43-fix24az-ac — Page standalone d'analyse de prescription (médecin sidebar)
 import PrescriptionAnalysis from "@/pages/portal/PrescriptionAnalysis";
 import AmmEditorPage from "@/pages/portal/AmmEditor";
+// Portage site-meetafrican — Fiche produit VIDAL + Posologie
+import VidalFicheProduit from "@/pages/portal/VidalFicheProduit";
+import VidalPosologie from "@/pages/portal/VidalPosologie";
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -346,6 +349,9 @@ export default function App() {
             <Route path="prescription-analysis" element={<PrescriptionAnalysis />} />
             {/* Iter41 Phase 2 — Table AMM (numéros d'autorisation de mise sur le marché) */}
             <Route path="amm" element={<AmmEditorPage />} />
+            {/* Portage site-meetafrican — Fiche produit VIDAL + Posologie */}
+            <Route path="vidal-fiche" element={<VidalFicheProduit />} />
+            <Route path="vidal-posologie" element={<VidalPosologie />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />

@@ -9,20 +9,24 @@ import React, { useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { AlertTriangle, Loader2, Plus, X } from "lucide-react";
+import VidalMedicationSearch from "@/components/VidalMedicationSearch";
 
 export function PrescriptionAnalysisForm() {
   const [patient, setPatient] = useState({ birth_date: "", sex: "F", weight_kg: "" });
-  const [prescriptions, setPrescriptions] = useState([{ vidal_id: "", dose: "" }]);
+  // `query` = texte tapé dans la recherche (peut différer du nom retenu tant
+  // que rien n'est sélectionné) ; `vidal_id`/`label` = médicament réellement
+  // choisi dans la liste VIDAL — c'est `vidal_id` qui part vers le backend.
+  const [prescriptions, setPrescriptions] = useState([{ vidal_id: "", label: "", query: "", dose: "" }]);
   const [allergies, setAllergies] = useState("");
   const [pathologies, setPathologies] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [errorState, setErrorState] = useState(null);
 
-  const addRow = () => setPrescriptions((p) => [...p, { vidal_id: "", dose: "" }]);
+  const addRow = () => setPrescriptions((p) => [...p, { vidal_id: "", label: "", query: "", dose: "" }]);
   const removeRow = (idx) => setPrescriptions((p) => p.filter((_, i) => i !== idx));
-  const updateRow = (idx, k, v) => setPrescriptions((p) =>
-    p.map((row, i) => (i === idx ? { ...row, [k]: v } : row))
+  const updateRow = (idx, patch) => setPrescriptions((p) =>
+    p.map((row, i) => (i === idx ? { ...row, ...patch } : row))
   );
 
   const run = async () => {
@@ -40,7 +44,10 @@ export function PrescriptionAnalysisForm() {
           sex: patient.sex,
           weight_kg: patient.weight_kg ? parseFloat(patient.weight_kg) : null,
         },
-        prescriptions: prescriptions.filter((p) => p.vidal_id),
+        // Ne remonte que {vidal_id, dose} au backend — `label`/`query` sont
+        // uniquement l'état d'affichage de la recherche, pas des champs VIDAL
+        // (sinon ils finiraient tels quels dans le XML `<prescription>`).
+        prescriptions: prescriptions.filter((p) => p.vidal_id).map((p) => ({ vidal_id: p.vidal_id, dose: p.dose })),
         allergies: allergies.split(",").map((s) => s.trim()).filter(Boolean),
         pathologies: pathologies.split(",").map((s) => s.trim()).filter(Boolean),
       });
@@ -105,20 +112,26 @@ export function PrescriptionAnalysisForm() {
           Médicaments prescrits (ID VIDAL + posologie)
         </h4>
         {prescriptions.map((row, idx) => (
-          <div key={idx} className="grid sm:grid-cols-[1fr_2fr_auto] gap-2 mb-2">
-            <input
-              type="number"
-              placeholder="ID VIDAL"
-              value={row.vidal_id}
-              onChange={(e) => updateRow(idx, "vidal_id", parseInt(e.target.value) || "")}
-              className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300 font-mono"
-              data-testid={`rx-id-${idx}`}
-            />
+          <div key={idx} className="grid sm:grid-cols-[2fr_2fr_auto] gap-2 mb-2 items-start">
+            <div>
+              <VidalMedicationSearch
+                query={row.label ? row.label : row.query}
+                onQueryChange={(q) => updateRow(idx, { query: q, label: "", vidal_id: "" })}
+                onSelect={(item) => updateRow(idx, { vidal_id: item.vidal_id || "", label: item.title || "", query: "" })}
+                onClear={() => updateRow(idx, { query: "", label: "", vidal_id: "" })}
+                testId={`rx-med-search-${idx}`}
+              />
+              {row.vidal_id && (
+                <p className="text-[10px] text-slate-400 mt-0.5 font-mono" data-testid={`rx-id-${idx}`}>
+                  ID VIDAL : {row.vidal_id}
+                </p>
+              )}
+            </div>
             <input
               type="text"
               placeholder="Posologie (ex: 500 mg x 3/j pendant 7 jours)"
               value={row.dose}
-              onChange={(e) => updateRow(idx, "dose", e.target.value)}
+              onChange={(e) => updateRow(idx, { dose: e.target.value })}
               className="text-xs px-2 py-1.5 rounded ring-1 ring-slate-300"
               data-testid={`rx-dose-${idx}`}
             />

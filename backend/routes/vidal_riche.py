@@ -226,6 +226,7 @@ async def build_equivalents_reply(vidal_call_fn, cfg, vmp_id: str, exclude_produ
 
 async def build_riche_command_reply(
     db, command_args: str, phone_digits: str, contact: Optional[Dict[str, Any]],
+    send_wa_fn=None,
 ) -> Optional[Dict[str, Any]]:
     """Point d'entrée appelé par `liluvine_wa_autoreply.py` pour `!doc`/`!rech`.
 
@@ -233,6 +234,13 @@ async def build_riche_command_reply(
     l'admin (l'appelant peut alors laisser le message suivre son cours
     normal), sinon un dict `{text, action_id, denied, vmp_id, product_id}`
     au même format que `_build_vidal_reply` (actions VIDAL génériques).
+
+    `send_wa_fn` : callable(to_e164, text) — transmis par l'appelant
+    (`liluvine_wa_autoreply.autoreply_to_inbound`, qui le reçoit déjà en
+    paramètre) pour que la passerelle essai/quota/abonnement
+    (`liluvine_vidal_subscription.check_access`) puisse notifier l'Admin
+    par WhatsApp quand un numéro non autorisé se présente. Optionnel :
+    si absent, la notification Admin est simplement sautée (pas d'échec).
     """
     settings = await get_riche_settings(db)
     if not settings["enabled"]:
@@ -251,16 +259,32 @@ async def build_riche_command_reply(
             "action_id": "doc_rech", "denied": False, "vmp_id": None, "product_id": None,
         }
 
-    if not contact_is_riche(contact):
-        quota = await check_and_increment_simple_quota(db, phone_digits, settings["daily_quota_simple"])
-        if quota["blocked"]:
-            return {
-                "text": (
-                    f"🔒 Quota quotidien atteint ({quota['limit']} recherches/jour en accès simple).\n"
-                    "Réessayez demain, ou demandez le passage en accès VIDAL riche (illimité)."
-                ),
-                "action_id": "doc_rech", "denied": True, "vmp_id": None, "product_id": None,
-            }
+    # Passerelle essai/quota/abonnement Liluvine VIDAL (R2) — remplace
+    # l'ancien mécanisme simple ci-dessous, dont la fonction reste conservée
+    # (check_and_increment_simple_quota) mais n'est plus appelée par défaut,
+    # au cas où l'admin voudrait y revenir. `contact_is_riche` reste le
+    # court-circuit "accès illimité" appliqué EN AMONT, dans `check_access`
+    # lui-même.
+    from routes.liluvine_vidal_subscription import check_access
+    from routes.liluvine_escalation import notify_admin as _notify_admin
+
+    async def _notify_admin_bound(**kwargs):
+        return await _notify_admin(db, **kwargs)
+
+    async def _noop_send_wa(_to, _text):
+        return {"ok": False, "error": "send_wa_fn not provided"}
+
+    access = await check_access(
+        phone_digits=phone_digits,
+        contact=contact,
+        notify_admin_fn=_notify_admin_bound,
+        send_wa_fn=send_wa_fn or _noop_send_wa,
+    )
+    if not access["allowed"]:
+        return {
+            "text": access.get("reply_override") or "Accès Liluvine VIDAL non disponible pour le moment.",
+            "action_id": "doc_rech", "denied": True, "vmp_id": None, "product_id": None,
+        }
 
     from routes.vidal import _vidal_call
     result = await build_doc_reply(db, _vidal_call, cfg, command_args)

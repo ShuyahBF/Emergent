@@ -25012,6 +25012,16 @@ _attach_vidal_favorites(api=api, db=db, get_current_user=get_current_user)
 from routes.vidal_fiche import attach_vidal_fiche_routes as _attach_vidal_fiche  # noqa: E402
 _attach_vidal_fiche(api=api, db=db, get_current_user=get_current_user)
 
+# Portage site-meetafrican — cache local du référentiel produits VIDAL :
+# boucle de fond qui relance une synchronisation complète quand la
+# fréquence configurée par l'admin est écoulée (désactivée par défaut,
+# voir routes/vidal_sync.py::get_sync_config).
+from routes.vidal_sync import sync_scheduler_loop as _vidal_sync_scheduler_loop  # noqa: E402
+
+@app.on_event("startup")
+async def _start_vidal_sync_scheduler():
+    asyncio.create_task(_vidal_sync_scheduler_loop(db))
+
 # Iter43-fix24au (2026-02-26) — Intégration LinkedIn (OAuth2 + Posts API)
 from routes.linkedin import attach_linkedin_routes as _attach_linkedin  # noqa: E402
 _attach_linkedin(

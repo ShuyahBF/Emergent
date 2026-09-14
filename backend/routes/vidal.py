@@ -1222,4 +1222,16 @@ def attach_vidal_routes(*, api, db, get_current_user, get_current_admin):
     from routes.liluvine_agents import attach_liluvine_agents_routes
     attach_liluvine_agents_routes(api=api, db=db, get_current_admin=get_current_admin)
 
+    # Abonnements Liluvine VIDAL (essai/quota/formules, stockage R2 dédié).
+    from routes.liluvine_vidal_subscription import attach_liluvine_vidal_subscription_routes
+    attach_liluvine_vidal_subscription_routes(api=api, get_current_admin=get_current_admin)
+
+    # Cache local du référentiel produits VIDAL (recherche sans appel réseau).
+    from routes.vidal_sync import attach_vidal_sync_routes
+    attach_vidal_sync_routes(api=api, db=db, get_current_admin=get_current_admin)
+
+    # Journal des appels API VIDAL réels — page "Suivi des logs".
+    from routes.vidal_audit import attach_vidal_audit_routes
+    attach_vidal_audit_routes(api=api, db=db, get_current_admin=get_current_admin)
+
     logger.info("[vidal] routes mounted under /api/vidal/* + /api/admin/vidal/*")

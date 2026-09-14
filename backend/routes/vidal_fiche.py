@@ -33,7 +33,9 @@ besoin :
 """
 from __future__ import annotations
 
+import asyncio
 import re
+import time
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
@@ -131,6 +133,33 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         _quota_check_and_increment, _cache_key, _cache_get, _cache_set,
     )
     from routes.vidal_riche import _parse_atom_entries
+    from routes.vidal_sync import get_sync_config, has_cached_referentiel, search_cached_referentiel
+    from routes.vidal_audit import log_call
+
+    async def _call_and_log(cfg, method, path, params, user_email):
+        """Wrapper autour de `_vidal_call` qui journalise l'appel (Suivi des
+        logs) sans jamais bloquer ni faire échouer la requête réelle : la
+        journalisation part en tâche de fond après la mesure du temps écoulé.
+        Limité aux endpoints de ce lot — voir vidal_audit.py."""
+        started = time.monotonic()
+        error: Optional[str] = None
+        try:
+            data = await _vidal_call(cfg, method, path, params=params)
+            status = "error" if (data or {}).get("_error") else "ok"
+            if status == "error":
+                error = ((data or {}).get("_error") or {}).get("message")
+        except Exception as exc:  # noqa: BLE001
+            status, error, data = "exception", str(exc)[:300], None
+            asyncio.create_task(log_call(
+                db, mode=cfg.get("mode", "?"), method=method, path=path, status=status,
+                elapsed_ms=int((time.monotonic() - started) * 1000), user_email=user_email, error=error,
+            ))
+            raise
+        asyncio.create_task(log_call(
+            db, mode=cfg.get("mode", "?"), method=method, path=path, status=status,
+            elapsed_ms=int((time.monotonic() - started) * 1000), user_email=user_email, error=error,
+        ))
+        return data
 
     # ---- Recherche structurée (title/vidal_id/vmp_id au lieu de l'Atom brut) ----
     @api.get("/vidal/search/parsed", tags=["VIDAL"])
@@ -141,6 +170,15 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
     ):
         cfg = await _ensure_tenant_can_access(db, user)
         _ensure_active(cfg)
+        # Portage site-meetafrican — en mode "cache" (référentiel produits
+        # synchronisé, voir vidal_sync.py) : recherche locale Mongo, aucun
+        # appel réseau ni quota consommé. Repli automatique sur le temps réel
+        # si le mode est "temps_reel" OU si le cache n'a encore jamais été
+        # synchronisé — jamais de liste vide faute de cache peuplé.
+        sync_config = await get_sync_config(db)
+        if sync_config.get("mode") == "cache" and await has_cached_referentiel(db):
+            results = await search_cached_referentiel(db, q)
+            return {"query": q, "results": results, "source": "cache"}
         await _quota_check_and_increment(db, user["id"], cfg)
         params: Dict[str, Any] = {"q": q}
         if filter:
@@ -149,10 +187,10 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         cached = await _cache_get(db, ckey, cfg["cache_ttl_hours"])
         data = cached
         if data is None:
-            data = await _vidal_call(cfg, "GET", "/products", params=params)
+            data = await _call_and_log(cfg, "GET", "/products", params, user.get("email"))
             await _cache_set(db, ckey, data)
         results = _parse_atom_entries((data or {}).get("raw"))
-        return {"query": q, "results": results}
+        return {"query": q, "results": results, "source": "temps_reel"}
 
     # ---- Fiche produit : voies d'administration + documents + vmp_id ----
     @api.get("/vidal/product/{product_id}/detail", tags=["VIDAL"])
@@ -166,7 +204,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         cached = await _cache_get(db, ckey, cfg["cache_ttl_hours"])
         data = cached
         if data is None:
-            data = await _vidal_call(cfg, "GET", path, params=params)
+            data = await _call_and_log(cfg, "GET", path, params, user.get("email"))
             await _cache_set(db, ckey, data)
         return parse_product_detail((data or {}).get("raw"))
 
@@ -186,7 +224,7 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
         cached = await _cache_get(db, ckey, cfg["cache_ttl_hours"])
         data = cached
         if data is None:
-            data = await _vidal_call(cfg, "GET", path, params=params)
+            data = await _call_and_log(cfg, "GET", path, params, user.get("email"))
             await _cache_set(db, ckey, data)
         equivalents = _parse_atom_entries((data or {}).get("raw"))
         if exclude_product_id:
@@ -246,5 +284,6 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
             params["route"] = route
         if indication:
             params["indication"] = indication
-        data = await _vidal_call(cfg, "GET", f"/product/{product_id}/posology-descriptors", params=params)
+        path = f"/product/{product_id}/posology-descriptors"
+        data = await _call_and_log(cfg, "GET", path, params, user.get("email"))
         return {"experimental": True, "data": data}

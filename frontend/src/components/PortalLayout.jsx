@@ -149,6 +149,8 @@ const adminLinks = [
   { to: "/admin/handler-suggestions", label: "Handlers IA", icon: Sparkles, adminOnly: true },
   { to: "/admin/bird-cost", label: "Coût SMS Bird", icon: CircleDollarSign, adminOnly: true },
   { to: "/admin/story-studio", label: "Story Studio (AI)", icon: Sparkles },
+  // Portage site-meetafrican — Suivi des logs VIDAL (appels API réels + sync référentiel)
+  { to: "/admin/vidal-logs", label: "Suivi des logs VIDAL", icon: History, adminOrSup: true },
   { to: "/admin/settings", label: "Paramètres", icon: Settings, module: "admin_profile_requests", noMarkSeen: true },
 ];
 

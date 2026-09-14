@@ -329,6 +329,7 @@ async def autoreply_to_inbound(
                     from routes.vidal_riche import build_riche_command_reply
                     vidal_res = await build_riche_command_reply(
                         db, vidal_cmd_args, phone_digits, contact,
+                        send_wa_fn=wa_send_text,
                     )
                 except Exception:  # noqa: BLE001
                     logger.exception("[wa_autoreply][vidal_riche] failed for !%s", vidal_cmd_token)

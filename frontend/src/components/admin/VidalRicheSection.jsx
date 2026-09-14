@@ -60,9 +60,14 @@ export default function VidalRicheSection() {
           bouton <strong>« Équivalences »</strong> sur WhatsApp.
         </p>
         <p className="text-xs mt-1">
-          Niveau d&apos;accès par contact réglable sur sa fiche (<em>Niveau VIDAL riche</em>) : accès{" "}
-          <strong>riche</strong> = illimité (ex. médecins abonnés), accès <strong>simple</strong> = quota
-          quotidien ci-dessous (ex. infirmiers, étudiants), remis à zéro chaque jour.
+          Niveau d&apos;accès par contact réglable sur sa fiche (<em>Niveau VIDAL riche</em>) :{" "}
+          <strong>riche</strong> = accès illimité, contourne entièrement la passerelle essai/quota/abonnement
+          ci-dessous (ex. médecins VIP, comptes de test internes).
+        </p>
+        <p className="text-xs mt-1 text-amber-700">
+          ⚠️ Le quota quotidien ci-dessous n&apos;est plus utilisé pour les contacts non « riche » — c&apos;est
+          désormais la passerelle essai/quota/abonnement (rubrique <strong>S058f — Abonnements Liluvine VIDAL</strong>,
+          ci-dessous) qui gère leur accès. Ce champ reste modifiable mais sans effet, conservé pour compatibilité.
         </p>
       </div>
 

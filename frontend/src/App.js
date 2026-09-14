@@ -77,6 +77,7 @@ import AdminInterventions from "@/pages/admin/AdminInterventions";
 import AdminDocuments from "@/pages/admin/AdminDocuments";
 import AdminContents from "@/pages/admin/AdminContents";
 import AdminSettings from "@/pages/admin/AdminSettings";
+import VidalApiLogs from "@/pages/admin/VidalApiLogs";
 import AdminContacts from "@/pages/admin/AdminContacts";
 import AdminTrackedUsers from "@/pages/admin/AdminTrackedUsers";
 import AdminTestimonials from "@/pages/admin/AdminTestimonials";
@@ -419,6 +420,8 @@ export default function App() {
             <Route path="handler-suggestions" element={<AdminHandlerSuggestions />} />
             <Route path="bird-cost" element={<AdminBirdCost />} />
             <Route path="story-studio" element={<StoryStudio />} />
+            {/* Portage site-meetafrican — Suivi des logs VIDAL */}
+            <Route path="vidal-logs" element={<VidalApiLogs />} />
           </Route>
 
           {/* Iter43-fix24r (2026-06) — Route Officines Registry isolée, autorise

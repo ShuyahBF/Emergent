@@ -18,6 +18,8 @@ import LiluvineSystemPromptSection from "@/pages/admin/sections/LiluvineSystemPr
 import VidalActionsSection from "@/components/admin/VidalActionsSection";
 import VidalRicheSection from "@/components/admin/VidalRicheSection";
 import LiluvineAgentsSection from "@/components/admin/LiluvineAgentsSection";
+import LiluvineVidalSubscriptionSection from "@/components/admin/LiluvineVidalSubscriptionSection";
+import VidalReferentielSyncSection from "@/components/admin/VidalReferentielSyncSection";
 import GardeReplyTemplateSection from "@/pages/admin/sections/GardeReplyTemplateSection";
 import GardePublicPageSection from "@/pages/admin/sections/GardePublicPageSection";
 import IntegrationHealthSection from "@/pages/admin/sections/IntegrationHealthSection";
@@ -853,6 +855,16 @@ export default function AdminSettings() {
       {/* Agents Liluvine — signature nominative des réponses auto */}
       <Filterable title="🧑‍💼 S058e — Agents Liluvine (signature des réponses auto)" anchorId="s-s058e-liluvine-agents">
         <LiluvineAgentsSection />
+      </Filterable>
+
+      {/* Portage site-meetafrican — Abonnements Liluvine VIDAL (essai/quota/formules, R2) */}
+      <Filterable title="📱 S058f — Abonnements Liluvine VIDAL (essai, quota, formules)" anchorId="s-s058f-liluvine-vidal-subscription">
+        <LiluvineVidalSubscriptionSection />
+      </Filterable>
+
+      {/* Portage site-meetafrican — Cache local du référentiel produits VIDAL */}
+      <Filterable title="🗂️ S058g — Référentiel produits VIDAL (cache local)" anchorId="s-s058g-vidal-referentiel-sync">
+        <VidalReferentielSyncSection />
       </Filterable>
 
       {/* Iter43-fix24ai (2026-06-17) — Template configurable de la réponse `!garde` */}

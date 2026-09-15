@@ -5,6 +5,7 @@
 // backend/routes/vidal_fiche.py (aucune donnée simulée, contrairement à la
 // maquette d'origine).
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -18,6 +19,7 @@ const BACKEND = process.env.REACT_APP_BACKEND_URL || "";
 
 export default function VidalFicheProduit() {
   const { vidalAdminNotes } = useVidalUiSettings();
+  const navigate = useNavigate();
   const [query, setQuery] = useState("");
   const [product, setProduct] = useState(null); // {vidal_id, title}
   const [detail, setDetail] = useState(null); // {name, vmp_id, routes, documents}
@@ -57,6 +59,25 @@ export default function VidalFicheProduit() {
 
   const documentHref = (doc) =>
     doc.is_html ? doc.url : `${BACKEND}/api/vidal/documents/proxy?url=${encodeURIComponent(doc.url || "")}`;
+
+  // Lot 15 — un document PDF réel (RCP, monographie…) s'ouvrait dans un
+  // nouvel onglet via le lecteur PDF natif du navigateur : entièrement
+  // copiable/téléchargeable. Remonté par l'utilisateur (capture + vidéo) ;
+  // il a signalé que le lecteur interne non copiable existe déjà et sert à
+  // "/portal/brochures" (PdfViewer.jsx : rendu par canvas, clic droit et
+  // Ctrl+S bloqués pour les rôles non Admin/Superviseur). On réutilise EXACTEMENT
+  // ce même lecteur ici plutôt que de laisser le navigateur ouvrir le PDF
+  // brut. (Les pages VIDAL en HTML — is_html — ne sont pas des PDF et ne
+  // peuvent pas passer par ce lecteur ; elles restent ouvertes normalement.)
+  const openDocument = (doc) => {
+    if (doc.is_html) {
+      window.open(doc.url, "_blank", "noopener,noreferrer");
+      return;
+    }
+    const src = documentHref(doc);
+    const title = doc.title || doc.item_type;
+    navigate(`/portal/brochures?src=${encodeURIComponent(src)}&title=${encodeURIComponent(title)}&kind=pdf`);
+  };
 
   return (
     <div className="space-y-4" data-testid="vidal-fiche-page">
@@ -162,17 +183,17 @@ export default function VidalFicheProduit() {
                 <ul className="space-y-1.5" data-testid="fiche-documents-list">
                   {detail.documents.map((doc) => (
                     <li key={doc.item_type} className="text-xs">
-                      <a
-                        href={documentHref(doc)}
-                        target="_blank"
-                        rel="noreferrer"
+                      <button
+                        type="button"
+                        onClick={() => openDocument(doc)}
                         className="inline-flex items-center gap-1.5 text-primary hover:underline"
+                        data-testid={`fiche-document-${doc.item_type}`}
                       >
                         {doc.title || doc.item_type}
                         <ExternalLink className="h-3 w-3" />
-                      </a>
+                      </button>
                       <Badge variant={doc.is_html ? "secondary" : "outline"} className="ml-2 text-[10px]">
-                        {doc.is_html ? "VIDAL (intégré)" : "Externe"}
+                        {doc.is_html ? "VIDAL (intégré)" : "Lecteur interne"}
                       </Badge>
                     </li>
                   ))}

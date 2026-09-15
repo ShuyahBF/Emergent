@@ -59,6 +59,16 @@ function computeBmi(weight, height) {
   const m = h / 100;
   return w / (m * m);
 }
+// Lot 15 — catégories IMC adulte de l'OMS (seuils officiels, indicatif —
+// jamais transmis à VIDAL, jamais présenté comme un diagnostic).
+function bmiCategory(bmi) {
+  if (bmi < 18.5) return "Insuffisance pondérale";
+  if (bmi < 25) return "Normal";
+  if (bmi < 30) return "Surpoids";
+  if (bmi < 35) return "Obésité (classe I)";
+  if (bmi < 40) return "Obésité (classe II)";
+  return "Obésité (classe III)";
+}
 
 function emptyLine() {
   return {
@@ -661,7 +671,10 @@ export default function VidalSecurisation() {
           </div>
           {bmi != null && (
             <p className="text-xs text-muted-foreground" data-testid="sec-bmi">
-              IMC (indicatif, non transmis à VIDAL) : <strong>{bmi.toFixed(1)} kg/m²</strong>
+              IMC (indicatif, non transmis à VIDAL) : <strong>{bmi.toFixed(2)} kg/m²</strong>
+              {" — "}
+              <span className="font-medium text-foreground">{bmiCategory(bmi)}</span>
+              {" "}(seuils OMS)
             </p>
           )}
           <div className="grid sm:grid-cols-2 gap-3">

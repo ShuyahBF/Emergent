@@ -43,6 +43,30 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
+
+# 2026-09-15 fix — Modèle Pydantic défini au scope MODULE (et pas dans la
+# closure `attach_vidal_securisation_routes`) : combiné à `from __future__
+# import annotations`, une classe locale devient une ForwardRef que Pydantic v2
+# ne peut résoudre (elle n'existe pas dans les globales du module), d'où le
+# 500 « PydanticUserError: class-not-fully-defined » sur /vidal/securisation/analyze.
+class SecurisationPayload(BaseModel):
+    patient: Dict[str, Any] = {}
+    current_treatments: List[Dict[str, Any]] = []
+    new_prescription_lines: List[Dict[str, Any]] = []
+    alert_types: Optional[List[str]] = None
+    # Identifiant du patient enregistré (bouton "Enregistrer"/"Historique",
+    # voir routes/vidal_patients.py) — optionnel : une consultation non
+    # enregistrée n'a pas de patient_id, et se comporte exactement comme
+    # avant (aucun historique conservé).
+    patient_id: Optional[str] = None
+    # Affichage uniquement (usage interne, jamais transmis à VIDAL) — pour
+    # que l'historique des sécurisations (toutes consultations, avec ou
+    # sans patient_id) affiche un nom plutôt qu'une ligne anonyme.
+    patient_name: Optional[str] = None
+    patient_whatsapp: Optional[str] = None
+
 # 18 types d'alerte réels du manuel VIDAL (chip "Alertes à vérifier" de la
 # maquette) — les 4 premiers sont cochés par défaut côté UI.
 ALERT_TYPES = [
@@ -259,23 +283,6 @@ def parse_alerts_response(raw: Optional[str]) -> Dict[str, Any]:
 
 def attach_vidal_securisation_routes(*, api, db, get_current_user):
     from fastapi import Body, Depends, HTTPException, Query
-    from pydantic import BaseModel
-
-    class SecurisationPayload(BaseModel):
-        patient: Dict[str, Any] = {}
-        current_treatments: List[Dict[str, Any]] = []
-        new_prescription_lines: List[Dict[str, Any]] = []
-        alert_types: Optional[List[str]] = None
-        # Identifiant du patient enregistré (bouton "Enregistrer"/"Historique",
-        # voir routes/vidal_patients.py) — optionnel : une consultation non
-        # enregistrée n'a pas de patient_id, et se comporte exactement comme
-        # avant (aucun historique conservé).
-        patient_id: Optional[str] = None
-        # Affichage uniquement (usage interne, jamais transmis à VIDAL) — pour
-        # que l'historique des sécurisations (toutes consultations, avec ou
-        # sans patient_id) affiche un nom plutôt qu'une ligne anonyme.
-        patient_name: Optional[str] = None
-        patient_whatsapp: Optional[str] = None
 
     # ---- Recherche référentielle allergies/pathologies/molécules (NON CONFIRMÉE) ----
     @api.get("/vidal/referential/search", tags=["VIDAL"])

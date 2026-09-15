@@ -18,6 +18,8 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 
 def _now() -> datetime:
     return datetime.now(timezone.utc)
@@ -30,26 +32,31 @@ def _serialize(doc: Dict[str, Any]) -> Dict[str, Any]:
     return doc
 
 
+# 2026-09-15 fix — Modèles Pydantic définis au scope MODULE (et pas dans la
+# closure `attach_vidal_patients_routes`) : combiné à `from __future__ import
+# annotations`, une classe locale devient une ForwardRef que Pydantic v2 ne
+# peut résoudre, d'où le 500 « PydanticUserError » sur POST /vidal/patients.
+class PatientProfilePayload(BaseModel):
+    dateOfBirth: Optional[str] = None
+    gender: Optional[str] = None
+    height: Optional[str] = None
+    weight: Optional[str] = None
+    creatinine: Optional[str] = None
+    hepaticInsufficiency: Optional[str] = None
+    allergies: List[Dict[str, Any]] = []
+    pathologies: List[Dict[str, Any]] = []
+    molecules: List[Dict[str, Any]] = []
+
+
+class SavePatientPayload(BaseModel):
+    patient_id: Optional[str] = None
+    whatsapp_number: Optional[str] = None
+    name: Optional[str] = None
+    patient: PatientProfilePayload = PatientProfilePayload()
+
+
 def attach_vidal_patients_routes(*, api, db, get_current_user):
     from fastapi import Body, Depends, HTTPException, Query
-    from pydantic import BaseModel
-
-    class PatientProfilePayload(BaseModel):
-        dateOfBirth: Optional[str] = None
-        gender: Optional[str] = None
-        height: Optional[str] = None
-        weight: Optional[str] = None
-        creatinine: Optional[str] = None
-        hepaticInsufficiency: Optional[str] = None
-        allergies: List[Dict[str, Any]] = []
-        pathologies: List[Dict[str, Any]] = []
-        molecules: List[Dict[str, Any]] = []
-
-    class SavePatientPayload(BaseModel):
-        patient_id: Optional[str] = None
-        whatsapp_number: Optional[str] = None
-        name: Optional[str] = None
-        patient: PatientProfilePayload = PatientProfilePayload()
 
     @api.post("/vidal/patients", tags=["VIDAL"])
     async def save_patient(payload: SavePatientPayload = Body(...), user: dict = Depends(get_current_user)):

@@ -30,7 +30,38 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from pydantic import BaseModel
+
 logger = logging.getLogger("sawali.vidal.ordonnance")
+
+# 2026-09-15 fix (même cause que le hotfix appliqué à vidal_securisation.py/
+# vidal_patients.py — "Impossible de générer l'ordonnance") — ces modèles
+# DOIVENT vivre au scope module, pas dans une closure de
+# attach_vidal_ordonnance_routes. Combiné à `from __future__ import
+# annotations` en tête de fichier, une classe Pydantic définie dans une
+# fonction devient une ForwardRef que Pydantic v2 ne résout jamais depuis
+# une closure (`PydanticUserError: class-not-fully-defined`), d'où un 500
+# sur CHAQUE POST /vidal/ordonnance/generate.
+class OrdonnanceLinePayload(BaseModel):
+    label: Optional[str] = None
+    dose: Optional[str] = None
+    unit: Optional[str] = None
+    duration: Optional[str] = None
+    durationType: Optional[str] = None
+    frequency: Optional[str] = None
+    route: Optional[str] = None
+
+
+class OrdonnanceGeneratePayload(BaseModel):
+    patient_name: Optional[str] = None
+    patient_whatsapp: Optional[str] = None
+    patient: Dict[str, Any] = {}
+    lines: List[OrdonnanceLinePayload] = []
+    alerts_summary: List[Dict[str, Any]] = []
+
+
+class SendWhatsappPayload(BaseModel):
+    phone: Optional[str] = None  # écrase le n° enregistré sur l'ordonnance, si fourni
 
 
 def _now() -> datetime:
@@ -156,23 +187,6 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
     Optionnelles : sans elles, "Envoi WA" renvoie une 503 explicite plutôt
     que de planter — même règle que pour les autres modules VIDAL."""
     from fastapi import Body, Depends, HTTPException, Response
-    from pydantic import BaseModel
-
-    class OrdonnanceLinePayload(BaseModel):
-        label: Optional[str] = None
-        dose: Optional[str] = None
-        unit: Optional[str] = None
-        duration: Optional[str] = None
-        durationType: Optional[str] = None
-        frequency: Optional[str] = None
-        route: Optional[str] = None
-
-    class OrdonnanceGeneratePayload(BaseModel):
-        patient_name: Optional[str] = None
-        patient_whatsapp: Optional[str] = None
-        patient: Dict[str, Any] = {}
-        lines: List[OrdonnanceLinePayload] = []
-        alerts_summary: List[Dict[str, Any]] = []
 
     def _public_base_url() -> str:
         import os
@@ -264,9 +278,6 @@ def attach_vidal_ordonnance_routes(*, api, db, get_current_user, wa_send_media=N
                 "Cache-Control": "private, max-age=300",
             },
         )
-
-    class SendWhatsappPayload(BaseModel):
-        phone: Optional[str] = None  # écrase le n° enregistré sur l'ordonnance, si fourni
 
     @api.post("/vidal/ordonnance/{ordonnance_id}/send-whatsapp", tags=["VIDAL"])
     async def send_ordonnance_whatsapp(

@@ -70,6 +70,25 @@ def _hour_in_range(now_h: int, open_h: int, close_h: int) -> bool:
     return now_h >= open_h or now_h < close_h  # wraps midnight
 
 
+def _in_business_window(business_days: Any, open_h: int, close_h: int) -> bool:
+    """Jour ouvré (business_days, liste d'entiers 0=lundi comme
+    settings.global.business_days) ET heure ouvrée (_hour_in_range).
+
+    Lot Liluvine (2026-09) — corrige un gap trouvé à l'exploration : le
+    calendrier des heures ouvrées existant a AUSSI une notion de jours
+    (business_days), mais le mode "business_hours"/"outside_hours" de
+    l'auto-réponse WA ne vérifiait jusqu'ici QUE l'heure (UTC), jamais le
+    jour de la semaine — un tenant en "business_hours" recevait donc des
+    réponses automatiques le week-end dès lors que l'heure UTC tombait
+    dans la plage horaire configurée."""
+    if not isinstance(business_days, list) or not business_days:
+        business_days = [0, 1, 2, 3, 4]  # défaut lundi-vendredi, comme server.py
+    now_utc = datetime.now(timezone.utc)
+    if now_utc.weekday() not in business_days:
+        return False
+    return _hour_in_range(now_utc.hour, open_h, close_h)
+
+
 async def should_autoreply(
     db, *, settings: Dict[str, Any], phone_digits: str, text: str, contact: Optional[Dict[str, Any]]
 ) -> Dict[str, Any]:
@@ -92,8 +111,9 @@ async def should_autoreply(
         try:
             open_h = int(str(settings.get("business_open_time") or "09:00").split(":", 1)[0])
             close_h = int(str(settings.get("business_close_time") or "18:00").split(":", 1)[0])
-            now_h = datetime.now(timezone.utc).hour
-            in_hours = _hour_in_range(now_h, open_h, close_h)
+            # Lot Liluvine (2026-09) — vérifie désormais aussi business_days
+            # (voir _in_business_window), pas seulement l'heure.
+            in_hours = _in_business_window(settings.get("business_days"), open_h, close_h)
             if schedule == "business_hours" and not in_hours:
                 return {"ok": False, "reason": "outside_business_hours"}
             if schedule == "outside_hours" and in_hours:
@@ -184,6 +204,33 @@ def _fill_placeholders(template: str, **values: Any) -> str:
     for key, val in values.items():
         out = out.replace("{" + key + "}", str(val if val is not None else ""))
     return out
+
+
+def _tenant_effective_access_mode(tenant_doc: Dict[str, Any], settings_doc: Dict[str, Any]) -> Optional[str]:
+    """Point 4 — Ouvert (24/7) vs Restreint (jours+heures ouvrées uniquement).
+
+    Le seuil de montant de contrat (contract_min_amount_full_access, défaut
+    65 000 FCFA) force "restricted" quel que soit le choix manuel de l'admin.
+    Sinon on retourne le mode explicite du tenant s'il est défini, ou None
+    (= pas de règle spécifique, on s'en remet entièrement à la fenêtre
+    globale liluvine_wa_autoreply_schedule déjà appliquée dans should_autoreply).
+    """
+    threshold = settings_doc.get("contract_min_amount_full_access")
+    try:
+        threshold = float(threshold) if threshold not in (None, "") else 65000.0
+    except (TypeError, ValueError):
+        threshold = 65000.0
+    amount = tenant_doc.get("contract_amount")
+    try:
+        amount = float(amount) if amount not in (None, "") else None
+    except (TypeError, ValueError):
+        amount = None
+    if amount is not None and amount < threshold:
+        return "restricted"
+    mode = (tenant_doc.get("contract_access_mode") or "").strip().lower()
+    if mode in ("open", "restricted"):
+        return mode
+    return None
 
 
 async def autoreply_to_inbound(
@@ -743,6 +790,48 @@ async def autoreply_to_inbound(
             except Exception:  # noqa: BLE001
                 logger.exception("[wa_autoreply] échec notification contrat invalide vers %s", dm_phone)
         return {"ok": False, "reason": "contract_invalid", "notified_decision_makers": notified}
+
+    # Lot Liluvine (2026-09, point 4) — contrat valable mais accès "restreint"
+    # (montant de contrat sous le seuil, ou mode explicitement "restricted") :
+    # hors jours/heures ouvrées, on notifie les décisionnaires au lieu de
+    # répondre normalement.
+    access_mode = _tenant_effective_access_mode(user_doc, settings_doc)
+    if access_mode == "restricted":
+        try:
+            open_h = int(str(settings_doc.get("business_open_time") or "09:00").split(":", 1)[0])
+            close_h = int(str(settings_doc.get("business_close_time") or "18:00").split(":", 1)[0])
+            in_hours = _in_business_window(settings_doc.get("business_days"), open_h, close_h)
+        except Exception:
+            in_hours = True  # fail-open : erreur de parsing => ne pas bloquer
+        if not in_hours:
+            decision_makers = await _find_decision_maker_contacts(db, scope_uid)
+            notified = 0
+            if decision_makers:
+                template = (
+                    settings_doc.get("liluvine_access_restricted_message")
+                    or "Bonjour, les réponses automatiques Liluvine pour {client_name} "
+                    "sont disponibles uniquement pendant les heures/jours ouvrés avec "
+                    "votre formule actuelle. Un conseiller vous répondra dès la reprise."
+                )
+                message = _fill_placeholders(
+                    template,
+                    client_name=user_doc.get("company") or user_doc.get("full_name") or "votre société",
+                )
+                for dm in decision_makers:
+                    dm_phone = _digits(dm.get("whatsapp") or dm.get("phone") or "")
+                    if not dm_phone:
+                        continue
+                    try:
+                        await wa_send_text(dm_phone, message)
+                        notified += 1
+                    except Exception:  # noqa: BLE001
+                        logger.exception("[wa_autoreply] échec notification accès restreint vers %s", dm_phone)
+            else:
+                logger.warning(
+                    "[wa_autoreply] accès restreint hors heures pour tenant %s mais aucun contact décisionnaire",
+                    scope_uid,
+                )
+            return {"ok": False, "reason": "access_restricted_outside_hours", "notified_decision_makers": notified}
 
     ctx = await _fetch_context_snippets(db, user_doc, text)
     # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…

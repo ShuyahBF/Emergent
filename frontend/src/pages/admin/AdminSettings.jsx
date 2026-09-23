@@ -925,6 +925,39 @@ export default function AdminSettings() {
             data-testid="liluvine-contract-invalid-message"
           />
         </Section>
+
+        {/* Lot Liluvine (2026-09, point 4) — Accès Ouvert/Restreint par contrat */}
+        <Section icon={ShieldCheck} title="Accès restreint hors heures ouvrées — seuil & message">
+          <p className="text-xs text-slate-500">
+            Pour un client dont le contrat est valable mais dont l'accès est configuré en
+            « Restreint » (voir la fiche client, section Contrat), ou dont le montant de contrat
+            mensuel est sous le seuil ci-dessous, Liluvine ne répond automatiquement sur WhatsApp
+            que pendant les jours et heures ouvrées (calendrier global). En dehors de cette
+            fenêtre, ce message est envoyé aux contacts décisionnaires à la place d'une réponse IA.
+            Variable disponible : {`{client_name}`}.
+          </p>
+          <div className="mt-2">
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+              Seuil de montant de contrat (FCFA) — en dessous, accès forcé en Restreint
+            </label>
+            <input
+              type="number"
+              value={s.contract_min_amount_full_access ?? ""}
+              onChange={(e) => upd("contract_min_amount_full_access", e.target.value)}
+              placeholder="65000"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="contract-min-amount-full-access"
+            />
+          </div>
+          <textarea
+            value={s.liluvine_access_restricted_message || ""}
+            onChange={(e) => upd("liluvine_access_restricted_message", e.target.value)}
+            rows={4}
+            placeholder="Bonjour, les réponses automatiques Liluvine pour {client_name} sont disponibles uniquement pendant les heures/jours ouvrés avec votre formule actuelle. Un conseiller vous répondra dès la reprise."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-access-restricted-message"
+          />
+        </Section>
       </Filterable>
 
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">

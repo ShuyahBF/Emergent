@@ -425,6 +425,13 @@ def _to_user_public(u: dict) -> dict:
         # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
         "contract_billing_period": u.get("contract_billing_period") or None,
         "auto_suspend_after_overdue_days": u.get("auto_suspend_after_overdue_days") if u.get("auto_suspend_after_overdue_days") is not None else None,
+        # Lot Liluvine (2026-09, point 4) — accès Ouvert (24/7) ou Restreint
+        # (jours+heures ouvrés uniquement) pour ce contrat. Forcé à
+        # "restricted" côté logique (liluvine_wa_autoreply.py) si
+        # contract_amount est sous le seuil global contract_min_amount_full_access,
+        # indépendamment de la valeur ici — ce champ reste néanmoins le choix
+        # explicite de l'admin quand le montant est au-dessus du seuil.
+        "contract_access_mode": u.get("contract_access_mode") or None,
     }
 
 
@@ -4092,6 +4099,8 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
         "contract_billing_period": (payload.contract_billing_period or "").strip().lower() or None,
         "auto_suspend_after_overdue_days": payload.auto_suspend_after_overdue_days if payload.auto_suspend_after_overdue_days is not None else None,
+        # Lot Liluvine (2026-09) — accès Ouvert/Restreint pour ce contrat.
+        "contract_access_mode": (payload.contract_access_mode or "").strip().lower() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }

@@ -25609,6 +25609,12 @@ from routes.liluvine_wa_autoreply import (  # noqa: E402
     handle_temp_subscribe_button_payload as _liluvine_handle_temp_subscribe_button_payload,
 )
 
+# Lot Liluvine (2026-09, point 6) — webhook entrant HMAC permettant à
+# Liluvine d'envoyer un message WhatsApp via SAWALI (numéro cible + secret
+# paramétrables dans AdminSettings).
+from routes.liluvine_send_webhook import attach_liluvine_send_webhook_routes as _attach_liluvine_send_webhook  # noqa: E402
+_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text)
+
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402
 api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_user, send_email=send_email))

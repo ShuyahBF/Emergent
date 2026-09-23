@@ -977,6 +977,37 @@ export default function AdminSettings() {
         </Section>
       </Filterable>
 
+      {/* Lot Liluvine (2026-09, point 6) — Webhook entrant HMAC */}
+      <Filterable title="Liluvine PRO — Webhook entrant (envoi WhatsApp)" anchorId="s-liluvine-send-webhook">
+        <Section icon={ShieldCheck} title="POST /api/webhook/liluvine-send">
+          <p className="text-xs text-slate-500">
+            Permet à Liluvine (ou un autre système autorisé) de déclencher l'envoi d'un message
+            WhatsApp via SAWALI, sans compte utilisateur. Body JSON attendu :{" "}
+            <code className="rounded bg-slate-100 px-1">{`{"message": "..."}`}</code>. La requête
+            doit être signée avec le secret ci-dessous (headers <code>X-Timestamp</code> et{" "}
+            <code>X-Signature</code>, HMAC-SHA256 sur <code>{"{timestamp}.{corps brut}"}</code>,
+            fenêtre anti-rejeu ±5 minutes).
+          </p>
+          <div className="grid grid-cols-1 gap-3 mt-2">
+            <Input
+              label="Numéro WhatsApp destinataire"
+              value={s.liluvine_send_webhook_target_number || ""}
+              onChange={(v) => upd("liluvine_send_webhook_target_number", v)}
+              placeholder="+2250700000000"
+              testid="liluvine-send-webhook-target-number"
+            />
+            <Input
+              label="Secret HMAC"
+              type="password"
+              value={s.liluvine_send_webhook_hmac_secret || ""}
+              onChange={(v) => upd("liluvine_send_webhook_hmac_secret", v)}
+              placeholder={s.liluvine_send_webhook_hmac_secret === "********" ? "(déjà défini — cliquer pour modifier)" : "Générer une valeur aléatoire longue et la transmettre à Liluvine"}
+              testid="liluvine-send-webhook-hmac-secret"
+            />
+          </div>
+        </Section>
+      </Filterable>
+
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">
         <LiluvineKnowledgeBaseSection />
       </Filterable>

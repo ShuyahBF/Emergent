@@ -14143,6 +14143,13 @@ class DirectoryContactCreate(BaseModel):
     # accès illimité aux actions VIDAL riches (!doc/!rech), False/absent =
     # accès simple avec quota quotidien. Voir routes/vidal_riche.py.
     vidal_riche: Optional[bool] = None
+    # Lot Liluvine (2026-09) — contact "décisionnaire" (Responsable/DG/
+    # Directeur) pour ce client/tenant : champ dédié plutôt qu'un tag libre
+    # (même raisonnement que vidal_riche ci-dessus — fiable, indépendant de
+    # l'orthographe/accent d'un tag). Sert à cibler les notifications
+    # Liluvine liées au contrat (validité, accès restreint) — voir
+    # routes/liluvine_wa_autoreply.py.
+    is_decision_maker: Optional[bool] = None
     # Cible optionnelle pour un créateur élevé gérant plusieurs sociétés-
     # clientes (ex. depuis le champ Rapporteur des Interventions/Tickets) :
     # honoré uniquement si l'appelant est élevé ET si ce client existe
@@ -14161,6 +14168,7 @@ class DirectoryContactUpdate(BaseModel):
     shared: Optional[bool] = None
     photo_url: Optional[str] = None
     vidal_riche: Optional[bool] = None
+    is_decision_maker: Optional[bool] = None
 
 
 @api.get("/me/contacts/export.csv", tags=["Portail Client"])

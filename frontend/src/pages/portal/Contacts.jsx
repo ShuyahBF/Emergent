@@ -982,6 +982,21 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
             simple avec quota quotidien — ex. infirmiers, étudiants.
           </p>
         </div>
+        <div className="p-2.5 rounded-lg bg-amber-50 ring-1 ring-amber-200" data-testid="contact-field-decision-maker">
+          <label className="flex items-center gap-2 text-xs font-semibold text-amber-900 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={!!form.is_decision_maker}
+              onChange={(e) => setForm({ ...form, is_decision_maker: e.target.checked })}
+              data-testid="contact-field-decision-maker-checkbox"
+            />
+            🧑‍💼 Contact décisionnaire (Responsable/DG/Directeur)
+          </label>
+          <p className="text-[10px] text-amber-700 mt-1 leading-snug">
+            Ce contact reçoit les notifications Liluvine liées au contrat de cette société
+            (contrat invalide/expiré, accès restreint hors heures ouvrées).
+          </p>
+        </div>
         <div className="flex justify-end gap-2 pt-2">
           <button onClick={onClose} className="text-sm rounded-lg bg-slate-100 hover:bg-slate-200 px-4 py-2">Annuler</button>
           <button

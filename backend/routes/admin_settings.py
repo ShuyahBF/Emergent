@@ -66,6 +66,8 @@ GET_MASK_FIELDS = (
     "facebook_app_secret",
     "facebook_user_access_token",
     "facebook_page_access_token",
+    # Lot Liluvine (2026-09, point 6) — webhook entrant HMAC
+    "liluvine_send_webhook_hmac_secret",
 )
 
 

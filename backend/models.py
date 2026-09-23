@@ -84,6 +84,9 @@ class UserPublic(BaseModel):
     # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
     contract_billing_period: Optional[str] = None  # "monthly" | "quarterly" | "annual" | null
     auto_suspend_after_overdue_days: Optional[int] = None  # null = disabled
+    # Lot Liluvine (2026-09) — accès Ouvert (24/7) ou Restreint (jours+heures
+    # ouvrés uniquement) pour ce contrat. Voir routes/liluvine_wa_autoreply.py.
+    contract_access_mode: Optional[str] = None  # "open" | "restricted" | null
 
 
 class UserCreateAdmin(BaseModel):
@@ -128,6 +131,9 @@ class UserCreateAdmin(BaseModel):
     # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
     contract_billing_period: Optional[str] = None  # "monthly" | "quarterly" | "annual" | null
     auto_suspend_after_overdue_days: Optional[int] = None  # null = disabled
+    # Lot Liluvine (2026-09) — accès Ouvert (24/7) ou Restreint (jours+heures
+    # ouvrés uniquement) pour ce contrat.
+    contract_access_mode: Optional[str] = None  # "open" | "restricted" | null
 
 
 class UserUpdateAdmin(BaseModel):
@@ -180,6 +186,8 @@ class UserUpdateAdmin(BaseModel):
     # 2026-02 fork iter108 — S158 + S159
     contract_billing_period: Optional[str] = None
     auto_suspend_after_overdue_days: Optional[int] = None
+    # Lot Liluvine (2026-09) — accès Ouvert/Restreint pour ce contrat.
+    contract_access_mode: Optional[str] = None  # "open" | "restricted" | null
 
 
 USER_ROLES = ["client", "admin", "superviseur", "demo"]

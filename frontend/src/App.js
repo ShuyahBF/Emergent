@@ -151,6 +151,7 @@ import AmmEditorPage from "@/pages/portal/AmmEditor";
 import VidalFicheProduit from "@/pages/portal/VidalFicheProduit";
 import VidalPosologie from "@/pages/portal/VidalPosologie";
 import VidalSecurisation from "@/pages/portal/VidalSecurisation";
+import GestionStocks from "@/pages/portal/GestionStocks";
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -355,6 +356,8 @@ export default function App() {
             <Route path="vidal-fiche" element={<VidalFicheProduit />} />
             <Route path="vidal-posologie" element={<VidalPosologie />} />
             <Route path="vidal-securisation" element={<VidalSecurisation />} />
+            {/* Lot Gestion Stocks (2026-09) — espace documentaire R2 + futur explorateur MongoDB Atlas */}
+            <Route path="gestion-stocks" element={<GestionStocks />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />

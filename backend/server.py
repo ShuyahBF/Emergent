@@ -425,6 +425,13 @@ def _to_user_public(u: dict) -> dict:
         # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
         "contract_billing_period": u.get("contract_billing_period") or None,
         "auto_suspend_after_overdue_days": u.get("auto_suspend_after_overdue_days") if u.get("auto_suspend_after_overdue_days") is not None else None,
+        # Lot Liluvine (2026-09, point 4) — accès Ouvert (24/7) ou Restreint
+        # (jours+heures ouvrés uniquement) pour ce contrat. Forcé à
+        # "restricted" côté logique (liluvine_wa_autoreply.py) si
+        # contract_amount est sous le seuil global contract_min_amount_full_access,
+        # indépendamment de la valeur ici — ce champ reste néanmoins le choix
+        # explicite de l'admin quand le montant est au-dessus du seuil.
+        "contract_access_mode": u.get("contract_access_mode") or None,
     }
 
 
@@ -4092,6 +4099,8 @@ async def admin_create_client(payload: UserCreateAdmin, _: dict = Depends(get_cu
         # 2026-02 fork iter108 — S158 (Recurring billing) + S159 (Auto-suspend).
         "contract_billing_period": (payload.contract_billing_period or "").strip().lower() or None,
         "auto_suspend_after_overdue_days": payload.auto_suspend_after_overdue_days if payload.auto_suspend_after_overdue_days is not None else None,
+        # Lot Liluvine (2026-09) — accès Ouvert/Restreint pour ce contrat.
+        "contract_access_mode": (payload.contract_access_mode or "").strip().lower() or None,
         "created_at": _now(),
         "updated_at": _now(),
     }
@@ -14143,6 +14152,13 @@ class DirectoryContactCreate(BaseModel):
     # accès illimité aux actions VIDAL riches (!doc/!rech), False/absent =
     # accès simple avec quota quotidien. Voir routes/vidal_riche.py.
     vidal_riche: Optional[bool] = None
+    # Lot Liluvine (2026-09) — contact "décisionnaire" (Responsable/DG/
+    # Directeur) pour ce client/tenant : champ dédié plutôt qu'un tag libre
+    # (même raisonnement que vidal_riche ci-dessus — fiable, indépendant de
+    # l'orthographe/accent d'un tag). Sert à cibler les notifications
+    # Liluvine liées au contrat (validité, accès restreint) — voir
+    # routes/liluvine_wa_autoreply.py.
+    is_decision_maker: Optional[bool] = None
     # Cible optionnelle pour un créateur élevé gérant plusieurs sociétés-
     # clientes (ex. depuis le champ Rapporteur des Interventions/Tickets) :
     # honoré uniquement si l'appelant est élevé ET si ce client existe
@@ -14161,6 +14177,7 @@ class DirectoryContactUpdate(BaseModel):
     shared: Optional[bool] = None
     photo_url: Optional[str] = None
     vidal_riche: Optional[bool] = None
+    is_decision_maker: Optional[bool] = None
 
 
 @api.get("/me/contacts/export.csv", tags=["Portail Client"])
@@ -17290,6 +17307,12 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue  # don't store this as a regular message
                         except Exception:  # noqa: BLE001
                             pass
+                        # Lot Liluvine (2026-09, point 5) — "Souscrire temporairement"
+                        try:
+                            if await _liluvine_handle_temp_subscribe_button_payload(db=db, payload=btn.get("payload") or "", from_phone=digits_only):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            pass
                     elif mtype == "interactive":
                         interactive = msg.get("interactive") or {}
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
@@ -17314,6 +17337,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         # S025 — Intercept button_reply id (carries the payload)
                         try:
                             if await _dl_handle_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            pass
+                        # Lot Liluvine (2026-09, point 5) — "Souscrire temporairement"
+                        try:
+                            if await _liluvine_handle_temp_subscribe_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
                                 continue
                         except Exception:  # noqa: BLE001
                             pass
@@ -25572,6 +25601,26 @@ api.include_router(_make_dl_router(
     wa_send_template=_wa_send_template_for_approval,
 ))
 api.include_router(_make_dl_public_router(db=db))
+
+# Lot Liluvine (2026-09, point 5) — clic sur le bouton "Souscrire
+# temporairement" envoyé quand un contrat est invalide (voir
+# routes/liluvine_wa_autoreply.py).
+from routes.liluvine_wa_autoreply import (  # noqa: E402
+    handle_temp_subscribe_button_payload as _liluvine_handle_temp_subscribe_button_payload,
+)
+
+# Lot Liluvine (2026-09, point 6) — webhook entrant HMAC permettant à
+# Liluvine d'envoyer un message WhatsApp via SAWALI (numéro cible + secret
+# paramétrables dans AdminSettings).
+from routes.liluvine_send_webhook import attach_liluvine_send_webhook_routes as _attach_liluvine_send_webhook  # noqa: E402
+_attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text)
+
+# Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
+# suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"
+# du schéma fourni volontairement pas encore implémenté (voir docstring du
+# module) — la partie technique de l'import externe reste à discuter.
+from routes.gestion_stocks import attach_gestion_stocks_routes as _attach_gestion_stocks  # noqa: E402
+_attach_gestion_stocks(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
 
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402

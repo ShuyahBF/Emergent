@@ -5,7 +5,7 @@ import { Plus, Edit, Trash2, X, Star, StarOff, Settings, Edit2, Check, Upload, A
 import { toast } from "sonner";
 import IconPicker, { CategoryIcon } from "@/components/IconPicker";
 
-const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "" };
+const empty = { email: "", full_name: "", password: "", phone: "", whatsapp_number: "", company: "", client_code: "", category_slug: "", country: "", city: "", logo_url: "", account_status: "active", role: "client", wa_unit_cost: 0, wa_currency: "XOF", link_to_client_id: null, hourly_rate: 0, flat_rate: 0, can_cash: false, tenant_sharing_mode: "AND", business_type: "", contract_number: "", contract_signed_at: "", contract_amount: "", contract_currency: "XOF", last_payment_at: "", contract_overdue_days: "", payment_confirmation_template: "", contract_billing_period: "", auto_suspend_after_overdue_days: "", contract_access_mode: "" };
 
 export default function AdminClients() {
   const [items, setItems] = useState([]);
@@ -160,7 +160,7 @@ export default function AdminClients() {
     // montant vide → null (sinon Pydantic → 422 sur `contract_amount = ""`).
     const normContract = (f) => {
       const out = { ...f };
-      for (const k of ["contract_number", "contract_signed_at", "contract_currency", "last_payment_at", "payment_confirmation_template"]) {
+      for (const k of ["contract_number", "contract_signed_at", "contract_currency", "last_payment_at", "payment_confirmation_template", "contract_access_mode"]) {
         if (out[k] === "" || out[k] === undefined) out[k] = null;
       }
       const amt = out.contract_amount;
@@ -744,6 +744,24 @@ export default function AdminClients() {
                   onChange={(v) => setForm({ ...form, auto_suspend_after_overdue_days: v })}
                   testid="client-auto-suspend-days"
                 />
+                {/* Lot Liluvine (2026-09, point 4) — Accès Ouvert (24/7) vs
+                    Restreint (jours+heures ouvrées uniquement) aux réponses WA. */}
+                <div>
+                  <label className="text-[11px] font-semibold text-slate-600 block mb-1">Accès Liluvine (WA)</label>
+                  <select
+                    value={form.contract_access_mode || ""}
+                    onChange={(e) => setForm({ ...form, contract_access_mode: e.target.value || null })}
+                    className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm bg-white"
+                    data-testid="client-contract-access-mode"
+                  >
+                    <option value="">— Hérite du planning global —</option>
+                    <option value="open">Ouvert (24/7)</option>
+                    <option value="restricted">Restreint (jours + heures ouvrées)</option>
+                  </select>
+                  <p className="text-[10px] text-slate-500 italic mt-1">
+                    Si le montant du contrat est sous le seuil paramétré dans AdminSettings, l&apos;accès est forcé en <em>Restreint</em> quel que soit ce choix.
+                  </p>
+                </div>
               </div>
               <p className="text-[11px] text-teal-800 italic">
                 Le nombre de jours de retard est calculé automatiquement dans la liste des clients à partir de la <em>date du dernier règlement</em> ou, à défaut, de la <em>date de signature</em>. Le <em>seuil de retard</em> propre au client (si renseigné) prévaut sur la valeur globale des paramètres. Le <em>template WA</em> par défaut est <code>confirmation_paiement_avecrecu</code>.

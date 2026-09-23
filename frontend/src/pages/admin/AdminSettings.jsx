@@ -907,6 +907,107 @@ export default function AdminSettings() {
         <LiluvineBrandingSection />
       </Filterable>
 
+      <Filterable title="Liluvine PRO — Contrat & accès (2026-09)" anchorId="s-liluvine-contract">
+        <Section icon={ShieldCheck} title="Contrat invalide — message aux contacts décisionnaires">
+          <p className="text-xs text-slate-500">
+            Quand le contrat d'un client/tenant n'est pas valable (aucun contrat enregistré, ou
+            paiement en retard au-delà du seuil configuré, ou compte déjà suspendu), Liluvine
+            n'envoie plus de réponse automatique normale sur WhatsApp — à la place, ce message est
+            envoyé aux contacts de ce client marqués « décisionnaire » (Responsable/DG/Directeur,
+            voir la fiche contact). Variables disponibles : {`{client_name}`}, {`{days_overdue}`}.
+          </p>
+          <textarea
+            value={s.liluvine_contract_invalid_message || ""}
+            onChange={(e) => upd("liluvine_contract_invalid_message", e.target.value)}
+            rows={4}
+            placeholder="Bonjour, le contrat de {client_name} avec SAWALI n'est plus valide (paiement en attente ou contrat absent). Les réponses automatiques Liluvine sont suspendues jusqu'à régularisation."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-contract-invalid-message"
+          />
+        </Section>
+
+        {/* Lot Liluvine (2026-09, point 4) — Accès Ouvert/Restreint par contrat */}
+        <Section icon={ShieldCheck} title="Accès restreint hors heures ouvrées — seuil & message">
+          <p className="text-xs text-slate-500">
+            Pour un client dont le contrat est valable mais dont l'accès est configuré en
+            « Restreint » (voir la fiche client, section Contrat), ou dont le montant de contrat
+            mensuel est sous le seuil ci-dessous, Liluvine ne répond automatiquement sur WhatsApp
+            que pendant les jours et heures ouvrées (calendrier global). En dehors de cette
+            fenêtre, ce message est envoyé aux contacts décisionnaires à la place d'une réponse IA.
+            Variable disponible : {`{client_name}`}.
+          </p>
+          <div className="mt-2">
+            <label className="text-[11px] font-semibold text-slate-600 block mb-1">
+              Seuil de montant de contrat (FCFA) — en dessous, accès forcé en Restreint
+            </label>
+            <input
+              type="number"
+              value={s.contract_min_amount_full_access ?? ""}
+              onChange={(e) => upd("contract_min_amount_full_access", e.target.value)}
+              placeholder="65000"
+              className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 text-sm"
+              data-testid="contract-min-amount-full-access"
+            />
+          </div>
+          <textarea
+            value={s.liluvine_access_restricted_message || ""}
+            onChange={(e) => upd("liluvine_access_restricted_message", e.target.value)}
+            rows={4}
+            placeholder="Bonjour, les réponses automatiques Liluvine pour {client_name} sont disponibles uniquement pendant les heures/jours ouvrés avec votre formule actuelle. Un conseiller vous répondra dès la reprise."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-access-restricted-message"
+          />
+        </Section>
+
+        {/* Lot Liluvine (2026-09, point 5) — Bouton "Souscrire temporairement" */}
+        <Section icon={ShieldCheck} title="« Souscrire temporairement » — explication envoyée au clic">
+          <p className="text-xs text-slate-500">
+            Quand un contact décisionnaire clique sur le bouton « Souscrire temporairement »
+            reçu dans le message de contrat invalide (ci-dessus), Liluvine répond automatiquement
+            avec ce texte. Variable disponible : {`{client_name}`}.
+          </p>
+          <textarea
+            value={s.liluvine_temp_subscription_explanation || ""}
+            onChange={(e) => upd("liluvine_temp_subscription_explanation", e.target.value)}
+            rows={4}
+            placeholder="La « souscription temporaire » vous permet de réactiver immédiatement les réponses automatiques Liluvine pour {client_name}..."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-temp-subscription-explanation"
+          />
+        </Section>
+      </Filterable>
+
+      {/* Lot Liluvine (2026-09, point 6) — Webhook entrant HMAC */}
+      <Filterable title="Liluvine PRO — Webhook entrant (envoi WhatsApp)" anchorId="s-liluvine-send-webhook">
+        <Section icon={ShieldCheck} title="POST /api/webhook/liluvine-send">
+          <p className="text-xs text-slate-500">
+            Permet à Liluvine (ou un autre système autorisé) de déclencher l'envoi d'un message
+            WhatsApp via SAWALI, sans compte utilisateur. Body JSON attendu :{" "}
+            <code className="rounded bg-slate-100 px-1">{`{"message": "..."}`}</code>. La requête
+            doit être signée avec le secret ci-dessous (headers <code>X-Timestamp</code> et{" "}
+            <code>X-Signature</code>, HMAC-SHA256 sur <code>{"{timestamp}.{corps brut}"}</code>,
+            fenêtre anti-rejeu ±5 minutes).
+          </p>
+          <div className="grid grid-cols-1 gap-3 mt-2">
+            <Input
+              label="Numéro WhatsApp destinataire"
+              value={s.liluvine_send_webhook_target_number || ""}
+              onChange={(v) => upd("liluvine_send_webhook_target_number", v)}
+              placeholder="+2250700000000"
+              testid="liluvine-send-webhook-target-number"
+            />
+            <Input
+              label="Secret HMAC"
+              type="password"
+              value={s.liluvine_send_webhook_hmac_secret || ""}
+              onChange={(v) => upd("liluvine_send_webhook_hmac_secret", v)}
+              placeholder={s.liluvine_send_webhook_hmac_secret === "********" ? "(déjà défini — cliquer pour modifier)" : "Générer une valeur aléatoire longue et la transmettre à Liluvine"}
+              testid="liluvine-send-webhook-hmac-secret"
+            />
+          </div>
+        </Section>
+      </Filterable>
+
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">
         <LiluvineKnowledgeBaseSection />
       </Filterable>

@@ -302,8 +302,10 @@ function PortalLayoutInner({ admin = false }) {
   // Portage site-meetafrican — Pharmacien suivi : Posologie uniquement (pas
   // de Sécurisation, ni Fiche produit — accès volontairement plus étroit
   // que le médecin, demandé explicitement par l'utilisateur).
+  // Lot Gestion Stocks (2026-09) — ajout du nouvel espace documentaire.
   const allowedPharmacienTrackedPaths = new Set([
     "/portal/vidal-posologie",
+    "/portal/gestion-stocks",
     "/portal/my-account",
   ]);
   const allowedSecretaireMedicalePaths = new Set([
@@ -346,6 +348,10 @@ function PortalLayoutInner({ admin = false }) {
                 // même session utilisateur suivi, sidebar réduite à Posologie
                 // uniquement (pas de Sécurisation ni Fiche produit).
                 { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
+                // Lot Gestion Stocks (2026-09) — espace documentaire R2
+                // (inventaires, contrôle qualité, etc) + futur explorateur
+                // MongoDB Atlas.
+                { to: "/portal/gestion-stocks", label: "Gestion de Stocks", icon: Boxes },
               ]
             : (isSecretaireMedicale
                 ? [

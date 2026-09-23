@@ -25615,6 +25615,13 @@ from routes.liluvine_wa_autoreply import (  # noqa: E402
 from routes.liluvine_send_webhook import attach_liluvine_send_webhook_routes as _attach_liluvine_send_webhook  # noqa: E402
 _attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text)
 
+# Lot Gestion Stocks (2026-09) — espace documentaire R2 des Pharmaciens
+# suivis (sidebar "Gestion de Stocks"). Bloc "Explorateur BD MongoDB Atlas"
+# du schéma fourni volontairement pas encore implémenté (voir docstring du
+# module) — la partie technique de l'import externe reste à discuter.
+from routes.gestion_stocks import attach_gestion_stocks_routes as _attach_gestion_stocks  # noqa: E402
+_attach_gestion_stocks(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
+
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402
 api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_user, send_email=send_email))

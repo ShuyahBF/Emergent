@@ -233,6 +233,46 @@ def _tenant_effective_access_mode(tenant_doc: Dict[str, Any], settings_doc: Dict
     return None
 
 
+# -----------------------------------------------------------------
+# Point 5 — bouton "Souscrire temporairement" (voir plus haut, section
+# contrat invalide). Webhook helper appelée depuis le dispatch WhatsApp de
+# server.py ("button" ET "interactive"), même pattern que
+# routes/download_approvals.py::handle_button_payload. Le tenant est encodé
+# dans le button_id (liluvine_temp_subscribe_{scope_uid}) plutôt que dans un
+# token en base, puisqu'il n'y a pas d'état à faire évoluer ici — on répond
+# juste avec l'explication admin-configurable.
+# -----------------------------------------------------------------
+LILUVINE_TEMP_SUBSCRIBE_BUTTON_PAYLOAD_RE = re.compile(r"^liluvine_temp_subscribe_([A-Za-z0-9_\-]{6,64})$")
+
+
+async def handle_temp_subscribe_button_payload(*, db, payload: str, from_phone: Optional[str]) -> bool:
+    m = LILUVINE_TEMP_SUBSCRIBE_BUTTON_PAYLOAD_RE.match(payload or "")
+    if not m:
+        return False
+    scope_uid = m.group(1)
+    if not from_phone:
+        return True  # matched but nowhere to reply — suppress regular processing anyway
+    settings_doc = await db.settings.find_one({"_id": "global"}) or {}
+    tenant_doc = await db.users.find_one({"id": scope_uid}, {"_id": 0, "full_name": 1, "company": 1}) or {}
+    template = (
+        settings_doc.get("liluvine_temp_subscription_explanation")
+        or "La « souscription temporaire » vous permet de réactiver immédiatement les "
+        "réponses automatiques Liluvine pour {client_name} en attendant la "
+        "régularisation de votre contrat. Contactez votre conseiller SAWALI pour "
+        "l'activer."
+    )
+    message = _fill_placeholders(
+        template,
+        client_name=tenant_doc.get("company") or tenant_doc.get("full_name") or "votre société",
+    )
+    try:
+        import server as _server_module
+        await _server_module._wa_send_text(from_phone, message)
+    except Exception:  # noqa: BLE001
+        logger.exception("[wa_autoreply] échec envoi explication souscription temporaire vers %s", from_phone)
+    return True
+
+
 async def autoreply_to_inbound(
     db,
     *,
@@ -781,8 +821,11 @@ async def autoreply_to_inbound(
             try:
                 if wa_send_interactive_button is not None:
                     # Point 5 — bouton "Souscrire temporairement" sur ce message.
+                    # Le tenant (scope_uid) est encodé dans le button_id pour
+                    # que handle_temp_subscribe_button_payload() sache à quel
+                    # client répondre lors du clic (voir plus bas).
                     await wa_send_interactive_button(
-                        dm_phone, message, "liluvine_temp_subscribe", "Souscrire temporairement",
+                        dm_phone, message, f"liluvine_temp_subscribe_{scope_uid}", "Souscrire temporairement",
                     )
                 else:
                     await wa_send_text(dm_phone, message)

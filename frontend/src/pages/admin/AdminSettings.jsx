@@ -958,6 +958,23 @@ export default function AdminSettings() {
             data-testid="liluvine-access-restricted-message"
           />
         </Section>
+
+        {/* Lot Liluvine (2026-09, point 5) — Bouton "Souscrire temporairement" */}
+        <Section icon={ShieldCheck} title="« Souscrire temporairement » — explication envoyée au clic">
+          <p className="text-xs text-slate-500">
+            Quand un contact décisionnaire clique sur le bouton « Souscrire temporairement »
+            reçu dans le message de contrat invalide (ci-dessus), Liluvine répond automatiquement
+            avec ce texte. Variable disponible : {`{client_name}`}.
+          </p>
+          <textarea
+            value={s.liluvine_temp_subscription_explanation || ""}
+            onChange={(e) => upd("liluvine_temp_subscription_explanation", e.target.value)}
+            rows={4}
+            placeholder="La « souscription temporaire » vous permet de réactiver immédiatement les réponses automatiques Liluvine pour {client_name}..."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-temp-subscription-explanation"
+          />
+        </Section>
       </Filterable>
 
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">

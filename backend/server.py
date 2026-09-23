@@ -17307,6 +17307,12 @@ async def whatsapp_webhook_incoming(request: Request):
                                 continue  # don't store this as a regular message
                         except Exception:  # noqa: BLE001
                             pass
+                        # Lot Liluvine (2026-09, point 5) — "Souscrire temporairement"
+                        try:
+                            if await _liluvine_handle_temp_subscribe_button_payload(db=db, payload=btn.get("payload") or "", from_phone=digits_only):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            pass
                     elif mtype == "interactive":
                         interactive = msg.get("interactive") or {}
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
@@ -17331,6 +17337,12 @@ async def whatsapp_webhook_incoming(request: Request):
                         # S025 — Intercept button_reply id (carries the payload)
                         try:
                             if await _dl_handle_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            pass
+                        # Lot Liluvine (2026-09, point 5) — "Souscrire temporairement"
+                        try:
+                            if await _liluvine_handle_temp_subscribe_button_payload(db=db, payload=reply.get("id") or "", from_phone=digits_only):
                                 continue
                         except Exception:  # noqa: BLE001
                             pass
@@ -25589,6 +25601,13 @@ api.include_router(_make_dl_router(
     wa_send_template=_wa_send_template_for_approval,
 ))
 api.include_router(_make_dl_public_router(db=db))
+
+# Lot Liluvine (2026-09, point 5) — clic sur le bouton "Souscrire
+# temporairement" envoyé quand un contrat est invalide (voir
+# routes/liluvine_wa_autoreply.py).
+from routes.liluvine_wa_autoreply import (  # noqa: E402
+    handle_temp_subscribe_button_payload as _liluvine_handle_temp_subscribe_button_payload,
+)
 
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402

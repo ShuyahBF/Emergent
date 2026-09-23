@@ -3,24 +3,51 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import {
-  Database, Folder, FileText, Upload, RefreshCw, ArrowLeft, Sparkles,
+  Database, Folder, FileText, Upload, RefreshCw, ArrowLeft, Send, Loader2,
 } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip as RTooltip } from "recharts";
 
 /*
   Portail → "Gestion de Stocks" (Pharmacien suivi).
   Schéma fourni par l'utilisateur : deux blocs empilés.
-    1. Explorateur BD MongoDB Atlas (Analyseur Inventaires/Stocks/Ruptures +
-       zone de prompt libre, type IA conversationnelle) — PAS encore branché
-       : les collections Mongo (inventaires, base produits, historique
-       ventes) seront alimentées plus tard par un outil externe dont la
-       partie technique reste à discuter. On affiche donc ce bloc en
-       "Bientôt disponible" plutôt que de l'omettre, pour garder la mise en
-       page prévue et pouvoir l'activer facilement ensuite.
+    1. Explorateur BD MongoDB Atlas — 3 boutons Analyseur + zone de prompt
+       libre. Le backend (/gestion-stocks/analyse) calcule des agrégats
+       Mongo scopés au client_code (jamais de requête générée par le LLM),
+       puis demande à Claude (via LlmChat) une analyse en français à partir
+       de ces seuls agrégats. Les collections restent alimentées par un
+       outil externe à venir — tant qu'elles sont vides, l'IA le signale
+       plutôt que d'inventer des chiffres.
     2. Explorateur Stockage R2 — navigation par dossiers (un jeu de
        sous-dossiers fixe par client : Inventaires, Rapports, Analyses,
        Contrôle qualité, Factures, Autres), double-clic sur un fichier pour
        l'ouvrir dans un nouvel onglet via une URL de lecture temporaire.
 */
+
+const ANALYSER_BUTTONS = [
+  { mode: "inventaires", label: "Analyseur Inventaires" },
+  { mode: "stocks", label: "Analyseur Stocks" },
+  { mode: "ruptures", label: "Analyseur Ruptures" },
+];
+
+// Un seul hue (teal, déjà la couleur d'accent de la page) : une seule série
+// de barres n'a pas besoin d'une palette catégorielle.
+const CHART_BAR_COLOR = "#0d9488";
+
+// Extrait une liste [{name, value}] du premier agrégat "top_..." trouvé
+// dans la réponse — sert uniquement à illustrer la zone résultats d'un
+// mini-graphique, le texte de l'IA reste la réponse principale.
+function extractChartItems(data) {
+  if (data?.inventaires?.top_produits_par_quantite?.length) {
+    return data.inventaires.top_produits_par_quantite.map((p) => ({ name: p.designation, value: p.quantite }));
+  }
+  if (data?.stocks?.top_produits_par_ventes?.length) {
+    return data.stocks.top_produits_par_ventes.map((p) => ({ name: p.designation, value: p.quantite_vendue }));
+  }
+  if (data?.ruptures?.produits_a_risque_bientot?.length) {
+    return data.ruptures.produits_a_risque_bientot.map((p) => ({ name: p.designation, value: p.jours_restants_estimes }));
+  }
+  return [];
+}
 
 // Icône + couleur par sous-dossier — purement cosmétique, la liste réelle
 // des dossiers vient de l'API (`/gestion-stocks/context`).
@@ -60,7 +87,44 @@ export default function GestionStocks() {
   const [loadingFiles, setLoadingFiles] = useState(false);
   const [uploading, setUploading] = useState(false);
 
+  // Explorateur BD MongoDB Atlas
+  const [promptText, setPromptText] = useState("");
+  const [analysing, setAnalysing] = useState(false);
+  const [analyseMode, setAnalyseMode] = useState(null);
+  const [answer, setAnswer] = useState(null);
+  const [chartItems, setChartItems] = useState([]);
+
   const effectiveClientCode = isAdmin ? adminSelectedCode : clientCode;
+
+  const runAnalyse = async (mode) => {
+    if (!effectiveClientCode) return;
+    const question = mode === "libre" ? promptText.trim() : undefined;
+    if (mode === "libre" && !question) return;
+    setAnalysing(true);
+    setAnalyseMode(mode);
+    setAnswer(null);
+    setChartItems([]);
+    try {
+      const r = await apiClient.post(
+        "/gestion-stocks/analyse",
+        { mode, question },
+        { params: isAdmin ? { client_code: effectiveClientCode } : {} },
+      );
+      setAnswer(r.data?.answer || "");
+      setChartItems(extractChartItems(r.data?.data));
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur de l'analyseur");
+    } finally {
+      setAnalysing(false);
+    }
+  };
+
+  const handlePromptKeyDown = (e) => {
+    if (e.key === "Enter" && !analysing) {
+      e.preventDefault();
+      runAnalyse("libre");
+    }
+  };
 
   // Chargement initial : contexte (client_code résolu, dossiers, R2 configuré).
   const loadContext = async () => {
@@ -136,40 +200,78 @@ export default function GestionStocks() {
         <Database className="w-5 h-5 text-teal-600" /> Gestion de Stocks
       </h1>
 
-      {/* Bloc 1 — Explorateur BD MongoDB Atlas (à venir). Layout conservé
-          tel que sur le schéma fourni, fonctions désactivées en attendant
-          que les collections Mongo soient alimentées par l'outil externe. */}
+      {/* Bloc 1 — Explorateur BD MongoDB Atlas */}
       <section className="rounded-xl border-2 border-slate-200 bg-slate-50/60 p-4 space-y-3" data-testid="gestion-stocks-mongo-block">
         <div className="flex items-center justify-between flex-wrap gap-2">
           <span className="text-sm font-semibold text-slate-600">Explorateur BD MongoDB Atlas</span>
-          <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-amber-700 bg-amber-100 px-2 py-1 rounded-full">
-            <Sparkles className="w-3 h-3" /> Bientôt disponible
-          </span>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-          {["Analyseur Inventaires", "Analyseur Stocks", "Analyseur Ruptures"].map((label) => (
+          {ANALYSER_BUTTONS.map(({ mode, label }) => (
             <button
-              key={label}
+              key={mode}
               type="button"
-              disabled
-              className="px-3 py-2 rounded-lg ring-1 ring-slate-300 bg-white text-sm text-slate-400 cursor-not-allowed"
-              data-testid={`gestion-stocks-analyseur-${label.split(" ")[1]?.toLowerCase()}`}
+              disabled={!effectiveClientCode || analysing}
+              onClick={() => runAnalyse(mode)}
+              className="px-3 py-2 rounded-lg ring-1 ring-slate-300 bg-white text-sm text-slate-700 hover:bg-teal-50 hover:ring-teal-300 disabled:text-slate-400 disabled:cursor-not-allowed disabled:hover:bg-white flex items-center justify-center gap-2"
+              data-testid={`gestion-stocks-analyseur-${mode}`}
             >
+              {analysing && analyseMode === mode && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
               {label}
             </button>
           ))}
         </div>
-        <div className="rounded-lg bg-white ring-1 ring-slate-200 p-3 min-h-[64px] text-xs italic text-slate-400">
-          Zone résultats (texte, graphique, etc) — disponible dès que les inventaires, la base
-          produits et l'historique des ventes seront importés en base MongoDB.
+        <div className="rounded-lg bg-white ring-1 ring-slate-200 p-3 min-h-[64px] text-sm" data-testid="gestion-stocks-results">
+          {!effectiveClientCode ? (
+            <p className="text-xs italic text-slate-400">
+              {isAdmin
+                ? "Choisissez d'abord un client ci-dessous pour interroger ses données."
+                : "Aucun code client configuré pour votre société — contactez votre administrateur SAWALI."}
+            </p>
+          ) : analysing ? (
+            <p className="text-xs text-slate-500 flex items-center gap-2"><Loader2 className="w-3.5 h-3.5 animate-spin" /> Analyse en cours…</p>
+          ) : answer ? (
+            <div className="space-y-3">
+              <p className="text-slate-700 whitespace-pre-wrap">{answer}</p>
+              {chartItems.length > 0 && (
+                <div className="h-56" data-testid="gestion-stocks-chart">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <BarChart data={chartItems} layout="vertical" margin={{ left: 8, right: 16 }}>
+                      <XAxis type="number" hide />
+                      <YAxis type="category" dataKey="name" width={140} tick={{ fontSize: 11 }} />
+                      <RTooltip />
+                      <Bar dataKey="value" fill={CHART_BAR_COLOR} radius={[0, 4, 4, 0]} />
+                    </BarChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-xs italic text-slate-400">
+              Zone résultats (texte, graphique, etc) — cliquez sur un analyseur ou posez une question ci-dessous.
+            </p>
+          )}
         </div>
-        <input
-          type="text"
-          disabled
-          placeholder="Posez une question sur vos stocks (bientôt disponible)…"
-          className="w-full px-3 py-2 rounded-lg ring-1 ring-slate-300 bg-slate-100 text-sm text-slate-400 cursor-not-allowed"
-          data-testid="gestion-stocks-prompt"
-        />
+        <div className="relative">
+          <input
+            type="text"
+            value={promptText}
+            onChange={(e) => setPromptText(e.target.value)}
+            onKeyDown={handlePromptKeyDown}
+            disabled={!effectiveClientCode || analysing}
+            placeholder="Posez une question sur vos stocks puis Entrée…"
+            className="w-full px-3 py-2 pr-9 rounded-lg ring-1 ring-slate-300 text-sm disabled:bg-slate-100 disabled:text-slate-400"
+            data-testid="gestion-stocks-prompt"
+          />
+          <button
+            type="button"
+            onClick={() => runAnalyse("libre")}
+            disabled={!effectiveClientCode || analysing || !promptText.trim()}
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-teal-600 disabled:text-slate-300"
+            data-testid="gestion-stocks-prompt-send"
+          >
+            <Send className="w-4 h-4" />
+          </button>
+        </div>
       </section>
 
       {/* Bloc 2 — Explorateur Stockage R2 */}

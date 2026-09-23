@@ -630,7 +630,7 @@ async def autoreply_to_inbound(
 
     # Build the LLM context (reuse the same RAG helper as the chat UI)
     try:
-        from routes.liluvine_pro import _fetch_context_snippets, SYSTEM_MESSAGE
+        from routes.liluvine_pro import _fetch_context_snippets, _resolve_base_system_prompt
     except Exception as exc:
         logger.warning("[wa_autoreply] could not import liluvine helpers: %s", exc)
         return {"ok": False, "reason": f"liluvine_import_failed: {exc!r}"}
@@ -660,8 +660,15 @@ async def autoreply_to_inbound(
     contact_tag = ""
     if contact and contact.get("name"):
         contact_tag = f"\n\nContact qui écrit : {contact['name']} ({contact.get('code') or phone_digits})"
+    # Lot Liluvine (2026-09) — prompt système du tenant (liluvine_pro_system_prompt),
+    # jusqu'ici seulement appliqué au chat web malgré la doc UI qui prétendait
+    # le contraire (voir LiluvineSystemPromptSection.jsx) — désormais partagé
+    # avec l'auto-réponse WhatsApp. Version SANS règle d'escalade (celle du
+    # chat web) : la réponse WA a déjà son propre marqueur d'escalade
+    # `[ESCALATE: ...]`, ajouté séparément juste plus bas via ESCALATE_PROMPT_HINT.
+    tenant_system_prompt = await _resolve_base_system_prompt(db, scope_uid)
     sys_text = (
-        SYSTEM_MESSAGE
+        tenant_system_prompt
         + "\n\n[IMPORTANT — Mode auto-réponse WhatsApp]\n"
         "Tu réponds à un message reçu sur WhatsApp. Sois courtois et concis (3-4 phrases max). "
         "Ne réponds JAMAIS comme un humain — tu es Liluvine PRO, l'assistant SAWALI. "

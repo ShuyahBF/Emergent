@@ -58,6 +58,57 @@ L'interface chat les affichera automatiquement sous forme de carrousel numérot�
 de quoi il parle. Ne fabrique jamais d'URL : utilise UNIQUEMENT celles fournies dans le
 contexte. N'inclus pas d'image si aucune ne convient vraiment à la question."""
 
+# Iter38r-fix9o (Item 1) — Tenant-configurable system prompt + escalation.
+# Au SCOPE MODULE (pas dans une closure de attach_liluvine_pro_routes) —
+# même raison que le hotfix Pydantic de vidal_securisation.py/vidal_patients.py :
+# une fonction utile à plusieurs modules doit être importable directement,
+# pas enfermée dans une closure qui ne connaît que ses propres appelants.
+# `_resolve_system_prompt` prend `db` en paramètre explicite, comme
+# `_fetch_context_snippets` juste plus bas — c'est déjà le pattern du fichier.
+ESCALATION_TOKEN = "[ESCALATION_HUMAINE]"
+ESCALATION_KEYWORDS = (
+    "agent humain", "humain", "parler à quelqu'un", "parler a quelqu'un",
+    "vrai agent", "support humain", "un humain", "responsable",
+)
+
+
+async def _resolve_base_system_prompt(db, scope_uid: str) -> str:
+    """Tenant-level override (`liluvine_pro_system_prompt`) takes priority,
+    fallback to the global `SYSTEM_MESSAGE` constant — SANS règle d'escalade
+    (voir `_resolve_system_prompt` pour la version chat web avec escalade
+    `[ESCALATION_HUMAINE]`).
+
+    Lot Liluvine (2026-09) — c'est CETTE version (base, sans escalade) que
+    `liluvine_wa_autoreply.py` doit utiliser : la réponse WhatsApp a déjà son
+    propre mécanisme d'escalade distinct (`[ESCALATE: raison]`, voir
+    `liluvine_escalation.py`/`ESCALATE_PROMPT_HINT`) — lui ajouter EN PLUS la
+    règle `[ESCALATION_HUMAINE]` du chat web ferait cohabiter deux marqueurs
+    différents dans le même prompt et risquerait de faire fuiter
+    `[ESCALATION_HUMAINE]` tel quel dans le message WhatsApp final (le code
+    de nettoyage WA ne connaît que `[ESCALATE: ...]`)."""
+    tenant_doc = await db.users.find_one(
+        {"id": scope_uid},
+        {"_id": 0, "liluvine_pro_system_prompt": 1, "full_name": 1, "company": 1},
+    ) or {}
+    return (tenant_doc.get("liluvine_pro_system_prompt") or "").strip() or SYSTEM_MESSAGE
+
+
+async def _resolve_system_prompt(db, scope_uid: str) -> str:
+    """Version chat web : prompt de base (voir `_resolve_base_system_prompt`)
+    + règle d'escalade `[ESCALATION_HUMAINE]`, inchangée par rapport à avant
+    ce lot — comportement du chat web strictement préservé."""
+    base = await _resolve_base_system_prompt(db, scope_uid)
+    escalation_rule = (
+        "\n\n[RÈGLE D'ESCALADE — IMPORTANT]\n"
+        "Si tu ne sais pas répondre, si la demande dépasse ton champ d'action, "
+        "si le contact insiste pour avoir un humain, ou si la situation requiert "
+        "un humain (litige, sensibilité, urgence), termine ta réponse par le "
+        f"marqueur exact `{ESCALATION_TOKEN}` (sans guillemets) suivi d'un message "
+        "rassurant et bref de transition vers l'humain (ex: « Je transmets votre "
+        "demande à un conseiller, il revient vers vous très vite. »)."
+    )
+    return base + escalation_rule
+
 
 # ============================================================
 # Pydantic
@@ -502,33 +553,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             model=model, pre_check=True,
         )
 
-    # Iter38r-fix9o (Item 1) — Tenant-configurable system prompt + escalation
-    ESCALATION_TOKEN = "[ESCALATION_HUMAINE]"
-    ESCALATION_KEYWORDS = (
-        "agent humain", "humain", "parler à quelqu'un", "parler a quelqu'un",
-        "vrai agent", "support humain", "un humain", "responsable",
-    )
-
-    async def _resolve_system_prompt(scope_uid: str) -> str:
-        """Tenant-level override (`liluvine_pro_system_prompt`) takes priority,
-        fallback to the global `SYSTEM_MESSAGE` constant. Always appends the
-        escalation rule so Liluvine knows to emit the marker when it can't
-        answer."""
-        tenant_doc = await db.users.find_one(
-            {"id": scope_uid},
-            {"_id": 0, "liluvine_pro_system_prompt": 1, "full_name": 1, "company": 1},
-        ) or {}
-        base = (tenant_doc.get("liluvine_pro_system_prompt") or "").strip() or SYSTEM_MESSAGE
-        escalation_rule = (
-            "\n\n[RÈGLE D'ESCALADE — IMPORTANT]\n"
-            "Si tu ne sais pas répondre, si la demande dépasse ton champ d'action, "
-            "si le contact insiste pour avoir un humain, ou si la situation requiert "
-            "un humain (litige, sensibilité, urgence), termine ta réponse par le "
-            f"marqueur exact `{ESCALATION_TOKEN}` (sans guillemets) suivi d'un message "
-            "rassurant et bref de transition vers l'humain (ex: « Je transmets votre "
-            "demande à un conseiller, il revient vers vous très vite. »)."
-        )
-        return base + escalation_rule
+    # ESCALATION_TOKEN / ESCALATION_KEYWORDS / _resolve_system_prompt sont
+    # maintenant au scope module (voir juste après SYSTEM_MESSAGE, en haut du
+    # fichier) — réutilisables depuis liluvine_wa_autoreply.py sans dupliquer
+    # la logique de résolution du prompt tenant.
 
     @api.put("/admin/liluvine-pro/system-prompt", tags=["Admin — Liluvine PRO"])
     async def admin_set_system_prompt(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
@@ -921,7 +949,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             kb = await build_kb_context(db, query=text)
         except Exception:
             kb = ""
-        system_text = (await _resolve_system_prompt(client_id)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        system_text = (await _resolve_system_prompt(db, client_id)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
         # Iter38r-fix9o (Item 1) — Keyword pre-check for explicit human-handoff requests
         _user_lower = text.lower()
         _escalate_pre = any(k in _user_lower for k in ESCALATION_KEYWORDS)
@@ -1067,7 +1095,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             kb = await build_kb_context(db, query=payload.text)
         except Exception:
             kb = ""
-        system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
+        system_text = (await _resolve_system_prompt(db, scope)) + (("\n" + ctx) if ctx else "") + (("\n\n" + kb) if kb else "")
         # Iter38r-fix9o (Item 1) — Keyword pre-check
         _escalate_pre = any(k in payload.text.lower() for k in ESCALATION_KEYWORDS)
         # Iter40-fix (2026-02) — Inject the conversation memory so Liluvine
@@ -1259,7 +1287,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         })
         # 7) Call the LLM with the enriched prompt
         ctx = await _fetch_context_snippets(db, user, text or analysis.get("visual_summary") or "")
-        system_text = (await _resolve_system_prompt(scope)) + (("\n" + ctx) if ctx else "")
+        system_text = (await _resolve_system_prompt(db, scope)) + (("\n" + ctx) if ctx else "")
         # Iter40-fix (2026-02) — Inject conversation memory for vision chat too.
         memory_block = await _build_memory_block(sid, text or "📸 Capture d'écran envoyée")
         try:
@@ -1353,7 +1381,7 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
                 # Heavy lifting — context + LLM call
                 ctx_task = _fetch_context_snippets(db, user, payload.text)
                 kb_task = _resolve_kb_context(payload.text)
-                sys_task = _resolve_system_prompt(scope)
+                sys_task = _resolve_system_prompt(db, scope)
                 # Iter40 (2026-02) — Mémoire de conversation : on récupère les 10
                 # derniers messages de la session pour les inclure dans le user
                 # prompt. EmergentIntegrations LlmChat est stateless donc sans

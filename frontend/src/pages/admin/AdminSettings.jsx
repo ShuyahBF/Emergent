@@ -907,6 +907,26 @@ export default function AdminSettings() {
         <LiluvineBrandingSection />
       </Filterable>
 
+      <Filterable title="Liluvine PRO — Contrat & accès (2026-09)" anchorId="s-liluvine-contract">
+        <Section icon={ShieldCheck} title="Contrat invalide — message aux contacts décisionnaires">
+          <p className="text-xs text-slate-500">
+            Quand le contrat d'un client/tenant n'est pas valable (aucun contrat enregistré, ou
+            paiement en retard au-delà du seuil configuré, ou compte déjà suspendu), Liluvine
+            n'envoie plus de réponse automatique normale sur WhatsApp — à la place, ce message est
+            envoyé aux contacts de ce client marqués « décisionnaire » (Responsable/DG/Directeur,
+            voir la fiche contact). Variables disponibles : {`{client_name}`}, {`{days_overdue}`}.
+          </p>
+          <textarea
+            value={s.liluvine_contract_invalid_message || ""}
+            onChange={(e) => upd("liluvine_contract_invalid_message", e.target.value)}
+            rows={4}
+            placeholder="Bonjour, le contrat de {client_name} avec SAWALI n'est plus valide (paiement en attente ou contrat absent). Les réponses automatiques Liluvine sont suspendues jusqu'à régularisation."
+            className="w-full mt-2 px-3 py-2 rounded-lg ring-1 ring-slate-300 text-xs font-mono"
+            data-testid="liluvine-contract-invalid-message"
+          />
+        </Section>
+      </Filterable>
+
       <Filterable title="Liluvine PRO — Base de connaissance (KB)" anchorId="s-liluvine-kb">
         <LiluvineKnowledgeBaseSection />
       </Filterable>

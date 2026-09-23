@@ -128,6 +128,64 @@ async def should_autoreply(
     return {"ok": True, "reason": "matched"}
 
 
+def _tenant_contract_validity(tenant_doc: Dict[str, Any], default_threshold: int) -> Dict[str, Any]:
+    """Validité de contrat pour la gate WA — calcul autonome, PAS un import
+    depuis server.py (les fichiers routes/*.py n'importent server.py qu'en
+    lazy/local à l'intérieur d'une fonction, jamais au niveau module, pour
+    éviter un import circulaire — voir plus bas `import server as
+    _server_module`). Reprend volontairement la même logique jour-de-retard
+    que `_run_contract_overdue_alerts` (server.py), dupliquée ici en
+    quelques lignes plutôt que de faire dépendre ce module de server.py.
+
+    "Contrat valable" = un numéro de contrat existe ET (aucune date de
+    référence n'est encore enregistrée OU le retard est sous le seuil) ET le
+    compte n'est pas déjà suspendu par le cron quotidien.
+    """
+    has_contract = bool((tenant_doc.get("contract_number") or "").strip())
+    ref_iso = (tenant_doc.get("last_payment_at") or tenant_doc.get("contract_signed_at") or "")[:10]
+    account_suspended = (tenant_doc.get("account_status") or "active").lower() == "suspended"
+    if not ref_iso:
+        return {
+            "has_contract": has_contract, "days_overdue": None, "threshold_days": None,
+            "valid": has_contract and not account_suspended,
+        }
+    try:
+        ref_date = datetime.strptime(ref_iso, "%Y-%m-%d").date()
+    except Exception:  # noqa: BLE001
+        return {
+            "has_contract": has_contract, "days_overdue": None, "threshold_days": None,
+            "valid": has_contract and not account_suspended,
+        }
+    today = datetime.now(timezone.utc).date()
+    days_overdue = max(0, (today - ref_date).days)
+    threshold = int(tenant_doc.get("contract_overdue_days") or default_threshold)
+    valid = has_contract and days_overdue < threshold and not account_suspended
+    return {
+        "has_contract": has_contract, "days_overdue": days_overdue,
+        "threshold_days": threshold, "valid": valid,
+    }
+
+
+async def _find_decision_maker_contacts(db, client_id: str) -> List[Dict[str, Any]]:
+    """Contacts marqués "décisionnaire" (Responsable/DG/Directeur, voir
+    is_decision_maker sur DirectoryContactCreate/Update) pour ce tenant —
+    destinataires des notifications Liluvine liées au contrat."""
+    if not client_id:
+        return []
+    cursor = db.directory_contacts.find(
+        {"client_id": client_id, "is_decision_maker": True},
+        {"_id": 0, "id": 1, "name": 1, "phone": 1, "whatsapp": 1},
+    )
+    return await cursor.to_list(length=50)
+
+
+def _fill_placeholders(template: str, **values: Any) -> str:
+    out = template
+    for key, val in values.items():
+        out = out.replace("{" + key + "}", str(val if val is not None else ""))
+    return out
+
+
 async def autoreply_to_inbound(
     db,
     *,
@@ -642,6 +700,49 @@ async def autoreply_to_inbound(
     user_doc = await db.users.find_one({"id": scope_uid}, {"_id": 0})
     if not user_doc:
         return {"ok": False, "reason": "tenant_user_not_found"}
+
+    # Lot Liluvine (2026-09, point 3) — contrat invalide/expiré : plutôt que
+    # de générer une réponse IA normale, on notifie le(s) contact(s)
+    # décisionnaire(s) du tenant avec un message admin-configurable, et on
+    # s'arrête là (pas de réponse IA à l'expéditeur dans ce cas).
+    default_overdue_threshold = int(settings_doc.get("contract_overdue_days_default") or 5)
+    contract_status = _tenant_contract_validity(user_doc, default_overdue_threshold)
+    if not contract_status["valid"]:
+        decision_makers = await _find_decision_maker_contacts(db, scope_uid)
+        if not decision_makers:
+            logger.warning(
+                "[wa_autoreply] contrat invalide pour tenant %s mais aucun contact décisionnaire à notifier",
+                scope_uid,
+            )
+            return {"ok": False, "reason": "contract_invalid_no_decision_maker"}
+        template = (
+            settings_doc.get("liluvine_contract_invalid_message")
+            or "Bonjour, le contrat de {client_name} avec SAWALI n'est plus valide "
+            "(paiement en attente ou contrat absent). Les réponses automatiques "
+            "Liluvine sont suspendues jusqu'à régularisation."
+        )
+        message = _fill_placeholders(
+            template,
+            client_name=user_doc.get("company") or user_doc.get("full_name") or "votre société",
+            days_overdue=contract_status.get("days_overdue"),
+        )
+        notified = 0
+        for dm in decision_makers:
+            dm_phone = _digits(dm.get("whatsapp") or dm.get("phone") or "")
+            if not dm_phone:
+                continue
+            try:
+                if wa_send_interactive_button is not None:
+                    # Point 5 — bouton "Souscrire temporairement" sur ce message.
+                    await wa_send_interactive_button(
+                        dm_phone, message, "liluvine_temp_subscribe", "Souscrire temporairement",
+                    )
+                else:
+                    await wa_send_text(dm_phone, message)
+                notified += 1
+            except Exception:  # noqa: BLE001
+                logger.exception("[wa_autoreply] échec notification contrat invalide vers %s", dm_phone)
+        return {"ok": False, "reason": "contract_invalid", "notified_decision_makers": notified}
 
     ctx = await _fetch_context_snippets(db, user_doc, text)
     # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…

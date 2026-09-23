@@ -37,8 +37,8 @@ const CHART_BAR_COLOR = "#0d9488";
 // dans la réponse — sert uniquement à illustrer la zone résultats d'un
 // mini-graphique, le texte de l'IA reste la réponse principale.
 function extractChartItems(data) {
-  if (data?.inventaires?.top_produits_par_quantite?.length) {
-    return data.inventaires.top_produits_par_quantite.map((p) => ({ name: p.designation, value: p.quantite }));
+  if (data?.inventaires?.top_produits_par_stock?.length) {
+    return data.inventaires.top_produits_par_stock.map((p) => ({ name: p.designation, value: p.stock_total }));
   }
   if (data?.stocks?.top_produits_par_ventes?.length) {
     return data.stocks.top_produits_par_ventes.map((p) => ({ name: p.designation, value: p.quantite_vendue }));

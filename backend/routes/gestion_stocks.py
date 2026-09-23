@@ -86,9 +86,46 @@ def _safe_filename(name: str) -> str:
 
 
 # ======================================================================
-# Explorateur BD MongoDB Atlas — agrégations (lecture seule, jamais de
-# requête générée par le LLM : il ne reçoit que ces agrégats en contexte).
+# Explorateur BD MongoDB Atlas — agrégations sur le VRAI schéma HFSQL
+# (fourni par l'utilisateur le 2026-09, "Structure_des_fichiers_HFSQL.zip"),
+# synchronisé vers MongoDB par l'outil externe (partie technique de la
+# synchro discutée séparément). 5 entités métier / 6 collections
+# (Inventory + DInventaire = en-tête + détail d'un même inventaire) :
+#
+#   - Produit      : base produits — porte le stock EN DIRECT (voir plus
+#                    bas), pas besoin d'une collection "snapshot" séparée.
+#   - AAcheté      : DÉTAIL DES VENTES (une ligne par produit vendu, malgré
+#                    son nom — confirmé explicitement par l'utilisateur).
+#   - Vente        : en-tête de vente (client, montant, date) — pas utilisé
+#                    par les 3 analyseurs actuels.
+#   - Inventory / DInventaire : en-tête + détail des inventaires physiques
+#                    ponctuels (lots, péremption, écarts) — pas utilisé
+#                    par les 3 analyseurs actuels ; réservé à une future
+#                    évolution (écarts d'inventaire, alertes péremption).
+#   - ClientPharma : clients de la pharmacie — hors périmètre (décision
+#                    explicite de l'utilisateur).
+#
+# Stock d'un produit = Stock Ouaga (Principal) + Stock Bobo (Secondaire) +
+# sUG (Unités Gratuites) — répartition confirmée par l'utilisateur, qui
+# veut voir le total ET le détail des 3 composantes.
+#
+# RÈGLE TECHNIQUE MULTI-TENANT (à retenir pour tout futur projet de
+# gestion de stocks HFSQL→MongoDB — voir aussi
+# /home/user/Claude/TECHNICAL_RULES.md) : HFSQL est mono-pharmacie, donc
+# aucune des tables n'a de notion de tenant. L'outil externe de synchro
+# doit AJOUTER un champ d'identification du tenant sur CHAQUE document
+# importé, dans CHAQUE collection, et tout affichage se filtre dessus.
+# `client_code` (même valeur que AdminClients.client_code côté SAWALI) est
+# le nom retenu ici — À CONFIRMER avec le développeur de l'outil externe,
+# pas encore figé.
+#
+# Les champs HFSQL sont conservés TELS QUELS (espaces/accents compris),
+# décision explicite de l'utilisateur — ne jamais les renommer en
+# snake_case dans ce module.
 # ======================================================================
+
+PRODUIT_COLLECTION = "Produit"
+VENTES_DETAIL_COLLECTION = "AAcheté"
 
 # Modèle unique de LlmChat/emergentintegrations, comme LILUVINE_MODEL dans
 # liluvine_pro.py — un seul endroit à changer pour un futur rollback.
@@ -123,76 +160,104 @@ ANALYSE_QUESTIONS: Dict[str, str] = {
 }
 
 
-async def _latest_inventory_by_sku(db, client_code: str) -> List[Dict[str, Any]]:
-    """Pour chaque SKU, le relevé d'inventaire le plus récent (les imports
-    successifs de l'outil externe s'accumulent — on ne garde que le
-    dernier état connu par produit)."""
-    pipeline = [
-        {"$match": {"client_code": client_code}},
-        {"$sort": {"date_inventaire": -1}},
-        {"$group": {
-            "_id": "$sku",
-            "designation": {"$first": "$designation"},
-            "quantite": {"$first": "$quantite"},
-            "date_inventaire": {"$first": "$date_inventaire"},
-        }},
-    ]
-    return await db.stock_inventory_snapshots.aggregate(pipeline).to_list(length=5000)
-
-
-async def _aggregate_inventory_state(db, client_code: str) -> Dict[str, Any]:
-    rows = await _latest_inventory_by_sku(db, client_code)
-    top = sorted(rows, key=lambda r: r.get("quantite") or 0, reverse=True)[:10]
-    zero_stock = [r for r in rows if (r.get("quantite") or 0) == 0]
-    dates = [r.get("date_inventaire") for r in rows if r.get("date_inventaire")]
+def _produit_stock_total(p: Dict[str, Any]) -> Dict[str, Any]:
+    """Décompose + additionne les 3 composantes du stock d'un produit."""
+    principal = p.get("Stock Ouaga") or 0
+    secondaire = p.get("Stock Bobo") or 0
+    ug = p.get("sUG") or 0
     return {
-        "total_skus_suivis": len(rows),
-        "quantite_totale": sum(r.get("quantite") or 0 for r in rows),
-        "top_produits_par_quantite": [
-            {"sku": r["_id"], "designation": r.get("designation") or r["_id"], "quantite": r.get("quantite") or 0}
-            for r in top
-        ],
-        "nb_produits_stock_zero": len(zero_stock),
-        "date_dernier_releve": max(dates) if dates else None,
+        "stock_principal_ouaga": principal,
+        "stock_secondaire_bobo": secondaire,
+        "stock_unites_gratuites": ug,
+        "stock_total": principal + secondaire + ug,
     }
 
 
+async def _aggregate_inventory_state(db, client_code: str) -> Dict[str, Any]:
+    cursor = db[PRODUIT_COLLECTION].find(
+        {"client_code": client_code},
+        {"_id": 0, "Code Produit": 1, "Libellé": 1, "Stock Ouaga": 1, "Stock Bobo": 1, "sUG": 1},
+    )
+    rows = await cursor.to_list(length=10000)
+    produits = [
+        {
+            "code_produit": r.get("Code Produit"),
+            "designation": r.get("Libellé") or r.get("Code Produit"),
+            **_produit_stock_total(r),
+        }
+        for r in rows
+    ]
+    top = sorted(produits, key=lambda p: p["stock_total"], reverse=True)[:10]
+    zero_stock = [p for p in produits if p["stock_total"] == 0]
+    return {
+        "total_produits_suivis": len(produits),
+        "stock_total_cumule": sum(p["stock_total"] for p in produits),
+        "top_produits_par_stock": top,
+        "nb_produits_stock_zero": len(zero_stock),
+    }
+
+
+async def _designations_by_code(db, client_code: str, codes: List[str]) -> Dict[str, str]:
+    """AAcheté (détail des ventes) ne porte pas le libellé produit — on le
+    récupère depuis Produit pour les codes qui nous intéressent."""
+    if not codes:
+        return {}
+    rows = await db[PRODUIT_COLLECTION].find(
+        {"client_code": client_code, "Code Produit": {"$in": codes}},
+        {"_id": 0, "Code Produit": 1, "Libellé": 1},
+    ).to_list(length=len(codes))
+    return {r["Code Produit"]: (r.get("Libellé") or r["Code Produit"]) for r in rows}
+
+
 async def _aggregate_sales_trends(db, client_code: str, days: int = 30) -> Dict[str, Any]:
+    """Basé sur AAcheté (détail des ventes). `Qte Livrée` = quantité
+    effectivement sortie du stock. Le montant est une ESTIMATION
+    (Qte Livrée × Prix Public) faute d'un champ "montant ligne" explicite
+    dans cette table — à valider une fois de vraies données disponibles
+    (voir le prompt de livraison)."""
     now = datetime.now(timezone.utc)
     since = (now - timedelta(days=days)).isoformat()
     prev_since = (now - timedelta(days=2 * days)).isoformat()
 
     pipeline_current = [
-        {"$match": {"client_code": client_code, "date_vente": {"$gte": since}}},
+        {"$match": {"client_code": client_code, "DateHeure_Création": {"$gte": since}}},
         {"$group": {
-            "_id": "$sku",
-            "designation": {"$first": "$designation"},
-            "quantite_vendue": {"$sum": "$quantite_vendue"},
-            "montant": {"$sum": "$montant"},
+            "_id": "$Code Produit",
+            "quantite_vendue": {"$sum": "$Qte Livrée"},
+            "montant_estime": {"$sum": {"$multiply": [
+                {"$ifNull": ["$Qte Livrée", 0]}, {"$ifNull": ["$Prix Public", 0]},
+            ]}},
         }},
     ]
-    rows = await db.stock_sales_history.aggregate(pipeline_current).to_list(length=5000)
-    total_amount = sum(r.get("montant") or 0 for r in rows)
+    rows = await db[VENTES_DETAIL_COLLECTION].aggregate(pipeline_current).to_list(length=10000)
+    total_amount = sum(r.get("montant_estime") or 0 for r in rows)
     total_qty = sum(r.get("quantite_vendue") or 0 for r in rows)
-    top = sorted(rows, key=lambda r: r.get("quantite_vendue") or 0, reverse=True)[:10]
+    top_rows = sorted(rows, key=lambda r: r.get("quantite_vendue") or 0, reverse=True)[:10]
+    designations = await _designations_by_code(db, client_code, [r["_id"] for r in top_rows])
 
     pipeline_prev = [
-        {"$match": {"client_code": client_code, "date_vente": {"$gte": prev_since, "$lt": since}}},
-        {"$group": {"_id": None, "montant": {"$sum": "$montant"}}},
+        {"$match": {"client_code": client_code, "DateHeure_Création": {"$gte": prev_since, "$lt": since}}},
+        {"$group": {"_id": None, "montant_estime": {"$sum": {"$multiply": [
+            {"$ifNull": ["$Qte Livrée", 0]}, {"$ifNull": ["$Prix Public", 0]},
+        ]}}}},
     ]
-    prev_rows = await db.stock_sales_history.aggregate(pipeline_prev).to_list(length=1)
-    prev_amount = (prev_rows[0].get("montant") if prev_rows else 0) or 0
+    prev_rows = await db[VENTES_DETAIL_COLLECTION].aggregate(pipeline_prev).to_list(length=1)
+    prev_amount = (prev_rows[0].get("montant_estime") if prev_rows else 0) or 0
     variation_pct = round(((total_amount - prev_amount) / prev_amount) * 100, 1) if prev_amount else None
 
     return {
         "periode_jours": days,
-        "montant_total": total_amount,
+        "montant_total_estime": total_amount,
         "quantite_totale_vendue": total_qty,
         "top_produits_par_ventes": [
-            {"sku": r["_id"], "designation": r.get("designation") or r["_id"], "quantite_vendue": r.get("quantite_vendue") or 0}
-            for r in top
+            {
+                "code_produit": r["_id"],
+                "designation": designations.get(r["_id"], r["_id"]),
+                "quantite_vendue": r.get("quantite_vendue") or 0,
+            }
+            for r in top_rows
         ],
-        "montant_periode_precedente": prev_amount,
+        "montant_periode_precedente_estime": prev_amount,
         "variation_pct_vs_periode_precedente": variation_pct,
     }
 
@@ -200,40 +265,41 @@ async def _aggregate_sales_trends(db, client_code: str, days: int = 30) -> Dict[
 async def _aggregate_stockout_risks(
     db, client_code: str, velocity_days: int = 30, horizon_days: int = 7,
 ) -> Dict[str, Any]:
-    inventory_rows = await _latest_inventory_by_sku(db, client_code)
-    inv_by_sku = {r["_id"]: r for r in inventory_rows}
-
-    product_rows = await db.stock_products.find(
-        {"client_code": client_code}, {"_id": 0, "sku": 1, "seuil_alerte": 1},
-    ).to_list(length=5000)
-    seuils = {p["sku"]: p.get("seuil_alerte") for p in product_rows if p.get("seuil_alerte") is not None}
+    produit_rows = await db[PRODUIT_COLLECTION].find(
+        {"client_code": client_code},
+        {"_id": 0, "Code Produit": 1, "Libellé": 1, "Stock Ouaga": 1, "Stock Bobo": 1, "sUG": 1, "Seuil": 1},
+    ).to_list(length=10000)
 
     since = (datetime.now(timezone.utc) - timedelta(days=velocity_days)).isoformat()
     pipeline = [
-        {"$match": {"client_code": client_code, "date_vente": {"$gte": since}}},
-        {"$group": {"_id": "$sku", "quantite_vendue": {"$sum": "$quantite_vendue"}}},
+        {"$match": {"client_code": client_code, "DateHeure_Création": {"$gte": since}}},
+        {"$group": {"_id": "$Code Produit", "quantite_vendue": {"$sum": "$Qte Livrée"}}},
     ]
-    sales_rows = await db.stock_sales_history.aggregate(pipeline).to_list(length=5000)
+    sales_rows = await db[VENTES_DETAIL_COLLECTION].aggregate(pipeline).to_list(length=10000)
     velocity = {r["_id"]: (r.get("quantite_vendue") or 0) / velocity_days for r in sales_rows}
 
     ruptures_actuelles: List[Dict[str, Any]] = []
     produits_a_risque: List[Dict[str, Any]] = []
-    for sku, inv in inv_by_sku.items():
-        qty = inv.get("quantite") or 0
-        seuil = seuils.get(sku)
-        if seuil is not None and qty <= seuil:
+    for p in produit_rows:
+        code = p.get("Code Produit")
+        designation = p.get("Libellé") or code
+        total = _produit_stock_total(p)["stock_total"]
+        seuil = p.get("Seuil")
+        # Seuil non configuré (0/None/absent) => pas de contrôle possible
+        # pour ce produit, on ne le compte pas en rupture "actuelle".
+        if seuil and total <= seuil:
             ruptures_actuelles.append({
-                "sku": sku, "designation": inv.get("designation") or sku,
-                "quantite": qty, "seuil_alerte": seuil,
+                "code_produit": code, "designation": designation,
+                "stock_total": total, "seuil_alerte": seuil,
             })
             continue
-        v = velocity.get(sku)
+        v = velocity.get(code)
         if v and v > 0:
-            jours_restants = qty / v
+            jours_restants = total / v
             if jours_restants <= horizon_days:
                 produits_a_risque.append({
-                    "sku": sku, "designation": inv.get("designation") or sku,
-                    "quantite": qty, "jours_restants_estimes": round(jours_restants, 1),
+                    "code_produit": code, "designation": designation,
+                    "stock_total": total, "jours_restants_estimes": round(jours_restants, 1),
                 })
     produits_a_risque.sort(key=lambda r: r["jours_restants_estimes"])
     return {

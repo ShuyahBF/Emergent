@@ -152,6 +152,8 @@ import VidalFicheProduit from "@/pages/portal/VidalFicheProduit";
 import VidalPosologie from "@/pages/portal/VidalPosologie";
 import VidalSecurisation from "@/pages/portal/VidalSecurisation";
 import GestionStocks from "@/pages/portal/GestionStocks";
+// Lot OCR sur Pièces (2026-09) — module commun ocr-core + adaptateur Sawali
+import OcrPieces from "@/pages/portal/OcrPieces";
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -358,6 +360,8 @@ export default function App() {
             <Route path="vidal-securisation" element={<VidalSecurisation />} />
             {/* Lot Gestion Stocks (2026-09) — espace documentaire R2 + futur explorateur MongoDB Atlas */}
             <Route path="gestion-stocks" element={<GestionStocks />} />
+            {/* Lot OCR sur Pièces (2026-09) — pharmacies (leurs pièces) + administration */}
+            <Route path="ocr-pieces" element={<OcrPieces />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />
@@ -377,6 +381,8 @@ export default function App() {
             <Route path="appointments" element={<AdminAppointments />} />
             <Route path="interventions" element={<AdminInterventions />} />
             <Route path="documents" element={<AdminDocuments />} />
+            {/* Lot OCR sur Pièces (2026-09) — vue administration (modèles, coût, évaluations) */}
+            <Route path="ocr-pieces" element={<OcrPieces />} />
             <Route path="contents" element={<AdminContents />} />
             <Route path="contacts" element={<AdminContacts />} />
             <Route path="tracked-users" element={<AdminTrackedUsers />} />

@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
   LayoutDashboard, Calendar, FileText, Wrench, Users,
-  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope,
+  Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
 import { VidalUiSettingsProvider, useVidalUiSettings } from "@/contexts/VidalUiSettingsContext";
@@ -97,6 +97,11 @@ const clientLinks = [
   // S-iter39b — Brochures & Guides accessible aux modérateurs (lecture en
   // ligne via la visionneuse PDF interne ; téléchargement réservé admin/sup).
   { to: "/portal/brochures", label: "Brochures & Guides", icon: FileText, moderationOnly: true },
+  // Lot OCR sur Pièces (2026-09) — dépôt et analyse IA des pièces (factures
+  // fournisseurs, bons de livraison…). Visible des pharmacies (rôle
+  // pharmacien) et de l'administration ; les pharmacien(ne)s suivi(e)s ont
+  // le lien dans leur sidebar réduite plus bas.
+  { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, ocrPiecesOnly: true },
 ];
 
 const adminLinks = [
@@ -142,6 +147,9 @@ const adminLinks = [
   { to: "/admin/ad-banners", label: "Régie publicitaire", icon: Megaphone },
   // Iter42 — Officines Registry (validation pharmacies inscrites au self-service)
   { to: "/admin/officines-registry", label: "Officines (validation)", icon: HeartPulse, featureGate: "vidal_enabled" },
+  // Lot OCR sur Pièces (2026-09) — choix du modèle d'IA, coût réel en FCFA,
+  // évaluation 1-5 étoiles, tableau de bord par modèle.
+  { to: "/admin/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
@@ -303,9 +311,16 @@ function PortalLayoutInner({ admin = false }) {
   // de Sécurisation, ni Fiche produit — accès volontairement plus étroit
   // que le médecin, demandé explicitement par l'utilisateur).
   // Lot Gestion Stocks (2026-09) — ajout du nouvel espace documentaire.
+  // Lot 19 (2026-09) — Fiche produit VIDAL ouverte aussi au Pharmacien suivi.
   const allowedPharmacienTrackedPaths = new Set([
     "/portal/vidal-posologie",
+    "/portal/vidal-fiche",
+    // Lecteur PDF interne où la Fiche produit ouvre les documents VIDAL (RCP) ;
+    // chemin autorisé mais pas de lien en sidebar (contenu public uniquement).
+    "/portal/brochures",
     "/portal/gestion-stocks",
+    // Lot OCR sur Pièces (2026-09)
+    "/portal/ocr-pieces",
     "/portal/my-account",
   ]);
   const allowedSecretaireMedicalePaths = new Set([
@@ -348,10 +363,16 @@ function PortalLayoutInner({ admin = false }) {
                 // même session utilisateur suivi, sidebar réduite à Posologie
                 // uniquement (pas de Sécurisation ni Fiche produit).
                 { to: "/portal/vidal-posologie", label: "Posologie", icon: Stethoscope, featureGate: "vidal_enabled" },
+                // Lot 19 (2026-09) — Fiche produit VIDAL en plus de Posologie
+                // (mêmes routes backend /vidal/product/..., déjà contrôlées par
+                // l'accès VIDAL du tenant ; pas de Sécurisation).
+                { to: "/portal/vidal-fiche", label: "Fiche produit VIDAL", icon: Pill, featureGate: "vidal_enabled" },
                 // Lot Gestion Stocks (2026-09) — espace documentaire R2
                 // (inventaires, contrôle qualité, etc) + futur explorateur
                 // MongoDB Atlas.
                 { to: "/portal/gestion-stocks", label: "Gestion de Stocks", icon: Boxes },
+                // Lot OCR sur Pièces (2026-09) — dépôt + synthèse IA des pièces.
+                { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
               ]
             : (isSecretaireMedicale
                 ? [
@@ -406,6 +427,9 @@ function PortalLayoutInner({ admin = false }) {
     .filter((l) => !l.adminOrSup || isAdminOrSup)
     .filter((l) => !l.moderatorPlus || isModerator || isAdminOrSup)
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked)
+    // Lot OCR sur Pièces (2026-09) — pharmacies + administration uniquement
+    // (même règle que le backend routes/ocr_pieces.py).
+    .filter((l) => !l.ocrPiecesOnly || isPharmacien || isPharmacienTracked || isAdminOrSup)
     // 2026-02 fork (P4) — Override de masquage explicite du Tableau de bord
     .filter((l) => l.to !== "/portal" || p4ShowDashboard);
 

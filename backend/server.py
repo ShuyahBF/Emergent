@@ -25622,6 +25622,13 @@ _attach_liluvine_send_webhook(api=api, db=db, wa_send_text=_wa_send_text)
 from routes.gestion_stocks import attach_gestion_stocks_routes as _attach_gestion_stocks  # noqa: E402
 _attach_gestion_stocks(api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin)
 
+# Lot OCR sur Pièces (2026-09) — analyse IA des pièces (factures, bons de
+# livraison, reçus…). Logique commune dans backend/ocr_core/ (copie du module
+# ocr-core, source unique : dépôt ShuyahBF/Claude) ; adaptateur Sawali
+# (accès admin + pharmacies, cloisonnement par tenant) dans routes/ocr_pieces.py.
+from routes.ocr_pieces import attach_ocr_pieces_routes as _attach_ocr_pieces  # noqa: E402
+_attach_ocr_pieces(api=api, db=db, get_current_user=get_current_user)
+
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402
 api.include_router(_make_llm_health_router(db=db, get_current_user=get_current_user, send_email=send_email))

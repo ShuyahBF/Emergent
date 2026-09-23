@@ -43,8 +43,8 @@ function extractChartItems(data) {
   if (data?.stocks?.top_produits_par_ventes?.length) {
     return data.stocks.top_produits_par_ventes.map((p) => ({ name: p.designation, value: p.quantite_vendue }));
   }
-  if (data?.ruptures?.produits_a_risque_bientot?.length) {
-    return data.ruptures.produits_a_risque_bientot.map((p) => ({ name: p.designation, value: p.jours_restants_estimes }));
+  if (data?.ruptures?.produits_les_plus_souvent_en_rupture?.length) {
+    return data.ruptures.produits_les_plus_souvent_en_rupture.map((p) => ({ name: p.designation, value: p.nb_ruptures }));
   }
   return [];
 }

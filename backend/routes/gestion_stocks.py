@@ -3,12 +3,10 @@ suivis (tracked_role == "Pharmacien"), nouveau lien de sidebar.
 
 Deux blocs prévus au schéma fourni par l'utilisateur :
   1. "Explorateur BD MongoDB Atlas" — Analyseur Inventaires/Stocks/Ruptures
-     + zone de prompt libre (IA conversationnelle). Les 3 collections
-     (stock_products, stock_inventory_snapshots, stock_sales_history) sont
-     alimentées par un outil externe (partie technique discutée séparément)
-     — ce module ne fait QUE les lire, jamais les écrire. Tant qu'elles
-     sont vides, les analyseurs répondent avec des agrégats à zéro (pas
-     d'erreur) et le LLM le signale.
+     + zone de prompt libre (IA conversationnelle), sur le vrai schéma
+     HFSQL synchronisé par un outil externe (Produit, AAcheté, ...) — voir
+     le commentaire détaillé juste avant les fonctions d'agrégation plus
+     bas. Ce module ne fait QUE lire ces collections, jamais les écrire.
   2. "Explorateur Stockage R2" (PDFs, Excel, Word, Images — inventaires,
      contrôle d'analyse qualité, etc).
 
@@ -153,9 +151,10 @@ ANALYSE_QUESTIONS: Dict[str, str] = {
         "période précédente."
     ),
     "ruptures": (
-        "Identifie les ruptures de stock actuelles et les risques de "
-        "rupture imminente (sous le seuil d'alerte ou d'après la vitesse "
-        "de vente récente)."
+        "Identifie les ruptures de stock : celles survenues récemment lors "
+        "d'une vente (stock devenu nul ou négatif après la vente) et celles "
+        "actuellement en cours (stock à zéro maintenant). Signale les "
+        "produits qui tombent le plus souvent en rupture."
     ),
 }
 
@@ -262,50 +261,81 @@ async def _aggregate_sales_trends(db, client_code: str, days: int = 30) -> Dict[
     }
 
 
-async def _aggregate_stockout_risks(
-    db, client_code: str, velocity_days: int = 30, horizon_days: int = 7,
-) -> Dict[str, Any]:
+async def _aggregate_stockout_risks(db, client_code: str, historique_jours: int = 30) -> Dict[str, Any]:
+    """Règle de détection confirmée par l'utilisateur (pas de `Seuil` — ce
+    champ n'est quasiment jamais renseigné dans les données réelles) :
+    pour chaque ligne de vente (`AAcheté`), `stock_apres_vente` =
+    `Stock Avant` - `Qte Livrée`. <= 0 => rupture survenue à la date de
+    cette vente. Exemple donné par l'utilisateur : 1 en stock, 2 servis =>
+    -1, rupture. `AAcheté` et `Vente` sont liées par `Référence`, mais la
+    date déjà présente sur la ligne (`DateHeure_Création`) suffit ici —
+    pas besoin de joindre `Vente`.
+
+    En complément (pas demandé mais utile et cohérent avec la même règle
+    du seuil 0) : `ruptures_actuelles` = stock en direct (`Produit`,
+    Ouaga+Bobo+sUG) déjà à 0 ou moins, à l'instant présent.
+    """
+    since = (datetime.now(timezone.utc) - timedelta(days=historique_jours)).isoformat()
+    cursor = db[VENTES_DETAIL_COLLECTION].find(
+        {"client_code": client_code, "DateHeure_Création": {"$gte": since}},
+        {"_id": 0, "Code Produit": 1, "Stock Avant": 1, "Qte Livrée": 1, "DateHeure_Création": 1, "Référence": 1},
+    )
+    lignes = await cursor.to_list(length=20000)
+
+    evenements: List[Dict[str, Any]] = []
+    for l in lignes:
+        stock_avant = l.get("Stock Avant")
+        qte = l.get("Qte Livrée")
+        if stock_avant is None or qte is None:
+            continue
+        stock_apres = stock_avant - qte
+        if stock_apres <= 0:
+            evenements.append({
+                "code_produit": l.get("Code Produit"),
+                "date": l.get("DateHeure_Création"),
+                "stock_avant": stock_avant,
+                "quantite_vendue": qte,
+                "stock_apres_vente": stock_apres,
+                "reference_vente": l.get("Référence"),
+            })
+
+    codes = list({e["code_produit"] for e in evenements if e.get("code_produit")})
+    designations = await _designations_by_code(db, client_code, codes)
+    for e in evenements:
+        e["designation"] = designations.get(e["code_produit"], e["code_produit"])
+    evenements.sort(key=lambda e: e.get("date") or "", reverse=True)
+
+    freq: Dict[str, int] = {}
+    for e in evenements:
+        freq[e["code_produit"]] = freq.get(e["code_produit"], 0) + 1
+    produits_frequents = sorted(
+        (
+            {"code_produit": k, "designation": designations.get(k, k), "nb_ruptures": v}
+            for k, v in freq.items()
+        ),
+        key=lambda r: r["nb_ruptures"], reverse=True,
+    )[:10]
+
     produit_rows = await db[PRODUIT_COLLECTION].find(
         {"client_code": client_code},
-        {"_id": 0, "Code Produit": 1, "Libellé": 1, "Stock Ouaga": 1, "Stock Bobo": 1, "sUG": 1, "Seuil": 1},
+        {"_id": 0, "Code Produit": 1, "Libellé": 1, "Stock Ouaga": 1, "Stock Bobo": 1, "sUG": 1},
     ).to_list(length=10000)
-
-    since = (datetime.now(timezone.utc) - timedelta(days=velocity_days)).isoformat()
-    pipeline = [
-        {"$match": {"client_code": client_code, "DateHeure_Création": {"$gte": since}}},
-        {"$group": {"_id": "$Code Produit", "quantite_vendue": {"$sum": "$Qte Livrée"}}},
+    ruptures_actuelles = [
+        {
+            "code_produit": p.get("Code Produit"),
+            "designation": p.get("Libellé") or p.get("Code Produit"),
+            "stock_total": _produit_stock_total(p)["stock_total"],
+        }
+        for p in produit_rows
+        if _produit_stock_total(p)["stock_total"] <= 0
     ]
-    sales_rows = await db[VENTES_DETAIL_COLLECTION].aggregate(pipeline).to_list(length=10000)
-    velocity = {r["_id"]: (r.get("quantite_vendue") or 0) / velocity_days for r in sales_rows}
 
-    ruptures_actuelles: List[Dict[str, Any]] = []
-    produits_a_risque: List[Dict[str, Any]] = []
-    for p in produit_rows:
-        code = p.get("Code Produit")
-        designation = p.get("Libellé") or code
-        total = _produit_stock_total(p)["stock_total"]
-        seuil = p.get("Seuil")
-        # Seuil non configuré (0/None/absent) => pas de contrôle possible
-        # pour ce produit, on ne le compte pas en rupture "actuelle".
-        if seuil and total <= seuil:
-            ruptures_actuelles.append({
-                "code_produit": code, "designation": designation,
-                "stock_total": total, "seuil_alerte": seuil,
-            })
-            continue
-        v = velocity.get(code)
-        if v and v > 0:
-            jours_restants = total / v
-            if jours_restants <= horizon_days:
-                produits_a_risque.append({
-                    "code_produit": code, "designation": designation,
-                    "stock_total": total, "jours_restants_estimes": round(jours_restants, 1),
-                })
-    produits_a_risque.sort(key=lambda r: r["jours_restants_estimes"])
     return {
+        "historique_jours": historique_jours,
+        "nb_ruptures_survenues": len(evenements),
+        "ruptures_recentes": evenements[:20],
+        "produits_les_plus_souvent_en_rupture": produits_frequents,
         "ruptures_actuelles": ruptures_actuelles[:20],
-        "horizon_risque_jours": horizon_days,
-        "produits_a_risque_bientot": produits_a_risque[:20],
     }
 
 

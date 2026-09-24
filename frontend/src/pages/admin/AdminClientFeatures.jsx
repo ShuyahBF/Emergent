@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
+import { formatBytes } from "@/components/R2StorageGauge";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText } from "lucide-react";
+import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -502,6 +503,9 @@ export default function AdminClientFeatures() {
         </div>
       )}
 
+      {/* Lot 20 — Espace de stockage R2 (Gestion de Stocks) alloué à ce client */}
+      <R2StorageQuotaSection clientId={id} />
+
       {/* Iter41 Phase 2 — VIDAL mode selector (only shown when vidal_enabled=true) */}
       {features.vidal_enabled && (
         <div className="rounded-2xl ring-1 ring-rose-200 bg-rose-50/40 p-5 space-y-3" data-testid="vidal-client-config-section">
@@ -947,6 +951,107 @@ function AiQuotasSection({ clientId, clientLabel }) {
           </button>
         </div>
       )}
+    </div>
+  );
+}
+
+
+// ====================================================================
+// Lot 20 — Espace de stockage R2 (Gestion de Stocks) alloué au client/tenant
+// Partagé par tous ses dossiers et tous ses utilisateurs suivis ; 2 Go par
+// défaut. Enregistrement indépendant du bouton « Enregistrer » des
+// fonctionnalités (route dédiée /admin/gestion-stocks/tenants/{id}/storage).
+// ====================================================================
+function R2StorageQuotaSection({ clientId }) {
+  const [info, setInfo] = useState(null);
+  const [quota, setQuota] = useState("");
+  const [saving, setSaving] = useState(false);
+
+  const load = async () => {
+    try {
+      const r = await apiClient.get(`/admin/gestion-stocks/tenants/${clientId}/storage`);
+      setInfo(r.data);
+      setQuota(String(r.data.quota_gb));
+    } catch {
+      setInfo(null);
+    }
+  };
+  // Rechargement quand on change de client (load ne dépend que de clientId).
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [clientId]);
+
+  const save = async () => {
+    const value = parseFloat(String(quota).replace(",", "."));
+    if (!(value > 0)) { toast.error("Indiquez un espace supérieur à 0 Go"); return; }
+    setSaving(true);
+    try {
+      await apiClient.put(`/admin/gestion-stocks/tenants/${clientId}/storage`, { quota_gb: value });
+      toast.success("Espace de stockage enregistré");
+      load();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Lot 22 — suggestions de tags par l'IA (désactivées par défaut) : enregistrées dès le clic.
+  const toggleAiTags = async (checked) => {
+    try {
+      await apiClient.put(`/admin/gestion-stocks/tenants/${clientId}/storage`, { ai_tags: checked });
+      setInfo((cur) => ({ ...cur, ai_tags: checked }));
+      toast.success(checked ? "Suggestions de tags par l'IA activées" : "Suggestions de tags par l'IA désactivées");
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
+  };
+
+  if (!info) return null;
+  const usedGb = info.used_bytes != null ? info.used_bytes / (1024 ** 3) : null;
+  const pct = usedGb != null && info.quota_gb ? Math.min(100, Math.round((usedGb / info.quota_gb) * 100)) : null;
+  return (
+    <div className="rounded-2xl ring-1 ring-teal-200 bg-teal-50/40 p-5 space-y-3" data-testid="r2-storage-quota-section">
+      <div className="flex items-start gap-3">
+        <div className="h-10 w-10 rounded-xl bg-teal-100 flex items-center justify-center">
+          <HardDrive className="h-5 w-5 text-teal-600" />
+        </div>
+        <div className="flex-1">
+          <h3 className="font-display font-semibold text-slate-900">Espace de stockage R2 (Gestion de Stocks)</h3>
+          <p className="text-xs text-slate-500 mt-1">
+            Volume total alloué aux fichiers de ce client dans l'Explorateur Stockage R2 (tous dossiers, tous
+            utilisateurs suivis). Un dépôt qui le dépasserait est refusé avec le motif. {info.default_quota_gb} Go par défaut.
+            {!info.client_code && " Ce client n'a pas encore de code client : l'espace n'est pas encore utilisé."}
+          </p>
+        </div>
+      </div>
+      <div className="flex items-end gap-3 flex-wrap">
+        <label className="block">
+          <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Espace alloué (Go)</span>
+          <input type="number" min="0.1" step="0.5" value={quota} onChange={(e) => setQuota(e.target.value)}
+            className="mt-1 w-40 text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 bg-white" data-testid="r2-storage-quota-input" />
+        </label>
+        <button onClick={save} disabled={saving}
+          className="inline-flex items-center gap-2 px-3 py-2 text-sm rounded-lg bg-teal-600 text-white hover:bg-teal-700 disabled:opacity-60"
+          data-testid="r2-storage-quota-save">
+          <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer l'espace"}
+        </button>
+        {pct != null && (
+          <p className="text-xs text-slate-600 tabular-nums" data-testid="r2-storage-quota-usage">
+            Utilisé : {formatBytes(info.used_bytes)} ({pct} %) · {info.files} fichier(s)
+          </p>
+        )}
+      </div>
+      {/* Lot 22 — option payante à l'usage : l'IA lit chaque document déposé et propose des tags */}
+      <label className="flex items-start gap-2 text-xs text-slate-700 cursor-pointer border-t border-teal-100 pt-3">
+        <input type="checkbox" checked={!!info.ai_tags} onChange={(e) => toggleAiTags(e.target.checked)}
+          className="mt-0.5" data-testid="r2-storage-ai-tags" />
+        <span>
+          <strong>Suggestions de tags par l'IA</strong> — à chaque dépôt (PDF, image, .txt, .csv jusqu'à 10 Mo),
+          Claude Haiku 4.5 lit le document et propose des tags (type, fournisseur, mois/année) et une description,
+          que l'utilisateur ajoute d'un clic. Aussi disponible à la demande sur les fichiers existants.
+          <span className="block text-[11px] text-slate-500">Désactivé par défaut. Coût : quelques FCFA par document, selon sa taille.</span>
+        </span>
+      </label>
     </div>
   );
 }

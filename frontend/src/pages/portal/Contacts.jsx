@@ -303,7 +303,10 @@ export default function Contacts() {
   }, [items, companyFilter, filter, unread]);
 
   return (
-    <div className="max-w-6xl space-y-5" data-testid="contacts-page">
+    // Lot 20 — pleine largeur : l'ancien plafond max-w-6xl (1152 px) laissait
+    // un grand vide à droite sur les écrans larges et forçait le défilement
+    // horizontal du tableau des contacts.
+    <div className="w-full max-w-full space-y-5" data-testid="contacts-page">
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div className="min-w-0">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Communication</p>

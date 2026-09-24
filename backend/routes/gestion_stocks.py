@@ -24,13 +24,14 @@ jamais de requête Mongo lui-même et n'a aucun accès direct à la base
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
-from fastapi import Body, Depends, File, HTTPException, Query, UploadFile
+from fastapi import Body, Depends, File, Form, HTTPException, Query, UploadFile
 
 logger = logging.getLogger("sawali.gestion_stocks")
 
@@ -46,6 +47,21 @@ DEFAULT_FOLDERS: List[str] = [
 ]
 
 MAX_UPLOAD_BYTES = 25 * 1024 * 1024  # 25 Mo par fichier
+
+# Lot 20 — pseudo-dossier désignant la racine du code client (fichiers posés
+# directement sous `<client_code>/`, hors de tout sous-dossier, par exemple
+# via le tableau de bord Cloudflare). Lecture seule : on n'y dépose pas.
+ROOT_FOLDER = "_racine"
+
+# Lot 20 — dépôts par les utilisateurs suivis et espace alloué par tenant.
+# Taille max d'un fichier déposé par un utilisateur suivi autorisé (réglable
+# par utilisateur suivi dans Admin → Utilisateurs suivis → « Dépôt R2 »).
+DEFAULT_TRACKED_UPLOAD_MAX_MB = 1.5
+# Espace R2 alloué à un client/tenant (tous ses dossiers), réglable dans
+# Admin → Clients → SMART Communications → « Espace de stockage R2 ».
+DEFAULT_TENANT_QUOTA_GB = 2.0
+_MB = 1024 * 1024
+_GB = 1024 * 1024 * 1024
 
 
 def _now() -> str:
@@ -81,6 +97,123 @@ async def _resolve_own_client_code(db, user: dict) -> Optional[str]:
 def _safe_filename(name: str) -> str:
     base = os.path.basename((name or "").strip()) or "fichier"
     return "".join(c for c in base if c.isalnum() or c in (" ", ".", "-", "_")).strip() or "fichier"
+
+
+# ----------------------------------------------------------------------
+# Lot 20 — droits de dépôt des utilisateurs suivis et quota par tenant
+# ----------------------------------------------------------------------
+def _check_folder(folder: str, *, allow_root: bool) -> None:
+    """Nom de dossier accepté : un des 6 dossiers standard, un sous-dossier
+    existant (nom simple, sans « / » ni « .. »), ou la racine si autorisée.
+    Le préfixe `<client_code>/` est toujours ajouté par le serveur : un nom de
+    dossier ne peut jamais sortir de l'espace du tenant."""
+    if folder == ROOT_FOLDER:
+        if allow_root:
+            return
+        raise HTTPException(status_code=400, detail="Déposez vos fichiers dans un dossier, pas à la racine.")
+    if folder in DEFAULT_FOLDERS:
+        return
+    if not folder or len(folder) > 100 or "/" in folder or "\\" in folder or folder in (".", "..") or folder.startswith("."):
+        raise HTTPException(status_code=404, detail="Dossier inconnu.")
+
+
+def _discover_folders(objects: List[dict], code: str) -> Dict[str, Any]:
+    """Dossiers réellement présents sous `<code>/` (1er niveau) et nombre de
+    fichiers posés directement à la racine."""
+    prefix = f"{code}/"
+    extra, root_files = set(), 0
+    for o in objects:
+        rest = o["key"][len(prefix):]
+        if "/" in rest:
+            extra.add(rest.split("/", 1)[0])
+        elif rest:
+            root_files += 1
+    others = sorted(f for f in extra if f and f not in DEFAULT_FOLDERS)
+    return {"folders": DEFAULT_FOLDERS + others, "extra_folders": others, "root_files": root_files,
+            "present": sorted(f for f in extra if f)}
+
+
+def _is_staff(user: dict) -> bool:
+    """Administrateur ou superviseur SAWALI : accès complet au module."""
+    return (user.get("role") or "") in ("admin", "superviseur")
+
+
+def _fmt_mb(n_bytes: float) -> str:
+    """Taille lisible en Mo, virgule décimale française (« 1,5 Mo »)."""
+    return f"{n_bytes / _MB:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " Mo"
+
+
+def _fmt_gb(n_bytes: float) -> str:
+    return f"{n_bytes / _GB:.2f}".rstrip("0").rstrip(".").replace(".", ",") + " Go"
+
+
+def _clean_max_mb(value) -> float:
+    """Taille max par fichier d'un utilisateur suivi : nombre > 0, sinon défaut."""
+    try:
+        v = float(value)
+        return v if v > 0 else DEFAULT_TRACKED_UPLOAD_MAX_MB
+    except (TypeError, ValueError):
+        return DEFAULT_TRACKED_UPLOAD_MAX_MB
+
+
+def _clean_quota_gb(value) -> float:
+    """Espace alloué au tenant : nombre > 0, sinon défaut (2 Go)."""
+    try:
+        v = float(value)
+        return v if v > 0 else DEFAULT_TENANT_QUOTA_GB
+    except (TypeError, ValueError):
+        return DEFAULT_TENANT_QUOTA_GB
+
+
+async def _tracked_upload_rights(db, user: dict) -> Dict[str, Any]:
+    """Droit de dépôt d'un utilisateur suivi, lu sur sa fiche `tracked_users`
+    (liée au compte de connexion par `tracked_user_id`) — jamais depuis la requête."""
+    tu_id = user.get("tracked_user_id")
+    tu = await db.tracked_users.find_one(
+        {"id": tu_id}, {"_id": 0, "r2_upload_allowed": 1, "r2_upload_max_mb": 1},
+    ) if tu_id else None
+    tu = tu or {}
+    return {
+        "allowed": bool(tu.get("r2_upload_allowed")),
+        "max_mb": _clean_max_mb(tu.get("r2_upload_max_mb", DEFAULT_TRACKED_UPLOAD_MAX_MB)),
+    }
+
+
+async def _tenant_by_code(db, code: str) -> Optional[dict]:
+    """Fiche du client/tenant (compte principal, pas un utilisateur suivi) qui porte ce client_code."""
+    return await db.users.find_one(
+        {"client_code": {"$in": [code, code.lower()]}, "tracked_user_id": {"$in": [None, ""]},
+         "tracked_role": {"$in": [None, ""]}},
+        {"_id": 0, "id": 1, "client_code": 1, "company": 1, "full_name": 1, "gestion_stocks_quota_gb": 1},
+    )
+
+
+async def _storage_usage(db, code: str) -> Dict[str, Any]:
+    """Espace occupé par tous les fichiers du tenant (préfixe `<client_code>/`) et espace alloué."""
+    from r2_stocks_client import list_objects
+    import asyncio
+    objects = await asyncio.to_thread(list_objects, f"{code}/")
+    used = sum(int(o.get("size") or 0) for o in objects)
+    tenant = await _tenant_by_code(db, code) or {}
+    quota_gb = _clean_quota_gb(tenant.get("gestion_stocks_quota_gb", DEFAULT_TENANT_QUOTA_GB))
+    return {
+        "client_code": code,
+        "files": len(objects),
+        "used_bytes": used,
+        "quota_gb": quota_gb,
+        "quota_bytes": int(quota_gb * _GB),
+    }
+
+
+def _quota_refusal(usage: Dict[str, Any], size: int) -> Optional[str]:
+    """Motif de refus si le fichier ferait dépasser l'espace alloué au tenant, sinon None."""
+    if usage["used_bytes"] + size <= usage["quota_bytes"]:
+        return None
+    return (
+        f"Fichier refusé : espace de stockage insuffisant. {_fmt_gb(usage['used_bytes'])} "
+        f"déjà utilisés sur {_fmt_gb(usage['quota_bytes'])} alloués ; ce fichier fait {_fmt_mb(size)}. "
+        "Libérez de l'espace ou demandez à votre administrateur SAWALI d'augmenter l'espace alloué."
+    )
 
 
 # ======================================================================
@@ -363,6 +496,14 @@ async def _analyse_llm_send(session_id: str, system_text: str, user_text: str) -
 
 
 def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin):
+    # Lot 20 — les routes « admin » du module sont ouvertes au superviseur
+    # (demande explicite) : admin OU superviseur, jamais un autre rôle.
+    # `get_current_admin` reste accepté dans la signature (appel de server.py inchangé).
+    async def staff_user(user: dict = Depends(get_current_user)) -> dict:
+        if not _is_staff(user):
+            raise HTTPException(status_code=403, detail="Accès réservé à l'administrateur ou au superviseur SAWALI.")
+        return user
+
 
     @api.get("/gestion-stocks/context", tags=["Portail — Gestion Stocks"])
     async def gestion_stocks_context(user: dict = Depends(get_current_user)):
@@ -370,7 +511,7 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         frontend s'en sert pour savoir quoi afficher avant tout listing."""
         if not _can_access_own_stocks(user):
             raise HTTPException(status_code=403, detail="Accès réservé aux comptes Pharmacien suivis (et admin/superviseur).")
-        from r2_stocks_client import is_configured
+        from r2_stocks_client import _bucket, is_configured
         client_code = None
         if (user.get("role") or "") in ("admin", "superviseur"):
             client_code = None  # l'admin choisit un client_code explicitement (voir endpoints /admin/*)
@@ -380,8 +521,154 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
             "client_code": client_code,
             "folders": DEFAULT_FOLDERS,
             "r2_configured": is_configured(),
+            # Lot 20 — nom du compartiment R2 affiché dans le fil d'Ariane de
+            # l'explorateur (information non sensible : ni clé ni compte).
+            "bucket": _bucket() if is_configured() else None,
+            "max_upload_mb": MAX_UPLOAD_BYTES // (1024 * 1024),
             "is_admin": (user.get("role") or "") in ("admin", "superviseur"),
+            # Droit de dépôt de l'utilisateur courant : admin/superviseur
+            # toujours (25 Mo) ; utilisateur suivi selon sa fiche (défaut 1,5 Mo).
+            **(await _upload_rights_for(user)),
         }
+
+    async def _upload_rights_for(user: dict) -> Dict[str, Any]:
+        if _is_staff(user):
+            return {"can_upload": True, "upload_max_mb": MAX_UPLOAD_BYTES // _MB}
+        rights = await _tracked_upload_rights(db, user)
+        return {"can_upload": rights["allowed"], "upload_max_mb": rights["max_mb"] if rights["allowed"] else None}
+
+    async def _after_upload(*, code: str, key: str, data: bytes, content_type: Optional[str], user: dict,
+                            tags: Optional[str], description: Optional[str]) -> Dict[str, Any]:
+        """Lot 22 — après un dépôt réussi dans R2 : fiche Mongo `stock_files`
+        (tags, description, auteur) et, si le client les a activées,
+        suggestions IA de tags lancées en arrière-plan."""
+        from routes import gestion_stocks_tags as gt
+        doc = await gt.index_upload(db, code=code, key=key, size=len(data),
+                                    content_type=content_type or "application/octet-stream",
+                                    user=user, tags=tags, description=description)
+        ai_started = False
+        try:
+            ai_started = await gt.maybe_schedule_after_upload(db, code=code, key=key, data=data,
+                                                              content_type=content_type or "")
+        except Exception:  # noqa: BLE001 — le dépôt est réussi quoi qu'il arrive à l'IA
+            logger.exception("[gestion_stocks] lancement des suggestions IA échoué key=%s", key)
+        return {"ok": True, "key": key, "size": len(data), "tags": doc.get("tags") or [],
+                "description": doc.get("description") or "", "ai_tags_started": ai_started}
+
+    @api.get("/gestion-stocks/folders", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_folders(
+        client_code: Optional[str] = Query(None, description="Admin/superviseur uniquement — ignoré pour un utilisateur suivi."),
+        user: dict = Depends(get_current_user),
+    ):
+        """Dossiers à afficher pour un tenant : les 6 dossiers standard, les
+        autres sous-dossiers réellement présents dans R2, et le nombre de
+        fichiers posés à la racine du code client (pseudo-dossier `_racine`).
+
+        Les 6 dossiers standard manquants sont CRÉÉS dans R2 à la première
+        ouverture (objet marqueur vide `<code>/<dossier>/`, comme le bouton
+        « Ajouter un dossier » de Cloudflare), pour que la page et le tableau
+        de bord Cloudflare affichent la même chose."""
+        if not _can_access_own_stocks(user):
+            raise HTTPException(status_code=403, detail="Accès réservé aux comptes Pharmacien suivis (et admin/superviseur).")
+        code = (client_code or "").strip().upper() if _is_staff(user) else await _resolve_own_client_code(db, user)
+        if not code:
+            raise HTTPException(status_code=409, detail="Aucun code client (client_code) configuré pour ce tenant.")
+        from r2_stocks_client import is_configured, list_folder_markers, put_bytes
+        from r2_stocks_client import list_objects
+        import asyncio
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        try:
+            objects = await asyncio.to_thread(list_objects, f"{code}/")
+            markers = await asyncio.to_thread(list_folder_markers, f"{code}/")
+        except Exception:
+            logger.exception("[gestion_stocks] folder discovery failed code=%s", code)
+            raise HTTPException(status_code=502, detail="Erreur de lecture du stockage R2.")
+        # Les marqueurs de dossier vides comptent comme dossiers existants.
+        found = _discover_folders(objects + [{"key": m} for m in markers], code)
+        present = set(found.pop("present"))
+        # Création des dossiers standard manquants — seulement pour un vrai
+        # client (un code saisi par l'administration qui ne correspond à aucun
+        # client ne crée rien).
+        missing = [f for f in DEFAULT_FOLDERS if f not in present]
+        created: List[str] = []
+        if missing and (not _is_staff(user) or await _tenant_by_code(db, code)):
+            for folder in missing:
+                try:
+                    await asyncio.to_thread(put_bytes, f"{code}/{folder}/", b"", "application/x-directory")
+                    created.append(folder)
+                except Exception:  # noqa: BLE001 — l'affichage ne doit pas échouer pour autant
+                    logger.exception("[gestion_stocks] folder marker creation failed %s/%s", code, folder)
+        from routes.gestion_stocks_tags import tenant_ai_enabled
+        # Lot 22 — l'écran affiche le bouton « Suggérer des tags (IA) » seulement si activé pour ce client.
+        return {"client_code": code, "root_folder": ROOT_FOLDER, "created_folders": created,
+                "ai_tags_enabled": await tenant_ai_enabled(db, code), **found}
+
+    @api.get("/gestion-stocks/storage", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_storage(
+        client_code: Optional[str] = Query(None, description="Admin/superviseur uniquement — ignoré pour un utilisateur suivi."),
+        user: dict = Depends(get_current_user),
+    ):
+        """Espace occupé par les fichiers du tenant sur l'espace alloué (tableau
+        de bord de l'utilisateur suivi, jauge de l'explorateur R2)."""
+        if not _can_access_own_stocks(user):
+            raise HTTPException(status_code=403, detail="Accès réservé aux comptes Pharmacien suivis (et admin/superviseur).")
+        code = (client_code or "").strip().upper() if _is_staff(user) else await _resolve_own_client_code(db, user)
+        if not code:
+            raise HTTPException(status_code=409, detail="Aucun code client (client_code) configuré pour ce tenant.")
+        from r2_stocks_client import is_configured
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        try:
+            return await _storage_usage(db, code)
+        except Exception:
+            logger.exception("[gestion_stocks] storage usage failed code=%s", code)
+            raise HTTPException(status_code=502, detail="Erreur de lecture du stockage R2.")
+
+    @api.post("/gestion-stocks/folders/{folder}/upload", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_tracked_upload(
+        folder: str,
+        file: UploadFile = File(...),
+        tags: Optional[str] = Form(None, description="Lot 22 — tags séparés par des virgules"),
+        description: Optional[str] = Form(None, description="Lot 22 — description facultative"),
+        user: dict = Depends(get_current_user),
+    ):
+        """Dépôt par un utilisateur suivi AUTORISÉ, dans les dossiers de SON
+        tenant uniquement (client_code résolu côté serveur). Refus motivé si
+        la taille max de son compte ou l'espace alloué au tenant est dépassé."""
+        if _is_staff(user) or (user.get("tracked_role") or "") != "Pharmacien":
+            raise HTTPException(status_code=403, detail="Dépôt réservé aux utilisateurs suivis autorisés (l'administration utilise son propre espace de dépôt).")
+        rights = await _tracked_upload_rights(db, user)
+        if not rights["allowed"]:
+            raise HTTPException(status_code=403, detail="Dépôt refusé : votre compte n'est pas autorisé à déposer des fichiers. Demandez l'autorisation à votre administrateur SAWALI.")
+        _check_folder(folder, allow_root=False)
+        code = await _resolve_own_client_code(db, user)
+        if not code:
+            raise HTTPException(status_code=409, detail="Aucun code client configuré pour votre société — contactez votre administrateur SAWALI.")
+        from r2_stocks_client import is_configured, put_bytes
+        import asyncio
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        data = await file.read()
+        max_bytes = int(rights["max_mb"] * _MB)
+        if len(data) > max_bytes:
+            raise HTTPException(status_code=413, detail=(
+                f"Fichier refusé : « {file.filename} » fait {_fmt_mb(len(data))}, au-delà de la taille maximale "
+                f"autorisée pour votre compte ({_fmt_mb(max_bytes)} par fichier)."
+            ))
+        usage = await _storage_usage(db, code)
+        refusal = _quota_refusal(usage, len(data))
+        if refusal:
+            raise HTTPException(status_code=413, detail=refusal)
+        filename = _safe_filename(file.filename or "fichier")
+        key = f"{code}/{folder}/{filename}"
+        try:
+            await asyncio.to_thread(put_bytes, key, data, file.content_type or "application/octet-stream")
+        except Exception:
+            logger.exception("[gestion_stocks] tracked upload failed key=%s", key)
+            raise HTTPException(status_code=502, detail="Échec de l'envoi vers R2.")
+        return await _after_upload(code=code, key=key, data=data, content_type=file.content_type,
+                                   user=user, tags=tags, description=description)
 
     @api.post("/gestion-stocks/analyse", tags=["Portail — Gestion Stocks"])
     async def gestion_stocks_analyse(
@@ -461,8 +748,7 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
     ):
         if not _can_access_own_stocks(user):
             raise HTTPException(status_code=403, detail="Accès réservé aux comptes Pharmacien suivis (et admin/superviseur).")
-        if folder not in DEFAULT_FOLDERS:
-            raise HTTPException(status_code=404, detail="Dossier inconnu.")
+        _check_folder(folder, allow_root=True)
         is_admin = (user.get("role") or "") in ("admin", "superviseur")
         code = (client_code or "").strip().upper() if is_admin else await _resolve_own_client_code(db, user)
         if not code:
@@ -471,12 +757,15 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         import asyncio
         if not is_configured():
             raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré (variables R2_STOCKS_* manquantes).")
-        prefix = f"{code}/{folder}/"
+        # Racine : fichiers posés directement sous `<code>/` (pas ceux des sous-dossiers).
+        prefix = f"{code}/" if folder == ROOT_FOLDER else f"{code}/{folder}/"
         try:
             objects = await asyncio.to_thread(list_objects, prefix)
         except Exception:
             logger.exception("[gestion_stocks] list_objects failed prefix=%s", prefix)
             raise HTTPException(status_code=502, detail="Erreur de lecture du stockage R2.")
+        if folder == ROOT_FOLDER:
+            objects = [o for o in objects if "/" not in o["key"][len(prefix):]]
         files = [
             {
                 "key": o["key"],
@@ -487,6 +776,15 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
             for o in objects
         ]
         files.sort(key=lambda f: f["last_modified"], reverse=True)
+        # Lot 22 — fiches Mongo (créées au passage pour les fichiers qui n'en
+        # ont pas encore) : tags, description, suggestions IA, droit de modifier.
+        from routes import gestion_stocks_tags as gt
+        docs = await gt.ensure_docs(db, code, files)
+        upload_allowed = is_admin or (await _tracked_upload_rights(db, user))["allowed"]
+        for f in files:
+            doc = docs.get(f["key"])
+            f.update(gt.public_meta(doc))
+            f["can_edit"] = gt.can_edit(user, doc, is_staff=is_admin, upload_allowed=upload_allowed)
         return {"client_code": code, "folder": folder, "files": files}
 
     @api.get("/gestion-stocks/files/view-url", tags=["Portail — Gestion Stocks"])
@@ -521,7 +819,7 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
     # discuté ; en attendant, l'admin peut déposer des documents à la main).
     # ------------------------------------------------------------------
     @api.get("/admin/gestion-stocks/clients", tags=["Admin — Gestion Stocks"])
-    async def admin_gestion_stocks_clients(_: dict = Depends(get_current_admin)):
+    async def admin_gestion_stocks_clients(_: dict = Depends(staff_user)):
         cursor = db.users.find(
             {"client_code": {"$exists": True, "$nin": [None, ""]}},
             {"_id": 0, "id": 1, "client_code": 1, "company": 1, "full_name": 1},
@@ -540,10 +838,11 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         client_code: str,
         folder: str,
         file: UploadFile = File(...),
-        _: dict = Depends(get_current_admin),
+        tags: Optional[str] = Form(None, description="Lot 22 — tags séparés par des virgules"),
+        description: Optional[str] = Form(None, description="Lot 22 — description facultative"),
+        user: dict = Depends(staff_user),
     ):
-        if folder not in DEFAULT_FOLDERS:
-            raise HTTPException(status_code=404, detail="Dossier inconnu.")
+        _check_folder(folder, allow_root=False)
         code = (client_code or "").strip().upper()
         if not code:
             raise HTTPException(status_code=400, detail="client_code manquant.")
@@ -554,6 +853,10 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         data = await file.read()
         if len(data) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {MAX_UPLOAD_BYTES // (1024*1024)} Mo).")
+        # Lot 20 — l'espace alloué au tenant vaut aussi pour les dépôts de l'administration.
+        refusal = _quota_refusal(await _storage_usage(db, code), len(data))
+        if refusal:
+            raise HTTPException(status_code=413, detail=refusal)
         filename = _safe_filename(file.filename or "fichier")
         key = f"{code}/{folder}/{filename}"
         try:
@@ -561,12 +864,13 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         except Exception:
             logger.exception("[gestion_stocks] upload failed key=%s", key)
             raise HTTPException(status_code=502, detail="Échec de l'envoi vers R2.")
-        return {"ok": True, "key": key, "size": len(data)}
+        return await _after_upload(code=code, key=key, data=data, content_type=file.content_type,
+                                   user=user, tags=tags, description=description)
 
     @api.delete("/admin/gestion-stocks/file", tags=["Admin — Gestion Stocks"])
     async def admin_gestion_stocks_delete(
         key: str = Query(...),
-        _: dict = Depends(get_current_admin),
+        _: dict = Depends(staff_user),
     ):
         from r2_stocks_client import is_configured, delete_object
         import asyncio
@@ -577,7 +881,210 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         except Exception:
             logger.exception("[gestion_stocks] delete failed key=%s", key)
             raise HTTPException(status_code=502, detail="Échec de la suppression.")
+        await db.stock_files.delete_one({"key": key})  # Lot 22 — la fiche (tags) part avec le fichier
         return {"ok": True}
+
+    # ------------------------------------------------------------------
+    # Lot 20 — réglages : droit de dépôt par utilisateur suivi, espace alloué par tenant
+    # ------------------------------------------------------------------
+    @api.get("/admin/gestion-stocks/tracked-users/{tu_id}/upload-rights", tags=["Admin — Gestion Stocks"])
+    async def admin_get_upload_rights(tu_id: str, _: dict = Depends(staff_user)):
+        tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0, "id": 1, "r2_upload_allowed": 1, "r2_upload_max_mb": 1})
+        if not tu:
+            raise HTTPException(status_code=404, detail="Utilisateur suivi introuvable.")
+        return {
+            "tracked_user_id": tu_id,
+            "allowed": bool(tu.get("r2_upload_allowed")),
+            "max_mb": _clean_max_mb(tu.get("r2_upload_max_mb", DEFAULT_TRACKED_UPLOAD_MAX_MB)),
+            "default_max_mb": DEFAULT_TRACKED_UPLOAD_MAX_MB,
+        }
+
+    @api.put("/admin/gestion-stocks/tracked-users/{tu_id}/upload-rights", tags=["Admin — Gestion Stocks"])
+    async def admin_set_upload_rights(tu_id: str, payload: Dict[str, Any] = Body(...), user: dict = Depends(staff_user)):
+        tu = await db.tracked_users.find_one({"id": tu_id}, {"_id": 0, "id": 1})
+        if not tu:
+            raise HTTPException(status_code=404, detail="Utilisateur suivi introuvable.")
+        try:
+            max_mb = float(payload.get("max_mb", DEFAULT_TRACKED_UPLOAD_MAX_MB))
+        except (TypeError, ValueError):
+            raise HTTPException(status_code=400, detail="Taille maximale invalide.")
+        if not 0 < max_mb <= MAX_UPLOAD_BYTES / _MB:
+            raise HTTPException(status_code=400, detail=f"La taille maximale doit être comprise entre 0 et {MAX_UPLOAD_BYTES // _MB} Mo.")
+        doc = {"r2_upload_allowed": bool(payload.get("allowed")), "r2_upload_max_mb": max_mb,
+               "r2_upload_updated_at": _now(), "r2_upload_updated_by": user["id"]}
+        await db.tracked_users.update_one({"id": tu_id}, {"$set": doc})
+        return {"tracked_user_id": tu_id, "allowed": doc["r2_upload_allowed"], "max_mb": max_mb}
+
+    @api.get("/admin/gestion-stocks/tenants/{client_id}/storage", tags=["Admin — Gestion Stocks"])
+    async def admin_get_tenant_storage(client_id: str, _: dict = Depends(staff_user)):
+        tenant = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1, "client_code": 1, "gestion_stocks_quota_gb": 1,
+                                                             "gestion_stocks_ai_tags": 1})
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+        code = (tenant.get("client_code") or "").strip().upper()
+        out = {
+            "client_id": client_id, "client_code": code or None,
+            "quota_gb": _clean_quota_gb(tenant.get("gestion_stocks_quota_gb", DEFAULT_TENANT_QUOTA_GB)),
+            "default_quota_gb": DEFAULT_TENANT_QUOTA_GB, "used_bytes": None, "files": None,
+            # Lot 22 — suggestions IA de tags (désactivées par défaut)
+            "ai_tags": bool(tenant.get("gestion_stocks_ai_tags")),
+        }
+        from r2_stocks_client import is_configured
+        if code and is_configured():
+            try:
+                usage = await _storage_usage(db, code)
+                out.update(used_bytes=usage["used_bytes"], files=usage["files"])
+            except Exception:  # noqa: BLE001 — l'affichage du réglage ne doit pas échouer
+                logger.exception("[gestion_stocks] storage usage failed code=%s", code)
+        return out
+
+    @api.put("/admin/gestion-stocks/tenants/{client_id}/storage", tags=["Admin — Gestion Stocks"])
+    async def admin_set_tenant_storage(client_id: str, payload: Dict[str, Any] = Body(...), _: dict = Depends(staff_user)):
+        tenant = await db.users.find_one({"id": client_id}, {"_id": 0, "id": 1})
+        if not tenant:
+            raise HTTPException(status_code=404, detail="Client introuvable.")
+        update: Dict[str, Any] = {}
+        # Lot 22 — `quota_gb` et `ai_tags` sont chacun facultatifs (au moins un des deux).
+        if "quota_gb" in payload:
+            try:
+                quota_gb = float(payload.get("quota_gb"))
+            except (TypeError, ValueError):
+                raise HTTPException(status_code=400, detail="Espace alloué invalide.")
+            if not 0 < quota_gb <= 10000:
+                raise HTTPException(status_code=400, detail="L'espace alloué doit être compris entre 0 et 10 000 Go.")
+            update["gestion_stocks_quota_gb"] = quota_gb
+        if "ai_tags" in payload:
+            update["gestion_stocks_ai_tags"] = bool(payload.get("ai_tags"))
+        if not update:
+            raise HTTPException(status_code=400, detail="Rien à enregistrer.")
+        await db.users.update_one({"id": client_id}, {"$set": update})
+        return {"client_id": client_id, "quota_gb": update.get("gestion_stocks_quota_gb"),
+                "ai_tags": update.get("gestion_stocks_ai_tags")}
+
+    # ------------------------------------------------------------------
+    # Lot 22 — tags et recherche des documents (index Mongo `stock_files`)
+    # ------------------------------------------------------------------
+    async def _code_for(user: dict, client_code: Optional[str]) -> str:
+        """Tenant de la requête : choisi par l'administration, résolu côté
+        serveur pour un utilisateur suivi (jamais depuis la requête)."""
+        if not _can_access_own_stocks(user):
+            raise HTTPException(status_code=403, detail="Accès réservé aux comptes Pharmacien suivis (et admin/superviseur).")
+        code = (client_code or "").strip().upper() if _is_staff(user) else await _resolve_own_client_code(db, user)
+        if not code:
+            raise HTTPException(status_code=409, detail="Aucun code client (client_code) configuré pour ce tenant.")
+        return code
+
+    async def _code_for_key(user: dict, key: str) -> str:
+        """Tenant d'un fichier désigné par sa clé R2 : un utilisateur suivi ne
+        peut jamais viser une clé hors de son propre préfixe."""
+        if not key or ".." in key.split("/") or "/" not in key:
+            raise HTTPException(status_code=400, detail="Fichier invalide.")
+        if _is_staff(user):
+            return key.split("/", 1)[0]
+        code = await _code_for(user, None)
+        if not key.startswith(f"{code}/"):
+            raise HTTPException(status_code=403, detail="Ce document n'appartient pas à votre espace.")
+        return code
+
+    async def _editable_doc(user: dict, key: str) -> Dict[str, Any]:
+        """Fiche d'un fichier que l'utilisateur a le droit de taguer (403 sinon)."""
+        from routes import gestion_stocks_tags as gt
+        code = await _code_for_key(user, key)
+        doc = await db.stock_files.find_one({"key": key}, {"_id": 0})
+        if doc is None:
+            # Fichier sans fiche (posé hors Sawali) : on vérifie qu'il existe dans R2.
+            from r2_stocks_client import list_objects
+            objects = [o for o in await asyncio.to_thread(list_objects, key) if o["key"] == key]
+            if not objects:
+                raise HTTPException(status_code=404, detail="Fichier introuvable.")
+            doc = (await gt.ensure_docs(db, code, objects))[key]
+        allowed = _is_staff(user) or (await _tracked_upload_rights(db, user))["allowed"]
+        if not gt.can_edit(user, doc, is_staff=_is_staff(user), upload_allowed=allowed):
+            raise HTTPException(status_code=403, detail=(
+                "Vous ne pouvez modifier les tags que des fichiers que vous avez déposés vous-même "
+                "(et si votre compte est autorisé à déposer)."))
+        return {"code": code, "doc": doc}
+
+    @api.get("/gestion-stocks/tags", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_tags(
+        client_code: Optional[str] = Query(None, description="Admin/superviseur uniquement."),
+        user: dict = Depends(get_current_user),
+    ):
+        """Tags utilisés par le client, avec leur nombre de fichiers."""
+        from routes import gestion_stocks_tags as gt
+        code = await _code_for(user, client_code)
+        return {"client_code": code, "tags": await gt.tag_counts(db, code)}
+
+    @api.get("/gestion-stocks/search", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_search(
+        q: str = Query("", max_length=200),
+        tags: str = Query("", description="Tags obligatoires, séparés par des virgules"),
+        client_code: Optional[str] = Query(None, description="Admin/superviseur uniquement."),
+        user: dict = Depends(get_current_user),
+    ):
+        """Recherche dans tous les dossiers du client : nom, tags, description."""
+        from routes import gestion_stocks_tags as gt
+        from r2_stocks_client import is_configured, list_objects
+        code = await _code_for(user, client_code)
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        try:
+            objects = await asyncio.to_thread(list_objects, f"{code}/")
+        except Exception:
+            logger.exception("[gestion_stocks] search list_objects failed code=%s", code)
+            raise HTTPException(status_code=502, detail="Erreur de lecture du stockage R2.")
+        docs = {d["key"]: d async for d in db.stock_files.find({"client_code": code}, {"_id": 0})}
+        results = gt.search(objects, docs, code, q=q, tags=gt.clean_tags(tags))
+        upload_allowed = _is_staff(user) or (await _tracked_upload_rights(db, user))["allowed"]
+        for r in results:
+            r["can_edit"] = gt.can_edit(user, docs.get(r["key"]), is_staff=_is_staff(user), upload_allowed=upload_allowed)
+        return {"client_code": code, "q": q, "tags": gt.clean_tags(tags), "results": results,
+                "truncated": len(results) >= gt.MAX_SEARCH_RESULTS}
+
+    @api.put("/gestion-stocks/files/meta", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_set_meta(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Tags et description d'un fichier (remplacent les précédents)."""
+        from routes import gestion_stocks_tags as gt
+        key = str(payload.get("key") or "")
+        ctx = await _editable_doc(user, key)
+        update: Dict[str, Any] = {"updated_at": _now()}
+        if "tags" in payload:
+            update["tags"] = gt.clean_tags(payload.get("tags"))
+        if "description" in payload:
+            update["description"] = gt.clean_description(payload.get("description"))
+        await db.stock_files.update_one({"key": key}, {"$set": update})
+        doc = await db.stock_files.find_one({"key": key}, {"_id": 0})
+        return {"key": key, **gt.public_meta(doc), "can_edit": True, "client_code": ctx["code"]}
+
+    @api.post("/gestion-stocks/files/suggest-tags", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_suggest_tags(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Suggestions IA de tags pour un fichier déjà déposé (à la demande).
+        Réservé aux clients pour lesquels l'administration a activé l'option."""
+        from routes import gestion_stocks_tags as gt
+        from r2_stocks_client import get_bytes, is_configured
+        key = str(payload.get("key") or "")
+        ctx = await _editable_doc(user, key)
+        if not await gt.tenant_ai_enabled(db, ctx["code"]):
+            raise HTTPException(status_code=403, detail=(
+                "Les suggestions de tags par l'IA ne sont pas activées pour ce client "
+                "(Admin → Clients → SMART Communications → Espace de stockage R2)."))
+        name = ctx["doc"].get("name") or key.rsplit("/", 1)[-1]
+        if not gt.is_ai_taggable(name, ctx["doc"].get("size")):
+            raise HTTPException(status_code=400, detail=(
+                "Ce type de fichier ne peut pas être analysé par l'IA (PDF, images, .txt et .csv "
+                "de 10 Mo au plus uniquement)."))
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        try:
+            data = await asyncio.to_thread(get_bytes, key)
+        except Exception:
+            logger.exception("[gestion_stocks] get_bytes failed key=%s", key)
+            raise HTTPException(status_code=502, detail="Erreur de lecture du stockage R2.")
+        out = await gt.suggest_tags(db, code=ctx["code"], key=key, data=data,
+                                    content_type=ctx["doc"].get("content_type") or gt.guess_content_type(name),
+                                    filename=name)
+        doc = await db.stock_files.find_one({"key": key}, {"_id": 0})
+        return {"key": key, **gt.public_meta(doc), "cost_xof": out["cost_xof"]}
 
     logger.info("[gestion_stocks] routes mounted under /api/gestion-stocks and /api/admin/gestion-stocks")
 

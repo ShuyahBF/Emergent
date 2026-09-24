@@ -58,6 +58,34 @@ L'interface chat les affichera automatiquement sous forme de carrousel numérot�
 de quoi il parle. Ne fabrique jamais d'URL : utilise UNIQUEMENT celles fournies dans le
 contexte. N'inclus pas d'image si aucune ne convient vraiment à la question."""
 
+# Lot 21 — Auto-réponse WhatsApp : textes par défaut, modifiables dans
+# Admin → Paramètres → « Liluvine PRO — Auto-réponse WhatsApp » (clés
+# settings.global `liluvine_wa_mode_instructions` et
+# `liluvine_wa_prospect_system_prompt`). Au scope module pour être importés
+# par routes/liluvine_wa_autoreply.py.
+
+# Consignes ajoutées à TOUTE réponse WhatsApp, sous l'en-tête fixe
+# « [IMPORTANT — Mode auto-réponse WhatsApp] » (texte identique à celui qui
+# était écrit en dur avant le lot 21 : rien ne change si l'admin n'y touche pas).
+DEFAULT_WA_MODE_INSTRUCTIONS = (
+    "Tu réponds à un message reçu sur WhatsApp. Sois courtois et concis (3-4 phrases max). "
+    "Ne réponds JAMAIS comme un humain — tu es Liluvine PRO, l'assistant SAWALI. "
+    "Si la question dépasse tes capacités, dis-lui qu'un agent humain va le recontacter rapidement."
+)
+
+# Prompt système des PROSPECTS : expéditeurs non contractuels (numéro inconnu
+# du carnet et des comptes, ou fiche contact étiquetée « prospect »). Il
+# remplace le prompt du tenant, qui décrit un accès aux données métier dont
+# un prospect ne doit rien recevoir.
+DEFAULT_WA_PROSPECT_SYSTEM_PROMPT = """Tu es Liluvine PRO, l'assistante virtuelle de SAWALI SMART SYSTEMS.
+La personne qui t'écrit n'est PAS encore cliente sous contrat : c'est un prospect.
+Tu réponds toujours en **français**, de façon chaleureuse et concise.
+- Présente simplement SAWALI et ses solutions (CRM, Caisse, Facturation, GRH, Tickets, WhatsApp Business, Liluvine) en t'appuyant UNIQUEMENT sur la base de connaissance fournie.
+- Tu n'as accès à AUCUNE donnée client : ne parle jamais de contacts, paiements, tickets, rendez-vous ou dossiers.
+- N'invente ni tarif, ni délai, ni engagement contractuel : si l'information n'est pas dans la base de connaissance, propose qu'un conseiller SAWALI le recontacte.
+- Invite la personne à indiquer son nom, sa structure et son besoin pour qu'un conseiller la rappelle."""
+
+
 # Iter38r-fix9o (Item 1) — Tenant-configurable system prompt + escalation.
 # Au SCOPE MODULE (pas dans une closure de attach_liluvine_pro_routes) —
 # même raison que le hotfix Pydantic de vidal_securisation.py/vidal_patients.py :
@@ -156,6 +184,10 @@ class AutoreplyConfigPayload(BaseModel):
     brand_longitude: Optional[float] = Field(None, ge=-180, le=180)
     brand_hours: Optional[str] = Field(None, max_length=2000)
     brand_maps_url: Optional[str] = Field(None, max_length=500)
+    # Lot 21 — Prospects WhatsApp (expéditeurs non contractuels) + bloc « Mode WhatsApp » modifiable
+    prospect_enabled: Optional[bool] = None
+    prospect_system_prompt: Optional[str] = Field(None, max_length=20000)
+    mode_instructions: Optional[str] = Field(None, max_length=4000)
 
 
 # Bypass list (2026-02) — Admin payload to overwrite the email allowlist.
@@ -707,6 +739,10 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         "brand_longitude": "liluvine_wa_brand_longitude",
         "brand_hours": "liluvine_wa_brand_hours",
         "brand_maps_url": "liluvine_wa_brand_maps_url",
+        # Lot 21 — Prospects + bloc « Mode WhatsApp »
+        "prospect_enabled": "liluvine_wa_prospect_enabled",
+        "prospect_system_prompt": "liluvine_wa_prospect_system_prompt",
+        "mode_instructions": "liluvine_wa_mode_instructions",
     }
 
     @api.get("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
@@ -739,6 +775,12 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
             "brand_longitude": s.get("liluvine_wa_brand_longitude"),
             "brand_hours": s.get("liluvine_wa_brand_hours") or "",
             "brand_maps_url": s.get("liluvine_wa_brand_maps_url") or "",
+            # Lot 21 — Prospects (réponse activée par défaut, comme avant le lot)
+            "prospect_enabled": s.get("liluvine_wa_prospect_enabled") is not False,
+            "prospect_system_prompt": s.get("liluvine_wa_prospect_system_prompt") or "",
+            "mode_instructions": s.get("liluvine_wa_mode_instructions") or "",
+            "default_mode_instructions": DEFAULT_WA_MODE_INSTRUCTIONS,
+            "default_prospect_system_prompt": DEFAULT_WA_PROSPECT_SYSTEM_PROMPT,
         }
 
     @api.put("/admin/liluvine-pro/wa-autoreply", tags=["Admin — Liluvine PRO"])
@@ -770,7 +812,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         cursor = db.liluvine_pro_messages.find(
             {"external_source": "whatsapp_native", "role": "assistant"},
             {"_id": 0, "id": 1, "session_id": 1, "content": 1, "wa_message_id_out": 1,
-             "tokens": 1, "created_at": 1, "context_injected": 1},
+             "tokens": 1, "created_at": 1, "context_injected": 1,
+             "prospect": 1},  # Lot 21 — badge « Prospect » dans l'historique
         ).sort("created_at", -1).limit(min(max(limit, 1), 200))
         items = await cursor.to_list(min(max(limit, 1), 200))
         # Enrich with the originating session label

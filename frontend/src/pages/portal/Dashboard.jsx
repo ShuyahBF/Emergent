@@ -6,6 +6,7 @@ import { Calendar, Wrench, FileText, ArrowRight, CheckCircle2, Clock, ClipboardL
 import { useAuth } from "@/contexts/AuthContext";
 import BrochuresWidget from "@/components/BrochuresWidget";
 import WeatherWidget from "@/components/WeatherWidget";
+import R2StorageGauge from "@/components/R2StorageGauge";
 
 const StatCard = ({ icon: Icon, label, value, hint, testid }) => (
   <div className="rounded-xl border border-slate-200 bg-white p-5" data-testid={testid}>
@@ -44,6 +45,9 @@ const NoteCard = ({ to, label, accent, count, lastUpdated, icon: Icon, testid })
 );
 
 export default function ClientDashboard() {
+  // Lot 20 — jauge d'espace Gestion de Stocks pour le Pharmacien suivi.
+  const { user } = useAuth();
+  const isPharmacienTracked = (user?.tracked_role || "") === "Pharmacien";
   const [data, setData] = useState(null);
   const [notes, setNotes] = useState({
     reports: { count: 0, last_updated: null },
@@ -149,6 +153,8 @@ export default function ClientDashboard() {
           </ul>
         </div>
       </div>
+      {/* Lot 20 — espace occupé par les fichiers de la pharmacie / espace alloué */}
+      {isPharmacienTracked && <R2StorageGauge />}
       {/* Iter35o — Tickets en attente */}
       <TicketsPendingCard />
       {/* Iter38c — Carte dépenses non justifiées (utilisateurs suivis avec accès Caisse) */}

@@ -2,7 +2,7 @@
 // Iter38r-fix9a — Liluvine PRO : Auto-réponse WhatsApp native
 // =====================================================================
 import React, { useCallback, useEffect, useState } from "react";
-import { Sparkles, MessageCircle, Save, Copy, History, AlertCircle } from "lucide-react";
+import { Sparkles, MessageCircle, Save, Copy, History, AlertCircle, UserPlus, RotateCcw } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
@@ -43,6 +43,10 @@ export default function LiluvineWaAutoreplySection() {
         brand_longitude: r.data.brand_longitude == null ? "" : String(r.data.brand_longitude),
         brand_hours: r.data.brand_hours || "",
         brand_maps_url: r.data.brand_maps_url || "",
+        // Lot 21 — Prospects (expéditeurs non contractuels) + consignes « Mode WhatsApp »
+        prospect_enabled: r.data.prospect_enabled !== false,
+        prospect_system_prompt: r.data.prospect_system_prompt || "",
+        mode_instructions: r.data.mode_instructions || "",
       });
     } catch (e) {
       toast.error("Erreur chargement config auto-réponse");
@@ -76,6 +80,10 @@ export default function LiluvineWaAutoreplySection() {
         brand_location_hint: form.brand_location_hint || "",
         brand_hours: form.brand_hours || "",
         brand_maps_url: form.brand_maps_url || "",
+        // Lot 21
+        prospect_enabled: !!form.prospect_enabled,
+        prospect_system_prompt: form.prospect_system_prompt || "",
+        mode_instructions: form.mode_instructions || "",
       };
       const latStr = (form.brand_latitude ?? "").toString().trim();
       const lonStr = (form.brand_longitude ?? "").toString().trim();
@@ -137,7 +145,8 @@ export default function LiluvineWaAutoreplySection() {
 
       <p className="text-xs text-slate-600 leading-relaxed">
         Quand cette option est activée, Liluvine PRO répond automatiquement aux messages WhatsApp entrants (sans passer par n8n).
-        Le contexte de votre CRM est injecté via le RAG (contacts, tickets, paiements, RDV, notes).
+        Pour vos clients, le contexte de votre CRM est injecté via le RAG (contacts, tickets, paiements, RDV, notes) ;
+        les prospects, eux, n'en reçoivent rien (voir « Prospects » ci-dessous).
         Un anti-flood limite à <strong>1 réponse / {form.cooldown_seconds || 60}s par numéro</strong>.
       </p>
 
@@ -248,6 +257,81 @@ export default function LiluvineWaAutoreplySection() {
           data-testid="liluvine-autoreply-signature"
         />
         <p className="text-[10px] text-slate-500 mt-1">Laissez vide pour conserver la valeur par défaut. Sera ajoutée à la fin de chaque réponse pour transparence.</p>
+      </div>
+
+      {/* Lot 21 — Prospects : expéditeurs non contractuels (numéro inconnu ou contact étiqueté « prospect ») */}
+      <div className="rounded-lg ring-1 ring-violet-200 bg-violet-50/40 p-3 space-y-2" data-testid="liluvine-prospect-section">
+        <h3 className="text-xs font-semibold text-violet-900 inline-flex items-center gap-1.5">
+          <UserPlus className="h-3.5 w-3.5" /> Prospects — expéditeurs non contractuels
+        </h3>
+        <p className="text-[10px] text-violet-900/80 leading-relaxed">
+          Un <strong>prospect</strong> est un numéro inconnu (absent du carnet de contacts et des comptes) ou un contact
+          portant l'étiquette <code>prospect</code>. Liluvine lui répond avec le prompt ci-dessous
+          (et non le prompt système de votre compte), en s'appuyant uniquement sur la base de connaissance :
+          <strong> aucune donnée de votre CRM</strong> (contacts, paiements, tickets…) ne lui est transmise.
+        </p>
+        <label className="flex items-center gap-2 text-[11px] text-violet-900 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={!!form.prospect_enabled}
+            onChange={(e) => setForm({ ...form, prospect_enabled: e.target.checked })}
+            data-testid="liluvine-prospect-enabled"
+          />
+          <strong>Répondre automatiquement aux prospects</strong>
+        </label>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] uppercase tracking-wider font-semibold text-violet-900">Prompt système des prospects</span>
+          {/* Pré-remplit la zone avec le texte par défaut, pour le modifier plutôt que partir de zéro */}
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, prospect_system_prompt: cfg.default_prospect_system_prompt || "" })}
+            className="text-[10px] inline-flex items-center gap-1 text-violet-700 hover:underline"
+            data-testid="liluvine-prospect-load-default"
+          >
+            <Copy className="h-3 w-3" /> Partir du texte par défaut
+          </button>
+        </div>
+        <textarea
+          value={form.prospect_system_prompt}
+          onChange={(e) => setForm({ ...form, prospect_system_prompt: e.target.value })}
+          rows={8}
+          maxLength={20000}
+          placeholder={cfg.default_prospect_system_prompt || ""}
+          className="w-full text-xs rounded-lg border border-violet-300 px-3 py-2 bg-white font-mono leading-relaxed"
+          data-testid="liluvine-prospect-prompt"
+        />
+        <p className="text-[10px] text-violet-900/70">Vide = texte par défaut (affiché en grisé).</p>
+      </div>
+
+      {/* Lot 21 — Consignes ajoutées à TOUTE réponse WhatsApp (clients et prospects) */}
+      <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50/40 p-3 space-y-2" data-testid="liluvine-mode-section">
+        <div className="flex items-center justify-between">
+          <h3 className="text-xs font-semibold text-sky-900 inline-flex items-center gap-1.5">
+            <MessageCircle className="h-3.5 w-3.5" /> Consignes du mode WhatsApp (toutes les réponses)
+          </h3>
+          {/* Vider la zone = retour au texte d'origine */}
+          <button
+            type="button"
+            onClick={() => setForm({ ...form, mode_instructions: "" })}
+            className="text-[10px] inline-flex items-center gap-1 text-sky-700 hover:underline"
+            data-testid="liluvine-mode-reset"
+          >
+            <RotateCcw className="h-3 w-3" /> Texte d'origine
+          </button>
+        </div>
+        <p className="text-[10px] text-sky-900/80">
+          Ajoutées après le prompt système (du compte ou des prospects), sous l'en-tête
+          « [IMPORTANT — Mode auto-réponse WhatsApp] » : longueur, ton, renvoi vers un humain…
+        </p>
+        <textarea
+          value={form.mode_instructions}
+          onChange={(e) => setForm({ ...form, mode_instructions: e.target.value })}
+          rows={4}
+          maxLength={4000}
+          placeholder={cfg.default_mode_instructions || ""}
+          className="w-full text-xs rounded-lg border border-sky-300 px-3 py-2 bg-white font-mono leading-relaxed"
+          data-testid="liluvine-mode-instructions"
+        />
       </div>
 
       {/* Iter43-fix24h — Catch-all "…" pour commandes inconnues */}
@@ -481,6 +565,8 @@ export default function LiluvineWaAutoreplySection() {
                     <p className="text-xs text-slate-700 whitespace-pre-wrap">{m.content}</p>
                     <div className="text-[10px] text-slate-400 mt-2 flex gap-2 flex-wrap">
                       {m.context_injected && <span className="rounded-full bg-sky-50 ring-1 ring-sky-200 px-1.5 py-0.5 text-sky-700">RAG actif</span>}
+                      {/* Lot 21 — réponse faite avec le prompt des prospects */}
+                      {m.prospect && <span className="rounded-full bg-violet-50 ring-1 ring-violet-200 px-1.5 py-0.5 text-violet-700">Prospect</span>}
                       {m.tokens && <span>~{m.tokens} tokens</span>}
                       {m.wa_message_id_out && <span className="font-mono">wa: {m.wa_message_id_out.slice(-12)}</span>}
                     </div>

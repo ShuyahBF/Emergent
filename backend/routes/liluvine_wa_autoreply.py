@@ -186,6 +186,33 @@ def _tenant_contract_validity(tenant_doc: Dict[str, Any], default_threshold: int
     }
 
 
+async def _is_prospect_sender(db, contact: Optional[Dict[str, Any]]) -> bool:
+    """Lot 21 — Vrai si l'expéditeur WhatsApp n'est pas un client sous contrat :
+      - numéro inconnu : aucune fiche contact et aucun compte utilisateur
+        (le webhook passe alors `contact=None` et rattache le message au
+        tenant principal, c.-à-d. le compte SAWALI lui-même) ;
+      - OU fiche contact portant l'étiquette « prospect » (posée à la main
+        dans le carnet, insensible à la casse).
+    """
+    if not contact:
+        return True
+    tags = contact.get("tags")
+    if tags is None and contact.get("id"):
+        # Le webhook ne transmet pas les étiquettes : on relit la fiche.
+        doc = await db.directory_contacts.find_one({"id": contact["id"]}, {"_id": 0, "tags": 1}) or {}
+        tags = doc.get("tags")
+    return any(str(t).strip().lower() == "prospect" for t in (tags or []))
+
+
+def _is_platform_tenant(tenant_doc: Dict[str, Any]) -> bool:
+    """Lot 21 — Le tenant est le compte de la plateforme SAWALI (admin ou
+    superviseur), et non un client : il n'a pas de contrat avec lui-même, les
+    contrôles de contrat/accès restreint ne le concernent donc pas. Sans cette
+    exception, un compte SAWALI sans `contract_number` bloquait toute réponse
+    IA aux numéros inconnus (et notifiait ses décisionnaires à chaque message)."""
+    return (tenant_doc.get("role") or "") in ("admin", "superviseur")
+
+
 async def _find_decision_maker_contacts(db, client_id: str) -> List[Dict[str, Any]]:
     """Contacts marqués "décisionnaire" (Responsable/DG/Directeur, voir
     is_decision_maker sur DirectoryContactCreate/Update) pour ce tenant —
@@ -775,7 +802,10 @@ async def autoreply_to_inbound(
 
     # Build the LLM context (reuse the same RAG helper as the chat UI)
     try:
-        from routes.liluvine_pro import _fetch_context_snippets, _resolve_base_system_prompt
+        from routes.liluvine_pro import (
+            DEFAULT_WA_MODE_INSTRUCTIONS, DEFAULT_WA_PROSPECT_SYSTEM_PROMPT,
+            _fetch_context_snippets, _resolve_base_system_prompt,
+        )
     except Exception as exc:
         logger.warning("[wa_autoreply] could not import liluvine helpers: %s", exc)
         return {"ok": False, "reason": f"liluvine_import_failed: {exc!r}"}
@@ -788,13 +818,22 @@ async def autoreply_to_inbound(
     if not user_doc:
         return {"ok": False, "reason": "tenant_user_not_found"}
 
+    # Lot 21 — Prospect (expéditeur non contractuel) : prompt dédié, aucune
+    # donnée du tenant dans le contexte, et possibilité de couper ces réponses
+    # (Admin → Paramètres → Auto-réponse WhatsApp → « Prospects »).
+    is_prospect = await _is_prospect_sender(db, contact)
+    if is_prospect and settings_doc.get("liluvine_wa_prospect_enabled") is False:
+        return {"ok": False, "reason": "prospect_replies_disabled"}
+    # Lot 21 — le compte de la plateforme n'est pas soumis aux contrôles de contrat.
+    platform_tenant = _is_platform_tenant(user_doc)
+
     # Lot Liluvine (2026-09, point 3) — contrat invalide/expiré : plutôt que
     # de générer une réponse IA normale, on notifie le(s) contact(s)
     # décisionnaire(s) du tenant avec un message admin-configurable, et on
     # s'arrête là (pas de réponse IA à l'expéditeur dans ce cas).
     default_overdue_threshold = int(settings_doc.get("contract_overdue_days_default") or 5)
     contract_status = _tenant_contract_validity(user_doc, default_overdue_threshold)
-    if not contract_status["valid"]:
+    if not platform_tenant and not contract_status["valid"]:
         decision_makers = await _find_decision_maker_contacts(db, scope_uid)
         if not decision_makers:
             logger.warning(
@@ -838,7 +877,7 @@ async def autoreply_to_inbound(
     # (montant de contrat sous le seuil, ou mode explicitement "restricted") :
     # hors jours/heures ouvrées, on notifie les décisionnaires au lieu de
     # répondre normalement.
-    access_mode = _tenant_effective_access_mode(user_doc, settings_doc)
+    access_mode = None if platform_tenant else _tenant_effective_access_mode(user_doc, settings_doc)
     if access_mode == "restricted":
         try:
             open_h = int(str(settings_doc.get("business_open_time") or "09:00").split(":", 1)[0])
@@ -876,14 +915,21 @@ async def autoreply_to_inbound(
                 )
             return {"ok": False, "reason": "access_restricted_outside_hours", "notified_decision_makers": notified}
 
-    ctx = await _fetch_context_snippets(db, user_doc, text)
-    # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…
-    # Filtré par ACL (liste blanche par module/numéro).
-    try:
-        from routes.liluvine_business_rag import build_business_rag_context
-        biz_ctx = await build_business_rag_context(db, phone_digits=phone_digits, query=text)
-    except Exception:  # noqa: BLE001
-        biz_ctx = ""
+    # Lot 21 — Un prospect ne reçoit AUCUNE donnée du tenant : avant ce lot,
+    # un inconnu qui écrivait « mes contacts » ou « paiements » recevait dans
+    # le contexte de l'IA les 10 derniers contacts/paiements du compte SAWALI.
+    # Seule la base de connaissance (plus bas) reste injectée.
+    if is_prospect:
+        ctx, biz_ctx = "", ""
+    else:
+        ctx = await _fetch_context_snippets(db, user_doc, text)
+        # Iter40 (2026-02) — Business RAG : queries on RDV/Tickets/HR/Caisse…
+        # Filtré par ACL (liste blanche par module/numéro).
+        try:
+            from routes.liluvine_business_rag import build_business_rag_context
+            biz_ctx = await build_business_rag_context(db, phone_digits=phone_digits, query=text)
+        except Exception:  # noqa: BLE001
+            biz_ctx = ""
     # Iter38r-fix9c — Also inject the Knowledge Base for WhatsApp auto-reply
     try:
         from routes.liluvine_kb import build_kb_context
@@ -899,13 +945,25 @@ async def autoreply_to_inbound(
     # avec l'auto-réponse WhatsApp. Version SANS règle d'escalade (celle du
     # chat web) : la réponse WA a déjà son propre marqueur d'escalade
     # `[ESCALATE: ...]`, ajouté séparément juste plus bas via ESCALATE_PROMPT_HINT.
-    tenant_system_prompt = await _resolve_base_system_prompt(db, scope_uid)
+    # Lot 21 — Prospect : prompt dédié (settings.global
+    # `liluvine_wa_prospect_system_prompt`, sinon le prompt prospect par défaut).
+    # Client : prompt du tenant, comme avant.
+    if is_prospect:
+        base_prompt = (
+            (settings_doc.get("liluvine_wa_prospect_system_prompt") or "").strip()
+            or DEFAULT_WA_PROSPECT_SYSTEM_PROMPT
+        )
+    else:
+        base_prompt = await _resolve_base_system_prompt(db, scope_uid)
+    # Lot 21 — consignes « Mode WhatsApp » modifiables (vide = texte d'origine).
+    mode_instructions = (
+        (settings_doc.get("liluvine_wa_mode_instructions") or "").strip()
+        or DEFAULT_WA_MODE_INSTRUCTIONS
+    )
     sys_text = (
-        tenant_system_prompt
+        base_prompt
         + "\n\n[IMPORTANT — Mode auto-réponse WhatsApp]\n"
-        "Tu réponds à un message reçu sur WhatsApp. Sois courtois et concis (3-4 phrases max). "
-        "Ne réponds JAMAIS comme un humain — tu es Liluvine PRO, l'assistant SAWALI. "
-        "Si la question dépasse tes capacités, dis-lui qu'un agent humain va le recontacter rapidement."
+        + mode_instructions
         + (("\n" + ctx) if ctx else "")
         + (("\n" + biz_ctx) if biz_ctx else "")
         + (("\n\n" + kb) if kb else "")
@@ -1036,6 +1094,7 @@ async def autoreply_to_inbound(
             "message_count": 0,
             "external_source": "whatsapp_native",
             "external_payload": {"phone_digits": phone_digits, "contact_id": (contact or {}).get("id")},
+            "prospect": is_prospect,  # Lot 21
         })
     await db.liluvine_pro_messages.insert_one({
         "id": secrets.token_urlsafe(12),
@@ -1052,6 +1111,7 @@ async def autoreply_to_inbound(
         "user_id": user_doc["id"], "role": "assistant", "content": final_text,
         "tokens": tokens, "model": "claude-haiku-4-5-20251001",
         "context_injected": bool(ctx),
+        "prospect": is_prospect,  # Lot 21 — réponse faite avec le prompt prospect
         "external_source": "whatsapp_native",
         "wa_message_id_out": send_res.get("message_id"),
         "created_at": _now_iso(),
@@ -1104,7 +1164,7 @@ async def autoreply_to_inbound(
         "ok": True, "reason": "sent",
         "wa_out_message_id": send_res.get("message_id"),
         "session_id": session_id, "reply_message_id": out_msg_id,
-        "tokens": tokens,
+        "tokens": tokens, "prospect": is_prospect,
     }
 
 

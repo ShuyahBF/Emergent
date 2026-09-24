@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
-import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy } from "lucide-react";
+import { Plus, Trash2, Edit, X, KeyRound, ShieldCheck, ShieldOff, Copy, HardDriveUpload } from "lucide-react";
 import { toast } from "sonner";
 import PasswordInput from "@/components/PasswordInput";
 
@@ -21,6 +21,8 @@ export default function AdminTrackedUsers() {
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(empty);
   const [pwdDialog, setPwdDialog] = useState(null); // tracked user being password-managed
+  // Lot 20 — utilisateur suivi dont on règle le droit de dépôt R2 (Gestion de Stocks)
+  const [r2Dialog, setR2Dialog] = useState(null);
   // Iter35g — bulk transfer state
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [transferTarget, setTransferTarget] = useState("");
@@ -283,6 +285,15 @@ export default function AdminTrackedUsers() {
                         <ShieldOff className="h-4 w-4 inline" />
                       </button>
                     )}
+                    {/* Lot 20 — droit de dépôt de fichiers sur R2 (Gestion de Stocks) ; vert si autorisé */}
+                    <button
+                      onClick={() => setR2Dialog(u)}
+                      className={`mr-3 ${u.r2_upload_allowed ? "text-emerald-600" : "text-slate-500"} hover:text-sawali-blue`}
+                      title={u.r2_upload_allowed ? `Dépôt R2 autorisé (${u.r2_upload_max_mb ?? 1.5} Mo max par fichier)` : "Dépôt R2 (Gestion de Stocks) : non autorisé"}
+                      data-testid={`r2-rights-${u.id}`}
+                    >
+                      <HardDriveUpload className="h-4 w-4 inline" />
+                    </button>
                     <button onClick={() => open(u)} className="text-slate-500 hover:text-sawali-blue mr-3" title="Modifier"><Edit className="h-4 w-4 inline" /></button>
                     <button onClick={() => del(u.id)} className="text-slate-500 hover:text-rose-600" title="Supprimer"><Trash2 className="h-4 w-4 inline" /></button>
                   </td>
@@ -450,6 +461,14 @@ export default function AdminTrackedUsers() {
         </div>
       )}
 
+      {r2Dialog && (
+        <R2UploadRightsDialog
+          user={r2Dialog}
+          onClose={() => setR2Dialog(null)}
+          onSaved={async () => { setR2Dialog(null); await load(); }}
+        />
+      )}
+
       {pwdDialog && (
         <PasswordDialog
           user={pwdDialog}
@@ -457,6 +476,78 @@ export default function AdminTrackedUsers() {
           onSaved={async () => { setPwdDialog(null); await load(); }}
         />
       )}
+    </div>
+  );
+}
+
+// ====================================================================
+// Lot 20 — Droit de dépôt sur R2 (Gestion de Stocks) d'un utilisateur suivi
+// Autorisation + taille maximale par fichier (1,5 Mo par défaut). Le serveur
+// refuse, avec le motif, tout fichier plus gros ou dépassant l'espace alloué
+// au client (réglé dans SMART Communications du client).
+// ====================================================================
+function R2UploadRightsDialog({ user, onClose, onSaved }) {
+  const [allowed, setAllowed] = useState(false);
+  const [maxMb, setMaxMb] = useState("1.5");
+  const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    apiClient.get(`/admin/gestion-stocks/tracked-users/${user.id}/upload-rights`)
+      .then((r) => { setAllowed(!!r.data.allowed); setMaxMb(String(r.data.max_mb ?? r.data.default_max_mb ?? 1.5)); })
+      .catch((err) => toast.error(err?.response?.data?.detail || "Erreur de chargement"))
+      .finally(() => setLoading(false));
+  }, [user.id]);
+
+  const save = async () => {
+    const value = parseFloat(String(maxMb).replace(",", "."));
+    if (!(value > 0)) { toast.error("Indiquez une taille maximale supérieure à 0 Mo"); return; }
+    setBusy(true);
+    try {
+      await apiClient.put(`/admin/gestion-stocks/tracked-users/${user.id}/upload-rights`, { allowed, max_mb: value });
+      toast.success("Droit de dépôt enregistré");
+      onSaved();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60" onClick={onClose}>
+      <div className="bg-white rounded-xl w-full max-w-md" onClick={(e) => e.stopPropagation()} data-testid="r2-rights-dialog">
+        <div className="flex items-center justify-between p-4 border-b">
+          <h3 className="font-display font-semibold inline-flex items-center gap-2">
+            <HardDriveUpload className="h-4 w-4 text-sawali-blue" /> Dépôt de fichiers R2 — {user.name}
+          </h3>
+          <button onClick={onClose}><X className="h-4 w-4" /></button>
+        </div>
+        {loading ? <p className="p-4 text-sm text-slate-500">Chargement…</p> : (
+          <div className="p-4 space-y-4">
+            <p className="text-xs text-slate-500">
+              Autorise cet utilisateur suivi à déposer des fichiers dans les dossiers « Gestion de Stocks » de son
+              client (Explorateur Stockage R2). Seuls les utilisateurs suivis de rôle Pharmacien ont accès à ce module.
+            </p>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={allowed} onChange={(e) => setAllowed(e.target.checked)} data-testid="r2-rights-allowed" />
+              Autoriser les dépôts
+            </label>
+            <label className="block">
+              <span className="text-[11px] uppercase tracking-wider text-slate-500 font-semibold">Taille maximale par fichier (Mo)</span>
+              <input type="number" min="0.1" step="0.1" value={maxMb} onChange={(e) => setMaxMb(e.target.value)} disabled={!allowed}
+                className="mt-1 w-full text-sm rounded-lg ring-1 ring-slate-300 px-3 py-2 disabled:bg-slate-100" data-testid="r2-rights-max-mb" />
+              <span className="text-[11px] text-slate-400">1,5 Mo par défaut. Un fichier plus gros est refusé avec le motif.</span>
+            </label>
+            <div className="flex justify-end gap-2">
+              <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg ring-1 ring-slate-300">Annuler</button>
+              <button onClick={save} disabled={busy} className="px-3 py-2 text-sm rounded-lg bg-sawali-blue text-white disabled:opacity-60" data-testid="r2-rights-save">
+                {busy ? "Enregistrement…" : "Enregistrer"}
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

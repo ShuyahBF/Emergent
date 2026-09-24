@@ -59,6 +59,9 @@ const LiluvineSystemPromptSection = () => {
           <h3 className="font-display font-bold text-slate-900">Liluvine PRO — Prompt système (assistant)</h3>
           <p className="text-xs text-slate-500 mt-0.5">
             Personnalisez le ton, le rôle et les règles de Liluvine pour votre entreprise. La règle d'escalade vers un humain est ajoutée automatiquement côté serveur (token <code className="rounded bg-slate-100 px-1">[ESCALATION_HUMAINE]</code>).
+            {/* Lot 21 — ce prompt ne s'applique plus aux prospects WhatsApp */}
+            {" "}Sur WhatsApp, ce prompt sert aux <strong>clients</strong> ; les <strong>prospects</strong> (numéros inconnus) ont
+            leur propre prompt dans « Liluvine PRO — Auto-réponse WhatsApp ».
           </p>
         </div>
       </header>

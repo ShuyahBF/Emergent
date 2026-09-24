@@ -48,7 +48,9 @@ def _get_client():
 
 
 def _bucket() -> str:
-    return (os.environ.get("R2_STOCKS_BUCKET") or "gestion-stocks").strip()
+    # Lot 20 — nom par défaut aligné sur le compartiment réel « gestionstocks »
+    # (sans tiret) ; R2_STOCKS_BUCKET reste prioritaire s'il est défini.
+    return (os.environ.get("R2_STOCKS_BUCKET") or "gestionstocks").strip()
 
 
 def is_configured() -> bool:
@@ -78,8 +80,27 @@ def list_objects(prefix: str) -> List[dict]:
     return objects
 
 
+def list_folder_markers(prefix: str) -> List[str]:
+    """Clés des marqueurs de dossier (objets vides terminés par « / ») sous
+    `prefix` — `list_objects` les ignore volontairement (ce ne sont pas des
+    fichiers), mais ils matérialisent un dossier vide (lot 20)."""
+    client = _get_client()
+    keys: List[str] = []
+    paginator = client.get_paginator("list_objects_v2")
+    for page in paginator.paginate(Bucket=_bucket(), Prefix=prefix):
+        for item in page.get("Contents", []):
+            if item["Key"].endswith("/"):
+                keys.append(item["Key"])
+    return keys
+
+
 def put_bytes(key: str, data: bytes, content_type: str = "application/octet-stream") -> None:
     _get_client().put_object(Bucket=_bucket(), Key=key, Body=data, ContentType=content_type)
+
+
+def get_bytes(key: str) -> bytes:
+    """Lot 22 — contenu d'un fichier (analyse IA à la demande pour suggérer des tags)."""
+    return _get_client().get_object(Bucket=_bucket(), Key=key)["Body"].read()
 
 
 def get_presigned_url(key: str, expires_in: int = 300) -> str:

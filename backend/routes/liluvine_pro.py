@@ -805,6 +805,23 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         await db.settings.update_one({"_id": "global"}, {"$set": update}, upsert=True)
         return {"ok": True, "updated": list(update.keys())}
 
+    @api.get("/admin/liluvine-pro/wa-autoreply/decisions", tags=["Admin — Liluvine PRO"])
+    async def admin_autoreply_decisions(limit: int = 50, user: dict = Depends(get_current_user)):
+        """Lot 24 — « Pourquoi Liluvine n'a pas répondu ? » : les dernières
+        décisions de l'auto-réponse WhatsApp (une par message reçu, écrites par
+        le webhook) et, sur 7 jours, le nombre de messages par motif."""
+        if user.get("role") not in ("admin", "superviseur"):
+            raise HTTPException(status_code=403, detail="Réservé aux administrateurs")
+        n = min(max(limit, 1), 200)
+        items = await db.liluvine_wa_autoreply_log.find({}, {"_id": 0}).sort("at", -1).limit(n).to_list(n)
+        since = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
+        stats: Dict[str, int] = {}
+        async for d in db.liluvine_wa_autoreply_log.find({"at": {"$gte": since}}, {"_id": 0, "ok": 1, "reason": 1}):
+            # « cooldown (42s left) » → « cooldown » ; « llm_error: … » → « llm_error »
+            key = "sent" if d.get("ok") else re.split(r"[ :(]", str(d.get("reason") or "unknown"), maxsplit=1)[0]
+            stats[key] = stats.get(key, 0) + 1
+        return {"items": items, "stats_7d": stats}
+
     @api.get("/admin/liluvine-pro/wa-autoreply/history", tags=["Admin — Liluvine PRO"])
     async def admin_autoreply_history(limit: int = 50, user: dict = Depends(get_current_user)):
         if user.get("role") not in ("admin", "superviseur"):

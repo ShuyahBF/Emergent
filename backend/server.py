@@ -14486,6 +14486,96 @@ async def me_delete_contact(cid: str, user: dict = Depends(get_current_user)):
     return {"ok": True}
 
 
+# ---------- Lot 24 — Dédoublonnage des contacts (même numéro) ----------
+# Champs pris en compte pour juger qu'une fiche est « plus complète ».
+_DUP_SCORE_FIELDS = ("company", "email", "phone", "whatsapp", "notes", "photo_url", "unique_code", "address", "city")
+
+
+def _contact_completeness(c: Dict[str, Any]) -> int:
+    """Nombre d'informations renseignées (le nom compte seulement s'il n'est
+    pas un simple numéro ; étiquettes et groupes comptent chacun pour 1)."""
+    score = 0
+    name = (c.get("name") or "").strip()
+    if name and not re.fullmatch(r"\+?[\d\s().-]+", name):
+        score += 1
+    for f in _DUP_SCORE_FIELDS:
+        if str(c.get(f) or "").strip():
+            score += 1
+    if c.get("tags"):
+        score += 1
+    if c.get("group_ids"):
+        score += 1
+    return score
+
+
+async def _duplicate_groups(user: dict) -> List[Dict[str, Any]]:
+    """Groupes de contacts visibles partageant le même numéro (WhatsApp, sinon
+    téléphone ; 8 derniers chiffres). Dans chaque groupe, on GARDE la fiche la
+    plus complète — à complétude égale, la plus ancienne — et on PROPOSE les
+    autres à la suppression (donc les moins complètes, et les plus récentes)."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    contacts = await db.directory_contacts.find({"client_id": {"$in": visible_scope}}, {"_id": 0}).to_list(5000)
+    by_suffix: Dict[str, List[Dict[str, Any]]] = {}
+    for c in contacts:
+        suffix = _phone_suffix(c.get("whatsapp") or c.get("phone"))
+        if len(suffix) >= 6:
+            by_suffix.setdefault(suffix, []).append(c)
+    groups = []
+    for suffix, items in by_suffix.items():
+        if len(items) < 2:
+            continue
+        ranked = sorted(items, key=lambda c: (-_contact_completeness(c), str(c.get("created_at") or "")))
+
+        def _summary(c: Dict[str, Any]) -> Dict[str, Any]:
+            return {"id": c.get("id"), "name": c.get("name"), "whatsapp": c.get("whatsapp"), "phone": c.get("phone"),
+                    "company": c.get("company"), "email": c.get("email"), "tags": c.get("tags") or [],
+                    "created_at": c.get("created_at"), "score": _contact_completeness(c)}
+        groups.append({"phone_suffix": suffix, "keep": _summary(ranked[0]),
+                       "duplicates": [_summary(c) for c in ranked[1:]]})
+    groups.sort(key=lambda g: g["keep"].get("name") or "")
+    return groups
+
+
+@api.get("/me/contacts-duplicates", tags=["Portail Client"])
+async def me_contacts_duplicates(user: dict = Depends(get_current_user)):
+    """Lot 24 — propose les doublons à supprimer (réservé au superviseur)."""
+    if user.get("role") != "superviseur":
+        raise HTTPException(status_code=403, detail="Outil de dédoublonnage réservé au superviseur")
+    groups = await _duplicate_groups(user)
+    return {"groups": groups, "duplicates_count": sum(len(g["duplicates"]) for g in groups)}
+
+
+class ContactsDuplicatesDeleteRequest(BaseModel):
+    ids: List[str]
+
+
+@api.post("/me/contacts-duplicates/delete", tags=["Portail Client"])
+async def me_contacts_duplicates_delete(payload: ContactsDuplicatesDeleteRequest, user: dict = Depends(get_current_user)):
+    """Lot 24 — supprime les doublons COCHÉS par le superviseur. Seules les
+    fiches proposées comme doublons (jamais la fiche gardée d'un groupe)
+    peuvent être supprimées ; leurs messages WhatsApp/SMS sont rattachés à la
+    fiche gardée avant la suppression, pour ne rien perdre de l'historique."""
+    if user.get("role") != "superviseur":
+        raise HTTPException(status_code=403, detail="Outil de dédoublonnage réservé au superviseur")
+    wanted = set(payload.ids or [])
+    keep_of: Dict[str, Dict[str, Any]] = {}
+    for g in await _duplicate_groups(user):
+        for d in g["duplicates"]:
+            if d["id"] in wanted:
+                keep_of[d["id"]] = g["keep"]
+    deleted = 0
+    for dup_id, keep in keep_of.items():
+        await db.whatsapp_messages.update_many({"contact_id": dup_id},
+                                               {"$set": {"contact_id": keep["id"], "contact_name": keep.get("name")}})
+        await db.sms_messages.update_many({"contact_id": dup_id}, {"$set": {"contact_id": keep["id"]}})
+        res = await db.directory_contacts.delete_one({"id": dup_id})
+        if getattr(res, "deleted_count", 0):
+            deleted += 1
+            await _log_activity(client_id=None, kind="contact", action="deleted",
+                                label=f"Doublon supprimé (gardé : {keep.get('name') or keep['id']})", actor=user, target_id=dup_id)
+    return {"ok": True, "deleted": deleted, "ignored": len(wanted) - len(keep_of)}
+
+
 @api.post("/me/contacts/{cid}/photo", tags=["Portail Client"])
 async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile = File(...), user: dict = Depends(get_current_user)):
     """Upload a profile picture for a contact (à la WhatsApp avatar). Stored in
@@ -14616,7 +14706,22 @@ async def me_list_wa_pending_imports(user: dict = Depends(get_current_user)):
     client_scope = (user.get("client_id") or user.get("id"))
     q = {} if user.get("role") == "admin" else {"client_id": client_scope}
     items = await db.wa_pending_imports.find(q, {"_id": 0}).sort("last_seen_at", -1).to_list(50)
-    return items
+    # Lot 24 — un numéro déjà présent dans le carnet (créé entre-temps, par
+    # exemple par l'ajout automatique de Liluvine) n'est plus proposé : son
+    # entrée est supprimée, sinon « Enregistrer » créait un doublon.
+    visible_scope = await _resolve_visible_client_ids(user)
+    kept: List[Dict[str, Any]] = []
+    seen_digits: set = set()
+    for it in items:
+        suffix = _phone_suffix(it.get("phone_digits") or it.get("from"))
+        existing = await _find_contact_by_phone(None if user.get("role") == "admin" else visible_scope,
+                                                it.get("phone_digits") or it.get("from"))
+        if existing or (suffix and suffix in seen_digits):
+            await db.wa_pending_imports.delete_one({"id": it.get("id")})
+            continue
+        seen_digits.add(suffix)
+        kept.append(it)
+    return kept
 
 
 class WaPendingImportRequest(BaseModel):
@@ -14710,6 +14815,22 @@ async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest,
     name = (payload.name or pending.get("wa_profile_name") or pending.get("from") or "").strip()
     if not name:
         raise HTTPException(status_code=400, detail="Nom requis")
+    # Lot 24 — idempotent : si ce numéro existe déjà dans le carnet (ajout
+    # automatique Liluvine, double clic, entrée en double…), on NE crée PAS de
+    # second contact : on rattache les messages au contact existant.
+    visible_scope = await _resolve_visible_client_ids(user)
+    raw_phone = pending.get("phone_digits") or pending.get("from")
+    existing = await _find_contact_by_phone(visible_scope, raw_phone)
+    rx = _phone_suffix_regex(raw_phone)
+    if existing:
+        if rx:
+            await db.whatsapp_messages.update_many(
+                {"client_id": {"$in": visible_scope}, "direction": "inbound", "phone_digits": {"$regex": rx}, "contact_id": None},
+                {"$set": {"contact_id": existing["id"], "contact_name": existing.get("name")}},
+            )
+            await db.wa_pending_imports.delete_many({"phone_digits": {"$regex": rx}, "client_id": {"$in": visible_scope}})
+        await db.wa_pending_imports.delete_one({"id": pending_id})
+        return {"ok": True, "already_present": True, "contact": existing}
     new_id = _uuid()
     contact = {
         "id": new_id,
@@ -14737,8 +14858,11 @@ async def me_import_wa_pending(pending_id: str, payload: WaPendingImportRequest,
             {"$set": {"contact_id": new_id, "contact_name": name}},
         )
     await db.wa_pending_imports.delete_one({"id": pending_id})
+    # Lot 24 — autres entrées « inconnu » du même numéro (autre tenant visible) : devenues sans objet.
+    if rx:
+        await db.wa_pending_imports.delete_many({"phone_digits": {"$regex": rx}, "client_id": {"$in": visible_scope}})
     contact.pop("_id", None)
-    return {"ok": True, "contact": contact}
+    return {"ok": True, "already_present": False, "contact": contact}
 
 
 @api.delete("/me/wa-pending-imports/{pending_id}", tags=["Portail Client"])
@@ -15628,17 +15752,39 @@ def _contact_phone_clauses(contact: Dict[str, Any]) -> List[Dict[str, Any]]:
     return clauses
 
 
-async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
-    """Non-lus WhatsApp du Centre de Messagerie — SOURCE UNIQUE pour la
-    pastille de chaque contact, le total du badge de la sidebar et la cloche.
+# Lot 24 — un message non lu de plus de 30 jours n'est plus compté comme
+# « nouveau » : l'historique jamais marqué comme lu (avant le lot 23, les
+# messages reçus sans contact rattaché ne pouvaient pas l'être) ne gonfle plus
+# le badge. Il reste marqué comme non lu en base, et « Tout marquer comme lu »
+# le traite aussi.
+WA_UNREAD_MAX_AGE_DAYS = 30
 
-    - périmètre : _resolve_visible_client_ids (celui de /me/contacts et de
-      mark-read), pour TOUS les rôles, admin compris ;
-    - un message sans contact_id est rattaché au contact dont le numéro
-      correspond (8 derniers chiffres) ;
-    - seuls comptent les messages rattachés à un contact VISIBLE (donc
-      qu'on peut ouvrir et marquer comme lus) ; les autres (expéditeurs
-      inconnus) sont renvoyés à part dans `unknown`, sans gonfler le total."""
+
+def _phone_suffix_regex(raw: Optional[str]) -> Optional[str]:
+    """Lot 24 — regex Mongo « le numéro se termine par ces 8 chiffres », quelle
+    que soit la mise en forme stockée (« +226 70 11 11 11 », « 70111111 »…)."""
+    suffix = _phone_suffix(raw)
+    if len(suffix) < 6:
+        return None
+    return r"\D*".join(re.escape(ch) for ch in suffix) + r"\D*$"
+
+
+async def _find_contact_by_phone(scope_ids: Optional[List[str]], raw_phone: Optional[str]) -> Optional[Dict[str, Any]]:
+    """Lot 24 — contact existant ayant ce numéro (WhatsApp, téléphone ou
+    phone_digits, reconnu sur ses 8 derniers chiffres), le plus ancien d'abord.
+    `scope_ids=None` : tous les tenants."""
+    rx = _phone_suffix_regex(raw_phone)
+    if not rx:
+        return None
+    q: Dict[str, Any] = {"$or": [{"whatsapp": {"$regex": rx}}, {"phone": {"$regex": rx}}, {"phone_digits": {"$regex": rx}}]}
+    if scope_ids is not None:
+        q["client_id"] = {"$in": scope_ids}
+    return await db.directory_contacts.find_one(q, {"_id": 0}, sort=[("created_at", 1)])
+
+
+async def _wa_visible_contact_index(user: dict) -> Tuple[List[str], set, Dict[str, str]]:
+    """Périmètre visible, ids des contacts visibles et index « 8 derniers
+    chiffres du numéro → id du contact » (rattachement des messages)."""
     visible_scope = await _resolve_visible_client_ids(user)
     contacts = await db.directory_contacts.find(
         {"client_id": {"$in": visible_scope}}, {"_id": 0, "id": 1, "whatsapp": 1, "phone": 1},
@@ -15650,21 +15796,73 @@ async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
             suffix = _phone_suffix(raw)
             if len(suffix) >= 6:
                 by_suffix.setdefault(suffix, c["id"])
+    return visible_scope, ids, by_suffix
+
+
+def _wa_attribute(ids: set, by_suffix: Dict[str, str], contact_id: Optional[str], phone: Optional[str]) -> Optional[str]:
+    """Contact visible auquel rattacher un message (son contact_id, sinon son numéro), ou None."""
+    return contact_id if contact_id in ids else by_suffix.get(_phone_suffix(phone))
+
+
+async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
+    """Non-lus WhatsApp du Centre de Messagerie — SOURCE UNIQUE pour la
+    pastille de chaque contact, le total du badge de la sidebar et la cloche.
+
+    - périmètre : _resolve_visible_client_ids (celui de /me/contacts et de
+      mark-read), pour TOUS les rôles, admin compris ;
+    - un message sans contact_id est rattaché au contact dont le numéro
+      correspond (8 derniers chiffres) ;
+    - seuls comptent les messages rattachés à un contact VISIBLE (donc
+      qu'on peut ouvrir et marquer comme lus) ; les autres (expéditeurs
+      inconnus) sont renvoyés à part dans `unknown`, sans gonfler le total ;
+    - Lot 24 : seuls comptent les messages des 30 derniers jours ; les non-lus
+      plus anciens sont renvoyés à part dans `older` (pour information)."""
+    visible_scope, ids, by_suffix = await _wa_visible_contact_index(user)
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=WA_UNREAD_MAX_AGE_DAYS)).isoformat()
     by_contact: Dict[str, int] = {}
     unknown = 0
-    pipeline = [
-        {"$match": {"direction": "inbound", "read_by_us_at": None, "client_id": {"$in": visible_scope}}},
-        {"$group": {"_id": {"c": "$contact_id", "p": "$phone_digits"}, "n": {"$sum": 1}}},
-    ]
-    async for row in db.whatsapp_messages.aggregate(pipeline):
+    older = 0
+    base = {"direction": "inbound", "read_by_us_at": None, "client_id": {"$in": visible_scope}}
+    group = {"$group": {"_id": {"c": "$contact_id", "p": "$phone_digits"}, "n": {"$sum": 1}}}
+    async for row in db.whatsapp_messages.aggregate([{"$match": {**base, "created_at": {"$gte": cutoff}}}, group]):
         key = row.get("_id") or {}
         n = int(row.get("n") or 0)
-        cid = key.get("c") if key.get("c") in ids else by_suffix.get(_phone_suffix(key.get("p")))
+        cid = _wa_attribute(ids, by_suffix, key.get("c"), key.get("p"))
         if cid:
             by_contact[cid] = by_contact.get(cid, 0) + n
         else:
             unknown += n
-    return {"total": sum(by_contact.values()), "by_contact": by_contact, "unknown": unknown}
+    async for row in db.whatsapp_messages.aggregate([{"$match": {**base, "created_at": {"$lt": cutoff}}}, group]):
+        key = row.get("_id") or {}
+        if _wa_attribute(ids, by_suffix, key.get("c"), key.get("p")):
+            older += int(row.get("n") or 0)
+    return {"total": sum(by_contact.values()), "by_contact": by_contact, "unknown": unknown,
+            "older": older, "max_age_days": WA_UNREAD_MAX_AGE_DAYS}
+
+
+@api.post("/me/whatsapp/mark-all-read", tags=["Portail Client"])
+async def me_whatsapp_mark_all_read(user: dict = Depends(get_current_user)):
+    """Lot 24 — « Tout marquer comme lu » dans le Centre de Messagerie : tous
+    les messages WhatsApp non lus rattachés à un contact visible, quel que soit
+    leur âge. Les messages d'expéditeurs inconnus ne sont pas touchés (ils se
+    traitent dans l'Inbox unifiée)."""
+    visible_scope, ids, by_suffix = await _wa_visible_contact_index(user)
+    to_mark: List[str] = []
+    async for m in db.whatsapp_messages.find(
+        {"direction": "inbound", "read_by_us_at": None, "client_id": {"$in": visible_scope}},
+        {"_id": 0, "id": 1, "contact_id": 1, "phone_digits": 1},
+    ):
+        if m.get("id") and _wa_attribute(ids, by_suffix, m.get("contact_id"), m.get("phone_digits")):
+            to_mark.append(m["id"])
+    updated = 0
+    now = _now()
+    for i in range(0, len(to_mark), 1000):
+        res = await db.whatsapp_messages.update_many(
+            {"id": {"$in": to_mark[i:i + 1000]}, "read_by_us_at": None},
+            {"$set": {"read_by_us_at": now, "read_by_us_id": user["id"]}},
+        )
+        updated += int(getattr(res, "modified_count", 0) or 0)
+    return {"ok": True, "updated": updated}
 
 
 @api.get("/me/whatsapp/unread", tags=["Portail Client"])
@@ -17448,6 +17646,14 @@ async def whatsapp_webhook_incoming(request: Request):
                                 phone_match,
                                 {"_id": 0, "id": 1, "client_id": 1, "name": 1, "wa_profile_name": 1, "vidal_riche": 1},
                             )
+                        # Lot 24 — contact enregistré sans indicatif ou avec des espaces
+                        # (« 70 11 11 11 ») : reconnu sur les 8 derniers chiffres, sinon le
+                        # numéro partait en « contact inconnu » et son enregistrement créait un doublon.
+                        if not contact:
+                            found = (await _find_contact_by_phone([client_scope], digits_only) if client_scope else None) \
+                                or await _find_contact_by_phone(None, digits_only)
+                            if found:
+                                contact = {k: found.get(k) for k in ("id", "client_id", "name", "wa_profile_name", "vidal_riche")}
                     # Bug #3 — If the inbound sender is a REGISTERED system user
                     # (e.g. a moderator writing to the WA bot), auto-create their
                     # contact in their canonical tenant scope so they appear in
@@ -17812,7 +18018,16 @@ async def whatsapp_webhook_incoming(request: Request):
                     # passer par `autoreply_to_inbound` qui contient maintenant
                     # le dispatcher des commandes publiques + le catch-all `…`.
                     # On ne skip QUE quand `hr_handled` a déjà traité le message.
-                    if not skip_autoreply and not hr_handled and mtype == "text" and text_body:
+                    # Lot 24 — chaque message reçu laisse une trace de la décision de
+                    # Liluvine (répondu, ou pourquoi pas) : Paramètres → Auto-réponse
+                    # WhatsApp → « Pourquoi Liluvine n'a pas répondu ? ».
+                    if skip_autoreply or hr_handled:
+                        ar_result = {"ok": False, "reason": "task_ack" if skip_autoreply else "hr_command"}
+                    elif mtype != "text" or not text_body:
+                        ar_result = {"ok": False, "reason": "non_text_message", "message_type": mtype}
+                    else:
+                        ar_result = None
+                    if ar_result is None:
                         try:
                             from routes.liluvine_wa_autoreply import autoreply_to_inbound
                             s_root = await db.settings.find_one({"_id": "global"}) or {}
@@ -17832,6 +18047,20 @@ async def whatsapp_webhook_incoming(request: Request):
                                 logger.debug("[wa_autoreply] skipped (%s)", ar_result.get("reason"))
                         except Exception as exc:  # noqa: BLE001
                             logger.warning("[wa_autoreply] handler crashed: %s", exc)
+                            ar_result = {"ok": False, "reason": f"crash: {str(exc)[:160]}"}
+                    try:
+                        await db.liluvine_wa_autoreply_log.insert_one({
+                            "id": _uuid(), "at": _now(), "tenant_id": scope_for_msg,
+                            "phone_digits": digits_only, "contact_id": (contact or {}).get("id"),
+                            "contact_name": (contact or {}).get("name") or profile_name,
+                            "message_type": mtype, "text": (text_body or "")[:160],
+                            "ok": bool((ar_result or {}).get("ok")),
+                            "reason": str((ar_result or {}).get("reason") or ("sent" if (ar_result or {}).get("ok") else "unknown"))[:200],
+                            "command": (ar_result or {}).get("command"),
+                            "prospect": (ar_result or {}).get("prospect"),
+                        })
+                    except Exception:  # noqa: BLE001
+                        pass
                 except Exception as exc:  # noqa: BLE001
                     err = f"inbound[{mtype if 'mtype' in locals() else '?'}]: {exc!r}"
                     errors.append(err[:250])

@@ -24,7 +24,10 @@ from mongomock_motor import AsyncMongoMockClient  # noqa: E402
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
 FUNCS = {"_phone_suffix", "_contact_phone_clauses", "_wa_unread_summary", "me_whatsapp_unread",
-         "me_contact_messages_mark_read", "me_contact_messages", "me_list_contacts"}
+         "me_contact_messages_mark_read", "me_contact_messages", "me_list_contacts",
+         # Lot 24
+         "_wa_visible_contact_index", "_wa_attribute", "me_whatsapp_mark_all_read"}
+CONSTS = {"WA_PHONE_SUFFIX_LEN", "WA_UNREAD_MAX_AGE_DAYS"}
 SCOPE = ["t-pdp", "t-pdp-peer"]  # périmètre visible de l'utilisateur (tenant + pair de la même société)
 
 
@@ -43,7 +46,7 @@ def _load(db) -> Dict[str, Any]:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in FUNCS:
             node.decorator_list = []
             nodes.append(node)
-        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) == "WA_PHONE_SUFFIX_LEN" for t in node.targets):
+        if isinstance(node, ast.Assign) and any(getattr(t, "id", None) in CONSTS for t in node.targets):
             nodes.append(node)
     assert {getattr(n, "name", None) for n in nodes} >= FUNCS
     ns: Dict[str, Any] = {
@@ -120,7 +123,7 @@ USER = {"id": "u1", "role": "client"}
 def test_unread_summary_single_source(env):
     got = env.run(env.ns["_wa_unread_summary"](USER))
     assert got["by_contact"] == {"c-awa": 2, "c-ben": 1}
-    assert got["total"] == 3 and got["unknown"] == 1
+    assert got["total"] == 3 and got["unknown"] == 1 and got["older"] == 0
     # La route des pastilles renvoie exactement le même calcul (badge = pastilles = cloche).
     assert env.run(env.ns["me_whatsapp_unread"](user=USER)) == got
 

@@ -334,6 +334,27 @@ async def autoreply_to_inbound(
     # PRIORITÉ 3 : Fuzzy command detection (ex: "pharmacies de garde" → `!garde`).
     # PRIORITÉ 4 : Auto-add nouveau contact au groupe par défaut.
     from_num = inbound_doc.get("from") or ""
+
+    # Lot 24 — envoi + copie dans le fil de discussion (`whatsapp_messages`).
+    # Les réponses aux modèles d'annonce, les messages de correction de
+    # commande et `!reactions` partaient sur WhatsApp sans être enregistrés :
+    # elles n'apparaissaient donc pas dans la conversation du contact.
+    async def _send_mirrored(to, text, command, **kw):
+        res = await wa_send_text(to, text, **kw)
+        try:
+            await db.whatsapp_messages.insert_one({
+                "id": uuid.uuid4().hex, "direction": "outbound",
+                "to": to, "phone_digits": phone_digits, "body": text,
+                "client_id": inbound_doc.get("client_id"), "contact_id": (contact or {}).get("id"),
+                "wa_message_id": (res or {}).get("message_id") if isinstance(res, dict) else None,
+                "auto_reply": True, "ai_generated": True, "ai_source": "liluvine_pro_autoreply",
+                "command": command, "status": "sent", "wa_status": "sent",
+                "sent_at": _now_iso(), "created_at": _now_iso(),
+            })
+        except Exception:  # noqa: BLE001 — la réponse est partie, la copie est secondaire
+            logger.warning("[wa_autoreply] copie dans le fil échouée (%s)", command, exc_info=True)
+        return res
+
     try:
         import server as _server_module
         reactions_helpers = getattr(_server_module, "LILUVINE_REACTIONS_HELPERS", None) or {}
@@ -356,7 +377,7 @@ async def autoreply_to_inbound(
         if reactions_helpers.get("build_reactions_summary_reply"):
             summary = await reactions_helpers["build_reactions_summary_reply"]()
             try:
-                await wa_send_text(from_num, summary)
+                await _send_mirrored(from_num, summary, "!reactions")
                 return {"ok": True, "command": "!reactions", "reply": summary[:120]}
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[wa_autoreply] !reactions send failed: %s", exc)
@@ -365,7 +386,7 @@ async def autoreply_to_inbound(
     if reactions_helpers.get("try_reply_ad_template"):
         try:
             match = await reactions_helpers["try_reply_ad_template"](
-                text, wa_send_text, from_num,
+                text, (lambda to, body, **kw: _send_mirrored(to, body, "ad_template", **kw)), from_num,
                 phone_digits=phone_digits,
                 contact=contact,
                 tenant_id=inbound_doc.get("client_id"),
@@ -391,7 +412,7 @@ async def autoreply_to_inbound(
                 correction = fuzzy.get("correction_prefix") or ""
                 if correction:
                     try:
-                        await wa_send_text(from_num, correction)
+                        await _send_mirrored(from_num, correction, "fuzzy_correction")
                     except Exception:  # noqa: BLE001
                         pass
                 # Iter43-fix24az-p — journalise le match dans la timeline du contact

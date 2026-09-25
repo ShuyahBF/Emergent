@@ -750,6 +750,17 @@ def attach_liluvine_reactions_routes(
         try:
             await db.directory_contacts.insert_one(new_contact.copy())
             logger.info("[liluvine_reactions] auto-added contact +%s -> group=%s", digits, default_group_id or "-")
+            # Lot 24 — le numéro n'est plus « inconnu » : on retire son entrée
+            # « contact à enregistrer » (sinon l'enregistrer créait un doublon)
+            # et on rattache ses messages déjà reçus au nouveau contact.
+            try:
+                await db.wa_pending_imports.delete_many({"phone_digits": digits, "client_id": tenant_id})
+                await db.whatsapp_messages.update_many(
+                    {"phone_digits": digits, "client_id": tenant_id, "direction": "inbound", "contact_id": None},
+                    {"$set": {"contact_id": new_contact["id"], "contact_name": new_contact["name"]}},
+                )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("[liluvine_reactions] nettoyage après ajout auto échoué: %s", exc)
             return {"id": new_contact["id"], "group_id": default_group_id}
         except Exception as exc:  # noqa: BLE001
             logger.warning("[liluvine_reactions] auto-add contact failed: %s", exc)

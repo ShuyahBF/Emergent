@@ -8,12 +8,48 @@ import { apiClient } from "@/lib/api";
 
 const TITLE = "Liluvine PRO — Auto-réponse WhatsApp (sans n8n)";
 
+// Lot 24 — motifs de décision de l'auto-réponse, en clair (journal
+// `liluvine_wa_autoreply_log` écrit par le webhook pour chaque message reçu).
+// Le prompt système n'est JAMAIS la cause d'un silence : il ne règle que le
+// contenu des réponses. Un silence vient toujours d'un de ces motifs.
+const REASON_LABELS = {
+  sent: ["Répondu", "text-emerald-700 bg-emerald-50 ring-emerald-200"],
+  disabled: ["Auto-réponse désactivée", "text-rose-700 bg-rose-50 ring-rose-200"],
+  cooldown: ["Anti-flood : le contact avait déjà reçu une réponse il y a moins de N secondes", "text-amber-800 bg-amber-50 ring-amber-200"],
+  no_keyword_match: ["Aucun mot-clé déclencheur dans le message", "text-amber-800 bg-amber-50 ring-amber-200"],
+  outside_business_hours: ["Hors des heures ouvrables (plage horaire configurée)", "text-amber-800 bg-amber-50 ring-amber-200"],
+  inside_business_hours: ["Pendant les heures ouvrables (réglé sur « hors heures »)", "text-amber-800 bg-amber-50 ring-amber-200"],
+  not_whitelisted: ["Numéro absent de la liste blanche", "text-amber-800 bg-amber-50 ring-amber-200"],
+  denylisted: ["Numéro bloqué", "text-slate-700 bg-slate-50 ring-slate-200"],
+  human_takeover_active: ["Un humain a repris la conversation", "text-slate-700 bg-slate-50 ring-slate-200"],
+  liluvine_pro_not_enabled: ["Liluvine PRO non activé pour ce compte (SMART Communications)", "text-rose-700 bg-rose-50 ring-rose-200"],
+  contract_invalid: ["Contrat du client invalide (décisionnaires prévenus)", "text-rose-700 bg-rose-50 ring-rose-200"],
+  contract_invalid_no_decision_maker: ["Contrat du client invalide, aucun décisionnaire à prévenir", "text-rose-700 bg-rose-50 ring-rose-200"],
+  access_restricted_outside_hours: ["Accès restreint hors heures ouvrées (formule du client)", "text-amber-800 bg-amber-50 ring-amber-200"],
+  prospect_replies_disabled: ["Réponses aux prospects désactivées", "text-amber-800 bg-amber-50 ring-amber-200"],
+  non_text_message: ["Message non textuel (vocal, image, document…) : pas de réponse IA", "text-slate-700 bg-slate-50 ring-slate-200"],
+  task_ack: ["Accusé de tâche (OK 1, FAIT 2…) traité à part", "text-slate-700 bg-slate-50 ring-slate-200"],
+  hr_command: ["Commande RH traitée à part", "text-slate-700 bg-slate-50 ring-slate-200"],
+  empty_text: ["Message vide", "text-slate-700 bg-slate-50 ring-slate-200"],
+  empty_reply: ["L'IA n'a rien renvoyé", "text-rose-700 bg-rose-50 ring-rose-200"],
+  llm_error: ["Erreur de l'IA (clé, quota ou réseau)", "text-rose-700 bg-rose-50 ring-rose-200"],
+  EMERGENT_LLM_KEY: ["Clé IA (EMERGENT_LLM_KEY) absente", "text-rose-700 bg-rose-50 ring-rose-200"],
+  send_failed: ["Échec d'envoi par Meta (fenêtre 24 h, numéro…)", "text-rose-700 bg-rose-50 ring-rose-200"],
+  unknown_fallback_disabled: ["Commande « ! » inconnue, réponse de repli désactivée", "text-amber-800 bg-amber-50 ring-amber-200"],
+  crash: ["Erreur interne de l'auto-réponse", "text-rose-700 bg-rose-50 ring-rose-200"],
+};
+// « cooldown (42s left) » → « cooldown » ; « llm_error: … » → « llm_error »
+const reasonKey = (d) => (d.ok ? "sent" : String(d.reason || "unknown").split(/[ :(]/)[0]);
+const reasonLabel = (key) => (REASON_LABELS[key] || [key, "text-slate-700 bg-slate-50 ring-slate-200"]);
+
 export default function LiluvineWaAutoreplySection() {
   const [cfg, setCfg] = useState(null);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [history, setHistory] = useState([]);
   const [showHistory, setShowHistory] = useState(false);
+  // Lot 24 — journal des décisions (répondu / pourquoi pas)
+  const [decisions, setDecisions] = useState(null);
 
   const load = useCallback(async () => {
     try {
@@ -125,6 +161,15 @@ export default function LiluvineWaAutoreplySection() {
     }
   };
 
+  const loadDecisions = async () => {
+    try {
+      const r = await apiClient.get("/admin/liluvine-pro/wa-autoreply/decisions?limit=60");
+      setDecisions(r.data || { items: [], stats_7d: {} });
+    } catch {
+      toast.error("Erreur chargement du journal des décisions");
+    }
+  };
+
   if (!cfg) return null;
 
   return (
@@ -140,6 +185,15 @@ export default function LiluvineWaAutoreplySection() {
           data-testid="liluvine-autoreply-history-btn"
         >
           <History className="h-3.5 w-3.5" /> Historique
+        </button>
+        {/* Lot 24 — pourquoi Liluvine n'a pas répondu */}
+        <button
+          type="button"
+          onClick={loadDecisions}
+          className="text-xs inline-flex items-center gap-1 rounded-lg ring-1 ring-amber-300 bg-amber-50 hover:bg-amber-100 text-amber-900 px-2.5 py-1.5"
+          data-testid="liluvine-autoreply-decisions-btn"
+        >
+          <AlertCircle className="h-3.5 w-3.5" /> Pourquoi Liluvine n'a pas répondu ?
         </button>
       </header>
 
@@ -541,6 +595,52 @@ export default function LiluvineWaAutoreplySection() {
           <Save className="h-4 w-4" /> {saving ? "Enregistrement…" : "Enregistrer"}
         </button>
       </div>
+
+      {/* Lot 24 — journal des décisions de l'auto-réponse */}
+      {decisions && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/50 p-4" onClick={() => setDecisions(null)}>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}
+            data-testid="liluvine-autoreply-decisions">
+            <header className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
+              <h3 className="font-display font-semibold text-slate-800 inline-flex items-center gap-2">
+                <AlertCircle className="h-4 w-4 text-amber-600" /> Pourquoi Liluvine n'a pas répondu ?
+              </h3>
+              <button onClick={() => setDecisions(null)} className="text-slate-400 hover:text-slate-700 text-xl leading-none">×</button>
+            </header>
+            <div className="overflow-y-auto p-4 space-y-4 flex-1">
+              <p className="text-[11px] text-slate-600">
+                Une ligne par message WhatsApp reçu. Le <strong>prompt système</strong> ne provoque jamais de silence : il règle seulement
+                le contenu des réponses. Un silence vient toujours d'un réglage ci-dessus (anti-flood, mots-clés, plage horaire, liste
+                blanche…) ou d'une erreur indiquée ici.
+              </p>
+              {/* Répartition sur 7 jours */}
+              <div className="flex flex-wrap gap-1.5" data-testid="liluvine-autoreply-decisions-stats">
+                {Object.entries(decisions.stats_7d || {}).sort((a, b) => b[1] - a[1]).map(([k, n]) => {
+                  const [label, cls] = reasonLabel(k);
+                  return <span key={k} className={`text-[11px] rounded-full ring-1 px-2 py-0.5 ${cls}`}>{label} : <strong>{n}</strong></span>;
+                })}
+                {Object.keys(decisions.stats_7d || {}).length === 0 && <span className="text-xs text-slate-400">Aucun message reçu ces 7 derniers jours.</span>}
+              </div>
+              <ul className="divide-y divide-slate-100">
+                {(decisions.items || []).map((d) => {
+                  const [label, cls] = reasonLabel(reasonKey(d));
+                  return (
+                    <li key={d.id} className="py-2 flex items-start gap-3 text-xs" data-testid={`liluvine-decision-${d.id}`}>
+                      <span className="text-[10px] text-slate-400 w-24 shrink-0">{new Date(d.at).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</span>
+                      <span className="flex-1 min-w-0">
+                        <span className="font-medium text-slate-800">{d.contact_name || `+${d.phone_digits}`}</span>
+                        {d.prospect && <span className="ml-1 text-[10px] rounded bg-violet-50 text-violet-700 px-1">prospect</span>}
+                        <span className="block text-slate-500 truncate">{d.text || `(${d.message_type})`}</span>
+                      </span>
+                      <span className={`shrink-0 max-w-[45%] text-right text-[10px] rounded ring-1 px-1.5 py-0.5 ${cls}`} title={d.reason}>{label}</span>
+                    </li>
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* History modal */}
       {showHistory && (

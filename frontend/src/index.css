@@ -184,3 +184,19 @@ html {
   64%           { opacity: 1; filter: drop-shadow(0 0 10px rgba(250, 204, 21, 0.9)); }
   68%           { opacity: 0.6; }
 }
+
+/* ==========================================================================
+   Lot 24 — Fenêtres modales hautes : barre de défilement verticale.
+   Toutes les fenêtres « maison » du portail suivent le même modèle : un voile
+   `fixed inset-0 flex items-center justify-center` qui contient le panneau.
+   Quand le panneau dépasse la hauteur de l'écran (Utilisateur suivi, Contact…),
+   son bas devenait inaccessible (bouton Enregistrer caché). On limite donc sa
+   hauteur à celle de l'écran et on le rend défilant.
+   Les panneaux qui gèrent déjà leur hauteur (classe max-h-… ou h-full/h-screen,
+   ex. la fenêtre de conversation WhatsApp) ne sont pas touchés.
+   ========================================================================== */
+.fixed.inset-0.flex.items-center.justify-center > div:not([class*="max-h-"]):not([class*="h-full"]):not([class*="h-screen"]) {
+  max-height: calc(100vh - 2rem);
+  max-height: calc(100dvh - 2rem);
+  overflow-y: auto;
+}

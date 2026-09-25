@@ -188,10 +188,25 @@ export default function Contacts() {
     try {
       const r = await apiClient.get("/me/whatsapp/unread");
       const total = r.data?.total || 0;
-      setUnread({ total, by_contact: r.data?.by_contact || {} });
+      setUnread({ total, by_contact: r.data?.by_contact || {}, older: r.data?.older || 0 });
       if (lastUnreadTotalRef.current != null && total > lastUnreadTotalRef.current) load(true);
       lastUnreadTotalRef.current = total;
     } catch { /* noop */ }
+  };
+
+  // Lot 24 — « Tout marquer comme lu » : tous les non-lus des contacts
+  // (y compris l'historique de plus de 30 jours, qui n'est plus compté).
+  const markAllRead = async () => {
+    const n = (unread.total || 0) + (unread.older || 0);
+    if (!window.confirm(`Marquer comme lus les ${n} message(s) WhatsApp non lus de vos contacts ?`)) return;
+    try {
+      const r = await apiClient.post("/me/whatsapp/mark-all-read");
+      toast.success(`${r.data?.updated || 0} message(s) marqué(s) comme lu(s)`);
+      window.dispatchEvent(new Event("sawali:wa-messages-read"));
+      loadUnread();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    }
   };
 
   const [pendingImports, setPendingImports] = useState([]);
@@ -354,6 +369,17 @@ export default function Contacts() {
           </button>
           {/* Iter34w — Exports list */}
           <ContactsExportMenu />
+          {/* Lot 24 — dédoublonnage (même numéro), réservé au superviseur */}
+          {user?.role === "superviseur" && (
+            <button
+              onClick={() => setModal({ type: "duplicates" })}
+              className="inline-flex items-center gap-2 rounded-lg border border-rose-300 bg-rose-50 hover:bg-rose-100 text-rose-700 px-3 py-2 text-sm"
+              data-testid="contacts-duplicates-btn"
+              title="Trouver les contacts en double (même numéro) et supprimer les fiches les moins complètes"
+            >
+              <Users className="h-4 w-4" /> Doublons
+            </button>
+          )}
           <button
             onClick={() => setModal({ type: "edit" })}
             className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light"
@@ -421,6 +447,16 @@ export default function Contacts() {
             </button>
           );
         })}
+        {/* Lot 24 — tout marquer comme lu (non-lus récents + historique de plus de 30 jours) */}
+        {(unread.total > 0 || unread.older > 0) && (
+          <button type="button" onClick={markAllRead}
+            className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold ring-1 ring-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+            data-testid="contacts-mark-all-read"
+            title={unread.older > 0 ? `Dont ${unread.older} message(s) non lu(s) de plus de 30 jours, qui ne sont plus comptés` : "Marquer tous les messages non lus comme lus"}>
+            <CheckCheck className="h-3 w-3" /> Tout marquer comme lu
+            {unread.older > 0 && <span className="text-[10px] text-slate-400">(+{unread.older} anciens)</span>}
+          </button>
+        )}
       </div>
 
       {pendingImports.length > 0 && (
@@ -445,6 +481,8 @@ export default function Contacts() {
             <thead className="bg-slate-50 text-slate-600 text-xs uppercase">
               <tr>
                 <th className="text-left px-3 py-2">Nom</th>
+                {/* Lot 24 — date/heure de la dernière interaction en colonne */}
+                <th className="text-left px-3 py-2 hidden sm:table-cell whitespace-nowrap">Dernière interaction</th>
                 <th className="text-left px-3 py-2 hidden sm:table-cell">Société</th>
                 <th className="text-left px-3 py-2 hidden md:table-cell">Téléphone</th>
                 <th className="text-left px-3 py-2">WhatsApp</th>
@@ -500,6 +538,9 @@ export default function Contacts() {
           onMessagesRead={loadUnread}
         />
       )}
+      {modal?.type === "duplicates" && (
+        <DuplicatesModal onClose={() => setModal(null)} onDone={() => { load(true); loadUnread(); }} />
+      )}
       {modal?.type === "liluvine" && (
         <LiluvineTimelineModal
           contact={modal.contact}
@@ -509,6 +550,106 @@ export default function Contacts() {
     </div>
   );
 }
+
+// Lot 24 — Dédoublonnage : les contacts qui partagent le même numéro sont
+// regroupés ; dans chaque groupe, la fiche la plus complète (à égalité, la
+// plus ancienne) est GARDÉE, les autres sont PROPOSÉES à la suppression et
+// pré-cochées. Le superviseur décoche ce qu'il veut garder, puis confirme.
+// Les messages des fiches supprimées sont rattachés à la fiche gardée (serveur).
+const DuplicatesModal = ({ onClose, onDone }) => {
+  const [groups, setGroups] = useState(null);
+  const [checked, setChecked] = useState({});
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    apiClient.get("/me/contacts-duplicates")
+      .then((r) => {
+        const g = r.data?.groups || [];
+        setGroups(g);
+        const init = {};
+        g.forEach((grp) => grp.duplicates.forEach((d) => { init[d.id] = true; }));
+        setChecked(init);
+      })
+      .catch((err) => { toast.error(err?.response?.data?.detail || "Erreur"); setGroups([]); });
+  }, []);
+
+  const ids = Object.keys(checked).filter((k) => checked[k]);
+  const confirmDelete = async () => {
+    if (!ids.length) return;
+    if (!window.confirm(`Supprimer définitivement ${ids.length} contact(s) en double ? Leurs messages seront rattachés à la fiche gardée.`)) return;
+    setBusy(true);
+    try {
+      const r = await apiClient.post("/me/contacts-duplicates/delete", { ids });
+      toast.success(`${r.data?.deleted || 0} doublon(s) supprimé(s)`);
+      onDone && onDone();
+      onClose();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+      setBusy(false);
+    }
+  };
+
+  // Résumé d'une fiche : nom, numéro, société, email, date de création, complétude.
+  const Line = ({ c }) => (
+    <span className="min-w-0">
+      <span className="font-medium text-slate-800">{c.name || "(sans nom)"}</span>
+      <span className="text-slate-500"> · {c.whatsapp || c.phone}</span>
+      {c.company && <span className="text-slate-500"> · {c.company}</span>}
+      {c.email && <span className="text-slate-500"> · {c.email}</span>}
+      <span className="block text-[10px] text-slate-400">
+        Créé le {c.created_at ? new Date(c.created_at).toLocaleDateString("fr-FR") : "?"} · {c.score} info(s) renseignée(s)
+      </span>
+    </span>
+  );
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/40" onClick={(e) => e.target === e.currentTarget && onClose()}
+      data-testid="duplicates-modal">
+      <div className="w-full max-w-3xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
+          <h3 className="font-display font-semibold text-slate-900 inline-flex items-center gap-2"><Users className="h-5 w-5 text-rose-600" /> Contacts en double</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-700"><X className="h-5 w-5" /></button>
+        </div>
+        <div className="flex-1 overflow-y-auto p-5 space-y-3">
+          <p className="text-xs text-slate-600">
+            Même numéro (8 derniers chiffres). Dans chaque groupe, la fiche <strong className="text-emerald-700">gardée</strong> est la plus
+            complète (à égalité, la plus ancienne). Les autres sont cochées pour suppression : décochez celles à conserver.
+          </p>
+          {groups === null ? (
+            <p className="text-sm text-slate-500">Recherche des doublons…</p>
+          ) : groups.length === 0 ? (
+            <p className="text-sm text-emerald-700" data-testid="duplicates-none">Aucun doublon : chaque numéro n'a qu'une seule fiche.</p>
+          ) : groups.map((g) => (
+            <div key={g.phone_suffix} className="rounded-lg ring-1 ring-slate-200 p-3 space-y-1.5 text-xs" data-testid={`duplicates-group-${g.phone_suffix}`}>
+              <div className="flex items-start gap-2 bg-emerald-50 rounded px-2 py-1.5">
+                <Check className="h-4 w-4 text-emerald-600 shrink-0 mt-0.5" />
+                <Line c={g.keep} />
+                <span className="ml-auto text-[10px] font-semibold text-emerald-700 shrink-0">GARDÉE</span>
+              </div>
+              {g.duplicates.map((d) => (
+                <label key={d.id} className="flex items-start gap-2 px-2 py-1.5 rounded hover:bg-rose-50 cursor-pointer">
+                  <input type="checkbox" className="mt-0.5" checked={!!checked[d.id]}
+                    onChange={(e) => setChecked({ ...checked, [d.id]: e.target.checked })}
+                    data-testid={`duplicates-check-${d.id}`} />
+                  <Line c={d} />
+                  <span className="ml-auto text-[10px] font-semibold text-rose-600 shrink-0">{checked[d.id] ? "À SUPPRIMER" : "conservée"}</span>
+                </label>
+              ))}
+            </div>
+          ))}
+        </div>
+        <div className="px-5 py-3 border-t border-slate-200 flex justify-end gap-2">
+          <button onClick={onClose} className="px-3 py-2 text-sm rounded-lg text-slate-600 hover:bg-slate-100">Annuler</button>
+          <button onClick={confirmDelete} disabled={busy || !ids.length}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm rounded-lg bg-rose-600 text-white hover:bg-rose-700 disabled:opacity-50"
+            data-testid="duplicates-confirm">
+            <Trash2 className="h-4 w-4" /> Supprimer les {ids.length} sélectionné(s)
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // Lot 23 — date/heure de la dernière interaction, lisible d'un coup d'œil :
 // « Aujourd'hui 14:32 », « Hier 09:10 », sinon « 12/09/2026 16:05 ».
@@ -590,8 +731,9 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
                 </span>
               )}
             </button>
-            {/* Lot 23 — date/heure et sens du dernier échange (WhatsApp/SMS de ce tenant, hors envois en masse) */}
-            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1" data-testid={`contact-last-interaction-${c.id}`}>
+            {/* Lot 23 — date/heure et sens du dernier échange (WhatsApp/SMS de ce tenant, hors envois en masse).
+                Lot 24 — affichée en colonne ; ici seulement sur mobile, où la colonne est masquée. */}
+            <div className="sm:hidden text-[11px] text-slate-500 mt-0.5 flex items-center gap-1">
               {c.last_interaction_at ? (
                 <>
                   {c.last_interaction_direction === "in"
@@ -631,6 +773,20 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             )}
           </div>
         </div>
+      </td>
+      {/* Lot 24 — colonne « Dernière interaction » : date/heure + sens (reçu / envoyé) */}
+      <td className="px-3 py-2 hidden sm:table-cell whitespace-nowrap text-xs" data-testid={`contact-last-interaction-${c.id}`}>
+        {c.last_interaction_at ? (
+          <span className="inline-flex items-center gap-1 text-slate-700"
+            title={c.last_interaction_direction === "in" ? "Dernier message reçu" : "Dernier message envoyé"}>
+            {c.last_interaction_direction === "in"
+              ? <ArrowDownLeft className="h-3.5 w-3.5 text-emerald-600" aria-label="reçu" />
+              : <ArrowUpRight className="h-3.5 w-3.5 text-sky-600" aria-label="envoyé" />}
+            {formatLastInteraction(c.last_interaction_at)}
+          </span>
+        ) : (
+          <span className="italic text-slate-400">Aucun échange</span>
+        )}
       </td>
       <td className="px-3 py-2 hidden sm:table-cell text-slate-600">{c.company || "—"}</td>
       <td className="px-3 py-2 hidden md:table-cell text-sky-600 font-mono text-[12px]" data-testid={`contact-phone-${c.id}`}>{c.phone || "—"}</td>
@@ -2894,9 +3050,10 @@ const MessageBubble = ({ m, allMessages = [], onReply }) => {
               {m.template_name}
             </code>
           )}
+          {/* Lot 24 — tag « Relayé » : fond blanc + texte vert, lisible quelle que soit la couleur de la bulle */}
           {outbound && m.via_masked_reply && (
             <span
-              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white/20 text-white"
+              className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-white text-emerald-700 ring-1 ring-emerald-300 font-semibold"
               title={`Répondu par WhatsApp via #R${m.masked_reply_code || ""}${m.sender_label ? ` — ${m.sender_label}` : ""}`}
               data-testid={`msg-relayed-${m.id}`}
             >
@@ -3696,8 +3853,10 @@ const PendingImportsBanner = ({ items, onChange }) => {
   const importOne = async (it) => {
     setBusy((b) => ({ ...b, [it.id]: true }));
     try {
-      await apiClient.post(`/me/wa-pending-imports/${it.id}/import`, {});
-      toast.success(`Contact « ${it.wa_profile_name || it.from} » importé`);
+      const r = await apiClient.post(`/me/wa-pending-imports/${it.id}/import`, {});
+      // Lot 24 — numéro déjà dans le carnet : aucun doublon créé, messages rattachés.
+      if (r.data?.already_present) toast.info(`« ${r.data?.contact?.name || it.from} » existe déjà : pas de doublon, ses messages y sont rattachés`);
+      else toast.success(`Contact « ${it.wa_profile_name || it.from} » importé`);
       onChange && onChange();
     } catch (err) {
       toast.error(safeText(err?.response?.data?.detail) || "Erreur");

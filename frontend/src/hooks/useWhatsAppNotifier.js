@@ -152,8 +152,13 @@ export function useWhatsAppNotifier({ enabled = true } = {}) {
     }
     tick();
     intervalRef.current = setInterval(tick, POLL_MS);
+    // Lot 23 — une conversation vient d'être lue (Centre de Messagerie, Inbox) :
+    // on recompte tout de suite au lieu d'attendre le prochain passage (15 s).
+    const onRead = () => tick();
+    window.addEventListener("sawali:wa-messages-read", onRead);
     return () => {
       clearInterval(intervalRef.current);
+      window.removeEventListener("sawali:wa-messages-read", onRead);
       setFaviconBadge(false);
     };
   }, [tick, enabled]);
@@ -177,14 +182,16 @@ export function useWhatsAppNotifier({ enabled = true } = {}) {
       setSoundConfig(getEffectiveConfig(soundAdminDefaults));
     },
     toggleSound: () => setSoundOn((s) => { const v = !s; persist(v, desktopOn); return v; }),
-    toggleDesktop: () => setDesktopOn(async (d) => {
-      const v = !d;
+    // Lot 23 — correctif : on calcule la nouvelle valeur AVANT de mettre l'état à jour
+    // (avant, setDesktopOn recevait une fonction async et l'état devenait une Promise).
+    toggleDesktop: async () => {
+      const v = !desktopOn;
       if (v && typeof Notification !== "undefined" && Notification.permission === "default") {
         const r = await Notification.requestPermission();
         setPermission(r);
       }
+      setDesktopOn(v);
       persist(soundOn, v);
-      return v;
-    }),
+    },
   };
 }

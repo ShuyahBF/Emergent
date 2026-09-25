@@ -84,6 +84,8 @@ export default function UnifiedInbox() {
         try {
           await apiClient.post(`/me/inbox/mark-read/${t.channel}/${encodeURIComponent(t.peer_id)}${q}`);
           load();
+          // Lot 23 — la sidebar et la cloche recomptent tout de suite les non-lus.
+          window.dispatchEvent(new Event("sawali:wa-messages-read"));
         } catch { /* noop */ }
       }
     } catch (err) {

@@ -4,7 +4,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Database, Folder, Upload, RefreshCw, ArrowLeft, Send, Loader2,
-  ChevronRight, CheckCircle2, AlertCircle, HardDrive, Search, X, Tag,
+  ChevronRight, CheckCircle2, AlertCircle, HardDrive, Search, X, Tag, FolderPlus, Settings2, ScanText,
 } from "lucide-react";
 import R2StorageGauge from "@/components/R2StorageGauge";
 // Lot 22 — lignes de fichiers avec tags (édition, suggestions IA) et pastilles de filtre.
@@ -103,6 +103,12 @@ export default function GestionStocks() {
   const [searchTags, setSearchTags] = useState([]);          // pastilles de tags sélectionnées
   const [searchResults, setSearchResults] = useState([]);
   const [searching, setSearching] = useState(false);
+  // Lot 23 — création de dossier et gestion des tags (administration).
+  const [newFolderOpen, setNewFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [tagAdminOpen, setTagAdminOpen] = useState(false);
+  const [renameFrom, setRenameFrom] = useState("");
+  const [renameTo, setRenameTo] = useState("");
 
   // Explorateur BD MongoDB Atlas
   const [promptText, setPromptText] = useState("");
@@ -187,7 +193,9 @@ export default function GestionStocks() {
   const ROOT_FOLDER = "_racine";
   const folderLabel = (f) => (f === ROOT_FOLDER ? "Racine (hors dossier)" : f);
 
-  // Dossiers réellement présents dans R2 pour le client affiché.
+  // Dossiers réellement présents dans R2 pour le client affiché
+  // (Lot 23 : `foldersVersion` relance la lecture après la création d'un dossier).
+  const [foldersVersion, setFoldersVersion] = useState(0);
   useEffect(() => {
     if (!effectiveClientCode || !r2Configured) { setExtraFolders([]); setRootFiles(0); return; }
     apiClient.get("/gestion-stocks/folders", { params: isAdmin ? { client_code: effectiveClientCode } : {} })
@@ -198,7 +206,7 @@ export default function GestionStocks() {
         setAiTagsEnabled(!!r.data?.ai_tags_enabled);
       })
       .catch(() => { setExtraFolders([]); setRootFiles(0); setAiTagsEnabled(false); });
-  }, [effectiveClientCode, r2Configured, isAdmin]);
+  }, [effectiveClientCode, r2Configured, isAdmin, foldersVersion]);
 
   // Lot 22 — tags déjà utilisés par le client (suggestions de saisie + pastilles de filtre).
   const clientParams = isAdmin ? { client_code: effectiveClientCode } : {};
@@ -241,6 +249,60 @@ export default function GestionStocks() {
     setFiles(merge);
     setSearchResults(merge);
     if (!opts.keepEditing) loadKnownTags();
+  };
+
+  // Lot 23 — fichier supprimé : retiré des listes, jauge et tags rafraîchis.
+  const handleFileDeleted = (deleted) => {
+    const drop = (list) => list.filter((f) => f.key !== deleted.key);
+    setFiles(drop);
+    setSearchResults(drop);
+    gaugeRef.current?.reload();
+    loadKnownTags();
+    if (deleted.folder === ROOT_FOLDER || selectedFolder === ROOT_FOLDER) setFoldersVersion((v) => v + 1);
+  };
+
+  // Lot 23 — création d'un dossier (marqueur vide dans R2, comme Cloudflare).
+  const createFolder = async () => {
+    const name = newFolderName.trim();
+    if (!name) return;
+    try {
+      const r = await apiClient.post("/gestion-stocks/folders", { name, ...clientParams });
+      toast.success(`Dossier « ${r.data.folder} » créé`);
+      setNewFolderName(""); setNewFolderOpen(false);
+      setFoldersVersion((v) => v + 1);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Création du dossier impossible");
+    }
+  };
+
+  // Lot 23 — renommer / fusionner / retirer un tag pour tous les fichiers du client.
+  const renameTag = async () => {
+    if (!renameFrom) return;
+    const target = renameTo.trim();
+    const msg = target
+      ? `Renommer le tag « ${renameFrom} » en « ${target} » sur tous les fichiers de ce client ?`
+      : `Retirer le tag « ${renameFrom} » de tous les fichiers de ce client ?`;
+    if (!window.confirm(msg)) return;
+    try {
+      const r = await apiClient.put("/gestion-stocks/tags/rename", { from: renameFrom, to: target, ...clientParams });
+      setKnownTags(r.data?.tags || []);
+      toast.success(`${r.data?.files_changed || 0} fichier(s) mis à jour`);
+      setRenameFrom(""); setRenameTo("");
+      setSearchTags((cur) => cur.filter((t) => t !== renameFrom));
+      if (selectedFolder) openFolder(selectedFolder);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Renommage impossible");
+    }
+  };
+
+  // Lot 23 — indexation du texte des fichiers anciens (déposés avant ce lot ou via Cloudflare).
+  const reindex = async () => {
+    try {
+      const r = await apiClient.post("/gestion-stocks/reindex", { ...clientParams });
+      toast.success(`${r.data?.queued || 0} fichier(s) en cours d'indexation sur ${r.data?.files || 0} — la recherche dans leur contenu sera disponible dans quelques instants.`);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Indexation impossible");
+    }
   };
 
   const openFile = async (file) => {
@@ -501,7 +563,7 @@ export default function GestionStocks() {
                 <div className="relative">
                   <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
                   <input value={searchQ} onChange={(e) => setSearchQ(e.target.value)}
-                    placeholder="Rechercher un document (nom, tag, description) dans tous les dossiers…"
+                    placeholder="Rechercher un document (nom, tag, description ou texte du document) dans tous les dossiers…"
                     className="w-full pl-9 pr-9 py-2 rounded-lg ring-1 ring-slate-300 text-sm bg-white"
                     data-testid="gestion-stocks-search-input" />
                   {searchActive && (
@@ -512,6 +574,45 @@ export default function GestionStocks() {
                     </button>
                   )}
                 </div>
+                {/* Lot 23 — outils de l'administration : renommer/fusionner un tag, indexer le contenu */}
+                {isAdmin && (
+                  <div className="flex flex-wrap items-center gap-3 text-[11px]">
+                    <button type="button" onClick={() => setTagAdminOpen((v) => !v)} className="inline-flex items-center gap-1 text-teal-700 hover:underline"
+                      data-testid="gestion-stocks-tag-admin-toggle">
+                      <Settings2 className="w-3.5 h-3.5" /> Gérer les tags
+                    </button>
+                    <button type="button" onClick={reindex} className="inline-flex items-center gap-1 text-teal-700 hover:underline"
+                      title="Extraire le texte des fichiers déjà présents pour pouvoir chercher dans leur contenu"
+                      data-testid="gestion-stocks-reindex">
+                      <ScanText className="w-3.5 h-3.5" /> Indexer le contenu des fichiers existants
+                    </button>
+                  </div>
+                )}
+                {isAdmin && tagAdminOpen && (
+                  <div className="rounded-lg ring-1 ring-teal-200 bg-white p-3 space-y-2" data-testid="gestion-stocks-tag-admin">
+                    <p className="text-[11px] text-slate-600">
+                      Renommer un tag sur <strong>tous les fichiers de ce client</strong>. Si le nouveau nom existe déjà, les deux
+                      tags sont fusionnés. Laisser le nouveau nom vide retire le tag partout.
+                    </p>
+                    <div className="flex flex-wrap gap-2 items-center">
+                      <select value={renameFrom} onChange={(e) => setRenameFrom(e.target.value)}
+                        className="px-2 py-1.5 rounded ring-1 ring-slate-300 text-xs bg-white" data-testid="gestion-stocks-rename-from">
+                        <option value="">— Tag à renommer —</option>
+                        {knownTags.map((k) => <option key={k.tag} value={k.tag}>{k.tag} ({k.count})</option>)}
+                      </select>
+                      <span className="text-xs text-slate-400">→</span>
+                      <input value={renameTo} onChange={(e) => setRenameTo(e.target.value)} list="gestion-stocks-known-tags-admin"
+                        placeholder="Nouveau nom (vide = retirer)" className="px-2 py-1.5 rounded ring-1 ring-slate-300 text-xs"
+                        data-testid="gestion-stocks-rename-to" />
+                      <datalist id="gestion-stocks-known-tags-admin">{knownTags.map((k) => <option key={k.tag} value={k.tag} />)}</datalist>
+                      <button type="button" onClick={renameTag} disabled={!renameFrom}
+                        className="px-3 py-1.5 rounded text-xs font-medium text-white bg-teal-600 hover:bg-teal-700 disabled:opacity-50"
+                        data-testid="gestion-stocks-rename-apply">
+                        Appliquer
+                      </button>
+                    </div>
+                  </div>
+                )}
                 {knownTags.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1" data-testid="gestion-stocks-tag-filter">
                     <span className="text-[11px] text-slate-500 inline-flex items-center gap-1 mr-1"><Tag className="w-3 h-3" /> Filtrer :</span>
@@ -533,7 +634,7 @@ export default function GestionStocks() {
                 {!searching && searchResults.length > 0 && (
                   <ul className="divide-y divide-slate-200 bg-white rounded-lg ring-1 ring-slate-200">
                     {searchResults.map((file) => (
-                      <R2FileRow key={file.key} file={file} onOpen={openFile} onChanged={handleFileChanged}
+                      <R2FileRow key={file.key} file={file} onOpen={openFile} onChanged={handleFileChanged} onDeleted={handleFileDeleted}
                         knownTags={knownTags} aiEnabled={aiTagsEnabled} showFolder folderLabel={folderLabel} />
                     ))}
                   </ul>
@@ -543,6 +644,28 @@ export default function GestionStocks() {
 
             {effectiveClientCode && !searchActive && !selectedFolder && canUpload && (
               <p className="text-xs text-slate-500">Ouvrez un dossier pour consulter ou déposer des documents.</p>
+            )}
+
+            {/* Lot 23 — création d'un dossier (administration, ou compte autorisé à déposer) */}
+            {effectiveClientCode && !searchActive && !selectedFolder && canUpload && (
+              <div className="flex flex-wrap items-center gap-2" data-testid="gestion-stocks-new-folder">
+                {newFolderOpen ? (
+                  <>
+                    <input autoFocus value={newFolderName} onChange={(e) => setNewFolderName(e.target.value)} maxLength={60}
+                      onKeyDown={(e) => { if (e.key === "Enter") createFolder(); if (e.key === "Escape") setNewFolderOpen(false); }}
+                      placeholder="Nom du nouveau dossier" className="px-3 py-1.5 rounded-lg ring-1 ring-slate-300 text-sm bg-white"
+                      data-testid="gestion-stocks-new-folder-input" />
+                    <button type="button" onClick={createFolder} className="px-3 py-1.5 rounded-lg text-sm font-medium text-white bg-teal-600 hover:bg-teal-700"
+                      data-testid="gestion-stocks-new-folder-create">Créer</button>
+                    <button type="button" onClick={() => setNewFolderOpen(false)} className="text-xs text-slate-500 hover:underline">Annuler</button>
+                  </>
+                ) : (
+                  <button type="button" onClick={() => setNewFolderOpen(true)}
+                    className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline" data-testid="gestion-stocks-new-folder-btn">
+                    <FolderPlus className="w-4 h-4" /> Nouveau dossier
+                  </button>
+                )}
+              </div>
             )}
 
             {effectiveClientCode && !searchActive && !selectedFolder && (
@@ -586,7 +709,7 @@ export default function GestionStocks() {
                 </span>
                 <span className="inline-flex items-center gap-1">
                   <Folder className="w-4 h-4 text-sky-500 fill-sky-100" strokeWidth={1.5} />
-                  Autre dossier présent dans le compartiment (créé par exemple depuis Cloudflare)
+                  Autre dossier présent dans le compartiment (créé avec « Nouveau dossier » ou depuis Cloudflare)
                 </span>
                 <span className="inline-flex items-center gap-1">
                   <Folder className="w-4 h-4 text-slate-400 fill-slate-100" strokeWidth={1.5} />
@@ -670,7 +793,7 @@ export default function GestionStocks() {
                   <ul className="divide-y divide-slate-200 bg-white rounded-lg ring-1 ring-slate-200">
                     {/* Lot 22 — chaque ligne affiche ses tags et, si autorisé, un éditeur en ligne */}
                     {files.map((file) => (
-                      <R2FileRow key={file.key} file={file} onOpen={openFile} onChanged={handleFileChanged}
+                      <R2FileRow key={file.key} file={file} onOpen={openFile} onChanged={handleFileChanged} onDeleted={handleFileDeleted}
                         knownTags={knownTags} aiEnabled={aiTagsEnabled} />
                     ))}
                   </ul>

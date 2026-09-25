@@ -578,7 +578,12 @@ function PortalLayoutInner({ admin = false }) {
       </div>
       <nav className="space-y-1">
         {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason }) => {
-          const rawCount = module ? (badges[module] || 0) : 0;
+          // Lot 23 — le badge du Centre de Messagerie affiche le MÊME nombre que la cloche
+          // et que les pastilles des contacts (/me/whatsapp/unread, relu toutes les 15 s
+          // et dès qu'une conversation est lue), au lieu d'un second compteur relu toutes les 90 s.
+          const rawCount = module === "contacts_unread"
+            ? (waNotifier.unread || 0)
+            : module ? (badges[module] || 0) : 0;
           // 2026-02 fork (P4) — Masque le badge WA non lu sur "Centre de
           // Messagerie" quand show_messaging_notifs=false.
           const count = (!p4ShowMsgNotifs && module === "contacts_unread") ? 0 : rawCount;

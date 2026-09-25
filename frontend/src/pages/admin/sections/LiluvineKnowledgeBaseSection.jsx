@@ -8,6 +8,18 @@ import { apiClient } from "@/lib/api";
 
 const MAX_CHAR_PREVIEW = 280;
 
+// Lot 23 — public visé par une entrée : tous, clients seulement, prospects seulement.
+const AUDIENCE_LABELS = {
+  all: "Tous",
+  clients: "Clients seulement",
+  prospects: "Prospects seulement",
+};
+const AUDIENCE_STYLES = {
+  all: "bg-slate-100 text-slate-600 ring-slate-200",
+  clients: "bg-sky-50 text-sky-700 ring-sky-200",
+  prospects: "bg-violet-100 text-violet-800 ring-violet-200",
+};
+
 export default function LiluvineKnowledgeBaseSection() {
   const [items, setItems] = useState([]);
   const [stats, setStats] = useState({ total: 0, enabled: 0, total_chars: 0, context_budget_chars: 6000 });
@@ -50,11 +62,14 @@ export default function LiluvineKnowledgeBaseSection() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const openCreate = () => setEditing({ title: "", content: "", tags: "" });
+  const openCreate = () => setEditing({ title: "", content: "", tags: "", audience: "all" });
   const openEdit = (it) => setEditing({
     id: it.id, title: it.title || "", content: it.content || "",
     tags: (it.tags || []).join(", "), enabled: it.enabled !== false,
+    audience: it.audience || "all",  // Lot 23
   });
+  // Lot 23 — public appliqué aux documents importés (PDF, TXT, capture).
+  const [uploadAudience, setUploadAudience] = useState("all");
   const closeEditor = () => setEditing(null);
 
   const save = async () => {
@@ -66,6 +81,7 @@ export default function LiluvineKnowledgeBaseSection() {
       title: editing.title.trim(),
       content: editing.content,
       tags: (editing.tags || "").split(",").map((s) => s.trim()).filter(Boolean),
+      audience: editing.audience || "all",  // Lot 23
     };
     try {
       if (editing.id) {
@@ -121,6 +137,7 @@ export default function LiluvineKnowledgeBaseSection() {
       fd.append("file", file);
       fd.append("title", title.trim());
       if (ocr) fd.append("force_ocr", "true");
+      fd.append("audience", uploadAudience);  // Lot 23
       const r = await apiClient.post("/admin/liluvine-pro/kb/upload", fd, {
         headers: { "Content-Type": "multipart/form-data" },
       });
@@ -144,6 +161,13 @@ export default function LiluvineKnowledgeBaseSection() {
           <Brain className="h-5 w-5 text-violet-600" /> Liluvine PRO — Base de connaissance
         </h2>
         <div className="flex items-center gap-2 flex-wrap">
+          {/* Lot 23 — public des documents importés */}
+          <select value={uploadAudience} onChange={(e) => setUploadAudience(e.target.value)} title="Public des documents importés"
+            className="text-xs rounded-lg ring-1 ring-slate-300 px-2 py-1.5 bg-white" data-testid="liluvine-kb-upload-audience">
+            <option value="all">Import : pour tous</option>
+            <option value="clients">Import : clients seulement</option>
+            <option value="prospects">Import : prospects seulement</option>
+          </select>
           <label className="inline-flex items-center gap-1 cursor-pointer rounded-lg ring-1 ring-violet-300 hover:bg-violet-50 text-violet-700 px-2.5 py-1.5 text-xs font-medium" data-testid="liluvine-kb-upload" title="PDF/TXT — extraction texte native, pas d'OCR">
             <Upload className="h-3.5 w-3.5" /> {uploading ? "Upload…" : "Importer PDF / TXT"}
             <input type="file" accept=".pdf,.txt,application/pdf,text/plain" className="hidden"
@@ -211,6 +235,11 @@ export default function LiluvineKnowledgeBaseSection() {
                                        <BookOpen className="h-4 w-4 text-violet-500" />}
                   <p className="text-sm font-semibold text-slate-800 truncate">{it.title}</p>
                   <span className="text-[10px] rounded-full bg-slate-100 ring-1 ring-slate-200 text-slate-600 px-1.5 py-0.5">{it.char_count || (it.content || "").length} car.</span>
+                  {/* Lot 23 — public visé */}
+                  <span className={`text-[10px] rounded-full ring-1 px-1.5 py-0.5 ${AUDIENCE_STYLES[it.audience || "all"]}`}
+                    data-testid={`liluvine-kb-audience-${it.id}`}>
+                    {AUDIENCE_LABELS[it.audience || "all"]}
+                  </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-1 line-clamp-2">{(it.content || "").slice(0, MAX_CHAR_PREVIEW)}{(it.content || "").length > MAX_CHAR_PREVIEW ? "…" : ""}</p>
                 {it.tags?.length > 0 && (
@@ -269,6 +298,20 @@ export default function LiluvineKnowledgeBaseSection() {
                   placeholder="faq, whatsapp, configuration"
                   className="w-full text-sm rounded-lg border border-slate-300 px-3 py-2"
                   data-testid="liluvine-kb-editor-tags" />
+              </div>
+              {/* Lot 23 — à qui Liluvine peut transmettre cette entrée */}
+              <div>
+                <label className="block text-xs font-medium text-slate-700 mb-1">Public visé</label>
+                <select value={editing.audience || "all"} onChange={(e) => setEditing({ ...editing, audience: e.target.value })}
+                  className="w-full text-sm rounded-lg border border-slate-300 px-3 py-2 bg-white" data-testid="liluvine-kb-editor-audience">
+                  <option value="all">Tous (clients et prospects)</option>
+                  <option value="clients">Clients seulement (et usage interne)</option>
+                  <option value="prospects">Prospects seulement (auto-réponse WhatsApp aux numéros inconnus)</option>
+                </select>
+                <p className="text-[10px] text-slate-500 mt-1">
+                  Les prospects ne reçoivent que les entrées « Tous » et « Prospects seulement » ; une entrée « Clients seulement »
+                  ne leur est jamais transmise.
+                </p>
               </div>
               {editing.id && (
                 <label className="flex items-center gap-2 cursor-pointer">

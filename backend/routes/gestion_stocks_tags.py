@@ -34,6 +34,8 @@ import mimetypes
 import re
 import unicodedata
 import uuid
+import zipfile
+from io import BytesIO
 from typing import Any, Dict, Iterable, List, Optional
 
 from routes.gestion_stocks import ROOT_FOLDER, _now
@@ -44,6 +46,19 @@ MAX_TAGS = 15              # tags par fichier
 MAX_TAG_LEN = 40           # caractères par tag
 MAX_DESCRIPTION = 500      # caractères de description
 MAX_SEARCH_RESULTS = 200
+
+# Lot 23 — recherche dans le texte intégral : texte extrait des documents
+# (PDF avec couche texte, Word, Excel, PowerPoint, .txt, .csv), sans IA ni
+# coût. Pour un scan ou une photo, c'est le texte lu par l'IA (si l'option est
+# activée) qui est cherchable.
+MAX_CONTENT_CHARS = 20000
+TEXT_EXTRACT_MAX_BYTES = 15 * 1024 * 1024
+TEXT_PDF_MAX_PAGES = 50
+_OFFICE_XML = {  # fichier Office → parties XML qui portent le texte
+    "docx": ("word/document.xml", "word/header", "word/footer"),
+    "xlsx": ("xl/sharedStrings.xml", "xl/worksheets/sheet"),
+    "pptx": ("ppt/slides/slide",),
+}
 
 # Suggestions IA : modèle le moins cher du catalogue ocr_core, fichiers
 # lisibles par ocr_core uniquement, et pas au-delà de 10 Mo.
@@ -125,6 +140,122 @@ def is_ai_taggable(name: str, size: Optional[int]) -> bool:
 
 def guess_content_type(name: str) -> str:
     return mimetypes.guess_type(name)[0] or "application/octet-stream"
+
+
+# ----------------------------------------------------------------------
+# Lot 23 — extraction du texte intégral (sans IA)
+# ----------------------------------------------------------------------
+def _xml_text(xml: bytes) -> str:
+    """Texte d'une partie XML Office : balises retirées, entités de base décodées."""
+    txt = re.sub(r"<(w:p|a:p|row)[ >/]", "\n<", xml.decode("utf-8", errors="ignore"))  # fins de paragraphe/ligne
+    txt = re.sub(r"<[^>]+>", " ", txt)
+    for ent, ch in (("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"), ("&quot;", '"'), ("&apos;", "'")):
+        txt = txt.replace(ent, ch)
+    return txt
+
+
+def extract_text(data: bytes, name: str, content_type: str = "") -> str:
+    """Texte intégral d'un document (20 000 caractères au plus), ou "" si le
+    format n'en porte pas (image, PDF scanné…). Ne lève jamais."""
+    if not data or len(data) > TEXT_EXTRACT_MAX_BYTES:
+        return ""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    try:
+        if ext == "pdf" or content_type == "application/pdf":
+            import fitz  # PyMuPDF, déjà utilisé par ocr_core
+            with fitz.open(stream=data, filetype="pdf") as pdf:
+                text = "\n".join(pdf[i].get_text() for i in range(min(len(pdf), TEXT_PDF_MAX_PAGES)))
+        elif ext in ("txt", "csv", "tsv", "md", "json", "xml") or content_type.startswith("text/"):
+            text = data.decode("utf-8", errors="ignore")
+        elif ext in _OFFICE_XML:
+            parts = []
+            with zipfile.ZipFile(BytesIO(data)) as z:
+                for member in sorted(z.namelist()):
+                    if member.startswith(_OFFICE_XML[ext]) and member.endswith(".xml"):
+                        parts.append(_xml_text(z.read(member)))
+            text = "\n".join(parts)
+        else:
+            return ""
+    except Exception:  # noqa: BLE001 — fichier corrompu/protégé : pas de texte, pas d'erreur
+        logger.info("[gestion_stocks.tags] extraction de texte impossible pour %s", name)
+        return ""
+    text = re.sub(r"[ \t\r\f\v]+", " ", text)
+    return re.sub(r"\n\s*\n+", "\n", text).strip()[:MAX_CONTENT_CHARS]
+
+
+async def index_content(db, *, key: str, data: bytes, name: str, content_type: str = "") -> int:
+    """Extrait le texte d'un fichier et l'enregistre sur sa fiche
+    (`content_text`, `text_indexed_at`). Renvoie le nombre de caractères."""
+    text = await asyncio.to_thread(extract_text, data, name, content_type)
+    await db.stock_files.update_one({"key": key}, {"$set": {"content_text": text, "text_indexed_at": _now()}})
+    return len(text)
+
+
+def schedule_index_content(db, *, key: str, name: str, content_type: str = "", size: Optional[int] = None) -> bool:
+    """Indexe en arrière-plan un fichier déjà présent dans R2 (lu depuis R2).
+    Renvoie False si le fichier est trop gros ou d'un format sans texte."""
+    ext = name.rsplit(".", 1)[-1].lower() if "." in name else ""
+    if (size or 0) > TEXT_EXTRACT_MAX_BYTES or ext not in ({"pdf", "txt", "csv", "tsv", "md", "json", "xml"} | set(_OFFICE_XML)):
+        return False
+
+    async def _run():
+        try:
+            from r2_stocks_client import get_bytes
+            data = await asyncio.to_thread(get_bytes, key)
+            await index_content(db, key=key, data=data, name=name, content_type=content_type)
+        except Exception:  # noqa: BLE001
+            logger.exception("[gestion_stocks.tags] indexation en arrière-plan échouée pour %s", key)
+    task = asyncio.get_event_loop().create_task(_run())
+    _PENDING.add(task)
+    task.add_done_callback(_PENDING.discard)
+    return True
+
+
+def snippet(text: str, words: List[str], width: int = 70) -> str:
+    """Extrait du texte autour du premier mot trouvé (« …les 12 boîtes de DOLIPRANE… »)."""
+    if not text or not words:
+        return ""
+    norm = norm_text(text)
+    pos = -1
+    for w in words:
+        pos = norm.find(w)
+        if pos >= 0:
+            break
+    if pos < 0:
+        return ""
+    # norm_text ne change pas la longueur à ±quelques caractères près (accents
+    # retirés, espaces réduits) : l'extrait est pris sur le texte d'origine réduit.
+    flat = re.sub(r"\s+", " ", text).strip()
+    start = max(0, pos - width)
+    return ("…" if start else "") + flat[start:pos + width].strip() + ("…" if pos + width < len(flat) else "")
+
+
+def clean_folder_name(raw: Any) -> str:
+    """Nom de dossier créé depuis la page : lettres, chiffres, espaces, - _ . ( ),
+    60 caractères au plus, jamais « . », « .. », ni commençant par un point."""
+    name = re.sub(r"[^\w\s\-.()]", "", str(raw or ""), flags=re.UNICODE)
+    name = re.sub(r"\s+", " ", name).strip()[:60].strip()
+    if not name or name.startswith(".") or name in (".", ".."):
+        return ""
+    return name
+
+
+async def rename_tag(db, code: str, old: str, new: str) -> int:
+    """Renomme un tag pour tous les fichiers du client (fusion si le nouveau
+    tag existe déjà sur un fichier ; `new` vide = retirer le tag partout).
+    Renvoie le nombre de fichiers modifiés."""
+    old_norm = norm_text(old)
+    new_tag = (clean_tags([new]) or [""])[0]
+    changed = 0
+    async for d in db.stock_files.find({"client_code": code, "tags.0": {"$exists": True}}, {"_id": 0, "key": 1, "tags": 1}):
+        tags = d.get("tags") or []
+        if not any(norm_text(t) == old_norm for t in tags):
+            continue
+        replaced = [new_tag if norm_text(t) == old_norm else t for t in tags]
+        await db.stock_files.update_one({"key": d["key"]}, {"$set": {"tags": clean_tags([t for t in replaced if t]),
+                                                                     "updated_at": _now()}})
+        changed += 1
+    return changed
 
 
 # ----------------------------------------------------------------------
@@ -250,8 +381,9 @@ async def tag_counts(db, code: str) -> List[Dict[str, Any]]:
 def search(objects: List[Dict[str, Any]], docs: Dict[str, Dict[str, Any]], code: str,
            q: str = "", tags: Optional[List[str]] = None) -> List[Dict[str, Any]]:
     """Recherche dans TOUS les dossiers du client : chaque mot de `q` doit
-    figurer dans le nom, les tags ou la description (sans tenir compte des
-    accents ni des majuscules) ; chaque tag de `tags` doit être posé sur le fichier.
+    figurer dans le nom, les tags, la description ou (lot 23) le texte intégral
+    du document (sans tenir compte des accents ni des majuscules) ; chaque tag
+    de `tags` doit être posé sur le fichier.
     `objects` = contenu réel de R2 (source de vérité), `docs` = fiches Mongo."""
     words = norm_text(q).split()
     wanted = [norm_text(t) for t in (tags or [])]
@@ -263,12 +395,19 @@ def search(objects: List[Dict[str, Any]], docs: Dict[str, Dict[str, Any]], code:
         norm_tags = [norm_text(t) for t in file_tags]
         if any(t not in norm_tags for t in wanted):
             continue
+        match_snippet = ""
         if words:
-            hay = norm_text(" ".join([parts["name"], parts["folder"], *file_tags, doc.get("description") or ""]))
+            meta_hay = norm_text(" ".join([parts["name"], parts["folder"], *file_tags, doc.get("description") or ""]))
+            content = " ".join([doc.get("content_text") or "", doc.get("ai_text") or ""])
+            hay = meta_hay + " " + norm_text(content)
             if any(w not in hay for w in words):
                 continue
+            # Lot 23 — trouvé grâce au contenu : on montre l'extrait correspondant.
+            if any(w not in meta_hay for w in words):
+                match_snippet = snippet(content, [w for w in words if w not in meta_hay])
         out.append({"key": o["key"], "name": parts["name"], "folder": parts["folder"],
-                    "size": o.get("size"), "last_modified": o.get("last_modified"), **public_meta(doc)})
+                    "size": o.get("size"), "last_modified": o.get("last_modified"), **public_meta(doc),
+                    "match_snippet": match_snippet})
     out.sort(key=lambda f: f.get("last_modified") or "", reverse=True)
     return out[:MAX_SEARCH_RESULTS]
 
@@ -291,7 +430,10 @@ async def suggest_tags(db, *, code: str, key: str, data: bytes, content_type: st
     cost = float(result.get("cost_xof") or 0.0)
     await db.stock_files.update_one({"key": key}, {
         "$set": {"ai_suggested_tags": suggested, "ai_suggested_description": description,
-                 "ai_model": result.get("model") or AI_TAGS_MODEL, "ai_at": _now(), "ai_error": error},
+                 "ai_model": result.get("model") or AI_TAGS_MODEL, "ai_at": _now(), "ai_error": error,
+                 # Lot 23 — ce que l'IA a lu (synthèse + champs) est cherchable, utile pour les scans.
+                 "ai_text": " ".join([description, *[f"{k} {v}" for k, v in (result.get("extracted_fields") or {}).items()
+                                                     if isinstance(v, (str, int, float))]])[:MAX_CONTENT_CHARS]},
         "$inc": {"ai_cost_xof": cost},
     })
     logger.info("[gestion_stocks.tags] IA %s : %d tag(s), %.2f FCFA", key, len(suggested), cost)
@@ -327,4 +469,6 @@ __all__ = [
     "AI_TAGS_MODEL", "MAX_TAGS", "can_edit", "clean_description", "clean_tags", "ensure_docs",
     "index_upload", "is_ai_taggable", "maybe_schedule_after_upload", "norm_text", "public_meta",
     "search", "split_key", "suggest_tags", "tag_counts", "tags_from_ocr", "tenant_ai_enabled",
+    # Lot 23
+    "clean_folder_name", "extract_text", "index_content", "rename_tag", "schedule_index_content", "snippet",
 ]

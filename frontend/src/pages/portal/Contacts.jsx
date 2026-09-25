@@ -9,7 +9,7 @@ import {
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
   Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft, FolderOpen, ShoppingBag, FileEdit,
-  Sparkles, Loader2,
+  Sparkles, Loader2, ClipboardPaste, ArrowDown,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -163,8 +163,10 @@ export default function Contacts() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const load = async () => {
-    setLoading(true);
+  // Lot 23 — `silent` : relecture en arrière-plan (sans « Chargement… ») pour
+  // remettre la liste dans l'ordre de la dernière interaction.
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [contactsRes, clientsRes] = await Promise.all([
         apiClient.get("/me/contacts"),
@@ -173,16 +175,22 @@ export default function Contacts() {
       setItems(Array.isArray(contactsRes.data) ? contactsRes.data : []);
       setClients(clientsRes.data || []);
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur de chargement");
+      if (!silent) toast.error(err?.response?.data?.detail || "Erreur de chargement");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
+  // Lot 23 — quand un nouveau message arrive (total des non-lus en hausse),
+  // la liste est relue pour que ce contact remonte en tête avec sa date.
+  const lastUnreadTotalRef = React.useRef(null);
   const loadUnread = async () => {
     try {
       const r = await apiClient.get("/me/whatsapp/unread");
-      setUnread({ total: r.data?.total || 0, by_contact: r.data?.by_contact || {} });
+      const total = r.data?.total || 0;
+      setUnread({ total, by_contact: r.data?.by_contact || {} });
+      if (lastUnreadTotalRef.current != null && total > lastUnreadTotalRef.current) load(true);
+      lastUnreadTotalRef.current = total;
     } catch { /* noop */ }
   };
 
@@ -202,8 +210,12 @@ export default function Contacts() {
     apiClient.get("/me/account-detail").then((r) => setAccountInfo(r.data)).catch(() => {});
   }, []);
   useEffect(() => {
-    const t = setInterval(() => { loadUnread(); loadPending(); }, 30000);
-    return () => clearInterval(t);
+    // Lot 23 — non-lus toutes les 15 s (même rythme que le badge de la sidebar),
+    // liste complète relue en silence toutes les 2 min (messages envoyés ailleurs).
+    const t = setInterval(() => { loadUnread(); loadPending(); }, 15000);
+    const t2 = setInterval(() => load(true), 120000);
+    return () => { clearInterval(t); clearInterval(t2); };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
   }, []);
 
   const del = async (id) => {
@@ -484,7 +496,7 @@ export default function Contacts() {
       {modal?.type === "history" && (
         <ConversationModal
           contact={modal.contact}
-          onClose={() => { setModal(null); loadUnread(); }}
+          onClose={() => { setModal(null); loadUnread(); load(true); /* Lot 23 — réordonne après l'échange */ }}
           onMessagesRead={loadUnread}
         />
       )}
@@ -498,11 +510,46 @@ export default function Contacts() {
   );
 }
 
+// Lot 23 — date/heure de la dernière interaction, lisible d'un coup d'œil :
+// « Aujourd'hui 14:32 », « Hier 09:10 », sinon « 12/09/2026 16:05 ».
+function formatLastInteraction(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+  const today = new Date();
+  const yesterday = new Date(); yesterday.setDate(today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return `Aujourd'hui ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `Hier ${time}`;
+  return `${d.toLocaleDateString("fr-FR")} ${time}`;
+}
+
 // --- Contact row with inline WhatsApp edit ---
 const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, onLiluvine, onDelete, waEnabled = true, smsEnabled = true, unreadCount = 0 }) => {
   const [editingWa, setEditingWa] = useState(false);
   const [waValue, setWaValue] = useState(c.whatsapp || "");
   const [saving, setSaving] = useState(false);
+
+  // Lot 23 — « Marquer comme prospect » : pose/retire l'étiquette `prospect`.
+  // Liluvine répond alors à ce contact avec le prompt et la base de
+  // connaissance des prospects (Paramètres → Auto-réponse WhatsApp).
+  const isProspect = (c.tags || []).some((t) => (t || "").trim().toLowerCase() === "prospect");
+  const [togglingProspect, setTogglingProspect] = useState(false);
+  const toggleProspect = async () => {
+    const tags = isProspect
+      ? (c.tags || []).filter((t) => (t || "").trim().toLowerCase() !== "prospect")
+      : [...(c.tags || []), "prospect"];
+    setTogglingProspect(true);
+    try {
+      await apiClient.put(`/me/contacts/${c.id}`, { tags });
+      toast.success(isProspect ? `${c.name} n'est plus marqué comme prospect` : `${c.name} est marqué comme prospect`);
+      await onReload();
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Erreur");
+    } finally {
+      setTogglingProspect(false);
+    }
+  };
 
   const saveWa = async () => {
     const trimmed = (waValue || "").trim();
@@ -543,6 +590,21 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
                 </span>
               )}
             </button>
+            {/* Lot 23 — date/heure et sens du dernier échange (WhatsApp/SMS de ce tenant, hors envois en masse) */}
+            <div className="text-[11px] text-slate-500 mt-0.5 flex items-center gap-1" data-testid={`contact-last-interaction-${c.id}`}>
+              {c.last_interaction_at ? (
+                <>
+                  {c.last_interaction_direction === "in"
+                    ? <ArrowDownLeft className="h-3 w-3 text-emerald-600" aria-label="reçu" />
+                    : <ArrowUpRight className="h-3 w-3 text-sky-600" aria-label="envoyé" />}
+                  <span title={c.last_interaction_direction === "in" ? "Dernier message reçu" : "Dernier message envoyé"}>
+                    {formatLastInteraction(c.last_interaction_at)}
+                  </span>
+                </>
+              ) : (
+                <span className="italic text-slate-400">Aucun échange</span>
+              )}
+            </div>
             {c.unique_code && (
               <div
                 className="text-[11px] text-sky-600 font-mono font-bold mt-0.5 inline-flex items-center gap-1"
@@ -560,7 +622,8 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
             {c.tags?.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-1">
                 {c.tags.map((t) => (
-                  <span key={t} className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded inline-flex items-center gap-1">
+                  <span key={t}
+                    className={`text-[10px] px-1.5 py-0.5 rounded inline-flex items-center gap-1 ${(t || "").toLowerCase() === "prospect" ? "bg-violet-100 text-violet-800 font-semibold" : "bg-slate-100"}`}>
                     <Tag className="h-2.5 w-2.5" /> {t}
                   </span>
                 ))}
@@ -631,6 +694,18 @@ const ContactRow = ({ c, onReload, onEdit, onWa, onSms, onSchedule, onHistory, o
       </td>
       <td className="px-2 py-2 text-right whitespace-nowrap">
         <div className="inline-flex gap-1 items-center">
+          {/* Lot 23 — marquer / démarquer comme prospect (auto-réponse Liluvine dédiée) */}
+          <button
+            onClick={toggleProspect}
+            disabled={togglingProspect}
+            title={isProspect
+              ? "Prospect : Liluvine lui répond avec le prompt des prospects — cliquer pour le repasser en client"
+              : "Marquer comme prospect (Liluvine lui répondra avec le prompt et la base de connaissance des prospects)"}
+            className={`inline-flex items-center gap-1 text-[11px] rounded px-2 py-1 ring-1 disabled:opacity-40 ${isProspect ? "bg-violet-600 text-white ring-violet-600 hover:bg-violet-700" : "bg-white text-violet-700 ring-violet-300 hover:bg-violet-50"}`}
+            data-testid={`contact-prospect-${c.id}`}
+          >
+            <UserPlus className="h-3 w-3" /> <span className="hidden xl:inline">{isProspect ? "Prospect" : "Prospect ?"}</span>
+          </button>
           <button
             onClick={onWa}
             disabled={!c.whatsapp || !waEnabled}
@@ -1491,15 +1566,25 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [convTab, setConvTab] = useState("discussion");
   const [groupCount, setGroupCount] = useState(0);
 
-  const load = async () => {
-    setLoading(true);
+  // Lot 23 — `silent` : relecture périodique sans remplacer la conversation par
+  // « Chargement… » (sinon l'écran clignoterait toutes les 8 s).
+  const load = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const r = await apiClient.get(`/me/contacts/${contact.id}/messages`);
-      setData(r.data || { messages: [] });
+      const next = r.data || { messages: [] };
+      if (silent) {
+        // Nouveau message reçu pendant que la conversation est ouverte :
+        // on le marque comme lu (il est sous les yeux de l'utilisateur).
+        const prevIds = new Set((dataRef.current.messages || []).map((m) => m.id));
+        const newInbound = (next.messages || []).some((m) => m.direction === "inbound" && !prevIds.has(m.id));
+        if (newInbound) markRead();
+      }
+      setData(next);
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur");
+      if (!silent) toast.error(err?.response?.data?.detail || "Erreur");
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
@@ -1507,12 +1592,26 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     try {
       await apiClient.post(`/me/contacts/${contact.id}/messages/mark-read`);
       onMessagesRead && onMessagesRead();
+      // Lot 23 — prévient la sidebar et la cloche : elles recomptent tout de suite.
+      window.dispatchEvent(new Event("sawali:wa-messages-read"));
     } catch { /* noop */ }
   };
 
   useEffect(() => {
     load();
     markRead();
+    /* eslint-disable-next-line */
+  }, [contact.id]);
+
+  // Lot 23 — la conversation ouverte se met à jour toute seule (toutes les 8 s,
+  // seulement quand l'onglet est visible).
+  const dataRef = React.useRef(data);
+  dataRef.current = data;
+  useEffect(() => {
+    const t = setInterval(() => {
+      if (document.visibilityState === "visible") load(true);
+    }, 8000);
+    return () => clearInterval(t);
     /* eslint-disable-next-line */
   }, [contact.id]);
 
@@ -1661,6 +1760,50 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     const previewUrl = kind === "image" ? URL.createObjectURL(f) : null;
     setPendingFile({ file: f, kind, previewUrl });
     e.target.value = ""; // allow re-picking the same file
+  };
+
+  // Lot 23 — pièce jointe venant du presse-papiers (capture d'écran, image copiée) :
+  // même préparation qu'un fichier choisi avec le trombone.
+  const attachBlob = (blob, fallbackName) => {
+    if (!blob) return false;
+    if (blob.size > 16 * 1024 * 1024) { toast.error("Image trop volumineuse (max 16 Mo)"); return true; }
+    const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
+    const file = blob instanceof File && blob.name ? blob : new File([blob], `${fallbackName}.${ext}`, { type: blob.type });
+    setPendingFile({ file, kind: "image", previewUrl: URL.createObjectURL(file) });
+    toast.success("Image du presse-papiers jointe — ajoutez une légende si besoin, puis Envoyer.");
+    return true;
+  };
+
+  // Ctrl+V dans la zone de saisie : une image est jointe ; du texte se colle normalement.
+  const onPasteComposer = (e) => {
+    const items = Array.from(e.clipboardData?.items || []);
+    const img = items.find((it) => it.kind === "file" && (it.type || "").startsWith("image/"));
+    if (img && !pendingFile) {
+      e.preventDefault();
+      attachBlob(img.getAsFile(), `capture-${Date.now()}`);
+    }
+  };
+
+  // Bouton « Coller » : lit le presse-papiers (image en priorité, sinon texte).
+  const pasteFromClipboard = async () => {
+    try {
+      if (navigator.clipboard?.read) {
+        const entries = await navigator.clipboard.read();
+        for (const entry of entries) {
+          const type = entry.types.find((t) => t.startsWith("image/"));
+          if (type) { attachBlob(await entry.getType(type), `capture-${Date.now()}`); return; }
+        }
+      }
+      const clip = navigator.clipboard?.readText ? await navigator.clipboard.readText() : "";
+      if (clip) {
+        setText((cur) => (cur ? `${cur}${cur.endsWith("\n") ? "" : "\n"}${clip}` : clip).slice(0, 4096));
+        toast.success("Texte du presse-papiers collé");
+      } else {
+        toast.info("Le presse-papiers est vide.");
+      }
+    } catch {
+      toast.error("Accès au presse-papiers refusé par le navigateur — utilisez Ctrl+V dans la zone de saisie.");
+    }
   };
 
   const clearPendingFile = () => {
@@ -1869,9 +2012,24 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // exchange is always in view. We use `behavior:"auto"` for the very
   // first render and "smooth" once the user is already in the modal.
   const initialScrollDone = React.useRef(false);
+  // Lot 23 — si l'utilisateur est remonté lire l'historique, un message arrivé
+  // par l'actualisation automatique ne le fait pas redescendre : un bouton
+  // « Nouveau message » apparaît à la place.
+  const [newBelow, setNewBelow] = useState(false);
+  const nearBottom = () => {
+    const el = scrollContainerRef.current;
+    return !el || el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+  };
+  const scrollToBottom = () => {
+    const el = scrollContainerRef.current;
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    setNewBelow(false);
+  };
   useEffect(() => {
     if (!scrollContainerRef.current || loading) return;
     const el = scrollContainerRef.current;
+    const lastOutbound = (messages[messages.length - 1] || {}).direction !== "inbound";
+    if (initialScrollDone.current && !nearBottom() && !lastOutbound) { setNewBelow(true); return; }
     const behavior = initialScrollDone.current ? "smooth" : "auto";
     // Use a microtask so React has committed message bubbles before we
     // measure scrollHeight.
@@ -1883,6 +2041,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       }
       initialScrollDone.current = true;
     });
+    // Relancé seulement quand le NOMBRE de messages change (pas à chaque relecture identique).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [messages.length, loading]);
 
   return (
@@ -1891,7 +2051,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       onClick={(e) => e.target === e.currentTarget && onClose()}
       data-testid="conversation-modal"
     >
-      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh]">
+      <div className="w-full max-w-2xl rounded-2xl bg-white shadow-2xl flex flex-col max-h-[85vh] relative">
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-200">
           <div className="flex items-center gap-3 min-w-0">
             <ContactAvatar contact={contact} size={40} />
@@ -2306,7 +2466,14 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
             </div>
           </div>
         )}
-        <div ref={scrollContainerRef} className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
+        {newBelow && (
+          <button onClick={scrollToBottom} data-testid="conversation-new-below"
+            className="absolute left-1/2 -translate-x-1/2 bottom-40 z-10 inline-flex items-center gap-1 rounded-full bg-emerald-600 text-white text-xs px-3 py-1.5 shadow-lg hover:bg-emerald-700">
+            <ArrowDown className="h-3.5 w-3.5" /> Nouveau message
+          </button>
+        )}
+        <div ref={scrollContainerRef} onScroll={() => { if (newBelow && nearBottom()) setNewBelow(false); }}
+          className="flex-1 overflow-y-auto p-5 space-y-3 bg-slate-50/50" data-testid="conversation-scroll">
           {loading ? (
             <p className="text-center text-slate-500 text-sm">Chargement…</p>
           ) : messages.length === 0 ? (
@@ -2460,13 +2627,24 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 >
                   <Mic className="h-4 w-4" />
                 </button>
+                {/* Lot 23 — coller une image ou un texte du presse-papiers */}
+                <button
+                  onClick={pasteFromClipboard}
+                  disabled={sending || !!pendingFile || recState !== "idle"}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-300 bg-white hover:bg-slate-50 px-2.5 py-2 text-sm text-slate-600 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  data-testid="conversation-paste-btn"
+                  title="Coller depuis le presse-papiers (image ou texte) — ou Ctrl+V dans la zone de saisie"
+                >
+                  <ClipboardPaste className="h-4 w-4" />
+                </button>
                 <textarea
                   value={text}
                   onChange={(e) => setText(e.target.value)}
+                  onPaste={onPasteComposer}
                   onKeyDown={(e) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFreeText(); }
                   }}
-                  placeholder={pendingFile ? "Légende (optionnelle)…" : "Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer)"}
+                  placeholder={pendingFile ? "Légende (optionnelle)…" : "Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer, Ctrl+V pour coller une image)"}
                   rows={2}
                   maxLength={4096}
                   className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:ring-1 focus:ring-sawali-blue outline-none"

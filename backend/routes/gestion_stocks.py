@@ -546,6 +546,12 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         doc = await gt.index_upload(db, code=code, key=key, size=len(data),
                                     content_type=content_type or "application/octet-stream",
                                     user=user, tags=tags, description=description)
+        # Lot 23 — texte intégral du document (PDF texte, Word, Excel, .txt…) : cherchable immédiatement.
+        try:
+            await gt.index_content(db, key=key, data=data, name=doc.get("name") or key.rsplit("/", 1)[-1],
+                                   content_type=content_type or "")
+        except Exception:  # noqa: BLE001 — le dépôt est réussi quoi qu'il arrive à l'indexation
+            logger.exception("[gestion_stocks] indexation du texte échouée key=%s", key)
         ai_started = False
         try:
             ai_started = await gt.maybe_schedule_after_upload(db, code=code, key=key, data=data,
@@ -781,10 +787,19 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         from routes import gestion_stocks_tags as gt
         docs = await gt.ensure_docs(db, code, files)
         upload_allowed = is_admin or (await _tracked_upload_rights(db, user))["allowed"]
+        queued = 0
         for f in files:
             doc = docs.get(f["key"])
             f.update(gt.public_meta(doc))
             f["can_edit"] = gt.can_edit(user, doc, is_staff=is_admin, upload_allowed=upload_allowed)
+            # Lot 23 — même règle pour supprimer que pour taguer.
+            f["can_delete"] = f["can_edit"]
+            # Lot 23 — fichiers jamais indexés (déposés avant ce lot ou depuis Cloudflare) :
+            # texte extrait en arrière-plan, 20 par ouverture de dossier au plus.
+            if doc is not None and not doc.get("text_indexed_at") and queued < 20:
+                if gt.schedule_index_content(db, key=f["key"], name=doc.get("name") or f["name"],
+                                             content_type=doc.get("content_type") or "", size=f.get("size")):
+                    queued += 1
         return {"client_code": code, "folder": folder, "files": files}
 
     @api.get("/gestion-stocks/files/view-url", tags=["Portail — Gestion Stocks"])
@@ -1038,6 +1053,7 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
         upload_allowed = _is_staff(user) or (await _tracked_upload_rights(db, user))["allowed"]
         for r in results:
             r["can_edit"] = gt.can_edit(user, docs.get(r["key"]), is_staff=_is_staff(user), upload_allowed=upload_allowed)
+            r["can_delete"] = r["can_edit"]  # Lot 23
         return {"client_code": code, "q": q, "tags": gt.clean_tags(tags), "results": results,
                 "truncated": len(results) >= gt.MAX_SEARCH_RESULTS}
 
@@ -1085,6 +1101,88 @@ def attach_gestion_stocks_routes(*, api, db, get_current_user, get_current_admin
                                     filename=name)
         doc = await db.stock_files.find_one({"key": key}, {"_id": 0})
         return {"key": key, **gt.public_meta(doc), "cost_xof": out["cost_xof"]}
+
+    # ------------------------------------------------------------------
+    # Lot 23 — suppression, création de dossier, renommage de tag, indexation
+    # ------------------------------------------------------------------
+    @api.delete("/gestion-stocks/files", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_delete_file(key: str = Query(...), user: dict = Depends(get_current_user)):
+        """Supprime un fichier : admin/superviseur tout fichier ; Pharmacien
+        suivi autorisé à déposer, seulement ses propres fichiers (même règle
+        que pour les tags). La fiche (tags) part avec le fichier."""
+        from r2_stocks_client import delete_object, is_configured
+        await _editable_doc(user, key)  # 403 si pas le droit, 404 si le fichier n'existe pas
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        try:
+            await asyncio.to_thread(delete_object, key)
+        except Exception:
+            logger.exception("[gestion_stocks] delete failed key=%s", key)
+            raise HTTPException(status_code=502, detail="Échec de la suppression.")
+        await db.stock_files.delete_one({"key": key})
+        return {"ok": True, "key": key}
+
+    @api.post("/gestion-stocks/folders", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_create_folder(payload: Dict[str, Any] = Body(...), user: dict = Depends(get_current_user)):
+        """Crée un dossier (objet marqueur vide `<code>/<nom>/`, comme Cloudflare) :
+        admin/superviseur, ou utilisateur suivi autorisé à déposer (dans son tenant)."""
+        from routes import gestion_stocks_tags as gt
+        from r2_stocks_client import is_configured, list_folder_markers, list_objects, put_bytes
+        code = await _code_for(user, payload.get("client_code"))
+        if not _is_staff(user) and not (await _tracked_upload_rights(db, user))["allowed"]:
+            raise HTTPException(status_code=403, detail="Création de dossier réservée aux comptes autorisés à déposer des fichiers.")
+        if _is_staff(user) and not await _tenant_by_code(db, code):
+            raise HTTPException(status_code=404, detail="Aucun client ne porte ce code client.")
+        name = gt.clean_folder_name(payload.get("name"))
+        if not name or name == ROOT_FOLDER:
+            raise HTTPException(status_code=400, detail="Nom de dossier invalide (lettres, chiffres, espaces, - _ . ( ) ; 60 caractères au plus).")
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        prefix = f"{code}/{name}/"
+        existing = await asyncio.to_thread(list_folder_markers, prefix) or await asyncio.to_thread(list_objects, prefix)
+        if existing or name.lower() in (f.lower() for f in DEFAULT_FOLDERS):
+            raise HTTPException(status_code=409, detail=f"Le dossier « {name} » existe déjà.")
+        try:
+            await asyncio.to_thread(put_bytes, prefix, b"", "application/x-directory")
+        except Exception:
+            logger.exception("[gestion_stocks] folder creation failed %s", prefix)
+            raise HTTPException(status_code=502, detail="Échec de la création du dossier dans R2.")
+        return {"ok": True, "client_code": code, "folder": name}
+
+    @api.put("/gestion-stocks/tags/rename", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_rename_tag(payload: Dict[str, Any] = Body(...), user: dict = Depends(staff_user)):
+        """Renomme (ou fusionne, si le nouveau nom existe déjà) un tag pour tous
+        les fichiers d'un client. `to` vide = retirer le tag partout."""
+        from routes import gestion_stocks_tags as gt
+        code = await _code_for(user, payload.get("client_code"))
+        old = str(payload.get("from") or "").strip()
+        new = str(payload.get("to") or "").strip()
+        if not old:
+            raise HTTPException(status_code=400, detail="Tag à renommer manquant.")
+        if new and not gt.clean_tags([new]):
+            raise HTTPException(status_code=400, detail="Nouveau nom de tag invalide.")
+        changed = await gt.rename_tag(db, code, old, new)
+        return {"ok": True, "client_code": code, "files_changed": changed, "tags": await gt.tag_counts(db, code)}
+
+    @api.post("/gestion-stocks/reindex", tags=["Portail — Gestion Stocks"])
+    async def gestion_stocks_reindex(payload: Dict[str, Any] = Body(...), user: dict = Depends(staff_user)):
+        """Indexe en arrière-plan le texte de tous les fichiers du client qui ne
+        l'ont pas encore été (fichiers déposés avant le lot 23 ou depuis Cloudflare)."""
+        from routes import gestion_stocks_tags as gt
+        from r2_stocks_client import is_configured, list_objects
+        code = await _code_for(user, payload.get("client_code"))
+        if not is_configured():
+            raise HTTPException(status_code=503, detail="Stockage R2 Gestion Stocks non configuré.")
+        objects = await asyncio.to_thread(list_objects, f"{code}/")
+        files = [{"key": o["key"], "size": o.get("size"), "name": gt.split_key(code, o["key"])["name"]} for o in objects]
+        docs = await gt.ensure_docs(db, code, files)
+        queued = 0
+        for f in files:
+            doc = docs[f["key"]]
+            if not doc.get("text_indexed_at") and gt.schedule_index_content(
+                    db, key=f["key"], name=doc.get("name") or f["name"], content_type=doc.get("content_type") or "", size=f["size"]):
+                queued += 1
+        return {"ok": True, "client_code": code, "queued": queued, "files": len(files)}
 
     logger.info("[gestion_stocks] routes mounted under /api/gestion-stocks and /api/admin/gestion-stocks")
 

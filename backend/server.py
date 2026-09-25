@@ -13891,11 +13891,12 @@ async def me_notifications_counts(user: dict = Depends(get_current_user)):
     for key, spec in MODULE_COUNT_QUERIES.items():
         counts[key] = await _count(key, spec)
     # Special: WhatsApp inbound unread (not based on last_visited_at — uses read_by_us_at).
+    # Lot 23 — MÊME calcul que les pastilles du Centre de Messagerie
+    # (_wa_unread_summary) : avant, le badge comptait sur un autre périmètre
+    # (un seul client_id, ou tous les tenants pour l'admin) et incluait des
+    # messages qu'aucune conversation ne permettait de marquer comme lus.
     try:
-        wa_q: Dict[str, Any] = {"direction": "inbound", "read_by_us_at": None}
-        if not is_admin:
-            wa_q["client_id"] = client_scope
-        counts["contacts_unread"] = await db.whatsapp_messages.count_documents(wa_q)
+        counts["contacts_unread"] = (await _wa_unread_summary(user))["total"]
     except Exception:
         counts["contacts_unread"] = 0
     # Iter34l — Admin-only: pending profile-update requests (status-driven, not visit-driven)
@@ -14306,57 +14307,59 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
     if any(flags.values()):
         items = [_apply_anon_to_contact(c, flags) for c in items]
 
-    # Iter43-fix5 — Calcule last_interaction_at via match digits10 sur WA/SMS
-    import re as _re_li
-
-    def _digits10(s: Optional[str]) -> str:
-        d = _re_li.sub(r"\D", "", s or "")
-        return d[-10:] if len(d) >= 10 else d
-
+    # Iter43-fix5 — Calcule last_interaction_at (WA + SMS) pour le tri par date d'interaction
+    # Lot 23 — clé = 8 derniers chiffres (_phone_suffix), comme le comptage des
+    # non-lus : un contact saisi sans indicatif (« 70 11 11 11 ») retrouve ses
+    # échanges avec « 22670111111 » (avec 10 chiffres, il n'avait jamais de date).
     phone_map: Dict[str, List[Dict[str, Any]]] = {}
     for c in items:
-        d10 = _digits10(c.get("whatsapp") or c.get("phone"))
-        if d10:
+        d10 = _phone_suffix(c.get("whatsapp") or c.get("phone"))
+        if len(d10) >= 6:
             phone_map.setdefault(d10, []).append(c)
 
     if phone_map:
-        last_by_phone: Dict[str, str] = {}
+        # Lot 23 — « dernière interaction » fiable :
+        #   - uniquement les messages de CE tenant (avant : tous les tenants,
+        #     donc un message d'un autre client au même numéro remontait le contact) ;
+        #   - hors envois en masse (`bulk`) : une campagne ne rend pas « récents »
+        #     des contacts qui n'ont rien écrit ;
+        #   - date = `created_at` (toujours ISO, posé par Sawali) — avant, le champ
+        #     `timestamp` de Meta (secondes Unix) était parfois comparé à des dates
+        #     ISO, ce qui faussait l'ordre ;
+        #   - le sens du dernier échange est renvoyé (reçu / envoyé).
+        last_by_phone: Dict[str, Tuple[str, str]] = {}
+
+        def _note(msg: Dict[str, Any], direction: str) -> None:
+            ts = str(msg.get("created_at") or "")
+            if not ts:
+                return
+            for k in ("phone_digits", "from", "to"):
+                d10 = _phone_suffix(msg.get(k))
+                if d10 in phone_map:
+                    if d10 not in last_by_phone or ts > last_by_phone[d10][0]:
+                        last_by_phone[d10] = (ts, direction)
+                    break
+
+        tenant_q = {"client_id": {"$in": client_ids}, "bulk": {"$ne": True}}
         try:
-            # Iter43-fix7 — collection réelle = `whatsapp_messages` (PAS wa_messages).
-            # Projection ciblée + sort sur index timestamp/created_at pour scan rapide.
             async for msg in db.whatsapp_messages.find(
-                {}, {"_id": 0, "from": 1, "to": 1, "timestamp": 1, "created_at": 1, "received_at": 1, "sent_at": 1},
-            ).sort("created_at", -1).limit(10000):
-                ts = msg.get("timestamp") or msg.get("received_at") or msg.get("sent_at") or msg.get("created_at")
-                if not ts:
-                    continue
-                for k in ("from", "to"):
-                    d10 = _digits10(msg.get(k))
-                    if d10 in phone_map:
-                        s = str(ts)
-                        if d10 not in last_by_phone or s > last_by_phone[d10]:
-                            last_by_phone[d10] = s
+                tenant_q, {"_id": 0, "phone_digits": 1, "from": 1, "to": 1, "created_at": 1, "direction": 1},
+            ).sort("created_at", -1).limit(20000):
+                _note(msg, "in" if msg.get("direction") == "inbound" else "out")
         except Exception:
             pass
         try:
             async for msg in db.sms_messages.find(
-                {}, {"_id": 0, "to": 1, "from": 1, "sent_at": 1, "created_at": 1, "received_at": 1},
-            ).sort("created_at", -1).limit(10000):
-                ts = msg.get("sent_at") or msg.get("received_at") or msg.get("created_at")
-                if not ts:
-                    continue
-                for k in ("from", "to"):
-                    d10 = _digits10(msg.get(k))
-                    if d10 in phone_map:
-                        s = str(ts)
-                        if d10 not in last_by_phone or s > last_by_phone[d10]:
-                            last_by_phone[d10] = s
+                tenant_q, {"_id": 0, "phone_digits": 1, "to": 1, "from": 1, "created_at": 1, "direction": 1},
+            ).sort("created_at", -1).limit(20000):
+                _note(msg, "in" if msg.get("direction") == "inbound" else "out")
         except Exception:
             pass
         for d10, contacts in phone_map.items():
-            ts = last_by_phone.get(d10)
+            ts, direction = last_by_phone.get(d10, (None, None))
             for c in contacts:
                 c["last_interaction_at"] = ts
+                c["last_interaction_direction"] = direction
     return items
 
 
@@ -15601,30 +15604,77 @@ async def me_whatsapp_recall_message(
 
 
 # ---------- Unread inbound counters + mark-read ----------
+# Lot 23 — rapprochement message ↔ contact par les 8 derniers chiffres du
+# numéro : un contact enregistré sans indicatif (« 70 12 34 56 ») retrouve
+# les messages reçus de « 22670123456 ».
+WA_PHONE_SUFFIX_LEN = 8
+
+
+def _phone_suffix(raw: Optional[str]) -> str:
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    return digits[-WA_PHONE_SUFFIX_LEN:] if len(digits) >= WA_PHONE_SUFFIX_LEN else digits
+
+
+def _contact_phone_clauses(contact: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """Critères Mongo « message de ce contact » : son id, ou son numéro
+    (WhatsApp ou téléphone) reconnu sur ses 8 derniers chiffres."""
+    clauses: List[Dict[str, Any]] = [{"contact_id": contact.get("id")}]
+    seen = set()
+    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
+        suffix = _phone_suffix(raw)
+        if len(suffix) >= 6 and suffix not in seen:
+            seen.add(suffix)
+            clauses.append({"phone_digits": {"$regex": f"{re.escape(suffix)}$"}})
+    return clauses
+
+
+async def _wa_unread_summary(user: dict) -> Dict[str, Any]:
+    """Non-lus WhatsApp du Centre de Messagerie — SOURCE UNIQUE pour la
+    pastille de chaque contact, le total du badge de la sidebar et la cloche.
+
+    - périmètre : _resolve_visible_client_ids (celui de /me/contacts et de
+      mark-read), pour TOUS les rôles, admin compris ;
+    - un message sans contact_id est rattaché au contact dont le numéro
+      correspond (8 derniers chiffres) ;
+    - seuls comptent les messages rattachés à un contact VISIBLE (donc
+      qu'on peut ouvrir et marquer comme lus) ; les autres (expéditeurs
+      inconnus) sont renvoyés à part dans `unknown`, sans gonfler le total."""
+    visible_scope = await _resolve_visible_client_ids(user)
+    contacts = await db.directory_contacts.find(
+        {"client_id": {"$in": visible_scope}}, {"_id": 0, "id": 1, "whatsapp": 1, "phone": 1},
+    ).to_list(5000)
+    ids = {c["id"] for c in contacts if c.get("id")}
+    by_suffix: Dict[str, str] = {}
+    for c in contacts:
+        for raw in (c.get("whatsapp"), c.get("phone")):
+            suffix = _phone_suffix(raw)
+            if len(suffix) >= 6:
+                by_suffix.setdefault(suffix, c["id"])
+    by_contact: Dict[str, int] = {}
+    unknown = 0
+    pipeline = [
+        {"$match": {"direction": "inbound", "read_by_us_at": None, "client_id": {"$in": visible_scope}}},
+        {"$group": {"_id": {"c": "$contact_id", "p": "$phone_digits"}, "n": {"$sum": 1}}},
+    ]
+    async for row in db.whatsapp_messages.aggregate(pipeline):
+        key = row.get("_id") or {}
+        n = int(row.get("n") or 0)
+        cid = key.get("c") if key.get("c") in ids else by_suffix.get(_phone_suffix(key.get("p")))
+        if cid:
+            by_contact[cid] = by_contact.get(cid, 0) + n
+        else:
+            unknown += n
+    return {"total": sum(by_contact.values()), "by_contact": by_contact, "unknown": unknown}
+
+
 @api.get("/me/whatsapp/unread", tags=["Portail Client"])
 async def me_whatsapp_unread(user: dict = Depends(get_current_user)):
-    """Renvoie les compteurs de non-lus par contact + un total global des messages WA entrants
-    where `read_by_us_at` is null. Used by the sidebar badge and per-contact pastille.
+    """Compteurs de non-lus par contact + total (pastilles, cloche, badge).
 
-    Iter34p — Uses _resolve_visible_client_ids so pastilles stay accurate
-    after a realignment (the contact_ids reported here match the ones the
-    user sees through /me/contacts)."""
-    visible_scope = await _resolve_visible_client_ids(user)
-    base_q: Dict[str, Any] = {"direction": "inbound", "read_by_us_at": None}
-    if user.get("role") != "admin":
-        base_q["client_id"] = {"$in": visible_scope}
-    pipeline = [
-        {"$match": base_q},
-        {"$group": {"_id": "$contact_id", "n": {"$sum": 1}}},
-    ]
-    by_contact: Dict[str, int] = {}
-    total = 0
-    async for row in db.whatsapp_messages.aggregate(pipeline):
-        cid = row.get("_id") or "_unknown"
-        n = int(row.get("n") or 0)
-        by_contact[cid] = n
-        total += n
-    return {"total": total, "by_contact": by_contact}
+    Lot 23 — calcul partagé avec le badge de la sidebar (_wa_unread_summary) :
+    les deux nombres sont désormais toujours identiques. `unknown` = messages
+    d'expéditeurs absents du carnet (visibles dans l'Inbox unifiée)."""
+    return await _wa_unread_summary(user)
 
 
 @api.post("/me/contacts/{cid}/messages/mark-read", tags=["Portail Client"])
@@ -15639,14 +15689,8 @@ async def me_contact_messages_mark_read(cid: str, user: dict = Depends(get_curre
     )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    norm_phones: List[str] = []
-    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
-        clean = "".join(ch for ch in (raw or "") if ch.isdigit())
-        if clean:
-            norm_phones.append(clean)
-    or_clauses: List[Dict[str, Any]] = [{"contact_id": cid}]
-    if norm_phones:
-        or_clauses.append({"phone_digits": {"$in": norm_phones}})
+    # Lot 23 — mêmes critères que le comptage (id du contact OU 8 derniers chiffres du numéro).
+    or_clauses = _contact_phone_clauses(contact)
     res = await db.whatsapp_messages.update_many(
         {"client_id": {"$in": visible_scope}, "direction": "inbound", "read_by_us_at": None, "$or": or_clauses},
         {"$set": {"read_by_us_at": _now(), "read_by_us_id": user["id"]}},
@@ -16967,19 +17011,16 @@ async def me_contact_messages(cid: str, user: dict = Depends(get_current_user)):
     )
     if not contact:
         raise HTTPException(status_code=404, detail="Contact introuvable")
-    # Match by contact_id OR by exact phone number (covers inbound messages from unknown senders)
-    norm_phones = []
-    for raw in (contact.get("whatsapp") or "", contact.get("phone") or ""):
-        clean = "".join(ch for ch in (raw or "") if ch.isdigit())
-        if clean:
-            norm_phones.append(clean)
-    or_clauses = [{"contact_id": cid}]
-    if norm_phones:
-        or_clauses.append({"phone_digits": {"$in": norm_phones}})
+    # Match by contact_id OR by phone number (covers inbound messages from unknown senders).
+    # Lot 23 — numéro reconnu sur ses 8 derniers chiffres (comme le comptage des non-lus).
+    or_clauses = _contact_phone_clauses(contact)
+    # Lot 23 — les 1000 messages les PLUS RÉCENTS, remis dans l'ordre chronologique
+    # (avant : les 1000 plus anciens, donc les nouveaux disparaissaient d'une longue conversation).
     items = await db.whatsapp_messages.find(
         {"client_id": {"$in": visible_scope}, "$or": or_clauses},
         {"_id": 0},
-    ).sort("created_at", 1).to_list(1000)
+    ).sort("created_at", -1).limit(1000).to_list(1000)
+    items.reverse()
     # Iter34u — When anon_communications is ON, restrict to messages
     # exchanged by the current user only (sender_id or owner_id match).
     restrictions = await _resolve_content_restrictions(user)

@@ -41,14 +41,22 @@ DEFAULT_CONTEXT_BUDGET = 6000
 
 # Iter38r-fix9t — In-memory cache for build_kb_context (per-process)
 # Key = max_chars, Value = (timestamp, rendered_context)
-_KB_CONTEXT_CACHE: Dict[int, tuple] = {}
+_KB_CONTEXT_CACHE: Dict[tuple, tuple] = {}  # Lot 23 — clé (budget, public)
 _KB_CONTEXT_TTL = 60.0  # seconds
+
+
+# Lot 23 — public visé par une entrée de la base de connaissance :
+#   "all"       : tout le monde (défaut, et valeur des entrées existantes) ;
+#   "clients"   : clients sous contrat et usage interne uniquement ;
+#   "prospects" : prospects WhatsApp uniquement (infos commerciales, tarifs publics…).
+KB_AUDIENCES = ("all", "clients", "prospects")
 
 
 class KbEntryCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     content: str = Field(..., min_length=1, max_length=MAX_ENTRY_CHARS)
     tags: Optional[List[str]] = None
+    audience: Optional[str] = Field(None, pattern="^(all|clients|prospects)$")  # Lot 23
 
 
 class KbEntryUpdate(BaseModel):
@@ -56,6 +64,7 @@ class KbEntryUpdate(BaseModel):
     content: Optional[str] = Field(None, min_length=1, max_length=MAX_ENTRY_CHARS)
     tags: Optional[List[str]] = None
     enabled: Optional[bool] = None
+    audience: Optional[str] = Field(None, pattern="^(all|clients|prospects)$")  # Lot 23
 
 
 def _now_iso() -> str:
@@ -194,8 +203,15 @@ async def _ocr_pdf_with_claude_vision(raw: bytes, settings_doc: Dict[str, Any]) 
     return "\n\n".join(chunks), used
 
 
-async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query: Optional[str] = None) -> str:
+async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query: Optional[str] = None,
+                           audience: str = "clients") -> str:
     """Aggregate enabled KB entries into a compact context string.
+
+    Lot 23 — `audience` : "clients" (défaut : chat interne, SMS, WhatsApp des
+    clients) exclut les entrées réservées aux prospects ; "prospects"
+    (auto-réponse WhatsApp aux expéditeurs non contractuels) n'utilise que les
+    entrées « tous » et « prospects », et PAS la recherche sémantique Qdrant
+    (ses collections peuvent contenir des documents internes).
 
     S038 — When `query` is provided AND `settings.qdrant_enabled` is True,
     we run a semantic search (RAG) across all Qdrant collections flagged
@@ -207,7 +223,7 @@ async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query
     # ---- S038 — RAG semantic block (uses query when available) ----
     rag_block = ""
     rag_budget = 0
-    if query and (query or "").strip():
+    if query and (query or "").strip() and audience != "prospects":
         try:
             from routes.qdrant_rag import build_rag_context
             rag_budget = int(max_chars * 0.6)
@@ -217,12 +233,15 @@ async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query
     remaining = max_chars - len(rag_block)
     # Cache lookup (legacy MongoDB KB only — keyed by remaining budget)
     now = time.time()
-    cached = _KB_CONTEXT_CACHE.get(remaining)
+    cache_key = (remaining, audience)  # Lot 23 — un contexte par public
+    cached = _KB_CONTEXT_CACHE.get(cache_key)
     if cached and (now - cached[0] < _KB_CONTEXT_TTL):
         mongo_block = cached[1]
     else:
+        audience_q = ({"audience": {"$in": [None, "all", "prospects"]}} if audience == "prospects"
+                      else {"audience": {"$ne": "prospects"}})
         cur = db.liluvine_knowledge.find(
-            {"enabled": True, "is_deleted": {"$ne": True}},
+            {"enabled": True, "is_deleted": {"$ne": True}, **audience_q},
             {"_id": 0, "title": 1, "content": 1, "kind": 1, "tags": 1},
         ).sort([("priority", -1), ("updated_at", -1)])
         items = await cur.to_list(50)
@@ -245,7 +264,7 @@ async def build_kb_context(db, *, max_chars: int = DEFAULT_CONTEXT_BUDGET, query
                 parts.append(block)
                 used += len(block)
             mongo_block = "".join(parts)
-        _KB_CONTEXT_CACHE[remaining] = (now, mongo_block)
+        _KB_CONTEXT_CACHE[cache_key] = (now, mongo_block)
     # Concatenate (RAG first for higher LLM attention)
     if rag_block and mongo_block:
         return rag_block + "\n\n" + mongo_block
@@ -298,6 +317,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             "kind": "text",
             "enabled": True,
             "priority": 0,
+            "audience": payload.audience or "all",  # Lot 23
             "char_count": len(payload.content),
             "created_at": _now_iso(),
             "updated_at": _now_iso(),
@@ -320,6 +340,8 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
             update["tags"] = [t.strip().lower() for t in payload.tags if t.strip()]
         if payload.enabled is not None:
             update["enabled"] = bool(payload.enabled)
+        if payload.audience is not None:
+            update["audience"] = payload.audience  # Lot 23
         if not update:
             raise HTTPException(status_code=400, detail="Aucun champ à mettre à jour")
         update["updated_at"] = _now_iso()
@@ -393,6 +415,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
         file: UploadFile = File(...),
         title: str = Form(...),
         force_ocr: Optional[str] = Form(default=None),
+        audience: Optional[str] = Form(default=None),  # Lot 23 — all | clients | prospects
         user: dict = Depends(get_current_user),
     ):
         """Iter38r-fix9i — `force_ocr` (form, optional) :
@@ -519,6 +542,7 @@ def setup_liluvine_kb_routes(app, db, get_current_user):
                 "kind": kind,
                 "enabled": True,
                 "priority": 0,
+                "audience": audience if audience in KB_AUDIENCES else "all",  # Lot 23
                 "char_count": len(chunk),
                 "source_filename": file.filename,
                 "upload_batch": upload_batch,

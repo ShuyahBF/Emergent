@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { toast } from "sonner";
-import { FileText, Tag, X, Plus, Sparkles, Loader2, Check, Folder } from "lucide-react";
+import { FileText, Tag, X, Plus, Sparkles, Loader2, Check, Folder, Trash2 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 
 /*
@@ -55,7 +55,7 @@ export function parseTags(text) {
   return (text || "").split(/[,;\n]/).map((t) => t.trim().toLowerCase()).filter(Boolean);
 }
 
-export function R2FileRow({ file, onOpen, onChanged, knownTags = [], aiEnabled = false, showFolder = false, folderLabel = (f) => f }) {
+export function R2FileRow({ file, onOpen, onChanged, onDeleted, knownTags = [], aiEnabled = false, showFolder = false, folderLabel = (f) => f }) {
   const [editing, setEditing] = useState(false);
   const [tags, setTags] = useState(file.tags || []);
   const [draft, setDraft] = useState("");
@@ -113,6 +113,22 @@ export function R2FileRow({ file, onOpen, onChanged, knownTags = [], aiEnabled =
     }
   };
 
+  // Lot 23 — suppression (admin/superviseur, ou Pharmacien suivi sur ses propres fichiers).
+  const [deleting, setDeleting] = useState(false);
+  const remove = async (e) => {
+    e.stopPropagation();
+    if (!window.confirm(`Supprimer définitivement « ${file.name} » du compartiment R2 ?`)) return;
+    setDeleting(true);
+    try {
+      await apiClient.delete("/gestion-stocks/files", { params: { key: file.key } });
+      toast.success(`« ${file.name} » supprimé`);
+      onDeleted?.(file);
+    } catch (err) {
+      toast.error(err?.response?.data?.detail || "Échec de la suppression");
+      setDeleting(false);
+    }
+  };
+
   const pendingAi = aiTags.filter((t) => !tags.includes(t));
   const listId = `r2-known-tags-${file.key}`;
 
@@ -138,8 +154,22 @@ export function R2FileRow({ file, onOpen, onChanged, knownTags = [], aiEnabled =
               <Tag className="w-3.5 h-3.5" /> Tags
             </button>
           )}
+          {/* Lot 23 — bouton de suppression (droit calculé par le serveur) */}
+          {file.can_delete && !editing && (
+            <button type="button" onClick={remove} disabled={deleting} title="Supprimer ce fichier"
+              className="text-slate-400 hover:text-rose-600 disabled:opacity-50" data-testid="r2-file-delete">
+              {deleting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+            </button>
+          )}
         </span>
       </div>
+
+      {/* Lot 23 — résultat trouvé dans le texte du document : extrait correspondant */}
+      {file.match_snippet && (
+        <p className="mt-1 ml-6 text-[11px] text-slate-600 italic bg-amber-50 rounded px-2 py-1" data-testid="r2-file-snippet">
+          « {file.match_snippet} »
+        </p>
+      )}
 
       {/* Lecture : tags, description, suggestions IA en attente */}
       {!editing && (file.tags?.length > 0 || file.description || file.ai_suggested_tags?.length > 0) && (

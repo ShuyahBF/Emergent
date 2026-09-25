@@ -59,8 +59,9 @@ def env(monkeypatch):
     _stub(monkeypatch, "emergentintegrations.llm")
     _stub(monkeypatch, "emergentintegrations.llm.chat", LlmChat=_FakeChat, UserMessage=lambda text: text)
 
-    async def _kb(db, max_chars=0, query=""):
-        return "BASE_DE_CONNAISSANCE"
+    async def _kb(db, max_chars=0, query="", audience="clients"):
+        # Lot 23 — le public demandé est inscrit dans le contexte, pour le vérifier.
+        return f"BASE_DE_CONNAISSANCE[{audience}]"
 
     async def _biz(db, phone_digits="", query=""):
         return "DONNEES_METIER_ACL"
@@ -145,6 +146,8 @@ def test_unknown_sender_gets_default_prospect_prompt_without_crm_data(env):
     # Aucune donnée du CRM, seulement la base de connaissance.
     assert "DONNEES_CRM_DU_TENANT" not in system and "DONNEES_METIER_ACL" not in system
     assert "BASE_DE_CONNAISSANCE" in system
+    # Lot 23 — base de connaissance « prospects » (entrées « tous » + « prospects »)
+    assert "BASE_DE_CONNAISSANCE[prospects]" in system
     # Consignes « Mode WhatsApp » d'origine
     assert env.liluvine_pro.DEFAULT_WA_MODE_INSTRUCTIONS in system
     # Traçabilité : message assistant marqué « prospect »
@@ -177,6 +180,7 @@ def test_known_client_keeps_tenant_prompt_and_crm_context(env):
     system = _FakeChat.last_system
     assert system.startswith("PROMPT_DE_LA_PHARMACIE") and "MON_PROMPT_PROSPECT" not in system
     assert "DONNEES_CRM_DU_TENANT" in system and "DONNEES_METIER_ACL" in system
+    assert "BASE_DE_CONNAISSANCE[clients]" in system  # Lot 23 — pas les entrées réservées aux prospects
     # Les consignes « Mode WhatsApp » s'appliquent aussi aux clients.
     assert "MES_CONSIGNES_WA" in system
 

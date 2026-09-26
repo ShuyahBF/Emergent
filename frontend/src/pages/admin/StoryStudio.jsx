@@ -349,7 +349,8 @@ function GenerateTab({ settings, onCreated }) {
               className="w-full inline-flex items-center justify-center gap-2 rounded-lg bg-violet-600 text-white hover:bg-violet-700 px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
               data-testid="generate-submit">
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Wand2 className="h-4 w-4" />}
-        {busy ? "Génération en cours…" : `Générer la ${mode === "video" ? "vidéo" : "image"}`}
+        {/* Lot 25 — Accord correct : « l'image » (élision) et « la vidéo ». */}
+        {busy ? "Génération en cours…" : (mode === "video" ? "Générer la vidéo" : "Générer l'image")}
       </button>
     </form>
   );
@@ -1907,4 +1908,3 @@ function TopupModal({ tenantId, currency, onClose, onDone }) {
     </div>
   );
 }
-

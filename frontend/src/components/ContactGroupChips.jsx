@@ -16,7 +16,8 @@ import { Tags, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { apiClient } from "@/lib/api";
 
-const TOGGLE_ROLES = new Set(["admin", "superviseur", "moderateur"]);
+// Lot 25 — « moderator » accepté : même rôle que « moderateur », autre orthographe.
+const TOGGLE_ROLES = new Set(["admin", "superviseur", "moderateur", "moderator"]);
 
 export const ContactGroupChips = ({ contact, userRole, onCountChange }) => {
   const [groups, setGroups] = useState([]);

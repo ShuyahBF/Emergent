@@ -608,9 +608,35 @@ export default function AdminClients() {
               <p className="mt-1 text-[11px] text-slate-500">Affiché dans la sidebar du portail à la place du logo SAWALI quand l'utilisateur de ce client est connecté.</p>
             </div>
             <div className="grid grid-cols-2 gap-3">
-              <Select label="Rôle" value={form.role} onChange={(v) => setForm({ ...form, role: v })} options={[{ v: "client", l: "Client" }, { v: "admin", l: "Admin (client)" }, { v: "superviseur", l: "Superviseur" }, { v: "moderateur", l: "Modérateur" }, { v: "regulateur", l: "💊 Régulateur (AMM)" }, { v: "editeur_vidal", l: "📚 Éditeur VIDAL (lecture)" }, { v: "pharmacien", l: "💊 Pharmacien" }, { v: "medecin", l: "⚕️ Médecin" }, { v: "demo", l: "Démo (limité)" }]} />
+              {/* Lot 25 — Le rôle « admin » donne TOUTE l'administration de la plateforme
+                  (pas seulement celle du client) : libellé explicite + confirmation
+                  obligatoire au moment où on le choisit. Les droits ne changent pas. */}
+              <Select
+                label="Rôle"
+                value={form.role}
+                onChange={(v) => {
+                  // Confirmation explicite avant d'attribuer le rôle admin ; si l'utilisateur
+                  // annule, on garde le rôle précédent (aucune modification du formulaire).
+                  if (v === "admin" && form.role !== "admin") {
+                    const ok = window.confirm(
+                      "Attention : le rôle « Administrateur plateforme » donne un accès COMPLET à toute l'administration SAWALI " +
+                      "(tous les clients, paramètres, facturation…), pas seulement à ce client.\n\nConfirmer l'attribution de ce rôle ?"
+                    );
+                    if (!ok) return;
+                  }
+                  setForm({ ...form, role: v });
+                }}
+                options={[{ v: "client", l: "Client" }, { v: "admin", l: "Administrateur plateforme (accès complet)" }, { v: "superviseur", l: "Superviseur" }, { v: "moderateur", l: "Modérateur" }, { v: "regulateur", l: "💊 Régulateur (AMM)" }, { v: "editeur_vidal", l: "📚 Éditeur VIDAL (lecture)" }, { v: "pharmacien", l: "💊 Pharmacien" }, { v: "medecin", l: "⚕️ Médecin" }, { v: "demo", l: "Démo (limité)" }]}
+              />
               <Select label="Statut" value={form.account_status} onChange={(v) => setForm({ ...form, account_status: v })} options={[{ v: "active", l: "Actif" }, { v: "disabled", l: "Désactivé" }]} />
             </div>
+            {/* Lot 25 — Texte d'aide affiché tant que le rôle admin est sélectionné. */}
+            {form.role === "admin" && (
+              <p className="-mt-1 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-[11px] text-amber-800" data-testid="client-role-admin-warning">
+                ⚠️ <strong>Administrateur plateforme</strong> : ce compte aura accès à toute l'administration SAWALI
+                (tous les clients, paramètres, facturation…). Réservez ce rôle à l'équipe SAWALI.
+              </p>
+            )}
 
             {/* S-iter39a — Client lié canonique (modifiable depuis la fiche).
                  Permet à un Admin/Superviseur de rattacher ou détacher ce compte
@@ -636,7 +662,8 @@ export default function AdminClients() {
                 >
                   <option value="">— Aucun (tenant indépendant) —</option>
                   {items
-                    .filter((u) => u.id !== editing.id && ["admin", "superviseur", "moderateur", "client"].includes(u.role))
+                    /* Lot 25 — Les deux orthographes du rôle modérateur sont proposées. */
+                    .filter((u) => u.id !== editing.id && ["admin", "superviseur", "moderateur", "moderator", "client"].includes(u.role))
                     .map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.full_name}{u.company ? ` — ${u.company}` : ""} ({u.role})
@@ -1492,4 +1519,3 @@ const PaymentsModal = ({ client, onClose, onChanged }) => {
     </div>
   );
 };
-

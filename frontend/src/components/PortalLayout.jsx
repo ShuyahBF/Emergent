@@ -47,7 +47,9 @@ const clientLinks = [
   { to: "/portal/forms", label: "Formulaires", tKey: "nav.forms", icon: FileText },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
-  { to: "/portal/error-registry", label: "Registre des erreurs", icon: AlertOctagon, showBadges: true },
+  // Lot 25 — `errorRegistryOnly` : lien affiché seulement aux rôles système que le
+  // serveur accepte (admin, superviseur, modérateur) — voir routes/error_registry.py.
+  { to: "/portal/error-registry", label: "Registre des erreurs", icon: AlertOctagon, showBadges: true, errorRegistryOnly: true },
   // Iter38i — Unified omnichannel inbox (WhatsApp + Messenger)
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
@@ -74,7 +76,9 @@ const clientLinks = [
   { to: "/portal/tickets", label: "Tickets", tKey: "nav.tickets", icon: Ticket, badgeKey: "tickets_pending" },
   { to: "/portal/media-library", label: "Bibliothèque de médias", icon: FolderOpen },
   { to: "/portal/media-generator", label: "Générateur d'Images et Vidéos", icon: Wand2 },
-  { to: "/portal/voice-studio", label: "Voice Studio (Clonage)", icon: Volume2 },
+  // Lot 25 — Grisé (featureGate) quand la fonctionnalité « Génération Vocale IA »
+  // (clé ai_voice_gen, testée par backend routes/ai_media_9m.py) est désactivée.
+  { to: "/portal/voice-studio", label: "Voice Studio (Clonage)", icon: Volume2, featureGate: "ai_voice_gen" },
   // Iter38n — Catalog analytics cockpit (admin/sup/tracked users)
   { to: "/portal/catalog-stats", label: "Statistiques catalogue", icon: BarChart3, catalogStatsOnly: true },
   // Iter38r-fix6/7 — Liluvine PRO (visible mais grisé si ai_liluvine_pro = false)
@@ -227,7 +231,10 @@ function PortalLayoutInner({ admin = false }) {
   const isComptaStrict = isComptable && !isAdminOrSup;
   // S-iter39b — Modérateurs (tracked_role="Moderation") accèdent à Brochures
   const isModerator = (user?.tracked_role || "") === "Moderation";
-  // 2026-02 (#1) — Traducteur : seul accès = /admin/i18n (Régionalisation).
+  // Lot 25 — Rôle SYSTÈME modérateur : il existe sous deux orthographes
+  // (« moderateur » enregistré par le formulaire Clients, « moderator » ailleurs).
+  const isSysModerator = ["moderateur", "moderator"].includes(user?.role || "");
+  // 2026-02 (#1) — Traducteur : seul accès = /portal/i18n (Régionalisation, lot 25).
   // Toutes les autres entrées de la sidebar sont masquées. L'utilisateur
   // est forcé d'aller sur Régionalisation au login (route handled in App.js).
   const isTranslator = (user?.tracked_role || "") === "Traducteur";
@@ -258,6 +265,9 @@ function PortalLayoutInner({ admin = false }) {
   // hidden when the user's linked tenant has no accessible items. Fetched once
   // via `/me/access-summary`. Admins/super-admins always see the entries.
   const [accessSummary, setAccessSummary] = React.useState(null);
+  // Lot 25 — Peut créer un document : même règle que le bouton « Nouveau document »
+  // de la page Documentation (pages/portal/Documents.jsx, fonction isElevated).
+  const canCreateDocuments = isAdminOrSup || ["Moderation", "Administrateur", "Superviseur"].includes(user?.tracked_role || "");
   React.useEffect(() => {
     if (!user) return;
     apiClient.get("/me/access-summary")
@@ -294,7 +304,9 @@ function PortalLayoutInner({ admin = false }) {
     "/admin/officines-registry",
   ]);
   const allowedComptaPaths = new Set(["/portal/cash", "/portal/hr"]);
-  const allowedTranslatorPaths = new Set(["/admin/i18n"]);
+  // Lot 25 — Le Traducteur utilise la page Régionalisation du portail
+  // (/portal/i18n) : /admin/i18n le renvoyait vers /portal (rôle système non admin).
+  const allowedTranslatorPaths = new Set(["/portal/i18n"]);
   const allowedMedecinTrackedPaths = new Set([
     "/portal/planning",
     "/portal/prescription-analysis",  // Iter43-fix24az-ac — conservé pour compatibilité, plus lié en sidebar
@@ -342,8 +354,9 @@ function PortalLayoutInner({ admin = false }) {
   // le contrôle d'accès réel pour eux vient déjà de leur propre allowlist
   // ci-dessus — ce filtre global ne doit pas les re-bloquer en plus).
   const canSeeVidal = isAdminOrSup || isRegulateur || isPharmacien || isMedecin || isEditeurVidal || isMedecinTracked || isPharmacienTracked;
+  // Lot 25 — Lien unique du Traducteur : la page Régionalisation côté portail.
   const baseLinks = isTranslator
-    ? [{ to: "/admin/i18n", label: "Régionalisation", icon: Languages }]
+    ? [{ to: "/portal/i18n", label: "Régionalisation", icon: Languages }]
     : (isMedecinTracked
         ? [
             { to: "/portal/planning", label: "Planning consultations", icon: Calendar, badgeKey: "walk_ins_today" },
@@ -404,28 +417,45 @@ function PortalLayoutInner({ admin = false }) {
     .filter((l) => !isRegulateur || allowedRegulateurPaths.has(l.to))
     .filter((l) => !isEditeurVidal || allowedEditeurVidalPaths.has(l.to))
     // Iter43-fix24az-f — Fabricant tenants : allowlist stricte
-    .filter((l) => !isFabricant || fabricantAllowedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
+    // Lot 25 — Les utilisateurs suivis héritent désormais du profil Fabricant de leur
+    // client parent : les rôles qui ont déjà leur propre menu réduit (Traducteur,
+    // Médecin, Pharmacien, Secrétaire médicale) gardent ce menu au lieu d'être vidés.
+    .filter((l) => !isFabricant || isTranslator || isMedecinTracked || isPharmacienTracked || isSecretaireMedicale
+      || fabricantAllowedPaths.has(l.to) || (l.to === "/portal" && p4ShowDashboard))
     .filter((l) => !l.fabricantOnly || isFabricant)
     .filter((l) => !restrictedVidalPaths.has(l.to) || canSeeVidal)
     .filter((l) => !l.trackedOnly || isTracked)
     // 2026-02 fork iter105 — Cache Documents / Formations / Formulaires quand
     // le tenant lié n'a rien de visible. Admin/superviseur bypass via `accessSummary=null`
     // (l'endpoint retourne toujours has_XXX=true pour eux).
+    // Lot 25 — Exception : le lien reste affiché aux comptes qui peuvent CRÉER le
+    // premier élément (sinon ils ne pourraient jamais le créer) :
+    //   • Documentation : mêmes conditions que le bouton « Nouveau document »
+    //     (Documents.jsx : rôle admin/superviseur ou suivi Moderation/Administrateur/Superviseur) ;
+    //   • Formulaires : le bouton « Nouveau formulaire » (FormsList.jsx) est proposé à
+    //     tous les comptes du portail, le lien reste donc toujours visible.
     .filter((l) => {
       if (!accessSummary) return true;
-      if (l.to === "/portal/documents") return accessSummary.has_documents !== false;
+      if (l.to === "/portal/documents") return accessSummary.has_documents !== false || canCreateDocuments;
       if (l.to === "/portal/formations") return accessSummary.has_formations !== false;
-      if (l.to === "/portal/forms") return accessSummary.has_forms !== false;
+      if (l.to === "/portal/forms") return true;
       return true;
     })
     .filter((l) => !l.superAdminOnly || isSuperAdmin)
-    .filter((l) => !l.cashOnly || canCash || isComptable)
+    // Lot 25 — Même condition que la page Caisse (CashBilling.jsx : admin/superviseur
+    // ou can_cash) : un Comptable sans « can_cash » ne voit plus un lien qui le bloquerait.
+    .filter((l) => !l.cashOnly || canCash)
     .filter((l) => !l.hrOnly || canHR)
     .filter((l) => !l.metaOnly || metaEnabled || isAdminOrSup)
     .filter((l) => !l.cashAdminOnly || isAdminOrSup)
-    .filter((l) => !l.moderationOnly || isModerator || isAdminOrSup)
+    // Lot 25 — Brochures / Liluvine Historique : modérateur suivi OU rôle système modérateur.
+    .filter((l) => !l.moderationOnly || isModerator || isSysModerator || isAdminOrSup)
     .filter((l) => !l.adminOrSup || isAdminOrSup)
-    .filter((l) => !l.moderatorPlus || isModerator || isAdminOrSup)
+    .filter((l) => !l.moderatorPlus || isModerator || isSysModerator || isAdminOrSup)
+    // Lot 25 — Registre des erreurs : mêmes rôles que le serveur (admin, superviseur,
+    // modérateur système). Le registre n'est pas cloisonné par client, donc le
+    // modérateur SUIVI (« Moderation », rattaché à un client) ne le voit pas.
+    .filter((l) => !l.errorRegistryOnly || isAdminOrSup || isSysModerator)
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked)
     // Lot OCR sur Pièces (2026-09) — pharmacies + administration uniquement
     // (même règle que le backend routes/ocr_pieces.py).

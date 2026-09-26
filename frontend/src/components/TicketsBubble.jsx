@@ -18,7 +18,8 @@ export default function TicketsBubble() {
   const navigate = useNavigate();
   const role = (user?.role || "").toLowerCase();
   const tracked = (user?.tracked_role || "").toLowerCase();
-  const canCreate = ["admin", "superviseur", "moderateur"].includes(role)
+  // Lot 25 — « moderator » accepté : même rôle que « moderateur », autre orthographe.
+  const canCreate = ["admin", "superviseur", "moderateur", "moderator"].includes(role)
     || ["admin", "superviseur", "moderateur"].includes(tracked);
 
   const [enabled, setEnabled] = useState(false);

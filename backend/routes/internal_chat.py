@@ -825,7 +825,8 @@ def make_router(*, db, get_current_user, decode_token):
         team_ids: List[str] = []
         cursor = db.users.find(
             {
-                "role": {"$in": ["admin", "superviseur", "moderateur"]},
+                # Lot 25 — Les deux orthographes du rôle modérateur sont incluses.
+                "role": {"$in": ["admin", "superviseur", "moderateur", "moderator"]},
                 "account_status": "active",
             },
             {"_id": 0, "id": 1},

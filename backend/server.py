@@ -283,6 +283,40 @@ def _client_ip_from_request(request) -> str:
     return request.client.host if request.client else ""
 
 
+def _ip_in_cidr(ip: str, cidr: str) -> bool:
+    """Lot 25 — Vrai si l'adresse IP `ip` fait partie de l'entrée `cidr`
+    (IP seule ou plage CIDR). Renvoie Faux si l'une des deux est invalide."""
+    try:
+        ip_obj = ipaddress.ip_address((ip or "").strip())
+        cidr = (cidr or "").strip()
+        # Même conversion que _reload_blacklist : une IP seule devient /32 (IPv4) ou /128 (IPv6).
+        net = ipaddress.ip_network(cidr if "/" in cidr else (f"{cidr}/32" if "." in cidr else f"{cidr}/128"), strict=False)
+        return ip_obj in net
+    except (ValueError, TypeError):
+        return False
+
+
+async def _request_is_super_admin(request) -> bool:
+    """Lot 25 — Vrai si la requête porte le jeton (Bearer) du super-admin SAWALI.
+
+    Utilisé par le filtre IP : le super-admin n'est JAMAIS bloqué par la liste
+    noire, pour qu'il puisse toujours corriger une erreur de blocage.
+    En cas de jeton absent, invalide ou expiré → Faux (aucune exception)."""
+    auth_header = request.headers.get("authorization") or ""
+    if not auth_header.startswith("Bearer "):
+        return False
+    try:
+        from auth import decode_token  # import local, comme ailleurs dans ce fichier
+        token_data = decode_token(auth_header.split(" ", 1)[1])
+        user_id = (token_data or {}).get("sub")
+        if not user_id:
+            return False
+        u = await db.users.find_one({"id": user_id}, {"_id": 0, "email": 1})
+        return bool(u) and _is_super_admin(u)
+    except Exception:  # noqa: BLE001
+        return False
+
+
 @app.middleware("http")
 async def ip_blacklist_middleware(request, call_next):
     # Apply only to /api/* (the public site files & assets are served separately)
@@ -299,6 +333,10 @@ async def ip_blacklist_middleware(request, call_next):
                 ip_obj = ipaddress.ip_address(client_ip)
                 for net in _BLACKLIST_CACHE["nets"]:
                     if ip_obj in net:
+                        # Lot 25 — Le super-admin SAWALI n'est jamais bloqué (vérifié
+                        # seulement quand l'IP est bloquée, donc sans coût pour les autres).
+                        if await _request_is_super_admin(request):
+                            break
                         return JSONResponse(
                             status_code=403,
                             content={"detail": "Adresse IP bloquée par l'administrateur."},
@@ -3271,7 +3309,8 @@ async def me_access_summary(user: dict = Depends(get_current_user)):
     current user, respecting `access_client_ids` gates and tenant scope. Only
     returns booleans (has_XXX)."""
     # Super-admin / admin / superviseur : always visible.
-    if _is_super_admin(user) or (user.get("role") in ("admin", "superviseur", "moderator")):
+    # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+    if _is_super_admin(user) or (user.get("role") in ("admin", "superviseur", "moderator", "moderateur")):
         return {"has_documents": True, "has_formations": True, "has_forms": True}
 
     # Resolve the tenant scope.
@@ -3976,13 +4015,15 @@ async def me_access_clients_list(user: dict = Depends(get_current_user)):
     Cela évite le 403 silencieux subi par le compte `support@` en production
     (tracked-Administrateur → sidebar admin OK mais `/admin/clients` refusait).
     """
-    role_ok = user.get("role") in ("admin", "superviseur", "moderateur")
+    # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+    role_ok = user.get("role") in ("admin", "superviseur", "moderateur", "moderator")
     tracked_ok = user.get("tracked_role") in ELEVATED_TRACKED_ROLES
     if not (role_ok or tracked_ok):
         raise HTTPException(status_code=403, detail="Accès réservé aux administrateurs / superviseurs / modérateurs")
     # Return the same shape /admin/clients uses so the FE can swap without changes.
     items = await db.users.find(
-        {"role": {"$in": ["client", "superviseur", "admin", "moderateur"]},
+        # Lot 25 — Les deux orthographes du rôle modérateur sont listées.
+        {"role": {"$in": ["client", "superviseur", "admin", "moderateur", "moderator"]},
          "email": {"$nin": [SUPER_ADMIN_EMAIL]}},
         {"_id": 0, "id": 1, "email": 1, "full_name": 1, "company": 1, "role": 1},
     ).sort("full_name", 1).to_list(1000)
@@ -4017,8 +4058,9 @@ async def admin_list_clients(
         # medecin, editeur_vidal) pour éviter qu'un client ne disparaisse de la
         # liste après changement de rôle. La pill "Autres rôles" côté UI permet
         # de filtrer si nécessaire.
+        # Lot 25 — « moderator » ajouté : même rôle que « moderateur », autre orthographe.
         roles = [
-            "client", "superviseur", "admin", "moderateur",
+            "client", "superviseur", "admin", "moderateur", "moderator",
             "regulateur", "pharmacien", "medecin", "editeur_vidal",
         ]
     query: Dict[str, Any] = {
@@ -4251,7 +4293,8 @@ def _normalize_features(raw: Optional[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 # ---------- RGPD anonymization (per-client toggles inherited by tracked users) ----------
-RGPD_PRIVILEGED_ROLES = {"admin", "superviseur", "moderateur"}
+# Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+RGPD_PRIVILEGED_ROLES = {"admin", "superviseur", "moderateur", "moderator"}
 
 
 def _anon_name(name: Optional[str]) -> Optional[str]:
@@ -8050,7 +8093,8 @@ async def admin_update_client(
             if raw_link == client_id:
                 raise HTTPException(status_code=400, detail="Un compte ne peut pas être lié à lui-même")
             canon = await db.users.find_one(
-                {"id": raw_link, "role": {"$in": ["admin", "superviseur", "moderateur", "client"]}},
+                # Lot 25 — Les deux orthographes du rôle modérateur sont acceptées.
+                {"id": raw_link, "role": {"$in": ["admin", "superviseur", "moderateur", "moderator", "client"]}},
                 {"_id": 0, "id": 1},
             )
             if not canon:
@@ -10474,7 +10518,7 @@ async def admin_list_blacklist(_: dict = Depends(get_current_admin)):
 
 
 @api.post("/admin/blacklisted-ips", tags=["Admin"])
-async def admin_add_blacklist(payload: BlacklistedIPCreate, _: dict = Depends(get_current_admin)):
+async def admin_add_blacklist(payload: BlacklistedIPCreate, request: Request, _: dict = Depends(get_current_admin)):
     cidr = (payload.cidr or "").strip()
     if not cidr:
         raise HTTPException(status_code=400, detail="IP/CIDR requis")
@@ -10482,6 +10526,15 @@ async def admin_add_blacklist(payload: BlacklistedIPCreate, _: dict = Depends(ge
         ipaddress.ip_network(cidr if "/" in cidr else (f"{cidr}/32" if "." in cidr else f"{cidr}/128"), strict=False)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=f"IP/CIDR invalide : {exc}") from exc
+    # Lot 25 — Anti-verrouillage : on refuse une entrée qui contient l'adresse IP
+    # de la personne qui fait la demande (sinon tout /api lui serait refusé).
+    current_ip = _client_ip_from_request(request)
+    if current_ip and _ip_in_cidr(current_ip, cidr):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Impossible de bloquer {cidr} : cette entrée contient votre propre adresse IP ({current_ip}). "
+                   "Vous perdriez l'accès à l'application.",
+        )
     existing = await db.blacklisted_ips.find_one({"cidr": cidr})
     if existing:
         raise HTTPException(status_code=409, detail="Cette entrée existe déjà")
@@ -21046,7 +21099,11 @@ async def integrations_link_actions(_: dict = Depends(get_current_admin)):
 
 
 @api.post("/integrations/build-link", tags=["Admin"])
-async def integrations_build_link(request: Request, payload: BuildLinkRequest, _: dict = Depends(get_current_admin)):
+async def integrations_build_link(request: Request, payload: BuildLinkRequest, user: dict = Depends(get_current_admin)):
+    # Lot 25 — L'écran « Liens cryptés » est réservé au super-admin SAWALI
+    # (SUPER_ADMIN_EMAIL) : un simple compte admin ne peut plus fabriquer de lien.
+    if not _is_super_admin(user):
+        raise HTTPException(status_code=403, detail="Création de liens cryptés réservée au super-administrateur SAWALI")
     action = (payload.action or "").strip().lower()
     if action not in LINK_ACTIONS:
         raise HTTPException(status_code=400, detail=f"Action inconnue. Options : {', '.join(LINK_ACTIONS.keys())}")
@@ -25033,7 +25090,8 @@ async def _build_welcome_notes_kpis(user: dict) -> Dict[str, Any]:
 # Iter38r-fix9o (Item 8) — Welcome modal widget: recent WA-OTP demo signups.
 # Admin/superviseur/moderateur only. Returns up to N items + unseen badge.
 async def _build_wa_demo_recent_stats(user: dict) -> Optional[Dict[str, Any]]:
-    if user.get("role") not in ("admin", "superviseur", "moderateur"):
+    # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+    if user.get("role") not in ("admin", "superviseur", "moderateur", "moderator"):
         return None
     items = await db.users.find(
         {"source": "wa_otp_login", "is_demo": True},

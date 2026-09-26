@@ -39,7 +39,8 @@ def _tenant_id_for(user: dict) -> str:
 
 
 def _require_channel_operator(user: dict) -> None:
-    if user.get("role") not in ("admin", "superviseur", "moderator", "marketing", "communication"):
+    # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderator / moderateur).
+    if user.get("role") not in ("admin", "superviseur", "moderator", "moderateur", "marketing", "communication"):
         raise HTTPException(status_code=403, detail="Réservé aux rôles admin / superviseur / marketing")
 
 

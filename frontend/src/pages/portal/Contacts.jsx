@@ -940,7 +940,8 @@ const ContactEditModal = ({ contact, companyOptions = [], onClose, onSaved }) =>
   const role = (user?.role || "").toLowerCase();
   // Photo upload is restricted to admin/superviseur/moderateur. Standard users
   // (client/tracked) see the photo but cannot replace or remove it.
-  const canManagePhoto = ["admin", "superviseur", "moderateur"].includes(role);
+  // Lot 25 — « moderator » accepté : même rôle que « moderateur », autre orthographe.
+  const canManagePhoto = ["admin", "superviseur", "moderateur", "moderator"].includes(role);
   const [form, setForm] = useState(() => contact || {
     name: "", phone: "", whatsapp: "", email: "", company: "", notes: "", tags: [], shared: true,
   });

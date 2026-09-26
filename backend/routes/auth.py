@@ -59,6 +59,23 @@ def attach_auth_routes(
     # 2026-02 fork (P3a) — Optional login automation hook. Fire-and-forget.
     emit_login_event = helpers.get("emit_login_event")
 
+    async def _public_with_tenant_profile(user: dict) -> dict:
+        """Lot 25 — Profil public + `business_type` du client parent.
+
+        Un utilisateur suivi (tracked) n'a pas son propre `business_type` : le
+        profil (ex. « fabricant ») est enregistré sur le compte du client parent.
+        On renvoie donc la valeur du parent, comme routes/production.py le fait
+        déjà, pour que la sidebar du portail affiche le bon menu.
+        """
+        pub = _to_user_public(user)
+        # Seuls les utilisateurs suivis héritent du profil de leur client parent.
+        is_tracked = bool(user.get("tracked_user_id") or user.get("tracked_role"))
+        parent_id = user.get("parent_client_id") or user.get("client_id")
+        if is_tracked and parent_id and parent_id != user.get("id"):
+            parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "business_type": 1})
+            pub["business_type"] = (parent or {}).get("business_type") or ""
+        return pub
+
     @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
     async def auth_login(payload: LoginRequest, request: Request):
         user = await db.users.find_one({"email": payload.email.lower()})
@@ -133,7 +150,8 @@ def attach_auth_routes(
                 asyncio.create_task(emit_login_event(user, request))
             except Exception:  # noqa: BLE001
                 pass
-        return AuthTokenResponse(access_token=token, user=_to_user_public(user))
+        # Lot 25 — Profil (business_type) du client parent transmis aux utilisateurs suivis.
+        return AuthTokenResponse(access_token=token, user=await _public_with_tenant_profile(user))
 
     @api.post("/auth/resend-otp", tags=["Authentification"])
     async def auth_resend_otp(session_token: str):
@@ -160,7 +178,8 @@ def attach_auth_routes(
 
     @api.get("/auth/me", response_model=UserPublic, tags=["Authentification"])
     async def auth_me(user: dict = Depends(get_current_user)):
-        return _to_user_public(user)
+        # Lot 25 — Profil (business_type) du client parent transmis aux utilisateurs suivis.
+        return await _public_with_tenant_profile(user)
 
     @api.post("/auth/change-password", tags=["Authentification"])
     async def auth_change_password(

@@ -303,7 +303,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
 
     @api.get("/admin/wa-demo/recent", tags=["Admin — Bonus"])
     async def admin_wa_demo_recent(limit: int = 5, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("admin", "superviseur", "moderateur"):
+        # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+        if user.get("role") not in ("admin", "superviseur", "moderateur", "moderator"):
             raise HTTPException(status_code=403, detail="Réservé aux admins/modérateurs")
         cap = min(max(limit, 1), 50)
         items = await db.users.find(
@@ -317,7 +318,8 @@ def setup_wa_otp_routes(app, db, get_current_user, create_jwt_token, hash_passwo
 
     @api.post("/admin/wa-demo/{user_id}/mark-seen", tags=["Admin — Bonus"])
     async def mark_seen(user_id: str, user: dict = Depends(get_current_user)):
-        if user.get("role") not in ("admin", "superviseur", "moderateur"):
+        # Lot 25 — Rôle modérateur accepté sous ses deux orthographes (moderateur / moderator).
+        if user.get("role") not in ("admin", "superviseur", "moderateur", "moderator"):
             raise HTTPException(status_code=403, detail="Réservé aux admins/modérateurs")
         r = await db.users.update_one(
             {"id": user_id, "source": "wa_otp_login"},

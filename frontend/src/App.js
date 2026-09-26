@@ -368,6 +368,11 @@ export default function App() {
             <Route path="meetings/:id" element={<MeetingMinutes />} />
             {/* S-iter39d (fix #2) — Liluvine PRO history accessible aux modérateurs */}
             <Route path="liluvine-history" element={<AdminLiluvineHistory />} />
+            {/* Lot 25 — Page Régionalisation accessible depuis le portail : l'utilisateur
+                suivi « Traducteur » n'a pas le rôle système admin, il ne peut donc pas
+                ouvrir /admin/i18n. On lui affiche la même page ici (le serveur limite
+                déjà ses droits à la lecture/écriture de ses langues). */}
+            <Route path="i18n" element={<AdminI18n />} />
           </Route>
 
           {/* Admin */}

@@ -22,7 +22,8 @@ export default function LiluvinePro() {
   const trackedRole = (authUser?.tracked_role || "").toLowerCase();
   // S-iter39b — Fix: tracked_role value stored as "Moderation" (not "moderateur").
   // Includes both legacy and current spelling so moderators get the Reprendre button.
-  const canTakeover = ["admin", "superviseur", "moderateur"].includes(userRole)
+  // Lot 25 — « moderator » accepté : même rôle que « moderateur », autre orthographe.
+  const canTakeover = ["admin", "superviseur", "moderateur", "moderator"].includes(userRole)
     || ["admin", "superviseur", "moderateur", "moderation", "administrateur"].includes(trackedRole);
   const [sessions, setSessions] = useState([]);
   const [activeId, setActiveId] = useState(null);

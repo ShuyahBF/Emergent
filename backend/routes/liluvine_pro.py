@@ -622,7 +622,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
         try:
             sess = await db.liluvine_pro_sessions.find_one({"id": session_id}, {"_id": 0, "user_label": 1, "title": 1})
             admins = db.users.find(
-                {"role": {"$in": ["admin", "superviseur", "moderateur"]},
+                # Lot 25 — Les deux orthographes du rôle modérateur sont incluses.
+                {"role": {"$in": ["admin", "superviseur", "moderateur", "moderator"]},
                  "$or": [{"id": scope_uid}, {"parent_client_id": scope_uid}, {"client_id": scope_uid}]},
                 {"_id": 0, "email": 1},
             )
@@ -1684,7 +1685,8 @@ def setup_liluvine_pro_routes(*, db, api, get_current_user, wa_send_text=None):
     # `duration_minutes` (default 120).
     # S-iter39b — Include "moderation" (tracked_role value stored in DB) and
     # "administrateur" so tracked-Moderation/Administrateur users can take over.
-    _TAKEOVER_ROLES = {"admin", "superviseur", "moderateur", "moderation", "administrateur"}
+    # Lot 25 — « moderator » ajouté : autre orthographe du rôle système modérateur.
+    _TAKEOVER_ROLES = {"admin", "superviseur", "moderateur", "moderator", "moderation", "administrateur"}
 
     def _can_takeover(u: Dict[str, Any]) -> bool:
         if (u.get("role") or "") in _TAKEOVER_ROLES:

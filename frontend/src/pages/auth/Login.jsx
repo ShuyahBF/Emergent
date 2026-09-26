@@ -33,7 +33,9 @@ export default function Login() {
   // /portal/planning (no dashboard, no welcome briefing).
   const _postLoginRoute = (u) => {
     if (!u) return "/portal";
-    if ((u.tracked_role || "") === "Traducteur") return "/admin/i18n";
+    // Lot 25 — Le Traducteur va sur la page Régionalisation du portail (/portal/i18n),
+    // car /admin est réservé au rôle système « admin ».
+    if ((u.tracked_role || "") === "Traducteur") return "/portal/i18n";
     if ((u.tracked_role || "") === "Médecin") return "/portal/planning";
     return u.role === "admin" ? "/admin" : "/portal";
   };

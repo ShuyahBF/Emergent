@@ -14,6 +14,7 @@ collection `VIDAL_db` existe et que `qdrant_enabled = True`.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Dict, List, Optional
 
@@ -79,17 +80,17 @@ async def _ensure_vidal_collection(db) -> bool:
         url, key = await _resolve_credentials(db)
         client = _make_client(url, key)
         try:
-            existing = client.get_collections()
+            existing = await asyncio.to_thread(client.get_collections)  # lot 26 : hors du serveur principal
             names = {c.name for c in (existing.collections or [])}
         except Exception:  # noqa: BLE001
             names = set()
         if VIDAL_COLLECTION not in names:
             from qdrant_client.models import VectorParams, Distance
             try:
-                client.create_collection(
+                await asyncio.to_thread(lambda: client.create_collection(
                     collection_name=VIDAL_COLLECTION,
                     vectors_config=VectorParams(size=_EMBED_VECTOR_SIZE, distance=Distance.COSINE),
-                )
+                ))
                 logger.info(f"[vidal_rag] created Qdrant collection {VIDAL_COLLECTION}")
             except Exception as exc:  # noqa: BLE001
                 logger.warning(f"[vidal_rag] could not create collection: {exc}")

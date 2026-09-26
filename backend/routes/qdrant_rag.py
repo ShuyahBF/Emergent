@@ -35,6 +35,7 @@ Notes :
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import re
@@ -330,7 +331,7 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
         if not text:
             continue
         chunks = chunk_text(text, max_chars=1200, overlap=150)
-        vectors = _embed_texts(chunks)
+        vectors = await asyncio.to_thread(_embed_texts, chunks)  # lot 26 : calcul hors du serveur principal
         for chunk, vec in zip(chunks, vectors):
             points.append(PointStruct(
                 id=str(uuid.uuid4()),
@@ -348,7 +349,7 @@ async def upsert_text_documents(db, *, collection: str, docs: List[dict]) -> dic
     if not points:
         raise HTTPException(status_code=400, detail="Tous les documents sont vides.")
     try:
-        client.upsert(collection_name=collection, points=points)
+        await asyncio.to_thread(lambda: client.upsert(collection_name=collection, points=points))
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Upsert échoué : {exc}") from exc
     return {"ok": True, "inserted_chunks": inserted_chunks, "documents": len(docs)}
@@ -456,9 +457,10 @@ async def upsert_image(
     url, key = await _resolve_credentials(db)
     client = _make_client(url, key)
     from qdrant_client.models import PointStruct
-    vec = _embed_texts([embed_text])[0]
+    vec = (await asyncio.to_thread(_embed_texts, [embed_text]))[0]  # lot 26
     point_id = str(uuid.uuid4())
-    client.upsert(
+    # lot 26 : envoi à Qdrant dans un thread
+    await asyncio.to_thread(lambda: client.upsert(
         collection_name=collection,
         points=[PointStruct(
             id=point_id,
@@ -476,7 +478,7 @@ async def upsert_image(
                 "created_at": datetime.now(timezone.utc).isoformat(),
             },
         )],
-    )
+    ))
     return {
         "ok": True,
         "id": point_id,
@@ -532,10 +534,10 @@ async def search_points(db, *, collection: str, query: str, top_k: int = 5) -> d
         raise HTTPException(status_code=400, detail="Requête vide")
     url, key = await _resolve_credentials(db)
     client = _make_client(url, key)
-    qvec = _embed_query(query)
+    qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     top_k = min(max(1, int(top_k or 5)), 50)
     try:
-        hits = client.query_points(collection_name=collection, query=qvec, limit=top_k, with_payload=True).points
+        hits = (await asyncio.to_thread(lambda: client.query_points(collection_name=collection, query=qvec, limit=top_k, with_payload=True))).points
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=500, detail=f"Recherche échouée : {exc}") from exc
     items = []
@@ -589,16 +591,16 @@ async def search_similar_images(db, *, query: str, top_k: int = 4) -> list[dict]
     try:
         url, key = await _resolve_credentials(db)
         client = _make_client(url, key)
-        qvec = _embed_query(query)
+        qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] search_similar_images credentials/embed failed")
         return []
     all_hits: list[dict] = []
     for cname in enabled:
         try:
-            hits = client.query_points(
+            hits = (await asyncio.to_thread(lambda: client.query_points(
                 collection_name=cname, query=qvec, limit=top_k * 2, with_payload=True,
-            ).points
+            ))).points
             for h in hits:
                 payload = h.payload or {}
                 if (payload.get("kind") or "text") != "image":
@@ -640,14 +642,14 @@ async def build_rag_context(db, *, query: str, max_chars: int = 6000) -> str:
     try:
         url, key = await _resolve_credentials(db)
         client = _make_client(url, key)
-        qvec = _embed_query(query)
+        qvec = await asyncio.to_thread(_embed_query, query)  # lot 26
     except Exception:  # noqa: BLE001
         logger.exception("[qdrant_rag] build_rag_context credentials/embed failed")
         return ""
     all_hits = []
     for cname in enabled:
         try:
-            hits = client.query_points(collection_name=cname, query=qvec, limit=4, with_payload=True).points
+            hits = (await asyncio.to_thread(lambda: client.query_points(collection_name=cname, query=qvec, limit=4, with_payload=True))).points
             for h in hits:
                 payload = h.payload or {}
                 all_hits.append({

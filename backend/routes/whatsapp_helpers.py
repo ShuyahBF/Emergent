@@ -268,6 +268,44 @@ def _wa_apply_image_watermark_qr(
 # ---------------------------------------------------------------------------
 # FACTORY — DB-BOUND HELPERS
 # ---------------------------------------------------------------------------
+def _wa_clean_template_param(text) -> str:
+    """Lot 26 — valeur d'un modèle WhatsApp acceptée par Meta.
+    Meta refuse (erreur #132018) une valeur contenant un retour à la ligne, une
+    tabulation ou plus de 4 espaces consécutifs, et (#131008) une valeur vide.
+    Ex. un message client écrit sur deux lignes, relayé à l'admin. On remplace
+    les retours à la ligne par « · » (le sens est gardé), les tabulations par
+    un espace, on réduit les suites d'espaces, et une valeur vide devient « — »."""
+    import re as _re
+    s = str(text if text is not None else "")
+    s = _re.sub(r"\s*(\r\n|\r|\n)+\s*", " · ", s)     # retours à la ligne -> séparateur
+    s = s.replace("\t", " ")
+    s = _re.sub(r" {4,}", "   ", s).strip(" ·")
+    return s or "—"
+
+
+def _wa_clean_template_components(components: Optional[list]) -> Optional[list]:
+    """Nettoie toutes les valeurs texte des composants d'un modèle (en-tête,
+    corps, boutons) avant l'envoi à Meta. Les médias ne sont pas touchés."""
+    if not components:
+        return components
+    cleaned = []
+    for comp in components:
+        if not isinstance(comp, dict):
+            cleaned.append(comp)
+            continue
+        comp = dict(comp)
+        params = comp.get("parameters")
+        if isinstance(params, list):
+            new_params = []
+            for prm in params:
+                if isinstance(prm, dict) and prm.get("type") == "text":
+                    prm = {**prm, "text": _wa_clean_template_param(prm.get("text"))}
+                new_params.append(prm)
+            comp["parameters"] = new_params
+        cleaned.append(comp)
+    return cleaned
+
+
 def attach_whatsapp_helpers(
     *,
     db,
@@ -344,7 +382,8 @@ def attach_whatsapp_helpers(
             "template": {"name": template_name, "language": {"code": language_code}},
         }
         if components:
-            body["template"]["components"] = components
+            # Lot 26 : valeurs nettoyées (retours à la ligne, tabulations, espaces)
+            body["template"]["components"] = _wa_clean_template_components(components)
         try:
             async with httpx.AsyncClient(timeout=12) as http:
                 r = await http.post(url, json=body, headers={"Authorization": f"Bearer {access_token}", "Content-Type": "application/json"})
@@ -693,9 +732,9 @@ def attach_whatsapp_helpers(
                 storage_path = None
                 storage_error = None
                 try:
-                    from storage import upload_bytes, storage_available
-                    if storage_available():
-                        storage_path = upload_bytes(f"files/{stored_name}", raw, mime)
+                    from storage import aupload_bytes, astorage_available  # lot 26 : non bloquant
+                    if await astorage_available():
+                        storage_path = await aupload_bytes(f"files/{stored_name}", raw, mime)
                 except Exception as exc:  # noqa: BLE001
                     storage_error = str(exc)[:300]
                     logger.warning("[wa_inbound_media] storage mirror failed: %s", storage_error)

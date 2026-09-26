@@ -70,6 +70,8 @@ const WeatherWidgetSection = () => {
       const { lat, lon } = geo.data || {};
       if (lat == null || lon == null) throw new Error("Ville introuvable");
       const w = await apiClient.get(`/public/weather/current?lat=${lat}&lon=${lon}&units=celsius`);
+      // Lot 26 : le serveur répond « indisponible » quand Open-Meteo ne répond pas
+      if (w.data?.available === false) throw new Error("Service météo (Open-Meteo) injoignable pour le moment");
       setPreview({ city: geo.data.name, country: geo.data.country, ...w.data });
       toast.success("Données météo récupérées");
     } catch (e) {

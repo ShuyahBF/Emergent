@@ -147,7 +147,8 @@ export default function WeatherWidget({
       </div>
     );
   }
-  if (error || !data) {
+  // Lot 26 : service météo indisponible (réponse available: false) -> widget masqué
+  if (error || !data || data.available === false) {
     return null; // Échec silencieux pour ne pas polluer l'UI publique.
   }
 

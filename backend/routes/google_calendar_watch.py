@@ -28,6 +28,7 @@ Cron :
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import secrets as pysecrets
 from datetime import datetime, timedelta, timezone
@@ -75,7 +76,7 @@ async def _start_watch(db, calendar_id: str, webhook_url: str) -> Dict[str, Any]
         "params": {"ttl": "604800"},  # 7 days max for Calendar events watch
     }
     try:
-        resp = service.events().watch(calendarId=calendar_id, body=body).execute()
+        resp = await asyncio.to_thread(service.events().watch(calendarId=calendar_id, body=body).execute)
     except Exception as exc:  # noqa: BLE001
         raise HTTPException(status_code=502, detail=f"Échec watch Google : {exc}") from exc
 
@@ -85,7 +86,7 @@ async def _start_watch(db, calendar_id: str, webhook_url: str) -> Dict[str, Any]
 
     # Initialize sync token via events.list (full sync), then store nextSyncToken
     try:
-        ev = service.events().list(calendarId=calendar_id, maxResults=1, showDeleted=False, singleEvents=True).execute()
+        ev = await asyncio.to_thread(service.events().list(calendarId=calendar_id, maxResults=1, showDeleted=False, singleEvents=True).execute)
         sync_token = ev.get("nextSyncToken") or ""
     except Exception as exc:  # noqa: BLE001
         logger.warning("[gcal.watch] events.list initial sync failed: %s", exc)
@@ -124,7 +125,7 @@ async def _stop_watch(db) -> bool:
     if not service:
         return False
     try:
-        service.channels().stop(body={"id": cid, "resourceId": rid}).execute()
+        await asyncio.to_thread(service.channels().stop(body={"id": cid, "resourceId": rid}).execute)
     except Exception as exc:  # noqa: BLE001
         logger.warning("[gcal.watch] stop failed (channel may already be expired): %s", exc)
     await db.settings.update_one(
@@ -166,7 +167,7 @@ async def _sync_events_incremental(db, calendar_id: str) -> Dict[str, Any]:
             kwargs["showDeleted"] = True
 
         try:
-            resp = service.events().list(**kwargs).execute()
+            resp = await asyncio.to_thread(service.events().list(**kwargs).execute)
         except Exception as exc:  # noqa: BLE001
             # 410 Gone = sync_token expired → restart full sync
             msg = str(exc)

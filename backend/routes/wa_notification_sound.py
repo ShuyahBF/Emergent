@@ -129,8 +129,8 @@ def attach_notification_sound_routes(*, api, db, get_current_admin, upload_dir: 
                 status_code=413,
                 detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024} KB)",
             )
-        from storage import save_upload_and_cache
-        target, storage_path, storage_error = save_upload_and_cache(
+        from storage import asave_upload_and_cache  # lot 26 : dans un thread
+        target, storage_path, storage_error = await asave_upload_and_cache(
             upload_dir=upload_dir, filename=safe_name, data=raw,
             content_type=content_type or "audio/mpeg",
         )

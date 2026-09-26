@@ -575,8 +575,8 @@ def attach_story_studio_routes(
         target_path = STORY_DIR / f"{asset_id}.{safe_ext}"
         # 2026-02 fork iter108 — Deploy-safe local write via storage helper.
         try:
-            from storage import save_upload_and_cache
-            save_upload_and_cache(
+            from storage import asave_upload_and_cache  # lot 26 : dans un thread
+            await asave_upload_and_cache(
                 upload_dir=STORY_DIR, filename=target_path.name, data=raw_bytes,
                 content_type=content_type or f"{kind}/{safe_ext}", remote_prefix="stories",
             )

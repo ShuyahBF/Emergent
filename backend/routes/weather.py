@@ -34,15 +34,16 @@ def _cache_get(key: str):
     item = _CACHE.get(key)
     if not item:
         return None
-    ts, val = item
-    if time.time() - ts > _CACHE_TTL:
+    ts, val, ttl = item if len(item) == 3 else (*item, _CACHE_TTL)
+    if time.time() - ts > ttl:
         _CACHE.pop(key, None)
         return None
     return val
 
 
-def _cache_set(key: str, val: Any):
-    _CACHE[key] = (time.time(), val)
+def _cache_set(key: str, val: Any, ttl: int = _CACHE_TTL):
+    """Mémorise une valeur (durée propre possible : lot 26, « indisponible » 5 min)."""
+    _CACHE[key] = (time.time(), val, ttl)
 
 
 def _anonymize_ip(ip: str) -> str:
@@ -238,10 +239,16 @@ def setup_weather_routes(*, db, api):
                     },
                 )
                 if r.status_code >= 300:
-                    raise HTTPException(status_code=502, detail=f"Open-Meteo HTTP {r.status_code}")
+                    raise httpx.HTTPError(f"Open-Meteo HTTP {r.status_code}")
                 d = r.json() or {}
-        except httpx.HTTPError as exc:
-            raise HTTPException(status_code=502, detail=f"Open-Meteo erreur réseau: {exc}") from exc
+        except (httpx.HTTPError, ValueError) as exc:
+            # Lot 26 — service météo injoignable : réponse normale « indisponible »
+            # (le widget se masque) au lieu d'une erreur 502, que Cloudflare
+            # transformait en page d'erreur. Mémorisé 5 min pour ne pas insister.
+            logger.warning("[weather] Open-Meteo indisponible : %s", exc)
+            unavailable = {"available": False, "lat": lat, "lon": lon, "fetched_at": int(time.time())}
+            _cache_set(cache_key, unavailable, ttl=300)
+            return unavailable
 
         cur = d.get("current") or {}
         code = int(cur.get("weather_code") or 0)

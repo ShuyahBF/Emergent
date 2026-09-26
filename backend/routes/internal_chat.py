@@ -58,6 +58,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Set
 
 from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, Response, UploadFile, WebSocket, WebSocketDisconnect
+from starlette.websockets import WebSocketState  # lot 26 : état de la connexion temps réel
 from pydantic import BaseModel, Field
 
 log = logging.getLogger("sawali.internal_chat")
@@ -475,10 +476,10 @@ def make_router(*, db, get_current_user, decode_token):
                         "image/heic": ".heic", "image/heif": ".heif"}.get(mime, ".bin")
         storage_path = None
         try:
-            from storage import upload_bytes, storage_available
-            if not storage_available():
+            from storage import aupload_bytes, astorage_available  # lot 26 : non bloquant
+            if not await astorage_available():
                 raise HTTPException(status_code=503, detail="Stockage indisponible — réessayez plus tard.")
-            storage_path = upload_bytes(
+            storage_path = await aupload_bytes(
                 f"chat/{client_id}/{msg_id}{ext_for_path}",
                 data,
                 mime,
@@ -543,8 +544,8 @@ def make_router(*, db, get_current_user, decode_token):
         if not m.get("storage_path"):
             raise HTTPException(status_code=404, detail="Média introuvable")
         try:
-            from storage import fetch_bytes
-            data, ct = fetch_bytes(m["storage_path"])
+            from storage import afetch_bytes  # lot 26 : dans un thread
+            data, ct = await afetch_bytes(m["storage_path"])
         except Exception:
             log.exception("chat media fetch failed")
             raise HTTPException(status_code=502, detail="Échec récupération média")
@@ -649,13 +650,25 @@ def make_router(*, db, get_current_user, decode_token):
         try:
             await websocket.send_json({"type": "hello", "user_id": uid, "ts": _now_iso()})
             # Listen for client-side events (ping, typing, etc.)
+            bad_frames = 0
             while True:
+                # Lot 26 — la connexion n'est plus ouverte : on sort. Avant, une
+                # erreur répétée faisait tourner cette boucle sans jamais rendre
+                # la main (« continue » immédiat), ce qui figeait TOUT le serveur.
+                if websocket.application_state != WebSocketState.CONNECTED or \
+                        websocket.client_state != WebSocketState.CONNECTED:
+                    break
                 try:
                     data = await websocket.receive_json()
-                except WebSocketDisconnect:
+                    bad_frames = 0
+                except (WebSocketDisconnect, RuntimeError):
                     break
                 except Exception:
-                    # Bad frame, ignore
+                    # Message illisible : ignoré, mais on abandonne après 20 d'affilée
+                    bad_frames += 1
+                    if bad_frames > 20:
+                        break
+                    await asyncio.sleep(0)
                     continue
                 msg_type = (data or {}).get("type")
                 if msg_type == "ping":

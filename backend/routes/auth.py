@@ -13,6 +13,7 @@ Provided endpoints (under /api/auth/*):
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 from typing import Any, Awaitable, Callable, Dict
@@ -79,7 +80,8 @@ def attach_auth_routes(
     @api.post("/auth/login", response_model=LoginResponse, tags=["Authentification"])
     async def auth_login(payload: LoginRequest, request: Request):
         user = await db.users.find_one({"email": payload.email.lower()})
-        if not user or not verify_password(payload.password, user["password_hash"]):
+        # Lot 26 : bcrypt (~0,25 s) calculé dans un thread, sans figer le serveur
+        if not user or not await asyncio.to_thread(verify_password, payload.password, user["password_hash"]):
             raise HTTPException(status_code=401, detail="Identifiants invalides")
         if user.get("account_status") != "active":
             # 2026-02 fork iter108 — S159 : Friendlier message when the account
@@ -186,7 +188,7 @@ def attach_auth_routes(
         payload: ChangePasswordRequest, user: dict = Depends(get_current_user),
     ):
         db_user = await db.users.find_one({"id": user["id"]})
-        if not verify_password(payload.current_password, db_user["password_hash"]):
+        if not await asyncio.to_thread(verify_password, payload.current_password, db_user["password_hash"]):
             raise HTTPException(status_code=400, detail="Mot de passe actuel incorrect")
         await db.users.update_one(
             {"id": user["id"]},

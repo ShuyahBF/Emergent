@@ -4,6 +4,7 @@ Credentials (client_id, client_secret, refresh_token) are stored in the
 `settings` collection. The admin obtains the refresh_token by completing the
 OAuth flow via /api/admin/google/auth-url + /api/admin/google/callback.
 """
+import asyncio
 import logging
 from datetime import datetime, timezone
 from typing import Optional
@@ -51,7 +52,8 @@ async def _build_service():
     )
     if not creds.valid:
         try:
-            creds.refresh(GoogleRequest())
+            # Lot 26 : appel réseau exécuté dans un thread (ne fige plus le serveur)
+            await asyncio.to_thread(creds.refresh, GoogleRequest())
             await db.settings.update_one(
                 {"_id": "global"},
                 {"$set": {"google_access_token": creds.token}},
@@ -59,7 +61,7 @@ async def _build_service():
         except Exception as e:
             logger.error("Google token refresh failed: %s", e)
             return None
-    return build("calendar", "v3", credentials=creds, cache_discovery=False)
+    return await asyncio.to_thread(lambda: build("calendar", "v3", credentials=creds, cache_discovery=False))
 
 
 def _build_oauth_flow(client_id: str, client_secret: str, redirect_uri: str):
@@ -194,7 +196,7 @@ async def create_event(
         body["attendees"] = [{"email": attendee_email}]
 
     try:
-        event = service.events().insert(calendarId=calendar_id, body=body).execute()
+        event = await asyncio.to_thread(service.events().insert(calendarId=calendar_id, body=body).execute)
         return event.get("id")
     except Exception as e:
         logger.error("GCal create_event failed: %s", e)
@@ -210,7 +212,7 @@ async def freebusy(start_iso: str, end_iso: str) -> list[dict]:
     calendar_id = s.get("google_calendar_email") or "primary"
     try:
         body = {"timeMin": start_iso, "timeMax": end_iso, "items": [{"id": calendar_id}]}
-        res = service.freebusy().query(body=body).execute()
+        res = await asyncio.to_thread(service.freebusy().query(body=body).execute)
         return res.get("calendars", {}).get(calendar_id, {}).get("busy", [])
     except Exception as e:
         logger.error("GCal freebusy failed: %s", e)
@@ -236,13 +238,13 @@ async def list_upcoming_events(max_results: int = 3) -> list[dict]:
     s = await _get_settings()
     calendar_id = s.get("google_calendar_email") or "primary"
     now_iso = datetime.now(timezone.utc).isoformat()
-    res = service.events().list(
+    res = await asyncio.to_thread(service.events().list(
         calendarId=calendar_id,
         timeMin=now_iso,
         maxResults=int(max_results),
         singleEvents=True,
         orderBy="startTime",
-    ).execute()
+    ).execute)
     items = res.get("items", []) or []
     # Return a compact, JSON-serializable summary (not the raw bloated Google obj)
     return [
@@ -284,7 +286,7 @@ async def update_event(
     if not body:
         return True
     try:
-        service.events().patch(calendarId=calendar_id, eventId=event_id, body=body).execute()
+        await asyncio.to_thread(service.events().patch(calendarId=calendar_id, eventId=event_id, body=body).execute)
         return True
     except Exception as e:
         logger.error("GCal update_event failed: %s", e)
@@ -298,7 +300,7 @@ async def delete_event(event_id: str) -> bool:
     s = await _get_settings()
     calendar_id = s.get("google_calendar_email") or "primary"
     try:
-        service.events().delete(calendarId=calendar_id, eventId=event_id).execute()
+        await asyncio.to_thread(service.events().delete(calendarId=calendar_id, eventId=event_id).execute)
         return True
     except Exception as e:
         logger.error("GCal delete_event failed: %s", e)

@@ -16,13 +16,26 @@ Public API:
   upload_bytes(path, data, content_type)    -> str (storage path)
   fetch_bytes(path)                         -> (bytes, content_type)
   storage_available()                       -> bool
+
+Lot 26 — NE JAMAIS BLOQUER LE SERVEUR : les fonctions ci-dessus font des
+appels réseau synchrones (jusqu'à 30 s pour l'init, 120 s pour un envoi).
+Appelées directement dans une route `async`, elles figeaient TOUT le serveur
+(erreurs Cloudflare 502/520 aléatoires pour tous les utilisateurs). Désormais :
+  - `storage_available()` ne fait plus aucun appel réseau : si la clé n'est
+    pas encore obtenue, l'initialisation part en arrière-plan (thread) ;
+  - les routes utilisent les versions asynchrones `astorage_available()`,
+    `aupload_bytes()`, `afetch_bytes()`, `asave_upload_and_cache()`,
+    `arehydrate_from_storage()`, qui exécutent le travail dans un thread ;
+  - un objet absent du stockage n'est pas redemandé pendant 10 minutes.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import threading
 import time
-from typing import Optional, Tuple
+from typing import Dict, Optional, Tuple
 
 import httpx
 
@@ -38,9 +51,40 @@ _storage_key_attempts: int = 0
 _storage_key_last_attempt_ts: float = 0.0
 
 
+# Verrou : une seule initialisation à la fois (threads d'arrière-plan)
+_init_lock = threading.Lock()
+# Objets absents du stockage : chemin -> heure du dernier échec (cache négatif)
+_missing: Dict[str, float] = {}
+_MISSING_TTL = 600.0
+
+
+def _ensure_ready() -> bool:
+    """Clé disponible, en l'obtenant si besoin (BLOQUANT : à n'appeler que
+    dans un thread, jamais directement dans une route async)."""
+    return bool(EMERGENT_KEY) and (_storage_key is not None or _locked_init())
+
+
+def _locked_init() -> bool:
+    with _init_lock:
+        return _try_init()
+
+
+def _start_background_init() -> None:
+    """Lance l'initialisation dans un thread sans attendre le résultat."""
+    if _init_lock.locked():
+        return
+    threading.Thread(target=_locked_init, name="storage-init", daemon=True).start()
+
+
 def storage_available() -> bool:
-    """Returns True when the integration is reachable + auth works."""
-    return bool(EMERGENT_KEY) and (_storage_key is not None or _try_init())
+    """True si la clé de stockage est déjà obtenue. NE BLOQUE JAMAIS : sinon
+    l'initialisation part en arrière-plan et on répond False cette fois-ci."""
+    if not EMERGENT_KEY:
+        return False
+    if _storage_key is not None:
+        return True
+    _start_background_init()
+    return False
 
 
 def _try_init() -> bool:
@@ -74,8 +118,8 @@ def _try_init() -> bool:
 
 
 def init_storage() -> None:
-    """Public init entry-point for startup hooks."""
-    _try_init()
+    """Public init entry-point for startup hooks (lance l'init en arrière-plan)."""
+    _start_background_init()
 
 
 def _normalize_path(path: str) -> str:
@@ -91,7 +135,7 @@ def upload_bytes(path: str, data: bytes, content_type: str = "application/octet-
     path as returned by the upstream service (which is the same as input but
     we use the server's response to keep it in sync if it ever normalizes).
     """
-    if not _try_init() or not _storage_key:
+    if not _ensure_ready() or not _storage_key:
         raise RuntimeError("Emergent storage non disponible (init impossible)")
     full_path = _normalize_path(path)
     r = httpx.put(
@@ -117,7 +161,7 @@ def upload_bytes(path: str, data: bytes, content_type: str = "application/octet-
 
 def fetch_bytes(path: str) -> Tuple[bytes, str]:
     """Synchronous download. Returns (data, content_type). Raises on failure."""
-    if not _try_init() or not _storage_key:
+    if not _ensure_ready() or not _storage_key:
         raise RuntimeError("Emergent storage non disponible")
     full_path = _normalize_path(path)
     r = httpx.get(
@@ -169,7 +213,7 @@ def save_upload_and_cache(
     storage_path = None
     storage_error = None
     # 1) Try to mirror to object storage first (source of truth on prod).
-    if storage_available():
+    if _ensure_ready():
         try:
             storage_path = upload_bytes(f"{remote_prefix}/{filename}", data, content_type)
         except Exception as exc:  # noqa: BLE001
@@ -185,17 +229,55 @@ def rehydrate_from_storage(*, local_path, remote_path: str) -> bool:
     or the object isn't there."""
     from pathlib import Path as _Path
     local_path = _Path(local_path)
-    if not storage_available():
+    # Objet déjà constaté absent il y a moins de 10 min : on ne redemande pas
+    last_miss = _missing.get(remote_path)
+    if last_miss and time.time() - last_miss < _MISSING_TTL:
+        return False
+    if not _ensure_ready():
         return False
     try:
         data, _ct = fetch_bytes(remote_path)
         if not data:
+            _missing[remote_path] = time.time()
             return False
         local_path.parent.mkdir(parents=True, exist_ok=True)
         _write_local_bytes(local_path, data)
+        _missing.pop(remote_path, None)
         return True
     except Exception:  # noqa: BLE001
+        _missing[remote_path] = time.time()
+        if len(_missing) > 5000:   # borne la mémoire du cache négatif
+            _missing.clear()
         return False
+
+
+# ---------------------------------------------------------------------------
+# Versions asynchrones (lot 26) : le travail réseau et disque part dans un
+# thread, le serveur continue de répondre aux autres requêtes pendant ce temps.
+# ---------------------------------------------------------------------------
+async def astorage_available() -> bool:
+    """Comme storage_available(), mais obtient la clé si besoin (dans un thread)."""
+    if not EMERGENT_KEY:
+        return False
+    if _storage_key is not None:
+        return True
+    return await asyncio.to_thread(_locked_init)
+
+
+async def aupload_bytes(path: str, data: bytes, content_type: str = "application/octet-stream") -> str:
+    return await asyncio.to_thread(upload_bytes, path, data, content_type)
+
+
+async def afetch_bytes(path: str) -> Tuple[bytes, str]:
+    return await asyncio.to_thread(fetch_bytes, path)
+
+
+async def asave_upload_and_cache(**kwargs):
+    return await asyncio.to_thread(lambda: save_upload_and_cache(**kwargs))
+
+
+async def arehydrate_from_storage(**kwargs) -> bool:
+    return await asyncio.to_thread(lambda: rehydrate_from_storage(**kwargs))
 
 
 def _write_local_bytes(local_path, data: bytes) -> None:

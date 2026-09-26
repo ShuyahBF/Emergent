@@ -8785,10 +8785,10 @@ async def admin_upload(request: Request, file: UploadFile = File(...), user: dic
     safe_name = f"{file_id}{suffix}"
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
     data = file.file.read()
     size = len(data)
-    target, storage_path, storage_error = save_upload_and_cache(
+    target, storage_path, storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
     )
     if storage_error:
@@ -8859,8 +8859,8 @@ async def admin_files_orphans(_: dict = Depends(get_current_admin)):
 async def admin_files_backfill(_: dict = Depends(get_current_admin)):
     """For every file row that has its binary on disk but no `storage_path`,
     push it to Emergent storage and update the DB row. Best-effort."""
-    from storage import upload_bytes, storage_available
-    if not storage_available():
+    from storage import aupload_bytes, astorage_available  # lot 26 : non bloquant
+    if not await astorage_available():
         raise HTTPException(status_code=503, detail="Stockage objet non disponible.")
     mirrored = 0
     skipped = 0
@@ -8872,8 +8872,8 @@ async def admin_files_backfill(_: dict = Depends(get_current_admin)):
             if not target.exists():
                 skipped += 1
                 continue
-            sp = upload_bytes(
-                f"files/{f['stored_name']}", target.read_bytes(),
+            sp = await aupload_bytes(
+                f"files/{f['stored_name']}", await asyncio.to_thread(target.read_bytes),
                 f.get("content_type") or "application/octet-stream",
             )
             await db.files.update_one({"id": f["id"]}, {"$set": {"storage_path": sp}})
@@ -8951,8 +8951,8 @@ async def admin_upload_policy(
         raise HTTPException(status_code=413, detail=f"Fichier trop volumineux (max {POLICY_MAX_SIZE // (1024*1024)} Mo)")
     if size == 0:
         raise HTTPException(status_code=400, detail="Fichier vide")
-    from storage import save_upload_and_cache
-    save_upload_and_cache(
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
+    await asave_upload_and_cache(
         upload_dir=target.parent, filename=target.name, data=raw,
         content_type="application/pdf", remote_prefix="policies",
     )
@@ -9006,7 +9006,7 @@ async def public_policy(slot: str, request: Request):
             headers={
                 "Content-Type": "application/pdf",
                 "Content-Length": str(p.stat().st_size),
-                "Content-Disposition": f'inline; filename="{download_name}"',
+                "Content-Disposition": _content_disposition("inline", download_name),
                 "Cache-Control": "public, max-age=3600",
                 "X-Robots-Tag": "all",
             },
@@ -9016,12 +9016,25 @@ async def public_policy(slot: str, request: Request):
         media_type="application/pdf",
         filename=download_name,
         headers={
-            "Content-Disposition": f'inline; filename="{download_name}"',
+            "Content-Disposition": _content_disposition("inline", download_name),
             "Cache-Control": "public, max-age=3600",
             "X-Robots-Tag": "all",
         },
     )
 
+
+def _content_disposition(kind: str, name: str) -> str:
+    """Lot 26 — en-tête Content-Disposition sûr pour tout nom de fichier.
+    Un nom avec des caractères hors latin-1 (’, œ, €, emoji, arabe…) faisait
+    échouer la réponse (erreur 500). On envoie un nom ASCII de secours ET le
+    vrai nom encodé (RFC 6266 : filename*=UTF-8'')."""
+    import unicodedata
+    from urllib.parse import quote
+    name = (name or "").replace('"', "").replace("\r", " ").replace("\n", " ").strip()
+    if not name:
+        return kind
+    ascii_name = unicodedata.normalize("NFKD", name).encode("ascii", "ignore").decode("ascii") or "fichier"
+    return f"{kind}; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(name)}"
 
 @api.api_route("/files/{file_id}", methods=["GET", "HEAD"], tags=["Public"])
 async def serve_file(request: Request, file_id: str):
@@ -9040,8 +9053,8 @@ async def serve_file(request: Request, file_id: str):
         rehydrated = False
         storage_path = meta.get("storage_path") or f"files/{meta['stored_name']}"
         try:
-            from storage import rehydrate_from_storage
-            rehydrated = rehydrate_from_storage(local_path=path, remote_path=storage_path)
+            from storage import arehydrate_from_storage  # lot 26 : dans un thread
+            rehydrated = await arehydrate_from_storage(local_path=path, remote_path=storage_path)
             if rehydrated:
                 logger.info("[serve_file] rehydrated %s from storage", file_id)
         except Exception as exc:  # noqa: BLE001
@@ -9099,9 +9112,7 @@ async def serve_file(request: Request, file_id: str):
     file_size = path.stat().st_size
     range_header = request.headers.get("range") or request.headers.get("Range")
     safe_name = (meta.get("filename") or "").replace('"', "")
-    inline_disposition = (
-        f'inline; filename="{safe_name}"' if safe_name else "inline"
-    )
+    inline_disposition = _content_disposition("inline", safe_name)  # lot 26 : tout nom de fichier
     common_headers = {
         "Accept-Ranges": "bytes",
         "Content-Type": content_type,
@@ -9109,7 +9120,7 @@ async def serve_file(request: Request, file_id: str):
     if is_inline_media:
         common_headers["Content-Disposition"] = inline_disposition
     elif safe_name:
-        common_headers["Content-Disposition"] = f'attachment; filename="{safe_name}"'
+        common_headers["Content-Disposition"] = _content_disposition("attachment", safe_name)
 
     if range_header and range_header.startswith("bytes="):
         try:
@@ -9257,10 +9268,10 @@ async def me_media_library_create(
     kind = "image" if content_type.startswith("image") else ("video" if content_type.startswith("video") else "document")
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
     data = file.file.read()
     size = len(data)
-    target, storage_path, storage_error = save_upload_and_cache(
+    target, storage_path, storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
     )
     if storage_error:
@@ -9774,6 +9785,26 @@ async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
     Stored in `db.app_deployments` (single doc with `_id="current"`).
     Returns the current `{seq, fingerprint, git_head, deploy_id}` snapshot.
     """
+    import os
+
+    # Lot 26 — l'empreinte du code (lecture de ~1,5 Mo de fichiers + commande
+    # git) était recalculée à CHAQUE appel de /api/version, c'est-à-dire à
+    # chaque ouverture de page (connexion comprise) et toutes les 5 minutes
+    # par onglet, en bloquant le serveur. Le code ne change pas sans
+    # redémarrage : on la calcule une seule fois (dans un thread) et on la garde.
+    global _DEPLOY_FP_CACHE
+    if _DEPLOY_FP_CACHE is None:
+        _DEPLOY_FP_CACHE = await asyncio.to_thread(_compute_deploy_fingerprint)
+    deploy_id, files_hash, git_head, env_ver = _DEPLOY_FP_CACHE
+    return await _store_deploy_fingerprint(deploy_id, files_hash, git_head, env_ver)
+
+
+_DEPLOY_FP_CACHE: Optional[tuple] = None
+
+
+def _compute_deploy_fingerprint() -> tuple:
+    """(deploy_id, files_hash, git_head, env_ver) — calcul synchrone, lancé
+    dans un thread une seule fois par démarrage du serveur."""
     import hashlib
     import subprocess
     import os
@@ -9824,7 +9855,12 @@ async def _bump_deployment_counter_if_needed() -> Dict[str, Any]:
 
     # 4) APP_VERSION env var — manual override for the major version prefix.
     env_ver = (os.environ.get("APP_VERSION") or "").strip()
+    return deploy_id, files_hash, git_head, env_ver
 
+
+async def _store_deploy_fingerprint(deploy_id: str, files_hash: Optional[str], git_head: Optional[str],
+                                    env_ver: str) -> Dict[str, Any]:
+    """Compare l'empreinte à celle enregistrée et incrémente le numéro de déploiement."""
     # Compose the fingerprint (priority = DEPLOY_ID > files_hash > git > env).
     fingerprint_parts: List[str] = []
     if deploy_id:
@@ -11456,13 +11492,13 @@ async def me_upload(request: Request, file: UploadFile = File(...), user: dict =
     safe_name = f"{file_id}{suffix}"
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
     data = file.file.read()
     size = len(data)
     # Iter35h — demo storage cap (post-read check to avoid disk waste on abort).
     if _is_demo(user):
         await _enforce_demo_quota(user, QUOTA_KEY_STORAGE, increment=size)
-    target, storage_path, storage_error = save_upload_and_cache(
+    target, storage_path, storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=content_type,
     )
     ext_suffix = (suffix.lstrip(".") or "").lower()
@@ -14649,12 +14685,12 @@ async def me_upload_contact_photo(cid: str, request: Request, file: UploadFile =
     suffix = Path(file.filename or "").suffix.lower() or ".png"
     safe_name = f"{file_id}{suffix}"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
     data = await file.read()
     size = len(data)
     if size > 5 * 1024 * 1024:
         raise HTTPException(status_code=413, detail="Photo trop lourde (max 5 Mo)")
-    target, storage_path, storage_error = save_upload_and_cache(
+    target, storage_path, storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=data, content_type=ctype,
     )
     ext_suffix = suffix.lstrip(".")
@@ -15251,8 +15287,8 @@ async def me_whatsapp_send_media(
     file_id = _uuid()
     safe_name = f"{file_id}{suffix}"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
-    target, _wa_storage_path, _wa_storage_error = save_upload_and_cache(
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
+    target, _wa_storage_path, _wa_storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=raw, content_type=content_type,
     )
     if _wa_storage_error:
@@ -15302,9 +15338,9 @@ async def me_whatsapp_send_media(
     storage_path = None
     storage_error = None
     try:
-        from storage import upload_bytes, storage_available
-        if storage_available():
-            storage_path = upload_bytes(f"files/{safe_name}", target.read_bytes(), content_type)
+        from storage import aupload_bytes, astorage_available  # lot 26 : non bloquant
+        if await astorage_available():
+            storage_path = await aupload_bytes(f"files/{safe_name}", await asyncio.to_thread(target.read_bytes), content_type)
     except Exception as exc:  # noqa: BLE001
         storage_error = str(exc)[:300]
         logger.warning("[wa_send_media] storage mirror failed: %s", storage_error)
@@ -20591,8 +20627,8 @@ async def me_form_upload_file(
     content_type = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
     public_url = f"{(_public_base_url(request) or str(request.base_url).rstrip('/'))}{public_path}"
     # 2026-02 fork iter108 — Deploy-safe upload helper (storage-first, local cache).
-    from storage import save_upload_and_cache
-    target, storage_path, storage_error = save_upload_and_cache(
+    from storage import asave_upload_and_cache  # lot 26 : dans un thread, sans figer le serveur
+    target, storage_path, storage_error = await asave_upload_and_cache(
         upload_dir=UPLOAD_DIR, filename=safe_name, data=raw, content_type=content_type,
     )
     if storage_error:
@@ -21729,7 +21765,8 @@ async def me_module_ask(fid: str, mid: str, payload: FormationModuleQuestion, us
 
 @app.on_event("startup")
 async def on_startup():
-    # Iter35q — Initialize Emergent Object Storage (best-effort, non-blocking).
+    # Iter35q — Initialize Emergent Object Storage (best-effort, non-blocking :
+    # lot 26, l'initialisation part dans un thread d'arrière-plan).
     try:
         from storage import init_storage as _init_storage
         _init_storage()

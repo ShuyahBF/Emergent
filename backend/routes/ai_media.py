@@ -104,8 +104,8 @@ def setup_ai_media_routes(*, db, api, get_current_user):
             tenant_dir = UPLOAD_ROOT / (tenant_id or "_global")
             fname = f"{int(time.time())}-{secrets.token_urlsafe(6)}-{slug}.png"
             # 2026-02 fork iter108 — Deploy-safe local fallback via storage helper.
-            from storage import save_upload_and_cache
-            target, _sp, _err = save_upload_and_cache(
+            from storage import asave_upload_and_cache  # lot 26 : dans un thread
+            target, _sp, _err = await asave_upload_and_cache(
                 upload_dir=tenant_dir, filename=fname, data=image_bytes,
                 content_type="image/png", remote_prefix=f"ai/{tenant_id or '_global'}",
             )
@@ -335,8 +335,8 @@ def setup_ai_media_routes(*, db, api, get_current_user):
         if not video_bytes:
             raise HTTPException(status_code=502, detail="Aucune vidéo générée. Reformulez le prompt.")
         # 2026-02 fork iter108 — Deploy-safe local write via storage helper.
-        from storage import save_upload_and_cache
-        target, _sp, _err = save_upload_and_cache(
+        from storage import asave_upload_and_cache  # lot 26 : dans un thread
+        target, _sp, _err = await asave_upload_and_cache(
             upload_dir=tenant_dir, filename=fname, data=video_bytes,
             content_type="video/mp4", remote_prefix=f"ai/{tid or '_global'}",
         )

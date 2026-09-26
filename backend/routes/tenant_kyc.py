@@ -197,8 +197,8 @@ def attach_tenant_kyc_routes(*, api, db, get_current_user, get_current_admin, up
                 status_code=413,
                 detail=f"Fichier trop volumineux (>{MAX_UPLOAD_BYTES // 1024 // 1024} MB)",
             )
-        from storage import save_upload_and_cache
-        target, storage_path, _err = save_upload_and_cache(
+        from storage import asave_upload_and_cache  # lot 26 : dans un thread
+        target, storage_path, _err = await asave_upload_and_cache(
             upload_dir=upload_dir, filename=safe_name, data=raw, content_type=content_type,
         )
         if _err:

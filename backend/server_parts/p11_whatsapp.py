@@ -382,20 +382,31 @@ async def me_list_contacts(user: dict = Depends(get_current_user)):
                     break
 
         tenant_q = {"client_id": {"$in": client_ids}, "bulk": {"$ne": True}}
-        try:
-            async for msg in db.whatsapp_messages.find(
-                tenant_q, {"_id": 0, "phone_digits": 1, "from": 1, "to": 1, "created_at": 1, "direction": 1},
-            ).sort("created_at", -1).limit(20000):
-                _note(msg, "in" if msg.get("direction") == "inbound" else "out")
-        except Exception:
-            pass
-        try:
-            async for msg in db.sms_messages.find(
-                tenant_q, {"_id": 0, "phone_digits": 1, "to": 1, "from": 1, "created_at": 1, "direction": 1},
-            ).sort("created_at", -1).limit(20000):
-                _note(msg, "in" if msg.get("direction") == "inbound" else "out")
-        except Exception:
-            pass
+        # Lot 29 (performances) — même résultat qu'avant, mais calculé par MongoDB :
+        # au lieu de rapatrier jusqu'à 20 000 messages WhatsApp + 20 000 SMS et de
+        # les parcourir en Python à chaque affichage de la liste, la base regroupe
+        # ces mêmes 20 000 derniers messages par numéro (phone_digits, from, to) et
+        # ne renvoie que le plus récent de chaque groupe (quelques centaines de
+        # lignes). On les traite ensuite du plus récent au plus ancien, exactement
+        # comme l'ancien parcours.
+        _pipeline = [
+            {"$match": tenant_q},
+            {"$sort": {"created_at": -1}},
+            {"$limit": 20000},
+            {"$group": {"_id": {"p": "$phone_digits", "f": "$from", "t": "$to"},
+                        "created_at": {"$first": "$created_at"}, "direction": {"$first": "$direction"}}},
+        ]
+        for _coll in (db.whatsapp_messages, db.sms_messages):
+            try:
+                _groups = [g async for g in _coll.aggregate(_pipeline)]
+                _groups.sort(key=lambda g: str(g.get("created_at") or ""), reverse=True)
+                for g in _groups:
+                    _k = g.get("_id") or {}
+                    _note({"phone_digits": _k.get("p"), "from": _k.get("f"), "to": _k.get("t"),
+                           "created_at": g.get("created_at")},
+                          "in" if g.get("direction") == "inbound" else "out")
+            except Exception:
+                pass
         for d10, contacts in phone_map.items():
             ts, direction = last_by_phone.get(d10, (None, None))
             for c in contacts:
@@ -753,10 +764,26 @@ async def me_list_wa_pending_imports(user: dict = Depends(get_current_user)):
     visible_scope = await _resolve_visible_client_ids(user)
     kept: List[Dict[str, Any]] = []
     seen_digits: set = set()
+    # Lot 29 (performances) — avant : une recherche par expression régulière dans
+    # tout le carnet POUR CHAQUE numéro en attente (jusqu'à 50), toutes les 15 s.
+    # Maintenant : le carnet est lu une seule fois et on garde, pour chaque
+    # numéro (WhatsApp, téléphone, phone_digits), ses 6, 7 et 8 derniers chiffres.
+    # Même règle qu'avant (_find_contact_by_phone) : un contact correspond si les
+    # chiffres de l'un de ces champs se terminent par ceux du numéro en attente
+    # (6 à 8 chiffres, mise en forme ignorée).
+    known_tails: set = set()
+    if items:
+        _contacts_q = {} if user.get("role") == "admin" else {"client_id": {"$in": visible_scope}}
+        async for c in db.directory_contacts.find(_contacts_q, {"_id": 0, "whatsapp": 1, "phone": 1, "phone_digits": 1}):
+            for raw in (c.get("whatsapp"), c.get("phone"), c.get("phone_digits")):
+                if isinstance(raw, str):
+                    d = "".join(ch for ch in raw if ch.isdigit())
+                    for n in (6, 7, 8):
+                        if len(d) >= n:
+                            known_tails.add(d[-n:])
     for it in items:
         suffix = _phone_suffix(it.get("phone_digits") or it.get("from"))
-        existing = await _find_contact_by_phone(None if user.get("role") == "admin" else visible_scope,
-                                                it.get("phone_digits") or it.get("from"))
+        existing = len(suffix) >= 6 and suffix in known_tails
         if existing or (suffix and suffix in seen_digits):
             await db.wa_pending_imports.delete_one({"id": it.get("id")})
             continue

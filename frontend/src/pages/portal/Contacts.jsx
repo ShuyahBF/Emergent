@@ -186,15 +186,29 @@ export default function Contacts() {
   // Lot 23 — quand un nouveau message arrive (total des non-lus en hausse),
   // la liste est relue pour que ce contact remonte en tête avec sa date.
   const lastUnreadTotalRef = React.useRef(null);
-  const loadUnread = async () => {
+  // Lot 29 (performances) — applique une réponse « non-lus », qu'elle vienne de
+  // notre propre appel ou de la cloche (qui relit les mêmes compteurs toutes les 15 s).
+  const lastSharedUnreadAt = React.useRef(0);
+  const applyUnread = (data) => {
+    const total = data?.total || 0;
+    setUnread({ total, by_contact: data?.by_contact || {}, older: data?.older || 0 });
+    if (lastUnreadTotalRef.current != null && total > lastUnreadTotalRef.current) load(true);
+    lastUnreadTotalRef.current = total;
+  };
+  const loadUnread = async ({ skipIfShared = false } = {}) => {
+    // La cloche vient de nous transmettre les compteurs : inutile de les redemander
+    if (skipIfShared && Date.now() - lastSharedUnreadAt.current < 20000) return;
     try {
       const r = await apiClient.get("/me/whatsapp/unread");
-      const total = r.data?.total || 0;
-      setUnread({ total, by_contact: r.data?.by_contact || {}, older: r.data?.older || 0 });
-      if (lastUnreadTotalRef.current != null && total > lastUnreadTotalRef.current) load(true);
-      lastUnreadTotalRef.current = total;
+      applyUnread(r.data);
     } catch { /* noop */ }
   };
+  useEffect(() => {
+    const onShared = (e) => { lastSharedUnreadAt.current = Date.now(); applyUnread(e.detail); };
+    window.addEventListener("sawali:wa-unread", onShared);
+    return () => window.removeEventListener("sawali:wa-unread", onShared);
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, []);
 
   // Lot 24 — « Tout marquer comme lu » : tous les non-lus des contacts
   // (y compris l'historique de plus de 30 jours, qui n'est plus compté).
@@ -229,7 +243,7 @@ export default function Contacts() {
   useEffect(() => {
     // Lot 23 — non-lus toutes les 15 s (même rythme que le badge de la sidebar),
     // liste complète relue en silence toutes les 2 min (messages envoyés ailleurs).
-    const t = setInterval(() => { loadUnread(); loadPending(); }, 15000);
+    const t = setInterval(() => { loadUnread({ skipIfShared: true }); loadPending(); }, 15000);
     const t2 = setInterval(() => load(true), 120000);
     return () => { clearInterval(t); clearInterval(t2); };
     /* eslint-disable-next-line react-hooks/exhaustive-deps */

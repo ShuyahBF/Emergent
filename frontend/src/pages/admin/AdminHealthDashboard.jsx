@@ -3,6 +3,7 @@ import { apiClient } from "@/lib/api";
 import { Activity, AlertCircle, Clock, Mail, Send, RefreshCw, AlertTriangle, ShieldCheck, ShieldAlert, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import UptimeMonitorSection from "@/components/UptimeMonitorSection";
+import RoutePerfSection from "@/components/RoutePerfSection";  // lot 29
 
 export default function AdminHealthDashboard() {
   const [stats, setStats] = useState(null);
@@ -87,6 +88,8 @@ export default function AdminHealthDashboard() {
 
       {/* Multi-endpoint uptime monitor (DB + public APIs) */}
       <UptimeMonitorSection />
+      {/* Lot 29 — temps de réponse par route (mesure des lots performances) */}
+      <RoutePerfSection />
 
       {!stats ? (
         <div className="rounded-xl border border-dashed border-slate-300 p-12 text-center text-slate-500">Chargement…</div>

@@ -1262,3 +1262,23 @@ async def list_api_routes():
         )
     routes.sort(key=lambda r: (r["tags"][0] if r["tags"] else "", r["path"]))
     return routes
+
+
+# =====================================================================
+# Lot 29 (performances) — temps de réponse par route depuis le dernier
+# démarrage (mesures prises par request_timing_middleware dans server.py).
+# Réservé à l'admin et au Superviseur ; affiché dans Santé applicative.
+# =====================================================================
+@api.get("/admin/perf/routes", tags=["Admin"])
+async def admin_perf_routes(limit: int = 60, sort: str = "total", _: dict = Depends(get_admin_or_supervisor)):
+    rows = []
+    for key, (n, total, mx, slow) in list(_PERF_STATS.items()):
+        method, _sp, path = key.partition(" ")
+        rows.append({"method": method, "path": path, "count": int(n),
+                     "avg_ms": round(total / n * 1000) if n else 0,
+                     "max_ms": round(mx * 1000), "total_s": round(total, 1), "over_1s": int(slow)})
+    # tri : temps cumulé (ce qui charge le plus le serveur), moyenne ou maximum
+    keyf = {"avg": lambda r: r["avg_ms"], "max": lambda r: r["max_ms"], "count": lambda r: r["count"]}.get(
+        sort, lambda r: r["total_s"])
+    rows.sort(key=keyf, reverse=True)
+    return {"since": _PERF_SINCE, "routes": rows[:max(1, min(limit, 500))], "tracked": len(rows)}

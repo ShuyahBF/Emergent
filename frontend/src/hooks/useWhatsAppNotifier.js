@@ -109,6 +109,9 @@ export function useWhatsAppNotifier({ enabled = true } = {}) {
   const tick = useCallback(async () => {
     try {
       const r = await apiClient.get("/me/whatsapp/unread");
+      // Lot 29 (performances) — partage la réponse avec le Centre de Messagerie,
+      // qui n'a alors plus besoin de redemander les mêmes compteurs au serveur.
+      try { window.dispatchEvent(new CustomEvent("sawali:wa-unread", { detail: r.data || {} })); } catch { /* noop */ }
       const total = r.data?.total || 0;
       setUnread(total);
       setFaviconBadge(total > 0);

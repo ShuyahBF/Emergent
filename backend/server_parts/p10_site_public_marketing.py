@@ -641,6 +641,20 @@ async def _resolve_visible_client_ids(user: dict) -> List[str]:
     This guarantees that two users typed with the same employer name see each
     other's directory even if their client_id pointers were never re-aligned.
     """
+    # Lot 29 (performances) — ce périmètre est demandé par presque toutes les
+    # routes du Centre de Messagerie (non-lus toutes les 15 s, liste, conversation)
+    # et coûte une recherche insensible à la casse sur TOUS les utilisateurs.
+    # Il ne change que si un compte change de société : résultat mémorisé 60 s
+    # par utilisateur (même clé = mêmes id/client/parent/société).
+    _cache = _resolve_visible_client_ids.__dict__.setdefault("_cache", {})
+    _key = (user.get("id"), user.get("client_id"), user.get("parent_client_id"),
+            (user.get("company") or "").strip().lower())
+    _hit = _cache.get(_key)
+    _now_mono = _time_perf.monotonic()
+    if _hit and _now_mono - _hit[0] < 60:
+        return list(_hit[1])
+    if len(_cache) > 2000:           # garde-fou mémoire
+        _cache.clear()
     ids: set[str] = set()
     for k in ("client_id", "parent_client_id", "id"):
         v = user.get(k)
@@ -660,7 +674,9 @@ async def _resolve_visible_client_ids(user: dict) -> List[str]:
                         ids.add(v)
         except Exception:
             pass
-    return list(ids) if ids else [user.get("id")]
+    result = list(ids) if ids else [user.get("id")]
+    _cache[_key] = (_now_mono, list(result))
+    return result
 
 
 # ============================================================

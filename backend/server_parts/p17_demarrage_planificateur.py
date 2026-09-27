@@ -237,6 +237,26 @@ async def on_startup():
     await db.sms_messages.create_index("created_at")
     await db.sms_messages.create_index("payment_link_slug")
     await db.sms_messages.create_index([("contact_id", 1), ("created_at", -1)])
+
+    # Lot 29 (performances du Centre de Messagerie) — index composés pour les
+    # requêtes les plus fréquentes (liste des contacts, non-lus toutes les 15 s).
+    # Créés EN ARRIÈRE-PLAN : sur une grosse collection la construction peut
+    # prendre du temps, elle ne doit jamais retarder le démarrage. create_index
+    # ne fait rien si l'index existe déjà ; une erreur est seulement journalisée.
+    async def _lot29_perf_indexes():
+        specs = [
+            (db.whatsapp_messages, [("client_id", 1), ("created_at", -1)], "lot29_client_created"),
+            (db.whatsapp_messages, [("client_id", 1), ("direction", 1), ("read_by_us_at", 1), ("created_at", -1)],
+             "lot29_unread"),
+            (db.sms_messages, [("client_id", 1), ("created_at", -1)], "lot29_client_created"),
+            (db.wa_pending_imports, [("client_id", 1), ("last_seen_at", -1)], "lot29_client_seen"),
+        ]
+        for coll, keys, name in specs:
+            try:
+                await coll.create_index(keys, name=name, background=True)
+            except Exception as _exc:  # noqa: BLE001
+                logger.warning("[lot29] index %s non créé : %s", name, _exc)
+    asyncio.create_task(_lot29_perf_indexes())
     await db.sms_schedules.create_index("status")
     await db.sms_schedules.create_index("scheduled_at")
     await db.sms_schedules.create_index([("client_id", 1), ("status", 1)])

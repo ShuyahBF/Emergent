@@ -356,12 +356,45 @@ async def ip_blacklist_middleware(request, call_next):
 import time as _time_perf  # local alias — avoid clashing with other `time` uses
 
 
+# Lot 29 (performances) — statistiques de temps de réponse PAR ROUTE (lectures
+# comprises), gardées en mémoire depuis le dernier démarrage du serveur :
+# nombre d'appels, temps total, temps maximum, appels de plus d'une seconde.
+# Consultables par l'admin : GET /api/admin/perf/routes (page Santé applicative).
+_PERF_STATS: Dict[str, List[float]] = {}
+_PERF_SINCE = datetime.now(timezone.utc).isoformat()
+
+
+def _perf_record(request, duration: float) -> None:
+    """Ajoute une mesure pour la route (modèle d'URL, ex. /api/me/contacts/{cid}/messages)."""
+    try:
+        route = request.scope.get("route")
+        tpl = getattr(route, "path", None)
+        # seules les routes réelles de l'API (une adresse inconnue n'est pas comptée)
+        if not tpl or not tpl.startswith("/api/"):
+            return
+        key = f"{request.method} {tpl}"
+        s = _PERF_STATS.get(key)
+        if s is None:
+            if len(_PERF_STATS) > 1500:        # garde-fou mémoire
+                return
+            s = _PERF_STATS[key] = [0, 0.0, 0.0, 0]
+        s[0] += 1
+        s[1] += duration
+        if duration > s[2]:
+            s[2] = duration
+        if duration > 1.0:
+            s[3] += 1
+    except Exception:  # noqa: BLE001
+        pass
+
+
 @app.middleware("http")
 async def request_timing_middleware(request, call_next):
     _start = _time_perf.time()
     try:
         response = await call_next(request)
         duration = _time_perf.time() - _start
+        _perf_record(request, duration)
         if duration > 5.0:
             try:
                 logger.warning(

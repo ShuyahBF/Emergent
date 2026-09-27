@@ -2776,7 +2776,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 </div>
               )}
 
-              <div className="flex gap-2 items-end">
+              {/* Lot 28 — barre d'outils AU-DESSUS de la zone de saisie : la zone de
+                  texte prend toute la largeur (elle était écrasée par les 5 boutons) */}
+              <div className="flex items-center gap-1.5 mb-1.5" data-testid="conversation-toolbar">
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -2827,6 +2829,10 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 {/* Lot 27 — emojis insérés à la position du curseur */}
                 <EmojiPicker textareaRef={textRef} value={text} onChange={setText} maxLength={4096}
                   disabled={sending || recState !== "idle"} testId="conversation-emoji" />
+                {/* Compteur de caractères, à droite de la barre d'outils */}
+                <span className="ml-auto text-[10px] text-slate-400 tabular-nums">{text.length} / 4096</span>
+              </div>
+              <div className="flex gap-2 items-end">
                 <textarea
                   ref={textRef}
                   value={text}
@@ -2836,9 +2842,9 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); sendFreeText(); }
                   }}
                   placeholder={pendingFile ? "Légende (optionnelle)…" : "Tapez votre réponse… (Cmd/Ctrl + Entrée pour envoyer, Ctrl+V pour coller une image)"}
-                  rows={2}
+                  rows={3}
                   maxLength={4096}
-                  className="flex-1 resize-none rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:ring-1 focus:ring-sawali-blue outline-none"
+                  className="flex-1 min-w-0 resize-y min-h-[76px] max-h-60 rounded-lg border border-slate-300 px-3 py-2 text-sm focus:border-sawali-blue focus:ring-1 focus:ring-sawali-blue outline-none"
                   data-testid="conversation-text-input"
                 />
                 <button
@@ -2851,7 +2857,6 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                   {sending ? "Envoi…" : "Envoyer"}
                 </button>
               </div>
-              <p className="text-[10px] text-slate-400 mt-1 tabular-nums">{text.length} / 4096</p>
             </div>
           ) : (
             <div className="px-5 py-3 bg-amber-50 border-t border-amber-100" data-testid="conversation-composer-closed">

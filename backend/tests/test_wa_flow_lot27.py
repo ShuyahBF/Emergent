@@ -179,7 +179,8 @@ def test_send_template_still_works_when_meta_listing_fails(monkeypatch):
 
 def test_server_webhook_and_event_wiring():
     """Le webhook lit la réponse du formulaire et émet « whatsapp.flow_completed »."""
-    src = (Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8")
+    from _source_serveur import source_serveur  # lot 28 : server.py découpé en server_parts/
+    src = source_serveur()
     assert "flow_reply = _wa_parse_flow_reply(interactive)" in src
     assert src.count('"whatsapp.flow_completed"') >= 3      # événement émis, supporté, listé
     assert "db.whatsapp_flow_responses.insert_one" in src

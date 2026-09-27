@@ -76,6 +76,10 @@ def test_files_hash_includes_routes_directory():
         routes_dir = backend_root / "routes"
         if routes_dir.is_dir():
             critical_paths.extend(sorted(routes_dir.glob("*.py")))
+        # Lot 28 — parties de server.py découpé
+        parts_dir = backend_root / "server_parts"
+        if parts_dir.is_dir():
+            critical_paths.extend(sorted(parts_dir.glob("*.py")))
         h = hashlib.sha256()
         for p in critical_paths:
             try:

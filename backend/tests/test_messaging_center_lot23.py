@@ -23,6 +23,7 @@ pytest.importorskip("mongomock_motor")
 from mongomock_motor import AsyncMongoMockClient  # noqa: E402
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
+from _source_serveur import lire_source  # noqa: E402 — lot 28 : server.py découpé en server_parts/
 FUNCS = {"_phone_suffix", "_contact_phone_clauses", "_wa_unread_summary", "me_whatsapp_unread",
          "me_contact_messages_mark_read", "me_contact_messages", "me_list_contacts",
          # Lot 24
@@ -40,7 +41,7 @@ class _HTTPException(Exception):
 def _load(db) -> Dict[str, Any]:
     """Extrait de server.py les fonctions du lot 23 (sans leurs décorateurs de
     route) et les exécute dans un espace de noms minimal."""
-    tree = ast.parse(SERVER.read_text())
+    tree = ast.parse(lire_source(SERVER))
     nodes = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in FUNCS:

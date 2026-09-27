@@ -22,6 +22,7 @@ pytest.importorskip("mongomock_motor")
 from mongomock_motor import AsyncMongoMockClient  # noqa: E402
 
 SERVER = Path(__file__).resolve().parents[1] / "server.py"
+from _source_serveur import lire_source  # noqa: E402 — lot 28 : server.py découpé en server_parts/
 FUNCS = {"_phone_suffix", "_phone_suffix_regex", "_find_contact_by_phone", "me_list_wa_pending_imports",
          "me_import_wa_pending", "_contact_completeness", "_duplicate_groups", "me_contacts_duplicates",
          "me_contacts_duplicates_delete"}
@@ -36,7 +37,7 @@ class _HTTPException(Exception):
 
 
 def _load(db):
-    tree = ast.parse(SERVER.read_text())
+    tree = ast.parse(lire_source(SERVER))
     nodes = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in FUNCS:

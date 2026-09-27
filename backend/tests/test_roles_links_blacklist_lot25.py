@@ -27,6 +27,7 @@ from starlette.responses import JSONResponse  # noqa: E402
 
 BACKEND = Path(__file__).resolve().parents[1]
 SERVER = BACKEND / "server.py"
+from _source_serveur import lire_source  # noqa: E402 — lot 28 : server.py découpé en server_parts/
 AUTH = BACKEND / "auth.py"
 if str(BACKEND) not in sys.path:
     sys.path.insert(0, str(BACKEND))
@@ -46,7 +47,7 @@ class _HTTPException(Exception):
 
 def _extract(path: Path, funcs: set, consts: set = frozenset()) -> List[ast.stmt]:
     """Extrait du fichier les fonctions (sans décorateurs) et constantes demandées."""
-    tree = ast.parse(path.read_text())
+    tree = ast.parse(lire_source(path))
     nodes = []
     for node in tree.body:
         if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in funcs:

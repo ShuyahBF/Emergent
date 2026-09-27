@@ -137,7 +137,8 @@ def test_weather_unavailable_is_not_an_error(monkeypatch):
 
 def test_content_disposition_accepts_any_name():
     import importlib.util
-    src = (Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8")
+    from _source_serveur import source_serveur  # lot 28 : server.py découpé en server_parts/
+    src = source_serveur()
     start = src.index("def _content_disposition(")
     import re
     m = re.compile(r"\n(?=[@A-Za-z_])").search(src, start + 10)   # fin : prochaine ligne non indentée

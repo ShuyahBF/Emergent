@@ -306,6 +306,94 @@ def _wa_clean_template_components(components: Optional[list]) -> Optional[list]:
     return cleaned
 
 
+def _wa_add_flow_button_components(components: Optional[list], template_def: Optional[dict], token_fn) -> tuple:
+    """Lot 27 — boutons « Flux » (FLOW) d'un modèle WhatsApp.
+    Meta refuse l'envoi d'un modèle qui contient un bouton FLOW si le message
+    ne porte pas, pour ce bouton, un composant
+    {"type":"button","sub_type":"flow","index":"<i>","parameters":[{"type":"action","action":{"flow_token":"..."}}]}.
+    Le portail ne l'envoyait pas (seuls les boutons URL avaient un composant).
+    On lit la définition du modèle (`template_def`, venant de Meta) et on
+    ajoute ce composant pour chaque bouton FLOW qui n'en a pas.
+    Retourne (composants, liste des jetons ajoutés [(index, flow_token)])."""
+    added = []
+    if not isinstance(template_def, dict):
+        return (components, added)
+    comps = [dict(c) if isinstance(c, dict) else c for c in (components or [])]
+    # Boutons du modèle, dans l'ordre (l'index Meta = position dans la liste)
+    buttons = []
+    for c in template_def.get("components") or []:
+        if isinstance(c, dict) and (c.get("type") or "").upper() == "BUTTONS":
+            buttons = c.get("buttons") or []
+            break
+    for i, btn in enumerate(buttons):
+        if not isinstance(btn, dict) or (btn.get("type") or "").upper() != "FLOW":
+            continue
+        # Composant déjà présent pour cet index ?
+        existing = None
+        for c in comps:
+            if (isinstance(c, dict) and (c.get("type") or "").lower() == "button"
+                    and str(c.get("index")) == str(i)):
+                existing = c
+                break
+        if existing is not None:
+            if (existing.get("sub_type") or "").lower() == "flow" and existing.get("parameters"):
+                continue                                   # déjà correct : on ne touche pas
+            comps.remove(existing)                         # mauvais type (ex. quick_reply) : remplacé
+        token = token_fn()
+        comps.append({
+            "type": "button", "sub_type": "flow", "index": str(i),
+            "parameters": [{"type": "action", "action": {"flow_token": token}}],
+        })
+        added.append((i, token))
+    if not added:
+        return (components, added)
+    return (comps, added)
+
+
+def _wa_parse_flow_reply(interactive: Optional[dict]) -> Optional[dict]:
+    """Lot 27 — réponse d'un formulaire WhatsApp (Flow) reçue par le webhook.
+    Meta l'envoie comme message « interactive » de type « nfm_reply » :
+    {"type":"nfm_reply","nfm_reply":{"name":"flow","body":"Sent","response_json":"{...}"}}.
+    Retourne {flow_token, fields: {champ: valeur}, summary (texte lisible), name, raw}
+    ou None si ce n'est pas une réponse de formulaire."""
+    import re as _re
+    if not isinstance(interactive, dict) or interactive.get("type") != "nfm_reply":
+        return None
+    nfm = interactive.get("nfm_reply") or {}
+    raw = nfm.get("response_json")
+    data = {}
+    if isinstance(raw, dict):
+        data = raw
+    elif isinstance(raw, str) and raw.strip():
+        try:
+            data = json.loads(raw)
+        except Exception:  # noqa: BLE001
+            data = {"reponse": raw}
+    if not isinstance(data, dict):
+        data = {"reponse": data}
+    flow_token = str(data.get("flow_token") or "")
+    fields = {k: v for k, v in data.items() if k != "flow_token"}
+
+    def _fmt(v):
+        # Listes (cases à cocher) -> « a, b » ; objets -> JSON court
+        if isinstance(v, list):
+            return ", ".join(str(x) for x in v)
+        if isinstance(v, dict):
+            return json.dumps(v, ensure_ascii=False)
+        return str(v)
+    lines = ["📋 Formulaire WhatsApp complété"]
+    for k, v in fields.items():
+        label = str(k).replace("_", " ").strip()
+        # Les identifiants techniques Meta (ex. « screen_0_Nom_0 ») sont raccourcis en « Nom »
+        label = _re.sub(r"^screen \d+ ", "", label)
+        label = _re.sub(r" \d+$", "", label).strip()
+        lines.append(f"• {label or k} : {_fmt(v)}")
+    if not fields:
+        lines.append(str(nfm.get("body") or "(réponse vide)"))
+    return {"flow_token": flow_token, "fields": fields, "summary": "\n".join(lines),
+            "name": nfm.get("name") or "flow", "raw": data}
+
+
 def attach_whatsapp_helpers(
     *,
     db,
@@ -339,6 +427,7 @@ def attach_whatsapp_helpers(
                 return {
                     "access_token": token,
                     "phone_number_id": phone_id,
+                    "waba_id": (smart.get("wa_waba_id") or "").strip(),   # Lot 27 : modèles (boutons Flux)
                     "source": "tenant",
                     "tenant_id": tid,
                 }
@@ -346,9 +435,50 @@ def attach_whatsapp_helpers(
         return {
             "access_token": (g.get("wa_access_token") or "").strip(),
             "phone_number_id": (g.get("wa_phone_number_id") or "").strip(),
+            "waba_id": (g.get("wa_business_account_id") or "").strip(),  # Lot 27 : modèles (boutons Flux)
             "source": "global",
             "tenant_id": None,
         }
+
+    # Lot 27 — définitions des modèles Meta, mémorisées 1 h (clé : WABA, nom, langue).
+    # Sert à savoir si un modèle contient un bouton « Flux » (FLOW).
+    _tpl_def_cache: Dict[tuple, tuple] = {}
+
+    async def _wa_fetch_template_def(waba_id: str, access_token: str, name: str, language: str) -> Optional[dict]:
+        """Définition d'un modèle (ses composants) lue chez Meta, ou None.
+        Au mieux : une erreur réseau ne bloque jamais l'envoi."""
+        import time as _time
+        if not waba_id or not access_token or not name:
+            return None
+        key = (waba_id, name, (language or "").lower())
+        hit = _tpl_def_cache.get(key)
+        if hit and hit[0] > _time.time():
+            return hit[1]
+        found = None
+        try:
+            async with httpx.AsyncClient(timeout=8) as http:
+                r = await http.get(
+                    f"https://graph.facebook.com/{wa_graph_version}/{waba_id}/message_templates",
+                    params={"name": name, "fields": "name,language,status,components", "limit": 50},
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+            if r.status_code < 300:
+                items = (r.json() or {}).get("data") or []
+                same_name = [t for t in items if t.get("name") == name]
+                lang = (language or "").lower()
+                # Même langue d'abord (fr, fr_FR…), puis même langue de base, sinon la première version
+                found = (next((t for t in same_name if (t.get("language") or "").lower() == lang), None)
+                         or next((t for t in same_name
+                                  if (t.get("language") or "").lower().split("_")[0] == lang.split("_")[0]), None)
+                         or (same_name[0] if same_name else None))
+                _tpl_def_cache[key] = (_time.time() + 3600, found)
+            else:
+                logger.info("[wa-flow] définition du modèle %s illisible (HTTP %s)", name, r.status_code)
+                _tpl_def_cache[key] = (_time.time() + 300, None)
+        except Exception as exc:  # noqa: BLE001
+            logger.info("[wa-flow] définition du modèle %s indisponible : %s", name, exc)
+            return None
+        return found
 
     async def _wa_send_template(
         to_e164: str,
@@ -381,6 +511,15 @@ def attach_whatsapp_helpers(
             "type": "template",
             "template": {"name": template_name, "language": {"code": language_code}},
         }
+        # Lot 27 : un modèle avec bouton « Flux » (FLOW) exige un composant
+        # bouton portant un flow_token. On lit le modèle chez Meta et on l'ajoute.
+        flow_added = []
+        try:
+            tpl_def = await _wa_fetch_template_def(creds.get("waba_id") or "", access_token, template_name, language_code)
+            components, flow_added = _wa_add_flow_button_components(
+                components, tpl_def, lambda: f"sawali-{uuid_fn()}")
+        except Exception as exc:  # noqa: BLE001
+            logger.info("[wa-flow] ajout du bouton Flux ignoré : %s", exc)
         if components:
             # Lot 26 : valeurs nettoyées (retours à la ligne, tabulations, espaces)
             body["template"]["components"] = _wa_clean_template_components(components)
@@ -401,6 +540,16 @@ def attach_whatsapp_helpers(
                     mid = None
                     if isinstance(raw, dict) and raw.get("messages"):
                         mid = raw["messages"][0].get("id")
+                    # Lot 27 : jeton du formulaire -> destinataire et modèle (réponse reliée plus tard)
+                    for _idx, _tok in flow_added:
+                        try:
+                            await db.whatsapp_flow_sends.insert_one({
+                                "flow_token": _tok, "to": to_clean, "template": template_name,
+                                "language": language_code, "button_index": _idx, "message_id": mid,
+                                "tenant_id": creds.get("tenant_id"), "created_at": now_fn(),
+                            })
+                        except Exception:  # noqa: BLE001
+                            pass
                     return {"ok": True, "status": r.status_code, "message_id": mid, "error": None, "raw": raw}
                 err_msg = None
                 err_details = None

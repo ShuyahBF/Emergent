@@ -2447,7 +2447,31 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
         sent_ok = 0
         sent_ko = 0
         skipped_no_phone = 0
+        skipped_recent = 0
+        skipped_too_old = 0
+        # Lot 27 — garde-fous de la relance AUTOMATIQUE (le planificateur a été
+        # inactif des mois) : pas de nouvelle relance si la précédente date de
+        # moins de 6 jours, et pas de relance automatique d'une facture échue
+        # depuis plus de 90 jours (à relancer à la main après vérification :
+        # elle a peut-être été réglée sans être marquée payée).
+        now_dt = datetime.now(timezone.utc)
+
+        def _parse_dt(v):
+            try:
+                d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
+                return d if d.tzinfo else d.replace(tzinfo=timezone.utc)
+            except Exception:  # noqa: BLE001
+                return None
         for inv in invoices:
+            if triggered_by == "cron":
+                last = _parse_dt(inv.get("last_reminder_at"))
+                if last and (now_dt - last).days < 6:
+                    skipped_recent += 1
+                    continue
+                due = _parse_dt(inv.get("due_date"))
+                if due and (now_dt - due).days > 90:
+                    skipped_too_old += 1
+                    continue
             r = await _send_one_reminder(inv, actor_id=f"{triggered_by}")
             results.append(r)
             if r.get("ok"):
@@ -2466,6 +2490,8 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "sent_ok": sent_ok,
             "sent_ko": sent_ko,
             "skipped_no_phone": skipped_no_phone,
+            "skipped_recent_reminder": skipped_recent,   # lot 27
+            "skipped_too_old": skipped_too_old,          # lot 27
             "grace_days": grace_days,
             "business_clients_count": len(eligible_bcs),
             "email_report": {"sent": False, "to": recipient, "error": None},
@@ -2650,4 +2676,62 @@ def make_router(*, db, get_current_user, get_current_admin, get_current_supervis
             "canonical_users_sample": sample,
         }
 
+    # ----------------------------------------------------------------
+    # Lot 27 — Facture créée par le serveur (bilan « Formulaires & Sondages »).
+    # Même numérotation, mêmes totaux, même QR code qu'une facture saisie dans
+    # la Caisse. Émise par le tenant de `user` (ex. SAWALI) au client
+    # `client_user` : sa fiche « client en compte » est retrouvée (champ
+    # linked_user_id) ou créée à partir de son compte.
+    # ----------------------------------------------------------------
+    async def create_invoice_for_client(user: dict, client_user: dict, items: List[dict], *,
+                                        notes: Optional[str] = None, due_date: Optional[str] = None,
+                                        kind: str = "invoice") -> dict:
+        if kind not in ("proforma", "invoice"):
+            raise HTTPException(status_code=400, detail="kind doit être 'proforma' ou 'invoice'")
+        if not items:
+            raise HTTPException(status_code=400, detail="Aucune ligne à facturer")
+        tid = await _tenant_id_of(user)
+        bc = await db.business_clients.find_one(
+            {"tenant_id": tid, "linked_user_id": client_user["id"], "deleted_at": None}, {"_id": 0})
+        if not bc:
+            from routes._counters import gen_internal_id  # import local (évite les cycles)
+            bc = {
+                "id": str(uuid.uuid4()), "client_no": await gen_internal_id(db, "CLI"),
+                "name": client_user.get("company") or client_user.get("full_name") or client_user.get("email") or "Client",
+                "phone": client_user.get("phone"), "whatsapp": client_user.get("whatsapp") or client_user.get("phone"),
+                "email": client_user.get("email"),
+                "billing_address": client_user.get("billing_address") or client_user.get("city"),
+                "nif": client_user.get("nif") or client_user.get("ifu"), "rccm": client_user.get("rccm"),
+                "linked_user_id": client_user["id"], "balance": 0.0, "auto_relance_enabled": False,
+                "relance_channel": "whatsapp", "created_at": _now_iso(), "created_by": user["id"],
+                "tenant_id": tid, "deleted_at": None,
+            }
+            await db.business_clients.insert_one(bc.copy())
+        lines = [{"product_id": None, "label": str(it["label"])[:300], "quantity": float(it["quantity"]),
+                  "unit_price_ht": float(it["unit_price_ht"]), "tva_pct": float(it.get("tva_pct") or 0),
+                  "unit": it.get("unit")} for it in items]
+        totals = _compute_invoice_totals(lines, "none", 0)
+        year = datetime.now(timezone.utc).year
+        seq = await _next_year_seq(f"invoices:{kind}", year)
+        token = secrets.token_urlsafe(24)
+        doc = {
+            "id": str(uuid.uuid4()), "number": f"{'FP' if kind == 'proforma' else 'F'}-{year}-{seq:04d}",
+            "year": year, "seq": seq, "kind": kind, "status": "issued",
+            "business_client_id": bc["id"],
+            "business_client_snapshot": {k: bc.get(k) for k in ("name", "billing_address", "shipping_address",
+                                                                "nif", "rccm", "phone", "whatsapp", "email")},
+            "items": lines, **totals, "discount_kind": "none", "discount_value": 0.0,
+            "amount_in_words": amount_to_words_fr(totals["net_to_pay"]),
+            "notes": notes, "due_date": due_date,
+            "created_by": user["id"], "created_by_name": user.get("full_name") or user.get("email"),
+            "created_at": _now_iso(), "paid_at": None, "paid_via_receipt_id": None, "cancelled_at": None,
+            "qr_token": token, "qr_url": await _build_verify_url(token),
+            "tenant_id": tid, "tenant_snapshot": await _resolve_client_lie(user),
+            "source": "portfolio_report",
+        }
+        await db.invoices.insert_one(doc.copy())
+        doc.pop("_id", None)
+        return doc
+
+    router.create_invoice_for_client = create_invoice_for_client
     return router, run_auto_relance

@@ -226,8 +226,10 @@ export default function FormRunner() {
 
 // =====================================================================
 // Per-field input. New types: table, file, signature.
+// Lot 27 — exporté : l'aperçu en direct de l'éditeur de formulaires utilise
+// exactement le même rendu que le formulaire réel.
 // =====================================================================
-const FieldInput = ({ field, value, onChange }) => {
+export const FieldInput = ({ field, value, onChange }) => {
   const commonCls = "w-full rounded-lg border border-slate-300 px-3 py-2 text-sm focus:outline-none focus:border-sawali-blue focus:ring-2 focus:ring-sawali-blue/20";
   switch (field.type) {
     case "textarea":

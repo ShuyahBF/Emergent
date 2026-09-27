@@ -737,6 +737,10 @@ export default function WaBulk() {
                       </td>
                       <td className="px-3 py-2 hidden sm:table-cell text-center font-mono text-xs">
                         {(sc.recipients || []).length}
+                        {/* Lot 27 — motif d'annulation (ex. envoi trop en retard, non parti automatiquement) */}
+                        {sc.status === "cancelled" && sc.result_summary?.error && (
+                          <span className="text-[10px] text-slate-500 block max-w-[220px]" data-testid={`wa-sched-cancel-reason-${sc.id}`}>{sc.result_summary.error}</span>
+                        )}
                         {sc.result_summary?.sent_ok != null && (
                           <span className="text-[10px] text-emerald-700 block">✓ {sc.result_summary.sent_ok}</span>
                         )}

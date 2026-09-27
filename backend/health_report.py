@@ -8,6 +8,7 @@ Pure-Python (reportlab), no system deps. Returns the PDF bytes.
 """
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 from typing import Any, Dict, List
@@ -570,5 +571,6 @@ async def build_weekly_health_pdf(snapshot_meta: Dict[str, Any] | None = None) -
         small,
     ))
 
-    doc.build(story)
+    # Lot 27 : mise en page du PDF dans un thread (ne fige plus le serveur)
+    await asyncio.to_thread(doc.build, story)
     return buf.getvalue()

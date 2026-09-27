@@ -111,6 +111,8 @@ SEED_KEYS: List[Dict[str, str]] = [
     {"key": "nav.reports", "fr": "Mes rapports", "en": "My reports", "ar": "تقاريري", "context": "Sidebar"},
     {"key": "nav.followups", "fr": "Mes suivis", "en": "My follow-ups", "ar": "متابعاتي", "context": "Sidebar"},
     {"key": "nav.forms", "fr": "Formulaires", "en": "Forms", "ar": "النماذج", "context": "Sidebar"},
+    # Lot 27 — entrée fusionnée « Formulaires & Sondages » (bascule dans la page)
+    {"key": "nav.forms_surveys", "fr": "Formulaires & Sondages", "en": "Forms & Surveys", "ar": "النماذج والاستطلاعات", "context": "Sidebar"},
     {"key": "nav.contacts", "fr": "Centre de Messagerie", "en": "Messaging Center", "ar": "مركز المراسلة", "context": "Sidebar"},
     {"key": "nav.tickets", "fr": "Tickets", "en": "Tickets", "ar": "التذاكر", "context": "Sidebar"},
     {"key": "nav.liluvine", "fr": "Liluvine PRO (Assistant IA)", "en": "Liluvine PRO (AI Assistant)", "ar": "ليلوفين برو (مساعد الذكاء الاصطناعي)", "context": "Sidebar"},

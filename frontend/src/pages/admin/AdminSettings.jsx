@@ -3077,6 +3077,13 @@ export default function AdminSettings() {
             placeholder="5"
             testid="contract-overdue-days-default"
           />
+          {/* Lot 27 — interrupteur général de la suspension automatique */}
+          <Toggle
+            label="Suspendre automatiquement les comptes en retard (selon le seuil de suspension de chaque fiche client)"
+            value={!!s.contract_auto_suspend_enabled}
+            onChange={(v) => upd("contract_auto_suspend_enabled", v)}
+            testid="toggle-contract-auto-suspend"
+          />
           <button
             type="button"
             onClick={async () => {

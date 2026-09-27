@@ -130,6 +130,12 @@ import VoiceStudio from "@/pages/portal/VoiceStudio";
 import { CheckoutSuccess, CheckoutCancel } from "@/pages/public/CheckoutPages";
 import SmsBulk from "@/pages/portal/SmsBulk";
 import WaBulk from "@/pages/portal/WaBulk";
+// Lot 27 — Sondages WhatsApp
+import Surveys from "@/pages/portal/Surveys";
+import SurveyEditor from "@/pages/portal/SurveyEditor";
+import SurveyResults from "@/pages/portal/SurveyResults";
+import PublicSurvey from "@/pages/public/PublicSurvey";
+import PortfolioInvoices from "@/pages/portal/PortfolioInvoices";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
 import CashBilling from "@/pages/portal/CashBilling";
@@ -274,6 +280,8 @@ export default function App() {
           {/* 2026-02 fork (P3 recap) — Deep-link auto-login from médecin planning WA digest */}
           <Route path="/wa-recap" element={<WaPlanningRecap />} />
           <Route path="/f/:fid" element={<PublicForm />} />
+          {/* Lot 27 — réponse à un sondage WhatsApp (lien personnel, sans compte) */}
+          <Route path="/s/:token" element={<PublicSurvey />} />
           <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />
           <Route path="/documentation" element={<ApiDocs />} />
@@ -318,6 +326,10 @@ export default function App() {
             <Route path="forms/:fid/edit" element={<FormEditor />} />
             <Route path="forms/:fid/fill" element={<FormRunner />} />
             <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
+            <Route path="surveys" element={<Surveys />} />
+            <Route path="surveys/:sid/edit" element={<SurveyEditor />} />
+            <Route path="surveys/:sid/results" element={<SurveyResults />} />
+            <Route path="portfolio-invoices" element={<PortfolioInvoices />} />
             <Route path="contacts" element={<Contacts />} />
             <Route path="contact-groups" element={<ContactGroups />} />
             <Route path="error-registry" element={<ErrorRegistry />} />
@@ -411,6 +423,10 @@ export default function App() {
             <Route path="forms/:fid/edit" element={<FormEditor />} />
             <Route path="forms/:fid/fill" element={<FormRunner />} />
             <Route path="forms/:fid/analytics" element={<FormAnalyticsDetail />} />
+            <Route path="surveys" element={<Surveys />} />
+            <Route path="surveys/:sid/edit" element={<SurveyEditor />} />
+            <Route path="surveys/:sid/results" element={<SurveyResults />} />
+            <Route path="portfolio-invoices" element={<PortfolioInvoices />} />
             <Route path="messaging" element={<AdminMessaging />} />
             <Route path="automations" element={<AdminAutomations />} />
             <Route path="whatsapp-templates" element={<AdminWaTemplates />} />

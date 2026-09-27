@@ -3,7 +3,8 @@
  * Aggregates WhatsApp + Messenger threads. Two-pane layout: thread list (left)
  * and message view (right). Channel-colored badges and unread counts.
  */
-import React, { useCallback, useEffect, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
+import EmojiPicker from "@/components/EmojiPicker";
 import { apiClient } from "@/lib/api";
 import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -25,6 +26,7 @@ export default function UnifiedInbox() {
   const [loadingMsgs, setLoadingMsgs] = useState(false);
   const [filterCh, setFilterCh] = useState("all");
   const [composer, setComposer] = useState("");
+  const composerRef = useRef(null);   // lot 27 : insertion d'emojis au curseur
   const [sending, setSending] = useState(false);
   // Iter43-fix24d — Badge coût Bird du jour
   const [birdCost, setBirdCost] = useState(null);
@@ -309,7 +311,10 @@ export default function UnifiedInbox() {
               </div>
               <div className="p-3 border-t border-slate-200">
                 <div className="flex items-end gap-2">
+                  {/* Lot 27 — emojis */}
+                  <EmojiPicker textareaRef={composerRef} value={composer} onChange={setComposer} disabled={sending} testId="inbox-emoji" />
                   <textarea
+                    ref={composerRef}
                     value={composer} onChange={(e) => setComposer(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
                     placeholder={`Répondre via ${selected.channel === "whatsapp" ? "WhatsApp" : "Messenger"}…`}

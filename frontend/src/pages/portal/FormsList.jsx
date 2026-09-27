@@ -4,6 +4,7 @@ import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
+import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 
 // Form catalogue : user's forms + public forms from other clients
 export default function FormsList() {
@@ -113,9 +114,11 @@ export default function FormsList() {
 
   return (
     <div className="max-w-6xl space-y-6" data-testid="forms-list-page">
+      {/* Lot 27 — bascule Formulaires / Sondages WhatsApp */}
+      <FormsSurveysTabs active="forms" />
       <div className="flex items-center justify-between gap-4 flex-wrap">
         <div>
-          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Formulaires</p>
+          <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Formulaires &amp; Sondages</p>
           <h1 className="text-2xl font-display font-bold flex items-center gap-2">
             <FileText className="h-5 w-5 text-sawali-blue" /> Bibliothèque de formulaires
           </h1>

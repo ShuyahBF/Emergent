@@ -452,7 +452,10 @@ export default function SmsBulk() {
                       <td className="px-3 py-2 hidden md:table-cell max-w-[300px] truncate text-xs text-slate-600" title={sc.message_template}>{sc.message_template}</td>
                       <td className="px-3 py-2 hidden sm:table-cell text-center font-mono text-xs">
                         {(sc.contact_ids || []).length}
-                        {sc.result_summary && <span className="text-[10px] text-emerald-700 block">✓ {sc.result_summary.sent_ok || 0}</span>}
+                        {/* Lot 27 — motif d'annulation (ex. envoi trop en retard, non parti automatiquement) */}
+                        {sc.status === "cancelled" && sc.result_summary?.error
+                          ? <span className="text-[10px] text-slate-500 block max-w-[220px]">{sc.result_summary.error}</span>
+                          : sc.result_summary && <span className="text-[10px] text-emerald-700 block">✓ {sc.result_summary.sent_ok || 0}</span>}
                       </td>
                       <td className="px-3 py-2 hidden lg:table-cell text-xs">{(sc.provider || "auto").toUpperCase()}</td>
                       <td className="px-3 py-2">

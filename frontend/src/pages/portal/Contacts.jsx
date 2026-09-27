@@ -1,4 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import EmojiPicker from "@/components/EmojiPicker";
+import ImageAnnotator from "@/components/ImageAnnotator";
 import { Link, useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
@@ -9,7 +11,7 @@ import {
   Upload, Image as ImageIcon, FileText as FileTextIcon, Video, Info,
   CalendarClock, Trash, Link2, CreditCard, UserPlus, Inbox, Building2, Download,
   Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft, FolderOpen, ShoppingBag, FileEdit,
-  Sparkles, Loader2, ClipboardPaste, ArrowDown,
+  Sparkles, Loader2, ClipboardPaste, ArrowDown, PenTool,
 } from "lucide-react";
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
@@ -1697,6 +1699,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
+  const textRef = useRef(null);   // lot 27 : zone de saisie (insertion d'emojis au curseur)
   // Iter38r-fix4 — Share-from-library modal (média / formulaire / catalogue)
   const [shareModal, setShareModal] = useState({ open: false, tab: "media", items: [], loading: false, query: "" });
   const [sending, setSending] = useState(false);
@@ -1704,6 +1707,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   // the user but not yet uploaded. We show a small preview row above the text
   // composer and let them add a caption before pressing Envoyer.
   const [pendingFile, setPendingFile] = useState(null); // { file, kind, previewUrl }
+  const [annotating, setAnnotating] = useState(false);  // lot 27 : annotation de l'image jointe
   // Iter37h — Voice recording state (MediaRecorder)
   const [recState, setRecState] = useState("idle"); // idle | recording | transcribing
   const [recElapsed, setRecElapsed] = useState(0);
@@ -1927,7 +1931,7 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     const ext = (blob.type.split("/")[1] || "png").replace("jpeg", "jpg");
     const file = blob instanceof File && blob.name ? blob : new File([blob], `${fallbackName}.${ext}`, { type: blob.type });
     setPendingFile({ file, kind: "image", previewUrl: URL.createObjectURL(file) });
-    toast.success("Image du presse-papiers jointe — ajoutez une légende si besoin, puis Envoyer.");
+    toast.success("Image du presse-papiers jointe — « Annoter » pour ajouter flèches ou cercles, une légende si besoin, puis Envoyer.");
     return true;
   };
 
@@ -1961,6 +1965,16 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
     } catch {
       toast.error("Accès au presse-papiers refusé par le navigateur — utilisez Ctrl+V dans la zone de saisie.");
     }
+  };
+
+  // Lot 27 — l'image annotée remplace la pièce jointe (même légende, même envoi)
+  const onAnnotated = (annotatedFile) => {
+    if (pendingFile?.previewUrl) {
+      try { URL.revokeObjectURL(pendingFile.previewUrl); } catch { /* noop */ }
+    }
+    setPendingFile({ file: annotatedFile, kind: "image", previewUrl: URL.createObjectURL(annotatedFile) });
+    setAnnotating(false);
+    toast.success("Annotations ajoutées — vérifiez l'aperçu puis Envoyer.");
   };
 
   const clearPendingFile = () => {
@@ -2719,11 +2733,15 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 </div>
               )}
 
+              {annotating && pendingFile?.kind === "image" && (
+                <ImageAnnotator file={pendingFile.file} onCancel={() => setAnnotating(false)} onDone={onAnnotated} />
+              )}
               {/* Iter35l — Pending media preview row */}
               {pendingFile && (
                 <div className="flex items-center gap-3 mb-2 rounded-lg bg-emerald-50 ring-1 ring-emerald-200 p-2" data-testid="conversation-pending-media">
                   {pendingFile.kind === "image" && pendingFile.previewUrl ? (
-                    <img src={pendingFile.previewUrl} alt="" className="h-12 w-12 object-cover rounded ring-1 ring-emerald-300" />
+                    <img src={pendingFile.previewUrl} alt="" onClick={() => !sending && setAnnotating(true)} title="Annoter l'image"
+                      className="h-12 w-12 object-cover rounded ring-1 ring-emerald-300 cursor-pointer" />
                   ) : pendingFile.kind === "audio" ? (
                     <Mic className="h-8 w-8 text-emerald-700" />
                   ) : pendingFile.kind === "video" ? (
@@ -2735,6 +2753,18 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                     <p className="text-xs font-medium text-emerald-900 truncate">{pendingFile.file.name}</p>
                     <p className="text-[10px] text-emerald-700/80">{(pendingFile.file.size / 1024).toFixed(0)} Ko · {pendingFile.kind}</p>
                   </div>
+                  {/* Lot 27 — flèches, cercles, texte, flou… avant l'envoi */}
+                  {pendingFile.kind === "image" && (
+                    <button
+                      onClick={() => setAnnotating(true)}
+                      disabled={sending}
+                      className="inline-flex items-center gap-1 rounded-lg bg-white ring-1 ring-emerald-300 hover:bg-emerald-100 px-2 py-1 text-xs font-medium text-emerald-800 disabled:opacity-40"
+                      data-testid="conversation-pending-media-annotate"
+                      title="Annoter l'image : flèches, cercles, texte, numéros, flou"
+                    >
+                      <PenTool className="h-3.5 w-3.5" /> Annoter
+                    </button>
+                  )}
                   <button
                     onClick={clearPendingFile}
                     className="text-xs text-rose-600 hover:underline"
@@ -2794,7 +2824,11 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 >
                   <ClipboardPaste className="h-4 w-4" />
                 </button>
+                {/* Lot 27 — emojis insérés à la position du curseur */}
+                <EmojiPicker textareaRef={textRef} value={text} onChange={setText} maxLength={4096}
+                  disabled={sending || recState !== "idle"} testId="conversation-emoji" />
                 <textarea
+                  ref={textRef}
                   value={text}
                   onChange={(e) => setText(e.target.value)}
                   onPaste={onPasteComposer}
@@ -3484,6 +3518,7 @@ const SmsModal = ({ contact, onClose, onSent, userRole }) => {
   const [providers, setProviders] = useState({ default: "auto", active: [] });
   const [provider, setProvider] = useState("auto");
   const [message, setMessage] = useState("");
+  const smsRef = useRef(null);   // lot 27 : zone de saisie SMS (emojis)
   const [sender, setSender] = useState("");
   const [sending, setSending] = useState(false);
   const [result, setResult] = useState(null);
@@ -3575,7 +3610,12 @@ const SmsModal = ({ contact, onClose, onSent, userRole }) => {
                     insertCallback={insertLink}
                   />
                 </label>
+                <div className="flex justify-end mt-1">
+                  {/* Lot 27 — emojis (un emoji fait passer le SMS en Unicode : 70 caractères par SMS) */}
+                  <EmojiPicker textareaRef={smsRef} value={message} onChange={(v) => setMessage(v.slice(0, 800))} maxLength={800} testId="sms-emoji" />
+                </div>
                 <textarea
+                  ref={smsRef}
                   value={message}
                   onChange={(e) => setMessage(e.target.value.slice(0, 800))}
                   rows={6}
@@ -3583,6 +3623,17 @@ const SmsModal = ({ contact, onClose, onSent, userRole }) => {
                   className="w-full mt-1 rounded-lg border border-slate-300 px-3 py-2 text-sm"
                   data-testid="sms-message"
                 />
+                {/* Lot 27 — nombre de SMS : 160 caractères par SMS, 70 si le message contient un emoji ou un caractère spécial */}
+                {(() => {
+                  const unicode = /[^\u0000-\u00ff]/.test(message);
+                  const per = unicode ? (message.length > 70 ? 67 : 70) : (message.length > 160 ? 153 : 160);
+                  const count = message.length ? Math.ceil(message.length / per) : 0;
+                  return (
+                    <p className={`text-[10px] mt-0.5 ${unicode ? "text-amber-600" : "text-slate-400"}`} data-testid="sms-count">
+                      {message.length}/800 caractères · {count} SMS{unicode ? " — contient des emojis : envoi en Unicode (70 caractères par SMS)" : ""}
+                    </p>
+                  );
+                })()}
                 <p className="text-[10px] text-slate-400 mt-0.5">
                   Astuce : utilisez le bouton « Insérer un lien de paiement » pour ajouter un lien <code>/pay/&#123;slug&#125;</code>.
                 </p>

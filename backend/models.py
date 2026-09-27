@@ -1006,6 +1006,10 @@ class SettingsUpdate(BaseModel):
     # Default: 5 days after `last_payment_at` (or `contract_signed_at` if no
     # payment has been recorded yet).
     contract_overdue_days_default: Optional[int] = None
+    # Lot 27 — interrupteur général de la SUSPENSION AUTOMATIQUE des comptes
+    # en retard de paiement (désactivé par défaut : le scan quotidien a été
+    # inactif des mois, les règlements ont pu ne pas être saisis).
+    contract_auto_suspend_enabled: Optional[bool] = None
 
     # OpenAI — used for audio transcription (Whisper) inside Reports/Suivis
     openai_api_key: Optional[str] = None  # secret — masked when read (Whisper)

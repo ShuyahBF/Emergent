@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { formatBytes } from "@/components/R2StorageGauge";
+import PortfolioBillingSection from "@/pages/admin/sections/PortfolioBillingSection";
 import { toast } from "sonner";
 import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
 
@@ -505,6 +506,9 @@ export default function AdminClientFeatures() {
 
       {/* Lot 20 — Espace de stockage R2 (Gestion de Stocks) alloué à ce client */}
       <R2StorageQuotaSection clientId={id} />
+
+      {/* Lot 27 — facturation du portefeuille formulaires & sondages WhatsApp (tarifs, prompt IA, bilans) */}
+      <PortfolioBillingSection clientId={id} clientLabel={data?.client?.company || data?.client?.full_name || id} />
 
       {/* Iter41 Phase 2 — VIDAL mode selector (only shown when vidal_enabled=true) */}
       {features.vidal_enabled && (

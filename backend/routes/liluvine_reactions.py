@@ -76,6 +76,20 @@ KNOWN_COMMANDS: Dict[str, List[str]] = {
 }
 
 
+
+# Lot 27 — même règle que server.py (_phone_suffix_regex) : 8 derniers chiffres.
+PHONE_SUFFIX_LEN = 8
+
+
+def _phone_suffix_regex(raw: Optional[str]) -> Optional[str]:
+    """Regex Mongo « le numéro se termine par ces 8 chiffres », quelle que soit
+    la mise en forme stockée (espaces, points, « + », indicatif ou non)."""
+    digits = "".join(ch for ch in (raw or "") if ch.isdigit())
+    suffix = digits[-PHONE_SUFFIX_LEN:] if len(digits) >= PHONE_SUFFIX_LEN else digits
+    if len(suffix) < 6:
+        return None
+    return r"\D*".join(re.escape(ch) for ch in suffix) + r"\D*$"
+
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -720,12 +734,16 @@ def attach_liluvine_reactions_routes(
         cfg = await _get_config()
         if not cfg.get("auto_add_new_contacts"):
             return None
+        # Lot 27 — le numéro est reconnu sur ses 8 derniers chiffres, quelle que
+        # soit sa mise en forme (« 22661256822 », « +226 61 25 68 22 »…), comme
+        # dans le reste du webhook et l'outil de dédoublonnage. Avant, seule la
+        # forme exacte « +226… » était cherchée : un contact importé sans « + »
+        # n'était pas retrouvé et un doublon était recréé à chaque conversation.
+        rx = _phone_suffix_regex(digits)
+        if not rx:
+            return None
         existing = await db.directory_contacts.find_one(
-            {"$or": [
-                {"whatsapp": f"+{digits}"},
-                {"phone": f"+{digits}"},
-                {"phone_digits": digits},
-            ]},
+            {"$or": [{"whatsapp": {"$regex": rx}}, {"phone": {"$regex": rx}}, {"phone_digits": {"$regex": rx}}]},
             {"_id": 0, "id": 1},
         )
         if existing:

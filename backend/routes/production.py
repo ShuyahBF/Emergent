@@ -320,14 +320,14 @@ def attach_production_routes(*, api, db, get_current_user):
     @api.delete("/production/intrants/{iid}", tags=["Production"])
     async def delete_intrant(iid: str, user: Dict = Depends(get_current_user)):
         await _require_fabricant_admin(db, user)
-        # Refuser si utilisé dans au moins une recette (protège l'historique)
+        # Refuser si utilisé dans au moins une formulation (protège l'historique)
         in_use = await db.production_recipes.count_documents(
             {"client_id": _tenant_scope(user), "intrants.intrant_id": iid},
         )
         if in_use > 0:
             raise HTTPException(
                 status_code=409,
-                detail=f"Impossible de supprimer : {in_use} recette(s) utilisent cet intrant.",
+                detail=f"Impossible de supprimer : {in_use} formulation(s) utilisent cet intrant.",
             )
         res = await db.production_intrants.delete_one({"id": iid, "client_id": _tenant_scope(user)})
         if res.deleted_count == 0:
@@ -384,7 +384,7 @@ def attach_production_routes(*, api, db, get_current_user):
         if await db.production_recipes.find_one(_dup_q, {"_id": 0, "id": 1}):
             raise HTTPException(
                 status_code=409,
-                detail=f"Une recette existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
+                detail=f"Une formulation existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
             )
         doc: Dict[str, Any] = {
             "id": str(uuid.uuid4()),
@@ -436,7 +436,7 @@ def attach_production_routes(*, api, db, get_current_user):
         if await db.production_recipes.find_one(_dup_q, {"_id": 0, "id": 1}):
             raise HTTPException(
                 status_code=409,
-                detail=f"Une autre recette existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
+                detail=f"Une autre formulation existe déjà avec ce nom + dosage : « {payload.name.strip()} {dosage_number or ''} {dosage_unit or ''} ».",
             )
         res = await db.production_recipes.update_one(
             {"id": rid, "client_id": tenant},
@@ -458,7 +458,7 @@ def attach_production_routes(*, api, db, get_current_user):
             }},
         )
         if res.matched_count == 0:
-            raise HTTPException(status_code=404, detail="Recette introuvable")
+            raise HTTPException(status_code=404, detail="Formulation introuvable")
         doc = await db.production_recipes.find_one({"id": rid, "client_id": tenant}, {"_id": 0})
         return _compute_recipe(doc, default_m)
 
@@ -467,7 +467,7 @@ def attach_production_routes(*, api, db, get_current_user):
         await _require_fabricant_admin(db, user)
         res = await db.production_recipes.delete_one({"id": rid, "client_id": _tenant_scope(user)})
         if res.deleted_count == 0:
-            raise HTTPException(status_code=404, detail="Recette introuvable")
+            raise HTTPException(status_code=404, detail="Formulation introuvable")
         return {"ok": True, "id": rid}
 
     # Iter43-fix24az-l (2026-02-26) — Task 3 : Duplicate a recipe.
@@ -481,13 +481,13 @@ def attach_production_routes(*, api, db, get_current_user):
         tenant = _tenant_scope(user)
         src = await db.production_recipes.find_one({"id": rid, "client_id": tenant}, {"_id": 0})
         if not src:
-            raise HTTPException(status_code=404, detail="Recette source introuvable")
+            raise HTTPException(status_code=404, detail="Formulation source introuvable")
         default_m = await _default_margin(db)
         now = _now_iso()
         new_id = str(uuid.uuid4())
         # Compute a unique suffix on the name to avoid the uniqueness clash
         # when the user later saves without changing the dosage.
-        base_name = src.get("name") or "Recette"
+        base_name = src.get("name") or "Formulation"
         candidate = f"{base_name} (copie)"
         idx = 2
         while await db.production_recipes.find_one({
@@ -576,7 +576,7 @@ def attach_production_routes(*, api, db, get_current_user):
             {"id": rid, "client_id": _tenant_scope(user)}, {"_id": 0},
         )
         if not r:
-            raise HTTPException(status_code=404, detail="Recette introuvable")
+            raise HTTPException(status_code=404, detail="Formulation introuvable")
         rec = _compute_recipe(r, default_m)
         # Iter43-fix24az-l retest — Offload CPU-intensive ReportLab rendering.
         import asyncio as _asyncio
@@ -605,10 +605,10 @@ def _render_recipes_pdf(recipes: List[Dict[str, Any]], *, tenant_name: str) -> b
     story: List[Any] = []
     now_str = datetime.now(timezone.utc).strftime("%d/%m/%Y %H:%M UTC")
     story.append(Paragraph(f"<b>PRIX DE REVIENT / COÛT DE PRODUCTION</b> — {tenant_name}", styles["Title"]))
-    story.append(Paragraph(f"<font size=8 color='#666'>Édité le {now_str} · {len(recipes)} recette(s)</font>", styles["Normal"]))
+    story.append(Paragraph(f"<font size=8 color='#666'>Édité le {now_str} · {len(recipes)} formulation(s)</font>", styles["Normal"]))
     story.append(Spacer(1, 6 * mm))
     if not recipes:
-        story.append(Paragraph("Aucune recette enregistrée.", styles["Normal"]))
+        story.append(Paragraph("Aucune formulation enregistrée.", styles["Normal"]))
     else:
         # Build a matrix : rows = intrants (union), cols = recipes
         intrant_key = lambda i: i.get("name_snapshot", "?")  # noqa: E731

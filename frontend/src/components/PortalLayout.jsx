@@ -44,7 +44,12 @@ const clientLinks = [
   { to: "/portal/formations", label: "Formations Spécialisées", icon: GraduationCap, trackedOnly: true, module: "formations" },
   { to: "/portal/notes/reports", label: "Mes rapports", tKey: "nav.reports", icon: FileEdit, module: "reports" },
   { to: "/portal/notes/suivis", label: "Mes suivis", tKey: "nav.followups", icon: FileEdit, module: "suivis" },
-  { to: "/portal/forms", label: "Formulaires", tKey: "nav.forms", icon: FileText },
+  // Lot 27 — « Formulaires & Sondages » : une seule entrée (sidebar plus courte) ;
+  // la page bascule entre Formulaires et Sondages WhatsApp (FormsSurveysTabs).
+  // `alsoActive` : le lien reste en surbrillance sur les pages des sondages.
+  { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"] },
+  // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
+  { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
   // Lot 25 — `errorRegistryOnly` : lien affiché seulement aux rôles système que le
@@ -115,7 +120,9 @@ const adminLinks = [
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar, module: "admin_appointments" },
   { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions", badgeKey: "tickets_pending" },
   { to: "/admin/documents", label: "Documents", icon: FileText },
-  { to: "/admin/forms", label: "Formulaires", icon: FileEdit },
+  // Lot 27 — une seule entrée, bascule Formulaires / Sondages dans la page
+  { to: "/admin/forms", label: "Formulaires & Sondages", icon: FileEdit, alsoActive: ["/admin/surveys"] },
+  { to: "/admin/portfolio-invoices", label: "Bilans à facturer", icon: Receipt },   // lot 27
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
@@ -556,6 +563,7 @@ function PortalLayoutInner({ admin = false }) {
     // Resolve a friendly module label from the matching link
     const match = [...adminLinks, ...clientLinks].find((l) =>
       l.end ? path === l.to : path === l.to || path.startsWith(l.to + "/")
+        || (l.alsoActive || []).some((p) => path === p || path.startsWith(p + "/"))
     );
     const moduleLabel = match?.label || (path.startsWith("/admin") ? "Admin" : "Portail");
     apiClient.post("/me/access-log", { module: moduleLabel, page: path }).catch(() => {});
@@ -607,7 +615,9 @@ function PortalLayoutInner({ admin = false }) {
         <WeatherWidget variant="compact" placement="portal" className="w-full justify-start" />
       </div>
       <nav className="space-y-1">
-        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason }) => {
+        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive }) => {
+          // Lot 27 — actif aussi sur les chemins associés (ex. sondages sous « Formulaires & Sondages »)
+          const extraActive = (alsoActive || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
           // Lot 23 — le badge du Centre de Messagerie affiche le MÊME nombre que la cloche
           // et que les pastilles des contacts (/me/whatsapp/unread, relu toutes les 15 s
           // et dès qu'une conversation est lue), au lieu d'un second compteur relu toutes les 90 s.
@@ -658,7 +668,7 @@ function PortalLayoutInner({ admin = false }) {
               className={({ isActive }) =>
                 isDisabled
                   ? "sidebar-link opacity-40 cursor-not-allowed group"
-                  : `sidebar-link ${isActive ? "active" : ""} group`
+                  : `sidebar-link ${isActive || extraActive ? "active" : ""} group`
               }
               data-testid={`sidebar-link-${to.replace(/\//g, "-")}`}
               title={featureDisabled ? `${displayLabel} (non activé)` : (disabled ? (disabledReason || `${displayLabel} (non disponible)`) : undefined)}

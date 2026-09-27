@@ -5458,9 +5458,14 @@ async def _create_snapshot_record(comment: str, mask_secrets: bool, author_id: O
     file_name = f"snapshot_{snap_id}.json.gz"
     file_path = SNAPSHOTS_DIR / file_name
     snap_payload, stats = await _build_snapshot_payload(mask_secrets=mask_secrets)
-    raw = json.dumps(snap_payload, ensure_ascii=False, default=_json_default).encode("utf-8")
-    compressed = gzip.compress(raw, compresslevel=6)
-    file_path.write_bytes(compressed)
+    # Lot 27 : conversion, compression et écriture (lourdes, toute la base)
+    # exécutées dans un thread — la sauvegarde ne fige plus le serveur.
+    def _dump_and_write() -> tuple:
+        raw_bytes = json.dumps(snap_payload, ensure_ascii=False, default=_json_default).encode("utf-8")
+        packed = gzip.compress(raw_bytes, compresslevel=6)
+        file_path.write_bytes(packed)
+        return packed, len(raw_bytes)
+    compressed, raw_size = await asyncio.to_thread(_dump_and_write)
     meta = {
         "id": snap_id,
         "created_at": _now(),
@@ -5468,7 +5473,7 @@ async def _create_snapshot_record(comment: str, mask_secrets: bool, author_id: O
         "author_email": author_email,
         "comment": (comment or "").strip()[:500],
         "size_bytes": len(compressed),
-        "raw_size_bytes": len(raw),
+        "raw_size_bytes": raw_size,
         "collections_count": len([k for k, v in stats.items() if v > 0]),
         "total_documents": sum(stats.values()),
         "stats": stats,
@@ -5586,7 +5591,7 @@ async def _run_auto_snapshot(triggered_by: str = "cron:weekly") -> dict:
             try:
                 file_path = SNAPSHOTS_DIR / meta["file_name"]
                 if file_path.exists():
-                    content = file_path.read_bytes()
+                    content = await asyncio.to_thread(file_path.read_bytes)  # lot 27 : lecture hors du serveur principal
                     pretty_size = f"{len(content)/1024:.1f} kB"
                     # Build the companion weekly health report PDF
                     pdf_bytes = b""
@@ -14068,6 +14073,7 @@ from routes.whatsapp_helpers import (  # noqa: E402
     _wa_apply_image_watermark_qr,
     attach_whatsapp_helpers as _attach_whatsapp_helpers,
     WA_MEDIA_KIND_BY_MIME,
+    _wa_parse_flow_reply,  # Lot 27 : réponses des formulaires WhatsApp (Flow)
 )
 
 
@@ -16830,6 +16836,7 @@ async def me_sms_schedule_cancel(sid: str, user: dict = Depends(get_current_user
 async def _run_scheduled_sms():
     """APScheduler tick (every minute) — drain pending SMS schedules."""
     try:
+        await _expire_stale_schedules(db.sms_schedules, "sms")  # lot 27 : pas de rattrapage massif
         now_iso = datetime.now(timezone.utc).isoformat()
         due = await db.sms_schedules.find(
             {"status": "pending", "scheduled_at": {"$lte": now_iso}}, {"_id": 0},
@@ -17570,6 +17577,7 @@ async def whatsapp_webhook_incoming(request: Request):
                     profile_name = profile_by_wa.get(from_num) or profile_by_wa.get(digits_only)
                     mtype = msg.get("type") or "text"
                     text_body = None
+                    flow_reply = None  # Lot 27 : réponse d'un formulaire WhatsApp (Flow)
                     media_info: Optional[Dict[str, Any]] = None  # populated when we download a binary
                     media_caption: Optional[str] = None
                     if mtype == "text":
@@ -17643,8 +17651,11 @@ async def whatsapp_webhook_incoming(request: Request):
                             pass
                     elif mtype == "interactive":
                         interactive = msg.get("interactive") or {}
+                        # Lot 27 : formulaire WhatsApp (Flow) complété par le client.
+                        # Avant, cette réponse était perdue (seuls les boutons et listes étaient lus).
+                        flow_reply = _wa_parse_flow_reply(interactive)
                         reply = interactive.get("button_reply") or interactive.get("list_reply") or {}
-                        text_body = reply.get("title") or reply.get("id")
+                        text_body = (flow_reply or {}).get("summary") or reply.get("title") or reply.get("id")
                         # VIDAL riche — clic sur le bouton "Équivalences" affiché
                         # après une réponse `!doc`/`!rech` (voir vidal_riche.py).
                         btn_id = reply.get("id") or ""
@@ -17877,6 +17888,41 @@ async def whatsapp_webhook_incoming(request: Request):
                         }))
                     except Exception as _exc:  # noqa: BLE001
                         logger.warning("[whatsapp.received automation] emit failed: %s", _exc)
+                    # Lot 27 : réponse d'un formulaire WhatsApp (Flow) -> enregistrée et
+                    # événement d'automation « whatsapp.flow_completed ».
+                    if flow_reply:
+                        try:
+                            sent = None
+                            if flow_reply.get("flow_token"):
+                                sent = await db.whatsapp_flow_sends.find_one(
+                                    {"flow_token": flow_reply["flow_token"]}, {"_id": 0})
+                            await db.whatsapp_flow_responses.insert_one({
+                                "id": _uuid(),
+                                "flow_token": flow_reply.get("flow_token") or None,
+                                "template": (sent or {}).get("template"),
+                                "from": from_num,
+                                "sender_name": profile_name or (contact or {}).get("name") or "",
+                                "contact_id": (contact or {}).get("id"),
+                                "tenant_id": scope_for_msg,
+                                "fields": flow_reply.get("fields") or {},
+                                "summary": flow_reply.get("summary") or "",
+                                "message_id": msg.get("id"),
+                                "created_at": _now(),
+                            })
+                            import asyncio
+                            asyncio.create_task(_emit_event("whatsapp.flow_completed", {
+                                "client_id": scope_for_msg,
+                                "extra_ctx": {
+                                    "wa_from": from_num,
+                                    "wa_sender_name": profile_name or (contact or {}).get("name") or from_num,
+                                    "wa_flow_template": (sent or {}).get("template") or "",
+                                    # Une seule ligne (les modèles Meta refusent les retours à la ligne)
+                                    "wa_flow_summary": " · ".join(
+                                        (flow_reply.get("summary") or "").split("\n")[1:])[:900],
+                                },
+                            }))
+                        except Exception as _exc:  # noqa: BLE001
+                            logger.warning("[whatsapp.flow_completed] enregistrement échoué : %s", _exc)
                     # Iter34x — activity log for inbound WA
                     await _log_activity(
                         client_id=scope_for_msg,
@@ -19610,6 +19656,9 @@ SUPPORTED_AUTOMATION_EVENTS = {
     # répondre en préfixant sa réponse par le code (ex: "#R7X2 Bonjour..."),
     # Liluvine relaye au client sans exposer le numéro admin.
     "whatsapp.received",
+    # Lot 27 — Formulaire WhatsApp (Flow) complété par un client. Context tokens :
+    # {wa_from}, {wa_sender_name}, {wa_flow_template}, {wa_flow_summary}.
+    "whatsapp.flow_completed",
 }
 
 
@@ -19671,6 +19720,8 @@ async def admin_automation_events(_: dict = Depends(get_current_admin)):
              "description": "Nouvelle connexion validée (post-OTP). Contexte : {login_email}, {login_full_name}, {login_role}, {login_tracked_role}, {login_ip}, {login_time}."},
             {"value": "whatsapp.received", "label": "Nouveau message WhatsApp reçu",
              "description": "Message WA entrant. Contexte : {wa_from}, {wa_sender_name}, {wa_message}, {wa_reply_code}. L'admin peut répondre en préfixant `#R<code>` — Liluvine relaye au client sans exposer son numéro."},
+            {"value": "whatsapp.flow_completed", "label": "Formulaire WhatsApp (Flow) complété",
+             "description": "Un client a rempli le formulaire ouvert par un bouton « Flux » d'un modèle. Contexte : {wa_from}, {wa_sender_name}, {wa_flow_template}, {wa_flow_summary}."},
         ]
     }
 
@@ -20108,6 +20159,37 @@ async def admin_delete_schedule(sid: str, _: dict = Depends(get_current_admin)):
     return {"ok": True, "status": "deleted"}
 
 
+# Lot 27 — les tâches planifiées ont été inactives pendant des mois (bloc de
+# démarrage jamais exécuté). À leur réactivation, un envoi programmé en retard
+# de plus de SCHEDULE_MAX_LATE_HOURS ne part plus tout seul : il est annulé avec
+# un motif clair, visible dans l'historique, et peut être reprogrammé à la main.
+# (Évite d'envoyer d'un coup à des clients des messages vieux de plusieurs mois.)
+SCHEDULE_MAX_LATE_HOURS = 3
+
+
+async def _expire_stale_schedules(collection, kind: str) -> int:
+    """Annule les envois programmés encore « pending » mais trop en retard."""
+    limit_iso = (datetime.now(timezone.utc) - timedelta(hours=SCHEDULE_MAX_LATE_HOURS)).isoformat()
+    try:
+        res = await collection.update_many(
+            {"status": "pending", "scheduled_at": {"$lt": limit_iso}},
+            {"$set": {
+                "status": "cancelled",
+                "cancelled_reason": "stale",
+                "cancelled_at": _now(),
+                "updated_at": _now(),
+                "result_summary": {"error": f"Non envoyé : en retard de plus de {SCHEDULE_MAX_LATE_HOURS} h "
+                                            f"(planificateur inactif). Reprogrammez-le si besoin."},
+            }},
+        )
+        if res.modified_count:
+            logger.warning("[%s-scheduler] %s envoi(s) programmé(s) trop ancien(s) annulé(s)", kind, res.modified_count)
+        return res.modified_count
+    except Exception:  # noqa: BLE001
+        logger.exception("[%s-scheduler] annulation des envois trop anciens échouée", kind)
+        return 0
+
+
 async def _run_scheduled_whatsapp():
     """Cron job (runs every minute) — execute any pending schedule whose scheduled_at <= now.
 
@@ -20116,6 +20198,7 @@ async def _run_scheduled_whatsapp():
     a top-level `error` string in result_summary on hard failure.
     """
     try:
+        await _expire_stale_schedules(db.whatsapp_schedules, "wa")  # lot 27 : pas de rattrapage massif
         now_iso = datetime.now(timezone.utc).isoformat()
         due = await db.whatsapp_schedules.find(
             {"status": "pending", "scheduled_at": {"$lte": now_iso}},
@@ -22175,6 +22258,9 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
     today = datetime.now(timezone.utc).date()
     settings_doc = await db.settings.find_one({"_id": "global"}) or {}
     default_threshold = int(settings_doc.get("contract_overdue_days_default") or 5)
+    # Lot 27 — suspension automatique seulement si l'interrupteur général est
+    # activé (Paramètres → Contrats). Les alertes à l'administrateur continuent.
+    auto_suspend_on = bool(settings_doc.get("contract_auto_suspend_enabled"))
     # Only clients with either a `last_payment_at` or `contract_signed_at`.
     q = {
         "role": {"$in": ["admin", "client", "client-tracked"]},
@@ -22208,7 +22294,9 @@ async def _run_contract_overdue_alerts() -> Dict[str, Any]:
         # (default 5) still gets suspended on time.
         suspend_threshold = u.get("auto_suspend_after_overdue_days")
         if (
-            suspend_threshold is not None
+            auto_suspend_on                                   # lot 27 : interrupteur général
+            and not _is_super_admin(u)                        # lot 27 : jamais le super-admin
+            and suspend_threshold is not None
             and int(suspend_threshold) > 0
             and days >= int(suspend_threshold)
             and (u.get("account_status") or "active").lower() != "suspended"
@@ -22460,14 +22548,69 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
     return await _run_contract_overdue_alerts()
 
 
+
+# ====================================================================
+# Lot 27 — PLANIFICATEUR (APScheduler)
+# Ce bloc se trouvait par erreur APRÈS le « return » de
+# admin_run_contract_overdue_now : il ne s'exécutait jamais et AUCUNE tâche
+# planifiée ne tournait (envois WhatsApp/SMS programmés, rappels, résumés,
+# sauvegardes…). Il a maintenant son propre crochet de démarrage.
+# Garde-fous ajoutés pour la réactivation : envois programmés trop en retard
+# annulés (_expire_stale_schedules), relances Caisse automatiques bornées,
+# suspension automatique des comptes derrière un interrupteur général,
+# chaque tâche préparée séparément (une erreur n'empêche plus les autres).
+# ====================================================================
+_SCHEDULER_STATE = "pas encore démarré"
+
+
+@api.get("/admin/scheduler/status", tags=["Admin"])
+async def admin_scheduler_status(_: dict = Depends(get_current_admin)):
+    """Lot 27 — état du planificateur : démarré ou non (et pourquoi), liste des
+    tâches et date de leur prochain passage."""
+    jobs = []
+    if _scheduler is not None:
+        for j in _scheduler.get_jobs():
+            nrt = getattr(j, "next_run_time", None)
+            jobs.append({"id": j.id, "next_run": nrt.isoformat() if nrt else None})
+    return {"running": bool(_scheduler is not None and _scheduler.running), "state": _SCHEDULER_STATE,
+            "jobs": sorted(jobs, key=lambda x: x["id"]), "count": len(jobs),
+            "stale_schedule_limit_hours": SCHEDULE_MAX_LATE_HOURS}
+
+
+@app.on_event("startup")
+async def _start_scheduler():
+    global _scheduler
+    # Lot 27 — JAMAIS dans l'environnement PREVIEW : sa base reçoit des copies
+    # de la production (instantanés), il enverrait de vrais messages aux
+    # clients en double. Même détection que le résumé hebdomadaire.
+    # Variables : DISABLE_SCHEDULER=1 (coupe partout), SCHEDULER_IN_PREVIEW=1
+    # (force l'activation dans la preview, pour un test volontaire).
+    env_url = (os.environ.get("PUBLIC_BASE_URL", "") or os.environ.get("preview_endpoint", "")
+               or os.environ.get("REACT_APP_BACKEND_URL", ""))
+    global _SCHEDULER_STATE
+    if os.environ.get("DISABLE_SCHEDULER") == "1":
+        _SCHEDULER_STATE = "désactivé (DISABLE_SCHEDULER=1)"
+        logger.info("[scheduler] %s", _SCHEDULER_STATE)
+        return
+    if ".preview." in env_url and os.environ.get("SCHEDULER_IN_PREVIEW") != "1":
+        _SCHEDULER_STATE = f"non démarré : environnement PREVIEW ({env_url})"
+        logger.info("[scheduler] %s", _SCHEDULER_STATE)
+        return
+
+    def _safe_add_job(*args, **kwargs):
+        """Ajoute une tâche ; en cas d'erreur, on la journalise et on continue."""
+        try:
+            _scheduler.add_job(*args, **kwargs)
+        except Exception:  # noqa: BLE001
+            logger.exception("[scheduler] tâche %s non ajoutée", kwargs.get("id"))
+
     # ---------- Scheduler ----------
     try:
         from apscheduler.schedulers.asyncio import AsyncIOScheduler
         from apscheduler.triggers.cron import CronTrigger
-        global _scheduler
         if _scheduler is None:
             _scheduler = AsyncIOScheduler(timezone="Africa/Abidjan")
-            _scheduler.add_job(
+            _safe_add_job(
                 _send_weekly_digest,
                 CronTrigger(day_of_week="fri", hour=5, minute=0, timezone="Africa/Abidjan"),
                 id="health_weekly_digest",
@@ -22478,7 +22621,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # but always persists the result to db.auth_checks for the dashboard banner.
             async def _scheduled_auth_check():
                 await _run_auth_check(triggered_by="cron:hourly")
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_auth_check,
                 CronTrigger(minute=0, timezone="Africa/Abidjan"),
                 id="auth_checker_hourly",
@@ -22488,7 +22631,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # Hourly uptime monitor — multi-endpoint probes (db + public APIs).
             async def _scheduled_uptime():
                 await _run_uptime_probes(triggered_by="cron:hourly")
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_uptime,
                 CronTrigger(minute=5, timezone="Africa/Abidjan"),  # offset 5min from auth check
                 id="uptime_monitor_hourly",
@@ -22498,7 +22641,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # Iter35b — every 4h check whether Meta is calling our WA webhook.
             async def _scheduled_wa_silence():
                 await _run_wa_silence_check(triggered_by="cron:4h")
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_wa_silence,
                 CronTrigger(hour="*/4", minute=20, timezone="Africa/Abidjan"),
                 id="wa_silence_detector_4h",
@@ -22510,7 +22653,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # WhatsApp on failures (throttled 12h to avoid spam).
             async def _scheduled_integration_health():
                 await _run_integration_health_check(triggered_by="cron:4h")
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_integration_health,
                 CronTrigger(hour="*/4", minute=35, timezone="Africa/Abidjan"),
                 id="integration_health_monitor_4h",
@@ -22518,7 +22661,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                 misfire_grace_time=900,
             )
             # Minute-level WhatsApp scheduler — drains pending schedules due for send.
-            _scheduler.add_job(
+            _safe_add_job(
                 _run_scheduled_whatsapp,
                 CronTrigger(minute="*", timezone="Africa/Abidjan"),
                 id="whatsapp_scheduler_minutely",
@@ -22528,7 +22671,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # Iter43-fix24av (2026-02-26) — Minute-level LinkedIn auto-post tick.
             async def _scheduled_linkedin_autopost():
                 await _run_linkedin_autopost_tick(db)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_linkedin_autopost,
                 CronTrigger(minute="*", timezone="Africa/Abidjan"),
                 id="linkedin_autopost_minutely",
@@ -22538,7 +22681,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             # Iter43-fix24ay (2026-02-26) — Google Calendar Watch channel renewal (every 6h)
             async def _scheduled_gcal_watch_renewal():
                 await _run_gcal_watch_renewal(db)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_gcal_watch_renewal,
                 CronTrigger(hour="*/6", timezone="Africa/Abidjan"),
                 id="gcal_watch_renewal_6h",
@@ -22551,7 +22694,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_planning_wa_reminders()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[planning] reminder job failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_planning_wa_reminders,
                 CronTrigger(minute="*/5", timezone="UTC"),
                 id="planning_wa_reminders_5min",
@@ -22566,7 +22709,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_contract_overdue_alerts()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[contract-overdue] job failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_contract_overdue_alerts,
                 CronTrigger(hour=8, minute=15, timezone="Africa/Abidjan"),
                 id="contract_overdue_alerts_daily",
@@ -22579,7 +22722,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_recurring_billing_reminders()
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[billing-reminder] job failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_recurring_billing_reminders,
                 CronTrigger(hour=7, minute=45, timezone="Africa/Abidjan"),
                 id="recurring_billing_reminders_daily",
@@ -22588,7 +22731,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             )
             # Iter38d — Monthly payroll outbound webhook (1st of month, 03:00 UTC).
             try:
-                _scheduler.add_job(
+                _safe_add_job(
                     _pwh_router._scheduled_auto_dispatch,  # type: ignore[attr-defined]
                     CronTrigger(day=1, hour=3, minute=0, timezone="UTC"),
                     id="payroll_outbound_monthly",
@@ -22599,7 +22742,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             except Exception as _ex:
                 logger.warning("Failed to schedule payroll outbound webhook: %s", _ex)
             # Minute-level SMS scheduler — drains pending SMS schedules due for send.
-            _scheduler.add_job(
+            _safe_add_job(
                 _run_scheduled_sms,
                 CronTrigger(minute="*", timezone="Africa/Abidjan"),
                 id="sms_scheduler_minutely",
@@ -22607,7 +22750,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                 misfire_grace_time=120,
             )
             # Hourly appointment reminders (J-1 window).
-            _scheduler.add_job(
+            _safe_add_job(
                 _appointment_reminder_cron,
                 CronTrigger(minute=15, timezone="Africa/Abidjan"),
                 id="appointment_reminder_hourly",
@@ -22641,7 +22784,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     except Exception:
                         logger.exception("[synthese] minute_check crashed")
 
-                _scheduler.add_job(
+                _safe_add_job(
                     _synthese_minute_check,
                     CronTrigger(minute="*", timezone="Africa/Abidjan"),
                     id="liluvine_synthese_minutely",
@@ -22652,7 +22795,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
             except Exception as _ex:
                 logger.warning("Failed to schedule synthèse cron: %s", _ex)
             # Hourly task reminders (1h window before due_at).
-            _scheduler.add_job(
+            _safe_add_job(
                 _task_reminder_cron,
                 CronTrigger(minute=20, timezone="Africa/Abidjan"),
                 id="task_reminder_hourly",
@@ -22668,7 +22811,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_wa_tasks_digest(db, _send_wa_text_for_digest, _get_settings_async)
                 except Exception as exc:
                     logger.warning("[scheduler:wa_tasks_digest] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_wa_tasks_digest,
                 CronTrigger(minute="*/5", timezone="Africa/Abidjan"),
                 id="wa_tasks_digest_5min",
@@ -22685,7 +22828,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _rmpd(db, _send_wa_text_for_digest)
                 except Exception as exc:
                     logger.warning("[scheduler:medecin_planning_digest] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_medecin_planning_digest,
                 CronTrigger(minute="*/5", timezone="Africa/Abidjan"),
                 id="medecin_planning_digest_5min",
@@ -22748,7 +22891,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                             logger.warning("[scheduler:wa_token_alert] email send failed: %s", exc)
                 except Exception as exc:
                     logger.warning("[scheduler:wa_token_health] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_wa_token_health,
                 CronTrigger(hour=7, minute=30, timezone="Africa/Abidjan"),
                 id="wa_token_health_daily",
@@ -22763,7 +22906,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_liluvine_weekly_digest(db, send_email, _get_settings_async)
                 except Exception as exc:
                     logger.warning("[scheduler:liluvine_digest] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_liluvine_weekly_digest,
                 CronTrigger(day_of_week="mon", hour=8, minute=0, timezone="Africa/Abidjan"),
                 id="liluvine_weekly_digest_mon",
@@ -22776,7 +22919,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_gdpr_anonymization(db, _get_settings_async)
                 except Exception as exc:
                     logger.warning("[scheduler:gdpr_anonymize] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_gdpr_anonymize,
                 CronTrigger(hour=3, minute=30, timezone="Africa/Abidjan"),
                 id="gdpr_auto_anonymize_daily",
@@ -22800,9 +22943,9 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _llm_warning_alerts(db, send_email, _wa_send_text)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("[scheduler:llm_health] %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_llm_health_ping,
-                CronTrigger(minute="*/15", timezone="Africa/Abidjan"),
+                CronTrigger(minute=10, timezone="Africa/Abidjan"),
                 id="llm_health_ping_15min",
                 replace_existing=True,
                 misfire_grace_time=300,
@@ -22819,7 +22962,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_auto_snapshot(triggered_by="cron:weekly-sun-03")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Auto-snapshot cron failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_auto_snapshot,
                 CronTrigger(day_of_week="sun", hour=3, minute=0, timezone="Africa/Abidjan"),
                 id="db_auto_snapshot_weekly",
@@ -22835,7 +22978,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _run_auto_relance_cashier(triggered_by="cron:daily-09")
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Auto-relance cron failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_auto_relance,
                 CronTrigger(hour=9, minute=0, timezone="Africa/Abidjan"),
                 id="cashier_auto_relance_daily",
@@ -22857,7 +23000,7 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                     await _proc(db, send_email_fn=_email_adapter, send_whatsapp_fn=_wa_adapter)
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("AI subscriptions reminders cron failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_ai_subs_reminders,
                 CronTrigger(hour=8, minute=0, timezone="Africa/Abidjan"),
                 id="ai_subscriptions_reminders_daily",
@@ -22889,17 +23032,22 @@ async def admin_run_contract_overdue_now(_: dict = Depends(get_current_admin)):
                         logger.info("Ad banner reminders sent: %s", len(res["sent"]))
                 except Exception as exc:  # noqa: BLE001
                     logger.warning("Ad banner reminders cron failed: %s", exc)
-            _scheduler.add_job(
+            _safe_add_job(
                 _scheduled_ad_banner_reminders,
                 CronTrigger(hour=9, minute=30, timezone="Africa/Abidjan"),
                 id="ad_banner_expiration_reminders_daily",
                 replace_existing=True,
                 misfire_grace_time=3600,
             )
-            _scheduler.start()
-            logger.info("Scheduler started — weekly digest Fri 05:00 + auth check H:00 + uptime H:05 (Africa/Abidjan)")
     except Exception as exc:  # noqa: BLE001
         logger.warning("Scheduler init failed: %s", exc)
+    finally:
+        # Lot 27 : le planificateur démarre avec toutes les tâches préparées,
+        # même si l'une d'elles a échoué.
+        if _scheduler is not None and not _scheduler.running:
+            _scheduler.start()
+            _SCHEDULER_STATE = f"démarré — {len(_scheduler.get_jobs())} tâche(s) planifiée(s)"
+            logger.info("[scheduler] %s", _SCHEDULER_STATE)
 
 
 # ====================================================================
@@ -25407,6 +25555,56 @@ _attach_admin_settings(
 # Iter40 (2026-02) — Contact groups for SMS/WA bulk targeting
 from routes.contact_groups import attach_contact_groups_routes as _attach_contact_groups  # noqa: E402
 _attach_contact_groups(api=api, db=db, get_current_user=get_current_user)
+
+
+# Lot 27 — Sondages WhatsApp (routes/wa_surveys.py) : conception, envoi à
+# plusieurs contacts (lien personnel par destinataire), mesure des retours.
+async def _wa_enabled_for(user: dict) -> bool:
+    """Module WhatsApp autorisé pour ce compte (même règle que l'envoi en masse)."""
+    if user.get("role") in ("admin", "superviseur"):
+        return True
+    parent = await db.users.find_one({"id": user.get("client_id") or user["id"]}, {"_id": 0, "features": 1})
+    return bool(_normalize_features((parent or {}).get("features")).get("whatsapp"))
+
+
+def _is_preview_environment() -> bool:
+    """Même détection que le planificateur : adresse « .preview. »."""
+    env_url = (os.environ.get("PUBLIC_BASE_URL", "") or os.environ.get("preview_endpoint", "")
+               or os.environ.get("REACT_APP_BACKEND_URL", ""))
+    return ".preview." in env_url
+
+
+from routes.wa_surveys import attach_wa_survey_routes as _attach_wa_surveys  # noqa: E402
+_wa_surveys = _attach_wa_surveys(
+    api=api, db=db, get_current_user=get_current_user, uuid_fn=_uuid,
+    can_send_wa=_can_send_wa, is_admin_like=_is_admin_or_superviseur,
+    resolve_visible_client_ids=_resolve_visible_client_ids, wa_enabled_for=_wa_enabled_for,
+    enforce_demo_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_WA, increment=n),
+    wa_send_template=_wa_send_template, wa_send_text=_wa_send_text,
+    wa_window_open=_wa_window_open, build_recipient_ctx=_build_recipient_ctx,
+    build_components=_build_components, public_base_url=_public_base_url,
+    is_preview_env=_is_preview_environment,
+)
+
+
+# Lot 27 — Facturation du portefeuille formulaires & sondages par client :
+# tarifs + prompt IA (page SMART Communications du client), bilan de période
+# (chiffres, analyse IA, PDF) et facture dans la Caisse (routes/portfolio_billing.py).
+from routes.portfolio_billing import attach_portfolio_billing_routes as _attach_portfolio_billing  # noqa: E402
+from routes.ai_quotas import track_ai_usage as _track_ai_usage_pf  # noqa: E402
+_attach_portfolio_billing(
+    api=api, db=db, get_current_admin=get_current_admin, uuid_fn=_uuid,
+    get_billing_manager=get_admin_or_supervisor,     # le Superviseur facture (et choisit la TVA)
+    public_base_url=_public_base_url,
+    create_invoice_for_client=getattr(_cashier_router, "create_invoice_for_client", None),
+    track_ai_usage=_track_ai_usage_pf,
+)
+
+
+@app.on_event("startup")
+async def _resume_wa_surveys():
+    """Reprend un envoi de sondage interrompu par un redémarrage (hors preview)."""
+    asyncio.create_task(_wa_surveys["resume"]())
 
 # Iter40 (2026-02) — Form categories (max 6 per tenant)
 from routes.form_categories import attach_form_categories_routes as _attach_form_categories  # noqa: E402

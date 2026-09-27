@@ -3,12 +3,12 @@
  *
  * 3 onglets simples :
  *   1. Intrants (matières premières + eau + électricité + main d'œuvre …)
- *   2. Recettes (produits fabriqués, coût de revient auto, marge/prix vente)
+ *   2. Formulations (produits fabriqués, coût de revient auto, marge/prix vente)
  *   3. Paramètres (marge par défaut, export global)
  *
  * Le calcul est temps réel : dès qu'un intrant est modifié, toutes les
- * recettes qui l'utilisent voient leur coût recalculé au prochain load.
- * L'export PDF (global ou par recette) délègue à reportlab côté serveur.
+ * formulations qui l'utilisent voient leur coût recalculé au prochain load.
+ * L'export PDF (global ou par formulation) délègue à reportlab côté serveur.
  */
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
@@ -78,7 +78,7 @@ export default function Production() {
 
       <nav className="flex flex-wrap gap-1 border-b border-slate-200">
         {[
-          { id: "recipes", label: "Recettes", icon: Factory },
+          { id: "recipes", label: "Formulations", icon: Factory },
           { id: "intrants", label: `Intrants (${intrants.length})`, icon: Package },
           { id: "analytics", label: "Analyses", icon: BarChart3 },
           { id: "settings", label: "Paramètres", icon: Cog },
@@ -109,16 +109,16 @@ export default function Production() {
               defaultMargin={settings.production_default_margin_pct}
               onEdit={setEditingRecipe}
               onDelete={async (id) => {
-                if (!window.confirm("Supprimer cette recette ?")) return;
+                if (!window.confirm("Supprimer cette formulation ?")) return;
                 try {
                   await apiClient.delete(`/production/recipes/${id}`);
-                  toast.success("Recette supprimée"); await load();
+                  toast.success("Formulation supprimée"); await load();
                 } catch (e) { toast.error(e?.response?.data?.detail || "Échec"); }
               }}
               onDuplicate={async (id) => {
                 try {
                   const r = await apiClient.post(`/production/recipes/${id}/duplicate`);
-                  toast.success("Recette dupliquée — définissez le dosage puis enregistrez");
+                  toast.success("Formulation dupliquée — définissez le dosage puis enregistrez");
                   await load();
                   setEditingRecipe(r.data); // open the copy so user sets the dosage
                 } catch (e) { toast.error(e?.response?.data?.detail || "Échec de la duplication"); }
@@ -132,7 +132,7 @@ export default function Production() {
               intrants={intrants}
               onEdit={setEditingIntrant}
               onDelete={async (id) => {
-                if (!window.confirm("Supprimer cet intrant ? (refusé s'il est utilisé dans une recette)")) return;
+                if (!window.confirm("Supprimer cet intrant ? (refusé s'il est utilisé dans une formulation)")) return;
                 try {
                   await apiClient.delete(`/production/intrants/${id}`);
                   toast.success("Intrant supprimé"); await load();
@@ -187,7 +187,7 @@ const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelet
         onClick={() => onEdit({ __new: true, name: "", pricing_mode: "margin_first", margin_pct: defaultMargin, output_batch_units: 1, output_unit_label: "unit", intrants: [] })}
         className="text-sm px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white inline-flex items-center gap-1 font-semibold"
         data-testid="production-new-recipe"
-      ><Plus className="h-4 w-4" /> Nouvelle recette</button>
+      ><Plus className="h-4 w-4" /> Nouvelle formulation</button>
       <button
         onClick={onExportAll}
         disabled={recipes.length === 0}
@@ -198,7 +198,7 @@ const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelet
 
     {summary && recipes.length > 0 && (
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        <KpiCard label="Recettes" value={summary.total_recipes} color="#4f46e5" icon={Factory} />
+        <KpiCard label="Formulations" value={summary.total_recipes} color="#4f46e5" icon={Factory} />
         <KpiCard label="Coût moyen" value={summary.avg_cost_price?.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " CFA"} color="#0284c7" icon={DollarSign} />
         <KpiCard label="Prix public moyen" value={summary.avg_public_price?.toLocaleString("fr-FR", { maximumFractionDigits: 0 }) + " CFA"} color="#0891b2" icon={DollarSign} />
         <KpiCard label="Marge moyenne" value={(summary.avg_margin_pct || 0).toFixed(1) + " %"} color="#059669" icon={Percent} />
@@ -207,7 +207,7 @@ const RecipesTab = ({ recipes, summary, intrants, defaultMargin, onEdit, onDelet
 
     {recipes.length === 0 ? (
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-8 text-center text-sm text-slate-500">
-        Aucune recette. Commencez par créer des <strong>intrants</strong> (onglet Intrants), puis créez une <strong>recette</strong> en cochant les intrants nécessaires avec leurs quantités.
+        Aucune formulation. Commencez par créer des <strong>intrants</strong> (onglet Intrants), puis créez une <strong>formulation</strong> en cochant les intrants nécessaires avec leurs quantités.
       </div>
     ) : (
       <div className="overflow-x-auto rounded-xl ring-1 ring-slate-200 bg-white">
@@ -399,7 +399,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
     return (
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-8 text-center text-sm text-slate-500" data-testid="analytics-empty">
         <BarChart3 className="h-8 w-8 mx-auto mb-2 text-slate-300" />
-        Aucune donnée analytique. Créez au moins une recette pour visualiser les analyses.
+        Aucune donnée analytique. Créez au moins une formulation pour visualiser les analyses.
       </div>
     );
   }
@@ -409,7 +409,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
       {/* KPI cards */}
       {summary && (
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
-          <KpiCard label="Recettes" value={summary.total_recipes} color="#4f46e5" icon={Factory} />
+          <KpiCard label="Formulations" value={summary.total_recipes} color="#4f46e5" icon={Factory} />
           <KpiCard label="Coût moyen" value={fmtCFA(summary.avg_cost_price) + " CFA"} color="#0284c7" icon={DollarSign} />
           <KpiCard label="Prix public moyen" value={fmtCFA(summary.avg_public_price) + " CFA"} color="#0891b2" icon={DollarSign} />
           <KpiCard label="Marge moyenne" value={(summary.avg_margin_pct || 0).toFixed(1) + " %"} color="#059669" icon={Percent} />
@@ -428,7 +428,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
             testid="analytics-highlight-top"
             icon={Trophy}
             color="#059669"
-            label="Recette la plus rentable"
+            label="Formulation la plus rentable"
             title={analytics.mostProfitable?.name || "—"}
             subtitle={
               analytics.mostProfitable
@@ -489,7 +489,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
           })}
         </div>
         {barData.length === 0 ? (
-          <div className="py-8 text-center text-xs text-slate-400">Cochez au moins une recette ci-dessus.</div>
+          <div className="py-8 text-center text-xs text-slate-400">Cochez au moins une formulation ci-dessus.</div>
         ) : (
           <div className="h-96" data-testid="analytics-bar-chart">
             <ResponsiveContainer width="100%" height="100%">
@@ -519,7 +519,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
           <h3 className="text-sm font-semibold inline-flex items-center gap-1.5 mb-2"><PieIcon className="h-4 w-4 text-fuchsia-600" /> Répartition des coûts par catégorie</h3>
-          <p className="text-[11px] text-slate-500 mb-2">Vue agrégée sur toutes les recettes ({recipes.length}).</p>
+          <p className="text-[11px] text-slate-500 mb-2">Vue agrégée sur toutes les formulations ({recipes.length}).</p>
           {pieData.length === 0 ? (
             <div className="py-8 text-center text-xs text-slate-400">Aucune donnée à afficher.</div>
           ) : (
@@ -581,7 +581,7 @@ const AnalyticsTab = ({ recipes, summary }) => {
       {/* LineChart — cost evolution */}
       <div className="rounded-xl ring-1 ring-slate-200 bg-white p-4">
         <h3 className="text-sm font-semibold inline-flex items-center gap-1.5 mb-1"><LineIcon className="h-4 w-4 text-emerald-600" /> Évolution des coûts dans le temps</h3>
-        <p className="text-[11px] text-slate-500 mb-2">Recettes ordonnées par date de création — utile pour détecter l&apos;inflation ou l&apos;amélioration des marges.</p>
+        <p className="text-[11px] text-slate-500 mb-2">Formulations ordonnées par date de création — utile pour détecter l&apos;inflation ou l&apos;amélioration des marges.</p>
         {lineData.length === 0 ? (
           <div className="py-8 text-center text-xs text-slate-400">Pas encore d&apos;historique disponible.</div>
         ) : (
@@ -699,7 +699,7 @@ const SettingsTab = ({ settings, onSave }) => {
     <div className="rounded-xl ring-1 ring-slate-200 bg-white p-5 max-w-lg">
       <h3 className="text-sm font-semibold mb-2 inline-flex items-center gap-1"><Cog className="h-4 w-4" /> Marge bénéficiaire par défaut</h3>
       <p className="text-xs text-slate-500 mb-3">
-        Utilisée pour les nouvelles recettes. Chaque recette peut ensuite être ajustée individuellement.
+        Utilisée pour les nouvelles formulations. Chaque formulation peut ensuite être ajustée individuellement.
       </p>
       <div className="flex items-center gap-2">
         <input
@@ -874,7 +874,7 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
       };
       if (recipe.__new) await apiClient.post("/production/recipes", payload);
       else await apiClient.put(`/production/recipes/${recipe.id}`, payload);
-      toast.success("Recette enregistrée"); onSaved();
+      toast.success("Formulation enregistrée"); onSaved();
     } catch (e) { toast.error(e?.response?.data?.detail || "Échec"); }
     finally { setSaving(false); }
   };
@@ -890,7 +890,7 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
     <div className="fixed inset-0 z-50 bg-black/50 flex items-center justify-center p-4" onClick={(e) => e.target === e.currentTarget && onClose()}>
       <div className="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[95vh] flex flex-col">
         <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-          <h2 className="font-display font-bold">{recipe.__new ? "Nouvelle recette" : "Modifier la recette"}</h2>
+          <h2 className="font-display font-bold">{recipe.__new ? "Nouvelle formulation" : "Modifier la formulation"}</h2>
           <button onClick={onClose} className="p-1 rounded hover:bg-slate-100"><X className="h-4 w-4" /></button>
         </div>
         <div className="p-5 space-y-4 overflow-y-auto flex-1">
@@ -968,7 +968,7 @@ const RecipeModal = ({ recipe, intrants, defaultMargin, onClose, onSaved }) => {
                               <span
                                 className="text-[10px] font-mono font-semibold text-emerald-700 min-w-[70px] text-right"
                                 data-testid={`recipe-intrant-contrib-${i.id}`}
-                                title={`Coût dans la recette : ${contribCost.toFixed(4)} CFA`}
+                                title={`Coût dans la formulation : ${contribCost.toFixed(4)} CFA`}
                               >
                                 = {contribCost.toLocaleString("fr-FR", { maximumFractionDigits: 4 })}
                               </span>

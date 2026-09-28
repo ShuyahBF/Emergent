@@ -1140,6 +1140,10 @@ _inclure_partie("p20_branchement_routeurs.py")  # Branchement des routeurs des m
 
 
 
+# Migration vers Render : sauvegarde complète (base -> MongoDB Atlas, fichiers/archives/secrets -> R2)
+from routes.migration_render import router as _migration_render_router  # noqa: E402
+api.include_router(_migration_render_router)
+
 app.include_router(api)
 
 

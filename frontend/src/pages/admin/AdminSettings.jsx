@@ -46,6 +46,7 @@ import AiSubscriptionsSection from "@/pages/admin/sections/AiSubscriptionsSectio
 import LlmBudgetTestButton from "@/components/LlmBudgetTestButton";
 import LiluvineEscalationTestButton from "@/components/LiluvineEscalationTestButton";
 import QdrantRagSection from "@/components/QdrantRagSection";
+import MigrationRenderSection from "@/pages/admin/sections/MigrationRenderSection";
 
 // ============================================================
 // iter33 — Searchable Settings + "Nouveau" bubble system
@@ -1164,6 +1165,10 @@ export default function AdminSettings() {
       <NoteServiceHistorySection s={s} upd={upd} />
       <ProfileRequestsSection />
       <DbSnapshotsSection s={s} upd={upd} reloadSettings={load} />
+      {/* Migration vers Render : sauvegarde complète vers MongoDB Atlas + Cloudflare R2 */}
+      <Filterable title="Migration vers Render (sauvegarde complète)" anchorId="s-migration-render" category="diagnostics">
+        <MigrationRenderSection />
+      </Filterable>
       <Filterable title="Stockage de fichiers (Object Storage)" anchorId="s-file-storage" category="diagnostics">
         <FileStorageSection />
       </Filterable>

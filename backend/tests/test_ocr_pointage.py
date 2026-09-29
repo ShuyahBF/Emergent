@@ -106,6 +106,15 @@ def test_conditionnement_departage():
     assert [x["IMagasin"] for x in out[op.CLE_TABLE]] == [0, 3]
 
 
+def test_conditionnement_mal_lu_produit_unique():
+    # Cas réel (scan basse résolution) : « PAPIER ECHO TYPE V [3/1] » lu, « B/1 » dans le JSON.
+    data = {op.CLE_TABLE: [_ligne(509, "PAPIER ECHO TYPE V", mesure="B/1")]}
+    out, rap = op.appliquer_lectures(data, [_page([_lu(574, "PAPIER ECHO TYPE V [3/1]", mag=0),
+                                                    _lu(575, "PAPIER ECHO TYPE V [3/1]", mag=4)])])
+    assert out[op.CLE_TABLE][0]["IMagasin"] == 0          # 1re lecture (0) : inchangé, 2e = doublon
+    assert any("conditionnement différent" in a["message"] for a in rap.anomalies)
+
+
 def test_ambiguite_et_produit_absent_bloques():
     data = {op.CLE_TABLE: [_ligne(5, "COTON", mesure="-"), _ligne(6, "COTON", mesure="-"),
                            _ligne(7, "SONDE D'INTUBATION N°6", mesure="UNITE"),
@@ -166,7 +175,7 @@ def test_conventions_reelles_des_compteurs():
     assert l[688]["IMagasin"] == 2 and l[691]["IMagasin"] == 9
     assert (l[696]["ISalle"], l[696]["Peremption1"], l[696]["Diff"]) == (7, "20220301", 4)
     assert l[698]["ISalle"] == 11 and l[698]["Peremption1"] == " "
-    assert l[701]["ISalle"] == 0 and l[701]["Diff"] == -2 and l[701]["Saisie_par"] == ""  # déjà 0 : inchangé
+    assert l[701]["ISalle"] == 0 and l[701]["Diff"] == -2 and l[701]["Saisie_par"] == "Claude"  # compté 0 : pointé
     assert (l[582]["IMagasin"], l[582]["Peremption1"]) == (59, "20270201")          # libellé toléré
     assert rap.nb_bloquants == 0
     assert rap.compteurs == [{"page": "p.11", "compteur": "Dr Gacko / Inès"}, {"page": "p.12", "compteur": "Koussoubé"}]

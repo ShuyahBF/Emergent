@@ -217,7 +217,8 @@ class IndexInventaire:
             self.par_libelle.setdefault(_norm(l.get("Libellé", "")), []).append(l)
 
     def trouver(self, libelle_lu: str, n_ordre: Optional[int]) -> Tuple[Optional[dict], str]:
-        """Renvoie (ligne, méthode) avec méthode « numero », « libelle » ou « approche »,
+        """Renvoie (ligne, méthode) avec méthode « numero », « libelle », « conditionnement »
+        ou « approche »,
         ou (None, raison) si aucune ligne ne peut être retenue sans risque."""
         cle, mesure = _norm(libelle_lu), _mesure_imprimee(libelle_lu)
         if not cle:
@@ -233,6 +234,12 @@ class IndexInventaire:
         if len(exacts) > 1:
             numeros = ", ".join(str(l["Chrono"]) for l in exacts)
             return None, f"libellé présent plusieurs fois dans le JSON (N° {numeros}), N° d'ordre lu non concordant"
+        # 1 bis. Libellé identique, conditionnement lu différent : le conditionnement est
+        # souvent mal lu sur un scan (« [3/1] » pour « [B/1] ») ; accepté seulement si UN
+        # seul produit porte ce libellé (sinon c'est lui qui départage, ex. AMPOULE 1.20M / 60CM).
+        homonymes = self.par_libelle.get(cle, [])
+        if len(homonymes) == 1:
+            return homonymes[0], "conditionnement"
 
         # Scores de similarité (conditionnement compatible uniquement).
         scores = []
@@ -389,6 +396,10 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
             vus[chrono] = nom_page
             if methode == "libelle":
                 par_libelle += 1
+            elif methode == "conditionnement":
+                rapport.ajouter("a_verifier", f"« {libelle_lu} » : conditionnement différent du JSON "
+                                f"(« {cible.get('Mesure')} ») — produit retenu car seul de ce nom, à confirmer.",
+                                chrono, nom_page)
             elif methode == "approche":
                 rapport.ajouter("a_verifier", f"Libellé lu « {libelle_lu} » rapproché de « {cible.get('Libellé')} » "
                                 f"(N° {n_lu} sur la liste) : à confirmer.", chrono, nom_page)
@@ -416,7 +427,6 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                 else:
                     nouvelles["Peremption1"] = per
 
-            modifiee = False
             for champ, valeur in nouvelles.items():
                 if cible.get(champ) != valeur:
                     rapport.modifications.append({
@@ -426,11 +436,13 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                         "rapprochement": methode,
                     })
                     cible[champ] = valeur
-                    modifiee = True
             if lu.get("incertain"):
                 rapport.ajouter("a_verifier", f"Lecture incertaine : {lu.get('note') or 'voir la liste'}.",
                                 chrono, nom_page)
-            if modifiee:
+            # Ligne POINTÉE dès qu'une valeur a été lue, même identique à celle du JSON (un
+            # « 0 » compté sur un JSON déjà à 0) : horodatée comme une saisie WinDev, sinon
+            # « compté 0 » et « pas compté » seraient indiscernables.
+            if nouvelles:
                 rapport.lignes_modifiees += 1
                 recalculer_diff(cible)
                 if saisie_par:

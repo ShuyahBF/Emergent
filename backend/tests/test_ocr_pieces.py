@@ -29,8 +29,9 @@ import ocr_core  # noqa: E402
 
 # --- Utilisateurs de test ------------------------------------------------------
 USERS = {
-    "admin": {"id": "admin", "role": "admin", "full_name": "Admin Sawali"},
-    "pharma_a": {"id": "pharma_a", "role": "pharmacien", "company": "Pharmacie A", "client_code": "PA"},
+    "admin": {"id": "admin", "role": "admin", "full_name": "Admin Sawali", "email": "admin@sawali.test"},
+    "pharma_a": {"id": "pharma_a", "role": "pharmacien", "company": "Pharmacie A", "client_code": "PA",
+                 "full_name": "Pharmacie A", "email": "pharma.a@sawali.test"},
     "pharma_b": {"id": "pharma_b", "role": "pharmacien", "company": "Pharmacie B", "client_code": "PB"},
     # Utilisateur suivi « Pharmacien » rattaché à la pharmacie A.
     "suivi_a": {"id": "suivi_a", "role": "client", "tracked_role": "Pharmacien", "parent_client_id": "pharma_a"},
@@ -99,14 +100,22 @@ def env(monkeypatch):
 
     from routes.ocr_pieces import attach_ocr_pieces_routes
     api = APIRouter(prefix="/api")
-    attach_ocr_pieces_routes(api=api, db=db, get_current_user=get_current_user)
+    # Lot 38 — emails de fin de traitement (liste de pointage) : enregistrés, jamais envoyés.
+    emails: list = []
+
+    async def send_email(to, subject, html, text="", attachments=None):
+        emails.append({"to": to, "subject": subject, "html": html, "text": text,
+                       "attachments": attachments or []})
+        return True
+
+    attach_ocr_pieces_routes(api=api, db=db, get_current_user=get_current_user, send_email=send_email)
     app = FastAPI()
     app.include_router(api)
 
     with TestClient(app) as client:
         # Utilisateurs insérés dans la boucle asyncio du client de test.
         client.portal.call(db.users.insert_many, [dict(u) for u in USERS.values()])
-        yield types.SimpleNamespace(client=client, db=db, calls=calls, blobs=blobs)
+        yield types.SimpleNamespace(client=client, db=db, calls=calls, blobs=blobs, emails=emails)
 
 
 def _h(user):

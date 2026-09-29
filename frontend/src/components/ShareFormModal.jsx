@@ -1,15 +1,27 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { toast } from "sonner";
-import { Copy, X, QrCode, Download, Globe, AlertCircle } from "lucide-react";
+import { Copy, X, QrCode, Download, Globe, AlertCircle, MessageCircle, Smartphone } from "lucide-react";
 
 // Public form share modal — displays a QR code + shareable short URL.
 // Uses api.qrserver.com (zero-dependency, publicly-available QR generator).
+// Lot 35 — « Envoyer à un groupe de contacts » : ouvre l'envoi de masse WhatsApp
+// ou SMS (groupes, modèles Meta, programmation…) avec le lien du formulaire déjà
+// prêt (?lien=…&titre=…) ; le formulaire doit être public.
 export default function ShareFormModal({ form, onClose }) {
   const [downloading, setDownloading] = useState(false);
+  const navigate = useNavigate();
 
   if (!form) return null;
   const shareUrl = `${window.location.origin}/f/${form.id}`;
   const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=320x320&margin=8&data=${encodeURIComponent(shareUrl)}`;
+
+  // Envoi de masse avec le lien du formulaire
+  const envoyer = (page) => {
+    const q = new URLSearchParams({ lien: shareUrl, titre: form.title || form.number || "" });
+    onClose();
+    navigate(`/portal/${page}?${q.toString()}`);
+  };
 
   const copy = async () => {
     try { await navigator.clipboard.writeText(shareUrl); toast.success("Lien copié"); }
@@ -65,6 +77,25 @@ export default function ShareFormModal({ form, onClose }) {
           <div className="flex gap-2">
             <button onClick={downloadQr} disabled={downloading} className="inline-flex items-center gap-1.5 rounded-lg bg-sawali-blue hover:bg-sawali-blue-light text-white px-3 py-2 text-xs disabled:opacity-50" data-testid="share-download-qr"><Download className="h-3.5 w-3.5" /> {downloading ? "Téléchargement…" : "Télécharger le QR"}</button>
             <a href={shareUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-900 px-3 py-2 text-xs"><Globe className="h-3.5 w-3.5" /> Ouvrir le lien</a>
+          </div>
+
+          <div className="rounded-lg ring-1 ring-slate-200 p-3 space-y-2" data-testid="share-send-group">
+            <p className="text-xs font-semibold text-slate-800">Envoyer à un groupe de contacts</p>
+            <p className="text-[11px] text-slate-500">
+              Ouvre l'envoi de masse avec le lien de ce formulaire déjà prêt : choisissez un groupe ou des contacts,
+              puis envoyez tout de suite ou programmez l'envoi.
+            </p>
+            <div className="flex gap-2">
+              <button onClick={() => envoyer("whatsapp-bulk")} disabled={!form.is_public} data-testid="share-send-wa"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 text-xs disabled:opacity-40">
+                <MessageCircle className="h-3.5 w-3.5" /> Par WhatsApp
+              </button>
+              <button onClick={() => envoyer("sms")} disabled={!form.is_public} data-testid="share-send-sms"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-amber-600 hover:bg-amber-700 text-white px-3 py-2 text-xs disabled:opacity-40">
+                <Smartphone className="h-3.5 w-3.5" /> Par SMS
+              </button>
+            </div>
+            {!form.is_public && <p className="text-[11px] text-amber-700">Rendez d'abord le formulaire public : sinon le lien ne s'ouvre pas.</p>}
           </div>
         </div>
       </div>

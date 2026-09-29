@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -13,6 +14,8 @@ import {
     2. Compose message (with personalization tokens + payment-link inserter)
     3. Send now OR schedule for later
     4. View past schedules / cancel pending ones
+  Lot 35 — ouverte depuis « Partager le formulaire » (?lien=…&titre=…) : le
+  message est pré-rempli avec le lien du formulaire.
 */
 const TOKENS = ["name", "company", "phone", "whatsapp", "email", "tag"];
 
@@ -53,6 +56,15 @@ export default function SmsBulk() {
   const [provider, setProvider] = useState("auto");
   const [sender, setSender] = useState("");
   const [message, setMessage] = useState("");
+  // Lot 35 — lien d'un formulaire à envoyer (depuis « Partager le formulaire »)
+  const [searchParams] = useSearchParams();
+  const lienFormulaire = searchParams.get("lien") || "";
+  const titreFormulaire = searchParams.get("titre") || "";
+  useEffect(() => {
+    if (lienFormulaire) {
+      setMessage(`Bonjour {{name}}, merci de remplir le formulaire « ${titreFormulaire} » : ${lienFormulaire}`.slice(0, 800));
+    }
+  }, [lienFormulaire, titreFormulaire]);
   const [scheduleAt, setScheduleAt] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [previewOpen, setPreviewOpen] = useState(false);
@@ -239,6 +251,12 @@ export default function SmsBulk() {
           Envoyez un SMS personnalisé à plusieurs contacts en une fois, ou planifiez l'envoi pour plus tard.
         </p>
       </div>
+
+      {lienFormulaire && (
+        <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50 p-3 text-xs text-sky-900" data-testid="sms-bulk-lien-formulaire">
+          Lien du formulaire <b>« {titreFormulaire} »</b> inséré dans le message. Choisissez un groupe ou des contacts, puis envoyez.
+        </div>
+      )}
 
       {!features.sms && (
         <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs text-amber-900">

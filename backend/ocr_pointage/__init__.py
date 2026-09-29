@@ -153,13 +153,20 @@ class RapportPointage:
     code_inventaire: Optional[str] = None
     # {"page": "p.1", "compteur": "Dr Gacko / Inès"} — traçabilité de qui a compté quoi.
     compteurs: List[dict] = field(default_factory=list)
-    # {"gravite": "bloquant" | "a_verifier", "chrono", "page", "message"}
+    # {"gravite": "bloquant" | "a_verifier", "type", "chrono", "page", "message", "details"}
+    # type : absent, ambigu, homonymes, doublon, quantite_invalide, page_non_lue, titre,
+    #        note, incertain, approche, conditionnement, peremption_invalide, couple,
+    #        pied, par_libelle, manquantes (sert à regrouper le compte rendu détaillé).
     anomalies: List[dict] = field(default_factory=list)
-    # {"chrono", "libelle", "champ", "avant", "apres", "page", "incertain"}
+    # {"chrono", "libelle", "champ", "avant", "apres", "page", "incertain", "n_ordre_liste", "rapprochement"}
     modifications: List[dict] = field(default_factory=list)
+    # Chrono des lignes pointées (une valeur au moins a été lue et reportée).
+    chronos_pointes: List[int] = field(default_factory=list)
 
-    def ajouter(self, gravite: str, message: str, chrono=None, page=None) -> None:
-        self.anomalies.append({"gravite": gravite, "chrono": chrono, "page": page, "message": message})
+    def ajouter(self, gravite: str, message: str, chrono=None, page=None, type: str = "autre",
+                **details: Any) -> None:
+        self.anomalies.append({"gravite": gravite, "type": type, "chrono": chrono, "page": page,
+                               "message": message, "details": details})
 
     @property
     def nb_bloquants(self) -> int:
@@ -169,7 +176,7 @@ class RapportPointage:
         return {
             "lignes_json": self.lignes_json, "lignes_lues": self.lignes_lues,
             "lignes_modifiees": self.lignes_modifiees, "code_inventaire": self.code_inventaire,
-            "compteurs": self.compteurs,
+            "compteurs": self.compteurs, "chronos_pointes": self.chronos_pointes,
             "nb_bloquants": self.nb_bloquants, "anomalies": self.anomalies,
             "modifications": self.modifications,
         }
@@ -216,13 +223,14 @@ class IndexInventaire:
         for l in lignes:
             self.par_libelle.setdefault(_norm(l.get("Libellé", "")), []).append(l)
 
-    def trouver(self, libelle_lu: str, n_ordre: Optional[int]) -> Tuple[Optional[dict], str]:
+    def trouver(self, libelle_lu: str, n_ordre: Optional[int]) -> Tuple[Optional[dict], str, dict]:
         """Renvoie (ligne, méthode) avec méthode « numero », « libelle », « conditionnement »
         ou « approche »,
-        ou (None, raison) si aucune ligne ne peut être retenue sans risque."""
+        ou (None, raison, infos) si aucune ligne ne peut être retenue sans risque ; infos =
+        {"type": "absent"|"ambigu"|"homonymes"|"illisible", "candidats": [lignes du JSON]}."""
         cle, mesure = _norm(libelle_lu), _mesure_imprimee(libelle_lu)
         if not cle:
-            return None, "libellé illisible"
+            return None, "libellé illisible", {"type": "illisible", "candidats": []}
 
         # 1. Libellé + conditionnement identiques.
         exacts = [l for l in self.par_libelle.get(cle, []) if _mesures_compatibles(mesure, l.get("Mesure"))]
@@ -230,16 +238,17 @@ class IndexInventaire:
             exacts = [l for l in exacts if l["Chrono"] == n_ordre] or exacts
         if len(exacts) == 1:
             ligne = exacts[0]
-            return ligne, "numero" if ligne["Chrono"] == n_ordre else "libelle"
+            return ligne, "numero" if ligne["Chrono"] == n_ordre else "libelle", {}
         if len(exacts) > 1:
             numeros = ", ".join(str(l["Chrono"]) for l in exacts)
-            return None, f"libellé présent plusieurs fois dans le JSON (N° {numeros}), N° d'ordre lu non concordant"
+            return None, (f"libellé présent plusieurs fois dans le JSON (N° {numeros}), N° d'ordre lu "
+                          "non concordant"), {"type": "homonymes", "candidats": exacts}
         # 1 bis. Libellé identique, conditionnement lu différent : le conditionnement est
         # souvent mal lu sur un scan (« [3/1] » pour « [B/1] ») ; accepté seulement si UN
         # seul produit porte ce libellé (sinon c'est lui qui départage, ex. AMPOULE 1.20M / 60CM).
         homonymes = self.par_libelle.get(cle, [])
         if len(homonymes) == 1:
-            return homonymes[0], "conditionnement"
+            return homonymes[0], "conditionnement", {}
 
         # Scores de similarité (conditionnement compatible uniquement).
         scores = []
@@ -257,18 +266,20 @@ class IndexInventaire:
         if par_numero is not None and _mesures_compatibles(mesure, par_numero.get("Mesure")):
             r = _ratio(cle, _norm(par_numero.get("Libellé", "")))
             if r >= SEUIL_APPROCHE and r >= meilleur:
-                return par_numero, "numero"
+                return par_numero, "numero", {}
 
         # 3. Libellé approché d'un seul produit, nettement devant le 2e.
         if scores and meilleur >= SEUIL_APPROCHE:
             second = scores[1][0] if len(scores) > 1 else 0.0
             if meilleur - second >= MARGE_APPROCHE:
-                return scores[0][1], "approche"
+                return scores[0][1], "approche", {}
             candidats = " / ".join(f"N° {l['Chrono']} « {l.get('Libellé')} »" for _, l in scores[:2])
-            return None, f"plusieurs produits proches dans le JSON ({candidats})"
+            return None, f"plusieurs produits proches dans le JSON ({candidats})", \
+                {"type": "ambigu", "candidats": [l for _, l in scores[:3]]}
 
         # 4. Rien de sûr.
-        return None, "aucun produit correspondant dans le JSON (nouveau produit ou libellé mal lu ?)"
+        return None, "aucun produit correspondant dans le JSON (nouveau produit ou libellé mal lu ?)", \
+            {"type": "absent", "candidats": []}
 
 
 def peremption_vers_hfsql(texte: Optional[str]) -> Optional[str]:
@@ -355,16 +366,18 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
     # --- En-tête / pied de page ---------------------------------------------
     titres = [p["titre"] for p in pages if p.get("titre")]
     if titres and not any("pointage" in t.lower() for t in titres):
-        rapport.ajouter("bloquant", f"Le document ne semble pas être une liste de pointage (titre lu : « {titres[0]} »).")
+        rapport.ajouter("bloquant", f"Le document ne semble pas être une liste de pointage (titre lu : « {titres[0]} »).",
+                        type="titre")
     code_lu = next((code_inventaire(t) for t in titres if code_inventaire(t)), None)
     rapport.code_inventaire = code_lu or code_inventaire(code_attendu)
     if code_attendu and code_lu and code_inventaire(code_attendu) and code_lu != code_inventaire(code_attendu):
         # Pas bloquant : les lignes sont rapprochées par libellé (même structure, mêmes produits).
         rapport.ajouter("a_verifier", f"Liste {code_lu} ≠ JSON {code_inventaire(code_attendu)} : vérifier que "
-                        "c'est bien le bon couple liste/JSON.")
+                        "c'est bien le bon couple liste/JSON.", type="couple", liste=code_lu,
+                        json=code_inventaire(code_attendu))
     pied = next((p["nombre_de_lignes_pied"] for p in pages if p.get("nombre_de_lignes_pied")), None)
     if pied is not None and pied != len(lignes):
-        rapport.ajouter("a_verifier", f"Pied de page : {pied} lignes, JSON : {len(lignes)} lignes.")
+        rapport.ajouter("a_verifier", f"Pied de page : {pied} lignes, JSON : {len(lignes)} lignes.", type="pied")
 
     # --- Compteurs et annotations libres (hors tableau) ------------------------
     for page in pages:
@@ -373,7 +386,7 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
         for note in page.get("annotations") or []:
             if str(note).strip():
                 rapport.ajouter("a_verifier", f"Note manuscrite hors tableau : « {note} » (à traiter à la main).",
-                                page=page.get("page"))
+                                page=page.get("page"), type="note", texte=str(note))
 
     # --- Report ligne à ligne -------------------------------------------------
     vus: Dict[int, str] = {}
@@ -383,15 +396,18 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
             rapport.lignes_lues += 1
             libelle_lu = str(lu.get("libelle") or "")
             n_lu = _entier(lu.get("n_ordre"))
-            cible, methode = index.trouver(libelle_lu, n_lu)
+            cible, methode, echec = index.trouver(libelle_lu, n_lu)
             if cible is None:
                 rapport.ajouter("bloquant", f"« {libelle_lu} » (N° {n_lu if n_lu is not None else '?'} sur la "
-                                f"liste) non appliqué : {methode}.", n_lu, nom_page)
+                                f"liste) non appliqué : {methode}.", n_lu, nom_page, type=echec["type"],
+                                lu=libelle_lu, candidats=[{"chrono": c["Chrono"], "libelle": c.get("Libellé"),
+                                                           "mesure": c.get("Mesure")} for c in echec["candidats"]])
                 continue
             chrono = cible["Chrono"]
             if chrono in vus:
                 rapport.ajouter("bloquant", f"« {cible.get('Libellé')} » lu deux fois ({vus[chrono]} et {nom_page}) : "
-                                "seule la première lecture est appliquée.", chrono, nom_page)
+                                "seule la première lecture est appliquée.", chrono, nom_page, type="doublon",
+                                lu=libelle_lu, pages=[vus[chrono], nom_page])
                 continue
             vus[chrono] = nom_page
             if methode == "libelle":
@@ -399,10 +415,11 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
             elif methode == "conditionnement":
                 rapport.ajouter("a_verifier", f"« {libelle_lu} » : conditionnement différent du JSON "
                                 f"(« {cible.get('Mesure')} ») — produit retenu car seul de ce nom, à confirmer.",
-                                chrono, nom_page)
+                                chrono, nom_page, type="conditionnement", lu=libelle_lu, mesure_json=cible.get("Mesure"))
             elif methode == "approche":
                 rapport.ajouter("a_verifier", f"Libellé lu « {libelle_lu} » rapproché de « {cible.get('Libellé')} » "
-                                f"(N° {n_lu} sur la liste) : à confirmer.", chrono, nom_page)
+                                f"(N° {n_lu} sur la liste) : à confirmer.", chrono, nom_page, type="approche",
+                                lu=libelle_lu, libelle_json=cible.get("Libellé"))
 
             # Valeurs manuscrites → champs HFSQL. Cellule vide (None) = inchangé.
             nouvelles: Dict[str, Any] = {}
@@ -413,7 +430,8 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                 q = _entier(lu[cle_lue])
                 if q is None or q < 0:
                     rapport.ajouter("bloquant", f"Quantité {champ} invalide « {lu[cle_lue]} » : "
-                                    "ligne non appliquée.", chrono, nom_page)
+                                    "ligne non appliquée.", chrono, nom_page, type="quantite_invalide",
+                                    lu=libelle_lu)
                     invalide = True
                     break
                 nouvelles[champ] = q
@@ -423,7 +441,8 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                 per = peremption_vers_hfsql(lu["peremption"])
                 if per is None:
                     rapport.ajouter("a_verifier", f"Péremption illisible/invalide « {lu['peremption']} » : "
-                                    "non reportée.", chrono, nom_page)
+                                    "non reportée.", chrono, nom_page, type="peremption_invalide",
+                                    libelle=cible.get("Libellé"), texte=lu["peremption"])
                 else:
                     nouvelles["Peremption1"] = per
 
@@ -438,12 +457,14 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                     cible[champ] = valeur
             if lu.get("incertain"):
                 rapport.ajouter("a_verifier", f"Lecture incertaine : {lu.get('note') or 'voir la liste'}.",
-                                chrono, nom_page)
+                                chrono, nom_page, type="incertain", libelle=cible.get("Libellé"),
+                                note=lu.get("note"), valeurs=dict(nouvelles))
             # Ligne POINTÉE dès qu'une valeur a été lue, même identique à celle du JSON (un
             # « 0 » compté sur un JSON déjà à 0) : horodatée comme une saisie WinDev, sinon
             # « compté 0 » et « pas compté » seraient indiscernables.
             if nouvelles:
                 rapport.lignes_modifiees += 1
+                rapport.chronos_pointes.append(chrono)
                 recalculer_diff(cible)
                 if saisie_par:
                     cible["Saisie_par"] = saisie_par
@@ -451,15 +472,163 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
 
     if par_libelle:
         rapport.ajouter("a_verifier", f"{par_libelle} ligne(s) retrouvée(s) par leur libellé : N° d'ordre de la "
-                        "liste différents de ceux du JSON (liste d'un autre inventaire ?).")
+                        "liste différents de ceux du JSON (liste d'un autre inventaire ?).", type="par_libelle",
+                        nombre=par_libelle)
 
     # --- Lignes du JSON jamais retrouvées sur les scans -------------------------
     manquants = sorted(set(index.par_chrono) - set(vus))
     if manquants:
         extrait = ", ".join(map(str, manquants[:20])) + (" …" if len(manquants) > 20 else "")
         rapport.ajouter("a_verifier", f"{len(manquants)} ligne(s) du JSON non retrouvée(s) sur les scans "
-                        f"(page manquante ?) : N° {extrait}.")
+                        f"(page manquante ?) : N° {extrait}.", type="manquantes", nombre=len(manquants))
     return data, rapport
+
+
+# ---------------------------------------------------------------------------
+# Compte rendu détaillé (texte), affiché en fin de traitement
+# ---------------------------------------------------------------------------
+# Au-delà, une rubrique est tronquée (le détail complet reste dans les alertes / le rapport).
+MAX_PAR_RUBRIQUE = 15
+# Champs affichés dans l'exemple de ligne complétée, dans cet ordre.
+_CHAMPS_EXEMPLE = ("IMagasin", "ISalle", "Peremption1")
+
+
+def _nom(texte: Optional[str]) -> str:
+    """Libellé nettoyé pour l'affichage : sans « [Mesure] » ni espaces superflus."""
+    return re.sub(r"\s+", " ", re.sub(r"\s*\[.*$", "", texte or "")).strip()
+
+
+def _puces(lignes: List[str]) -> List[str]:
+    """Liste à puces, tronquée à MAX_PAR_RUBRIQUE éléments."""
+    out = [f"• {l}" for l in lignes[:MAX_PAR_RUBRIQUE]]
+    if len(lignes) > MAX_PAR_RUBRIQUE:
+        out.append(f"• … et {len(lignes) - MAX_PAR_RUBRIQUE} autre(s) (voir les alertes détaillées).")
+    return out
+
+
+def _valeurs(valeurs: Dict[str, Any]) -> str:
+    return ", ".join(f"{k}={v}" for k, v in valeurs.items()) or "rien reporté"
+
+
+def synthese_detaillee(rapport: RapportPointage, avant: dict, apres: dict,
+                       nb_pages: Optional[int] = None) -> str:
+    """Compte rendu en français, rédigé à partir du rapport (sans appel IA : reproductible) :
+    résultat global, lignes bloquées avec leur raison, points à vérifier regroupés par nature,
+    et verdict sur la réimportation du JSON dans Aizenta."""
+    lignes_avant = {l["Chrono"]: l for l in avant[CLE_TABLE]}
+    lignes_apres = {l["Chrono"]: l for l in apres[CLE_TABLE]}
+    pointes = set(rapport.chronos_pointes)
+    par_type: Dict[str, List[dict]] = {}
+    for a in rapport.anomalies:
+        par_type.setdefault(a.get("type", "autre"), []).append(a)
+    bloquants = [a for a in rapport.anomalies if a["gravite"] == "bloquant"]
+    a_verifier = [a for a in rapport.anomalies if a["gravite"] == "a_verifier"]
+    code = rapport.code_inventaire or "de l'inventaire"
+
+    # --- Résultat ---------------------------------------------------------------
+    txt = ["Résultat :"]
+    sur = f" sur {nb_pages} page(s)" if nb_pages else ""
+    res = [f"{rapport.lignes_lues} lignes lues{sur} : {len(pointes)} pointées "
+           f"({len(rapport.modifications)} champs modifiés), {len(bloquants)} bloquée(s), "
+           f"{len(a_verifier)} point(s) à vérifier."]
+    n_lib = sum(a["details"].get("nombre", 0) for a in par_type.get("par_libelle", []))
+    if n_lib:
+        res.append(f"La liste ne porte pas les mêmes N° d'ordre que le JSON (liste d'un autre inventaire ?) : "
+                   f"{n_lib} ligne(s) retrouvée(s) par leur libellé.")
+    else:
+        res.append("Rapprochement direct : les N° d'ordre de la liste correspondent au JSON.")
+    intactes = all(lignes_apres.get(c) == l for c, l in lignes_avant.items() if c not in pointes)
+    diff_ok = all(l.get("Diff") == (l.get("IMagasin") or 0) + (l.get("ISalle") or 0)
+                  - (l.get("StockAvant_SV") or 0) - (l.get("StockAvant_MG") or 0)
+                  for c, l in lignes_apres.items() if c in pointes)
+    non_pointees = len(lignes_avant) - len(pointes)
+    if intactes and diff_ok:
+        res.append(f"Les {non_pointees} ligne(s) du JSON non pointées sont strictement intactes, et Diff "
+                   "est cohérent sur toutes les lignes pointées.")
+    else:
+        res.append("⚠ Contrôle d'intégrité en échec (lignes non pointées modifiées ou Diff incohérent) : "
+                   "NE PAS réimporter, signaler le problème.")
+    # Exemple : la ligne pointée qui a le plus de champs renseignés.
+    exemples = sorted((lignes_apres[c] for c in pointes if c in lignes_apres),
+                      key=lambda l: -sum(bool(str(l.get(k) or "").strip() and l.get(k) != 0)
+                                         for k in _CHAMPS_EXEMPLE))
+    if exemples:
+        e = exemples[0]
+        champs = ", ".join(f"{k}={e.get(k)}" for k in _CHAMPS_EXEMPLE
+                           if str(e.get(k) or "").strip() and e.get(k) != 0)
+        res.append(f"Exemple : « {_nom(e.get('Libellé'))} » → {champs or 'compté 0'}, "
+                   f"Saisie_par={e.get('Saisie_par') or '—'}.")
+    if rapport.compteurs:
+        res.append("Comptage : " + " ; ".join(f"{c['page']} {c['compteur']}" for c in rapport.compteurs) + ".")
+    txt += _puces(res)
+
+    # --- Lignes bloquées ------------------------------------------------------------
+    if bloquants:
+        txt += ["", f"Lignes bloquées ({len(bloquants)}) — NON reportées dans le JSON :"]
+        items = []
+        for a in bloquants:
+            d, t = a["details"], a.get("type")
+            lu = _nom(d.get("lu"))
+            cands = d.get("candidats") or []
+            noms = " / ".join(f"« {_nom(c['libelle'])} » (N° {c['chrono']})" for c in cands)
+            if t == "absent":
+                items.append(f"« {lu} » n'existe pas dans le JSON {code} (nouveau produit, ou libellé mal lu).")
+            elif t == "ambigu":
+                items.append(f"« {lu} » : plusieurs produits proches dans le JSON — {noms}. Le choix vous revient.")
+            elif t == "homonymes":
+                items.append(f"« {lu} » existe plusieurs fois dans le JSON — {noms}. Préciser lequel.")
+            elif t == "doublon":
+                items.append(f"« {lu} » lu deux fois ({' et '.join(d.get('pages') or [])}) : seule la première "
+                             "lecture est reportée.")
+            elif t == "quantite_invalide":
+                items.append(f"« {lu} » : quantité illisible ou négative — {a['message']}")
+            else:
+                items.append(a["message"])
+        txt += _puces(items)
+
+    # --- Points à vérifier ------------------------------------------------------------
+    if a_verifier:
+        txt += ["", f"Points à vérifier ({len(a_verifier)}) :"]
+        rubriques: List[Tuple[str, List[str]]] = []
+        notes = [f"« {a['details'].get('texte')} » ({a['page']})" for a in par_type.get("note", [])]
+        rubriques.append(("Notes manuscrites hors tableau", notes))
+        incertains = par_type.get("incertain", [])
+        additions = [a for a in incertains if "+" in (a["details"].get("note") or "")]
+        autres = [a for a in incertains if a not in additions]
+        rubriques.append(("Additions écrites", [
+            f"« {_nom(a['details'].get('libelle'))} » : {a['details'].get('note')} → "
+            f"{_valeurs(a['details'].get('valeurs') or {})}" for a in additions]))
+        rubriques.append(("Chiffres surchargés, raturés ou peu lisibles", [
+            f"« {_nom(a['details'].get('libelle'))} » : {a['details'].get('note') or 'lecture douteuse'} → "
+            + (f"reporté {_valeurs(a['details']['valeurs'])}" if a["details"].get("valeurs")
+               else "rien reporté (champ laissé tel quel)") for a in autres]))
+        rubriques.append(("Libellés approchés (faute de lecture probable)", [
+            f"« {_nom(a['details'].get('lu'))} » lu pour « {_nom(a['details'].get('libelle_json'))} »"
+            for a in par_type.get("approche", [])]))
+        rubriques.append(("Conditionnements différents du JSON", [
+            f"« {_nom(a['details'].get('lu'))} » : lu « {_mesure_imprimee(a['details'].get('lu')) or '?'} », "
+            f"« {a['details'].get('mesure_json')} » dans le JSON" for a in par_type.get("conditionnement", [])]))
+        rubriques.append(("Péremptions illisibles (non reportées)", [
+            f"« {_nom(a['details'].get('libelle'))} » : « {a['details'].get('texte')} »"
+            for a in par_type.get("peremption_invalide", [])]))
+        divers = [a["message"] for a in a_verifier if a.get("type") in ("couple", "pied", "manquantes", "autre")]
+        rubriques.append(("Autres", divers))
+        for titre, items in rubriques:
+            if items:
+                txt.append(f"{titre} :")
+                txt += _puces(items)
+
+    # --- Verdict ----------------------------------------------------------------
+    txt.append("")
+    if not (intactes and diff_ok):
+        txt.append("⛔ JSON à NE PAS réimporter dans Aizenta (contrôle d'intégrité en échec).")
+    elif bloquants:
+        txt.append(f"✅ JSON réimportable dans Aizenta. Les {len(bloquants)} ligne(s) bloquée(s) ci-dessus n'y "
+                   "sont pas reportées (laissées telles quelles) : les saisir directement dans l'inventaire "
+                   "sous Aizenta en suivant les remarques.")
+    else:
+        txt.append("✅ JSON réimportable dans Aizenta (après contrôle des points à vérifier).")
+    return "\n".join(txt)
 
 
 # ---------------------------------------------------------------------------
@@ -546,7 +715,7 @@ async def traiter_liste_pointage(scan: bytes, content_type: str, filename: str, 
 
     complet, rapport = appliquer_lectures(doc, pages, code_attendu=json_filename)
     for e in erreurs:
-        rapport.ajouter("bloquant", f"Page non lue — {e}")
+        rapport.ajouter("bloquant", f"Page non lue — {e}", type="page_non_lue")
     ordre = {"bloquant": 0, "a_verifier": 1}
     def _lieu(a: dict) -> str:
         if a["chrono"] is not None:
@@ -556,16 +725,7 @@ async def traiter_liste_pointage(scan: bytes, content_type: str, filename: str, 
     flags = [("⛔ " if a["gravite"] == "bloquant" else "⚠ ") + _lieu(a) + a["message"]
              for a in sorted(rapport.anomalies, key=lambda a: ordre[a["gravite"]])]
     a_verifier = len(rapport.anomalies) - rapport.nb_bloquants
-    summary = (
-        f"Liste de pointage {rapport.code_inventaire or ''} : {rapport.lignes_lues} lignes lues sur "
-        f"{len(images)} page(s) pour {rapport.lignes_json} lignes dans le JSON. "
-        f"{rapport.lignes_modifiees} ligne(s) complétée(s) ({len(rapport.modifications)} champ(s)). "
-        + (f"{rapport.nb_bloquants} anomalie(s) bloquante(s) à corriger avant import. " if rapport.nb_bloquants
-           else "Aucune anomalie bloquante. ")
-        + (f"{a_verifier} point(s) à vérifier. " if a_verifier else "")
-        + ("Comptage : " + " ; ".join(f"{c['page']} {c['compteur']}" for c in rapport.compteurs) + "."
-           if rapport.compteurs else "")
-    ).replace("  ", " ").strip()
+    summary = synthese_detaillee(rapport, doc, complet, nb_pages=len(images))
     return {
         **base, **metrics,
         "summary": summary,

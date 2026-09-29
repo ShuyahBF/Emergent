@@ -118,6 +118,27 @@ function PharmacySynthesis({ piece }) {
   );
 }
 
+// Liste de pointage : compte rendu détaillé (rédigé par le serveur, retours à la ligne
+// conservés) + téléchargement du JSON complété à réimporter dans Aizenta.
+function PointageReport({ piece, onDownloadJson }) {
+  if (piece.status === "en_analyse") {
+    return <p className="text-sm text-slate-500">Lecture de la liste de pointage en cours…</p>;
+  }
+  return (
+    <div className="space-y-3" data-testid={`ocr-pointage-report-${piece.id}`}>
+      <div className="text-sm text-slate-700 whitespace-pre-line bg-white border border-slate-200 rounded p-3">
+        {piece.summary || "Aucun compte rendu disponible."}
+      </div>
+      {piece.json_complete_disponible && (
+        <Button size="sm" onClick={() => onDownloadJson(piece)} className="bg-teal-600 hover:bg-teal-700"
+          data-testid={`ocr-pointage-download-${piece.id}`}>
+          <FileJson className="w-4 h-4 mr-1" /> Télécharger le JSON complété
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // Résumé des analyses d'une pièce (admin) : « Sonnet 5 · 2,40 FCFA · ★4 ».
 function RunsSummary({ runs }) {
   if (!runs?.length) return <span className="text-slate-400">—</span>;
@@ -452,11 +473,16 @@ export default function OcrPieces() {
                       {expanded === p.id && (
                         <tr className="bg-slate-50/60">
                           <td colSpan={colCount} className="px-4 py-3">
+                            {p.kind === POINTAGE && (
+                              <div className={isStaff ? "mb-4" : ""}>
+                                <PointageReport piece={p} onDownloadJson={downloadJson} />
+                              </div>
+                            )}
                             {isStaff ? (
                               <OcrRunsPanel apiBase={API_BASE} doc={p} models={catalog.models}
                                 defaultModel={catalog.default_model} onChanged={loadPieces} />
                             ) : (
-                              <PharmacySynthesis piece={p} />
+                              p.kind !== POINTAGE && <PharmacySynthesis piece={p} />
                             )}
                           </td>
                         </tr>

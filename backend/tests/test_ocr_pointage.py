@@ -115,6 +115,44 @@ def test_conditionnement_mal_lu_produit_unique():
     assert any("conditionnement différent" in a["message"] for a in rap.anomalies)
 
 
+def test_compte_rendu_detaille():
+    """Compte rendu affiché en fin de traitement : résultat, lignes bloquées avec leur raison,
+    points à vérifier regroupés, verdict de réimport dans Aizenta (même avec des bloquées)."""
+    data = {op.CLE_TABLE: [
+        _ligne(691, "SONDE D'INTUBATION N°3", mesure="UNITE"),
+        _ligne(671, "SONDE D'ASPIRATION N°10", mesure="UNITE"),
+        _ligne(538, "PINCES POUR BIOPSIE", mesure="CH/1"),
+        _ligne(672, "SONDE NASO GASTRIQUE CH18", mesure="UNITE"),
+        _ligne(673, "SONDE NASO GASTRIQUE CH6", mesure="UNITE"),
+        _ligne(735, "TANGANIL 500MG INJ", sv=-14),
+        _ligne(900, "PRODUIT NON COMPTE"),
+    ]}
+    pages = [{"page": "p.11", "titre": None, "compteur": "Dr Gacko / Inès", "nombre_de_lignes_pied": None,
+              "annotations": ["Sonde Armée 7,5 => 9"], "lignes": [
+        _lu(691, "SONDE D'INTUBATION N°3 [UNITE]", mag=9, incertain=True, note="écrit 8+1"),
+        _lu(671, "SONDE D'ASPIRATION N°10 [UNITE]", mag=140, incertain=True, note="surchargé : 110 ou 140"),
+        _lu(595, "PINCES POUR PIOPSIE [CH/1]", mag=0),
+        _lu(704, "SONDE NASO GASTRIQUE CH8 [UNITE]", sv=3),
+        _lu(613, "POCHE URIN AV SOUP-VID STER [UNITE]", sv=28),
+        _lu(722, "TANGANIL 500MG INJ [B/1]", sv=55, per="11/31"),     # N° décalé (722 sur la liste)
+    ]}]
+    out, rap = op.appliquer_lectures(data, pages, code_attendu="InventaireSélectionné_PPH_INV067.json")
+    txt = op.synthese_detaillee(rap, data, out, nb_pages=1)
+    for attendu in (
+        "6 lignes lues sur 1 page(s) : 4 pointées", "2 bloquée(s)",
+        "retrouvée(s) par leur libellé", "strictement intactes",
+        "Exemple : « TANGANIL 500MG INJ » → ISalle=55, Peremption1=20311101, Saisie_par=Claude",
+        "Comptage : p.11 Dr Gacko / Inès",
+        "« POCHE URIN AV SOUP-VID STER » n'existe pas dans le JSON INV067",
+        "« SONDE NASO GASTRIQUE CH8 » : plusieurs produits proches", "Le choix vous revient",
+        "« Sonde Armée 7,5 => 9 »", "écrit 8+1 → IMagasin=9", "110 ou 140 → reporté IMagasin=140",
+        "« PINCES POUR PIOPSIE » lu pour « PINCES POUR BIOPSIE »",
+        "✅ JSON réimportable dans Aizenta. Les 2 ligne(s) bloquée(s)",
+    ):
+        assert attendu in txt, attendu
+    assert out[op.CLE_TABLE][6] == data[op.CLE_TABLE][6]      # ligne non pointée intacte
+
+
 def test_ambiguite_et_produit_absent_bloques():
     data = {op.CLE_TABLE: [_ligne(5, "COTON", mesure="-"), _ligne(6, "COTON", mesure="-"),
                            _ligne(7, "SONDE D'INTUBATION N°6", mesure="UNITE"),
@@ -269,7 +307,7 @@ def test_parcours_pharmacie(env, fake_llm):
     assert done["json_complete_disponible"] is True
     assert done["extracted_fields"]["lignes_completees"] == 3
     assert done["extracted_fields"]["anomalies_bloquantes"] == 0
-    assert "Aucune anomalie bloquante" in done["summary"]
+    assert "0 bloquée(s)" in done["summary"] and "✅ JSON réimportable dans Aizenta" in done["summary"]
     for cle in ("json_complete_path", "model", "cost_xof"):
         assert cle not in done
     assert len(fake_llm) == 2                                    # une requête par page

@@ -15,7 +15,7 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Bot, FileText, Loader2, Save, ScanText, Search, ShieldCheck } from "lucide-react";
+import { Bot, FileText, Loader2, Pill, Save, ScanText, Search, ShieldCheck } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -255,6 +255,7 @@ function LiluvineFormulaire() {
 const FONCTIONS = [
   { cle: "forms_surveys", label: "Formulaires et Sondages", icon: FileText, couleur: "bg-indigo-600" },
   { cle: "ocr_pieces", label: "OCR sur Pièces", icon: ScanText, couleur: "bg-teal-600" },
+  { cle: "ordonnances_stock", label: "Ordonnances et stock", icon: Pill, couleur: "bg-emerald-600" },   // lot 39
 ];
 
 // Interrupteur accessible (bouton à bascule)
@@ -314,13 +315,14 @@ export default function FonctionsClients() {
           <ShieldCheck className="h-5 w-5 text-fuchsia-600" /> Fonctions par client
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Activez pour chaque client les fonctions <b>Formulaires et Sondages</b> et <b>OCR sur Pièces</b>.
+          Activez pour chaque client les fonctions <b>Formulaires et Sondages</b>, <b>OCR sur Pièces</b> et
+          <b> Ordonnances et stock</b>.
           Elles sont désactivées par défaut ; leurs utilisateurs suivis en héritent. L'Admin et le Superviseur y ont
           toujours accès.
         </p>
       </div>
 
-      <div className="grid grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <div className="rounded-xl bg-white ring-1 ring-slate-200 p-3">
           <p className="text-[11px] uppercase tracking-wider text-slate-500">Clients</p>
           <p className="text-2xl font-bold tabular-nums text-slate-800">{clients.length}</p>

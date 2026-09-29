@@ -900,3 +900,24 @@ def email_fin_de_traitement(*, code: Optional[str], inventaire: Optional[str], f
     html = ("<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0E1F3D\">"
             f"<pre style=\"white-space:pre-wrap;font-family:inherit;margin:0\">{_html.escape(texte)}</pre></div>")
     return objet, html, texte
+
+
+# ---------------------------------------------------------------------------
+# Nom du JSON produit (lot 39)
+# ---------------------------------------------------------------------------
+def nom_json_produit(json_filename: Optional[str], json_bytes: Optional[bytes] = None) -> str:
+    """« InventaireSélectionné_PPH_INV067.json » → « …_complete.json », ou « …_magasin_vente.json »
+    quand le JSON porte les DEUX stocks (au moins une quantité salle ET une quantité magasin) :
+    salle puis magasin, deux passages sur la même liste. Un suffixe déjà présent
+    (« _complete », « _magasin_vente ») est remplacé, jamais doublé."""
+    base = (json_filename or "inventaire.json").rsplit(".", 1)[0]
+    base = re.sub(r"(_complete|_magasin_vente)+$", "", base)
+    deux_stocks = False
+    if json_bytes:
+        try:
+            lignes = charger_json_inventaire(json_bytes)[CLE_TABLE]
+            deux_stocks = any((l.get("ISalle") or 0) > 0 for l in lignes) \
+                and any((l.get("IMagasin") or 0) > 0 for l in lignes)
+        except (ValueError, KeyError, TypeError):
+            deux_stocks = False
+    return f"{base}_{'magasin_vente' if deux_stocks else 'complete'}.json"

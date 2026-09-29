@@ -114,6 +114,8 @@ const clientLinks = [
   // (SMART Communications), grisée tant qu'elle n'est pas activée ; les
   // pharmacien(ne)s suivi(e)s ont le lien dans leur sidebar réduite plus bas.
   { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, featureGate: "ocr_pieces" },
+  // Lot 39 — photo d'ordonnance → disponibilité dans le stock du client (fonction activable).
+  { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
 ];
 
 const adminLinks = [
@@ -165,6 +167,7 @@ const adminLinks = [
   // Lot OCR sur Pièces (2026-09) — choix du modèle d'IA, coût réel en FCFA,
   // évaluation 1-5 étoiles, tableau de bord par modèle.
   { to: "/admin/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
+  { to: "/admin/ordonnances-stock", label: "Ordonnances et stock", icon: Pill },   // lot 39
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
@@ -397,6 +400,8 @@ function PortalLayoutInner({ admin = false }) {
                 { to: "/portal/gestion-stocks", label: "Gestion de Stocks", icon: Boxes },
                 // Lot OCR sur Pièces (2026-09) — dépôt + synthèse IA des pièces.
                 { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, featureGate: "ocr_pieces" },
+                // Lot 39 — Ordonnances et stock (pharmacien(ne)s suivi(e)s).
+                { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
               ]
             : (isSecretaireMedicale
                 ? [

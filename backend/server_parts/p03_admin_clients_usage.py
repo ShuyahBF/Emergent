@@ -293,6 +293,7 @@ DEFAULT_CLIENT_FEATURES = {
     # clients existants : chacun est activé à la demande.
     "forms_surveys": False,   # Formulaires & Sondages WhatsApp (+ création depuis un document)
     "ocr_pieces": False,      # OCR sur Pièces (factures, bons de livraison, listes de pointage)
+    "ordonnances_stock": False,  # Lot 39 — Ordonnances et stock (photo → disponibilité, réservation)
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -566,6 +567,7 @@ class ClientFeaturesUpdate(BaseModel):
     # Lot 34 — Formulaires & Sondages, OCR sur Pièces
     forms_surveys: Optional[bool] = None
     ocr_pieces: Optional[bool] = None
+    ordonnances_stock: Optional[bool] = None
     # Iter38r-fix9p (correction) — OCR pricing & quotas per tenant.
     # Read by routes/liluvine_kb.py with fallback on settings.global.
     kb_ocr_xof_per_page: Optional[int] = None

@@ -160,6 +160,7 @@ import VidalSecurisation from "@/pages/portal/VidalSecurisation";
 import GestionStocks from "@/pages/portal/GestionStocks";
 // Lot OCR sur Pièces (2026-09) — module commun ocr-core + adaptateur Sawali
 import OcrPieces from "@/pages/portal/OcrPieces";
+import OrdonnancesStock from "@/pages/portal/OrdonnancesStock";   // lot 39
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
 import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
 import PortalBrochures from "@/pages/portal/PortalBrochures";
@@ -379,6 +380,8 @@ export default function App() {
             <Route path="gestion-stocks" element={<GestionStocks />} />
             {/* Lot OCR sur Pièces (2026-09) — pharmacies (leurs pièces) + administration */}
             <Route path="ocr-pieces" element={<OcrPieces />} />
+            {/* Lot 39 — photo d'ordonnance → disponibilité dans le stock du client */}
+            <Route path="ordonnances-stock" element={<OrdonnancesStock />} />
             {/* Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces » (Superviseur) */}
             <Route path="smart-communications" element={<FonctionsClients />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
@@ -408,6 +411,7 @@ export default function App() {
             <Route path="documents" element={<AdminDocuments />} />
             {/* Lot OCR sur Pièces (2026-09) — vue administration (modèles, coût, évaluations) */}
             <Route path="ocr-pieces" element={<OcrPieces />} />
+            <Route path="ordonnances-stock" element={<OrdonnancesStock />} />   {/* lot 39 */}
             <Route path="contents" element={<AdminContents />} />
             <Route path="contacts" element={<AdminContacts />} />
             <Route path="tracked-users" element={<AdminTrackedUsers />} />

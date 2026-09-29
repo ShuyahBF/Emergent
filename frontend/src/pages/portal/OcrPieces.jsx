@@ -31,6 +31,9 @@ import { displayValue, errorMessage, formatXof, shortModel } from "@/components/
   de pointage remplie à la main + le JSON de l'inventaire exporté par WinDev ;
   l'analyse (backend/ocr_pointage) complète le JSON (IMagasin, ISalle,
   Peremption1), téléchargeable via le bouton « JSON complété ».
+  Sans scanner (lot 32) : on peut choisir d'un coup TOUTES les photos des pages
+  prises au téléphone ; elles sont réduites dans le navigateur puis envoyées
+  ensemble (champ « photos ») et le serveur les assemble en un seul PDF.
 */
 
 const API_BASE = "/ocr-pieces";
@@ -57,7 +60,37 @@ const STATUS = {
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.txt,.csv";
 const POINTAGE = "liste_pointage";
-const ACCEPT_POINTAGE = ".pdf,.jpg,.jpeg,.png,.webp";   // scan de la liste : PDF ou photo
+// Scan de la liste : un PDF, ou les photos des pages. « image/* » laisse l'iPhone
+// convertir lui-même ses photos HEIC en JPEG au moment du choix.
+const ACCEPT_POINTAGE = ".pdf,.jpg,.jpeg,.png,.webp,image/*";
+const EXT_PHOTO = /\.(jpe?g|png|webp)$/i;
+const PHOTO_MAX_PX = 2400;       // même plafond que le serveur (ocr_pointage.PHOTO_MAX_PX)
+const PHOTO_QUALITE = 0.85;
+
+// Tri « naturel » des photos par nom (IMG_2 avant IMG_10) : l'appareil photo numérote
+// les prises dans l'ordre, alors que l'ordre de sélection n'est pas garanti.
+const triNaturel = (a, b) => a.name.localeCompare(b.name, "fr", { numeric: true, sensitivity: "base" });
+
+// Réduit une photo de téléphone (souvent 3 à 6 Mo) avant l'envoi : ~0,5 Mo par page,
+// orientation EXIF appliquée. En cas d'échec (format que le navigateur ne sait pas lire),
+// la photo d'origine est envoyée telle quelle et le serveur donnera un message clair.
+async function reduirePhoto(fichier) {
+  try {
+    const bitmap = await createImageBitmap(fichier, { imageOrientation: "from-image" });
+    const echelle = Math.min(1, PHOTO_MAX_PX / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * echelle);
+    canvas.height = Math.round(bitmap.height * echelle);
+    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close?.();
+    const blob = await new Promise((ok) => canvas.toBlob(ok, "image/jpeg", PHOTO_QUALITE));
+    if (!blob) return fichier;
+    const nom = fichier.name.replace(/\.[^.]*$/, "") + ".jpg";
+    return new File([blob], nom, { type: "image/jpeg" });
+  } catch {
+    return fichier;
+  }
+}
 
 // Nom du JSON complété téléchargé (même règle que le serveur) :
 // « InventaireSélectionné_PPH_INV067.json » → « …_INV067_complete.json ».
@@ -121,17 +154,21 @@ function PharmacySynthesis({ piece }) {
 // Sélecteur de fichier aux libellés TOUJOURS en français : le champ natif <input type="file">
 // affiche « Choose File / No file chosen » selon la langue du navigateur ; il est masqué et
 // déclenché par un bouton du site.
-function ChoixFichier({ inputRef, accept, file, onChange, testId, className = "bg-slate-100 text-slate-700" }) {
+// Avec `multiple` (liste de pointage), plusieurs fichiers peuvent être choisis d'un coup :
+// onChange reçoit alors le tableau des fichiers, et `libelle` remplace le nom affiché.
+function ChoixFichier({ inputRef, accept, file, onChange, testId, multiple = false, libelle = "",
+  className = "bg-slate-100 text-slate-700" }) {
+  const affiche = libelle || (file ? file.name : "Aucun fichier choisi");
   return (
     <div className="flex items-center gap-3 text-sm">
-      <input ref={inputRef} type="file" accept={accept} data-testid={testId} className="hidden"
-        onChange={(e) => onChange(e.target.files?.[0] || null)} />
+      <input ref={inputRef} type="file" accept={accept} data-testid={testId} className="hidden" multiple={multiple}
+        onChange={(e) => onChange(multiple ? Array.from(e.target.files || []) : (e.target.files?.[0] || null))} />
       <button type="button" onClick={() => inputRef.current?.click()} data-testid={`${testId}-bouton`}
         className={`px-3 py-1.5 rounded ${className} hover:brightness-95`}>
-        Choisir un fichier
+        {multiple ? "Choisir le PDF ou les photos" : "Choisir un fichier"}
       </button>
-      <span className="text-slate-700 max-w-[220px] truncate" title={file?.name || ""}>
-        {file ? file.name : "Aucun fichier choisi"}
+      <span className="text-slate-700 max-w-[260px] truncate" title={affiche} data-testid={`${testId}-nom`}>
+        {affiche}
       </span>
     </div>
   );
@@ -190,6 +227,8 @@ export default function OcrPieces() {
   // Formulaire de dépôt.
   const fileRef = useRef(null);
   const [file, setFile] = useState(null);
+  // Liste de pointage sans scanner : photos des pages (au moins 2), triées par nom.
+  const [photos, setPhotos] = useState([]);
   const [kind, setKind] = useState("facture");
   const [uploadTenant, setUploadTenant] = useState("");
   const [uploadModel, setUploadModel] = useState("");
@@ -198,6 +237,35 @@ export default function OcrPieces() {
   const jsonRef = useRef(null);
   const [jsonFile, setJsonFile] = useState(null);
   const isPointage = kind === POINTAGE;
+
+  // Changement de type : les photos multiples ne valent que pour une liste de pointage.
+  useEffect(() => {
+    if (!isPointage && photos.length) {
+      setPhotos([]);
+      if (fileRef.current) fileRef.current.value = "";
+    }
+  }, [isPointage, photos.length]);
+
+  // Choix pour une liste de pointage : un seul fichier (PDF ou photo) → envoi classique ;
+  // plusieurs → uniquement des photos, assemblées en PDF par le serveur.
+  const choisirPointage = (fichiers) => {
+    if (fichiers.length <= 1) {
+      setPhotos([]);
+      setFile(fichiers[0] || null);
+      return;
+    }
+    const nonPhotos = fichiers.filter((f) => !EXT_PHOTO.test(f.name) && !(f.type || "").startsWith("image/"));
+    if (nonPhotos.length) {
+      toast.error("Plusieurs fichiers : uniquement des photos (JPG, PNG, WEBP). Pour un PDF, choisissez-le seul.");
+      if (fileRef.current) fileRef.current.value = "";
+      return;
+    }
+    setFile(null);
+    setPhotos([...fichiers].sort(triNaturel));
+  };
+  const libellePhotos = photos.length
+    ? `${photos.length} photos (${photos[0].name} → ${photos[photos.length - 1].name})`
+    : "";
 
   // Liste des pièces (admin : filtrable par pharmacie ; pharmacie : les siennes, filtrées par le serveur).
   const loadPieces = useCallback(async () => {
@@ -236,7 +304,7 @@ export default function OcrPieces() {
 
   // Dépôt d'une pièce : l'analyse démarre aussitôt côté serveur.
   const upload = async () => {
-    if (!file) return;
+    if (!file && !photos.length) return;
     if (isStaff && !uploadTenant) {
       toast.error("Choisissez la pharmacie concernée");
       return;
@@ -245,19 +313,26 @@ export default function OcrPieces() {
       toast.error("Joignez le fichier JSON de l'inventaire");
       return;
     }
+    setUploading(true);
     const form = new FormData();
-    form.append("file", file);
+    if (photos.length) {
+      // Pages photographiées : réduites ici (envoi plus rapide sur mobile), dans l'ordre.
+      const reduites = await Promise.all(photos.map(reduirePhoto));
+      reduites.forEach((p) => form.append("photos", p));
+    } else {
+      form.append("file", file);
+    }
     form.append("kind", kind);
     if (isPointage) form.append("inventaire_json", jsonFile);
     if (isStaff) {
       form.append("tenant_id", uploadTenant);
       if (uploadModel) form.append("model", uploadModel);
     }
-    setUploading(true);
     try {
       await apiClient.post(API_BASE, form);
       toast.success("Pièce déposée — analyse en cours…");
       setFile(null);
+      setPhotos([]);
       if (fileRef.current) fileRef.current.value = "";
       setJsonFile(null);
       if (jsonRef.current) jsonRef.current.value = "";
@@ -348,15 +423,17 @@ export default function OcrPieces() {
             {isPointage && (
               <p className="text-sm text-teal-800 bg-teal-50 border border-teal-200 rounded px-3 py-2"
                 data-testid="ocr-pointage-help">
-                <b>Liste de pointage :</b> déposez le scan de la liste remplie à la main (PDF ou photos)
-                et joignez le fichier JSON de l'inventaire exporté par WinDev. Les colonnes INV Mag, INV SV
+                <b>Liste de pointage :</b> déposez le scan de la liste remplie à la main (PDF) ou, sans
+                scanner, choisissez d'un coup toutes les photos des pages prises au téléphone (triées par
+                leur nom, dans l'ordre des prises), et joignez le fichier JSON de l'inventaire exporté par WinDev. Les colonnes INV Mag, INV SV
                 et Pérempt° sont lues et reportées dans le JSON (produits retrouvés par leur intitulé), à
                 télécharger ensuite avec le bouton <FileJson className="w-3.5 h-3.5 inline" />.
               </p>
             )}
             <div className="flex flex-wrap items-end gap-3">
               <ChoixFichier inputRef={fileRef} accept={isPointage ? ACCEPT_POINTAGE : ACCEPT} file={file}
-                onChange={setFile} testId="ocr-file-input" />
+                onChange={isPointage ? choisirPointage : setFile} multiple={isPointage}
+                libelle={isPointage ? libellePhotos : ""} testId="ocr-file-input" />
               {isPointage && (
                 <div className="flex flex-col text-xs text-slate-500 gap-1">
                   JSON de l'inventaire
@@ -396,7 +473,7 @@ export default function OcrPieces() {
                   </div>
                 </>
               )}
-              <Button onClick={upload} disabled={!file || uploading || (isPointage && !jsonFile)} data-testid="ocr-upload-btn"
+              <Button onClick={upload} disabled={(!file && !photos.length) || uploading || (isPointage && !jsonFile)} data-testid="ocr-upload-btn"
                 className="bg-teal-600 hover:bg-teal-700">
                 {uploading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
                 Déposer et analyser

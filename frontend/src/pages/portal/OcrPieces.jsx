@@ -14,6 +14,7 @@ import OcrRunsPanel from "@/components/ocr-core/OcrRunsPanel";
 import OcrDashboard from "@/components/ocr-core/OcrDashboard";
 import StarRating from "@/components/ocr-core/StarRating";
 import { displayValue, errorMessage, formatXof, shortModel } from "@/components/ocr-core/format";
+import { estPhoto, reduirePhoto, triNaturel } from "@/lib/photos";
 
 /*
   Portail / Admin → « OCR sur Pièces » (lot 2026-09).
@@ -63,35 +64,6 @@ const POINTAGE = "liste_pointage";
 // Scan de la liste : un PDF, ou les photos des pages. « image/* » laisse l'iPhone
 // convertir lui-même ses photos HEIC en JPEG au moment du choix.
 const ACCEPT_POINTAGE = ".pdf,.jpg,.jpeg,.png,.webp,image/*";
-const EXT_PHOTO = /\.(jpe?g|png|webp)$/i;
-const PHOTO_MAX_PX = 2400;       // même plafond que le serveur (ocr_pointage.PHOTO_MAX_PX)
-const PHOTO_QUALITE = 0.85;
-
-// Tri « naturel » des photos par nom (IMG_2 avant IMG_10) : l'appareil photo numérote
-// les prises dans l'ordre, alors que l'ordre de sélection n'est pas garanti.
-const triNaturel = (a, b) => a.name.localeCompare(b.name, "fr", { numeric: true, sensitivity: "base" });
-
-// Réduit une photo de téléphone (souvent 3 à 6 Mo) avant l'envoi : ~0,5 Mo par page,
-// orientation EXIF appliquée. En cas d'échec (format que le navigateur ne sait pas lire),
-// la photo d'origine est envoyée telle quelle et le serveur donnera un message clair.
-async function reduirePhoto(fichier) {
-  try {
-    const bitmap = await createImageBitmap(fichier, { imageOrientation: "from-image" });
-    const echelle = Math.min(1, PHOTO_MAX_PX / Math.max(bitmap.width, bitmap.height));
-    const canvas = document.createElement("canvas");
-    canvas.width = Math.round(bitmap.width * echelle);
-    canvas.height = Math.round(bitmap.height * echelle);
-    canvas.getContext("2d").drawImage(bitmap, 0, 0, canvas.width, canvas.height);
-    bitmap.close?.();
-    const blob = await new Promise((ok) => canvas.toBlob(ok, "image/jpeg", PHOTO_QUALITE));
-    if (!blob) return fichier;
-    const nom = fichier.name.replace(/\.[^.]*$/, "") + ".jpg";
-    return new File([blob], nom, { type: "image/jpeg" });
-  } catch {
-    return fichier;
-  }
-}
-
 // Nom du JSON complété téléchargé (même règle que le serveur) :
 // « InventaireSélectionné_PPH_INV067.json » → « …_INV067_complete.json ».
 function jsonCompleteName(piece) {
@@ -254,7 +226,7 @@ export default function OcrPieces() {
       setFile(fichiers[0] || null);
       return;
     }
-    const nonPhotos = fichiers.filter((f) => !EXT_PHOTO.test(f.name) && !(f.type || "").startsWith("image/"));
+    const nonPhotos = fichiers.filter((f) => !estPhoto(f));
     if (nonPhotos.length) {
       toast.error("Plusieurs fichiers : uniquement des photos (JPG, PNG, WEBP). Pour un PDF, choisissez-le seul.");
       if (fileRef.current) fileRef.current.value = "";

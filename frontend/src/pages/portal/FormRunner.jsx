@@ -6,6 +6,11 @@ import QRCode from "qrcode";
 import SignaturePad from "signature_pad";
 import { ArrowLeft, ArrowRight, Save, RotateCcw, Download, MapPin, Clock, Printer, QrCode, Plus, Trash2, Upload as UploadIcon, X } from "lucide-react";
 
+// Valeurs par défaut des champs (« Valeur par défaut » de l'éditeur, lignes pré-remplies d'un tableau).
+const valeursParDefaut = (form) => Object.fromEntries((form?.pages || []).flatMap((p) => p.fields || [])
+  .filter((f) => f.default_value !== null && f.default_value !== undefined && f.default_value !== "")
+  .map((f) => [f.id, f.type === "table" && Array.isArray(f.default_value) ? f.default_value.map((r) => ({ ...r })) : f.default_value]));
+
 // Form runner — honours 12-col grid, auto-prefills on reopen, 3 buttons (reset/save/export CSV)
 export default function FormRunner() {
   const { fid } = useParams();
@@ -29,7 +34,9 @@ export default function FormRunner() {
         ]);
         setForm(fr.data);
         setSubmission(sr.data);
-        setData(sr.data?.data || {});
+        // Première saisie : valeurs par défaut des champs (dont les lignes pré-remplies d'un tableau,
+        // lot 33) — comme dans l'aperçu de l'éditeur. Ensuite : la saisie enregistrée.
+        setData(sr.data?.data || valeursParDefaut(fr.data));
       } catch { toast.error("Formulaire introuvable"); }
     })();
     // Attempt geolocation (best-effort)
@@ -41,7 +48,7 @@ export default function FormRunner() {
     }
   }, [fid]);
 
-  const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) setData({}); };
+  const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) setData(valeursParDefaut(form)); };
 
   const save = async () => {
     setSaving(true);
@@ -303,7 +310,7 @@ const TableField = ({ field, value, onChange }) => {
                     type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"}
                     value={r[c.key] ?? ""}
                     onChange={(e) => setCell(ri, c.key, c.type === "number" ? (e.target.value === "" ? "" : parseFloat(e.target.value)) : e.target.value)}
-                    className="w-full rounded border border-slate-300 px-2 py-1 text-xs bg-white"
+                    className={`w-full rounded border border-slate-300 px-2 py-1 text-xs bg-white ${c.type === "text" || !c.type ? "min-w-[9rem]" : "min-w-[6rem]"}`}
                     data-testid={`table-cell-${field.id}-${ri}-${c.key}`}
                   />
                 </td>

@@ -12,10 +12,11 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { BarChart3, Plus, Edit, Trash2, Copy, Send, Search, Users, Eye, CheckCircle2, Trophy } from "lucide-react";
+import { BarChart3, FileUp, Plus, Edit, Trash2, Copy, Send, Search, Users, Eye, CheckCircle2, Trophy } from "lucide-react";
 import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyContributors from "@/components/SurveyContributors";
+import ImportDocumentModal from "@/components/ImportDocumentModal";
 
 // Statut -> [libellé, classes du badge]
 export const SURVEY_STATUS = {
@@ -34,6 +35,7 @@ export default function Surveys() {
   const [status, setStatus] = useState("all");
   const [sendFor, setSendFor] = useState(null);     // sondage à envoyer (fenêtre d'envoi)
   const [view, setView] = useState("surveys");      // surveys | contributors
+  const [importOpen, setImportOpen] = useState(false); // lot 33 : « Créer depuis un document »
 
   const load = async () => {
     setLoading(true);
@@ -89,10 +91,16 @@ export default function Surveys() {
             Chaque destinataire reçoit sur WhatsApp un lien personnel : vous savez qui a ouvert et qui a répondu.
           </p>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        <button onClick={() => setImportOpen(true)} data-testid="survey-import-doc-btn"
+          className="inline-flex items-center gap-2 rounded-lg ring-1 ring-sawali-blue/40 text-sawali-blue px-4 py-2 text-sm hover:bg-sawali-blue/5">
+          <FileUp className="h-4 w-4" /> Créer depuis un document
+        </button>
         <Link to={`${base}/surveys/new/edit`} data-testid="survey-create-btn"
           className="inline-flex items-center gap-2 rounded-lg bg-sawali-blue text-white px-4 py-2 text-sm hover:bg-sawali-blue-light">
           <Plus className="h-4 w-4" /> Nouveau sondage
         </Link>
+        </div>
       </div>
 
       {/* Vue : liste des sondages ou meilleurs contributeurs */}
@@ -104,6 +112,11 @@ export default function Surveys() {
           </button>
         ))}
       </div>
+
+      {importOpen && (
+        <ImportDocumentModal cible="sondage" lienEditeur={(id) => `${base}/surveys/${id}/edit`}
+          onClose={() => { setImportOpen(false); load(); }} />
+      )}
 
       {view === "contributors" ? <SurveyContributors /> : (<>
       {/* Chiffres du portefeuille */}

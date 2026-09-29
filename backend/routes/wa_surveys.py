@@ -328,6 +328,7 @@ def attach_wa_survey_routes(
     build_components,
     public_base_url,                     # (request) -> str
     is_preview_env: Callable[[], bool] = lambda: False,
+    owner_enabled=None,                  # lot 34 — async (client_id) -> bool : fonction activée pour le propriétaire
 ) -> Dict[str, Any]:
     """Branche les routes des sondages WhatsApp. Renvoie {"resume": coroutine}
     à lancer au démarrage (reprise d'un envoi interrompu par un redémarrage)."""
@@ -894,6 +895,9 @@ def attach_wa_survey_routes(
         s = await db.wa_surveys.find_one({"id": inv["survey_id"]}, {"_id": 0})
         if not s:
             raise HTTPException(status_code=404, detail="Ce sondage n'existe plus")
+        # Lot 34 — « Formulaires et Sondages » désactivé pour le client propriétaire : lien inactif.
+        if owner_enabled is not None and not await owner_enabled(s.get("client_id")):
+            raise HTTPException(status_code=404, detail="Ce sondage n'est plus disponible")
         closed = s.get("status") == "closed"
         if not closed and s.get("closes_at"):
             try:

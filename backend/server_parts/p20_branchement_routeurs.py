@@ -256,8 +256,10 @@ def _is_preview_environment() -> bool:
 
 
 from routes.wa_surveys import attach_wa_survey_routes as _attach_wa_surveys  # noqa: E402
+# Lot 34 — routes des sondages réservées aux comptes dont « Formulaires et Sondages »
+# est activé (SMART Communications) ; liens publics : même contrôle sur le propriétaire.
 _wa_surveys = _attach_wa_surveys(
-    api=api, db=db, get_current_user=get_current_user, uuid_fn=_uuid,
+    api=api, db=db, get_current_user=_utilisateur_formulaires, uuid_fn=_uuid,
     can_send_wa=_can_send_wa, is_admin_like=_is_admin_or_superviseur,
     resolve_visible_client_ids=_resolve_visible_client_ids, wa_enabled_for=_wa_enabled_for,
     enforce_demo_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_WA, increment=n),
@@ -265,6 +267,7 @@ _wa_surveys = _attach_wa_surveys(
     wa_window_open=_wa_window_open, build_recipient_ctx=_build_recipient_ctx,
     build_components=_build_components, public_base_url=_public_base_url,
     is_preview_env=_is_preview_environment,
+    owner_enabled=lambda client_id: _fonction_active_pour_compte(client_id, "forms_surveys"),
 )
 
 
@@ -289,13 +292,13 @@ async def _resume_wa_surveys():
 
 # Iter40 (2026-02) — Form categories (max 6 per tenant)
 from routes.form_categories import attach_form_categories_routes as _attach_form_categories  # noqa: E402
-_attach_form_categories(api=api, db=db, get_current_user=get_current_user)
+_attach_form_categories(api=api, db=db, get_current_user=_utilisateur_formulaires)  # lot 34
 
 # Lot 33 — « Créer depuis un document » : Word, Excel, PDF ou photos d'un questionnaire
 # → brouillon de formulaire ou de sondage WhatsApp (routes/import_formulaire.py).
 from routes.import_formulaire import attach_import_formulaire_routes as _attach_import_formulaire  # noqa: E402
 _attach_import_formulaire(
-    api=api, db=db, get_current_user=get_current_user, uuid_fn=_uuid,
+    api=api, db=db, get_current_user=_utilisateur_formulaires, uuid_fn=_uuid,   # lot 34
     next_form_number=_next_form_number, slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur,
 )
 
@@ -879,7 +882,8 @@ _attach_gestion_stocks(api=api, db=db, get_current_user=get_current_user, get_cu
 # ocr-core, source unique : dépôt ShuyahBF/Claude) ; adaptateur Sawali
 # (accès admin + pharmacies, cloisonnement par tenant) dans routes/ocr_pieces.py.
 from routes.ocr_pieces import attach_ocr_pieces_routes as _attach_ocr_pieces  # noqa: E402
-_attach_ocr_pieces(api=api, db=db, get_current_user=get_current_user)
+# Lot 34 — accès des clients selon la fonction « OCR sur Pièces » (SMART Communications).
+_attach_ocr_pieces(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active)
 
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402

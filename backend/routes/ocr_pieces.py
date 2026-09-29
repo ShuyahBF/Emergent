@@ -132,15 +132,26 @@ class ReanalyzePayload(BaseModel):
     model: str
 
 
-def attach_ocr_pieces_routes(*, api, db, get_current_user):
-    """Branche les routes /api/ocr-pieces (contrat commun décrit dans ocr-core/README.md)."""
+def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None):
+    """Branche les routes /api/ocr-pieces (contrat commun décrit dans ocr-core/README.md).
+
+    `fonction_active` (lot 34) : async (user, clé) -> bool. Fourni, l'accès d'un compte
+    client dépend de la fonction « OCR sur Pièces » activée pour lui dans SMART
+    Communications (quel que soit son rôle) ; sinon, règle historique : pharmacies."""
     import object_storage as storage   # Emergent Object Storage (déjà utilisé par la plateforme)
 
     TAG = "Portail — OCR sur Pièces"
 
     # --- Dépendances d'accès -------------------------------------------------
     async def allowed_user(user: dict = Depends(get_current_user)) -> dict:
-        if not (_is_staff(user) or _is_pharmacy(user)):
+        if _is_staff(user):
+            return user
+        if fonction_active is not None:
+            if not await fonction_active(user, "ocr_pieces"):
+                raise HTTPException(status_code=403, detail="La fonction « OCR sur Pièces » n'est pas activée pour "
+                                                            "votre compte. Demandez son activation à votre administrateur SAWALI.")
+            return user
+        if not _is_pharmacy(user):
             raise HTTPException(status_code=403, detail="Accès réservé aux pharmacies et à l'administration")
         return user
 

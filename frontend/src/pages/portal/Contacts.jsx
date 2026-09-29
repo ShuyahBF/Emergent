@@ -2083,7 +2083,8 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
       }
       setShareModal((m) => ({ ...m, items, loading: false }));
     } catch (err) {
-      toast.error("Impossible de charger la liste");
+      // Lot 34 — ex. « Formulaires et Sondages » non activé pour ce compte : message du serveur.
+      toast.error(err?.response?.data?.detail || "Impossible de charger la liste");
       setShareModal((m) => ({ ...m, loading: false }));
     }
   };

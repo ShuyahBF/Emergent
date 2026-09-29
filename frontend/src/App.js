@@ -160,6 +160,7 @@ import VidalSecurisation from "@/pages/portal/VidalSecurisation";
 import GestionStocks from "@/pages/portal/GestionStocks";
 // Lot OCR sur Pièces (2026-09) — module commun ocr-core + adaptateur Sawali
 import OcrPieces from "@/pages/portal/OcrPieces";
+import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -374,6 +375,8 @@ export default function App() {
             <Route path="gestion-stocks" element={<GestionStocks />} />
             {/* Lot OCR sur Pièces (2026-09) — pharmacies (leurs pièces) + administration */}
             <Route path="ocr-pieces" element={<OcrPieces />} />
+            {/* Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces » (Superviseur) */}
+            <Route path="smart-communications" element={<FonctionsClients />} />
             {/* S-iter39b — Brochures & Guides en visionneuse PDF interne */}
             <Route path="brochures" element={<PortalBrochures />} />
             <Route path="meetings" element={<MeetingMinutes />} />
@@ -393,6 +396,7 @@ export default function App() {
             <Route path="clients" element={<AdminClients />} />
             <Route path="clients/:id/timeline" element={<AdminClientTimeline />} />
             <Route path="clients/:id/features" element={<AdminClientFeatures />} />
+            <Route path="smart-communications" element={<FonctionsClients />} />   {/* lot 34 */}
             <Route path="clients/:client_id/rgpd-preview" element={<AdminRgpdPreview />} />
             <Route path="usage" element={<AdminUsage />} />
             <Route path="appointments" element={<AdminAppointments />} />

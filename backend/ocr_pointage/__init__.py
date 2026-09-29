@@ -725,10 +725,19 @@ async def traiter_liste_pointage(scan: bytes, content_type: str, filename: str, 
     flags = [("⛔ " if a["gravite"] == "bloquant" else "⚠ ") + _lieu(a) + a["message"]
              for a in sorted(rapport.anomalies, key=lambda a: ordre[a["gravite"]])]
     a_verifier = len(rapport.anomalies) - rapport.nb_bloquants
-    summary = synthese_detaillee(rapport, doc, complet, nb_pages=len(images))
+    # Deux textes : un RÉSUMÉ d'une ligne (colonne « Synthèse » de la liste et panneau commun des
+    # analyses ocr_core, qui n'affiche pas les retours à la ligne) et le COMPTE RENDU complet,
+    # affiché mis en forme par l'encadré « Compte rendu » de la page.
+    compte_rendu = synthese_detaillee(rapport, doc, complet, nb_pages=len(images))
+    summary = (
+        f"Liste de pointage {rapport.code_inventaire or ''} : {rapport.lignes_lues} lignes lues, "
+        f"{len(rapport.chronos_pointes)} pointées, {rapport.nb_bloquants} bloquée(s), {a_verifier} point(s) à vérifier — "
+        + ("JSON réimportable dans Aizenta." if "⛔" not in compte_rendu else "JSON à NE PAS réimporter (voir le compte rendu).")
+    ).replace("  ", " ")
     return {
         **base, **metrics,
         "summary": summary,
+        "compte_rendu": compte_rendu,
         "extracted_fields": {
             "inventaire": rapport.code_inventaire,
             "lignes_json": rapport.lignes_json,

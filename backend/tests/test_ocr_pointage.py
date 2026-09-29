@@ -307,7 +307,10 @@ def test_parcours_pharmacie(env, fake_llm):
     assert done["json_complete_disponible"] is True
     assert done["extracted_fields"]["lignes_completees"] == 3
     assert done["extracted_fields"]["anomalies_bloquantes"] == 0
-    assert "0 bloquée(s)" in done["summary"] and "✅ JSON réimportable dans Aizenta" in done["summary"]
+    # Résumé d'une ligne (liste, panneau commun) + compte rendu complet (encadré de la page).
+    assert "\n" not in done["summary"] and "0 bloquée(s)" in done["summary"]
+    assert "JSON réimportable dans Aizenta" in done["summary"]
+    assert done["compte_rendu"].startswith("Résultat :") and "✅ JSON réimportable dans Aizenta" in done["compte_rendu"]
     for cle in ("json_complete_path", "model", "cost_xof"):
         assert cle not in done
     assert len(fake_llm) == 2                                    # une requête par page

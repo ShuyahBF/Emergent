@@ -36,6 +36,8 @@ Garde-fous (un chiffre mal lu fausse directement le stock en base) :
   - cellule vide → champ inchangé (jamais 0 à la place d'un oubli) ;
   - péremption illisible / mois invalide → non reportée ; rature → reportée
     mais signalée ;
+  - péremption déjà portée dans le JSON (comptage salle puis magasin, ou export)
+    → on garde toujours la plus proche (lot 38) ;
   - N° inconnu, N° lu deux fois, lignes absentes des scans (page oubliée),
     code INV du titre ≠ code du JSON, pied « Nombre de lignes » ≠ nombre de
     lignes du JSON, lignes rapprochées par libellé → signalés.
@@ -60,6 +62,7 @@ import difflib
 import json
 import logging
 import re
+import unicodedata
 import time
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -170,6 +173,10 @@ class RapportPointage:
     modifications: List[dict] = field(default_factory=list)
     # Chrono des lignes pointées (une valeur au moins a été lue et reportée).
     chronos_pointes: List[int] = field(default_factory=list)
+    # Règle du 29/09/2026 : péremption déjà portée dans le JSON (autre comptage, ex. salle
+    # puis magasin) et plus proche que celle lue → conservée.
+    # {"chrono", "libelle", "page", "conservee", "lue"}
+    peremptions_conservees: List[dict] = field(default_factory=list)
 
     def ajouter(self, gravite: str, message: str, chrono=None, page=None, type: str = "autre",
                 **details: Any) -> None:
@@ -187,6 +194,7 @@ class RapportPointage:
             "compteurs": self.compteurs, "chronos_pointes": self.chronos_pointes,
             "nb_bloquants": self.nb_bloquants, "anomalies": self.anomalies,
             "modifications": self.modifications,
+            "peremptions_conservees": self.peremptions_conservees,
         }
 
 
@@ -304,6 +312,13 @@ def peremption_vers_hfsql(texte: Optional[str]) -> Optional[str]:
     if not (1 <= mois <= 12 and 2000 <= annee <= 2099):
         return None
     return f"{annee:04d}{mois:02d}01"
+
+
+def _plus_proche_deja_portee(existante: Any, lue: str) -> bool:
+    """Vrai si le JSON porte déjà une péremption valide (« AAAAMMJJ ») antérieure à celle lue :
+    entre deux péremptions pour un même produit, on garde toujours la plus proche."""
+    e = str(existante or "").strip()
+    return bool(re.fullmatch(r"\d{8}", e)) and e < lue
 
 
 def recalculer_diff(ligne: dict) -> None:
@@ -451,6 +466,12 @@ def appliquer_lectures(data: dict, pages: List[dict], code_attendu: Optional[str
                     rapport.ajouter("a_verifier", f"Péremption illisible/invalide « {lu['peremption']} » : "
                                     "non reportée.", chrono, nom_page, type="peremption_invalide",
                                     libelle=cible.get("Libellé"), texte=lu["peremption"])
+                elif _plus_proche_deja_portee(cible.get("Peremption1"), per):
+                    # Une péremption est déjà portée (ex. comptage salle, puis liste du
+                    # magasin) et elle est plus proche : on la garde (règle client).
+                    rapport.peremptions_conservees.append({
+                        "chrono": chrono, "libelle": cible.get("Libellé"), "page": nom_page,
+                        "conservee": str(cible.get("Peremption1")).strip(), "lue": per})
                 else:
                     nouvelles["Peremption1"] = per
 
@@ -504,6 +525,13 @@ _CHAMPS_EXEMPLE = ("IMagasin", "ISalle", "Peremption1")
 def _nom(texte: Optional[str]) -> str:
     """Libellé nettoyé pour l'affichage : sans « [Mesure] » ni espaces superflus."""
     return re.sub(r"\s+", " ", re.sub(r"\s*\[.*$", "", texte or "")).strip()
+
+
+def _ou(a: dict) -> str:
+    """« (N° 234, p.4) » : où corriger à la main sur la liste papier."""
+    lieu = [f"N° {a['chrono']}" if a.get("chrono") is not None else "", a.get("page") or ""]
+    lieu = [x for x in lieu if x]
+    return f" ({', '.join(lieu)})" if lieu else ""
 
 
 def _puces(lignes: List[str]) -> List[str]:
@@ -566,6 +594,13 @@ def synthese_detaillee(rapport: RapportPointage, avant: dict, apres: dict,
                            if str(e.get(k) or "").strip() and e.get(k) != 0)
         res.append(f"Exemple : « {_nom(e.get('Libellé'))} » → {champs or 'compté 0'}, "
                    f"Saisie_par={e.get('Saisie_par') or '—'}.")
+    if rapport.peremptions_conservees:
+        res.append(f"{len(rapport.peremptions_conservees)} péremption(s) déjà portée(s) et plus proche(s) que "
+                   "celle lue : conservée(s) (on garde toujours la plus proche) — "
+                   + " ; ".join(f"N° {p['chrono']} {p['conservee'][4:6]}/{p['conservee'][2:4]} gardée "
+                                f"(lue {p['lue'][4:6]}/{p['lue'][2:4]})"
+                                for p in rapport.peremptions_conservees[:MAX_PAR_RUBRIQUE])
+                   + (" …" if len(rapport.peremptions_conservees) > MAX_PAR_RUBRIQUE else "") + ".")
     if rapport.compteurs:
         res.append("Comptage : " + " ; ".join(f"{c['page']} {c['compteur']}" for c in rapport.compteurs) + ".")
     txt += _puces(res)
@@ -604,10 +639,10 @@ def synthese_detaillee(rapport: RapportPointage, avant: dict, apres: dict,
         additions = [a for a in incertains if "+" in (a["details"].get("note") or "")]
         autres = [a for a in incertains if a not in additions]
         rubriques.append(("Additions écrites", [
-            f"« {_nom(a['details'].get('libelle'))} » : {a['details'].get('note')} → "
+            f"« {_nom(a['details'].get('libelle'))} »{_ou(a)} : {a['details'].get('note')} → "
             f"{_valeurs(a['details'].get('valeurs') or {})}" for a in additions]))
         rubriques.append(("Chiffres surchargés, raturés ou peu lisibles", [
-            f"« {_nom(a['details'].get('libelle'))} » : {a['details'].get('note') or 'lecture douteuse'} → "
+            f"« {_nom(a['details'].get('libelle'))} »{_ou(a)} : {a['details'].get('note') or 'lecture douteuse'} → "
             + (f"reporté {_valeurs(a['details']['valeurs'])}" if a["details"].get("valeurs")
                else "rien reporté (champ laissé tel quel)") for a in autres]))
         rubriques.append(("Libellés approchés (faute de lecture probable)", [
@@ -617,7 +652,7 @@ def synthese_detaillee(rapport: RapportPointage, avant: dict, apres: dict,
             f"« {_nom(a['details'].get('lu'))} » : lu « {_mesure_imprimee(a['details'].get('lu')) or '?'} », "
             f"« {a['details'].get('mesure_json')} » dans le JSON" for a in par_type.get("conditionnement", [])]))
         rubriques.append(("Péremptions illisibles (non reportées)", [
-            f"« {_nom(a['details'].get('libelle'))} » : « {a['details'].get('texte')} »"
+            f"« {_nom(a['details'].get('libelle'))} »{_ou(a)} : « {a['details'].get('texte')} »"
             for a in par_type.get("peremption_invalide", [])]))
         divers = [a["message"] for a in a_verifier if a.get("type") in ("couple", "pied", "manquantes", "autre")]
         rubriques.append(("Autres", divers))
@@ -766,8 +801,9 @@ async def traiter_liste_pointage(scan: bytes, content_type: str, filename: str, 
         rapport.ajouter("bloquant", f"Page non lue — {e}", type="page_non_lue")
     ordre = {"bloquant": 0, "a_verifier": 1}
     def _lieu(a: dict) -> str:
+        # N° d'ordre ET page : l'utilisateur corrige à la main sur la liste papier.
         if a["chrono"] is not None:
-            return f"N° {a['chrono']} — "
+            return f"N° {a['chrono']}" + (f" ({a['page']})" if a.get("page") else "") + " — "
         return f"{a['page']} — " if a.get("page") else ""
 
     flags = [("⛔ " if a["gravite"] == "bloquant" else "⚠ ") + _lieu(a) + a["message"]
@@ -802,3 +838,65 @@ async def traiter_liste_pointage(scan: bytes, content_type: str, filename: str, 
         "json_complete": json_windev(complet),
         "pointage_rapport": rapport.as_dict(),
     }
+
+
+# ---------------------------------------------------------------------------
+# Email de fin de traitement (lot 38)
+# ---------------------------------------------------------------------------
+def code_client(json_filename: Optional[str]) -> Optional[str]:
+    """Code du client = ce qui suit « InventaireSélectionné_ » dans le nom du JSON exporté
+    par WinDev : « InventaireSélectionné_PPH_INV067.json » → « PPH ». None si absent."""
+    nom = (json_filename or "").rsplit("/", 1)[-1]
+    nom = unicodedata.normalize("NFC", nom)
+    # Le code précède « _INVxxx » (robuste aux accents perdus : « InventaireS_lectionn__PPH_INV067 »).
+    m = re.search(r"_([A-Za-z0-9]+)_INV\s*\d+", nom, re.IGNORECASE) \
+        or re.match(r"inventaire[^_]*_([A-Za-z0-9]+)_", nom, re.IGNORECASE)
+    return m.group(1).upper() if m else None
+
+
+def rapport_csv(rapport: Dict[str, Any]) -> bytes:
+    """Rapport détaillé (séparateur « ; », UTF-8 avec BOM : s'ouvre tel quel dans Excel) :
+    anomalies d'abord (avec N° d'ordre et page), puis chaque champ modifié."""
+    import csv
+    import io
+    buf = io.StringIO()
+    w = csv.writer(buf, delimiter=";")
+    w.writerow(["type", "gravite", "n_ordre", "page", "libelle", "champ", "avant", "apres", "message"])
+    ordre = {"bloquant": 0, "a_verifier": 1}
+    for a in sorted(rapport.get("anomalies") or [], key=lambda a: ordre.get(a.get("gravite"), 2)):
+        w.writerow(["anomalie", a.get("gravite"), a.get("chrono") or "", a.get("page") or "",
+                    (a.get("details") or {}).get("libelle") or "", "", "", "", a.get("message")])
+    for p in rapport.get("peremptions_conservees") or []:
+        w.writerow(["peremption_conservee", "", p["chrono"], p.get("page") or "", p.get("libelle") or "",
+                    "Peremption1", p["lue"], p["conservee"], "Péremption déjà portée plus proche : conservée"])
+    for m in rapport.get("modifications") or []:
+        w.writerow(["modification", "a_verifier" if m.get("incertain") else "", m["chrono"], m.get("page") or "",
+                    m.get("libelle") or "", m["champ"], m["avant"], m["apres"], ""])
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+def email_fin_de_traitement(*, code: Optional[str], inventaire: Optional[str], fichier_json: Optional[str],
+                            compte_rendu: Optional[str], resume: Optional[str], erreur: Optional[str],
+                            destinataire: str = "") -> Tuple[str, str, str]:
+    """(objet, html, texte) de l'email envoyé à la fin du traitement d'une liste de pointage.
+    L'objet commence par le code du client entre crochets : « [PPH] Inventaire INV067 — … »."""
+    import html as _html
+    prefixe = f"[{code}] " if code else ""
+    inv = f"Inventaire {inventaire}" if inventaire else "Inventaire"
+    if erreur:
+        objet = f"{prefixe}{inv} — liste de pointage NON traitée"
+        corps = (f"Le traitement de la liste de pointage n'a pas abouti.\n\nMotif : {erreur}\n\n"
+                 "Aucun JSON complété n'a été produit. Vérifiez les photos ou le scan (pages lisibles, "
+                 "dans l'ordre) et le fichier JSON, puis déposez-les à nouveau sur la page OCR sur Pièces.")
+    else:
+        objet = f"{prefixe}{inv} — liste de pointage traitée : résultat et points à corriger"
+        corps = ((resume or "") + "\n\n" + (compte_rendu or "")).strip() + (
+            "\n\nPièces jointes : le JSON complété (à réimporter dans Aizenta après contrôle) et le "
+            "rapport détaillé (Excel). Chaque lecture à corriger indique son N° d'ordre et sa page.")
+    entete = f"Bonjour{(' ' + destinataire) if destinataire else ''},\n\n"
+    if fichier_json:
+        entete += f"Fichier d'inventaire : {fichier_json}\n\n"
+    texte = entete + corps + "\n\n— SAWALI, OCR sur Pièces"
+    html = ("<div style=\"font-family:Arial,Helvetica,sans-serif;font-size:14px;color:#0E1F3D\">"
+            f"<pre style=\"white-space:pre-wrap;font-family:inherit;margin:0\">{_html.escape(texte)}</pre></div>")
+    return objet, html, texte

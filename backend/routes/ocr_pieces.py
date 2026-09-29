@@ -132,12 +132,16 @@ class ReanalyzePayload(BaseModel):
     model: str
 
 
-def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None):
+def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None, send_email=None):
     """Branche les routes /api/ocr-pieces (contrat commun décrit dans ocr-core/README.md).
 
     `fonction_active` (lot 34) : async (user, clé) -> bool. Fourni, l'accès d'un compte
     client dépend de la fonction « OCR sur Pièces » activée pour lui dans SMART
-    Communications (quel que soit son rôle) ; sinon, règle historique : pharmacies."""
+    Communications (quel que soit son rôle) ; sinon, règle historique : pharmacies.
+
+    `send_email` (lot 38) : async (to, subject, html, text, attachments=[…]) -> bool
+    (email_service.send_email). Fourni, la fin du traitement d'une liste de pointage est
+    envoyée par email à la personne qui l'a déposée, code client entre crochets dans l'objet."""
     import object_storage as storage   # Emergent Object Storage (déjà utilisé par la plateforme)
 
     TAG = "Portail — OCR sur Pièces"
@@ -168,6 +172,45 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None)
             raise HTTPException(status_code=403, detail="Accès refusé")
         return piece
 
+    # --- Email de fin de traitement (liste de pointage, lot 38) -----------------
+    async def _email_pointage(piece_id: str, tenant_id: str, requested_by: str, json_filename: Optional[str],
+                              result: dict, json_complete: Optional[bytes], pointage_rapport: Optional[dict],
+                              compte_rendu: Optional[str]) -> None:
+        """Envoie le résultat (compte rendu, points à corriger avec N° et page, JSON complété et
+        rapport Excel en pièces jointes) à la personne qui a déposé la liste. Ne lève jamais :
+        l'analyse reste enregistrée même si l'email ne part pas (SMTP non configuré…)."""
+        if send_email is None:
+            return
+        try:
+            auteur = await db.users.find_one({"id": requested_by}, {"_id": 0, "email": 1, "full_name": 1}) or {}
+            if not auteur.get("email"):
+                return
+            code = ocr_pointage.code_client(json_filename)
+            if not code:   # repli : code du client SAWALI concerné
+                tenant = await db.users.find_one({"id": tenant_id}, {"_id": 0, "client_code": 1}) or {}
+                code = (tenant.get("client_code") or "").upper() or None
+            inventaire = (result.get("extracted_fields") or {}).get("inventaire") \
+                or ocr_pointage.code_inventaire(json_filename)
+            objet, html, texte = ocr_pointage.email_fin_de_traitement(
+                code=code, inventaire=inventaire, fichier_json=json_filename, compte_rendu=compte_rendu,
+                resume=result.get("summary"), erreur=result.get("error"),
+                destinataire=(auteur.get("full_name") or "").strip())
+            pieces_jointes = []
+            if json_complete:
+                pieces_jointes.append({"filename": _nom_json_complete(json_filename), "content": json_complete,
+                                       "mime_type": "application/json"})
+            if pointage_rapport:
+                base = _nom_json_complete(json_filename).rsplit(".", 1)[0]
+                pieces_jointes.append({"filename": f"{base}.rapport.csv",
+                                       "content": ocr_pointage.rapport_csv(pointage_rapport),
+                                       "mime_type": "text/csv"})
+            envoye = await send_email(auteur["email"], objet, html, texte, attachments=pieces_jointes)
+        except Exception:  # noqa: BLE001
+            logger.exception("[ocr_pieces] email de fin de traitement impossible pour %s", piece_id)
+            envoye = False
+        await db.ocr_pieces.update_one({"id": piece_id}, {"$set": {
+            "email_resultat": {"envoye": bool(envoye), "le": _now()}}})
+
     # --- Analyse en tâche de fond ---------------------------------------------
     async def _analyze_and_store(piece_id: str, data: bytes, content_type: str, filename: str,
                                  tenant_id: str, model_id: Optional[str], requested_by: str,
@@ -177,6 +220,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None)
             json_complete_path = None
             pointage_rapport = None
             compte_rendu = None
+            json_complete = None
             if kind == POINTAGE:
                 # Liste de pointage : lecture des colonnes manuscrites et report
                 # dans le JSON de l'inventaire (module ocr_pointage).
@@ -232,6 +276,9 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None)
                 latest["compte_rendu"] = compte_rendu
             latest["status"] = "erreur_analyse" if run["error"] else "analyse"
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": latest})
+            if kind == POINTAGE:
+                await _email_pointage(piece_id, tenant_id, requested_by, json_filename, result,
+                                      json_complete, pointage_rapport, compte_rendu)
         except Exception:
             logger.exception("[ocr_pieces] analyse impossible pour %s", piece_id)
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": {"status": "erreur_analyse"}})

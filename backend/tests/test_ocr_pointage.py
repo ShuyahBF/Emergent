@@ -448,3 +448,78 @@ def test_photos_refusees(env, fake_llm):
     assert env.client.post("/api/ocr-pieces", headers=_h("pharma_a"),
                            data={"kind": "facture"}).status_code == 400                     # aucun fichier
     assert fake_llm == []                                                                    # aucun appel IA payé
+
+
+# ---------------------------------------------------------------------------
+# Lot 38 — péremption la plus proche, N° et page, email de fin de traitement [CODE]
+# ---------------------------------------------------------------------------
+def test_peremption_la_plus_proche_conservee():
+    # Liste de la salle déjà reportée (ISalle + péremption), puis liste du magasin :
+    # INV Mag -> IMagasin ; entre deux péremptions, on garde toujours la plus proche.
+    salle, _ = op.appliquer_lectures(_inventaire(), [_page([
+        _lu(1, "ARGESUN INJ 120MG [B/1]", sv=22, per="5/27"),
+        _lu(3, "ACETYL SALICLYLATE [B/1]", sv=0, per="1/27"),
+    ])])
+    out, rap = op.appliquer_lectures(salle, [_page([
+        _lu(1, "ARGESUN INJ 120MG [B/1]", mag=40, per="9/28"),     # plus lointaine : ignorée
+        _lu(3, "ACETYL SALICLYLATE [B/1]", mag=50, per="3/26"),    # plus proche : retenue
+        _lu(70, "BANDELETTE CODEFREE [B/50]", mag=2, per="4/29"),  # aucune portée : retenue
+    ], nom="p.3")])
+    l1, l3, l70, _l77 = out[op.CLE_TABLE]
+    assert (l1["IMagasin"], l1["ISalle"], l1["Peremption1"], l1["Diff"]) == (40, 22, "20270501", 52)
+    assert (l3["IMagasin"], l3["Peremption1"]) == (50, "20260301")
+    assert l70["Peremption1"] == "20290401"
+    assert [(p["chrono"], p["conservee"], p["lue"]) for p in rap.peremptions_conservees] == \
+        [(1, "20270501", "20280901")]
+    assert "N° 1 05/27 gardée (lue 09/28)" in op.synthese_detaillee(rap, salle, out)
+    csv = op.rapport_csv(rap.as_dict()).decode("utf-8-sig")
+    assert "peremption_conservee;;1;p.3;" in csv
+
+
+def test_page_indiquee_pour_corriger():
+    doc = _inventaire()
+    out, rap = op.appliquer_lectures(doc, [_page([
+        _lu(1, "ARGESUN INJ 120MG [B/1]", sv=237, incertain=True, note="237 ?")], nom="p.4")])
+    assert "« ARGESUN INJ 120MG » (N° 1, p.4) : 237 ?" in op.synthese_detaillee(rap, doc, out)
+
+
+@pytest.mark.parametrize("nom,code", [
+    ("InventaireSélectionné_PPH_INV067.json", "PPH"),
+    ("InventaireS_lectionn__CMSL_INV007.json", "CMSL"),     # accents perdus au téléchargement
+    ("inventaireselectionne_wdd_INV012.json", "WDD"),
+    ("export.json", None),
+])
+def test_code_client(nom, code):
+    assert op.code_client(nom) == code
+
+
+def test_email_fin_de_traitement(env, fake_llm):
+    piece = _depot(env, "pharma_a", json.dumps(_inventaire()).encode()).json()
+    done = _wait_analysed(env, "pharma_a", piece["id"])
+    assert done["status"] == "analyse"
+    assert len(env.emails) == 1
+    mail = env.emails[0]
+    assert mail["to"] == "pharma.a@sawali.test"
+    assert mail["subject"] == "[PPH] Inventaire INV067 — liste de pointage traitée : résultat et points à corriger"
+    assert "Résultat :" in mail["text"] and "N° d'ordre et sa page" in mail["text"]
+    noms = [a["filename"] for a in mail["attachments"]]
+    assert noms == ["InventaireSélectionné_PPH_INV067_complete.json",
+                    "InventaireSélectionné_PPH_INV067_complete.rapport.csv"]
+    assert json.loads(mail["attachments"][0]["content"])[op.CLE_TABLE][0]["ISalle"] == 3
+    enreg = env.client.portal.call(env.db.ocr_pieces.find_one, {"id": piece["id"]})
+    assert enreg["email_resultat"]["envoye"] is True
+
+
+def test_email_si_echec_et_depot_admin(env, fake_llm, monkeypatch):
+    # Aucune page lue : l'email part quand même, avec le motif. Dépôt par l'admin : c'est
+    # l'admin qui reçoit l'email ; le code vient du nom du JSON.
+    async def echec(*a, **k):
+        raise RuntimeError("IA indisponible")
+    monkeypatch.setattr(op, "call_llm", echec)
+    piece = _depot(env, "admin", json.dumps(_inventaire()).encode(), tenant_id="pharma_a").json()
+    done = _wait_analysed(env, "admin", piece["id"])
+    assert done["status"] == "erreur_analyse"
+    mail = env.emails[-1]
+    assert mail["to"] == "admin@sawali.test"
+    assert mail["subject"] == "[PPH] Inventaire INV067 — liste de pointage NON traitée"
+    assert "Motif : Aucune page n'a pu être lue." in mail["text"] and mail["attachments"] == []

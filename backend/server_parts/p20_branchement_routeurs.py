@@ -918,7 +918,9 @@ _attach_gestion_stocks(api=api, db=db, get_current_user=get_current_user, get_cu
 # (accès admin + pharmacies, cloisonnement par tenant) dans routes/ocr_pieces.py.
 from routes.ocr_pieces import attach_ocr_pieces_routes as _attach_ocr_pieces  # noqa: E402
 # Lot 34 — accès des clients selon la fonction « OCR sur Pièces » (SMART Communications).
-_attach_ocr_pieces(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active)
+# Lot 38 — fin de traitement d'une liste de pointage envoyée par email ([CODE] dans l'objet).
+_attach_ocr_pieces(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
+                   send_email=send_email)
 
 # S031 — Universal Key health monitoring & budget-exceeded banner
 from routes.llm_health import make_router as _make_llm_health_router  # noqa: E402

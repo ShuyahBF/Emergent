@@ -118,6 +118,25 @@ function PharmacySynthesis({ piece }) {
   );
 }
 
+// Sélecteur de fichier aux libellés TOUJOURS en français : le champ natif <input type="file">
+// affiche « Choose File / No file chosen » selon la langue du navigateur ; il est masqué et
+// déclenché par un bouton du site.
+function ChoixFichier({ inputRef, accept, file, onChange, testId, className = "bg-slate-100 text-slate-700" }) {
+  return (
+    <div className="flex items-center gap-3 text-sm">
+      <input ref={inputRef} type="file" accept={accept} data-testid={testId} className="hidden"
+        onChange={(e) => onChange(e.target.files?.[0] || null)} />
+      <button type="button" onClick={() => inputRef.current?.click()} data-testid={`${testId}-bouton`}
+        className={`px-3 py-1.5 rounded ${className} hover:brightness-95`}>
+        Choisir un fichier
+      </button>
+      <span className="text-slate-700 max-w-[220px] truncate" title={file?.name || ""}>
+        {file ? file.name : "Aucun fichier choisi"}
+      </span>
+    </div>
+  );
+}
+
 // Liste de pointage : compte rendu détaillé (rédigé par le serveur, retours à la ligne
 // conservés) + téléchargement du JSON complété à réimporter dans Aizenta.
 function PointageReport({ piece, onDownloadJson }) {
@@ -336,16 +355,14 @@ export default function OcrPieces() {
               </p>
             )}
             <div className="flex flex-wrap items-end gap-3">
-              <input ref={fileRef} type="file" accept={isPointage ? ACCEPT_POINTAGE : ACCEPT} data-testid="ocr-file-input"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-slate-100 file:text-slate-700" />
+              <ChoixFichier inputRef={fileRef} accept={isPointage ? ACCEPT_POINTAGE : ACCEPT} file={file}
+                onChange={setFile} testId="ocr-file-input" />
               {isPointage && (
-                <label className="flex flex-col text-xs text-slate-500 gap-1">
+                <div className="flex flex-col text-xs text-slate-500 gap-1">
                   JSON de l'inventaire
-                  <input ref={jsonRef} type="file" accept=".json,application/json" data-testid="ocr-json-input"
-                    onChange={(e) => setJsonFile(e.target.files?.[0] || null)}
-                    className="text-sm text-slate-700 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-teal-50 file:text-teal-700" />
-                </label>
+                  <ChoixFichier inputRef={jsonRef} accept=".json,application/json" file={jsonFile}
+                    onChange={setJsonFile} testId="ocr-json-input" className="bg-teal-50 text-teal-700" />
+                </div>
               )}
               <div className="w-44">
                 <Select value={kind} onValueChange={setKind}>

@@ -10,6 +10,7 @@ Endpoints:
 from __future__ import annotations
 import logging
 import secrets
+import time as _time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -25,6 +26,10 @@ class InboxSendPayload(BaseModel):
     thread_id: str = Field(..., min_length=1)
     text: str = Field(..., min_length=1, max_length=4000)
     page_id: Optional[str] = None  # required for messenger
+
+
+# Lot 41 — index téléphone -> contact de l'annuaire, gardé 60 s par périmètre (tenant / admin)
+_CACHE_ANNUAIRE: Dict[str, tuple] = {}
 
 
 def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features, wa_send_text=None, sms_send_text=None, meta_get_meta_settings=None, bird_send_text=None):
@@ -130,19 +135,29 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
         # Iter38r-fix9i — Pre-fetch contacts and build a phone→contact index so
         # we can hydrate peer_name/avatar/code for inbox threads.
         contact_index: Dict[str, Dict[str, Any]] = {}
-        try:
-            async for c in db.directory_contacts.find(
-                {"owner_id": tid} if user.get("role") != "admin" else {},
-                {"_id": 0, "id": 1, "name": 1, "phone": 1, "phone_digits": 1,
-                 "code": 1, "photo_url": 1, "email": 1},
-            ):
-                digits = (c.get("phone_digits") or "").lstrip("+")
-                if not digits and c.get("phone"):
-                    digits = "".join(ch for ch in c["phone"] if ch.isdigit())
-                if digits:
-                    contact_index[digits] = c
-        except Exception:
-            pass
+        # Lot 41 — l'annuaire complet était relu à CHAQUE rafraîchissement (toutes les
+        # 20 s, et tout l'annuaire pour l'Admin) : index gardé 60 s par périmètre.
+        cle_cache = f"{id(db)}:{tid if user.get('role') != 'admin' else '__admin__'}"
+        en_cache = _CACHE_ANNUAIRE.get(cle_cache)
+        if en_cache and _time.monotonic() - en_cache[0] < 60:
+            contact_index = en_cache[1]
+        else:
+            try:
+                async for c in db.directory_contacts.find(
+                    {"owner_id": tid} if user.get("role") != "admin" else {},
+                    {"_id": 0, "id": 1, "name": 1, "phone": 1, "phone_digits": 1,
+                     "code": 1, "photo_url": 1, "email": 1},
+                ):
+                    digits = (c.get("phone_digits") or "").lstrip("+")
+                    if not digits and c.get("phone"):
+                        digits = "".join(ch for ch in c["phone"] if ch.isdigit())
+                    if digits:
+                        contact_index[digits] = c
+                if len(_CACHE_ANNUAIRE) > 500:
+                    _CACHE_ANNUAIRE.clear()
+                _CACHE_ANNUAIRE[cle_cache] = (_time.monotonic(), contact_index)
+            except Exception:
+                pass
 
         def _digits(s: Any) -> str:
             return "".join(ch for ch in (str(s or "")) if ch.isdigit())
@@ -335,7 +350,9 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     {"$or": peer_clauses},
                 ],
             }
-            msgs = await db.whatsapp_messages.find(
+            # Lot 41 : les {limit} messages les PLUS RÉCENTS (avant : les plus anciens, un long fil
+            # ne montrait jamais ses derniers messages), remis dans l'ordre chronologique
+            msgs = list(reversed(await db.whatsapp_messages.find(
                 wa_query,
                 {"_id": 0, "id": 1, "direction": 1, "text": 1, "body": 1,
                  "created_at": 1, "to_number": 1, "to": 1, "from": 1,
@@ -345,7 +362,7 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                  # 2026-02 fork (Delete WA) — surface recall + timing metadata
                  "is_recalled": 1, "recalled_at": 1, "sent_at": 1,
                  "delivered_at": 1, "read_at": 1},
-            ).sort("created_at", 1).to_list(limit)
+            ).sort("created_at", -1).limit(limit).to_list(limit)))
             return {"channel": "whatsapp", "thread_id": thread_id, "messages": [
                 {
                     "id": m.get("id", ""),
@@ -375,10 +392,12 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             if page_id:
                 q["page_id"] = page_id
             q["$or"] = [{"sender_id": thread_id}, {"recipient_id": thread_id}]
-            msgs = await db.meta_messenger_messages.find(
+            # Lot 41 : les {limit} messages les PLUS RÉCENTS (avant : les plus anciens, un long fil
+            # ne montrait jamais ses derniers messages), remis dans l'ordre chronologique
+            msgs = list(reversed(await db.meta_messenger_messages.find(
                 q, {"_id": 0, "sender_id": 1, "recipient_id": 1, "page_id": 1,
                     "text": 1, "created_at": 1, "timestamp_ms": 1},
-            ).sort("created_at", 1).to_list(limit)
+            ).sort("created_at", -1).limit(limit).to_list(limit)))
             return {"channel": "messenger", "thread_id": thread_id, "messages": [
                 {
                     "id": "",
@@ -393,9 +412,11 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
             q: Dict[str, Any] = {"msisdn": thread_id}
             if user.get("role") != "admin":
                 q["client_id"] = tid
-            msgs = await db.sms_messages.find(
+            # Lot 41 : les {limit} messages les PLUS RÉCENTS (avant : les plus anciens, un long fil
+            # ne montrait jamais ses derniers messages), remis dans l'ordre chronologique
+            msgs = list(reversed(await db.sms_messages.find(
                 q, {"_id": 0, "id": 1, "message": 1, "created_at": 1, "status": 1, "provider": 1},
-            ).sort("created_at", 1).to_list(limit)
+            ).sort("created_at", -1).limit(limit).to_list(limit)))
             return {"channel": "sms", "thread_id": thread_id, "messages": [
                 {
                     "id": m.get("id", ""), "direction": "outbound",
@@ -426,11 +447,13 @@ def setup_unified_inbox_routes(*, db, api, get_current_user, _normalize_features
                     allowed.add(u["phone_digits"])
                 if digits not in allowed:
                     raise HTTPException(status_code=403, detail="Conversation hors périmètre.")
-            msgs = await db.bird_sms_messages.find(
+            # Lot 41 : les {limit} messages les PLUS RÉCENTS (avant : les plus anciens, un long fil
+            # ne montrait jamais ses derniers messages), remis dans l'ordre chronologique
+            msgs = list(reversed(await db.bird_sms_messages.find(
                 q, {"_id": 0, "id": 1, "direction": 1, "from": 1, "to": 1,
                     "text": 1, "created_at": 1, "ai_generated": 1, "ai_source": 1,
                     "provider_message_id": 1},
-            ).sort("created_at", 1).to_list(limit)
+            ).sort("created_at", -1).limit(limit).to_list(limit)))
             return {"channel": "sms_bird", "thread_id": thread_id, "messages": [
                 {
                     "id": m.get("id", ""),

@@ -121,6 +121,7 @@ class SendRequest(BaseModel):
     contact_ids: List[str] = Field(default_factory=list)
     reminder: bool = False              # relance : destinataires invités qui n'ont pas répondu
     reminder_campaign_id: Optional[str] = None
+    renvoi_echecs: bool = False         # lot 41 : renvoyer aux invitations en échec (ou non envoyées) sans réponse
     mode: str = "auto"                  # auto | template | text
     template_name: Optional[str] = None
     language_code: Optional[str] = "fr"
@@ -338,6 +339,7 @@ def attach_wa_survey_routes(
     sms_enabled_for=None,                # lot 35 — async (user) -> bool : module SMS autorisé
     sms_send=None,                       # lot 35 — async (numéro, texte) -> {ok, status, api_message, provider}
     enforce_sms_quota=None,              # lot 35 — async (user, nombre) -> None
+    on_reponse=None,                     # lot 41 — async (sondage, invitation) : automatisation « survey.responded »
 ) -> Dict[str, Any]:
     """Branche les routes des sondages WhatsApp. Renvoie {"resume": coroutine}
     à lancer au démarrage (reprise d'un envoi interrompu par un redémarrage)."""
@@ -717,7 +719,15 @@ def attach_wa_survey_routes(
 
         # Destinataires : relance (non-répondants) ou contacts choisis
         invites: List[dict] = []
-        if payload.reminder:
+        if payload.renvoi_echecs:
+            # Lot 41 — nouvel essai pour les invitations en échec ou non envoyées (ex. erreur
+            # Meta #132000 corrigée, fenêtre de 24 h fermée : cette fois avec un modèle).
+            invites = await db.wa_survey_invites.find(
+                {"survey_id": sid, "answered_at": None, "status": {"$in": ["failed", "skipped"]}},
+                {"_id": 0}).to_list(MAX_RECIPIENTS + 1)
+            if not invites:
+                raise HTTPException(status_code=400, detail="Aucune invitation en échec à renvoyer")
+        elif payload.reminder:
             iq: Dict[str, Any] = {"survey_id": sid, "answered_at": None, "status": "sent"}
             if payload.reminder_campaign_id:
                 iq["campaign_ids"] = payload.reminder_campaign_id
@@ -757,7 +767,7 @@ def attach_wa_survey_routes(
 
         camp = {
             "id": uuid_fn(), "survey_id": sid, "client_id": _scope(user),
-            "kind": "reminder" if payload.reminder else "send",
+            "kind": "resend" if payload.renvoi_echecs else ("reminder" if payload.reminder else "send"),
             "title": (payload.title or "").strip()[:200] or None, "mode": mode,
             "template_name": None if par_sms else ((payload.template_name or "").strip() or None),
             "language_code": payload.language_code or "fr", "variables": [] if par_sms else (payload.variables or []),
@@ -987,6 +997,11 @@ def attach_wa_survey_routes(
             await db.wa_survey_responses.insert_one({
                 "id": uuid_fn(), "survey_id": s["id"], "invite_id": inv["id"], "contact_id": inv.get("contact_id"),
                 "answers": answers, "created_at": _now(), "updated_at": _now(), "revisions": 0})
+            if on_reponse is not None:                 # lot 41 : nouvelle réponse (pas une modification)
+                try:
+                    await on_reponse(s, inv)
+                except Exception:  # noqa: BLE001 — l'automatisation ne bloque jamais la réponse
+                    pass
         await db.wa_survey_invites.update_one(
             {"id": inv["id"]}, {"$set": {"answered_at": inv.get("answered_at") or _now(),
                                          "opened_at": inv.get("opened_at") or _now()}})

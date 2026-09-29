@@ -30,7 +30,26 @@ Lot 37 :
     WhatsApp choisi par l'Admin ou le Superviseur, lien personnel /s/<jeton>), puis
     RELANCES tant qu'il n'a pas répondu (délai et nombre réglables ; WhatsApp, repli SMS).
 
-Collections : liluvine_formulaires (une commande par document reçu), payment_links
+Lot 41 :
+  - FORÇAGE par l'Admin (« Forcer la réalisation ») : une commande en attente de paiement
+    est mise en ligne sans paiement ; une commande en erreur (ou bloquée à l'analyse) est
+    ré-analysée à partir du document reçu, puis mise en ligne. Le lien de paiement est
+    désactivé. La commande porte `mode_realisation` : « force » (avec qui, quand, motif) ;
+    toute autre mise en ligne (paiement confirmé ou service gratuit) : « auto ». Ce mode est
+    affiché en badge dans le journal et repris sur le bilan / la facture du client.
+
+Lot 41 — protection de la commande :
+  - CODE DE CONFIRMATION (OTP) : dès qu'une pièce jointe est reçue, Liluvine envoie un code à
+    6 chiffres ; le contact doit le renvoyer (15 min, 3 essais) avant l'analyse, le tarif et
+    le lien de paiement. Pas de code → rien n'est analysé ni facturé ;
+  - PHOTOS REFUSÉES : une photo qui n'est pas un questionnaire (selfie, visage, paysage,
+    animal, objet…) est refusée avant tout traitement (classement par l'IA) ;
+  - LISTE NOIRE : 3 demandes non valables en 30 jours (photo refusée, fichier refusé,
+    document sans question, code faux ou expiré ; jamais une panne de notre côté) →
+    numéro bloqué pour « !formulaire », entrée au journal d'activité, copies des pièces
+    jointes en cause visibles par l'Admin (qui peut débloquer le numéro).
+
+Collections : liluvine_liste_noire (numéros bloqués), liluvine_formulaires (une commande par document reçu), payment_links
 (champ liluvine_formulaire_id), forms (champs liluvine_*), form_submissions.
 """
 from __future__ import annotations
@@ -68,6 +87,57 @@ CLE_SONDAGE, CLE_DELAI, CLE_RELANCES = ("liluvine_formulaire_sondage_id", "liluv
                                         "liluvine_formulaire_relances_max")
 DELAI_PAR_DEFAUT, RELANCES_PAR_DEFAUT = 24, 2
 PERIODE_RELANCES = 30 * 60                                    # vérification des relances toutes les 30 min
+# Lot 41 — code de confirmation et liste noire
+DUREE_OTP = timedelta(minutes=15)
+ESSAIS_OTP = 3
+ECHECS_AVANT_LISTE_NOIRE = 3
+PERIODE_ECHECS = timedelta(days=30)
+CONTACT_SAWALI = "contact@sawalismartsystems.com · +226 25 65 81 65"
+MIMES_IMAGE = ("image/jpeg", "image/png", "image/webp")
+CONSIGNE_CLASSEMENT = (
+    "Tu reçois une photo envoyée par WhatsApp pour être transformée en formulaire en ligne. "
+    "Dis si elle montre un DOCUMENT exploitable (questionnaire, fiche, formulaire, tableau, liste de "
+    "questions, imprimé ou manuscrit) ou autre chose (selfie, visage, personne, paysage, animal, objet, "
+    "capture sans texte…). Réponds uniquement en JSON strict : "
+    '{"document": true|false, "categorie": "questionnaire|document|selfie|visage|paysage|animal|objet|autre", '
+    '"motif": "une phrase courte en français"}')
+
+
+def _hash_otp(commande_id: str, code: str) -> str:
+    import hashlib
+    return hashlib.sha256(f"{commande_id}:{code}".encode()).hexdigest()
+
+
+async def classer_image_ia(data: bytes) -> Dict[str, Any]:
+    """Lot 41 — la photo est-elle un document ? (même accès IA que « Créer depuis un document »).
+    Renvoie {document, categorie, motif}. En cas de panne : considérée comme un document
+    (l'analyse qui suit la refusera si elle ne contient aucune question)."""
+    import base64
+    import os
+    try:
+        import ocr_core
+        from emergentintegrations.llm.chat import ImageContent, LlmChat, UserMessage
+        from ocr_core.engine import parse_json
+        from ocr_core.models import get_model
+        from ocr_core.prepare import shrink_image
+        api_key = os.environ.get("EMERGENT_LLM_KEY", "")
+        if not api_key:
+            return {"document": True, "categorie": "inconnu", "motif": "classement indisponible"}
+        modele = get_model(ocr_core.default_model_id())
+        chat = LlmChat(api_key=api_key, session_id=f"classement-{secrets.token_urlsafe(6)}",
+                       system_message=CONSIGNE_CLASSEMENT).with_model("anthropic", modele.id)
+        try:
+            data = shrink_image(data)
+        except Exception:  # noqa: BLE001
+            pass
+        rep = await chat.send_message(UserMessage(text="Classe cette photo.", file_contents=[
+            ImageContent(image_base64=base64.b64encode(data).decode("ascii"))]))
+        brut = parse_json(getattr(rep, "content", None) or str(rep))
+        return {"document": bool(brut.get("document", True)), "categorie": str(brut.get("categorie") or "autre"),
+                "motif": str(brut.get("motif") or "")[:200]}
+    except Exception:  # noqa: BLE001
+        logger.warning("[!formulaire] classement de la photo indisponible", exc_info=True)
+        return {"document": True, "categorie": "inconnu", "motif": "classement indisponible"}
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 MODE_EMPLOI = ("📝 *Commande !formulaire*\n"
                "Envoyez-moi votre questionnaire en pièce jointe (Word, Excel, PDF ou photo) avec la légende "
@@ -89,6 +159,10 @@ class ParametresSondage(BaseModel):
 
 class NoteIntervention(BaseModel):
     note: Optional[str] = Field(None, max_length=500)
+
+
+class Forcage(BaseModel):
+    motif: Optional[str] = Field(None, max_length=500)
 
 
 class Tarifs(BaseModel):
@@ -114,12 +188,15 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
                                       wa_send_text, lire_media: Callable[[dict], bytes], public_base_url,
                                       next_form_number, slugify_code, gen_slug: Callable[[int], str],
                                       mnos: List[str], secret: str, analyser=None, sms_send=None,
-                                      dormir=asyncio.sleep) -> Dict[str, Any]:
+                                      dormir=asyncio.sleep, classer_image=None, journal_activite=None,
+                                      otp_fn=None, on_soumission=None) -> Dict[str, Any]:
     """Branche les routes et renvoie {commande, apres_paiement} (appelés par le webhook
     WhatsApp et par la confirmation des paiements PawaPay)."""
     import jwt  # PyJWT, déjà utilisé par les liens cryptés du lot 25
 
     analyser = analyser or imp.analyser
+    classer_image = classer_image or classer_image_ia            # lot 41 : photo = document ?
+    otp_fn = otp_fn or (lambda: f"{secrets.randbelow(1_000_000):06d}")
     taches: set = set()
 
     # --- Outils ---------------------------------------------------------------
@@ -198,19 +275,31 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
 
     # --- 1. Commande reçue ----------------------------------------------------------
     async def commande(*, from_num: str, profile_name: Optional[str], mtype: str, media_info: Optional[dict],
-                       nom_fichier: Optional[str], compte_par_defaut: Optional[str]) -> Dict[str, Any]:
+                       nom_fichier: Optional[str], compte_par_defaut: Optional[str],
+                       texte: Optional[str] = None) -> Dict[str, Any]:
         """Message « !formulaire » reçu (texte seul, document ou photo). Répond toujours au contact."""
         chiffres = "".join(ch for ch in from_num if ch.isdigit())
+        # Lot 41 — numéro en liste noire : refus immédiat, rien n'est analysé
+        if await db.liluvine_liste_noire.find_one({"chiffres": chiffres, "actif": True}, {"_id": 1}):
+            cmd = await _nouvelle(from_num, profile_name, "bloque", erreur="numéro en liste noire")
+            await _message(cmd, "⛔ Votre numéro n'est plus autorisé à utiliser la commande !formulaire.\n"
+                                f"Pour toute question : {CONTACT_SAWALI}.", "refus (liste noire)", None)
+            return {"ok": False, "etape": "liste_noire"}
         if mtype == "text":
+            # Lot 41 — « !formulaire 123456 » : code de confirmation en attente
+            if await reponse_otp(from_num=from_num, texte=texte or ""):
+                return {"ok": True, "etape": "otp"}
             cmd = await _nouvelle(from_num, profile_name, "mode_emploi")
             await _message(cmd, MODE_EMPLOI, "mode_emploi", None)
             return {"ok": True, "etape": "mode_emploi"}
         if mtype not in ("document", "image") or not media_info:
             motif = ("je n'ai pas pu récupérer votre pièce jointe, renvoyez-la" if mtype in ("document", "image")
                      else "seuls les documents Word, Excel, PDF et les photos sont acceptés")
-            cmd = await _nouvelle(from_num, profile_name, "refuse", erreur=motif)
+            cmd = await _nouvelle(from_num, profile_name, "refuse", erreur=motif, echec_contact=True,
+                                  media_info=media_info)
             await _message(cmd, f"❌ Impossible de traiter votre demande : {motif}.\n\n{MODE_EMPLOI}", "refus",
                            "Refus non délivré au contact : le prévenir")
+            await _verifier_liste_noire(cmd)
             return {"ok": False, "etape": "refus", "motif": motif}
         mime = (media_info.get("mime_type") or "").split(";")[0].strip().lower()
         ext = EXT_PAR_MIME.get(mime) or (nom_fichier.rsplit(".", 1)[-1].lower() if nom_fichier and "." in nom_fichier else "")
@@ -218,29 +307,138 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         try:
             imp.verifier_fichier(nom)                     # refus immédiat : .doc, .xls, format inconnu…
         except ValueError as exc:
-            cmd = await _nouvelle(from_num, profile_name, "refuse", fichier=nom, erreur=str(exc))
+            cmd = await _nouvelle(from_num, profile_name, "refuse", fichier=nom, erreur=str(exc), echec_contact=True,
+                                  media_info=media_info)
             await _message(cmd, f"❌ Impossible de traiter votre document : {exc}", "refus",
                            "Refus non délivré au contact : le prévenir")
+            await _verifier_liste_noire(cmd)
             return {"ok": False, "etape": "refus", "motif": str(exc)}
         qui = await _type_client(chiffres)
         cmd = await _nouvelle(from_num, profile_name, "analyse", type_client=qui["type"],
-                              compte_id=qui["compte_id"] or compte_par_defaut, compte_libelle=qui["libelle"], fichier=nom)
+                              compte_id=qui["compte_id"] or compte_par_defaut, compte_libelle=qui["libelle"], fichier=nom,
+                              media_info=media_info)          # lot 41 : gardé pour un forçage après erreur
         await _evenement(cmd["id"], "reçu", f"{nom} ({qui['type']})")
-        await _message(cmd, "📄 Document reçu. Je prépare votre formulaire, cela prend environ une minute…",
-                       "accusé de réception", None)
         try:
             data = lire_media(media_info)
         except Exception:  # noqa: BLE001
             await _echec(cmd, "le fichier reçu n'a pas pu être lu, renvoyez-le", technique=True)
             return {"ok": False, "etape": "refus"}
-        tache = asyncio.create_task(_traiter(cmd, nom, data))
+        # Lot 41 — une photo doit montrer un questionnaire (pas un selfie, un paysage, un animal…)
+        if mime in MIMES_IMAGE or ext in ("jpg", "jpeg", "png", "webp"):
+            avis = await classer_image(data)
+            if not avis.get("document", True):
+                motif = (f"cette photo ne montre pas un questionnaire ({avis.get('categorie') or 'autre'}"
+                         + (f" : {avis['motif']}" if avis.get("motif") else "") + ")")
+                await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {
+                    "statut": "refuse", "erreur": motif, "echec_contact": True, "classement": avis, "maj_le": _now()}})
+                await _evenement(cmd["id"], "photo refusée", motif, ok=False)
+                await _message(cmd, f"❌ {motif[0].upper()}{motif[1:]}.\nEnvoyez la photo ou le fichier du "
+                                    f"questionnaire à transformer en formulaire.\n\n{MODE_EMPLOI}", "refus (photo)",
+                               "Refus non délivré au contact : le prévenir")
+                await _verifier_liste_noire({**cmd, "media_info": media_info})
+                return {"ok": False, "etape": "refus", "motif": motif}
+        # Lot 41 — code de confirmation avant l'analyse, le tarif et le paiement
+        code = otp_fn()
+        await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {
+            "statut": "attente_otp", "otp_hash": _hash_otp(cmd["id"], code), "otp_essais": 0,
+            "otp_expire_le": (datetime.now(timezone.utc) + DUREE_OTP).isoformat(), "maj_le": _now()}})
+        await _message(cmd, (f"📄 Document reçu.\n🔐 Pour confirmer votre demande, renvoyez-moi ce code : *{code}*\n"
+                             f"(valable {int(DUREE_OTP.total_seconds() // 60)} minutes). Ensuite je prépare votre "
+                             "formulaire et je vous indique son prix."),
+                       "code de confirmation envoyé", "Code de confirmation non délivré au contact")
+        return {"ok": True, "etape": "attente_otp", "commande_id": cmd["id"]}
+
+    # --- Lot 41 : code de confirmation (OTP) ------------------------------------------
+    async def reponse_otp(*, from_num: str, texte: str) -> bool:
+        """Message texte d'un contact qui a une commande en attente de code. Renvoie True si le
+        message était une réponse au code (traitée ici), False sinon (autres commandes)."""
+        import re as _re
+        chiffres = "".join(ch for ch in from_num if ch.isdigit())
+        m = _re.search(r"(?<!\d)(\d{6})(?!\d)", texte or "")
+        if not m or len((texte or "").strip()) > 40:
+            return False
+        cmd = await db.liluvine_formulaires.find_one({"chiffres": chiffres, "statut": "attente_otp"}, {"_id": 0},
+                                                    sort=[("cree_le", -1)])
+        if not cmd:
+            return False
+        expire = datetime.fromisoformat(cmd["otp_expire_le"])
+        if expire <= datetime.now(timezone.utc):
+            await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {
+                "statut": "erreur", "erreur": "code de confirmation expiré", "echec_contact": True, "maj_le": _now()}})
+            await _evenement(cmd["id"], "code expiré", "", ok=False)
+            await _message(cmd, "⌛ Ce code a expiré. Renvoyez votre document avec la légende *!formulaire* "
+                                "pour recevoir un nouveau code.", "code expiré", None)
+            await _verifier_liste_noire(cmd)
+            return True
+        if _hash_otp(cmd["id"], m.group(1)) != cmd.get("otp_hash"):
+            essais = int(cmd.get("otp_essais") or 0) + 1
+            if essais >= ESSAIS_OTP:
+                await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {
+                    "statut": "erreur", "erreur": "code de confirmation incorrect", "otp_essais": essais,
+                    "echec_contact": True, "maj_le": _now()}})
+                await _evenement(cmd["id"], "code incorrect", f"{essais} essai(s) : demande annulée", ok=False)
+                await _message(cmd, "❌ Code incorrect : demande annulée. Renvoyez votre document avec la légende "
+                                    "*!formulaire* pour recommencer.", "code refusé", None)
+                await _verifier_liste_noire(cmd)
+            else:
+                await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {"otp_essais": essais}})
+                await _evenement(cmd["id"], "code incorrect", f"essai {essais}/{ESSAIS_OTP}", ok=False)
+                await _message(cmd, f"❌ Code incorrect. Il vous reste {ESSAIS_OTP - essais} essai(s).",
+                               "code incorrect", None)
+            return True
+        await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {
+            "statut": "analyse", "otp_confirme_le": _now(), "maj_le": _now()}, "$unset": {"otp_hash": ""}})
+        await _evenement(cmd["id"], "code confirmé")
+        await _message(cmd, "✅ Code confirmé. Je prépare votre formulaire, cela prend environ une minute…",
+                       "accusé de réception", None)
+        try:
+            data = lire_media(cmd["media_info"])
+        except Exception:  # noqa: BLE001
+            await _echec(cmd, "le fichier reçu n'a pas pu être lu, renvoyez-le", technique=True)
+            return True
+        tache = asyncio.create_task(_traiter({**cmd, "statut": "analyse"}, cmd.get("fichier") or "document", data))
         taches.add(tache)
         tache.add_done_callback(taches.discard)
-        return {"ok": True, "etape": "analyse", "commande_id": cmd["id"], "tache": tache}
+        derniere_tache["tache"] = tache
+        return True
+
+    derniere_tache: Dict[str, Any] = {}                 # tests : attendre l'analyse lancée après le code
+
+    # --- Lot 41 : liste noire après 3 demandes non valables -----------------------------
+    async def _verifier_liste_noire(cmd: dict) -> None:
+        chiffres = cmd.get("chiffres") or "".join(ch for ch in cmd.get("telephone", "") if ch.isdigit())
+        depuis = (datetime.now(timezone.utc) - PERIODE_ECHECS).isoformat()
+        echecs = await db.liluvine_formulaires.find(
+            {"chiffres": chiffres, "echec_contact": True, "cree_le": {"$gte": depuis}},
+            {"_id": 0, "id": 1, "erreur": 1, "fichier": 1, "media_info": 1, "cree_le": 1}).sort("cree_le", 1).to_list(50)
+        if len(echecs) < ECHECS_AVANT_LISTE_NOIRE:
+            return
+        if await db.liluvine_liste_noire.find_one({"chiffres": chiffres, "actif": True}, {"_id": 1}):
+            return
+        pieces = [{"commande_id": e["id"], "le": e.get("cree_le"), "nom": e.get("fichier") or "pièce jointe",
+                   "url": (e.get("media_info") or {}).get("public_url"),
+                   "mime": (e.get("media_info") or {}).get("mime_type"), "motif": e.get("erreur")}
+                  for e in echecs if (e.get("media_info") or {}).get("public_url")]
+        motif = f"{len(echecs)} demandes « !formulaire » non valables en {PERIODE_ECHECS.days} jours"
+        await db.liluvine_liste_noire.update_one({"chiffres": chiffres}, {"$set": {
+            "chiffres": chiffres, "telephone": cmd.get("telephone"), "nom_contact": cmd.get("nom_contact"),
+            "le": _now(), "motif": motif, "actif": True, "commande_ids": [e["id"] for e in echecs],
+            "pieces": pieces, "par": "Liluvine (automatique)"}}, upsert=True)
+        await _evenement(cmd["id"], "numéro mis en liste noire", motif, ok=False)
+        await _message(cmd, "⛔ Après plusieurs demandes non valables, votre numéro est bloqué pour la commande "
+                            f"!formulaire.\nPour toute question : {CONTACT_SAWALI}.", "liste noire (message)", None)
+        if journal_activite:
+            try:
+                await journal_activite(label=f"!formulaire : {cmd.get('telephone')} "
+                                             f"({cmd.get('nom_contact') or 'inconnu'}) mis en liste noire — {motif}",
+                                       target_id=chiffres)
+            except Exception:  # noqa: BLE001
+                logger.warning("[!formulaire] journal d'activité indisponible", exc_info=True)
 
     async def _echec(cmd: dict, motif: str, technique: bool = False) -> None:
         """Erreur : le contact reçoit le motif. Erreur technique (pas de sa faute) → intervention humaine."""
         await db.liluvine_formulaires.update_one({"id": cmd["id"]}, {"$set": {"statut": "erreur", "erreur": motif,
+                                                                            "echec_contact": not technique and not cmd.get("_force"),
                                                                             "maj_le": _now()}})
         await _evenement(cmd["id"], "erreur", motif, ok=False)
         await _message(cmd, f"❌ Je n'ai pas pu créer le formulaire : {motif}\n\n{MODE_EMPLOI}", "motif envoyé",
@@ -248,9 +446,13 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         if technique:
             await _intervention(cmd["id"], f"Erreur technique : {motif} — relancer le traitement ou créer le "
                                             "formulaire à la main")
+        elif not cmd.get("_force"):
+            await _verifier_liste_noire(cmd)                  # lot 41 : document sans question, etc.
 
     # --- 2. Analyse, création du formulaire privé, tarif et lien de paiement --------
-    async def _traiter(cmd: dict, nom: str, data: bytes) -> None:
+    async def _traiter(cmd: dict, nom: str, data: bytes, forcer: Optional[dict] = None) -> None:
+        """Analyse le document et crée le formulaire. `forcer` (lot 41) : {par, motif} —
+        réalisation forcée par l'Admin : mise en ligne directe, sans paiement."""
         try:
             res = await analyser([(nom, data)], "formulaire", None, uuid_fn, avec_donnees=False)
         except ValueError as exc:
@@ -297,6 +499,9 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         points = [l[2:] for l in res["compte_rendu"].splitlines() if l.startswith("• ")][:5]
         if points:
             resume += "\n\nÀ vérifier :\n" + "\n".join(f"• {p[:160]}" for p in points)
+        if forcer:
+            await publier(cmd["id"], mode="force", par=forcer.get("par"), motif=forcer.get("motif"))
+            return
         if prix <= 0:
             await publier(cmd["id"])                        # service gratuit : publication immédiate
             return
@@ -329,18 +534,30 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
             "Tarif et lien de paiement non délivrés : les envoyer au contact")
 
     # --- 3. Paiement confirmé → mise en production + liens cryptés ------------------
-    async def publier(commande_id: str) -> bool:
-        """Met le formulaire en production et envoie les liens (une seule fois)."""
+    async def publier(commande_id: str, mode: str = "auto", par: Optional[str] = None,
+                      motif: Optional[str] = None) -> bool:
+        """Met le formulaire en production et envoie les liens (une seule fois).
+        Lot 41 — `mode` : « auto » (paiement confirmé ou service gratuit) ou « force »
+        (réalisation forcée par l'Admin, sans paiement)."""
+        maj: Dict[str, Any] = {"statut": "publie", "publie_le": _now(), "mode_realisation": mode}
+        if mode == "force":
+            maj.update({"force_par": par, "force_le": _now(), "force_motif": motif})
         cmd = await db.liluvine_formulaires.find_one_and_update(
             {"id": commande_id, "statut": {"$ne": "publie"}, "form_id": {"$exists": True}},
-            {"$set": {"statut": "publie", "publie_le": _now()}})
+            {"$set": maj})
         if not cmd:
             return False
+        cmd.update(maj)
         expire = datetime.now(timezone.utc) + DUREE_LIENS
         await db.forms.update_one({"id": cmd["form_id"]}, {"$set": {
-            "liluvine_statut": "publie", "liluvine_expire_le": expire.isoformat(), "updated_at": _now()}})
+            "liluvine_statut": "publie", "liluvine_expire_le": expire.isoformat(), "liluvine_mode": mode,
+            "updated_at": _now()}})
         await db.liluvine_formulaires.update_one({"id": commande_id}, {"$set": {"expire_le": expire.isoformat()}})
-        await _evenement(commande_id, "mis en ligne", "paiement confirmé" if cmd.get("prix_xof") else "service gratuit")
+        if mode == "force":
+            await _evenement(commande_id, "mis en ligne (FORCÉ)",
+                             f"réalisation forcée par {par or 'l’Admin'}" + (f" — {motif}" if motif else ""))
+        else:
+            await _evenement(commande_id, "mis en ligne", "paiement confirmé" if cmd.get("prix_xof") else "service gratuit")
         if await _envoyer_liens(cmd, expire, premier_envoi=True):
             await _envoyer_sondage(cmd)
         return True
@@ -349,7 +566,8 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         """Envoie les liens cryptés ; « livré » si le message est parti, sinon intervention humaine."""
         saisie = f"{_base()}/fr/{_jeton('form_fill', cmd['form_id'], expire)}"
         reponses = f"{_base()}/fr-resultats/{_jeton('form_results', cmd['form_id'], expire)}"
-        entete = ((f"🎉 Paiement reçu, merci ! " if cmd.get("prix_xof") else "🎉 ")
+        paye = cmd.get("prix_xof") and cmd.get("mode_realisation") != "force"   # lot 41 : pas « payé » si forcé
+        entete = ((f"🎉 Paiement reçu, merci ! " if paye else "🎉 ")
                   + f"Votre formulaire *{cmd.get('titre')}* est en ligne.") if premier_envoi else \
             f"🔁 Voici à nouveau les liens de votre formulaire *{cmd.get('titre')}*."
         ok = await _message(cmd, (
@@ -373,6 +591,46 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         if ok and not (cmd.get("sondage") or {}).get("invite_id"):
             await _envoyer_sondage(cmd)
         return ok
+
+    # --- Lot 41 : réalisation forcée par l'Admin -------------------------------------
+    async def forcer(commande_id: str, qui: dict, motif: Optional[str] = None) -> Dict[str, Any]:
+        """Formulaire déjà créé (attente de paiement) → mis en ligne sans paiement.
+        Pas encore de formulaire (erreur, analyse bloquée) → nouvelle analyse du document
+        reçu, puis mise en ligne directe. Renvoie {ok, etape}."""
+        cmd = await db.liluvine_formulaires.find_one({"id": commande_id}, {"_id": 0})
+        if not cmd:
+            raise HTTPException(status_code=404, detail="Commande introuvable")
+        if cmd.get("statut") == "publie":
+            raise HTTPException(status_code=400, detail="Ce formulaire est déjà en ligne")
+        par = qui.get("email") or qui.get("id")
+        motif = (motif or "").strip() or None
+        await _evenement(commande_id, "réalisation forcée", f"demandée par {par}" + (f" — {motif}" if motif else ""))
+        if cmd.get("intervention_requise") and not cmd.get("intervention_faite_le"):
+            await db.liluvine_formulaires.update_one({"id": commande_id}, {"$set": {
+                "intervention_faite_le": _now(), "intervention_par": par,
+                "intervention_note": "Réalisation forcée"}})
+        if cmd.get("form_id"):
+            if cmd.get("payment_link_id"):          # plus de paiement possible après un forçage
+                await db.payment_links.update_one({"id": cmd["payment_link_id"]}, {"$set": {
+                    "disabled": True, "updated_at": _now(), "disabled_reason": "réalisation forcée par l'Admin"}})
+            ok = await publier(commande_id, mode="force", par=par, motif=motif)
+            return {"ok": ok, "etape": "mis_en_ligne"}
+        if cmd.get("statut") not in ("erreur", "analyse", "attente_otp") or not cmd.get("media_info"):
+            raise HTTPException(status_code=400, detail="Rien à réaliser : le document n'a pas été conservé "
+                                                        "(demandez au contact de le renvoyer avec !formulaire)")
+        try:
+            data = lire_media(cmd["media_info"])
+        except Exception:  # noqa: BLE001
+            raise HTTPException(status_code=400, detail="Le document reçu n'est plus disponible sur le serveur : "
+                                                        "demandez au contact de le renvoyer")
+        await db.liluvine_formulaires.update_one({"id": commande_id}, {"$set": {
+            "statut": "analyse", "erreur": None, "maj_le": _now()}})
+        await _traiter({**cmd, "statut": "analyse", "_force": True}, cmd.get("fichier") or "document", data,
+                       forcer={"par": par, "motif": motif})
+        apres = await db.liluvine_formulaires.find_one({"id": commande_id}, {"_id": 0, "statut": 1, "erreur": 1})
+        if (apres or {}).get("statut") != "publie":
+            raise HTTPException(status_code=400, detail=f"Nouvelle analyse en échec : {(apres or {}).get('erreur') or 'inconnue'}")
+        return {"ok": True, "etape": "analyse_et_mis_en_ligne"}
 
     # --- Lot 37 : sondage de satisfaction après livraison, avec relances ------------
     async def parametres_sondage() -> Dict[str, Any]:
@@ -500,6 +758,11 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
                "via": "lien_crypte", "created_at": _now(), "updated_at": _now(), "revisions_count": 1}
         await db.form_submissions.insert_one(doc.copy())
         await db.forms.update_one({"id": form["id"]}, {"$inc": {"uses_count": 1}})
+        if on_soumission is not None:                  # lot 41 : automatisation « form.submitted »
+            try:
+                await on_soumission(form["id"], doc["user_label"])
+            except Exception:  # noqa: BLE001
+                pass
         return {"ok": True, "id": doc["id"]}
 
     async def _resultats(jeton: str) -> Dict[str, Any]:
@@ -550,6 +813,16 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
             q = {"statut": "publie", "livre": False}
         commandes = await db.liluvine_formulaires.find(q, {"_id": 0, "usage": 0, "compte_rendu": 0}).sort(
             "cree_le", -1).to_list(300)
+        for c in commandes:                          # lot 41 : badge « auto » / « forcé » des formulaires en ligne
+            if c.get("statut") == "publie":
+                c["mode_realisation"] = c.get("mode_realisation") or "auto"
+            media = c.pop("media_info", None) or {}
+            document_garde = bool(media)
+            c["piece_url"] = media.get("public_url")          # lot 41 : copie de la pièce jointe (Admin)
+            c["piece_mime"] = media.get("mime_type")
+            c["forcable"] = c.get("statut") == "en_attente_paiement" or (
+                c.get("statut") in ("erreur", "analyse", "attente_otp") and bool(c.get("form_id") or document_garde))
+            c.pop("otp_hash", None)
         a_traiter = await db.liluvine_formulaires.count_documents({"intervention_requise": True,
                                                                    "intervention_faite_le": None})
         return {"tarifs": await tarifs(), "sondage": await parametres_sondage(), "a_traiter": a_traiter,
@@ -590,6 +863,27 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         await _evenement(commande_id, "intervention faite", (payload.note or "").strip() or "marqué traité")
         return {"ok": True}
 
+    @api.get("/supervision/liluvine-formulaire/liste-noire", tags=["Admin"])
+    async def liste_noire(_: dict = Depends(get_admin_or_supervisor)):
+        """Lot 41 — numéros bloqués pour « !formulaire », avec les pièces jointes en cause."""
+        return await db.liluvine_liste_noire.find({"actif": True}, {"_id": 0}).sort("le", -1).to_list(300)
+
+    @api.delete("/supervision/liluvine-formulaire/liste-noire/{chiffres}", tags=["Admin"])
+    async def debloquer(chiffres: str, qui: dict = Depends(get_current_admin)):
+        r = await db.liluvine_liste_noire.update_one({"chiffres": chiffres, "actif": True}, {"$set": {
+            "actif": False, "debloque_le": _now(), "debloque_par": qui.get("email") or qui.get("id")}})
+        if not r.matched_count:
+            raise HTTPException(status_code=404, detail="Numéro absent de la liste noire")
+        # Les échecs passés ne comptent plus : le contact repart de zéro
+        await db.liluvine_formulaires.update_many({"chiffres": chiffres, "echec_contact": True},
+                                                  {"$set": {"echec_contact": False, "echec_pardonne": True}})
+        return {"ok": True}
+
+    @api.post("/supervision/liluvine-formulaire/{commande_id}/forcer", tags=["Admin"])
+    async def action_forcer(commande_id: str, payload: Forcage, qui: dict = Depends(get_current_admin)):
+        """Lot 41 — réalisation forcée (Admin seulement) : badge « forcé » au journal et sur la facture."""
+        return await forcer(commande_id, qui, payload.motif)
+
     @api.put("/supervision/liluvine-formulaire/tarifs", tags=["Admin"])
     async def modifier_tarifs(payload: Tarifs, _: dict = Depends(get_current_admin)):
         await db.settings.update_one({"_id": "global"}, {"$set": {
@@ -597,4 +891,5 @@ def attach_liluvine_formulaire_routes(*, api, db, uuid_fn: Callable[[], str], ge
         return await tarifs()
 
     return {"commande": commande, "apres_paiement": apres_paiement, "publier": publier, "tarifs": tarifs,
-            "renvoyer_liens": renvoyer_liens, "relancer_sondages": relancer_sondages, "boucle_relances": boucle_relances}
+            "renvoyer_liens": renvoyer_liens, "forcer": forcer,
+            "reponse_otp": reponse_otp, "derniere_tache": derniere_tache, "relancer_sondages": relancer_sondages, "boucle_relances": boucle_relances}

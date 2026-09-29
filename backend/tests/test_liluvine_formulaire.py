@@ -60,6 +60,15 @@ def env():
         return {"structure": STRUCTURE, "compte_rendu": "Formulaire créé…\n\nPoints à vérifier :\n• « Il ya » corrigé.",
                 "usage": {"cost_xof": 12.5}}
 
+    photo = {"document": True, "categorie": "questionnaire", "motif": ""}
+    activite = []
+
+    async def classer(data):
+        return dict(photo)
+
+    async def journal_activite(**kw):
+        activite.append(kw)
+
     async def next_form_number(code):
         return next(n)
 
@@ -79,7 +88,9 @@ def env():
         get_current_admin=admin, wa_send_text=wa_send_text, lire_media=lambda info: b"PK contenu docx",
         public_base_url=lambda req: "https://sawali.bf", next_form_number=next_form_number,
         slugify_code=lambda s: s[:3].upper(), gen_slug=lambda k=8: f"slug{next(n)}", mnos=["ORANGE", "MOOV"],
-        secret=SECRET, analyser=analyser, sms_send=sms_send)
+        secret=SECRET, analyser=analyser, sms_send=sms_send,
+        # Lot 41 : code de confirmation fixe et classement des photos simulé
+        otp_fn=lambda: "123456", classer_image=classer, journal_activite=journal_activite)
     app = FastAPI()
     app.include_router(api)
     client = TestClient(app).__enter__()
@@ -89,18 +100,25 @@ def env():
         {"id": "pharma_a", "role": "pharmacien", "company": "Pharmacie A", "client_code": "PHA", "phone": "+226 70 11 22 33"},
     ])
 
-    def commander(numero="22655000001", mtype="document", mime=DOCX, nom="questionnaire.docx", texte="!formulaire"):
+    def commander(numero="22655000001", mtype="document", mime=DOCX, nom="questionnaire.docx", texte="!formulaire",
+                  code="123456"):
+        """Lot 41 : la pièce jointe déclenche un code ; `code` (None = pas de réponse) est renvoyé
+        par le contact, puis l'analyse lancée est attendue."""
         async def go():
             r = await outils["commande"](from_num=numero, profile_name="Awa", mtype=mtype,
-                                         media_info={"mime_type": mime, "stored_name": "x"} if mtype != "text" else None,
-                                         nom_fichier=nom, compte_par_defaut="sawali")
-            if r.get("tache"):
-                await r["tache"]
+                                         media_info={"mime_type": mime, "stored_name": "x",
+                                                     "public_url": f"/api/files/{numero}.bin"} if mtype != "text" else None,
+                                         nom_fichier=nom, compte_par_defaut="sawali", texte=texte)
+            if r.get("etape") == "attente_otp" and code:
+                outils["derniere_tache"].clear()
+                await outils["reponse_otp"](from_num=numero, texte=code)
+                if outils["derniere_tache"].get("tache"):
+                    await outils["derniere_tache"]["tache"]
             return r
         return run(go)
 
     yield types.SimpleNamespace(client=client, db=db, run=run, outils=outils, envoyes=envoyes, analyse=analyse,
-                                commander=commander, wa=wa, sms=sms)
+                                commander=commander, wa=wa, sms=sms, photo=photo, activite=activite)
     client.__exit__(None, None, None)
 
 
@@ -116,8 +134,10 @@ def test_parcours_complet_numero_inconnu(env):
     form = env.run(env.db.forms.find_one, {"id": cmd["form_id"]}, {"_id": 0})
     assert form["is_public"] is False and form["liluvine_statut"] == "en_attente_paiement" and form["title"] == cmd["titre"]
     # Réponses envoyées : accusé de réception, puis tarif + lien de paiement
-    accuse, tarif = env.envoyes[0][1], env.envoyes[1][1]
-    assert accuse.startswith("📄 Document reçu")
+    # Lot 41 : code de confirmation, puis accusé après le code, puis tarif
+    code, accuse, tarif = env.envoyes[0][1], env.envoyes[1][1], env.envoyes[2][1]
+    assert code.startswith("📄 Document reçu") and "*123456*" in code
+    assert accuse.startswith("✅ Code confirmé")
     assert "3 question(s) sur 1 page(s)" in tarif and "*3 000 FCFA*" in tarif and "« Il ya » corrigé." in tarif
     lien_paiement = env.run(env.db.payment_links.find_one, {"liluvine_formulaire_id": cmd["id"]}, {"_id": 0})
     assert f"/pay/{lien_paiement['slug']}" in tarif and lien_paiement["amount"] == 3000.0
@@ -129,8 +149,8 @@ def test_parcours_complet_numero_inconnu(env):
     paiement = {"status": "completed", "payment_link_id": lien_paiement["id"]}
     env.run(env.outils["apres_paiement"], paiement)
     env.run(env.outils["apres_paiement"], paiement)                       # 2e confirmation : rien de plus
-    assert len(env.envoyes) == 3
-    saisie, resultats = _liens(env.envoyes[2][1])
+    assert len(env.envoyes) == 4
+    saisie, resultats = _liens(env.envoyes[3][1])
     assert saisie.startswith("/fr/") and resultats.startswith("/fr-resultats/")
     assert cmd["form_id"] not in saisie                                    # pas d'identifiant en clair
     jeton_saisie, jeton_res = saisie.split("/")[-1], resultats.split("/")[-1]
@@ -191,7 +211,9 @@ def test_refus_avec_motif(env):
     # L'IA ne trouve aucune question : motif renvoyé au contact
     env.analyse["erreur"] = "Aucune question n'a pu être reconnue dans le document."
     env.commander()
-    assert env.envoyes[-1][1].startswith("❌ Je n'ai pas pu créer le formulaire : Aucune question")
+    assert env.envoyes[-2][1].startswith("❌ Je n'ai pas pu créer le formulaire : Aucune question")
+    # Lot 41 : 3e demande non valable -> numéro en liste noire, prévenu
+    assert env.envoyes[-1][1].startswith("⛔ Après plusieurs demandes non valables")
     assert env.run(env.db.forms.count_documents, {}) == 0
     assert env.run(env.db.liluvine_formulaires.find_one, {"statut": "erreur"}, {"_id": 0})["erreur"].startswith("Aucune")
 
@@ -236,7 +258,8 @@ def test_journal_complet_et_filtres(env):
     c = next(x for x in j["commandes"] if x["statut"] == "en_attente_paiement")
     # Référence du formulaire, livré ou non, étapes horodatées
     assert c["reference"].startswith("FORM-SAW-") and c["livre"] is False and c["nom_contact"] == "Awa"
-    assert [e["etape"] for e in c["journal"]] == ["reçu", "accusé de réception", "formulaire créé",
+    assert [e["etape"] for e in c["journal"]] == ["reçu", "code de confirmation envoyé", "code confirmé",
+                                                   "accusé de réception", "formulaire créé",
                                                    "tarif 3 000 FCFA + lien de paiement"]
     refus = next(x for x in j["commandes"] if x["statut"] == "refuse")
     assert ".docx" in refus["erreur"] and refus["intervention_requise"] is False
@@ -340,3 +363,130 @@ def test_sondage_repondu_plus_de_relance(env):
     assert env.envoyes[-1][1].startswith("🎉")
     assert c.put("/api/supervision/liluvine-formulaire/sondage", headers=SUP,
                  json={"sondage_id": "inconnu"}).status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Lot 41 — réalisation forcée par l'Admin (badge « forcé » / « auto »)
+# ---------------------------------------------------------------------------
+def test_forcage_en_attente_de_paiement(env):
+    env.commander()
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["statut"] == "en_attente_paiement" and c["forcable"] is True and "media_info" not in c
+    # Réservé à l'Admin
+    assert env.client.post(f"/api/supervision/liluvine-formulaire/{c['id']}/forcer", headers=SUP, json={}).status_code == 403
+    r = env.client.post(f"/api/supervision/liluvine-formulaire/{c['id']}/forcer", headers=ADMIN,
+                        json={"motif": "Paiement reçu en espèces"})
+    assert r.status_code == 200 and r.json() == {"ok": True, "etape": "mis_en_ligne"}
+    liens = env.envoyes[-1][1]
+    assert "/fr/" in liens and "Paiement reçu" not in liens                 # jamais « payé » quand c'est forcé
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["statut"] == "publie" and c["mode_realisation"] == "force" and c["force_par"] == "admin"
+    assert c["force_motif"] == "Paiement reçu en espèces" and c["forcable"] is False
+    assert any(e["etape"] == "mis en ligne (FORCÉ)" for e in c["journal"])
+    lien = env.run(env.db.payment_links.find_one, {"liluvine_formulaire_id": c["id"]}, {"_id": 0})
+    assert lien["disabled"] is True                                         # plus de paiement possible
+    form = env.run(env.db.forms.find_one, {"id": c["form_id"]}, {"_id": 0})
+    assert form["liluvine_mode"] == "force" and form["liluvine_statut"] == "publie"
+    # Un paiement tardif ne change rien ; un 2e forçage est refusé
+    env.run(env.outils["apres_paiement"], {"status": "completed", "payment_link_id": lien["id"]})
+    assert env.run(env.db.liluvine_formulaires.find_one, {"id": c["id"]}, {"_id": 0})["mode_realisation"] == "force"
+    assert env.client.post(f"/api/supervision/liluvine-formulaire/{c['id']}/forcer", headers=ADMIN,
+                           json={}).status_code == 400
+
+
+def test_forcage_apres_erreur_technique_et_mode_auto(env):
+    env.analyse["panne"] = True
+    env.commander()
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["statut"] == "erreur" and c["forcable"] is True
+    env.analyse["panne"] = False
+    r = env.client.post(f"/api/supervision/liluvine-formulaire/{c['id']}/forcer", headers=ADMIN, json={})
+    assert r.status_code == 200 and r.json()["etape"] == "analyse_et_mis_en_ligne"
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["statut"] == "publie" and c["mode_realisation"] == "force" and c["form_id"]
+    assert c["intervention_faite_le"] and c["intervention_note"] == "Réalisation forcée"
+    assert env.run(env.db.payment_links.count_documents, {}) == 0          # jamais de lien de paiement
+    # Une commande payée normalement est « auto »
+    env.commander(numero="22655000009")
+    lien = env.run(env.db.payment_links.find_one, {}, {"_id": 0})
+    env.run(env.outils["apres_paiement"], {"status": "completed", "payment_link_id": lien["id"]})
+    modes = {x["telephone"]: x.get("mode_realisation") for x in
+             env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"]}
+    assert modes == {"22655000001": "force", "22655000009": "auto"}
+    # Refus (document jamais conservé) : rien à forcer
+    env.commander(mtype="document", mime="application/zip", nom="a.zip")
+    refus = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert refus["statut"] == "refuse" and refus["forcable"] is False
+    assert env.client.post(f"/api/supervision/liluvine-formulaire/{refus['id']}/forcer", headers=ADMIN,
+                           json={}).status_code == 400
+
+
+# ---------------------------------------------------------------------------
+# Lot 41 — code de confirmation, photos refusées, liste noire
+# ---------------------------------------------------------------------------
+def test_code_de_confirmation(env):
+    # Sans réponse au code : rien n'est analysé ni facturé
+    env.commander(code=None)
+    cmd = env.run(env.db.liluvine_formulaires.find_one, {}, {"_id": 0})
+    assert cmd["statut"] == "attente_otp" and "otp_hash" in cmd and "123456" not in str(cmd["otp_hash"])
+    assert env.run(env.db.forms.count_documents, {}) == 0 and env.run(env.db.payment_links.count_documents, {}) == 0
+    # Un message sans code n'est pas intercepté (les autres commandes restent possibles)
+    assert env.run(lambda: env.outils["reponse_otp"](from_num="22655000001", texte="bonjour")) is False
+    # Mauvais code : 2 essais restants, puis 1
+    assert env.run(lambda: env.outils["reponse_otp"](from_num="22655000001", texte="111111")) is True
+    assert "Il vous reste 2 essai(s)" in env.envoyes[-1][1]
+    # Bon code (même écrit « !formulaire 123456 ») → analyse, tarif
+    async def go():
+        env.outils["derniere_tache"].clear()
+        r = await env.outils["commande"](from_num="22655000001", profile_name="Awa", mtype="text", media_info=None,
+                                         nom_fichier=None, compte_par_defaut="sawali", texte="!formulaire 123456")
+        await env.outils["derniere_tache"]["tache"]
+        return r
+    assert env.run(go)["etape"] == "otp"
+    cmd = env.run(env.db.liluvine_formulaires.find_one, {}, {"_id": 0})
+    assert cmd["statut"] == "en_attente_paiement" and cmd["otp_confirme_le"]
+    assert "*3 000 FCFA*" in env.envoyes[-1][1]
+    # Code expiré : demande annulée, compte comme un échec du contact
+    env.commander(numero="22655000002", code=None)
+    env.run(env.db.liluvine_formulaires.update_one, {"chiffres": "22655000002"},
+            {"$set": {"otp_expire_le": "2020-01-01T00:00:00+00:00"}})
+    env.run(lambda: env.outils["reponse_otp"](from_num="22655000002", texte="123456"))
+    c2 = env.run(env.db.liluvine_formulaires.find_one, {"chiffres": "22655000002"}, {"_id": 0})
+    assert c2["statut"] == "erreur" and c2["echec_contact"] is True and "expiré" in env.envoyes[-1][1]
+    # L'Admin peut forcer une commande restée en attente du code
+    env.commander(numero="22655000003", code=None)
+    c3 = env.run(env.db.liluvine_formulaires.find_one, {"chiffres": "22655000003"}, {"_id": 0})
+    r = env.client.post(f"/api/supervision/liluvine-formulaire/{c3['id']}/forcer", headers=ADMIN, json={})
+    assert r.status_code == 200 and r.json()["etape"] == "analyse_et_mis_en_ligne"
+
+
+def test_photo_refusee_puis_liste_noire(env):
+    env.photo.update({"document": False, "categorie": "selfie", "motif": "visage en gros plan"})
+    for _ in range(2):
+        env.commander(mtype="image", mime="image/jpeg", nom="moi.jpg")
+    assert "ne montre pas un questionnaire (selfie : visage en gros plan)" in env.envoyes[-1][1]
+    assert env.run(env.db.liluvine_liste_noire.count_documents, {}) == 0
+    assert env.run(env.db.forms.count_documents, {}) == 0                  # jamais analysé
+    env.commander(mtype="image", mime="image/jpeg", nom="moi.jpg")          # 3e : le contact insiste
+    ln = env.client.get("/api/supervision/liluvine-formulaire/liste-noire", headers=SUP).json()
+    assert len(ln) == 1 and ln[0]["chiffres"] == "22655000001" and len(ln[0]["pieces"]) == 3
+    assert ln[0]["pieces"][0]["url"] == "/api/files/22655000001.bin"      # copie de la pièce jointe
+    assert env.activite and "mis en liste noire" in env.activite[0]["label"]
+    j = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"]
+    assert j[0]["piece_url"] == "/api/files/22655000001.bin" and "otp_hash" not in j[0]
+    # Numéro bloqué : même un bon document est refusé sans analyse
+    env.photo.update({"document": True})
+    env.commander()
+    assert env.envoyes[-1][1].startswith("⛔ Votre numéro n'est plus autorisé")
+    assert env.run(env.db.forms.count_documents, {}) == 0
+    # Déblocage par l'Admin (pas le Superviseur) : le contact repart de zéro
+    assert env.client.delete("/api/supervision/liluvine-formulaire/liste-noire/22655000001", headers=SUP).status_code == 403
+    assert env.client.delete("/api/supervision/liluvine-formulaire/liste-noire/22655000001", headers=ADMIN).status_code == 200
+    env.commander()
+    assert env.run(env.db.liluvine_formulaires.find_one, {"statut": "en_attente_paiement"}, {"_id": 0})
+    # Une panne de notre côté ne compte jamais comme un échec du contact
+    env.analyse["panne"] = True
+    for n in range(3):
+        env.commander(numero=f"2265600000{n}")
+        env.commander(numero="22657000000")
+    assert env.run(env.db.liluvine_liste_noire.count_documents, {"chiffres": "22657000000"}) == 0

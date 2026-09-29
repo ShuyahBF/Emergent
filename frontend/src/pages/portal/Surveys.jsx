@@ -17,6 +17,7 @@ import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 import SurveySendModal from "@/components/SurveySendModal";
 import SurveyContributors from "@/components/SurveyContributors";
 import ImportDocumentModal from "@/components/ImportDocumentModal";
+import { lireNouveautes, titrePuce } from "@/lib/nouveautesFormulaires";   // lot 41
 
 // Statut -> [libellé, classes du badge]
 export const SURVEY_STATUS = {
@@ -36,6 +37,7 @@ export default function Surveys() {
   const [sendFor, setSendFor] = useState(null);     // sondage à envoyer (fenêtre d'envoi)
   const [view, setView] = useState("surveys");      // surveys | contributors
   const [importOpen, setImportOpen] = useState(false); // lot 33 : « Créer depuis un document »
+  const [nouveaux, setNouveaux] = useState({});         // lot 41 : sondages avec réponses non consultées
 
   const load = async () => {
     setLoading(true);
@@ -49,6 +51,7 @@ export default function Surveys() {
     }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => { lireNouveautes().then((r) => setNouveaux(r.par_sondage || {})); }, []);
 
   // Filtre texte + statut
   const shown = useMemo(() => {
@@ -165,7 +168,14 @@ export default function Surveys() {
               <div key={s.id} className="rounded-xl bg-white ring-1 ring-slate-200 p-4 flex flex-col gap-3" data-testid={`survey-card-${s.id}`}>
                 <div className="flex items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <h3 className="font-semibold text-slate-900 truncate">{s.title}</h3>
+                    <h3 className="font-semibold text-slate-900 truncate">
+                      {/* Lot 41 — puce verte : réponses reçues depuis la dernière consultation */}
+                      {nouveaux[s.id] > 0 && (
+                        <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-100 mr-1.5 align-middle animate-pulse"
+                          title={titrePuce(nouveaux[s.id])} data-testid={`survey-new-${s.id}`} />
+                      )}
+                      {s.title}
+                    </h3>
                     <p className="text-xs text-slate-500">
                       {s.questions_count} question(s) · créé par {s.created_by_label || "—"}
                       {s.client_name && <> · client <b className="text-slate-700">{s.client_name}</b></>}

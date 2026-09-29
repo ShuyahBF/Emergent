@@ -144,6 +144,27 @@ def _parse_dt(v: Any) -> Optional[str]:
 # requested time (before OR after) and place the appointment there. Returns
 # the corrected (start_at, end_at, correction_applied, correction_reason).
 # ---------------------------------------------------------------------------
+# Lot 41 — téléphone collé au nom du patient : « OUOBA Jean : 77000155 », « OUOBA Jean 77000155 ».
+# Numéro en fin de texte (8 chiffres au moins, espaces, points ou tirets permis, « + » facultatif).
+_TEL_FIN_PATIENT = re.compile(r"^(?P<nom>.*?)[\s:;,\-–]*(?P<tel>\+?\d[\d .\-]{6,}\d)\s*$")
+
+
+def separer_patient_telephone(patient: str) -> tuple:
+    """Lot 41 — « NOM : 77000155 » → (« NOM ; 77000155 », « 77000155 »).
+    Le « ; » est inséré devant le numéro s'il n'y en a pas (séparateur attendu entre le nom
+    et le numéro) ; le numéro trouvé sert de téléphone du patient s'il n'est pas envoyé à part.
+    Texte sans numéro final : inchangé, téléphone None."""
+    texte = (patient or "").strip()
+    m = _TEL_FIN_PATIENT.match(texte)
+    if not m:
+        return texte, None
+    nom = m.group("nom").strip(" :;,-–")
+    tel = m.group("tel").strip()
+    if len("".join(ch for ch in tel if ch.isdigit())) < 8 or not nom:
+        return texte, None
+    return f"{nom} ; {tel}", tel
+
+
 def _find_free_slot(
     existing_intervals: List[tuple],  # [(start_iso, end_iso), ...] sorted by start
     requested_start_iso: str,
@@ -510,6 +531,9 @@ def attach_planning_routes(
         external_id = (body.get("external_id") or body.get("externalId") or "").strip() or None
         # Iter43-fix24az-n — coordonnées patient pour les rappels WA 1h avant RDV
         patient_phone_raw = (body.get("patient_phone") or body.get("phone") or "").strip() or None
+        # Lot 41 — « NOM : 77000155 » : « ; » inséré devant le numéro, numéro repris s'il manque
+        patient, tel_dans_nom = separer_patient_telephone(patient)
+        patient_phone_raw = patient_phone_raw or tel_dans_nom
         patient_email = (body.get("patient_email") or "").strip().lower() or None
         # Iter43-fix24az-z (2026-07-22) — Nouveaux champs pour gestion
         # intelligente du planning (RDV vs walk-in / patients sans RDV).

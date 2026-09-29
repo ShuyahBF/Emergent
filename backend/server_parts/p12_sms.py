@@ -1997,6 +1997,14 @@ async def whatsapp_webhook_incoming(request: Request):
                     # Lot 36 — « !formulaire » : document (Word, Excel, PDF) ou photo en pièce
                     # jointe avec cette légende (ou texte seul → mode d'emploi). Traité ici,
                     # avant les autres commandes (elles n'acceptent que du texte).
+                    # Lot 41 — réponse au code de confirmation d'une commande « !formulaire »
+                    # (6 chiffres) : traitée avant tout le reste, sinon message ordinaire.
+                    if mtype == "text" and "_liluvine_formulaire" in globals():
+                        try:
+                            if await _liluvine_formulaire["reponse_otp"](from_num=from_num, texte=text_body or ""):
+                                continue
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[!formulaire] code de confirmation en échec", exc_info=True)
                     if re.match(r"^[!/]\s*formulaires?\b", (text_body or "").strip(), re.IGNORECASE) \
                             and mtype in ("text", "document", "image") and "_liluvine_formulaire" in globals():
                         try:
@@ -2004,7 +2012,7 @@ async def whatsapp_webhook_incoming(request: Request):
                                 from_num=from_num, profile_name=profile_name, mtype=mtype,
                                 media_info=media_info if mtype != "text" else None,
                                 nom_fichier=(msg.get("document") or {}).get("filename"),
-                                compte_par_defaut=client_scope)
+                                compte_par_defaut=client_scope, texte=text_body)
                         except Exception:  # noqa: BLE001
                             logger.warning("[!formulaire] commande en échec", exc_info=True)
                         continue

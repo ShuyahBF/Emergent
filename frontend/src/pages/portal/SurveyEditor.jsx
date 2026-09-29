@@ -5,6 +5,9 @@
   - questions : choix unique, choix multiples, oui/non, note de 1 à 5,
     recommandation de 0 à 10 (score NPS), réponse libre ;
     chaque question peut être obligatoire, déplacée (▲ ▼), dupliquée, supprimée ;
+    lot 41 : l'ordre des questions se change aussi par glisser-déposer (poignée ⠿) ou en
+    choisissant directement sa position (« 3 / 8 ») ; l'ordre des choix d'une question
+    aussi (▲ ▼). Les réponses déjà reçues restent rattachées à leur question (identifiant) ;
   - « Résultats anonymes » : les noms des répondants ne sont pas affichés ;
   - message WhatsApp proposé à l'envoi ({{name}}, {{sondage}}, {{lien}}) ;
   - aperçu à droite, tel que le destinataire le verra sur son téléphone.
@@ -15,7 +18,7 @@ import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 import { toast } from "sonner";
-import { ArrowLeft, Plus, Trash2, Copy, ChevronUp, ChevronDown, Save, Star, X } from "lucide-react";
+import { ArrowLeft, Plus, Trash2, Copy, ChevronUp, ChevronDown, GripVertical, Save, Star, X } from "lucide-react";
 
 // Types de questions proposés (même liste que le serveur)
 const TYPES = [
@@ -78,6 +81,25 @@ export default function SurveyEditor() {
     [qs[i], qs[j]] = [qs[j], qs[i]];
     return { ...prev, questions: qs };
   });
+  // Lot 41 — déplace la question de la position `de` à la position `vers` (glisser-déposer
+  // ou choix direct de la position) ; les autres questions se décalent.
+  const placerQ = (de, vers) => setS((prev) => {
+    if (de === vers || vers < 0 || vers >= prev.questions.length) return prev;
+    const qs = [...prev.questions];
+    const [q] = qs.splice(de, 1);
+    qs.splice(vers, 0, q);
+    return { ...prev, questions: qs };
+  });
+  const [glisse, setGlisse] = useState(null);        // index de la question en cours de glisser-déposer
+  const [survol, setSurvol] = useState(null);        // index de la question survolée (repère visuel)
+  // Lot 41 — ordre des choix d'une question (▲ ▼)
+  const moveOpt = (i, k, dir) => {
+    const opts = [...s.questions[i].options];
+    const j = k + dir;
+    if (j < 0 || j >= opts.length) return;
+    [opts[k], opts[j]] = [opts[j], opts[k]];
+    setQ(i, { options: opts });
+  };
   const changeType = (i, type) => {
     const q = s.questions[i];
     // Passage vers un type à choix : on garde les choix existants, sinon 2 choix vides
@@ -174,9 +196,24 @@ export default function SurveyEditor() {
 
           {/* Questions */}
           {s.questions.map((q, i) => (
-            <div key={q.id} className="rounded-xl bg-white ring-1 ring-slate-200 p-4 space-y-3" data-testid={`survey-q-${i}`}>
+            <div key={q.id} data-testid={`survey-q-${i}`}
+              onDragOver={(e) => { if (glisse !== null) { e.preventDefault(); setSurvol(i); } }}
+              onDrop={(e) => { e.preventDefault(); if (glisse !== null) placerQ(glisse, i); setGlisse(null); setSurvol(null); }}
+              className={`rounded-xl bg-white ring-1 p-4 space-y-3 transition ${glisse === i ? "opacity-50" : ""} ${
+                survol === i && glisse !== null && glisse !== i ? "ring-2 ring-sawali-blue" : "ring-slate-200"}`}>
               <div className="flex flex-wrap items-center gap-2">
+                {/* Lot 41 — poignée de glisser-déposer */}
+                <span draggable onDragStart={(e) => { setGlisse(i); e.dataTransfer.effectAllowed = "move"; }}
+                  onDragEnd={() => { setGlisse(null); setSurvol(null); }} title="Glisser pour déplacer la question"
+                  className="cursor-grab active:cursor-grabbing text-slate-400 hover:text-slate-700" data-testid={`survey-q-drag-${i}`}>
+                  <GripVertical className="h-5 w-5" />
+                </span>
                 <span className="inline-flex h-7 w-7 items-center justify-center rounded-full bg-sawali-blue text-white text-xs font-bold">{i + 1}</span>
+                {/* Lot 41 — position choisie directement */}
+                <select value={i} onChange={(e) => placerQ(i, Number(e.target.value))} title="Position de la question"
+                  className="rounded-lg border border-slate-300 px-1.5 py-1 text-xs" data-testid={`survey-q-pos-${i}`}>
+                  {s.questions.map((_, n) => <option key={n} value={n}>{n + 1} / {s.questions.length}</option>)}
+                </select>
                 <select value={q.type} onChange={(e) => changeType(i, e.target.value)} className="rounded-lg border border-slate-300 px-2 py-1.5 text-sm"
                   data-testid={`survey-q-type-${i}`}>
                   {TYPES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
@@ -204,6 +241,10 @@ export default function SurveyEditor() {
                       <span className={`h-4 w-4 shrink-0 ring-2 ring-slate-300 ${q.type === "single" ? "rounded-full" : "rounded"}`} />
                       <input value={o} onChange={(e) => setQ(i, { options: q.options.map((x, n) => (n === k ? e.target.value : x)) })}
                         placeholder={`Choix ${k + 1}`} className={input} data-testid={`survey-q-${i}-opt-${k}`} maxLength={200} />
+                      <button onClick={() => moveOpt(i, k, -1)} disabled={k === 0} title="Monter ce choix"
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronUp className="h-4 w-4" /></button>
+                      <button onClick={() => moveOpt(i, k, 1)} disabled={k === q.options.length - 1} title="Descendre ce choix"
+                        className="p-1 text-slate-400 hover:text-slate-700 disabled:opacity-30"><ChevronDown className="h-4 w-4" /></button>
                       <button onClick={() => setQ(i, { options: q.options.filter((_, n) => n !== k) })} disabled={q.options.length <= 2}
                         className="p-1 text-slate-400 hover:text-rose-600 disabled:opacity-30" title="Retirer ce choix"><X className="h-4 w-4" /></button>
                     </div>

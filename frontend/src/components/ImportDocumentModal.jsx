@@ -4,7 +4,9 @@
   On dépose un questionnaire existant : Word (.docx), Excel (.xlsx), PDF, ou les
   photos / images des pages imprimées (plusieurs d'un coup). Les photos sont réduites
   dans le navigateur et remises dans l'ordre des prises. Le serveur
-  (POST /me/form-imports) en déduit la structure avec l'IA et crée un BROUILLON ;
+  (POST /me/form-imports) en déduit la structure avec l'IA et crée un BROUILLON
+  (formulaire : tableaux avec leurs colonnes, et leurs lignes si la case
+  « Reprendre aussi les données des tableaux » est cochée) ;
   la fenêtre suit l'analyse (GET /me/form-imports/{id}), affiche le compte rendu
   (points à vérifier) puis ouvre le brouillon dans l'éditeur habituel.
 */
@@ -26,6 +28,7 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
   const navigate = useNavigate();
   const inputRef = useRef(null);
   const [fichiers, setFichiers] = useState([]);
+  const [avecDonnees, setAvecDonnees] = useState(false);   // formulaire : lignes des tableaux reprises ?
   const [etape, setEtape] = useState("choix");        // choix | analyse | termine | erreur
   const [job, setJob] = useState(null);
   const t = TEXTES[cible];
@@ -56,6 +59,7 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
     try {
       const form = new FormData();
       form.append("cible", cible);
+      if (cible === "formulaire") form.append("avec_donnees", avecDonnees ? "true" : "false");
       const prets = await Promise.all(fichiers.map((f) => (estPhoto(f) ? reduirePhoto(f) : f)));
       prets.forEach((f) => form.append("fichiers", f));
       const r = await apiClient.post("/me/form-imports", form);
@@ -84,7 +88,6 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
             Déposez le questionnaire existant : <b>Word</b>, <b>Excel</b>, <b>PDF</b>, ou les <b>photos</b> des
             pages imprimées (plusieurs d'un coup, remises dans l'ordre des prises). L'IA en reprend les questions
             et crée {t.objet} en <b>brouillon</b>, à relire et modifier dans l'éditeur.
-            {cible === "formulaire" && " Les tableaux sont repris avec leurs colonnes seulement, prêts à être remplis."}
           </p>
           <div className="flex items-center gap-3 text-sm">
             <input ref={inputRef} type="file" multiple accept={ACCEPT} className="hidden" data-testid="import-doc-input"
@@ -95,6 +98,20 @@ export default function ImportDocumentModal({ cible, lienEditeur, onClose }) {
             </button>
             <span className="text-slate-500">{fichiers.length ? `${fichiers.length} fichier(s)` : "Aucun fichier choisi"}</span>
           </div>
+          {cible === "formulaire" && (
+            <label className="flex items-start gap-2 text-sm text-slate-700 bg-slate-50 ring-1 ring-slate-200 rounded-lg p-3">
+              <input type="checkbox" className="mt-0.5" checked={avecDonnees} onChange={(e) => setAvecDonnees(e.target.checked)}
+                data-testid="import-doc-avec-donnees" />
+              <span>
+                <b>Reprendre aussi les données des tableaux</b>
+                <span className="block text-xs text-slate-500">
+                  {avecDonnees
+                    ? "Les lignes du document pré-rempliront les tableaux : il suffira de les confirmer ou de les corriger."
+                    : "Décoché : seules les colonnes sont reprises, les tableaux sont vides et prêts à être remplis."}
+                </span>
+              </span>
+            </label>
+          )}
           {fichiers.length > 0 && (
             <ol className="text-xs text-slate-600 list-decimal pl-5 max-h-40 overflow-y-auto" data-testid="import-doc-liste">
               {fichiers.map((f) => <li key={f.name + f.size} className="truncate">{f.name}</li>)}

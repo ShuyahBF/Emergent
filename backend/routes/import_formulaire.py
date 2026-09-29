@@ -1,6 +1,7 @@
 """Lot 33 — « Créer depuis un document » (Formulaires et Sondages WhatsApp).
 
   POST /api/me/form-imports        fichiers[] + cible (formulaire | sondage)
+                                    + avec_donnees (formulaire : reprendre les lignes des tableaux)
        → 202 {id} : l'analyse IA tourne en arrière-plan (elle peut prendre une minute) ;
   GET  /api/me/form-imports/{id}   suivi : en_cours → termine (objet_id, compte_rendu)
                                             ou erreur (message clair).
@@ -91,9 +92,9 @@ def attach_import_formulaire_routes(*, api, db, get_current_user, uuid_fn: Calla
         await db.wa_surveys.insert_one(doc.copy())
         return doc
 
-    async def _executer(job_id: str, user: dict, fichiers: List[tuple], cible: str) -> None:
+    async def _executer(job_id: str, user: dict, fichiers: List[tuple], cible: str, avec_donnees: bool) -> None:
         try:
-            res = await imp.analyser(fichiers, cible, None, uuid_fn)
+            res = await imp.analyser(fichiers, cible, None, uuid_fn, avec_donnees=avec_donnees)
             origine = {"fichiers": [n for n, _ in fichiers], "import_id": job_id, "le": _now()}
             creer = _creer_formulaire if cible == "formulaire" else _creer_sondage
             doc = await creer(user, res["structure"], origine)
@@ -113,6 +114,7 @@ def attach_import_formulaire_routes(*, api, db, get_current_user, uuid_fn: Calla
     async def importer_document(
         fichiers: List[UploadFile] = File(...),
         cible: str = Form("formulaire"),
+        avec_donnees: bool = Form(False),
         user: dict = Depends(get_current_user),
     ):
         if cible not in ("formulaire", "sondage"):
@@ -141,10 +143,11 @@ def attach_import_formulaire_routes(*, api, db, get_current_user, uuid_fn: Calla
         if await db.form_imports.find_one({"user_id": user["id"], "statut": "en_cours", "cree_le": {"$gt": limite}},
                                           {"_id": 1}):
             raise HTTPException(status_code=409, detail="Une analyse de document est déjà en cours, patientez.")
-        job = {"id": uuid_fn(), "user_id": user["id"], "cible": cible, "fichiers": [n for n, _ in contenus],
-               "statut": "en_cours", "cree_le": _now()}
+        avec_donnees = bool(avec_donnees) and cible == "formulaire"      # pas de tableau dans un sondage
+        job = {"id": uuid_fn(), "user_id": user["id"], "cible": cible, "avec_donnees": avec_donnees,
+               "fichiers": [n for n, _ in contenus], "statut": "en_cours", "cree_le": _now()}
         await db.form_imports.insert_one(job.copy())
-        tache = asyncio.create_task(_executer(job["id"], user, contenus, cible))
+        tache = asyncio.create_task(_executer(job["id"], user, contenus, cible, avec_donnees))
         taches.add(tache)
         tache.add_done_callback(taches.discard)
         return {"id": job["id"], "statut": "en_cours"}

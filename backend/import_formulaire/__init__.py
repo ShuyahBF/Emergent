@@ -11,8 +11,9 @@ Règles de reprise (voir SYSTEM_FORMULAIRE / SYSTEM_SONDAGE) :
   - « … ? Si oui, lesquels ? » → Oui/Non + zone de précision à côté ;
   - cases ☐ → Oui/Non, liste ou choix multiples ; zone « signature » → signature ;
   - « joindre / copie de … » → fichier joint ;
-  - tableau → COLONNES seulement : un formulaire est fait pour être rempli, les
-    données éventuellement présentes dans le document ne sont jamais reprises ;
+  - tableau → ses COLONNES ; ses LIGNES seulement si l'utilisateur coche « reprendre
+    aussi les données des tableaux » (elles pré-remplissent alors le tableau, via la
+    valeur par défaut du champ) ;
   - libellés fidèles (fautes de frappe évidentes corrigées et signalées).
 
 Lecture des fichiers SANS nouvelle dépendance : Word (.docx) et Excel (.xlsx)
@@ -67,6 +68,7 @@ LARGEURS = (12, 9, 8, 6, 4, 3)
 TYPES_QUESTION = {"single", "multi", "yesno", "rating", "nps", "text"}
 MAX_QUESTIONS = 30
 SEUIL_DOUBLON = 0.90            # libellés presque identiques → signalés
+MAX_LIGNES_TABLEAU = 100        # lignes reprises par tableau (option « avec données »)
 
 
 # ---------------------------------------------------------------------------
@@ -280,16 +282,30 @@ SYSTEM_FORMULAIRE = _COMMUN + (
     "une liste), multiselect (plusieurs choix), date, datetime, email, tel, url, location, table "
     "(tableau à remplir), file (pièce à joindre : « joindre », « copie de », « fournir la facture »), "
     "signature (zone « signature », « le responsable », « visa » : UNE seule par formulaire).\n"
-    "- Tableau du document → type table avec SEULEMENT ses colonnes (libellé + type text, number ou "
-    "date). Ne reprends JAMAIS les lignes ni les valeurs du tableau : le formulaire sera rempli.\n"
+    "{TABLEAUX}"
     "- Rubriques / titres de section → pages (« pages »). Sans rubrique : une seule page.\n"
     "- « largeur » (sur 12, valeurs possibles 12, 9, 8, 6, 4, 3) : 12 par défaut ; une question Oui/Non "
     "suivie de sa précision → 4 puis 8 ; petits champs côte à côte (nom, date, téléphone) → 6 ou 4.\n"
     "- « obligatoire » : true seulement si le document le marque (*, « obligatoire »).\n"
     'Format : {"titre": "...", "description": "...", "pages": [{"titre": "...", "champs": [{"type": '
     '"...", "libelle": "...", "obligatoire": false, "largeur": 12, "options": ["..."], "colonnes": '
-    '[{"libelle": "...", "type": "text"}], "aide": "..."}]}], "remarques": ["..."]}'
+    '[{"libelle": "...", "type": "text"}], "lignes": [{"libellé de colonne": "valeur"}], "aide": "..."}]}], '
+    '"remarques": ["..."]}'
 )
+TABLEAUX_SANS_DONNEES = (
+    "- Tableau du document → type table avec SEULEMENT ses colonnes (libellé + type text, number ou "
+    "date). Ne reprends JAMAIS les lignes ni les valeurs du tableau (pas de « lignes ») : le "
+    "formulaire sera rempli.\n")
+TABLEAUX_AVEC_DONNEES = (
+    "- Tableau du document → type table avec ses colonnes (libellé + type text, number ou date) ET "
+    "ses lignes dans « lignes » : une entrée par ligne du tableau, clés = libellés exacts des "
+    f"colonnes, valeurs recopiées telles qu'écrites ({MAX_LIGNES_TABLEAU} lignes au plus ; ignore les "
+    "lignes de total et les lignes vides).\n")
+
+
+def consignes_formulaire(avec_donnees: bool) -> str:
+    """Consignes « formulaire », avec ou sans reprise des lignes des tableaux."""
+    return SYSTEM_FORMULAIRE.replace("{TABLEAUX}", TABLEAUX_AVEC_DONNEES if avec_donnees else TABLEAUX_SANS_DONNEES)
 
 SYSTEM_SONDAGE = _COMMUN + (
     "\n\nCible : un SONDAGE WhatsApp (liste simple de 30 questions au plus, sans pages). Types de "
@@ -379,8 +395,78 @@ def doublons(libelles: List[str]) -> List[Tuple[int, int]]:
     return paires
 
 
-def normaliser_formulaire(brut: Dict[str, Any], new_id: Callable[[], str]) -> Tuple[Dict[str, Any], List[str]]:
-    """Réponse de l'IA → {title, description, pages} au format des formulaires + corrections faites."""
+def _nombre(v: Any) -> Optional[float]:
+    """« 258 700 », « 1 234,5 », 40000 → nombre ; None si ce n'est pas un nombre."""
+    if isinstance(v, (int, float)) and not isinstance(v, bool):
+        return v
+    t = re.sub(r"[\s\u00a0\u202f]", "", str(v)).replace(",", ".")
+    if not re.fullmatch(r"-?\d+(\.\d+)?", t):
+        return None
+    f = float(t)
+    return int(f) if f.is_integer() else f
+
+
+def _date_iso(v: Any) -> Optional[str]:
+    """« 05/03/2026 », « 5-3-26 », « 2026-03-05 » → « 2026-03-05 » (format du champ date) ; sinon None."""
+    t = str(v).strip()
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", t):
+        return t
+    m = re.fullmatch(r"(\d{1,2})[/.-](\d{1,2})[/.-](\d{2}|\d{4})", t)
+    if not m:
+        return None
+    j, mo, a = int(m.group(1)), int(m.group(2)), int(m.group(3))
+    a = a + 2000 if a < 100 else a
+    return f"{a:04d}-{mo:02d}-{j:02d}" if 1 <= j <= 31 and 1 <= mo <= 12 else None
+
+
+def lignes_tableau(libelle: str, cols: List[Dict[str, str]], lignes: Any) -> Tuple[List[Dict[str, Any]], List[str]]:
+    """Lignes lues par l'IA → valeurs par défaut du tableau (clés = clés des colonnes).
+
+    Nombres (« 258 700 ») et dates (« 05/03/2026 ») convertis au format des champs ; une colonne
+    dont une valeur n'est pas convertible passe en texte (rien n'est perdu), et c'est signalé."""
+    notes: List[str] = []
+    par_libelle = {_normal(c["label"]): c for c in cols}
+    brutes = [l for l in (lignes or []) if isinstance(l, dict)]
+    if len(brutes) > MAX_LIGNES_TABLEAU:
+        notes.append(f"Tableau « {libelle[:60]} » : {len(brutes)} lignes lues, seules les {MAX_LIGNES_TABLEAU} "
+                     "premières sont reprises.")
+        brutes = brutes[:MAX_LIGNES_TABLEAU]
+    rangs = []
+    for l in brutes:
+        rang = {}
+        for cle, v in l.items():
+            col = par_libelle.get(_normal(str(cle)))
+            if col is not None and v is not None and str(v).strip() != "":
+                rang[col["key"]] = v if isinstance(v, (int, float)) else _txt(v, 300)
+        if rang:
+            rangs.append(rang)
+    for col in cols:
+        valeurs = [r[col["key"]] for r in rangs if col["key"] in r]
+        conv = _nombre if col["type"] == "number" else _date_iso if col["type"] == "date" else None
+        if conv is None or not valeurs:
+            continue
+        if all(conv(v) is not None for v in valeurs):
+            for r in rangs:
+                if col["key"] in r:
+                    r[col["key"]] = conv(r[col["key"]])
+        else:
+            col["type"] = "text"
+            nature = "nombres" if conv is _nombre else "dates"
+            notes.append(f"Tableau « {libelle[:60]} », colonne « {col['label']} » : valeurs qui ne sont pas toutes "
+                         f"des {nature}, colonne passée en texte.")
+    for r in rangs:                                        # une valeur par colonne (vide si absente)
+        for col in cols:
+            r.setdefault(col["key"], "")
+    if rangs:
+        notes.append(f"Tableau « {libelle[:60]} » : {len(rangs)} ligne(s) reprise(s) du document, "
+                     "à vérifier (elles pré-remplissent le tableau).")
+    return rangs, notes
+
+
+def normaliser_formulaire(brut: Dict[str, Any], new_id: Callable[[], str],
+                          avec_donnees: bool = False) -> Tuple[Dict[str, Any], List[str]]:
+    """Réponse de l'IA → {title, description, pages} au format des formulaires + corrections faites.
+    Les lignes des tableaux ne sont reprises que si `avec_donnees` (choix de l'utilisateur)."""
     notes: List[str] = []
     pages, signature_vue, libelles = [], False, []
     for p_i, p in enumerate(brut.get("pages") or [], 1):
@@ -419,7 +505,12 @@ def normaliser_formulaire(brut: Dict[str, Any], new_id: Callable[[], str]) -> Tu
                     notes.append(f"« {libelle[:60] } » : tableau sans colonne lisible, transformé en réponse longue.")
                     champ["type"] = "textarea"
                 else:
-                    champ["columns"] = cols          # jamais de lignes : le formulaire sera rempli
+                    champ["columns"] = cols
+                    if avec_donnees:                 # lignes pré-remplies (choix de l'utilisateur)
+                        rangs, n_lignes = lignes_tableau(libelle, cols, c.get("lignes"))
+                        if rangs:
+                            champ["default_value"] = rangs
+                        notes += n_lignes
             elif typ == "file":
                 champ["accept"] = ".pdf,.jpg,.jpeg,.png"
             elif typ == "signature":
@@ -517,20 +608,22 @@ def compte_rendu(cible: str, structure: Dict[str, Any], remarques_ia: List[str],
 
 
 async def analyser(fichiers: List[Tuple[str, bytes]], cible: str, model_id: Optional[str],
-                   new_id: Callable[[], str]) -> Dict[str, Any]:
+                   new_id: Callable[[], str], avec_donnees: bool = False) -> Dict[str, Any]:
     """Fichiers → {structure, compte_rendu, usage}. Lève ValueError (message clair) en cas d'échec."""
     if cible not in ("formulaire", "sondage"):
         raise ValueError("Cible inconnue (formulaire ou sondage).")
     texte, images, remarques_lecture = preparer(fichiers)
     mid = model_id if get_model(model_id) else ocr_core.default_model_id()
-    reponse, tin, tout = await appeler_ia(mid, SYSTEM_FORMULAIRE if cible == "formulaire" else SYSTEM_SONDAGE,
+    reponse, tin, tout = await appeler_ia(mid, consignes_formulaire(avec_donnees) if cible == "formulaire" else SYSTEM_SONDAGE,
                                           texte, images)
     try:
         brut = parse_json(reponse)
     except Exception as exc:  # noqa: BLE001
         raise ValueError("La réponse de l'IA n'a pas pu être lue. Réessayez.") from exc
-    normaliser = normaliser_formulaire if cible == "formulaire" else normaliser_sondage
-    structure, notes = normaliser(brut, new_id)
+    if cible == "formulaire":
+        structure, notes = normaliser_formulaire(brut, new_id, avec_donnees)
+    else:
+        structure, notes = normaliser_sondage(brut, new_id)
     cout_usd, cout_xof = compute_cost(get_model(mid), tin, tout)
     return {
         "structure": structure,

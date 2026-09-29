@@ -166,6 +166,44 @@ def test_normaliser_formulaire():
     assert len(notes) == 3 and any("une seule signature" in n for n in notes)
 
 
+def test_tableau_avec_donnees_au_choix():
+    brut = {"titre": "Fiche RH", "pages": [{"titre": "Paie", "champs": [
+        {"type": "table", "libelle": "Liste du personnel",
+         "colonnes": [{"libelle": "N°", "type": "number"}, {"libelle": "Nom/ prénoms", "type": "text"},
+                      {"libelle": "Salaire de base", "type": "number"}, {"libelle": "Date d'entrée", "type": "date"},
+                      {"libelle": "Catégorie", "type": "number"}],
+         "lignes": [{"N°": 1, "Nom/ prénoms": "AYIKI SAMIRAT", "Salaire de base": "258 700",
+                     "Date d'entrée": "05/03/2021", "Catégorie": "B2", "Inconnue": "x"},
+                    {"n°": "2", "nom/ prénoms": "BAYIRI", "Salaire de base": "96 230,5", "Date d'entrée": "2020-01-15",
+                     "Catégorie": "3"},
+                    {"Salaire de base": ""}]}]}]}                                   # ligne vide ignorée
+    # Sans données (choix par défaut) : colonnes seulement, types d'origine.
+    f, notes = imp.normaliser_formulaire(brut, _ids())
+    table = f["pages"][0]["fields"][0]
+    assert "default_value" not in table and notes == []
+    # Avec données : lignes converties au format des champs.
+    f, notes = imp.normaliser_formulaire(brut, _ids(), avec_donnees=True)
+    table = f["pages"][0]["fields"][0]
+    assert table["default_value"] == [
+        {"n": 1, "nom_prenoms": "AYIKI SAMIRAT", "salaire_de_base": 258700, "date_d_entree": "2021-03-05",
+         "categorie": "B2"},
+        {"n": 2, "nom_prenoms": "BAYIRI", "salaire_de_base": 96230.5, "date_d_entree": "2020-01-15",
+         "categorie": "3"}]
+    assert [c["type"] for c in table["columns"]] == ["number", "text", "number", "date", "text"]   # « B2 » : texte
+    assert notes == ["Tableau « Liste du personnel », colonne « Catégorie » : valeurs qui ne sont pas toutes des "
+                     "nombres, colonne passée en texte.",
+                     "Tableau « Liste du personnel » : 2 ligne(s) reprise(s) du document, à vérifier "
+                     "(elles pré-remplissent le tableau)."]
+    # Plus de 100 lignes : les 100 premières.
+    brut["pages"][0]["champs"][0]["lignes"] = [{"N°": i} for i in range(1, 131)]
+    f, notes = imp.normaliser_formulaire(brut, _ids(), avec_donnees=True)
+    assert len(f["pages"][0]["fields"][0]["default_value"]) == 100 and "130 lignes lues" in notes[0]
+    # Consignes données à l'IA selon le choix.
+    assert "Ne reprends JAMAIS les lignes" in imp.consignes_formulaire(False)
+    assert "ET ses lignes dans « lignes »" in imp.consignes_formulaire(True)
+    assert "{TABLEAUX}" not in imp.consignes_formulaire(True)
+
+
 def test_doublons_signales():
     q = "Quelles sont vos observations sur les tableaux de bord mensuel passé que vous avez reçus ?"
     brut = {"titre": "Compta", "pages": [{"titre": "P", "champs": [
@@ -221,7 +259,7 @@ def env(monkeypatch):
 
     async def fake_ia(model_id, system, texte, images):
         cible = "sondage" if "SONDAGE" in system else "formulaire"
-        appels.append((cible, texte, len(images)))
+        appels.append((cible, texte, len(images), "ET ses lignes" in system))
         return reponses[cible], 3000, 900
 
     monkeypatch.setattr(imp, "appeler_ia", fake_ia)
@@ -254,8 +292,8 @@ def _h(user):
     return {"X-User": user}
 
 
-def _deposer(env, user, fichiers, cible="formulaire"):
-    return env.client.post("/api/me/form-imports", headers=_h(user), data={"cible": cible},
+def _deposer(env, user, fichiers, cible="formulaire", **form):
+    return env.client.post("/api/me/form-imports", headers=_h(user), data={"cible": cible, **form},
                            files=[("fichiers", f) for f in fichiers])
 
 
@@ -285,8 +323,9 @@ def test_parcours_formulaire_depuis_word(env):
     assert form["client_id"] == "pharma_a" and form["number"] == "FORM-PA-0001" and form["is_public"] is False
     assert form["imported_from_document"]["fichiers"] == ["questionnaire.docx"]
     assert [c["type"] for c in form["pages"][0]["fields"]] == ["boolean", "textarea", "signature"]
-    cible, texte, nb_images = env.appels[0]
+    cible, texte, nb_images, avec_lignes = env.appels[0]
     assert cible == "formulaire" and "Il ya des grossistes" in texte and nb_images == 0
+    assert avec_lignes is False and job["avec_donnees"] is False               # colonnes seulement par défaut
     # L'administration voit le coût ; une autre pharmacie ne voit pas l'analyse.
     assert env.client.get(f"/api/me/form-imports/{job['id']}", headers=_h("admin")).json()["usage"]["input_tokens"] == 3000
     assert env.client.get(f"/api/me/form-imports/{job['id']}", headers=_h("pharma_b")).status_code == 404
@@ -300,6 +339,21 @@ def test_parcours_sondage_depuis_excel_et_photo(env):
     assert s["status"] == "draft" and s["client_id"] == "pharma_a"            # rattaché au client parent
     assert [(q["type"], q["required"]) for q in s["questions"]] == [("rating", True), ("text", False)]
     assert env.appels[0][0] == "sondage" and env.appels[0][2] == 1            # texte Excel + 1 image
+
+
+def test_option_donnees_des_tableaux(env):
+    env.reponses["formulaire"] = json.dumps({"titre": "Personnel", "pages": [{"titre": "Paie", "champs": [
+        {"type": "table", "libelle": "Liste", "colonnes": [{"libelle": "Nom", "type": "text"},
+                                                             {"libelle": "Salaire", "type": "number"}],
+         "lignes": [{"Nom": "AYIKI", "Salaire": "258 700"}]}]}]})
+    word = ("rh.docx", _docx(_tableau([["Nom", "Salaire"], ["AYIKI", "258 700"]])))
+    job = _attendre(env, "pharma_a", _deposer(env, "pharma_a", [word], avec_donnees="true").json()["id"])
+    assert job["statut"] == "termine" and job["avec_donnees"] is True and env.appels[-1][3] is True
+    form = env.client.portal.call(env.db.forms.find_one, {"id": job["objet_id"]}, {"_id": 0})
+    assert form["pages"][0]["fields"][0]["default_value"] == [{"nom": "AYIKI", "salaire": 258700}]
+    # Même option pour un sondage : sans objet (pas de tableau), ignorée.
+    job = _attendre(env, "pharma_a", _deposer(env, "pharma_a", [word], cible="sondage", avec_donnees="true").json()["id"])
+    assert job["avec_donnees"] is False and env.appels[-1][3] is False
 
 
 def test_refus_avant_tout_appel_ia(env):

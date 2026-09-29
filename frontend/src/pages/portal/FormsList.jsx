@@ -43,7 +43,10 @@ export default function FormsList() {
         const def = cats.find((c) => c.is_default) || cats[0];
         setActiveCat(def?.id || null);
       }
-    } catch { /* noop */ }
+    } catch (err) {
+      // Lot 34 — ex. « Formulaires et Sondages » non activé pour ce compte : message du serveur.
+      toast.error(err?.response?.data?.detail || "Impossible de charger les formulaires");
+    }
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps

@@ -303,7 +303,7 @@ const TableField = ({ field, value, onChange }) => {
                     type={c.type === "number" ? "number" : c.type === "date" ? "date" : "text"}
                     value={r[c.key] ?? ""}
                     onChange={(e) => setCell(ri, c.key, c.type === "number" ? (e.target.value === "" ? "" : parseFloat(e.target.value)) : e.target.value)}
-                    className="w-full rounded border border-slate-300 px-2 py-1 text-xs bg-white"
+                    className={`w-full rounded border border-slate-300 px-2 py-1 text-xs bg-white ${c.type === "text" || !c.type ? "min-w-[9rem]" : "min-w-[6rem]"}`}
                     data-testid={`table-cell-${field.id}-${ri}-${c.key}`}
                   />
                 </td>

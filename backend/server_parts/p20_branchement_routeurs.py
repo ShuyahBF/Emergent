@@ -291,6 +291,14 @@ async def _resume_wa_surveys():
 from routes.form_categories import attach_form_categories_routes as _attach_form_categories  # noqa: E402
 _attach_form_categories(api=api, db=db, get_current_user=get_current_user)
 
+# Lot 33 — « Créer depuis un document » : Word, Excel, PDF ou photos d'un questionnaire
+# → brouillon de formulaire ou de sondage WhatsApp (routes/import_formulaire.py).
+from routes.import_formulaire import attach_import_formulaire_routes as _attach_import_formulaire  # noqa: E402
+_attach_import_formulaire(
+    api=api, db=db, get_current_user=get_current_user, uuid_fn=_uuid,
+    next_form_number=_next_form_number, slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur,
+)
+
 # Iter40 (2026-02) — Registre des erreurs (logiciels externes)
 from routes.error_registry import attach_error_registry_routes as _attach_error_registry  # noqa: E402
 _attach_error_registry(api=api, db=db, get_current_user=get_current_user)

@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { FileText, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star } from "lucide-react";
+import { FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Download, Share2, BarChart3, Database, Folder, Search, Settings as SettingsIcon, X, Star } from "lucide-react";
 import ShareFormModal from "@/components/ShareFormModal";
 import FormsSurveysTabs from "@/components/FormsSurveysTabs";
+import ImportDocumentModal from "@/components/ImportDocumentModal";
 
 // Form catalogue : user's forms + public forms from other clients
 export default function FormsList() {
@@ -23,6 +24,8 @@ export default function FormsList() {
   const [activeCat, setActiveCat] = useState(null); // category id or null = "all"
   const [search, setSearch] = useState("");
   const [catModalOpen, setCatModalOpen] = useState(false);
+  // Lot 33 — « Créer depuis un document » (Word, Excel, PDF, photos)
+  const [importOpen, setImportOpen] = useState(false);
   const navigate = useNavigate();
 
   const load = async () => {
@@ -123,6 +126,14 @@ export default function FormsList() {
             <FileText className="h-5 w-5 text-sawali-blue" /> Bibliothèque de formulaires
           </h1>
         </div>
+        <div className="flex items-center gap-2 flex-wrap">
+        <button
+          onClick={() => setImportOpen(true)}
+          className="inline-flex items-center gap-2 rounded-lg ring-1 ring-sawali-blue/40 text-sawali-blue px-4 py-2 text-sm hover:bg-sawali-blue/5"
+          data-testid="form-import-doc-btn"
+        >
+          <FileUp className="h-4 w-4" /> Créer depuis un document
+        </button>
         <button
           onClick={openCreate}
           disabled={creating}
@@ -131,6 +142,7 @@ export default function FormsList() {
         >
           <Plus className="h-4 w-4" /> Nouveau formulaire
         </button>
+        </div>
       </div>
 
       <div className="flex items-center gap-2 flex-wrap">
@@ -270,6 +282,10 @@ export default function FormsList() {
       )}
 
       {shareForm && <ShareFormModal form={shareForm} onClose={() => setShareForm(null)} />}
+      {importOpen && (
+        <ImportDocumentModal cible="formulaire" lienEditeur={(id) => `/portal/forms/${id}/edit`}
+          onClose={() => { setImportOpen(false); load(); }} />
+      )}
 
       {createOpen && (
         <div className="fixed inset-0 z-50 bg-slate-900/40 flex items-center justify-center p-4" onClick={() => !creating && setCreateOpen(false)} data-testid="form-create-modal">

@@ -288,6 +288,11 @@ DEFAULT_CLIENT_FEATURES = {
     # "test"|"production" = override globally — useful when a tenant is paying
     # for prod VIDAL while the platform default stays in test.
     "vidal_mode": "inherit",
+    # Lot 34 — Fonctions activables par l'Admin ET le Superviseur (voir
+    # routes/fonctions_clients.py). OFF par défaut, y compris pour les
+    # clients existants : chacun est activé à la demande.
+    "forms_surveys": False,   # Formulaires & Sondages WhatsApp (+ création depuis un document)
+    "ocr_pieces": False,      # OCR sur Pièces (factures, bons de livraison, listes de pointage)
 }
 
 # Per-client list of authorized PawaPay MNO codes (ORANGE, MOOV, TELECEL).
@@ -558,6 +563,9 @@ class ClientFeaturesUpdate(BaseModel):
     ai_voice_gen: Optional[bool] = None
     # Iter38r-fix9p — OCR (PDF/image) toggle in Liluvine KB
     kb_ocr_enabled: Optional[bool] = None
+    # Lot 34 — Formulaires & Sondages, OCR sur Pièces
+    forms_surveys: Optional[bool] = None
+    ocr_pieces: Optional[bool] = None
     # Iter38r-fix9p (correction) — OCR pricing & quotas per tenant.
     # Read by routes/liluvine_kb.py with fallback on settings.global.
     kb_ocr_xof_per_page: Optional[int] = None
@@ -743,6 +751,22 @@ def _check_feature(user: dict, feature: str) -> None:
     # NOTE: enforcement intentionally deferred — see /me/features for the
     # resolved feature dict consumed by the UI.
     return
+
+
+# ============================================================
+# Lot 34 — Fonctions activables par client, par l'Admin ET le Superviseur
+# (« Formulaires et Sondages », « OCR sur Pièces ») : contrôle d'accès côté
+# serveur + page SMART Communications du Superviseur — routes/fonctions_clients.py.
+# Branché ICI (avant p15_formulaires) car p15 utilise _utilisateur_formulaires.
+# ============================================================
+from routes.fonctions_clients import attach_fonctions_clients_routes as _attach_fonctions_clients  # noqa: E402
+_fonctions_clients = _attach_fonctions_clients(
+    api=api, db=db, get_current_user=get_current_user, get_admin_or_supervisor=get_admin_or_supervisor,
+    normalize_features=_normalize_features, now=_now,
+)
+_fonction_active = _fonctions_clients["fonction_active"]
+_fonction_active_pour_compte = _fonctions_clients["fonction_active_pour_compte"]
+_utilisateur_formulaires = _fonctions_clients["exiger_fonction"]("forms_surveys")
 
 
 # ============================================================

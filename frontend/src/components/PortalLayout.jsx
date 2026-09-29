@@ -47,9 +47,12 @@ const clientLinks = [
   // Lot 27 — « Formulaires & Sondages » : une seule entrée (sidebar plus courte) ;
   // la page bascule entre Formulaires et Sondages WhatsApp (FormsSurveysTabs).
   // `alsoActive` : le lien reste en surbrillance sur les pages des sondages.
-  { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"] },
+  // Lot 34 — fonction activable par client (SMART Communications) : grisée si désactivée.
+  { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"], featureGate: "forms_surveys" },
   // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
+  // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
+  { to: "/portal/smart-communications", label: "SMART Communications", icon: ShieldCheck, adminOrSup: true },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
   // Lot 25 — `errorRegistryOnly` : lien affiché seulement aux rôles système que le
@@ -107,15 +110,16 @@ const clientLinks = [
   // ligne via la visionneuse PDF interne ; téléchargement réservé admin/sup).
   { to: "/portal/brochures", label: "Brochures & Guides", icon: FileText, moderationOnly: true },
   // Lot OCR sur Pièces (2026-09) — dépôt et analyse IA des pièces (factures
-  // fournisseurs, bons de livraison…). Visible des pharmacies (rôle
-  // pharmacien) et de l'administration ; les pharmacien(ne)s suivi(e)s ont
-  // le lien dans leur sidebar réduite plus bas.
-  { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, ocrPiecesOnly: true },
+  // fournisseurs, bons de livraison…). Lot 34 : fonction activable par client
+  // (SMART Communications), grisée tant qu'elle n'est pas activée ; les
+  // pharmacien(ne)s suivi(e)s ont le lien dans leur sidebar réduite plus bas.
+  { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, featureGate: "ocr_pieces" },
 ];
 
 const adminLinks = [
   { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true },
   { to: "/admin/clients", label: "Clients", icon: Users, module: "admin_clients" },
+  { to: "/admin/smart-communications", label: "SMART Communications", icon: ShieldCheck },   // lot 34
   { to: "/admin/usage", label: "Usage & Facturation", icon: BarChart3 },
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar, module: "admin_appointments" },
   { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions", badgeKey: "tickets_pending" },
@@ -392,7 +396,7 @@ function PortalLayoutInner({ admin = false }) {
                 // MongoDB Atlas.
                 { to: "/portal/gestion-stocks", label: "Gestion de Stocks", icon: Boxes },
                 // Lot OCR sur Pièces (2026-09) — dépôt + synthèse IA des pièces.
-                { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
+                { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, featureGate: "ocr_pieces" },
               ]
             : (isSecretaireMedicale
                 ? [
@@ -464,9 +468,6 @@ function PortalLayoutInner({ admin = false }) {
     // modérateur SUIVI (« Moderation », rattaché à un client) ne le voit pas.
     .filter((l) => !l.errorRegistryOnly || isAdminOrSup || isSysModerator)
     .filter((l) => !l.catalogStatsOnly || isAdminOrSup || isTracked)
-    // Lot OCR sur Pièces (2026-09) — pharmacies + administration uniquement
-    // (même règle que le backend routes/ocr_pieces.py).
-    .filter((l) => !l.ocrPiecesOnly || isPharmacien || isPharmacienTracked || isAdminOrSup)
     // 2026-02 fork (P4) — Override de masquage explicite du Tableau de bord
     .filter((l) => l.to !== "/portal" || p4ShowDashboard);
 

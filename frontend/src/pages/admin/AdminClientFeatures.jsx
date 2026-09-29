@@ -4,7 +4,7 @@ import { apiClient } from "@/lib/api";
 import { formatBytes } from "@/components/R2StorageGauge";
 import PortfolioBillingSection from "@/pages/admin/sections/PortfolioBillingSection";
 import { toast } from "sonner";
-import { ArrowLeft, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
+import { ArrowLeft, ScanText, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -236,12 +236,30 @@ const FEATURE_META = [
     color: "text-rose-600",
     bg: "bg-rose-50",
   },
+  // Lot 34 — fonctions que le Superviseur peut aussi activer (page « SMART Communications »
+  // du portail : /portal/smart-communications). Désactivées par défaut.
+  {
+    key: "forms_surveys",
+    label: "Formulaires et Sondages",
+    description: "Formulaires dynamiques, sondages WhatsApp et création depuis un document (Word, Excel, PDF, photos). Désactivé : menu grisé, accès refusé par le serveur et liens publics des formulaires / sondages inactifs. Activable aussi par le Superviseur.",
+    icon: FileText,
+    color: "text-indigo-600",
+    bg: "bg-indigo-50",
+  },
+  {
+    key: "ocr_pieces",
+    label: "OCR sur Pièces",
+    description: "Dépôt et analyse IA des pièces (factures fournisseurs, bons de livraison, listes de pointage d'inventaire → JSON complété). Désactivé : menu grisé et accès refusé par le serveur. Activable aussi par le Superviseur.",
+    icon: ScanText,
+    color: "text-teal-600",
+    bg: "bg-teal-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false, vidal_enabled: false, vidal_mode: "inherit" });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false, vidal_enabled: false, vidal_mode: "inherit", forms_surveys: false, ocr_pieces: false });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   // Iter38r-fix9p — OCR pricing & quota per tenant

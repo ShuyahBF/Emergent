@@ -382,7 +382,9 @@ export default function MyAccount() {
               par ses utilisateurs liés (RGPD, WA, SMS, IA, paiements…). */}
           {(user?.role === "admin" || user?.role === "superviseur") && (
             <Link
-              to={`/admin/clients/${user.id}/features`}
+              // Lot 34 — le Superviseur n'a pas accès à la page Admin : il active
+              // « Formulaires et Sondages » / « OCR sur Pièces » des clients ici.
+              to={user?.role === "superviseur" ? "/portal/smart-communications" : `/admin/clients/${user.id}/features`}
               className="block rounded-xl ring-1 ring-fuchsia-200 bg-gradient-to-br from-fuchsia-50 via-white to-sky-50 p-5 hover:ring-2 hover:ring-fuchsia-300 transition-all hover:-translate-y-0.5 shadow-sm hover:shadow-md group"
               data-testid="account-smart-communications-link"
             >
@@ -394,10 +396,12 @@ export default function MyAccount() {
                   <div className="min-w-0">
                     <h2 className="font-display font-semibold text-sm text-slate-900 flex items-center gap-1.5">
                       SMART Communications
-                      <span className="rounded-full bg-fuchsia-600 text-white text-[9px] px-1.5 py-0.5 uppercase tracking-wider">Admin</span>
+                      <span className="rounded-full bg-fuchsia-600 text-white text-[9px] px-1.5 py-0.5 uppercase tracking-wider">{user?.role === "superviseur" ? "Superviseur" : "Admin"}</span>
                     </h2>
                     <p className="text-xs text-slate-600 mt-0.5">
-                      Configurez les fonctionnalités RGPD, WhatsApp, SMS, IA et paiements de votre compte. Ces réglages seront automatiquement <strong>hérités par tous vos utilisateurs liés</strong>.
+                      {user?.role === "superviseur"
+                        ? <>Activez pour chaque client les fonctions <strong>Formulaires et Sondages</strong> et <strong>OCR sur Pièces</strong>.</>
+                        : <>Configurez les fonctionnalités RGPD, WhatsApp, SMS, IA et paiements de votre compte. Ces réglages seront automatiquement <strong>hérités par tous vos utilisateurs liés</strong>.</>}
                     </p>
                   </div>
                 </div>

@@ -4,6 +4,10 @@
 # noms utilisés ici (db, api, get_current_user, helpers…) sont ceux de server.py.
 # Ne pas importer ce fichier directement.
 
+# Lot 34 — routes /me/forms* réservées aux comptes dont la fonction « Formulaires et
+# Sondages » est activée (SMART Communications) : dépendance _utilisateur_formulaires
+# (p03) ; Admin et Superviseur y ont toujours accès. Liens publics : même contrôle
+# sur le compte propriétaire.
 # ====================================================================
 # PHASE 4 — Dynamic Forms (Google Forms-like)
 # Structure :
@@ -85,7 +89,7 @@ async def _require_owner_or_admin(form: dict, user: dict) -> None:
 
 
 @api.get("/me/forms", tags=["Formulaires"])
-async def me_list_forms(user: dict = Depends(get_current_user)):
+async def me_list_forms(user: dict = Depends(_utilisateur_formulaires)):
     """Liste les formulaires : tous ceux du client de l'utilisateur + tous les formulaires publics d'autres clients.
 
     2026-02 fork (P5) — filtre supplémentaire `access_client_ids` : quand
@@ -110,7 +114,7 @@ async def me_list_forms(user: dict = Depends(get_current_user)):
 
 
 @api.post("/me/forms", tags=["Formulaires"])
-async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_user)):
+async def me_create_form(payload: FormCreate, user: dict = Depends(_utilisateur_formulaires)):
     client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
     # Iter34t — Reject duplicate form titles within the same client scope
     # (case-insensitive, trimmed). The frontend exposes /me/forms/title-suggestions
@@ -154,7 +158,7 @@ async def me_create_form(payload: FormCreate, user: dict = Depends(get_current_u
 # Iter34t — Expose existing form titles for the same client scope so the
 # create form UI can suggest them as a datalist (prevents typo duplicates).
 @api.get("/me/forms/title-suggestions", tags=["Formulaires"])
-async def me_forms_title_suggestions(user: dict = Depends(get_current_user)):
+async def me_forms_title_suggestions(user: dict = Depends(_utilisateur_formulaires)):
     client_scope = (user.get("client_id") or user.get("id")) if user.get("role") != "admin" else user["id"]
     items = await db.forms.find({"client_id": client_scope}, {"_id": 0, "title": 1, "number": 1}).sort("created_at", -1).to_list(500)
     seen = set()
@@ -172,7 +176,7 @@ async def me_forms_title_suggestions(user: dict = Depends(get_current_user)):
 
 
 @api.get("/me/forms/{form_id}", tags=["Formulaires"])
-async def me_get_form(form_id: str, user: dict = Depends(get_current_user)):
+async def me_get_form(form_id: str, user: dict = Depends(_utilisateur_formulaires)):
     form = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not form:
         raise HTTPException(status_code=404, detail="Formulaire introuvable")
@@ -189,7 +193,7 @@ async def me_get_form(form_id: str, user: dict = Depends(get_current_user)):
 
 
 @api.put("/me/forms/{form_id}", tags=["Formulaires"])
-async def me_update_form(form_id: str, payload: FormUpdate, user: dict = Depends(get_current_user)):
+async def me_update_form(form_id: str, payload: FormUpdate, user: dict = Depends(_utilisateur_formulaires)):
     form = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not form:
         raise HTTPException(status_code=404, detail="Formulaire introuvable")
@@ -224,7 +228,7 @@ async def me_update_form(form_id: str, payload: FormUpdate, user: dict = Depends
 
 
 @api.delete("/me/forms/{form_id}", tags=["Formulaires"])
-async def me_delete_form(form_id: str, user: dict = Depends(get_current_user)):
+async def me_delete_form(form_id: str, user: dict = Depends(_utilisateur_formulaires)):
     form = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not form:
         return {"ok": True}
@@ -235,7 +239,7 @@ async def me_delete_form(form_id: str, user: dict = Depends(get_current_user)):
 
 
 @api.post("/me/forms/{form_id}/import", tags=["Formulaires"])
-async def me_import_form(form_id: str, user: dict = Depends(get_current_user)):
+async def me_import_form(form_id: str, user: dict = Depends(_utilisateur_formulaires)):
     """Duplicate a public form into the current client's scope (numbered & owned by them)."""
     src = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not src:
@@ -273,7 +277,7 @@ class SubmissionSave(BaseModel):
 
 
 @api.get("/me/forms/{form_id}/submission", tags=["Formulaires"])
-async def me_get_my_submission(form_id: str, user: dict = Depends(get_current_user)):
+async def me_get_my_submission(form_id: str, user: dict = Depends(_utilisateur_formulaires)):
     """Renvoie la soumission de l'utilisateur courant pour le formulaire (ou un stub vide)."""
     sub = await db.form_submissions.find_one(
         {"form_id": form_id, "user_id": user["id"]}, {"_id": 0}
@@ -286,7 +290,7 @@ async def me_form_upload_file(
     form_id: str,
     request: Request,
     file: UploadFile = File(...),
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(_utilisateur_formulaires),
 ):
     """Per-form file attachment uploader (max 1 Mo). Used by the new "file" field
     type. Returns a stable public URL stored on the submission's data dict."""
@@ -334,7 +338,7 @@ async def me_form_upload_file(
 
 
 @api.post("/me/forms/{form_id}/submission", tags=["Formulaires"])
-async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict = Depends(get_current_user)):
+async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict = Depends(_utilisateur_formulaires)):
     form = await db.forms.find_one({"id": form_id}, {"_id": 0, "client_id": 1, "uses_count": 1})
     if not form:
         raise HTTPException(status_code=404, detail="Formulaire introuvable")
@@ -369,7 +373,7 @@ async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict =
 
 
 @api.get("/me/forms/{form_id}/submissions", tags=["Formulaires"])
-async def me_list_form_submissions(form_id: str, user: dict = Depends(get_current_user)):
+async def me_list_form_submissions(form_id: str, user: dict = Depends(_utilisateur_formulaires)):
     """Liste toutes les soumissions d'un formulaire — propriétaire/admin uniquement."""
     form = await db.forms.find_one({"id": form_id}, {"_id": 0})
     if not form:
@@ -392,17 +396,19 @@ async def public_get_form(form_id: str):
     """Récupère un formulaire public en anonyme — fonctionne uniquement si `is_public=True`."""
     form = await db.forms.find_one(
         {"id": form_id, "is_public": True},
-        {"_id": 0, "id": 1, "number": 1, "title": 1, "description": 1, "pages": 1, "client_code": 1},
+        {"_id": 0, "id": 1, "number": 1, "title": 1, "description": 1, "pages": 1, "client_code": 1, "client_id": 1},
     )
-    if not form:
+    # Lot 34 — lien public : le compte propriétaire doit avoir « Formulaires et Sondages » activé.
+    if not form or not await _fonction_active_pour_compte(form.get("client_id"), "forms_surveys"):
         raise HTTPException(status_code=404, detail="Formulaire introuvable ou non public")
+    form.pop("client_id", None)
     return form
 
 
 @api.post("/public/forms/{form_id}/submission", tags=["Public"])
 async def public_submit_form(form_id: str, payload: PublicSubmissionRequest, request: Request):
     form = await db.forms.find_one({"id": form_id, "is_public": True}, {"_id": 0, "client_id": 1})
-    if not form:
+    if not form or not await _fonction_active_pour_compte(form.get("client_id"), "forms_surveys"):   # lot 34
         raise HTTPException(status_code=404, detail="Formulaire introuvable ou non public")
     ip = (request.headers.get("x-forwarded-for") or "").split(",")[0].strip() or (request.client.host if request.client else "")
     doc = {
@@ -511,7 +517,7 @@ async def _submissions_analytics(match: dict, date_from: Optional[datetime], dat
 
 @api.get("/me/forms-analytics", tags=["Formulaires"])
 async def me_forms_analytics_global(
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(_utilisateur_formulaires),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
 ):
@@ -583,7 +589,7 @@ async def me_forms_analytics_global(
 @api.get("/me/forms/{form_id}/analytics", tags=["Formulaires"])
 async def me_form_analytics_detail(
     form_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(_utilisateur_formulaires),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
 ):
@@ -633,7 +639,7 @@ async def me_form_analytics_detail(
 @api.get("/me/forms/{form_id}/submissions-table", tags=["Formulaires"])
 async def me_form_submissions_table(
     form_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(_utilisateur_formulaires),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
     limit: int = Query(500, ge=1, le=5000),
@@ -690,7 +696,7 @@ async def me_form_submissions_table(
 @api.get("/me/forms/{form_id}/analytics/export.csv", tags=["Formulaires"])
 async def me_form_analytics_csv(
     form_id: str,
-    user: dict = Depends(get_current_user),
+    user: dict = Depends(_utilisateur_formulaires),
     date_from: Optional[str] = Query(None),
     date_to: Optional[str] = Query(None),
 ):

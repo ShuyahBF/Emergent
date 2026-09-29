@@ -1994,6 +1994,21 @@ async def whatsapp_webhook_incoming(request: Request):
                                 },
                                 upsert=True,
                             )
+                    # Lot 36 — « !formulaire » : document (Word, Excel, PDF) ou photo en pièce
+                    # jointe avec cette légende (ou texte seul → mode d'emploi). Traité ici,
+                    # avant les autres commandes (elles n'acceptent que du texte).
+                    if re.match(r"^[!/]\s*formulaires?\b", (text_body or "").strip(), re.IGNORECASE) \
+                            and mtype in ("text", "document", "image") and "_liluvine_formulaire" in globals():
+                        try:
+                            await _liluvine_formulaire["commande"](
+                                from_num=from_num, profile_name=profile_name, mtype=mtype,
+                                media_info=media_info if mtype != "text" else None,
+                                nom_fichier=(msg.get("document") or {}).get("filename"),
+                                compte_par_defaut=client_scope)
+                        except Exception:  # noqa: BLE001
+                            logger.warning("[!formulaire] commande en échec", exc_info=True)
+                        continue
+
                     # Liluvine remote command? (only on plain text messages)
                     if mtype == "text" and text_body and (text_body.strip().startswith("!") or text_body.strip().startswith("/")):
                         try:
@@ -2020,6 +2035,8 @@ async def whatsapp_webhook_incoming(request: Request):
                                 "🎫 `!ticket <description>`\n"
                                 "    Ouvre un ticket support. (Réservé aux numéros autorisés.)\n"
                                 "    Ex : `!ticket Imprimante en panne bureau 3`\n\n"
+                                "📝 `!formulaire` — envoyez un questionnaire (Word, Excel, PDF ou photo) avec\n"
+                                "    cette légende : je le transforme en formulaire en ligne à faire remplir.\n\n"
                                 "⚙️ `!seuil N` / `!niveau N` — (Admin uniquement) ajuste le seuil/niveau Liluvine.\n\n"
                                 "ℹ️ Vous pouvez aussi me poser des questions en langage naturel : "
                                 "RDV à venir, tickets actifs, congés restants, contacts, etc. "

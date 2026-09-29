@@ -4,14 +4,19 @@ import { useParams } from "react-router-dom";
 import { toast } from "sonner";
 import { ArrowLeft, ArrowRight, Send, RotateCcw, CheckCircle2, MapPin } from "lucide-react";
 import { LOGO_URL } from "@/lib/brand";
+// Lot 36 — tableaux et signature : même rendu que le formulaire du portail
+import { FieldInput } from "@/pages/portal/FormRunner";
 
 const API = `${process.env.REACT_APP_BACKEND_URL}/api`;
 
 // Public anonymous form filler — served from /f/{formId}. Used for campaigns,
 // QR codes, shared links. Respondent name & email are requested before submit
 // so the form owner knows who filled it.
+// Lot 36 — aussi servi par /fr/{jeton} : formulaire PRIVÉ ouvert par un lien crypté
+// (Liluvine « !formulaire »), sans identifiant en clair dans l'adresse.
 export default function PublicForm() {
-  const { fid } = useParams();
+  const { fid, jeton } = useParams();
+  const source = jeton ? `${API}/public/forms/jeton/${jeton}` : `${API}/public/forms/${fid}`;
   const [form, setForm] = useState(null);
   const [data, setData] = useState({});
   const [activePage, setActivePage] = useState(0);
@@ -22,16 +27,16 @@ export default function PublicForm() {
   const [error, setError] = useState(null);
 
   useEffect(() => {
-    axios.get(`${API}/public/forms/${fid}`)
+    axios.get(source)
       .then((r) => setForm(r.data))
-      .catch((e) => setError(e?.response?.data?.detail || "Formulaire introuvable ou non public"));
+      .catch((e) => setError(e?.response?.data?.detail || (jeton ? "Lien invalide ou expiré" : "Formulaire introuvable ou non public")));
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         (p) => setGeo({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy }),
         () => {}, { timeout: 4000 }
       );
     }
-  }, [fid]);
+  }, [source, jeton]);
 
   const reset = () => { if (window.confirm("Effacer toutes les saisies ?")) setData({}); };
 
@@ -41,7 +46,7 @@ export default function PublicForm() {
     if (missing.length) { toast.error(`Champs obligatoires manquants : ${missing.map((m) => m.label).join(", ").slice(0, 100)}`); return; }
     setSending(true);
     try {
-      await axios.post(`${API}/public/forms/${fid}/submission`, { data, geo, ...meta });
+      await axios.post(`${source}/submission`, { data, geo, ...meta });
       setDone(true);
     } catch (err) { toast.error(err?.response?.data?.detail || "Erreur d'envoi"); }
     finally { setSending(false); }
@@ -81,7 +86,7 @@ export default function PublicForm() {
         <div className="max-w-3xl mx-auto px-6 py-4 flex items-center gap-3">
           <img src={LOGO_URL} alt="SAWALI" className="h-9 w-9 rounded-md ring-1 ring-white/20" />
           <div className="flex-1 min-w-0">
-            <p className="text-[10px] uppercase tracking-[0.3em] text-sawali-blue-light">Formulaire public</p>
+            <p className="text-[10px] uppercase tracking-[0.3em] text-sawali-blue-light">{jeton ? "Formulaire" : "Formulaire public"}</p>
             <h1 className="text-base font-display font-bold truncate">{form.title}</h1>
           </div>
           <code className="text-[10px] font-mono bg-white/10 px-2 py-0.5 rounded">{form.number}</code>
@@ -149,6 +154,12 @@ const Input = ({ f, v, onChange }) => {
     case "email": return <input type="email" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
     case "tel": return <input type="tel" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
     case "url": return <input type="url" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
+    // Lot 36 — tableau à remplir et signature (formulaires créés depuis un document)
+    case "table":
+    case "signature":
+      return <div className="rounded-lg bg-white p-1 text-slate-900"><FieldInput field={f} value={v} onChange={onChange} /></div>;
+    case "file":
+      return <p className="rounded-lg border border-dashed border-white/30 px-3 py-2 text-xs text-slate-300">Pièce jointe : à transmettre directement à l'organisateur (envoi de fichier non disponible sur ce lien).</p>;
     default: return <input type="text" value={v || ""} onChange={(e) => onChange(e.target.value)} className={cls} />;
   }
 };

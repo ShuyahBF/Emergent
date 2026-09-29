@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
-  BarChart3, ChevronDown, ChevronRight, Download, FileText, Loader2, RefreshCw, ScanText, Trash2, Upload,
+  BarChart3, ChevronDown, ChevronRight, Download, FileJson, FileText, Loader2, RefreshCw, ScanText, Trash2, Upload,
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
@@ -26,6 +26,11 @@ import { displayValue, errorMessage, formatXof, shortModel } from "@/components/
       d'IA, voit le coût réel en FCFA, évalue chaque analyse (1-5 étoiles +
       corrections), relance avec un autre modèle, consulte le tableau de bord.
   API : /ocr-pieces (backend/routes/ocr_pieces.py, contrat commun ocr-core).
+
+  Type « Liste de pointage » (lot 2026-09-29) : on dépose le scan de la liste
+  de pointage remplie à la main + le JSON de l'inventaire exporté par WinDev ;
+  l'analyse (backend/ocr_pointage) complète le JSON (IMagasin, ISalle,
+  Peremption1), téléchargeable via le bouton « JSON complété ».
 */
 
 const API_BASE = "/ocr-pieces";
@@ -38,6 +43,7 @@ const KINDS = [
   { value: "avoir", label: "Avoir" },
   { value: "recu", label: "Reçu" },
   { value: "releve", label: "Relevé" },
+  { value: "liste_pointage", label: "Liste de pointage" },
   { value: "autre", label: "Autre" },
 ];
 const KIND_LABEL = Object.fromEntries(KINDS.map((k) => [k.value, k.label]));
@@ -50,6 +56,15 @@ const STATUS = {
 };
 
 const ACCEPT = ".pdf,.jpg,.jpeg,.png,.webp,.txt,.csv";
+const POINTAGE = "liste_pointage";
+const ACCEPT_POINTAGE = ".pdf,.jpg,.jpeg,.png,.webp";   // scan de la liste : PDF ou photo
+
+// Nom du JSON complété téléchargé (même règle que le serveur) :
+// « InventaireSélectionné_PPH_INV067.json » → « …_INV067_complete.json ».
+function jsonCompleteName(piece) {
+  const base = (piece.inventaire_json_filename || "inventaire.json").replace(/\.json$/i, "");
+  return `${base}_complete.json`;
+}
 
 function formatDate(iso) {
   if (!iso) return "";
@@ -103,6 +118,46 @@ function PharmacySynthesis({ piece }) {
   );
 }
 
+// Sélecteur de fichier aux libellés TOUJOURS en français : le champ natif <input type="file">
+// affiche « Choose File / No file chosen » selon la langue du navigateur ; il est masqué et
+// déclenché par un bouton du site.
+function ChoixFichier({ inputRef, accept, file, onChange, testId, className = "bg-slate-100 text-slate-700" }) {
+  return (
+    <div className="flex items-center gap-3 text-sm">
+      <input ref={inputRef} type="file" accept={accept} data-testid={testId} className="hidden"
+        onChange={(e) => onChange(e.target.files?.[0] || null)} />
+      <button type="button" onClick={() => inputRef.current?.click()} data-testid={`${testId}-bouton`}
+        className={`px-3 py-1.5 rounded ${className} hover:brightness-95`}>
+        Choisir un fichier
+      </button>
+      <span className="text-slate-700 max-w-[220px] truncate" title={file?.name || ""}>
+        {file ? file.name : "Aucun fichier choisi"}
+      </span>
+    </div>
+  );
+}
+
+// Liste de pointage : compte rendu détaillé (rédigé par le serveur, retours à la ligne
+// conservés) + téléchargement du JSON complété à réimporter dans Aizenta.
+function PointageReport({ piece, onDownloadJson }) {
+  if (piece.status === "en_analyse") {
+    return <p className="text-sm text-slate-500">Lecture de la liste de pointage en cours…</p>;
+  }
+  return (
+    <div className="space-y-3" data-testid={`ocr-pointage-report-${piece.id}`}>
+      <div className="text-sm text-slate-700 whitespace-pre-line bg-white border border-slate-200 rounded p-3">
+        {piece.compte_rendu || piece.summary || "Aucun compte rendu disponible."}
+      </div>
+      {piece.json_complete_disponible && (
+        <Button size="sm" onClick={() => onDownloadJson(piece)} className="bg-teal-600 hover:bg-teal-700"
+          data-testid={`ocr-pointage-download-${piece.id}`}>
+          <FileJson className="w-4 h-4 mr-1" /> Télécharger le JSON complété
+        </Button>
+      )}
+    </div>
+  );
+}
+
 // Résumé des analyses d'une pièce (admin) : « Sonnet 5 · 2,40 FCFA · ★4 ».
 function RunsSummary({ runs }) {
   if (!runs?.length) return <span className="text-slate-400">—</span>;
@@ -139,6 +194,10 @@ export default function OcrPieces() {
   const [uploadTenant, setUploadTenant] = useState("");
   const [uploadModel, setUploadModel] = useState("");
   const [uploading, setUploading] = useState(false);
+  // Liste de pointage : JSON de l'inventaire (export WinDev) joint au scan.
+  const jsonRef = useRef(null);
+  const [jsonFile, setJsonFile] = useState(null);
+  const isPointage = kind === POINTAGE;
 
   // Liste des pièces (admin : filtrable par pharmacie ; pharmacie : les siennes, filtrées par le serveur).
   const loadPieces = useCallback(async () => {
@@ -182,9 +241,14 @@ export default function OcrPieces() {
       toast.error("Choisissez la pharmacie concernée");
       return;
     }
+    if (isPointage && !jsonFile) {
+      toast.error("Joignez le fichier JSON de l'inventaire");
+      return;
+    }
     const form = new FormData();
     form.append("file", file);
     form.append("kind", kind);
+    if (isPointage) form.append("inventaire_json", jsonFile);
     if (isStaff) {
       form.append("tenant_id", uploadTenant);
       if (uploadModel) form.append("model", uploadModel);
@@ -195,6 +259,8 @@ export default function OcrPieces() {
       toast.success("Pièce déposée — analyse en cours…");
       setFile(null);
       if (fileRef.current) fileRef.current.value = "";
+      setJsonFile(null);
+      if (jsonRef.current) jsonRef.current.value = "";
       loadPieces();
     } catch (err) {
       toast.error(errorMessage(err, "Dépôt impossible"));
@@ -217,6 +283,23 @@ export default function OcrPieces() {
       setTimeout(() => URL.revokeObjectURL(url), 10000);
     } catch (err) {
       toast.error(errorMessage(err, "Téléchargement impossible"));
+    }
+  };
+
+  // Liste de pointage : JSON de l'inventaire complété par la dernière analyse.
+  const downloadJson = async (piece) => {
+    try {
+      const res = await apiClient.get(`${API_BASE}/${piece.id}/json-complete`, { responseType: "blob" });
+      const url = URL.createObjectURL(res.data);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = jsonCompleteName(piece);
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 10000);
+    } catch (err) {
+      toast.error(errorMessage(err, "Téléchargement du JSON impossible"));
     }
   };
 
@@ -262,10 +345,25 @@ export default function OcrPieces() {
               Déposez une facture, un bon de livraison ou un reçu (PDF, photo JPG/PNG/WEBP, texte — 20 Mo max).
               L'IA en extrait automatiquement les informations principales.
             </p>
+            {isPointage && (
+              <p className="text-sm text-teal-800 bg-teal-50 border border-teal-200 rounded px-3 py-2"
+                data-testid="ocr-pointage-help">
+                <b>Liste de pointage :</b> déposez le scan de la liste remplie à la main (PDF ou photos)
+                et joignez le fichier JSON de l'inventaire exporté par WinDev. Les colonnes INV Mag, INV SV
+                et Pérempt° sont lues et reportées dans le JSON (produits retrouvés par leur intitulé), à
+                télécharger ensuite avec le bouton <FileJson className="w-3.5 h-3.5 inline" />.
+              </p>
+            )}
             <div className="flex flex-wrap items-end gap-3">
-              <input ref={fileRef} type="file" accept={ACCEPT} data-testid="ocr-file-input"
-                onChange={(e) => setFile(e.target.files?.[0] || null)}
-                className="text-sm file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-slate-100 file:text-slate-700" />
+              <ChoixFichier inputRef={fileRef} accept={isPointage ? ACCEPT_POINTAGE : ACCEPT} file={file}
+                onChange={setFile} testId="ocr-file-input" />
+              {isPointage && (
+                <div className="flex flex-col text-xs text-slate-500 gap-1">
+                  JSON de l'inventaire
+                  <ChoixFichier inputRef={jsonRef} accept=".json,application/json" file={jsonFile}
+                    onChange={setJsonFile} testId="ocr-json-input" className="bg-teal-50 text-teal-700" />
+                </div>
+              )}
               <div className="w-44">
                 <Select value={kind} onValueChange={setKind}>
                   <SelectTrigger data-testid="ocr-kind-select"><SelectValue /></SelectTrigger>
@@ -298,7 +396,7 @@ export default function OcrPieces() {
                   </div>
                 </>
               )}
-              <Button onClick={upload} disabled={!file || uploading} data-testid="ocr-upload-btn"
+              <Button onClick={upload} disabled={!file || uploading || (isPointage && !jsonFile)} data-testid="ocr-upload-btn"
                 className="bg-teal-600 hover:bg-teal-700">
                 {uploading ? <Loader2 className="w-4 h-4 mr-1 animate-spin" /> : <Upload className="w-4 h-4 mr-1" />}
                 Déposer et analyser
@@ -373,6 +471,12 @@ export default function OcrPieces() {
                           )}
                         </td>
                         <td className="px-3 py-2 text-right whitespace-nowrap">
+                          {p.kind === POINTAGE && p.json_complete_disponible && (
+                            <Button variant="ghost" size="sm" onClick={() => downloadJson(p)}
+                              title="Télécharger le JSON complété" data-testid={`ocr-json-complete-${p.id}`}>
+                              <FileJson className="w-4 h-4 text-teal-600" />
+                            </Button>
+                          )}
                           <Button variant="ghost" size="sm" onClick={() => download(p)} title="Télécharger"
                             data-testid={`ocr-download-${p.id}`}>
                             <Download className="w-4 h-4" />
@@ -386,11 +490,16 @@ export default function OcrPieces() {
                       {expanded === p.id && (
                         <tr className="bg-slate-50/60">
                           <td colSpan={colCount} className="px-4 py-3">
+                            {p.kind === POINTAGE && (
+                              <div className={isStaff ? "mb-4" : ""}>
+                                <PointageReport piece={p} onDownloadJson={downloadJson} />
+                              </div>
+                            )}
                             {isStaff ? (
                               <OcrRunsPanel apiBase={API_BASE} doc={p} models={catalog.models}
                                 defaultModel={catalog.default_model} onChanged={loadPieces} />
                             ) : (
-                              <PharmacySynthesis piece={p} />
+                              p.kind !== POINTAGE && <PharmacySynthesis piece={p} />
                             )}
                           </td>
                         </tr>

@@ -17,20 +17,29 @@ Ce fichier-ci ne contient que ce qui est propre à Sawali :
   - les collections Mongo : `ocr_pieces` (une pièce + sa synthèse la plus
     récente) et `ocr_piece_runs` (chaque analyse, avec coût et évaluation).
 Les pharmacies ne voient jamais le modèle, le coût ni les évaluations.
+
+Type « liste_pointage » (lot 2026-09-29) : le scan d'une liste de pointage
+d'inventaire remplie à la main est déposé AVEC le JSON de l'inventaire exporté
+par WinDev ; l'analyse (module `ocr_pointage`, et non l'analyse générique
+d'ocr_core) produit un JSON complété (IMagasin, ISalle, Peremption1…),
+téléchargeable via GET /ocr-pieces/{id}/json-complete.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+import unicodedata
 import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+from urllib.parse import quote
 
 from fastapi import Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 
 import ocr_core
+import ocr_pointage
 
 logger = logging.getLogger("sawali.ocr_pieces")
 
@@ -43,7 +52,10 @@ SYSTEM_PROMPT = ocr_core.build_system_prompt(
     ),
 )
 
-PIECE_KINDS = ["facture", "bon_livraison", "avoir", "recu", "releve", "autre"]
+PIECE_KINDS = ["facture", "bon_livraison", "avoir", "recu", "releve", "liste_pointage", "autre"]
+POINTAGE = "liste_pointage"
+# Le scan d'une liste de pointage est un PDF ou une photo (pas de texte brut).
+POINTAGE_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 Mo
 ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp", "txt", "csv"}
 
@@ -51,6 +63,9 @@ ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp", "txt", "csv"}
 _INTERNAL_FIELDS = {
     "run_id", "model", "input_mode", "input_tokens", "output_tokens", "cost_usd", "cost_xof",
     "pages_analyzed", "duration_ms", "confidence", "uncertain_fields", "error", "requested_by",
+    # Chemins de stockage (liste de pointage) : jamais exposés, le téléchargement
+    # passe par l'endpoint /json-complete qui contrôle l'accès.
+    "inventaire_json_path", "json_complete_path",
 }
 
 
@@ -86,6 +101,21 @@ def _for_pharmacy(doc: dict) -> dict:
 
 def _ext_of(filename: str) -> str:
     return (filename.rsplit(".", 1)[-1] if "." in filename else "").lower()
+
+
+def _content_disposition(filename: str) -> str:
+    """En-tête de téléchargement valable avec un nom accentué (« InventaireSélectionné… ») :
+    les en-têtes HTTP n'acceptent que du latin-1, d'où un nom ASCII de repli + le nom
+    exact encodé en UTF-8 (RFC 5987), que tous les navigateurs actuels utilisent."""
+    ascii_name = unicodedata.normalize("NFKD", filename).encode("ascii", "ignore").decode("ascii")
+    ascii_name = ascii_name.replace('"', "") or "fichier.json"
+    return f"attachment; filename=\"{ascii_name}\"; filename*=UTF-8''{quote(filename)}"
+
+
+def _nom_json_complete(json_filename: Optional[str]) -> str:
+    """« InventaireSélectionné_PPH_INV067.json » → « InventaireSélectionné_PPH_INV067_complete.json »."""
+    base = (json_filename or "inventaire.json").rsplit(".", 1)[0]
+    return f"{base}_complete.json"
 
 
 class ReviewPayload(BaseModel):
@@ -125,12 +155,36 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
 
     # --- Analyse en tâche de fond ---------------------------------------------
     async def _analyze_and_store(piece_id: str, data: bytes, content_type: str, filename: str,
-                                 tenant_id: str, model_id: Optional[str], requested_by: str) -> None:
+                                 tenant_id: str, model_id: Optional[str], requested_by: str,
+                                 kind: str = "facture", json_path: Optional[str] = None,
+                                 json_filename: Optional[str] = None) -> None:
         try:
-            result = await ocr_core.analyze_document(
-                data, content_type, filename, model_id,
-                system_prompt=SYSTEM_PROMPT, default_model=ocr_core.default_model_id(),
-            )
+            json_complete_path = None
+            pointage_rapport = None
+            compte_rendu = None
+            if kind == POINTAGE:
+                # Liste de pointage : lecture des colonnes manuscrites et report
+                # dans le JSON de l'inventaire (module ocr_pointage).
+                json_bytes, _ct = await storage.get_object(json_path)
+                result = await ocr_pointage.traiter_liste_pointage(
+                    data, content_type, filename, json_bytes, json_filename or "",
+                    model_id or ocr_core.default_model_id(),
+                )
+                pointage_rapport = result.pop("pointage_rapport", None)
+                compte_rendu = result.pop("compte_rendu", None)
+                json_complete = result.pop("json_complete", None)
+                if json_complete:
+                    stored = await storage.save_and_log(
+                        db, data=json_complete, kind="ocr_pointage_json", tenant_id=tenant_id, ext="json",
+                        content_type="application/json",
+                        original_filename=_nom_json_complete(json_filename), user_id=requested_by,
+                    )
+                    json_complete_path = stored["path"]
+            else:
+                result = await ocr_core.analyze_document(
+                    data, content_type, filename, model_id,
+                    system_prompt=SYSTEM_PROMPT, default_model=ocr_core.default_model_id(),
+                )
             run = {
                 "id": str(uuid.uuid4()), "document_id": piece_id, "tenant_id": tenant_id,
                 "summary": result.get("summary", ""),
@@ -145,6 +199,9 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
                 "pages_analyzed": result.get("pages_analyzed", 0), "duration_ms": result.get("duration_ms", 0),
                 "error": result.get("error"), "requested_by": requested_by,
                 "review": None, "created_at": _now(),
+                # Liste de pointage uniquement (None sinon).
+                "json_complete_path": json_complete_path, "pointage_rapport": pointage_rapport,
+                "compte_rendu": compte_rendu,
             }
             await db.ocr_piece_runs.insert_one(run.copy())
             # Synthèse la plus récente recopiée sur la pièce (liste et vue pharmacie).
@@ -154,6 +211,10 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             )}
             latest["run_id"] = run["id"]
             latest["analyzed_at"] = run["created_at"]
+            if kind == POINTAGE:
+                latest["json_complete_path"] = json_complete_path
+                latest["json_complete_disponible"] = bool(json_complete_path)
+                latest["compte_rendu"] = compte_rendu
             latest["status"] = "erreur_analyse" if run["error"] else "analyse"
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": latest})
         except Exception:
@@ -230,6 +291,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
         kind: str = Form("facture"),
         tenant_id: Optional[str] = Form(None),
         model: Optional[str] = Form(None),
+        inventaire_json: Optional[UploadFile] = File(None),
         user: dict = Depends(allowed_user),
     ):
         if kind not in PIECE_KINDS:
@@ -240,6 +302,24 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
         data = await file.read()
         if len(data) > MAX_UPLOAD_BYTES:
             raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 20 Mo)")
+
+        # Liste de pointage : le JSON de l'inventaire est obligatoire et validé
+        # AVANT tout stockage (on refuse tôt plutôt que d'échouer en tâche de fond).
+        json_bytes = None
+        if kind == POINTAGE:
+            if ext not in POINTAGE_EXTENSIONS:
+                raise HTTPException(status_code=400, detail="Liste de pointage attendue en PDF ou en photo (JPG/PNG/WEBP)")
+            if inventaire_json is None or not inventaire_json.filename:
+                raise HTTPException(status_code=400, detail="Joignez le fichier JSON de l'inventaire (export WinDev)")
+            if _ext_of(inventaire_json.filename) != "json":
+                raise HTTPException(status_code=400, detail="Le fichier d'inventaire doit être un .json")
+            json_bytes = await inventaire_json.read()
+            if len(json_bytes) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Fichier JSON trop volumineux (max 20 Mo)")
+            try:
+                ocr_pointage.charger_json_inventaire(json_bytes)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
 
         if _is_staff(user):
             if not tenant_id:
@@ -260,6 +340,13 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             db, data=data, kind="ocr_pieces", tenant_id=tenant_id, ext=ext,
             content_type=content_type, original_filename=file.filename, user_id=user["id"],
         )
+        json_path = None
+        if json_bytes is not None:
+            stored_json = await storage.save_and_log(
+                db, data=json_bytes, kind="ocr_pointage_json", tenant_id=tenant_id, ext="json",
+                content_type="application/json", original_filename=inventaire_json.filename, user_id=user["id"],
+            )
+            json_path = stored_json["path"]
         piece = {
             "id": str(uuid.uuid4()), "tenant_id": tenant_id,
             "tenant_label": owner.get("company") or owner.get("full_name"),
@@ -269,11 +356,15 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             "content_type": content_type, "size": stored.get("size") or len(data),
             "status": "en_analyse", "created_at": _now(),
         }
+        if kind == POINTAGE:
+            piece["inventaire_json_path"] = json_path
+            piece["inventaire_json_filename"] = inventaire_json.filename
         await db.ocr_pieces.insert_one(piece.copy())
         asyncio.create_task(_analyze_and_store(
             piece["id"], data, content_type, file.filename or "", tenant_id, model_id, user["id"],
+            kind=kind, json_path=json_path, json_filename=piece.get("inventaire_json_filename"),
         ))
-        return piece
+        return piece if _is_staff(user) else _for_pharmacy(piece)
 
     @api.get("/ocr-pieces/{piece_id}", tags=[TAG])
     async def get_piece(piece_id: str, user: dict = Depends(allowed_user)):
@@ -299,6 +390,8 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
         asyncio.create_task(_analyze_and_store(
             piece_id, data, piece.get("content_type") or "application/octet-stream",
             piece.get("original_filename") or "", piece["tenant_id"], payload.model, user["id"],
+            kind=piece.get("kind") or "facture", json_path=piece.get("inventaire_json_path"),
+            json_filename=piece.get("inventaire_json_filename"),
         ))
         return {"status": "en_analyse", "model": payload.model}
 
@@ -310,11 +403,31 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
         return Response(content=data, media_type=ct or piece.get("content_type") or "application/octet-stream",
                         headers={"Content-Disposition": f'inline; filename="{filename}"'})
 
+    @api.get("/ocr-pieces/{piece_id}/json-complete", tags=[TAG])
+    async def download_json_complete(piece_id: str, user: dict = Depends(allowed_user)):
+        """JSON de l'inventaire complété par la dernière analyse d'une liste de pointage."""
+        piece = await _get_piece(piece_id, user)
+        if piece.get("kind") != POINTAGE:
+            raise HTTPException(status_code=400, detail="Cette pièce n'est pas une liste de pointage")
+        if not piece.get("json_complete_path"):
+            raise HTTPException(status_code=404, detail="Aucun JSON complété disponible pour cette pièce")
+        data, _ct = await storage.get_object(piece["json_complete_path"])
+        return Response(content=data, media_type="application/json",
+                        headers={"Content-Disposition": _content_disposition(
+                            _nom_json_complete(piece.get("inventaire_json_filename")))})
+
     @api.delete("/ocr-pieces/{piece_id}", tags=[TAG])
     async def delete_piece(piece_id: str, user: dict = Depends(allowed_user)):
         piece = await _get_piece(piece_id, user)   # admin, ou pharmacie propriétaire
         # Le stockage n'a pas d'API de suppression : on marque le fichier supprimé.
         await storage.soft_delete(db, piece["storage_path"])
+        # Liste de pointage : JSON d'origine + JSON complétés de chaque analyse.
+        extra = [piece.get("inventaire_json_path")] + [
+            r.get("json_complete_path") for r in await db.ocr_piece_runs.find(
+                {"document_id": piece_id}, {"_id": 0, "json_complete_path": 1}).to_list(200)
+        ]
+        for path in {p for p in extra if p}:
+            await storage.soft_delete(db, path)
         await db.ocr_pieces.delete_one({"id": piece_id})
         await db.ocr_piece_runs.delete_many({"document_id": piece_id})
         return {"ok": True, "id": piece_id}

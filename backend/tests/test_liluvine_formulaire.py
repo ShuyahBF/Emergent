@@ -38,16 +38,23 @@ STRUCTURE = {"title": "Fiche de renseignement", "description": "", "pages": [{"i
 @pytest.fixture()
 def env():
     db = AsyncMongoMockClient()["sawali_lil"]
-    envoyes = []
-    analyse = {"erreur": None}
+    envoyes, sms = [], []
+    analyse = {"erreur": None, "panne": False}
+    wa = {"ok": True}                                   # lot 37 : WhatsApp peut refuser (fenêtre fermée)
     n = count(1)
 
     async def wa_send_text(numero, texte):
         envoyes.append((numero, texte))
-        return {"ok": True}
+        return {"ok": wa["ok"], "error": None if wa["ok"] else "fenêtre de 24 h fermée"}
+
+    async def sms_send(numero, texte):
+        sms.append((numero, texte))
+        return {"ok": True, "status": "sent"}
 
     async def analyser(fichiers, cible, model_id, new_id, avec_donnees=False):
         assert cible == "formulaire" and avec_donnees is False
+        if analyse["panne"]:
+            raise RuntimeError("proxy IA indisponible")
         if analyse["erreur"]:
             raise ValueError(analyse["erreur"])
         return {"structure": STRUCTURE, "compte_rendu": "Formulaire créé…\n\nPoints à vérifier :\n• « Il ya » corrigé.",
@@ -72,7 +79,7 @@ def env():
         get_current_admin=admin, wa_send_text=wa_send_text, lire_media=lambda info: b"PK contenu docx",
         public_base_url=lambda req: "https://sawali.bf", next_form_number=next_form_number,
         slugify_code=lambda s: s[:3].upper(), gen_slug=lambda k=8: f"slug{next(n)}", mnos=["ORANGE", "MOOV"],
-        secret=SECRET, analyser=analyser)
+        secret=SECRET, analyser=analyser, sms_send=sms_send)
     app = FastAPI()
     app.include_router(api)
     client = TestClient(app).__enter__()
@@ -93,7 +100,7 @@ def env():
         return run(go)
 
     yield types.SimpleNamespace(client=client, db=db, run=run, outils=outils, envoyes=envoyes, analyse=analyse,
-                                commander=commander)
+                                commander=commander, wa=wa, sms=sms)
     client.__exit__(None, None, None)
 
 
@@ -207,3 +214,129 @@ def test_liens_expires_ou_falsifies(env):
     ok = jwt.encode({"action": "form_fill", "target_id": cmd["form_id"],
                      "exp": int((datetime.now(timezone.utc) + timedelta(days=1)).timestamp())}, SECRET, algorithm="HS256")
     assert env.client.get(f"/api/public/forms/jeton/{ok}").status_code == 404
+
+
+# --- Lot 37 : journal, interventions humaines, sondage de satisfaction et relances -------
+SUP, ADMIN = {"X-User": "sup"}, {"X-User": "admin"}
+
+
+def _payer(env):
+    cmd = env.run(env.db.liluvine_formulaires.find_one, {"statut": "en_attente_paiement"}, {"_id": 0})
+    env.run(env.outils["apres_paiement"], {"status": "completed", "payment_link_id": cmd["payment_link_id"]})
+    return cmd["id"]
+
+
+def test_journal_complet_et_filtres(env):
+    env.commander(mtype="text")                                           # mode d'emploi
+    env.commander(mime="application/msword", nom="vieux.doc")             # refus
+    env.commander()                                                        # formulaire créé
+    j = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()
+    statuts = sorted(c["statut"] for c in j["commandes"])
+    assert statuts == ["en_attente_paiement", "mode_emploi", "refuse"]
+    c = next(x for x in j["commandes"] if x["statut"] == "en_attente_paiement")
+    # Référence du formulaire, livré ou non, étapes horodatées
+    assert c["reference"].startswith("FORM-SAW-") and c["livre"] is False and c["nom_contact"] == "Awa"
+    assert [e["etape"] for e in c["journal"]] == ["reçu", "accusé de réception", "formulaire créé",
+                                                   "tarif 3 000 FCFA + lien de paiement"]
+    refus = next(x for x in j["commandes"] if x["statut"] == "refuse")
+    assert ".docx" in refus["erreur"] and refus["intervention_requise"] is False
+    assert [x["statut"] for x in env.client.get("/api/supervision/liluvine-formulaire?filtre=erreurs",
+                                                headers=SUP).json()["commandes"]] == ["refuse"]
+    _payer(env)
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=ADMIN).json()["commandes"][0]
+    assert c["statut"] == "publie" and c["livre"] is True and c["journal"][-1]["etape"] == "liens envoyés"
+    assert env.client.get("/api/supervision/liluvine-formulaire", headers={"X-User": "pharma"}).status_code == 403
+
+
+def test_liens_non_delivres_intervention_et_renvoi(env):
+    env.commander()
+    env.wa["ok"] = False                                                   # WhatsApp refuse au moment du paiement
+    cid = _payer(env)
+    j = env.client.get("/api/supervision/liluvine-formulaire?filtre=intervention", headers=SUP).json()
+    assert j["a_traiter"] == 1 and [c["id"] for c in j["commandes"]] == [cid]
+    c = j["commandes"][0]
+    assert c["livre"] is False and "Renvoyer les liens" in c["intervention_motif"]
+    assert [c["id"] for c in env.client.get("/api/supervision/liluvine-formulaire?filtre=non_livres",
+                                            headers=SUP).json()["commandes"]] == [cid]
+    # Le Superviseur renvoie les liens : livré, intervention close
+    env.wa["ok"] = True
+    r = env.client.post(f"/api/supervision/liluvine-formulaire/{cid}/renvoyer-liens", headers=SUP).json()
+    assert r["ok"] is True and env.envoyes[-1][1].startswith("🔁 Voici à nouveau les liens")
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["livre"] is True and c["intervention_faite_le"] and c["intervention_par"] == "sup"
+    assert env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["a_traiter"] == 0
+
+
+def test_erreur_technique_intervention_marquee_traitee(env):
+    env.analyse["panne"] = True
+    env.commander()
+    c = env.client.get("/api/supervision/liluvine-formulaire?filtre=intervention", headers=SUP).json()["commandes"][0]
+    assert c["statut"] == "erreur" and c["intervention_motif"].startswith("Erreur technique")
+    assert env.envoyes[-1][1].startswith("❌ Je n'ai pas pu créer le formulaire : le service d'analyse")
+    r = env.client.post(f"/api/supervision/liluvine-formulaire/{c['id']}/intervention", headers=ADMIN,
+                        json={"note": "Formulaire créé à la main et envoyé"})
+    assert r.status_code == 200
+    c = env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["commandes"][0]
+    assert c["intervention_note"] == "Formulaire créé à la main et envoyé" and c["journal"][-1]["etape"] == "intervention faite"
+    # Un document refusé (faute du contact, prévenu) ne demande pas d'intervention
+    env.analyse["panne"] = False
+    env.analyse["erreur"] = "Aucune question n'a pu être reconnue dans le document."
+    env.commander()
+    assert env.client.get("/api/supervision/liluvine-formulaire", headers=SUP).json()["a_traiter"] == 0
+
+
+def test_sondage_de_satisfaction_et_relances(env):
+    c, run, db = env.client, env.run, env.db
+    run(db.wa_surveys.insert_one, {"id": "s1", "title": "Satisfaction !formulaire", "status": "draft",
+                                   "client_id": "sawali", "questions": [{"id": "q", "type": "rating", "label": "Note"}]})
+    # Choisi par le Superviseur : relance après 24 h, 2 relances au plus
+    r = c.put("/api/supervision/liluvine-formulaire/sondage", headers=SUP,
+              json={"sondage_id": "s1", "relance_heures": 24, "relances_max": 2})
+    assert r.json()["sondage_titre"] == "Satisfaction !formulaire"
+    assert [x["id"] for x in c.get("/api/supervision/liluvine-formulaire/sondages", headers=SUP).json()] == ["s1"]
+    env.commander()
+    cid = _payer(env)
+    # Juste après les liens : le sondage, avec un lien personnel
+    inv = run(db.wa_survey_invites.find_one, {"survey_id": "s1"}, {"_id": 0})
+    assert inv["contact_id"] == "liluvine:22655000001" and inv["status"] == "sent"
+    assert env.envoyes[-1][1].startswith("🙏 Merci d'avoir utilisé !formulaire") and f"/s/{inv['token']}" in env.envoyes[-1][1]
+    assert run(db.wa_surveys.find_one, {"id": "s1"})["status"] == "active"
+    # Pas encore l'heure : aucune relance
+    assert run(env.outils["relancer_sondages"]) == 0
+
+    def avancer():
+        run(db.liluvine_formulaires.update_one, {"id": cid}, {"$set": {"sondage.prochaine_relance": "2000-01-01T00:00:00+00:00"}})
+
+    # 1re relance par WhatsApp ; 2e relance : WhatsApp refuse → SMS
+    avancer()
+    assert run(env.outils["relancer_sondages"]) == 1 and env.envoyes[-1][1].startswith("⏰ Petit rappel")
+    env.wa["ok"] = False
+    avancer()
+    assert run(env.outils["relancer_sondages"]) == 1 and env.sms[-1][1].startswith("⏰ Petit rappel")
+    # Maximum atteint : plus de relance
+    avancer()
+    assert run(env.outils["relancer_sondages"]) == 0
+    cmd = run(db.liluvine_formulaires.find_one, {"id": cid}, {"_id": 0})
+    assert cmd["sondage"]["relances"] == 2 and cmd["sondage"]["prochaine_relance"] is None
+    assert [e["detail"] for e in cmd["journal"] if e["etape"] == "relance sondage"] == [
+        "relance n°1 par whatsapp", "relance n°2 par sms"]
+
+
+def test_sondage_repondu_plus_de_relance(env):
+    c, run, db = env.client, env.run, env.db
+    run(db.wa_surveys.insert_one, {"id": "s1", "title": "Avis", "status": "active", "client_id": "sawali"})
+    c.put("/api/supervision/liluvine-formulaire/sondage", headers=ADMIN, json={"sondage_id": "s1"})
+    env.commander()
+    cid = _payer(env)
+    run(db.wa_survey_invites.update_one, {"survey_id": "s1"}, {"$set": {"answered_at": "2026-09-29T16:00:00Z"}})
+    run(db.liluvine_formulaires.update_one, {"id": cid}, {"$set": {"sondage.prochaine_relance": "2000-01-01T00:00:00+00:00"}})
+    avant = len(env.envoyes)
+    assert run(env.outils["relancer_sondages"]) == 0 and len(env.envoyes) == avant
+    assert run(db.liluvine_formulaires.find_one, {"id": cid})["sondage"]["repondu"] is True
+    # Sans sondage choisi : rien n'est envoyé après la livraison
+    c.put("/api/supervision/liluvine-formulaire/sondage", headers=ADMIN, json={"sondage_id": None})
+    env.commander(numero="22655000002")
+    _payer(env)
+    assert env.envoyes[-1][1].startswith("🎉")
+    assert c.put("/api/supervision/liluvine-formulaire/sondage", headers=SUP,
+                 json={"sondage_id": "inconnu"}).status_code == 404

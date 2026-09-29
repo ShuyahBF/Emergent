@@ -325,8 +325,17 @@ _liluvine_formulaire = _attach_liluvine_formulaire(
     lire_media=lambda info: (UPLOAD_DIR / info["stored_name"]).read_bytes(),
     public_base_url=_public_base_url, next_form_number=_next_form_number, slugify_code=_slugify_code,
     gen_slug=_gen_slug, mnos=DEFAULT_CLIENT_PAWAPAY_MNOS, secret=LINK_JWT_SECRET,
+    # Lot 37 — sondage de satisfaction : repli SMS si WhatsApp refuse (fenêtre de 24 h fermée)
+    sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
 )
 _HOOKS_APRES_PAIEMENT.append(_liluvine_formulaire["apres_paiement"])
+
+
+@app.on_event("startup")
+async def _relances_sondage_liluvine():
+    """Lot 37 — relances du sondage de satisfaction « !formulaire » (toutes les 30 min, hors preview)."""
+    if not _is_preview_environment():
+        asyncio.create_task(_liluvine_formulaire["boucle_relances"]())
 
 # Iter40 (2026-02) — Registre des erreurs (logiciels externes)
 from routes.error_registry import attach_error_registry_routes as _attach_error_registry  # noqa: E402

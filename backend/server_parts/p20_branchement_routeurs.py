@@ -248,6 +248,15 @@ async def _wa_enabled_for(user: dict) -> bool:
     return bool(_normalize_features((parent or {}).get("features")).get("whatsapp"))
 
 
+async def _sms_enabled_for(user: dict) -> bool:
+    """Lot 35 — module SMS autorisé pour ce compte (même règle que /me/features)."""
+    if user.get("role") in ("admin", "superviseur"):
+        return True
+    parent_id = user.get("parent_client_id") or user.get("client_id") or user["id"]
+    parent = await db.users.find_one({"id": parent_id}, {"_id": 0, "features": 1})
+    return bool(_normalize_features((parent or {}).get("features")).get("sms"))
+
+
 def _is_preview_environment() -> bool:
     """Même détection que le planificateur : adresse « .preview. »."""
     env_url = (os.environ.get("PUBLIC_BASE_URL", "") or os.environ.get("preview_endpoint", "")
@@ -268,6 +277,10 @@ _wa_surveys = _attach_wa_surveys(
     build_components=_build_components, public_base_url=_public_base_url,
     is_preview_env=_is_preview_environment,
     owner_enabled=lambda client_id: _fonction_active_pour_compte(client_id, "forms_surveys"),
+    # Lot 35 — envoi du lien personnel par SMS (opérateur par défaut de la plateforme)
+    sms_enabled_for=_sms_enabled_for,
+    sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
+    enforce_sms_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_SMS, increment=n),
 )
 
 

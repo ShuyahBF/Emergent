@@ -15,11 +15,16 @@
       lien dont l'adresse finit par une variable, mettre {{jeton}}.
   Relance (prop `reminder`) : renvoie le même lien aux invités qui n'ont pas
   encore répondu ; seule l'étape « Message » est affichée.
+  Lot 35 — canal au choix : WhatsApp (ci-dessus) ou SMS (même lien personnel,
+  texte libre, ni modèle Meta ni fenêtre de 24 h ; module SMS du compte requis).
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
-import { X, Users, Search, Shuffle, Send, CheckSquare, Square, MessageCircle, Loader2 } from "lucide-react";
+import { X, Users, Search, Shuffle, Send, CheckSquare, Square, MessageCircle, Loader2, Smartphone } from "lucide-react";
+
+// Lot 35 — message SMS proposé (même texte que le serveur, routes/wa_surveys.DEFAULT_SMS)
+const SMS_PAR_DEFAUT = "Bonjour {{name}}, merci de repondre a notre sondage « {{sondage}} » : {{lien}}";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
 export default function SurveySendModal({ survey, reminder = false, waitingCount = 0, onClose, onSent }) {
@@ -47,6 +52,8 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
   const [bodyVars, setBodyVars] = useState([]);
   const [buttonVars, setButtonVars] = useState([]);
   const [textMessage, setTextMessage] = useState(survey.message_text || "");
+  const [canal, setCanal] = useState("whatsapp");          // lot 35 : whatsapp | sms
+  const [smsMessage, setSmsMessage] = useState(SMS_PAR_DEFAUT);
   const [sending, setSending] = useState(false);
 
   // Chargement des listes (clients, groupes, contacts, modèles Meta)
@@ -111,10 +118,12 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
 
   const send = async () => {
     if (!reminder && !selected.length) { toast.error("Aucun destinataire coché"); return; }
-    if (mode === "template" && !templateName) { toast.error("Choisissez un modèle Meta"); return; }
+    if (canal === "whatsapp" && mode === "template" && !templateName) { toast.error("Choisissez un modèle Meta"); return; }
     setSending(true);
     try {
-      const r = await apiClient.post(`/me/wa-surveys/${survey.id}/send`, {
+      const r = await apiClient.post(`/me/wa-surveys/${survey.id}/send`, canal === "sms" ? {
+        contact_ids: reminder ? [] : selected.map((i) => i.id), reminder, channel: "sms", text_message: smsMessage,
+      } : {
         contact_ids: reminder ? [] : selected.map((i) => i.id), reminder, mode,
         template_name: mode === "text" ? null : templateName || null,
         language_code: template?.language || "fr", variables: mode === "text" ? [] : bodyVars,
@@ -259,6 +268,26 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
                 ? <>Relance de <b>{waitingCount}</b> invité(s) qui n'ont pas encore répondu (même lien personnel).</>
                 : <><b>{selected.length}</b> destinataire(s), dont <b>{windowOpenSelected}</b> joignable(s) par message libre (ils vous ont écrit dans les 24 h).</>}
             </p>
+            {/* Lot 35 — canal d'envoi du lien personnel */}
+            <div className="flex flex-wrap gap-2" data-testid="send-canal">
+              {[["whatsapp", "WhatsApp", MessageCircle], ["sms", "SMS", Smartphone]].map(([k, l, Icon]) => (
+                <button key={k} onClick={() => setCanal(k)} className={`${chip(canal === k)} inline-flex items-center gap-1`}
+                  data-testid={`send-canal-${k}`}><Icon className="h-3.5 w-3.5" /> {l}</button>
+              ))}
+            </div>
+            {canal === "sms" && (
+              <section className="rounded-xl ring-1 ring-slate-200 p-3 space-y-1" data-testid="send-sms">
+                <p className="text-sm font-semibold text-slate-800 flex items-center gap-1.5"><Smartphone className="h-4 w-4" /> Message SMS</p>
+                <textarea value={smsMessage} onChange={(e) => setSmsMessage(e.target.value)} rows={3} maxLength={800}
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm" data-testid="send-sms-text" />
+                <p className="text-[11px] text-slate-500">
+                  <code>{"{{lien}}"}</code> = lien personnel du sondage (ajouté à la fin s'il manque) · <code>{"{{name}}"}</code> = nom du
+                  contact · <code>{"{{sondage}}"}</code> = titre. {smsMessage.length} caractère(s) avant remplacement — un SMS compte
+                  160 caractères, préférez un texte court et sans accents.
+                </p>
+              </section>
+            )}
+            {canal === "whatsapp" && (<>
             <div className="flex flex-wrap gap-2">
               {[["auto", "Auto (conseillé)"], ["template", "Modèle Meta seulement"], ["text", "Message libre seulement"]].map(([k, l]) => (
                 <button key={k} onClick={() => setMode(k)} className={chip(mode === k)} data-testid={`send-mode-${k}`}>{l}</button>
@@ -312,13 +341,14 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
                 <p className="text-[11px] text-slate-500">Le lien est ajouté à la fin s'il n'y figure pas ({"{{lien}}"}).</p>
               </section>
             )}
+            </>)}
             <div className="flex justify-between gap-2">
               {!reminder ? <button onClick={() => setStep(1)} className="text-sm text-slate-600 hover:underline">← Destinataires</button> : <span />}
-              <button onClick={send} disabled={sending || (needsTemplate && mode !== "text" && !templateName && mode === "template")}
+              <button onClick={send} disabled={sending || (canal === "whatsapp" && mode === "template" && !templateName) || (canal === "sms" && !smsMessage.trim())}
                 data-testid="send-confirm"
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {reminder ? "Relancer" : `Envoyer à ${selected.length}`}
+                {reminder ? `Relancer${canal === "sms" ? " par SMS" : ""}` : `Envoyer à ${selected.length}${canal === "sms" ? " par SMS" : ""}`}
               </button>
             </div>
           </div>

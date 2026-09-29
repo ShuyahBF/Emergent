@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { apiClient } from "@/lib/api";
 import { toast } from "sonner";
 import {
@@ -17,6 +18,9 @@ import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
     4. Send now OR schedule for later (cron picks it up & runs per-contact)
     5. View past schedules and cancel pending ones.
   Backend endpoint: POST /me/whatsapp/bulk
+  Lot 35 — ouverte depuis « Partager le formulaire » (?lien=…&titre=…) : bouton
+  « Insérer le lien du formulaire » dans la variable choisie ; message du repli
+  SMS pré-rempli avec le lien.
 */
 
 // Personalization tokens available for body/header variables. Resolved per-contact at send time.
@@ -97,6 +101,15 @@ export default function WaBulk() {
   // SMS fallback config — when WhatsApp delivery fails for a contact, retry via SMS
   const [smsFallback, setSmsFallback] = useState(false);
   const [smsFallbackMessage, setSmsFallbackMessage] = useState("");
+  // Lot 35 — lien d'un formulaire à envoyer (depuis « Partager le formulaire »)
+  const [searchParams] = useSearchParams();
+  const lienFormulaire = searchParams.get("lien") || "";
+  const titreFormulaire = searchParams.get("titre") || "";
+  useEffect(() => {
+    if (lienFormulaire) {
+      setSmsFallbackMessage(`Bonjour {{name}}, merci de remplir le formulaire « ${titreFormulaire} » : ${lienFormulaire}`);
+    }
+  }, [lienFormulaire, titreFormulaire]);
   const [smsProviders, setSmsProviders] = useState({ default: "auto", active: [] });
   const [smsProvider, setSmsProvider] = useState("auto");
   const [smsSender, setSmsSender] = useState("");
@@ -224,12 +237,13 @@ export default function WaBulk() {
   });
 
   // Insert a {{token}} into whichever variable input the user last focused.
-  const insertToken = (tok) => {
+  // Lot 35 — `brut` : texte inséré tel quel (lien du formulaire).
+  const insertToken = (tok, brut = false) => {
     if (!activeTokenField) {
       toast.message("Cliquez d'abord dans un champ variable.");
       return;
     }
-    const piece = `{{${tok}}}`;
+    const piece = brut ? tok : `{{${tok}}}`;
     if (activeTokenField.kind === "body") {
       setBodyVars((prev) => prev.map((v, i) => (i === activeTokenField.index ? (v + piece) : v)));
     } else if (activeTokenField.kind === "header") {
@@ -348,6 +362,13 @@ export default function WaBulk() {
           Chaque variable peut contenir des jetons de personnalisation (<code className="font-mono">{"{{name}}"}</code>, <code className="font-mono">{"{{company}}"}</code>…) qui seront remplacés par les infos du contact destinataire.
         </p>
       </div>
+
+      {lienFormulaire && (
+        <div className="rounded-lg ring-1 ring-sky-200 bg-sky-50 p-3 text-xs text-sky-900" data-testid="wa-bulk-lien-formulaire">
+          Envoi du formulaire <b>« {titreFormulaire} »</b> : choisissez un modèle Meta, cliquez dans la variable qui doit
+          contenir le lien, puis sur <b>« Lien du formulaire »</b>. Lien : <span className="font-mono break-all">{lienFormulaire}</span>
+        </div>
+      )}
 
       {!features.whatsapp && (
         <div className="rounded-lg ring-1 ring-amber-200 bg-amber-50 p-3 text-xs text-amber-900" data-testid="wa-bulk-feature-off">
@@ -523,6 +544,12 @@ export default function WaBulk() {
                   {`{{${t}}}`}
                 </button>
               ))}
+              {lienFormulaire && (
+                <button type="button" onClick={() => insertToken(lienFormulaire, true)} data-testid="wa-bulk-inserer-lien"
+                  className="text-[10px] rounded ring-1 ring-sky-300 bg-sky-50 hover:bg-sky-100 px-2 py-0.5 text-sky-800 font-semibold">
+                  Lien du formulaire
+                </button>
+              )}
             </div>
           )}
 

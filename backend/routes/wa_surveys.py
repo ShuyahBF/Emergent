@@ -16,6 +16,8 @@ Principe :
   - un destinataire n'a qu'UNE invitation par sondage : une relance renvoie
     le même lien, et sa réponse peut être corrigée tant que le sondage est ouvert ;
   - échantillon aléatoire possible (ex. 100 contacts tirés au hasard parmi 800).
+  - lot 35 : le même lien personnel peut aussi partir par SMS (canal « sms » :
+    pas de modèle Meta ni de fenêtre de 24 h ; module SMS du client requis).
 
 Collections Mongo :
   wa_surveys            {id, client_id, title, description, thank_you, questions[], status,
@@ -72,6 +74,9 @@ MAX_RECIPIENTS = 1000                   # par envoi
 SEND_PAUSE_SECONDS = 0.25               # pause entre deux messages (limites Meta)
 DEFAULT_MESSAGE = ("Bonjour {{name}}, votre avis compte pour nous ! "
                    "Merci de répondre à notre court sondage « {{sondage}} » : {{lien}}")
+# Lot 35 — envoi par SMS : message court (un SMS = 160 caractères), lien personnel inclus.
+DEFAULT_SMS = "Bonjour {{name}}, merci de repondre a notre sondage « {{sondage}} » : {{lien}}"
+MAX_SMS = 800                                   # même limite que l'envoi de SMS en masse
 
 
 def _now() -> str:
@@ -124,6 +129,7 @@ class SendRequest(BaseModel):
     button_specs: Optional[List[Dict[str, Any]]] = None
     text_message: Optional[str] = None
     title: Optional[str] = None
+    channel: str = "whatsapp"           # lot 35 : whatsapp | sms (text_message = texte du SMS)
 
 
 class PublicAnswer(BaseModel):
@@ -329,6 +335,9 @@ def attach_wa_survey_routes(
     public_base_url,                     # (request) -> str
     is_preview_env: Callable[[], bool] = lambda: False,
     owner_enabled=None,                  # lot 34 — async (client_id) -> bool : fonction activée pour le propriétaire
+    sms_enabled_for=None,                # lot 35 — async (user) -> bool : module SMS autorisé
+    sms_send=None,                       # lot 35 — async (numéro, texte) -> {ok, status, api_message, provider}
+    enforce_sms_quota=None,              # lot 35 — async (user, nombre) -> None
 ) -> Dict[str, Any]:
     """Branche les routes des sondages WhatsApp. Renvoie {"resume": coroutine}
     à lancer au démarrage (reprise d'un envoi interrompu par un redémarrage)."""
@@ -564,6 +573,16 @@ def attach_wa_survey_routes(
                     "sondage": survey.get("title") or "", "name": ctx.get("full_name") or "",
                     "nom": ctx.get("full_name") or ""})
         mode = camp.get("mode") or "auto"
+        if mode == "sms":
+            # Lot 35 — SMS : même lien personnel, pas de fenêtre de 24 h ni de modèle Meta.
+            text = camp.get("text_message") or DEFAULT_SMS
+            body = re.sub(r"\{\{\s*([a-zA-Z_]+)\s*\}\}", lambda m: str(ctx.get(m.group(1).lower(), "")), text)
+            if "/s/" not in body:
+                body = f"{body} {link}"                      # le lien est toujours présent
+            res = await sms_send(inv["phone"], body)
+            return {"ok": bool(res.get("ok")), "status": res.get("status"), "provider": res.get("provider"),
+                    "error": None if res.get("ok") else (res.get("api_message") or "Échec de l'envoi du SMS"),
+                    "channel": "sms", "body": body}
         use_text = mode == "text" or (mode == "auto" and inv.get("_window_open"))
         if use_text:
             if not inv.get("_window_open"):
@@ -615,7 +634,21 @@ def attach_wa_survey_routes(
                 {"$inc": {"done": 1, "sent_ok": 1 if ok else 0, "sent_ko": 0 if ok or skipped else 1,
                           "skipped": 1 if skipped else 0},
                  "$set": {"updated_at": _now()}})
-            if ok or not skipped:
+            if res.get("channel") == "sms":
+                # Lot 35 — trace dans l'historique des SMS (même forme que l'envoi de SMS en masse)
+                try:
+                    await db.sms_messages.insert_one({
+                        "id": uuid_fn(), "client_id": camp.get("client_id"), "user_id": camp.get("created_by_id"),
+                        "user_label": camp.get("created_by_label"), "contact_id": inv.get("contact_id"),
+                        "provider": res.get("provider"), "sender": None, "msisdn": inv.get("phone"),
+                        "msisdn_digits": "".join(ch for ch in (inv.get("phone") or "") if ch.isdigit()),
+                        "message": res.get("body"), "length": len(res.get("body") or ""),
+                        "status": res.get("status"), "api_message": res.get("error"), "bulk": True,
+                        "survey_id": camp["survey_id"], "created_at": _now(),
+                    })
+                except Exception:  # noqa: BLE001
+                    logger.warning("[wa-surveys] trace du SMS impossible", exc_info=True)
+            elif ok or not skipped:
                 # Trace dans la conversation du contact (Centre de Messagerie)
                 digits = "".join(ch for ch in (inv.get("phone") or "") if ch.isdigit())
                 try:
@@ -647,20 +680,31 @@ def attach_wa_survey_routes(
 
     @api.post("/me/wa-surveys/{sid}/send", tags=["Sondages WhatsApp"])
     async def send_survey(sid: str, payload: SendRequest, request: Request, user: dict = Depends(get_current_user)):
-        if not can_send_wa(user):
-            raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
-        if not await wa_enabled_for(user):
-            raise HTTPException(status_code=403, detail="WhatsApp non autorisé pour votre compte")
+        par_sms = payload.channel == "sms"                  # lot 35 : envoi du lien par SMS
+        if par_sms:
+            if sms_send is None:
+                raise HTTPException(status_code=400, detail="Envoi par SMS indisponible")
+            if sms_enabled_for is not None and not await sms_enabled_for(user):
+                raise HTTPException(status_code=403, detail="SMS non autorisé pour votre compte")
+            if len(payload.text_message or "") > MAX_SMS:
+                raise HTTPException(status_code=400, detail=f"Message SMS trop long ({MAX_SMS} caractères au maximum)")
+        else:
+            if not can_send_wa(user):
+                raise HTTPException(status_code=403, detail="Rôle non autorisé à envoyer des messages WhatsApp")
+            if not await wa_enabled_for(user):
+                raise HTTPException(status_code=403, detail="WhatsApp non autorisé pour votre compte")
         survey = await _get_survey(sid, user)
         if not survey.get("questions"):
             raise HTTPException(status_code=400, detail="Ce sondage n'a aucune question")
         if survey.get("status") == "closed":
             raise HTTPException(status_code=400, detail="Ce sondage est clôturé : rouvrez-le avant de l'envoyer")
         mode = payload.mode if payload.mode in ("auto", "template", "text") else "auto"
+        if par_sms:
+            mode = "sms"                                    # ni modèle Meta, ni fenêtre de 24 h
         if mode == "template" and not (payload.template_name or "").strip():
             raise HTTPException(status_code=400, detail="Choisissez un modèle Meta")
         # Le lien doit figurer dans le message modèle
-        if mode in ("template", "auto") and payload.template_name:
+        if mode in ("template", "auto") and payload.template_name and not par_sms:
             flat = " ".join((payload.variables or []) + [payload.header_text or ""]
                             + [str(p.get("text") if isinstance(p, dict) else p)
                                for b in (payload.button_specs or []) for p in (b.get("parameters") or [])])
@@ -685,7 +729,7 @@ def attach_wa_survey_routes(
                 raise HTTPException(status_code=400, detail="Aucun destinataire sélectionné")
             contacts = await _resolve_contacts(user, RecipientsQuery(contact_ids=payload.contact_ids))
             if not contacts:
-                raise HTTPException(status_code=404, detail="Aucun contact WhatsApp retrouvé parmi la sélection")
+                raise HTTPException(status_code=404, detail="Aucun contact avec un numéro de téléphone retrouvé parmi la sélection")
             existing = {i["contact_id"]: i async for i in db.wa_survey_invites.find(
                 {"survey_id": sid, "contact_id": {"$in": [c["id"] for c in contacts]}}, {"_id": 0})}
             for c in contacts:
@@ -703,7 +747,11 @@ def attach_wa_survey_routes(
                 invites.append(inv)
         if len(invites) > MAX_RECIPIENTS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_RECIPIENTS} destinataires par envoi")
-        await enforce_demo_quota(user, len(invites))
+        if par_sms:
+            if enforce_sms_quota is not None:
+                await enforce_sms_quota(user, len(invites))
+        else:
+            await enforce_demo_quota(user, len(invites))
         if survey.get("status") == "draft":
             await db.wa_surveys.update_one({"id": sid}, {"$set": {"status": "active", "updated_at": _now()}})
 
@@ -711,8 +759,8 @@ def attach_wa_survey_routes(
             "id": uuid_fn(), "survey_id": sid, "client_id": _scope(user),
             "kind": "reminder" if payload.reminder else "send",
             "title": (payload.title or "").strip()[:200] or None, "mode": mode,
-            "template_name": (payload.template_name or "").strip() or None,
-            "language_code": payload.language_code or "fr", "variables": payload.variables or [],
+            "template_name": None if par_sms else ((payload.template_name or "").strip() or None),
+            "language_code": payload.language_code or "fr", "variables": [] if par_sms else (payload.variables or []),
             "header_text": payload.header_text, "button_specs": payload.button_specs,
             "text_message": (payload.text_message or "").strip() or None,
             "base_url": (public_base_url(request) or "").rstrip("/"),

@@ -22,7 +22,7 @@ import routes.ordonnances_stock as os_mod  # noqa: E402
 import stock_produits as sp  # noqa: E402
 
 USERS = {
-    "pharma_phm": {"id": "pharma_phm", "role": "pharmacien", "client_code": "PHM", "company": "Clinique Philadelphie"},
+    "pharma_phl": {"id": "pharma_phl", "role": "pharmacien", "client_code": "PHL", "company": "Clinique Philadelphie"},
     "pharma_amy": {"id": "pharma_amy", "role": "pharmacien", "client_code": "AMY"},
     "sans_fonction": {"id": "sans_fonction", "role": "pharmacien", "client_code": "WDD"},
     "admin": {"id": "admin", "role": "admin"},
@@ -87,7 +87,7 @@ def _h(u):
     return {"X-User": u}
 
 
-def _sync(env, depot, produits, client="PHM", complet=False, jeton=JETON):
+def _sync(env, depot, produits, client="PHL", complet=False, jeton=JETON):
     return env.c.post("/api/stock-produits/sync", headers={"X-Sync-Token": jeton}, json={
         "code_client": client, "code_depot": depot, "complet": complet, "produits": produits})
 
@@ -113,12 +113,12 @@ def test_sync_loois_et_filtrage_par_client(env):
     # Jeton obligatoire
     assert _sync(env, "PPH", [], jeton="faux").status_code == 401
     _stock_phm(env)
-    # Le pharmacien de PHM voit ses 2 dépôts (PPH, PLB), jamais le stock d'AMY
-    d = env.c.get("/api/stock-produits/depots", headers=_h("pharma_phm")).json()
-    assert [x["code_depot"] for x in d["depots"]] == ["PLB", "PPH"] and d["code_client"] == "PHM"
-    r = env.c.get("/api/stock-produits?q=doliprane&code_client=AMY", headers=_h("pharma_phm")).json()
-    assert r["code_client"] == "PHM" and {p["code_produit"] for p in r["produits"]} == {"P1", "P2"}
-    assert env.c.get("/api/stock-produits?depot=PLB", headers=_h("pharma_phm")).json()["produits"][0]["stock"] == 20
+    # Le pharmacien de PHL voit ses 2 dépôts (PPH, PLB), jamais le stock d'AMY
+    d = env.c.get("/api/stock-produits/depots", headers=_h("pharma_phl")).json()
+    assert [x["code_depot"] for x in d["depots"]] == ["PLB", "PPH"] and d["code_client"] == "PHL"
+    r = env.c.get("/api/stock-produits?q=doliprane&code_client=AMY", headers=_h("pharma_phl")).json()
+    assert r["code_client"] == "PHL" and {p["code_produit"] for p in r["produits"]} == {"P1", "P2"}
+    assert env.c.get("/api/stock-produits?depot=PLB", headers=_h("pharma_phl")).json()["produits"][0]["stock"] == 20
     # L'Admin peut choisir le client
     assert len(env.c.get("/api/stock-produits?code_client=AMY", headers=_h("admin")).json()["produits"]) == 1
     # Envoi complet : les produits absents de la liste sont retirés du dépôt
@@ -157,7 +157,7 @@ def test_ordonnance_complete(env):
         {"nom": "Spasfon", "dosage": "40 mg", "forme": "injectable", "quantite": 1},
         {"nom": "Augmentin", "dosage": "1 g", "quantite": 1},
     ]})
-    r = env.c.post("/api/ordonnances-stock", headers=_h("pharma_phm"), data={"depots": "PPH"},
+    r = env.c.post("/api/ordonnances-stock", headers=_h("pharma_phl"), data={"depots": "PPH"},
                    files=[("photos", ("o.png", _png(), "image/png"))])
     assert r.status_code == 200, r.text
     o = r.json()
@@ -173,34 +173,34 @@ def test_ordonnance_complete(env):
 
     # Équivalents VIDAL pour la rupture : EFFERALGAN 1G est en stock, DAFALGAN non
     env.lu["lignes"] = [{"nom": "Doliprane", "dosage": "1000 mg", "quantite": 1}]
-    o2 = env.c.post(f"/api/ordonnances-stock/{o['id']}/lignes/1/equivalents", headers=_h("pharma_phm")).json()
+    o2 = env.c.post(f"/api/ordonnances-stock/{o['id']}/lignes/1/equivalents", headers=_h("pharma_phl")).json()
     eq = o2["lignes"][1]
     assert eq["equivalents_etat"] == "ok" and [e["libelle"] for e in eq["equivalents"]] == \
         ["DOLIPRANE 1G CP", "EFFERALGAN 1G CP EFF"]
     assert eq["equivalents"][1]["alerte_peremption"] is None
     # Le pharmacien choisit l'équivalent
-    o3 = env.c.put(f"/api/ordonnances-stock/{o['id']}/lignes/1", headers=_h("pharma_phm"),
-                   json={"produit_id": "PHM:PPH:P3", "quantite": 1}).json()
+    o3 = env.c.put(f"/api/ordonnances-stock/{o['id']}/lignes/1", headers=_h("pharma_phl"),
+                   json={"produit_id": "PHL:PPH:P3", "quantite": 1}).json()
     assert o3["lignes"][1]["statut"] == "disponible"
     # Produit d'un autre client : refusé
-    assert env.c.put(f"/api/ordonnances-stock/{o['id']}/lignes/1", headers=_h("pharma_phm"),
+    assert env.c.put(f"/api/ordonnances-stock/{o['id']}/lignes/1", headers=_h("pharma_phl"),
                      json={"produit_id": "AMY:AMY:A1"}).status_code == 400
 
     # Réservation : disponible diminue pour les AUTRES ordonnances
-    res = env.c.post(f"/api/ordonnances-stock/{o['id']}/reserver", headers=_h("pharma_phm")).json()
+    res = env.c.post(f"/api/ordonnances-stock/{o['id']}/reserver", headers=_h("pharma_phl")).json()
     # SPASFON (périmé 01/2024) n'est jamais réservé
     assert {(r["libelle"], r["quantite"]) for r in res["reservations"]} == \
         {("DOLIPRANE 1G CP", 2), ("EFFERALGAN 1G CP EFF", 1)}
-    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reserver", headers=_h("pharma_phm")).json()["reservations"] == []
-    stock = {p["code_produit"]: p for p in env.c.get("/api/stock-produits?depot=PPH", headers=_h("pharma_phm")).json()["produits"]}
+    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reserver", headers=_h("pharma_phl")).json()["reservations"] == []
+    stock = {p["code_produit"]: p for p in env.c.get("/api/stock-produits?depot=PPH", headers=_h("pharma_phl")).json()["produits"]}
     assert (stock["P1"]["reserve"], stock["P1"]["disponible"]) == (2, 11)
     # Vendue / annulée
     rid = next(r["id"] for r in res["reservations"] if r["libelle"] == "EFFERALGAN 1G CP EFF")
-    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reservations/{rid}/vendue", headers=_h("pharma_phm")).status_code == 200
-    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reservations/{rid}/annuler", headers=_h("pharma_phm")).status_code == 404
+    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reservations/{rid}/vendue", headers=_h("pharma_phl")).status_code == 200
+    assert env.c.post(f"/api/ordonnances-stock/{o['id']}/reservations/{rid}/annuler", headers=_h("pharma_phl")).status_code == 404
     # Autre client : aucun accès ; suppression : réservations actives annulées
     assert env.c.get(f"/api/ordonnances-stock/{o['id']}", headers=_h("pharma_amy")).status_code == 403
-    assert env.c.delete(f"/api/ordonnances-stock/{o['id']}", headers=_h("pharma_phm")).status_code == 200
+    assert env.c.delete(f"/api/ordonnances-stock/{o['id']}", headers=_h("pharma_phl")).status_code == 200
     actives = env.run(lambda: env.db.stock_reservations.count_documents({"statut": "active"}))
     assert actives == 0
 
@@ -208,14 +208,14 @@ def test_ordonnance_complete(env):
 def test_vidal_refuse_et_limites(env):
     _stock_phm(env)
     env.lu["lignes"] = [{"nom": "Amoxicilline", "dosage": "500 mg"}]
-    o = env.c.post("/api/ordonnances-stock", headers=_h("pharma_phm"),
+    o = env.c.post("/api/ordonnances-stock", headers=_h("pharma_phl"),
                    files=[("photos", ("o.png", _png(), "image/png"))]).json()
     env.vidal["actif"] = False
-    l = env.c.post(f"/api/ordonnances-stock/{o['id']}/lignes/0/equivalents", headers=_h("pharma_phm")).json()["lignes"][0]
+    l = env.c.post(f"/api/ordonnances-stock/{o['id']}/lignes/0/equivalents", headers=_h("pharma_phl")).json()["lignes"][0]
     assert l["equivalents_etat"] == "vidal_refuse" and l["equivalents"] == []
     trop = [("photos", (f"{i}.png", _png(), "image/png")) for i in range(5)]
-    assert env.c.post("/api/ordonnances-stock", headers=_h("pharma_phm"), files=trop).status_code == 400
-    assert env.c.post("/api/ordonnances-stock", headers=_h("pharma_phm"),
+    assert env.c.post("/api/ordonnances-stock", headers=_h("pharma_phl"), files=trop).status_code == 400
+    assert env.c.post("/api/ordonnances-stock", headers=_h("pharma_phl"),
                       files=[("photos", ("o.txt", b"x", "text/plain"))]).status_code == 400
     assert env.c.post("/api/ordonnances-stock", headers=_h("sans_fonction"),
                       files=[("photos", ("o.png", _png(), "image/png"))]).status_code == 403

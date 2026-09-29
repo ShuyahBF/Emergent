@@ -1,7 +1,7 @@
 """Lot 39 — Stock des produits par client/dépôt et vérification des ordonnances.
 
 Stock (collection `stock_produits`, module `stock_produits`) :
-  GET  /api/stock-produits/depots          dépôts du client connecté (PHM : PPH et PLB)
+  GET  /api/stock-produits/depots          dépôts du client connecté (PHL : PPH et PLB)
   GET  /api/stock-produits?depot=&q=       produits du client connecté (filtrés par SON code client)
   POST /api/stock-produits/sync            envoi quotidien du service Loois (jeton X-Sync-Token,
                                            variable STOCK_SYNC_TOKEN) — upsert par code client + dépôt

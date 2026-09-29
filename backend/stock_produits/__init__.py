@@ -3,7 +3,7 @@
 Chaque produit est rangé sous le CODE DU CLIENT SAWALI (champ `users.client_code`)
 et le CODE DU DÉPÔT (la base HFSQL : « PPH » dans InventaireSélectionné_PPH_…) :
 un client a le plus souvent un seul dépôt, qui porte son propre code ; la
-clinique Philadelphie (client PHM) en a deux : PPH (pharmacie) et PLB (produits
+clinique Philadelphie (client PHL) en a deux : PPH (pharmacie) et PLB (produits
 de laboratoire). La liste des produits d'un pharmacien est TOUJOURS filtrée par
 le code de SON client (jamais par un paramètre envoyé par le navigateur).
 

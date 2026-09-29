@@ -2,7 +2,7 @@
   Lot 39 — Portail → « Ordonnances et stock ».
   Le pharmacien photographie une ordonnance : l'IA lit les médicaments prescrits (jamais
   l'identité du patient), le serveur les rapproche du stock de SON client (code client,
-  un ou plusieurs dépôts : PHM → PPH et PLB) et affiche pour chaque ligne la
+  un ou plusieurs dépôts : PHL → PPH et PLB) et affiche pour chaque ligne la
   disponibilité (salle, magasin, réservé), l'alerte de péremption, les équivalents
   VIDAL présents en stock, puis réserve les quantités jusqu'à la vente.
   API : /stock-produits (stock) et /ordonnances-stock (backend/routes/ordonnances_stock.py).

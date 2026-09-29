@@ -47,6 +47,10 @@ Aucune modification du module commun `ocr_core` : on réutilise son appel IA
 (clé EMERGENT_LLM_KEY), son calcul de coût et son redimensionnement d'image,
 mais la préparation diffère (toutes les pages, toujours en image : le PDF
 d'origine contient du texte imprimé, mais c'est l'écriture manuscrite qu'on lit).
+
+Sans scanner (lot 32) : les pages peuvent être photographiées au téléphone et
+déposées ensemble ; `photos_en_pdf` les assemble en un seul PDF, analysé ensuite
+comme un scan.
 """
 from __future__ import annotations
 
@@ -85,6 +89,10 @@ PDF_RENDER_DPI = 200
 MAX_PAGES = 60
 # Pages analysées en parallèle (limite la charge sur le proxy IA).
 PARALLELE = 4
+# Photos de téléphone assemblées en PDF (lot 32) : plus grand côté conservé et
+# qualité JPEG — assez pour relire l'écriture à l'écran, ~0,5 Mo par page.
+PHOTO_MAX_PX = 2400
+PHOTO_QUALITE = 85
 
 
 # ---------------------------------------------------------------------------
@@ -647,6 +655,46 @@ def pages_en_images(data: bytes, content_type: str) -> List[bytes]:
     if content_type in IMAGE_MIMES:
         return [shrink_image(data)]
     raise ValueError("Liste de pointage attendue en PDF ou en photo (JPG/PNG/WEBP).")
+
+
+def photos_en_pdf(photos: List[bytes]) -> bytes:
+    """Photos des pages prises au téléphone (dans l'ordre) → UN PDF d'une page par photo.
+
+    Sans scanner, on photographie chaque page : le PDF assemblé est ensuite stocké et
+    analysé exactement comme un scan (relance, téléchargement et suppression inchangés).
+    Chaque photo est redressée (EXIF), réduite à PHOTO_MAX_PX et ré-encodée en JPEG ;
+    la taille de page est calculée pour qu'un rendu à PDF_RENDER_DPI redonne la photo
+    à sa résolution (ni perte, ni agrandissement inutile)."""
+    import io
+
+    import fitz  # PyMuPDF (même import que ocr_core)
+    from PIL import Image, ImageOps
+
+    if not photos:
+        raise ValueError("Aucune photo reçue.")
+    if len(photos) > MAX_PAGES:
+        raise ValueError(f"{len(photos)} photos : maximum {MAX_PAGES} pages.")
+    pdf = fitz.open()
+    try:
+        for n, brut in enumerate(photos, 1):
+            try:
+                with Image.open(io.BytesIO(brut)) as img:
+                    img = ImageOps.exif_transpose(img)           # photo prise « de côté »
+                    if img.mode != "RGB":
+                        img = img.convert("RGB")                 # JPEG : ni transparence ni palette
+                    img.thumbnail((PHOTO_MAX_PX, PHOTO_MAX_PX))  # proportions gardées, jamais agrandie
+                    largeur, hauteur = img.size
+                    sortie = io.BytesIO()
+                    img.save(sortie, format="JPEG", quality=PHOTO_QUALITE, optimize=True)
+            except Exception as exc:  # noqa: BLE001 — photo illisible (HEIC, fichier abîmé…)
+                raise ValueError(f"Photo n°{n} illisible : envoyez des photos JPG, PNG ou WEBP "
+                                 "(le format HEIC de l'iPhone n'est pas pris en charge).") from exc
+            # 1 point PDF = 1/72 pouce : la page mesure (pixels / DPI) pouces.
+            page = pdf.new_page(width=largeur * 72 / PDF_RENDER_DPI, height=hauteur * 72 / PDF_RENDER_DPI)
+            page.insert_image(page.rect, stream=sortie.getvalue())
+        return pdf.tobytes(garbage=3, deflate=True)
+    finally:
+        pdf.close()
 
 
 async def lire_pages(images: List[bytes], filename: str, model_id: str) -> Tuple[List[dict], Dict[str, Any]]:

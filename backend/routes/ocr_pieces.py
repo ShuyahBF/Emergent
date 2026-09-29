@@ -23,6 +23,8 @@ d'inventaire remplie à la main est déposé AVEC le JSON de l'inventaire export
 par WinDev ; l'analyse (module `ocr_pointage`, et non l'analyse générique
 d'ocr_core) produit un JSON complété (IMagasin, ISalle, Peremption1…),
 téléchargeable via GET /ocr-pieces/{id}/json-complete.
+Sans scanner (lot 32) : les pages photographiées au téléphone sont envoyées
+ensemble dans le champ `photos` (au lieu de `file`) et assemblées en un PDF.
 """
 from __future__ import annotations
 
@@ -56,6 +58,8 @@ PIECE_KINDS = ["facture", "bon_livraison", "avoir", "recu", "releve", "liste_poi
 POINTAGE = "liste_pointage"
 # Le scan d'une liste de pointage est un PDF ou une photo (pas de texte brut).
 POINTAGE_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp"}
+# Pages photographiées au téléphone, déposées ensemble (lot 32).
+POINTAGE_PHOTO_EXTENSIONS = {"jpg", "jpeg", "png", "webp"}
 MAX_UPLOAD_BYTES = 20 * 1024 * 1024  # 20 Mo
 ALLOWED_EXTENSIONS = {"pdf", "jpg", "jpeg", "png", "webp", "txt", "csv"}
 
@@ -287,21 +291,51 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
 
     @api.post("/ocr-pieces", tags=[TAG])
     async def upload_piece(
-        file: UploadFile = File(...),
+        file: Optional[UploadFile] = File(None),
         kind: str = Form("facture"),
         tenant_id: Optional[str] = Form(None),
         model: Optional[str] = Form(None),
         inventaire_json: Optional[UploadFile] = File(None),
+        photos: Optional[List[UploadFile]] = File(None),
         user: dict = Depends(allowed_user),
     ):
         if kind not in PIECE_KINDS:
             raise HTTPException(status_code=400, detail=f"Type de pièce invalide (attendu : {PIECE_KINDS})")
-        ext = _ext_of(file.filename or "")
-        if ext not in ALLOWED_EXTENSIONS:
-            raise HTTPException(status_code=400, detail=f"Extension non autorisée : .{ext}")
-        data = await file.read()
-        if len(data) > MAX_UPLOAD_BYTES:
-            raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 20 Mo)")
+        photos = [p for p in (photos or []) if p and p.filename]
+        if photos:
+            # Lot 32 — liste de pointage sans scanner : les pages photographiées au
+            # téléphone (dans l'ordre) sont assemblées en UN PDF, stocké et analysé
+            # ensuite exactement comme un scan.
+            if kind != POINTAGE:
+                raise HTTPException(status_code=400, detail="Plusieurs photos : réservé aux listes de pointage")
+            if file is not None and file.filename:
+                raise HTTPException(status_code=400, detail="Déposez soit un PDF, soit des photos, pas les deux")
+            if len(photos) > ocr_pointage.MAX_PAGES:
+                raise HTTPException(status_code=400, detail=f"{len(photos)} photos : maximum {ocr_pointage.MAX_PAGES} pages")
+            contenus = []
+            for n, photo in enumerate(photos, 1):
+                if _ext_of(photo.filename) not in POINTAGE_PHOTO_EXTENSIONS:
+                    raise HTTPException(status_code=400, detail=f"Photo n°{n} ({photo.filename}) : JPG, PNG ou WEBP attendu")
+                contenu = await photo.read()
+                if len(contenu) > MAX_UPLOAD_BYTES:
+                    raise HTTPException(status_code=413, detail=f"Photo n°{n} trop volumineuse (max 20 Mo)")
+                contenus.append(contenu)
+            try:
+                # Assemblage (Pillow + PyMuPDF, bloquant) hors de la boucle d'événements.
+                data = await asyncio.to_thread(ocr_pointage.photos_en_pdf, contenus)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            ext, nom_fichier, type_envoye = "pdf", f"Liste_pointage_{len(photos)}_photos.pdf", "application/pdf"
+        else:
+            if file is None or not file.filename:
+                raise HTTPException(status_code=400, detail="Aucun fichier déposé")
+            ext = _ext_of(file.filename)
+            if ext not in ALLOWED_EXTENSIONS:
+                raise HTTPException(status_code=400, detail=f"Extension non autorisée : .{ext}")
+            data = await file.read()
+            if len(data) > MAX_UPLOAD_BYTES:
+                raise HTTPException(status_code=413, detail="Fichier trop volumineux (max 20 Mo)")
+            nom_fichier, type_envoye = file.filename, file.content_type
 
         # Liste de pointage : le JSON de l'inventaire est obligatoire et validé
         # AVANT tout stockage (on refuse tôt plutôt que d'échouer en tâche de fond).
@@ -335,10 +369,10 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             owner = await db.users.find_one({"id": tenant_id}, {"_id": 0, "id": 1, "company": 1, "full_name": 1, "client_code": 1}) or {}
             model_id = ocr_core.default_model_id()
 
-        content_type = storage.guess_content_type(ext, file.content_type or "application/octet-stream")
+        content_type = storage.guess_content_type(ext, type_envoye or "application/octet-stream")
         stored = await storage.save_and_log(
             db, data=data, kind="ocr_pieces", tenant_id=tenant_id, ext=ext,
-            content_type=content_type, original_filename=file.filename, user_id=user["id"],
+            content_type=content_type, original_filename=nom_fichier, user_id=user["id"],
         )
         json_path = None
         if json_bytes is not None:
@@ -352,7 +386,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             "tenant_label": owner.get("company") or owner.get("full_name"),
             "client_code": owner.get("client_code"),
             "uploaded_by": user["id"], "kind": kind,
-            "storage_path": stored["path"], "original_filename": file.filename,
+            "storage_path": stored["path"], "original_filename": nom_fichier,
             "content_type": content_type, "size": stored.get("size") or len(data),
             "status": "en_analyse", "created_at": _now(),
         }
@@ -361,7 +395,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             piece["inventaire_json_filename"] = inventaire_json.filename
         await db.ocr_pieces.insert_one(piece.copy())
         asyncio.create_task(_analyze_and_store(
-            piece["id"], data, content_type, file.filename or "", tenant_id, model_id, user["id"],
+            piece["id"], data, content_type, nom_fichier or "", tenant_id, model_id, user["id"],
             kind=kind, json_path=json_path, json_filename=piece.get("inventaire_json_filename"),
         ))
         return piece if _is_staff(user) else _for_pharmacy(piece)

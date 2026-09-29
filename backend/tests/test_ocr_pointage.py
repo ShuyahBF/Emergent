@@ -367,3 +367,84 @@ def test_json_complete_refuse_pour_une_facture(env, monkeypatch):
     _wait_analysed(env, "pharma_a", piece["id"])
     assert env.client.get(f"/api/ocr-pieces/{piece['id']}/json-complete",
                           headers=_h("pharma_a")).status_code == 400
+
+
+# --- 3. Lot 32 : pages photographiées au téléphone (sans scanner) -------------
+def _photo(largeur=1200, hauteur=1600, fmt="JPEG", mode="RGB", orientation=None) -> bytes:
+    """Photo factice d'une page (option : balise EXIF d'orientation, comme un téléphone)."""
+    import io
+
+    from PIL import Image
+    img = Image.new(mode, (largeur, hauteur), "white")
+    out = io.BytesIO()
+    if orientation:
+        exif = Image.Exif()
+        exif[0x0112] = orientation
+        img.save(out, format=fmt, exif=exif)
+    else:
+        img.save(out, format=fmt)
+    return out.getvalue()
+
+
+def test_photos_assemblees_en_pdf():
+    import fitz
+    photos = [
+        _photo(),                                        # page droite
+        _photo(1600, 1200, orientation=6),               # prise « de côté » : redressée
+        _photo(4000, 3000, fmt="PNG", mode="RGBA"),      # PNG transparent, trop grand : réduit
+    ]
+    pdf = op.photos_en_pdf(photos)
+    with fitz.open(stream=pdf, filetype="pdf") as doc:
+        assert doc.page_count == 3                       # une page par photo, dans l'ordre
+        tailles = [(round(p.rect.width), round(p.rect.height)) for p in doc]
+    assert tailles[0] == (432, 576)                      # 1200×1600 px à 200 dpi
+    assert tailles[1] == (432, 576)                      # EXIF 6 : 1600×1200 devient portrait
+    assert tailles[2] == (864, 648)                      # 4000 px ramenés à 2400 px
+    # Rendu à 200 dpi (comme l'analyse) : on retrouve la résolution de la photo.
+    assert len(op.pages_en_images(pdf, "application/pdf")) == 3
+    with pytest.raises(ValueError, match="Photo n°2 illisible"):
+        op.photos_en_pdf([_photo(), b"ftypheic pas une image"])
+    with pytest.raises(ValueError, match="Aucune photo"):
+        op.photos_en_pdf([])
+
+
+def _depot_photos(env, user, photos, json_bytes, kind="liste_pointage", **form):
+    files = [("photos", (nom, contenu, "image/jpeg")) for nom, contenu in photos]
+    if json_bytes is not None:
+        files.append(("inventaire_json", ("InventaireSélectionné_PPH_INV067.json", json_bytes, "application/json")))
+    return env.client.post("/api/ocr-pieces", headers=_h(user), files=files, data={"kind": kind, **form})
+
+
+def test_parcours_photos_telephone(env, fake_llm):
+    inv = json.dumps(_inventaire()).encode()
+    r = _depot_photos(env, "pharma_a", [("IMG_0001.jpg", _photo()), ("IMG_0002.jpg", _photo())], inv)
+    assert r.status_code == 200, r.text
+    piece = r.json()
+    assert piece["original_filename"] == "Liste_pointage_2_photos.pdf"
+    assert piece["content_type"] == "application/pdf"
+    done = _wait_analysed(env, "pharma_a", piece["id"])
+    assert done["status"] == "analyse", done
+    assert done["extracted_fields"]["lignes_completees"] == 3
+    assert sorted(f.rsplit(" ", 1)[-1] for _, f in fake_llm) == ["p.1", "p.2"]   # une requête par photo
+    # Le PDF assemblé est bien celui qu'on retélécharge.
+    dl = env.client.get(f"/api/ocr-pieces/{piece['id']}/download", headers=_h("pharma_a"))
+    assert dl.status_code == 200 and dl.content.startswith(b"%PDF")
+
+
+def test_photos_refusees(env, fake_llm):
+    inv = json.dumps(_inventaire()).encode()
+    une = [("IMG_0001.jpg", _photo())]
+    assert _depot_photos(env, "pharma_a", une, inv, kind="facture").status_code == 400      # hors pointage
+    assert _depot_photos(env, "pharma_a", [("IMG_0001.heic", b"...")], inv).status_code == 400  # HEIC
+    r = _depot_photos(env, "pharma_a", [("IMG_0001.jpg", b"pas une photo")], inv)
+    assert r.status_code == 400 and "Photo n°1 illisible" in r.json()["detail"]
+    assert _depot_photos(env, "pharma_a", une, None).status_code == 400                     # JSON manquant
+    # PDF et photos ensemble : ambigu, refusé.
+    r = env.client.post("/api/ocr-pieces", headers=_h("pharma_a"), data={"kind": "liste_pointage"},
+                        files=[("file", ("liste.pdf", _pdf(1), "application/pdf")),
+                               ("photos", ("IMG_0001.jpg", _photo(), "image/jpeg")),
+                               ("inventaire_json", ("inv.json", inv, "application/json"))])
+    assert r.status_code == 400
+    assert env.client.post("/api/ocr-pieces", headers=_h("pharma_a"),
+                           data={"kind": "facture"}).status_code == 400                     # aucun fichier
+    assert fake_llm == []                                                                    # aucun appel IA payé

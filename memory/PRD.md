@@ -14,6 +14,44 @@ Construit moi un site web, qui s'affiche bien sur toutes les types de terminaux 
 - **WelcomeBriefing overlay bloque parfois les clics sur /admin/settings** : ajouter un dismiss auto ou close-on-outside-click. _[récurrent iterations_68/69/84]_
 
 
+## 2026-09-29 — Lots 38 + 39 appliqués (fork iter suivante) ✅ APPLIQUÉ (aucun test — QA utilisateur)
+
+**Patch source** : `sawali-portal-corrections_38_to_39_8f10f21.patch` (base `f9fc130`, 2 commits).
+**Consigne utilisateur STRICTE** : appliquer via `git am`, redémarrer supervisor, ne rien tester ni analyser. Aucun testing_agent, aucun lint, aucune vérif UI.
+
+### Lot 38 — Liste de pointage : email `[CODE]`, péremption la plus proche, N° et page
+- `backend/ocr_pointage/__init__.py` : nouvelles fonctions `code_client`, `rapport_csv`, `email_fin_de_traitement` + règle « péremption la plus proche » (une date n'est remplacée que par une plus proche, les dates écartées sont citées dans le compte rendu) + N° d'ordre et page sur chaque lecture et alerte (« N° 234 (p.4) »).
+- `backend/routes/ocr_pieces.py` : paramètre `send_email` + email de fin de traitement (objet `[CODE] Inventaire … — liste de pointage traitée : résultat et points à corriger`, corps = résumé + compte rendu, pièces jointes JSON produit + CSV). En cas d'échec : « … NON traitée » + motif. L'envoi ne bloque jamais l'analyse. Trace `email_resultat` sur la pièce.
+- `backend/server_parts/p20_branchement_routeurs.py` : `send_email` passé aux routes OCR Pièces.
+
+### Lot 39 — Stock par client et dépôt + Ordonnances
+- **Nouveau** `backend/stock_produits/__init__.py` : gestion stock par `code_client` (client_code du compte) + `code_depot` (base HFSQL, suit `InventaireSélectionné_` dans le nom du JSON). Collection MongoDB `stock_produits`, clé unique `code_client + code_depot + code_produit`. Copie Supabase facultative (`SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY`, table `SUPABASE_STOCK_TABLE` default `stock_produits`). Alerte péremption (périmé / < 3 mois).
+- **Nouveau** `backend/routes/ordonnances_stock.py` : routes `/api/stock-produits/*` (dépôts, recherche, sync Loois via `X-Sync-Token = STOCK_SYNC_TOKEN`, journal `stock_sync_journal`) et `/api/ordonnances-stock/*` (lecture IA de l'ordonnance sans conservation de la photo ni identité, rapprochement stock + dosage 1 g = 1000 mg, disponibilité salle/magasin/réservé, équivalents VIDAL en stock avec regroupement VMP, réservations 48 h configurable via `ordonnance_reservation_heures` dans `settings _id: "global"`).
+- **Nouveau** `frontend/src/pages/portal/OrdonnancesStock.jsx` : page « Ordonnances et stock » pensée téléphone (appareil photo direct), pharmacien filtré sur son client_code, Admin/Superviseur peuvent choisir un autre client.
+- `backend/ocr_pointage/__init__.py` : nouvelle fonction `nom_json_produit` (suffixe `_magasin_vente` quand salle ET magasin, sinon `_complete`). Un suffixe déjà présent est remplacé, jamais doublé.
+- `backend/routes/ocr_pieces.py` : mise à jour du stock en fin de pointage (trace `stock_maj` sur la pièce = client, dépôt, nombre de produits, état Supabase) + nom du JSON produit.
+- `backend/routes/vidal_fiche.py` : `attach_vidal_fiche_routes` renvoie désormais ses fonctions de recherche et d'équivalences (réutilisées par les ordonnances).
+- `backend/routes/fonctions_clients.py` + `backend/server_parts/p03_admin_clients_usage.py` : nouvelle clé activable `ordonnances_stock` dans `DEFAULT_CLIENT_FEATURES` et `ClientFeaturesUpdate` (**désactivée par défaut**, contrôlée serveur).
+- `backend/server_parts/p20_branchement_routeurs.py` : branchement `/api/ordonnances-stock` juste après la fiche VIDAL.
+- `frontend/src/App.js` : routes `/portal/ordonnances-stock` et `/admin/ordonnances-stock`.
+- `frontend/src/components/PortalLayout.jsx` : menu « Ordonnances et stock » (grisé tant que non activé) côté portail, pharmacien suivi et Admin.
+- `frontend/src/pages/portal/FonctionsClients.jsx` + `frontend/src/pages/admin/AdminClientFeatures.jsx` : la fonction apparaît à côté de « Formulaires et Sondages » et « OCR sur Pièces ».
+- Tests utilisateur inclus (non exécutés côté agent) : `backend/tests/test_ordonnances_stock.py` (5) + `test_ocr_pointage.py` (2 additionnels) + `test_fonctions_clients.py` (mis à jour) + `test_ocr_pieces.py` (mis à jour).
+
+### Variables d'environnement à configurer côté Emergent UI
+- `STOCK_SYNC_TOKEN` (obligatoire pour la sync Loois — sinon la route renvoie 503 « non configurée »).
+- `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` (facultatifs — copie miroir du stock ; sans, rien n'est envoyé et rien ne plante).
+- `SUPABASE_STOCK_TABLE` (facultatif, défaut `stock_produits`).
+- Réutilisées : `EMERGENT_LLM_KEY` (lecture IA ordonnance), VIDAL (accès/cache/quota client existants), SMTP plateforme (déjà configuré dans Admin).
+
+### État
+- Backend redémarré et sain (`Application startup complete.`, tous les routers montés).
+- Commits appliqués : `09147f1` (Lot 38) + `f8b3b9b` (Lot 39).
+- Aucun test lancé côté agent (interdit). QA sur environnement déployé par l'utilisateur.
+
+---
+
+
 ## 2026-02-27 (Fork iter108) — S164 Push + S158 Recurring + S159 Auto-suspend ✅ DÉPLOYÉ
 
 **User request** : « d + testing agent à la fin de tout + déploiement » — attaquer 3 items du backlog (S164, S158, S159).

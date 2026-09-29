@@ -1,0 +1,12 @@
+# Configuration Ruff — SAWALI
+# Les modules backend/server_parts/*.py sont chargés dynamiquement dans le namespace
+# de server.py (voir lot 28). Les noms globaux (db, api, helpers, typings…) y sont
+# injectés au runtime : Ruff ne peut pas les résoudre statiquement, F821 est donc
+# un faux positif par conception.
+# Les fichiers de tests utilisent des fixtures avec variables locales `env` réutilisées
+# à plusieurs endroits pour des scénarios distincts — F811 est intentionnel.
+
+[lint.per-file-ignores]
+"backend/server.py" = ["F821"]
+"backend/server_parts/*.py" = ["F821", "F811"]
+"backend/tests/*.py" = ["F811"]

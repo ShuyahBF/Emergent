@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { NavLink, useNavigate, Outlet, Link, useLocation } from "react-router-dom";
 import {
-  LayoutDashboard, Calendar, FileText, Wrench, Users,
+  LayoutDashboard, Calendar, FileText, Wrench, Users, GalleryHorizontalEnd,
   Settings, LogOut, Menu, X, Inbox, Mail, ShieldCheck, Boxes, FileEdit, Star, Briefcase, Newspaper, Send, Activity, Globe2, ShieldAlert, History, GraduationCap, Bug, HeartPulse, Database, Link2, MessageCircle, MessageSquare, Zap, Shield, Wand2, FolderOpen, BarChart3, Wallet, Receipt, ShoppingBag, Banknote, Ticket, Tag, Bell, BellOff, Volume2, VolumeX, Bot, Megaphone, ClipboardList, ScrollText, Languages, AlertOctagon, AlertTriangle, Sparkles, CircleDollarSign, Factory, Moon, Sun, StickyNote, Pill, Stethoscope, ScanText,
 } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
@@ -62,6 +62,8 @@ const clientLinks = [
   { to: "/portal/inbox", label: "Inbox unifiée (WA + Messenger)", icon: MessageCircle },
   { to: "/portal/sms", label: "SMS — Masse & Planif.", icon: Send, module: "sms" },
   { to: "/portal/whatsapp-bulk", label: "WhatsApp — Masse & Planif.", icon: MessageCircle, module: "whatsapp" },
+  // Lot 40 — carrousel de 2 à 10 cartes vers les contacts qui ont accepté (fonction activable).
+  { to: "/portal/whatsapp-carrousel", label: "Carrousel WhatsApp", icon: GalleryHorizontalEnd, featureGate: "whatsapp_carrousel" },
   // Iter38r-fix9p — Sidebar entry "Mes paiements" retirée (page accessible
   // via /portal/cash → onglet Reçus + bouton Mobile Money). La route reste
   // active pour les liens directs (emails de confirmation, etc.).
@@ -130,6 +132,7 @@ const adminLinks = [
   { to: "/admin/forms", label: "Formulaires & Sondages", icon: FileEdit, alsoActive: ["/admin/surveys"] },
   { to: "/admin/portfolio-invoices", label: "Bilans à facturer", icon: Receipt },   // lot 27
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
+  { to: "/admin/whatsapp-carrousel", label: "Carrousel WhatsApp", icon: GalleryHorizontalEnd },   // lot 40
   { to: "/admin/whatsapp-templates", label: "Templates WhatsApp", icon: FileEdit },
   { to: "/admin/automations", label: "Automations", icon: Zap },
   { to: "/admin/liluvine-history", label: "Liluvine PRO — Historique", icon: Bot },

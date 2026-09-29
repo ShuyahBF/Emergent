@@ -946,6 +946,21 @@ api.include_router(_make_qdrant_router(db=db, get_current_user=get_current_user)
 from routes.media_library import setup_media_library_routes  # noqa: E402
 setup_media_library_routes(db=db, api=api, get_current_user=get_current_user, save_and_log=_obj_storage.save_and_log)
 
+# ============================================================
+# Lot 40 — Carrousel WhatsApp (2 à 10 cartes : produits de la caisse ou cartes
+# libres) : portail client vers ses contacts consentants (fonction activable
+# `whatsapp_carrousel`) et administration SAWALI vers ses clients.
+# Voir routes/carrousel_whatsapp.py.
+# ============================================================
+from routes.carrousel_whatsapp import attach_carrousel_whatsapp_routes as _attach_carrousel_wa  # noqa: E402
+_attach_carrousel_wa(
+    api=api, db=db, get_current_user=get_current_user, get_current_admin=get_current_admin,
+    fonction_active=_fonction_active, visible_client_ids=_resolve_visible_client_ids,
+    wa_send_template=_wa_send_template, resolve_wa_credentials=_resolve_wa_credentials,
+    base_publique=lambda: _public_base_url() or _PUBLIC_BASE_URL,   # adresse publique (réglage Admin, sinon PUBLIC_BASE_URL)
+    save_and_log=_obj_storage.save_and_log,
+)
+
 
 # S-iter39d (fix #4) — Lecture du registre des suggestions (admin uniquement).
 # Permet à l'admin de consulter SUGGESTIONS.md directement depuis l'UI sans

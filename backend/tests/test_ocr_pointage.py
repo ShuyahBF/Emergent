@@ -318,8 +318,9 @@ def test_parcours_pharmacie(env, fake_llm):
     dl = env.client.get(f"/api/ocr-pieces/{piece['id']}/json-complete", headers=_h("pharma_a"))
     assert dl.status_code == 200
     cd = dl.headers["content-disposition"]
-    assert 'filename="InventaireSelectionne_PPH_INV067_complete.json"' in cd       # repli ASCII
-    assert "filename*=UTF-8''InventaireS%C3%A9lectionn%C3%A9_PPH_INV067_complete.json" in cd
+    # Lot 39 : salle ET magasin comptés → « _magasin_vente »
+    assert 'filename="InventaireSelectionne_PPH_INV067_magasin_vente.json"' in cd       # repli ASCII
+    assert "filename*=UTF-8''InventaireS%C3%A9lectionn%C3%A9_PPH_INV067_magasin_vente.json" in cd
     complet = json.loads(dl.content)[op.CLE_TABLE]
     assert (complet[0]["IMagasin"], complet[0]["ISalle"], complet[0]["Peremption1"]) == (5, 3, "20280601")
     assert complet[0]["Saisie_par"] == "Claude" and len(complet[0]["DH_Saisie"]) == 17
@@ -503,8 +504,8 @@ def test_email_fin_de_traitement(env, fake_llm):
     assert mail["subject"] == "[PPH] Inventaire INV067 — liste de pointage traitée : résultat et points à corriger"
     assert "Résultat :" in mail["text"] and "N° d'ordre et sa page" in mail["text"]
     noms = [a["filename"] for a in mail["attachments"]]
-    assert noms == ["InventaireSélectionné_PPH_INV067_complete.json",
-                    "InventaireSélectionné_PPH_INV067_complete.rapport.csv"]
+    assert noms == ["InventaireSélectionné_PPH_INV067_magasin_vente.json",
+                    "InventaireSélectionné_PPH_INV067_magasin_vente.rapport.csv"]
     assert json.loads(mail["attachments"][0]["content"])[op.CLE_TABLE][0]["ISalle"] == 3
     enreg = env.client.portal.call(env.db.ocr_pieces.find_one, {"id": piece["id"]})
     assert enreg["email_resultat"]["envoye"] is True
@@ -523,3 +524,30 @@ def test_email_si_echec_et_depot_admin(env, fake_llm, monkeypatch):
     assert mail["to"] == "admin@sawali.test"
     assert mail["subject"] == "[PPH] Inventaire INV067 — liste de pointage NON traitée"
     assert "Motif : Aucune page n'a pu être lue." in mail["text"] and mail["attachments"] == []
+
+
+# ---------------------------------------------------------------------------
+# Lot 39 — nom « _magasin_vente » et stock des produits en fin de pointage
+# ---------------------------------------------------------------------------
+def test_nom_json_produit():
+    salle = {op.CLE_TABLE: [dict(_ligne(1, "A"), ISalle=3), _ligne(2, "B")]}
+    deux = {op.CLE_TABLE: [dict(_ligne(1, "A"), ISalle=3), dict(_ligne(2, "B"), IMagasin=4)]}
+    nom = "InventaireSélectionné_PPH_INV067.json"
+    assert op.nom_json_produit(nom, json.dumps(salle).encode()) == "InventaireSélectionné_PPH_INV067_complete.json"
+    assert op.nom_json_produit(nom, json.dumps(deux).encode()) == "InventaireSélectionné_PPH_INV067_magasin_vente.json"
+    # 2e passage sur le JSON déjà complété : le suffixe est remplacé, jamais doublé
+    assert op.nom_json_produit("InventaireSélectionné_PPH_INV067_complete.json", json.dumps(deux).encode()) \
+        == "InventaireSélectionné_PPH_INV067_magasin_vente.json"
+
+
+def test_stock_mis_a_jour_en_fin_de_pointage(env, fake_llm):
+    piece = _depot(env, "pharma_a", json.dumps(_inventaire()).encode()).json()
+    done = _wait_analysed(env, "pharma_a", piece["id"])
+    assert done["stock_maj"]["etat"] == "ok"
+    assert (done["stock_maj"]["code_client"], done["stock_maj"]["code_depot"]) == ("PA", "PPH")
+    prods = env.client.portal.call(lambda: env.db.stock_produits.find({"code_client": "PA"}).to_list(10))
+    par = {p["libelle"]: p for p in prods}
+    assert len(prods) == 4 and all(p["code_depot"] == "PPH" and p["source"] == "pointage" for p in prods)
+    a = par["ARGESUN INJ 120MG"]
+    assert (a["isalle"], a["imagasin"], a["stock"], a["peremption"], a["compte"]) == (3, 5, 8, "20280601", True)
+    assert par["BANDELETTE CODEFREE"]["compte"] is False       # ligne non pointée : stock inconnu

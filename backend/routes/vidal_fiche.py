@@ -306,3 +306,13 @@ def attach_vidal_fiche_routes(*, api, db, get_current_user):
                 detail="VIDAL n'a pas retourné de posologie pour ce produit (endpoint expérimental).",
             )
         return {"experimental": True, "data": data}
+
+    # Lot 39 — réutilisées par la vérification des ordonnances (équivalents présents en stock) :
+    # mêmes contrôles d'accès VIDAL, même cache et même quota que les routes ci-dessus.
+    async def rechercher(user: dict, q: str) -> dict:
+        return await search_parsed(q=q, filter=None, user=user)
+
+    async def equivalents(user: dict, vmp_id: str) -> dict:
+        return await vmp_equivalents(vmp_id=vmp_id, exclude_product_id=None, user=user)
+
+    return {"rechercher": rechercher, "equivalents": equivalents}

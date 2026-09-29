@@ -360,7 +360,19 @@ _attach_vidal_favorites(api=api, db=db, get_current_user=get_current_user)
 # Portage site-meetafrican — Fiche produit VIDAL (voies + documents + vmp_id),
 # recherche structurée, équivalences, proxy documents et Posologie (expérimental).
 from routes.vidal_fiche import attach_vidal_fiche_routes as _attach_vidal_fiche  # noqa: E402
-_attach_vidal_fiche(api=api, db=db, get_current_user=get_current_user)
+_vidal_fiche = _attach_vidal_fiche(api=api, db=db, get_current_user=get_current_user)
+
+# ============================================================
+# Lot 39 — Stock des produits par client/dépôt (fin de pointage + envoi Loois)
+# et vérification des ordonnances : routes/ordonnances_stock.py. Équivalents
+# cherchés avec le module VIDAL ci-dessus (même accès, cache et quota).
+# ============================================================
+from routes.ordonnances_stock import attach_ordonnances_stock_routes as _attach_ordonnances_stock  # noqa: E402
+_attach_ordonnances_stock(
+    api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
+    vidal_rechercher=(_vidal_fiche or {}).get("rechercher"),
+    vidal_equivalents=(_vidal_fiche or {}).get("equivalents"),
+)
 
 # Portage site-meetafrican — cache local du référentiel produits VIDAL :
 # boucle de fond qui relance une synchronisation complète quand la

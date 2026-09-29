@@ -42,6 +42,7 @@ from pydantic import BaseModel, Field
 
 import ocr_core
 import ocr_pointage
+import stock_produits
 
 logger = logging.getLogger("sawali.ocr_pieces")
 
@@ -175,7 +176,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
     # --- Email de fin de traitement (liste de pointage, lot 38) -----------------
     async def _email_pointage(piece_id: str, tenant_id: str, requested_by: str, json_filename: Optional[str],
                               result: dict, json_complete: Optional[bytes], pointage_rapport: Optional[dict],
-                              compte_rendu: Optional[str]) -> None:
+                              compte_rendu: Optional[str], nom_json: Optional[str] = None) -> None:
         """Envoie le résultat (compte rendu, points à corriger avec N° et page, JSON complété et
         rapport Excel en pièces jointes) à la personne qui a déposé la liste. Ne lève jamais :
         l'analyse reste enregistrée même si l'email ne part pas (SMTP non configuré…)."""
@@ -196,11 +197,12 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
                 resume=result.get("summary"), erreur=result.get("error"),
                 destinataire=(auteur.get("full_name") or "").strip())
             pieces_jointes = []
+            nom_json = nom_json or _nom_json_complete(json_filename)
             if json_complete:
-                pieces_jointes.append({"filename": _nom_json_complete(json_filename), "content": json_complete,
+                pieces_jointes.append({"filename": nom_json, "content": json_complete,
                                        "mime_type": "application/json"})
             if pointage_rapport:
-                base = _nom_json_complete(json_filename).rsplit(".", 1)[0]
+                base = nom_json.rsplit(".", 1)[0]
                 pieces_jointes.append({"filename": f"{base}.rapport.csv",
                                        "content": ocr_pointage.rapport_csv(pointage_rapport),
                                        "mime_type": "text/csv"})
@@ -210,6 +212,29 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
             envoye = False
         await db.ocr_pieces.update_one({"id": piece_id}, {"$set": {
             "email_resultat": {"envoye": bool(envoye), "le": _now()}}})
+
+    # --- Stock des produits (lot 39) ---------------------------------------------
+    async def _maj_stock(tenant_id: str, json_filename: Optional[str], json_complete: bytes,
+                         inventaire: Optional[str]) -> Optional[dict]:
+        """Fin de pointage : chaque ligne du JSON complété met à jour le stock du client
+        (MongoDB `stock_produits`, copie Supabase si configurée), sous le code du client
+        et le code du dépôt (base du JSON : « PPH » pour InventaireSélectionné_PPH_…).
+        Ne lève jamais : un échec n'empêche ni l'analyse ni l'email."""
+        try:
+            code_depot = ocr_pointage.code_client(json_filename)
+            tenant = await db.users.find_one({"id": tenant_id}, {"_id": 0, "client_code": 1}) or {}
+            code_client = (tenant.get("client_code") or "").strip().upper() or code_depot
+            if not code_client or not code_depot:
+                return {"etat": "ignore", "motif": "code client ou code dépôt introuvable"}
+            doc = ocr_pointage.charger_json_inventaire(json_complete)
+            lignes = stock_produits.lignes_depuis_inventaire(doc, code_client=code_client, code_depot=code_depot,
+                                                             inventaire=inventaire)
+            res = await stock_produits.enregistrer(db, lignes)
+            return {"etat": "ok", "code_client": code_client, "code_depot": code_depot,
+                    "produits": res["mongo"], "supabase": res["supabase"]["etat"], "le": _now()}
+        except Exception as exc:  # noqa: BLE001
+            logger.exception("[ocr_pieces] mise à jour du stock impossible (%s)", json_filename)
+            return {"etat": "erreur", "erreur": str(exc)[:300]}
 
     # --- Analyse en tâche de fond ---------------------------------------------
     async def _analyze_and_store(piece_id: str, data: bytes, content_type: str, filename: str,
@@ -221,6 +246,8 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
             pointage_rapport = None
             compte_rendu = None
             json_complete = None
+            nom_json = None
+            stock_maj = None
             if kind == POINTAGE:
                 # Liste de pointage : lecture des colonnes manuscrites et report
                 # dans le JSON de l'inventaire (module ocr_pointage).
@@ -233,12 +260,16 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
                 compte_rendu = result.pop("compte_rendu", None)
                 json_complete = result.pop("json_complete", None)
                 if json_complete:
+                    # Lot 39 : « …_magasin_vente.json » quand le JSON porte les deux stocks.
+                    nom_json = ocr_pointage.nom_json_produit(json_filename, json_complete)
                     stored = await storage.save_and_log(
                         db, data=json_complete, kind="ocr_pointage_json", tenant_id=tenant_id, ext="json",
                         content_type="application/json",
-                        original_filename=_nom_json_complete(json_filename), user_id=requested_by,
+                        original_filename=nom_json, user_id=requested_by,
                     )
                     json_complete_path = stored["path"]
+                    stock_maj = await _maj_stock(tenant_id, json_filename, json_complete,
+                                                 (result.get("extracted_fields") or {}).get("inventaire"))
             else:
                 result = await ocr_core.analyze_document(
                     data, content_type, filename, model_id,
@@ -274,11 +305,13 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
                 latest["json_complete_path"] = json_complete_path
                 latest["json_complete_disponible"] = bool(json_complete_path)
                 latest["compte_rendu"] = compte_rendu
+                latest["json_complete_nom"] = nom_json
+                latest["stock_maj"] = stock_maj
             latest["status"] = "erreur_analyse" if run["error"] else "analyse"
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": latest})
             if kind == POINTAGE:
                 await _email_pointage(piece_id, tenant_id, requested_by, json_filename, result,
-                                      json_complete, pointage_rapport, compte_rendu)
+                                      json_complete, pointage_rapport, compte_rendu, nom_json)
         except Exception:
             logger.exception("[ocr_pieces] analyse impossible pour %s", piece_id)
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": {"status": "erreur_analyse"}})
@@ -506,7 +539,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user, fonction_active=None,
         data, _ct = await storage.get_object(piece["json_complete_path"])
         return Response(content=data, media_type="application/json",
                         headers={"Content-Disposition": _content_disposition(
-                            _nom_json_complete(piece.get("inventaire_json_filename")))})
+                            piece.get("json_complete_nom") or _nom_json_complete(piece.get("inventaire_json_filename")))})
 
     @api.delete("/ocr-pieces/{piece_id}", tags=[TAG])
     async def delete_piece(piece_id: str, user: dict = Depends(allowed_user)):

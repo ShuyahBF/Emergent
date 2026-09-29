@@ -19,7 +19,9 @@ from typing import Any, Callable, Dict, Optional
 from fastapi import Depends, HTTPException
 from pydantic import BaseModel
 
-FONCTIONS_SUPERVISEUR = {"forms_surveys": "Formulaires et Sondages", "ocr_pieces": "OCR sur Pièces"}
+FONCTIONS_SUPERVISEUR = {"forms_surveys": "Formulaires et Sondages", "ocr_pieces": "OCR sur Pièces",
+                         # Lot 39 — photo d'ordonnance → disponibilité dans le stock du client
+                         "ordonnances_stock": "Ordonnances et stock"}
 # Comptes listés : les rôles « métier » (pas l'Admin ni le Superviseur, qui ont tout).
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
@@ -28,6 +30,7 @@ COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
 class FonctionsClientUpdate(BaseModel):
     forms_surveys: Optional[bool] = None
     ocr_pieces: Optional[bool] = None
+    ordonnances_stock: Optional[bool] = None
 
 
 def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_supervisor,
@@ -102,7 +105,7 @@ def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_s
             "$set": {"features": features, "features_updated_at": now()},
             "$push": {"features_journal": {"$each": journal, "$slice": -100}},
         })
-        return {"id": client_id, **{cle: features[cle] for cle in FONCTIONS_SUPERVISEUR}}
+        return {"id": client_id, **{cle: bool(features.get(cle)) for cle in FONCTIONS_SUPERVISEUR}}
 
     return {"fonction_active": fonction_active, "fonction_active_pour_compte": fonction_active_pour_compte,
             "exiger_fonction": exiger_fonction}

@@ -766,6 +766,23 @@ async def me_get_payment(deposit_id: str, user: dict = Depends(get_current_user)
     return p
 
 
+# Lot 36 — actions à lancer quand un paiement passe à « completed » (ex. Liluvine
+# « !formulaire » : mise en ligne du formulaire payé). Les modules s'y inscrivent
+# (p20) ; chaque action est idempotente et appelée avec le document `payments`.
+_HOOKS_APRES_PAIEMENT: List[Any] = []
+
+
+async def _apres_paiement_complete(deposit_id: str) -> None:
+    payment = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+    if not payment or payment.get("status") != "completed":
+        return
+    for hook in list(_HOOKS_APRES_PAIEMENT):
+        try:
+            await hook(payment)
+        except Exception:  # noqa: BLE001
+            logger.warning("[paiement] action après paiement en échec (%s)", deposit_id, exc_info=True)
+
+
 async def _pawapay_webhook_apply(payload: Dict[str, Any], op_type: str) -> Dict[str, Any]:
     """Iter38r-fix2 — Shared handler for PawaPay deposit/refund webhooks.
     `op_type` ∈ {"deposit", "refund"} — currently only deposit flips status;
@@ -806,6 +823,8 @@ async def _pawapay_webhook_apply(payload: Dict[str, Any], op_type: str) -> Dict[
     if extracted_phone:
         set_doc["msisdn_from_webhook"] = extracted_phone
     await db.payments.update_one({"deposit_id": deposit_id}, {"$set": set_doc})
+    if new_status == "completed":
+        await _apres_paiement_complete(deposit_id)          # lot 36
     # Iter38r-fix9w — Voice notification on completed PawaPay deposit
     if new_status == "completed":
         try:
@@ -1312,6 +1331,8 @@ async def public_pay_status(slug: str, deposit_id: str):
                             "updated_at": _now(),
                         }})
                         p = await db.payments.find_one({"deposit_id": deposit_id}, {"_id": 0})
+                        if new_status == "completed":
+                            await _apres_paiement_complete(deposit_id)   # lot 36
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[pay-link-poll] %s — %s", deposit_id, exc)
     return {

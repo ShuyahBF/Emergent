@@ -161,6 +161,7 @@ import GestionStocks from "@/pages/portal/GestionStocks";
 // Lot OCR sur Pièces (2026-09) — module commun ocr-core + adaptateur Sawali
 import OcrPieces from "@/pages/portal/OcrPieces";
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
+import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
 import PortalBrochures from "@/pages/portal/PortalBrochures";
 import MeetingMinutes from "@/pages/portal/MeetingMinutes";
 import ReceiptPrint from "@/pages/portal/ReceiptPrint";
@@ -281,6 +282,9 @@ export default function App() {
           {/* 2026-02 fork (P3 recap) — Deep-link auto-login from médecin planning WA digest */}
           <Route path="/wa-recap" element={<WaPlanningRecap />} />
           <Route path="/f/:fid" element={<PublicForm />} />
+          {/* Lot 36 — formulaire Liluvine « !formulaire » : saisie et réponses par lien crypté */}
+          <Route path="/fr/:jeton" element={<PublicForm />} />
+          <Route path="/fr-resultats/:jeton" element={<PublicFormResults />} />
           {/* Lot 27 — réponse à un sondage WhatsApp (lien personnel, sans compte) */}
           <Route path="/s/:token" element={<PublicSurvey />} />
           <Route path="/pay/:slug" element={<PayLink />} />

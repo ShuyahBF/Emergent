@@ -315,6 +315,19 @@ _attach_import_formulaire(
     next_form_number=_next_form_number, slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur,
 )
 
+# Lot 36 — Commande WhatsApp « !formulaire » (Liluvine) : document ou photo → formulaire
+# privé, tarif selon le type de client, paiement Mobile Money, puis mise en ligne avec un
+# lien crypté de saisie et un lien crypté des réponses (routes/liluvine_formulaire.py).
+from routes.liluvine_formulaire import attach_liluvine_formulaire_routes as _attach_liluvine_formulaire  # noqa: E402
+_liluvine_formulaire = _attach_liluvine_formulaire(
+    api=api, db=db, uuid_fn=_uuid, get_admin_or_supervisor=get_admin_or_supervisor,
+    get_current_admin=get_current_admin, wa_send_text=_wa_send_text,
+    lire_media=lambda info: (UPLOAD_DIR / info["stored_name"]).read_bytes(),
+    public_base_url=_public_base_url, next_form_number=_next_form_number, slugify_code=_slugify_code,
+    gen_slug=_gen_slug, mnos=DEFAULT_CLIENT_PAWAPAY_MNOS, secret=LINK_JWT_SECRET,
+)
+_HOOKS_APRES_PAIEMENT.append(_liluvine_formulaire["apres_paiement"])
+
 # Iter40 (2026-02) — Registre des erreurs (logiciels externes)
 from routes.error_registry import attach_error_registry_routes as _attach_error_registry  # noqa: E402
 _attach_error_registry(api=api, db=db, get_current_user=get_current_user)

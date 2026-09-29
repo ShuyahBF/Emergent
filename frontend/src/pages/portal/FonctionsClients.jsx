@@ -10,6 +10,8 @@
   API : GET /supervision/fonctions-clients, PUT /supervision/fonctions-clients/{id}.
   Lot 36 — section « Liluvine — !formulaire » : tarifs (client SAWALI / numéro inconnu,
   modifiables par l'Admin) et dernières commandes WhatsApp (GET /supervision/liluvine-formulaire).
+  Lot 37 — journal complet (filtres, livré, erreurs, intervention humaine avec « Renvoyer les
+  liens » / « Marquer traité », détail des étapes) et sondage de satisfaction (Admin et Superviseur).
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
@@ -19,91 +21,231 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Lot 36 — états d'une commande « !formulaire »
 const STATUTS_LILUVINE = {
+  mode_emploi: ["Mode d'emploi", "bg-slate-100 text-slate-600"],
+  refuse: ["Refusé", "bg-rose-100 text-rose-700"],
   analyse: ["Analyse", "bg-sky-100 text-sky-700"],
   en_attente_paiement: ["Attente paiement", "bg-amber-100 text-amber-800"],
   publie: ["En ligne", "bg-emerald-100 text-emerald-700"],
   erreur: ["Erreur", "bg-rose-100 text-rose-700"],
 };
 
-// Tarifs et suivi des commandes WhatsApp « !formulaire » (Liluvine)
+// Lot 37 — filtres du journal « !formulaire »
+const FILTRES_JOURNAL = [["tous", "Tout"], ["intervention", "À traiter"], ["erreurs", "Erreurs / refus"], ["non_livres", "Non livrés"]];
+const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
+
+// Tarifs, sondage de satisfaction et journal des commandes WhatsApp « !formulaire » (Liluvine)
 function LiluvineFormulaire() {
   const { user } = useAuth();
   const estAdmin = user?.role === "admin";
   const [suivi, setSuivi] = useState(null);
+  const [filtre, setFiltre] = useState("tous");
   const [prix, setPrix] = useState({ client: "", inconnu: "" });
-  const [enregistrement, setEnregistrement] = useState(false);
+  const [sondages, setSondages] = useState([]);
+  const [reglage, setReglage] = useState({ sondage_id: "", relance_heures: 24, relances_max: 2 });
+  const [ouvert, setOuvert] = useState("");                // commande dont le détail est affiché
+  const [occupe, setOccupe] = useState("");
+
+  const charger = async (f = filtre) => {
+    try {
+      const r = await apiClient.get("/supervision/liluvine-formulaire", { params: { filtre: f } });
+      setSuivi(r.data);
+      return r.data;
+    } catch {
+      setSuivi({ tarifs: {}, commandes: [], a_traiter: 0 });
+      return null;
+    }
+  };
 
   useEffect(() => {
-    apiClient.get("/supervision/liluvine-formulaire").then((r) => {
-      setSuivi(r.data);
-      setPrix({ client: r.data?.tarifs?.client ?? "", inconnu: r.data?.tarifs?.inconnu ?? "" });
-    }).catch(() => setSuivi({ tarifs: {}, commandes: [] }));
-  }, []);
+    charger("tous").then((d) => {
+      if (!d) return;
+      setPrix({ client: d.tarifs?.client ?? "", inconnu: d.tarifs?.inconnu ?? "" });
+      setReglage({ sondage_id: d.sondage?.sondage_id || "", relance_heures: d.sondage?.relance_heures ?? 24,
+        relances_max: d.sondage?.relances_max ?? 2 });
+    });
+    apiClient.get("/supervision/liluvine-formulaire/sondages").then((r) => setSondages(r.data || [])).catch(() => {});
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const enregistrer = async () => {
-    setEnregistrement(true);
+  const changerFiltre = (f) => { setFiltre(f); charger(f); };
+
+  const enregistrerPrix = async () => {
     try {
       const r = await apiClient.put("/supervision/liluvine-formulaire/tarifs", {
         prix_client_xof: parseInt(prix.client, 10) || 0, prix_inconnu_xof: parseInt(prix.inconnu, 10) || 0 });
       setSuivi((s) => ({ ...s, tarifs: r.data }));
       toast.success("Tarifs de « !formulaire » enregistrés");
-    } catch (e) {
-      toast.error(e?.response?.data?.detail || "Enregistrement impossible");
-    } finally {
-      setEnregistrement(false);
-    }
+    } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); }
+  };
+
+  const enregistrerSondage = async () => {
+    try {
+      const r = await apiClient.put("/supervision/liluvine-formulaire/sondage", {
+        sondage_id: reglage.sondage_id || null, relance_heures: parseInt(reglage.relance_heures, 10) || 24,
+        relances_max: parseInt(reglage.relances_max, 10) || 0 });
+      setSuivi((s) => ({ ...s, sondage: r.data }));
+      toast.success(r.data.sondage_id ? `Sondage « ${r.data.sondage_titre} » envoyé après chaque livraison` : "Aucun sondage après livraison");
+    } catch (e) { toast.error(e?.response?.data?.detail || "Enregistrement impossible"); }
+  };
+
+  const action = async (c, quoi) => {
+    setOccupe(`${c.id}:${quoi}`);
+    try {
+      if (quoi === "renvoyer") {
+        const r = await apiClient.post(`/supervision/liluvine-formulaire/${c.id}/renvoyer-liens`);
+        r.data.ok ? toast.success("Liens renvoyés au contact") : toast.error(r.data.detail || "Liens non délivrés");
+      } else {
+        const note = window.prompt("Intervention faite — note (facultative) :", "");
+        if (note === null) return;
+        await apiClient.post(`/supervision/liluvine-formulaire/${c.id}/intervention`, { note });
+        toast.success("Intervention marquée comme faite");
+      }
+      await charger();
+    } catch (e) { toast.error(e?.response?.data?.detail || "Action impossible"); }
+    finally { setOccupe(""); }
+  };
+
+  const etatSondage = (c) => {
+    const s = c.sondage;
+    if (!s) return "—";
+    if (s.repondu) return "Répondu ✓";
+    return `Envoyé${s.relances ? ` · ${s.relances} relance(s)` : ""}${s.canal ? ` (${s.canal})` : ""}`;
   };
 
   return (
-    <section className="rounded-xl bg-white ring-1 ring-slate-200 p-4 space-y-3" data-testid="liluvine-formulaire">
+    <section className="rounded-xl bg-white ring-1 ring-slate-200 p-4 space-y-4" data-testid="liluvine-formulaire">
       <div>
         <h2 className="font-display font-semibold flex items-center gap-2"><Bot className="h-4 w-4 text-violet-600" /> Liluvine — commande WhatsApp « !formulaire »</h2>
         <p className="text-xs text-slate-500 mt-0.5">
           Un contact envoie à Liluvine un questionnaire (Word, Excel, PDF ou photo) avec la légende <b>!formulaire</b> :
           Liluvine crée le formulaire (privé), annonce le tarif, et après paiement Mobile Money envoie le lien crypté de
-          saisie et celui des réponses (valables 30 jours). Tarif 0 = gratuit, mise en ligne immédiate.
+          saisie et celui des réponses (valables 30 jours), puis le sondage de satisfaction. Tarif 0 = gratuit.
         </p>
       </div>
-      <div className="flex flex-wrap items-end gap-3">
-        {[["client", "Client SAWALI enregistré"], ["inconnu", "Numéro inconnu"]].map(([k, l]) => (
-          <label key={k} className="text-xs text-slate-600">
-            {l} (FCFA)
-            <input type="number" min={0} value={prix[k]} disabled={!estAdmin} data-testid={`liluvine-prix-${k}`}
-              onChange={(e) => setPrix((p) => ({ ...p, [k]: e.target.value }))}
-              className="mt-1 block w-40 rounded-lg border border-slate-300 px-3 py-1.5 text-sm disabled:bg-slate-50" />
-          </label>
-        ))}
-        {estAdmin ? (
-          <button onClick={enregistrer} disabled={enregistrement} data-testid="liluvine-prix-enregistrer"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 text-white px-3 py-2 text-xs font-semibold hover:bg-violet-700 disabled:opacity-50">
-            <Save className="h-3.5 w-3.5" /> Enregistrer
-          </button>
-        ) : <p className="text-[11px] text-slate-400">Tarifs modifiables par l'Admin.</p>}
+
+      <div className="grid gap-3 lg:grid-cols-2">
+        {/* Tarifs (Admin) */}
+        <div className="rounded-lg ring-1 ring-slate-200 p-3 space-y-2">
+          <p className="text-xs font-semibold text-slate-700">Tarifs</p>
+          <div className="flex flex-wrap items-end gap-2">
+            {[["client", "Client SAWALI enregistré"], ["inconnu", "Numéro inconnu"]].map(([k, l]) => (
+              <label key={k} className="text-[11px] text-slate-600">
+                {l} (FCFA)
+                <input type="number" min={0} value={prix[k]} disabled={!estAdmin} data-testid={`liluvine-prix-${k}`}
+                  onChange={(e) => setPrix((p) => ({ ...p, [k]: e.target.value }))}
+                  className="mt-1 block w-36 rounded-lg border border-slate-300 px-2 py-1.5 text-sm disabled:bg-slate-50" />
+              </label>
+            ))}
+            {estAdmin ? (
+              <button onClick={enregistrerPrix} data-testid="liluvine-prix-enregistrer"
+                className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 text-white px-3 py-2 text-xs font-semibold hover:bg-violet-700">
+                <Save className="h-3.5 w-3.5" /> Enregistrer
+              </button>
+            ) : <p className="text-[11px] text-slate-400">Modifiables par l'Admin.</p>}
+          </div>
+        </div>
+        {/* Sondage de satisfaction (Admin et Superviseur) */}
+        <div className="rounded-lg ring-1 ring-slate-200 p-3 space-y-2" data-testid="liluvine-sondage">
+          <p className="text-xs font-semibold text-slate-700">Sondage de satisfaction après livraison</p>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="text-[11px] text-slate-600">
+              Sondage
+              <select value={reglage.sondage_id} onChange={(e) => setReglage((r) => ({ ...r, sondage_id: e.target.value }))}
+                className="mt-1 block w-56 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="liluvine-sondage-choix">
+                <option value="">— Aucun sondage —</option>
+                {sondages.map((s) => <option key={s.id} value={s.id}>{s.title}{s.status === "draft" ? " (brouillon)" : ""}</option>)}
+              </select>
+            </label>
+            <label className="text-[11px] text-slate-600">
+              Relance après (h)
+              <input type="number" min={1} value={reglage.relance_heures} onChange={(e) => setReglage((r) => ({ ...r, relance_heures: e.target.value }))}
+                className="mt-1 block w-24 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="liluvine-sondage-delai" />
+            </label>
+            <label className="text-[11px] text-slate-600">
+              Relances max
+              <input type="number" min={0} max={10} value={reglage.relances_max} onChange={(e) => setReglage((r) => ({ ...r, relances_max: e.target.value }))}
+                className="mt-1 block w-20 rounded-lg border border-slate-300 px-2 py-1.5 text-sm" data-testid="liluvine-sondage-relances" />
+            </label>
+            <button onClick={enregistrerSondage} data-testid="liluvine-sondage-enregistrer"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-violet-600 text-white px-3 py-2 text-xs font-semibold hover:bg-violet-700">
+              <Save className="h-3.5 w-3.5" /> Enregistrer
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500">Relances par WhatsApp, ou par SMS si WhatsApp refuse, tant que le contact n'a pas répondu.</p>
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs">
-          <thead className="text-[10px] uppercase tracking-wider text-slate-500">
-            <tr><th className="text-left py-1.5 pr-3">Date</th><th className="text-left pr-3">Contact</th><th className="text-left pr-3">Type</th>
-              <th className="text-left pr-3">Formulaire</th><th className="text-right pr-3">Tarif</th><th className="text-left">État</th></tr>
-          </thead>
-          <tbody>
-            {!suivi && <tr><td colSpan={6} className="py-3 text-center text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin inline" /></td></tr>}
-            {suivi && suivi.commandes.length === 0 && <tr><td colSpan={6} className="py-3 text-center text-slate-400 italic">Aucune commande pour le moment.</td></tr>}
-            {(suivi?.commandes || []).map((c) => {
-              const [lib, cls] = STATUTS_LILUVINE[c.statut] || [c.statut, "bg-slate-100 text-slate-600"];
-              return (
-                <tr key={c.id} className="border-t border-slate-100" title={c.erreur || ""}>
-                  <td className="py-1.5 pr-3 whitespace-nowrap text-slate-500">{new Date(c.cree_le).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" })}</td>
-                  <td className="pr-3 whitespace-nowrap">{c.nom_contact ? `${c.nom_contact} · ` : ""}{c.telephone}</td>
-                  <td className="pr-3">{c.type_client === "client" ? (c.compte_libelle || "Client") : "Inconnu"}</td>
-                  <td className="pr-3 font-mono">{c.titre || c.fichier}</td>
-                  <td className="pr-3 text-right tabular-nums">{c.prix_xof != null ? `${c.prix_xof.toLocaleString("fr-FR")} F` : "—"}</td>
-                  <td><span className={`rounded-full px-2 py-0.5 ${cls}`}>{lib}</span></td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+
+      {/* Journal */}
+      <div className="space-y-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs font-semibold text-slate-700 mr-2">Journal</p>
+          {FILTRES_JOURNAL.map(([k, l]) => (
+            <button key={k} onClick={() => changerFiltre(k)} data-testid={`liluvine-filtre-${k}`}
+              className={`text-xs px-2.5 py-1 rounded-full ring-1 ${filtre === k ? "bg-violet-600 text-white ring-violet-600" : "bg-white ring-slate-200 hover:ring-violet-300"}`}>
+              {l}{k === "intervention" && suivi?.a_traiter ? ` (${suivi.a_traiter})` : ""}
+            </button>
+          ))}
+        </div>
+        <div className="overflow-x-auto rounded-lg ring-1 ring-slate-200">
+          <table className="w-full text-xs">
+            <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
+              <tr><th className="text-left px-2 py-1.5">Date / heure</th><th className="text-left px-2">Numéro</th><th className="text-left px-2">Nom</th>
+                <th className="text-left px-2">Référence du formulaire</th><th className="text-left px-2">Livré</th><th className="text-left px-2">Erreurs</th>
+                <th className="text-left px-2">Intervention</th><th className="text-left px-2">Sondage</th></tr>
+            </thead>
+            <tbody>
+              {!suivi && <tr><td colSpan={8} className="py-3 text-center text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin inline" /></td></tr>}
+              {suivi && suivi.commandes.length === 0 && <tr><td colSpan={8} className="py-3 text-center text-slate-400 italic">Aucune commande.</td></tr>}
+              {(suivi?.commandes || []).map((c) => {
+                const [lib, cls] = STATUTS_LILUVINE[c.statut] || [c.statut, "bg-slate-100 text-slate-600"];
+                const aTraiter = c.intervention_requise && !c.intervention_faite_le;
+                return (
+                  <React.Fragment key={c.id}>
+                    <tr className={`border-t border-slate-100 align-top ${aTraiter ? "bg-rose-50/50" : ""}`} data-testid={`liluvine-ligne-${c.id}`}>
+                      <td className="px-2 py-1.5 whitespace-nowrap">
+                        <button onClick={() => setOuvert(ouvert === c.id ? "" : c.id)} className="text-violet-700 hover:underline">{dateHeure(c.cree_le)}</button>
+                      </td>
+                      <td className="px-2 whitespace-nowrap font-mono">{c.telephone}</td>
+                      <td className="px-2">{c.nom_contact || "—"}{c.type_client === "client" && <span className="block text-[10px] text-slate-500">{c.compte_libelle}</span>}</td>
+                      <td className="px-2"><span className={`rounded-full px-2 py-0.5 mr-1 ${cls}`}>{lib}</span><span className="font-mono">{c.reference || c.fichier || ""}</span>
+                        {c.prix_xof != null && <span className="block text-[10px] text-slate-500">{c.prix_xof.toLocaleString("fr-FR")} F</span>}</td>
+                      <td className="px-2 whitespace-nowrap">{c.livre ? <span className="text-emerald-700">Oui · {dateHeure(c.livre_le)}</span> : (c.statut === "publie" ? <span className="text-rose-700 font-semibold">Non</span> : "—")}</td>
+                      <td className="px-2 text-rose-700 max-w-[14rem]">{c.erreur || "—"}</td>
+                      <td className="px-2 max-w-[16rem]">
+                        {c.intervention_requise ? (
+                          <div className="space-y-1">
+                            <p className={aTraiter ? "text-rose-700 font-semibold" : "text-slate-500 line-through"}>{c.intervention_motif}</p>
+                            {aTraiter ? (
+                              <div className="flex flex-wrap gap-1">
+                                {c.statut === "publie" && !c.livre && (
+                                  <button onClick={() => action(c, "renvoyer")} disabled={!!occupe} data-testid={`liluvine-renvoyer-${c.id}`}
+                                    className="rounded bg-emerald-600 text-white px-2 py-0.5 text-[11px] disabled:opacity-50">Renvoyer les liens</button>
+                                )}
+                                <button onClick={() => action(c, "traite")} disabled={!!occupe} data-testid={`liluvine-traite-${c.id}`}
+                                  className="rounded bg-slate-700 text-white px-2 py-0.5 text-[11px] disabled:opacity-50">Marquer traité</button>
+                              </div>
+                            ) : <p className="text-[10px] text-emerald-700">Traité le {dateHeure(c.intervention_faite_le)} par {c.intervention_par}{c.intervention_note ? ` — ${c.intervention_note}` : ""}</p>}
+                          </div>
+                        ) : "Non"}
+                      </td>
+                      <td className="px-2 whitespace-nowrap">{etatSondage(c)}</td>
+                    </tr>
+                    {ouvert === c.id && (
+                      <tr className="bg-slate-50/70"><td colSpan={8} className="px-3 py-2">
+                        <ol className="space-y-0.5">
+                          {(c.journal || []).map((e, i) => (
+                            <li key={i} className={e.ok ? "text-slate-600" : "text-rose-700"}>
+                              <span className="font-mono text-[10px] text-slate-400 mr-2">{dateHeure(e.le)}</span><b>{e.etape}</b>{e.detail ? ` — ${e.detail}` : ""}
+                            </li>
+                          ))}
+                        </ol>
+                      </td></tr>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       </div>
     </section>
   );

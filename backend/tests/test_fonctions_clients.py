@@ -109,14 +109,15 @@ def test_acces_ocr_selon_la_fonction_et_non_plus_le_role(env):
 def test_superviseur_liste_et_active(env):
     liste = env.client.get("/api/supervision/fonctions-clients", headers=_h("sup")).json()
     assert liste["fonctions"] == {"forms_surveys": "Formulaires et Sondages", "ocr_pieces": "OCR sur Pièces",
-                                  "ordonnances_stock": "Ordonnances et stock"}
+                                  "ordonnances_stock": "Ordonnances et stock",
+                                  "maintenance_equipements": "Maintenance des équipements"}   # lot 41
     # Comptes clients seulement : ni Admin, ni Superviseur, ni utilisateur suivi ; triés par nom.
     assert [c["id"] for c in liste["clients"]] == ["medecin_c", "pharma_a", "pharma_b"]
     assert [(c["forms_surveys"], c["ocr_pieces"]) for c in liste["clients"]] == [(False, True), (True, False), (False, False)]
     # Le Superviseur active l'OCR pour la pharmacie B : accès ouvert aussitôt.
     r = env.client.put("/api/supervision/fonctions-clients/pharma_b", headers=_h("sup"), json={"ocr_pieces": True})
     assert r.status_code == 200 and r.json() == {"id": "pharma_b", "forms_surveys": False, "ocr_pieces": True,
-                                                 "ordonnances_stock": False}
+                                                 "ordonnances_stock": False, "maintenance_equipements": False}
     assert env.client.get("/api/ocr-pieces", headers=_h("pharma_b")).status_code == 200
     # Désactiver « Formulaires et Sondages » pour A coupe aussi son utilisateur suivi,
     # sans toucher aux autres fonctions (WhatsApp reste activé).

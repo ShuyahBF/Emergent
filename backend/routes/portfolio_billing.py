@@ -19,6 +19,12 @@ Définitions (période = du … au …, jours inclus) :
   - sondage actif : au moins un message envoyé ou une réponse pendant la période ;
   - message WhatsApp : invitation ou relance de sondage envoyée avec succès.
 
+Lot 41 — commandes WhatsApp « !formulaire » (Liluvine) mises en ligne pendant la période
+pour le client : tableau dans le bilan avec le badge AUTO (payée par Mobile Money ou
+gratuite) ou FORCÉ (réalisée par l'Admin sans paiement), et lignes de facture :
+  - [FORCÉ] au tarif de la commande (le paiement n'a pas été encaissé) ;
+  - [AUTO] à 0 FCFA, pour mémoire (déjà réglées par Mobile Money).
+
 Collections : portfolio_billing (réglages par client), portfolio_reports (bilans).
 """
 from __future__ import annotations
@@ -121,6 +127,28 @@ def billing_lines(settings: Dict[str, Any], metrics: Dict[str, Any], *, months: 
         if price > 0 and q > 0:
             lines.append({"key": key, "label": label, "unit": unit, "quantity": q, "unit_price_ht": price,
                           "tva_pct": tva, "total_ht": round(q * price, 2)})
+    return lines
+
+
+def liluvine_lines(liluvine: Dict[str, Any], tva_pct: float) -> List[Dict[str, Any]]:
+    """Lot 41 — lignes de facture des commandes « !formulaire » de la période, par badge :
+    FORCÉ au tarif de la commande (une ligne par tarif), AUTO à 0 FCFA pour mémoire."""
+    forces: Dict[float, int] = {}
+    auto = 0
+    for it in liluvine.get("items") or []:
+        if it["mode"] == "force":
+            prix = float(it.get("prix_xof") or 0)
+            forces[prix] = forces.get(prix, 0) + 1
+        else:
+            auto += 1
+    lines = [{"key": "liluvine_force", "label": "Formulaires « !formulaire » (Liluvine) [FORCÉ] — réalisés par l'Admin, "
+                                               "non réglés par Mobile Money",
+              "unit": "formulaire", "quantity": q, "unit_price_ht": prix, "tva_pct": tva_pct,
+              "total_ht": round(q * prix, 2)} for prix, q in sorted(forces.items())]
+    if auto:
+        lines.append({"key": "liluvine_auto", "label": "Formulaires « !formulaire » (Liluvine) [AUTO] — déjà réglés "
+                                                       "par Mobile Money (pour mémoire)",
+                      "unit": "formulaire", "quantity": auto, "unit_price_ht": 0.0, "tva_pct": tva_pct, "total_ht": 0.0})
     return lines
 
 
@@ -242,7 +270,18 @@ def attach_portfolio_billing_routes(
         anonymous = {s["id"] for s in surveys if s.get("anonymous")}
         contributors = rank_contributors([i for i in period_invites if i["survey_id"] not in anonymous], 10)
         total_sent = sum(sent_by.values())
+        # Lot 41 — commandes « !formulaire » mises en ligne pendant la période (badge auto / forcé)
+        cmds = await db.liluvine_formulaires.find(
+            {"compte_id": cid, "statut": "publie"},
+            {"_id": 0, "reference": 1, "titre": 1, "publie_le": 1, "mode_realisation": 1, "prix_xof": 1,
+             "telephone": 1, "force_par": 1}).sort("publie_le", 1).to_list(1000)
+        lil_items = [{"reference": c.get("reference") or c.get("titre") or "", "publie_le": c.get("publie_le"),
+                      "mode": c.get("mode_realisation") or "auto", "prix_xof": c.get("prix_xof") or 0,
+                      "telephone": c.get("telephone"), "force_par": c.get("force_par")}
+                     for c in cmds if in_period(c.get("publie_le"), date_from, date_to)]
         return {
+            "liluvine": {"auto": sum(1 for x in lil_items if x["mode"] != "force"),
+                         "force": sum(1 for x in lil_items if x["mode"] == "force"), "items": lil_items},
             "forms": {"total": len(forms), "active": len(form_rows), "submissions": len(subs), "items": form_rows[:30]},
             "surveys": {"total": len(surveys), "active": len(survey_rows), "messages_sent": total_sent,
                         "responses": len(responses),
@@ -321,6 +360,8 @@ def attach_portfolio_billing_routes(
                 ai_error = f"Analyse IA indisponible : {str(exc)[:200]}"
         with_ai = bool(analysis)
         lines = billing_lines(settings, metrics, months=period_months(d1.isoformat(), d2.isoformat()), with_ai=with_ai)
+        tva = float(settings.get("tva_pct") if settings.get("tva_pct") is not None else 18)
+        lines += liluvine_lines(metrics["liluvine"], tva)                   # lot 41
         doc = {
             "id": uuid_fn(), "client_id": cid,
             "client_name": client.get("company") or client.get("full_name") or client.get("email"),
@@ -480,6 +521,13 @@ def attach_portfolio_billing_routes(
             rows = [["Formulaire", "N°", "Réponses"]] + [[Paragraph(esc(it["title"]), st["body"]), it.get("number") or "", it["submissions"]]
                                                         for it in f["items"]]
             el.append(table(rows, [110 * mm, 40 * mm, 24 * mm]))
+        lil = (m.get("liluvine") or {}).get("items") or []
+        if lil:                                                              # lot 41 — badge AUTO / FORCÉ
+            el.append(Paragraph("Formulaires « !formulaire » (Liluvine)", st["h2"]))
+            rows = [["Formulaire", "Mis en ligne", "Mode", "Tarif"]] + [
+                [Paragraph(esc(it["reference"]), st["body"]), fmt(it["publie_le"]) if it.get("publie_le") else "",
+                 "FORCÉ" if it["mode"] == "force" else "AUTO", money(it.get("prix_xof") or 0)] for it in lil]
+            el.append(table(rows, [96 * mm, 28 * mm, 22 * mm, 28 * mm]))
         if m["contributors"]:
             el.append(Paragraph("Meilleurs contributeurs", st["h2"]))
             rows = [["#", "Contact", "Entreprise", "Réponses", "Taux"]] + [

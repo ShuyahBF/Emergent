@@ -1,5 +1,5 @@
 /*
-  Lot 34 — SMART Communications : fonctions activables par client, par l'Admin
+  Lot 34 — « Outils+ » (nommé « SMART Communications » jusqu'au lot 41) : fonctions activables par client, par l'Admin
   ET le Superviseur (/portal/smart-communications et /admin/smart-communications).
 
   « Formulaires et Sondages » et « OCR sur Pièces » ne sont accessibles à un client,
@@ -15,7 +15,7 @@
 */
 import React, { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
-import { Bot, FileText, Loader2, Pill, Save, ScanText, Search, ShieldCheck } from "lucide-react";
+import { Bot, FileText, Loader2, Pill, Save, ScanText, Search, ShieldCheck, Wrench } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { useAuth } from "@/contexts/AuthContext";
 
@@ -27,9 +27,61 @@ const STATUTS_LILUVINE = {
   en_attente_paiement: ["Attente paiement", "bg-amber-100 text-amber-800"],
   publie: ["En ligne", "bg-emerald-100 text-emerald-700"],
   erreur: ["Erreur", "bg-rose-100 text-rose-700"],
+  attente_otp: ["Attente du code", "bg-violet-100 text-violet-700"],     // lot 41
+  bloque: ["Liste noire", "bg-slate-800 text-white"],                     // lot 41
 };
 
+// Lot 41 — copie de la pièce jointe reçue (image affichée, sinon lien)
+function PieceJointe({ url, mime, nom }) {
+  if (!url) return null;
+  const src = `${process.env.REACT_APP_BACKEND_URL || ""}${url}`;
+  return (mime || "").startsWith("image/") || /\.(jpe?g|png|webp)$/i.test(url)
+    ? <a href={src} target="_blank" rel="noreferrer" title={nom || "Pièce jointe"}>
+        <img src={src} alt={nom || "pièce jointe"} className="h-20 w-20 rounded object-cover ring-1 ring-slate-200" />
+      </a>
+    : <a href={src} target="_blank" rel="noreferrer" className="text-violet-700 underline">{nom || "Pièce jointe"}</a>;
+}
+
+// Lot 41 — numéros bloqués pour « !formulaire » (3 demandes non valables), avec les pièces en cause
+function ListeNoire({ estAdmin }) {
+  const [items, setItems] = useState(null);
+  const charger = () => apiClient.get("/supervision/liluvine-formulaire/liste-noire")
+    .then((r) => setItems(r.data || [])).catch(() => setItems([]));
+  useEffect(() => { charger(); }, []);
+  const debloquer = async (x) => {
+    if (!window.confirm(`Débloquer ${x.telephone} ? Ses demandes non valables passées ne compteront plus.`)) return;
+    try { await apiClient.delete(`/supervision/liluvine-formulaire/liste-noire/${x.chiffres}`); toast.success("Numéro débloqué"); charger(); }
+    catch (e) { toast.error(e?.response?.data?.detail || "Déblocage impossible"); }
+  };
+  if (!items || !items.length) return null;
+  return (
+    <div className="rounded-lg ring-1 ring-slate-300 bg-slate-50 p-3 space-y-2" data-testid="liluvine-liste-noire">
+      <h3 className="text-sm font-semibold text-slate-800">⛔ Liste noire « !formulaire » ({items.length})</h3>
+      {items.map((x) => (
+        <div key={x.chiffres} className="rounded bg-white ring-1 ring-slate-200 p-2 text-xs space-y-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="font-mono">{x.telephone}</span><span>{x.nom_contact || "—"}</span>
+            <span className="text-slate-500">le {dateHeure(x.le)} — {x.motif}</span>
+            {estAdmin && <button onClick={() => debloquer(x)} className="ml-auto rounded bg-slate-700 text-white px-2 py-0.5">Débloquer</button>}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {(x.pieces || []).map((p, i) => (
+              <div key={i} className="space-y-0.5 w-24"><PieceJointe url={p.url} mime={p.mime} nom={p.nom} />
+                <p className="text-[10px] text-rose-700 line-clamp-2" title={p.motif}>{p.motif}</p></div>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
 // Lot 37 — filtres du journal « !formulaire »
+// Lot 41 — mode de mise en ligne : AUTO (paiement confirmé ou gratuit) ou FORCÉ (par l'Admin)
+const MODES_REALISATION = {
+  auto: ["auto", "bg-emerald-100 text-emerald-700 ring-emerald-200", "Mis en ligne automatiquement (paiement confirmé ou service gratuit)"],
+  force: ["forcé", "bg-orange-100 text-orange-700 ring-orange-200", "Réalisation forcée par l'Admin, sans paiement : figure sur la facture du client"],
+};
 const FILTRES_JOURNAL = [["tous", "Tout"], ["intervention", "À traiter"], ["erreurs", "Erreurs / refus"], ["non_livres", "Non livrés"]];
 const dateHeure = (iso) => (iso ? new Date(iso).toLocaleString("fr-FR", { dateStyle: "short", timeStyle: "short" }) : "—");
 
@@ -93,6 +145,16 @@ function LiluvineFormulaire() {
       if (quoi === "renvoyer") {
         const r = await apiClient.post(`/supervision/liluvine-formulaire/${c.id}/renvoyer-liens`);
         r.data.ok ? toast.success("Liens renvoyés au contact") : toast.error(r.data.detail || "Liens non délivrés");
+      } else if (quoi === "forcer") {
+        // Lot 41 — réalisation forcée (Admin) : mise en ligne sans paiement, badge « forcé »
+        const motif = window.prompt(
+          `Forcer la réalisation du formulaire de ${c.nom_contact || c.telephone} ?\n`
+          + "Il sera mis en ligne sans paiement, les liens partiront au contact, et la commande figurera "
+          + "sur la facture du client avec le badge « forcé ».\n\nMotif (facultatif) :", "");
+        if (motif === null) return;
+        const r = await apiClient.post(`/supervision/liluvine-formulaire/${c.id}/forcer`, { motif });
+        toast.success(r.data.etape === "analyse_et_mis_en_ligne"
+          ? "Document ré-analysé et formulaire mis en ligne (forcé)" : "Formulaire mis en ligne (forcé)");
       } else {
         const note = window.prompt("Intervention faite — note (facultative) :", "");
         if (note === null) return;
@@ -185,6 +247,7 @@ function LiluvineFormulaire() {
             </button>
           ))}
         </div>
+        <ListeNoire estAdmin={estAdmin} />
         <div className="overflow-x-auto rounded-lg ring-1 ring-slate-200">
           <table className="w-full text-xs">
             <thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500">
@@ -206,8 +269,24 @@ function LiluvineFormulaire() {
                       </td>
                       <td className="px-2 whitespace-nowrap font-mono">{c.telephone}</td>
                       <td className="px-2">{c.nom_contact || "—"}{c.type_client === "client" && <span className="block text-[10px] text-slate-500">{c.compte_libelle}</span>}</td>
-                      <td className="px-2"><span className={`rounded-full px-2 py-0.5 mr-1 ${cls}`}>{lib}</span><span className="font-mono">{c.reference || c.fichier || ""}</span>
-                        {c.prix_xof != null && <span className="block text-[10px] text-slate-500">{c.prix_xof.toLocaleString("fr-FR")} F</span>}</td>
+                      <td className="px-2"><span className={`rounded-full px-2 py-0.5 mr-1 ${cls}`}>{lib}</span>
+                        {/* Lot 41 — badge du mode de mise en ligne */}
+                        {c.mode_realisation && MODES_REALISATION[c.mode_realisation] && (
+                          <span className={`rounded px-1.5 py-0.5 mr-1 text-[9px] font-bold uppercase ring-1 ${MODES_REALISATION[c.mode_realisation][1]}`}
+                            title={MODES_REALISATION[c.mode_realisation][2] + (c.force_par ? ` — par ${c.force_par}${c.force_motif ? ` : ${c.force_motif}` : ""}` : "")}
+                            data-testid={`liluvine-mode-${c.id}`}>
+                            {MODES_REALISATION[c.mode_realisation][0]}
+                          </span>
+                        )}
+                        <span className="font-mono">{c.reference || c.fichier || ""}</span>
+                        {c.prix_xof != null && <span className="block text-[10px] text-slate-500">{c.prix_xof.toLocaleString("fr-FR")} F</span>}
+                        {estAdmin && c.forcable && (
+                          <button onClick={() => action(c, "forcer")} disabled={!!occupe} data-testid={`liluvine-forcer-${c.id}`}
+                            title="Mettre le formulaire en ligne sans paiement (badge « forcé », facturé au client)"
+                            className="mt-1 block rounded bg-orange-600 text-white px-2 py-0.5 text-[11px] disabled:opacity-50">
+                            {occupe === `${c.id}:forcer` ? "…" : "Forcer la réalisation"}
+                          </button>
+                        )}</td>
                       <td className="px-2 whitespace-nowrap">{c.livre ? <span className="text-emerald-700">Oui · {dateHeure(c.livre_le)}</span> : (c.statut === "publie" ? <span className="text-rose-700 font-semibold">Non</span> : "—")}</td>
                       <td className="px-2 text-rose-700 max-w-[14rem]">{c.erreur || "—"}</td>
                       <td className="px-2 max-w-[16rem]">
@@ -231,6 +310,8 @@ function LiluvineFormulaire() {
                     </tr>
                     {ouvert === c.id && (
                       <tr className="bg-slate-50/70"><td colSpan={8} className="px-3 py-2">
+                        {/* Lot 41 — copie de la pièce jointe reçue */}
+                        {c.piece_url && <div className="mb-2"><PieceJointe url={c.piece_url} mime={c.piece_mime} nom={c.fichier} /></div>}
                         <ol className="space-y-0.5">
                           {(c.journal || []).map((e, i) => (
                             <li key={i} className={e.ok ? "text-slate-600" : "text-rose-700"}>
@@ -256,6 +337,7 @@ const FONCTIONS = [
   { cle: "forms_surveys", label: "Formulaires et Sondages", icon: FileText, couleur: "bg-indigo-600" },
   { cle: "ocr_pieces", label: "OCR sur Pièces", icon: ScanText, couleur: "bg-teal-600" },
   { cle: "ordonnances_stock", label: "Ordonnances et stock", icon: Pill, couleur: "bg-emerald-600" },   // lot 39
+  { cle: "maintenance_equipements", label: "Maintenance des équipements", icon: Wrench, couleur: "bg-orange-600" },   // lot 41
 ];
 
 // Interrupteur accessible (bouton à bascule)
@@ -310,13 +392,13 @@ export default function FonctionsClients() {
   return (
     <div className="max-w-5xl space-y-5" data-testid="fonctions-clients-page">
       <div>
-        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">SMART Communications</p>
+        <p className="text-xs uppercase tracking-[0.3em] text-slate-500">Outils+</p>
         <h1 className="text-2xl font-display font-bold flex items-center gap-2">
           <ShieldCheck className="h-5 w-5 text-fuchsia-600" /> Fonctions par client
         </h1>
         <p className="text-sm text-slate-500 mt-1">
-          Activez pour chaque client les fonctions <b>Formulaires et Sondages</b>, <b>OCR sur Pièces</b> et
-          <b> Ordonnances et stock</b>.
+          Activez pour chaque client les fonctions <b>Formulaires et Sondages</b>, <b>OCR sur Pièces</b>,
+          <b> Ordonnances et stock</b> et <b>Maintenance des équipements</b>.
           Elles sont désactivées par défaut ; leurs utilisateurs suivis en héritent. L'Admin et le Superviseur y ont
           toujours accès.
         </p>

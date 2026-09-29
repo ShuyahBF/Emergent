@@ -13,6 +13,8 @@ import {
   Paperclip, Mic, Play, BookmarkPlus, Ticket, CornerUpLeft, FolderOpen, ShoppingBag, FileEdit,
   Sparkles, Loader2, ClipboardPaste, ArrowDown, PenTool,
 } from "lucide-react";
+import { CalendarDays } from "lucide-react";                          // lot 41
+import CalendrierModal from "@/components/CalendrierModal";           // lot 41
 import { parseTemplate, buildComponentsPayload, validateTemplateValues, renderPreview } from "@/lib/waTemplate";
 import { useAuth } from "@/contexts/AuthContext";
 import { phonePlaceholder } from "@/lib/tenantMeta";
@@ -1710,6 +1712,7 @@ const VarGrid = ({ label, values, onChange, testPrefix, tokens }) => {
 // --- Conversation history modal ---
 const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
   const { user } = useAuth();
+  const [calendrierOuvert, setCalendrierOuvert] = useState(false);   // lot 41 : modale Calendrier
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState({ messages: [], can_send_text: false, last_inbound_at: null, window_expires_at: null });
   const [text, setText] = useState("");
@@ -2844,6 +2847,20 @@ const ConversationModal = ({ contact, onClose, onMessagesRead }) => {
                 {/* Lot 27 — emojis insérés à la position du curseur */}
                 <EmojiPicker textareaRef={textRef} value={text} onChange={setText} maxLength={4096}
                   disabled={sending || recState !== "idle"} testId="conversation-emoji" />
+                {/* Lot 41 — calendrier : moments occupés, partage des disponibilités au contact */}
+                <button
+                  onClick={() => setCalendrierOuvert(true)}
+                  disabled={sending || recState !== "idle"}
+                  className="inline-flex items-center gap-1 rounded-lg border border-indigo-300 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-2 text-sm text-indigo-700 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                  data-testid="conversation-calendar-btn"
+                  title="Calendrier : mes moments occupés, partager mes disponibilités avec ce contact"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                </button>
+                {calendrierOuvert && (
+                  <CalendrierModal contactNom={contact?.name} onClose={() => setCalendrierOuvert(false)}
+                    onPartager={(t) => setText((x) => (x ? `${x}\n${t}` : t))} />
+                )}
                 {/* Compteur de caractères, à droite de la barre d'outils */}
                 <span className="ml-auto text-[10px] text-slate-400 tabular-nums">{text.length} / 4096</span>
               </div>

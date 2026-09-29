@@ -20,6 +20,7 @@ import {
 import { ArrowLeft, Send, RefreshCw, Download, Edit, Users, Eye, CheckCircle2, AlertTriangle, BellRing, Star } from "lucide-react";
 import SurveySendModal from "@/components/SurveySendModal";
 import { SURVEY_STATUS } from "@/pages/portal/Surveys";
+import { marquerVu } from "@/lib/nouveautesFormulaires";   // lot 41
 
 const PALETTE = ["#2563eb", "#10b981", "#f59e0b", "#ef4444", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16", "#f97316", "#64748b"];
 const INVITE_STATUS = {
@@ -105,6 +106,8 @@ export default function SurveyResults() {
   const { pathname } = useLocation();
   const base = pathname.startsWith("/admin") ? "/admin" : "/portal";
   const [survey, setSurvey] = useState(null);
+  // Lot 41 — résultats consultés : la puce verte et la bulle bleue s'éteignent
+  useEffect(() => { marquerVu("sondage", sid); }, [sid]);
   const [res, setRes] = useState(null);
   const [campaigns, setCampaigns] = useState([]);
   const [invites, setInvites] = useState([]);
@@ -187,6 +190,12 @@ export default function SurveyResults() {
             title="Renvoyer le lien aux invités qui n'ont pas répondu"
             className="inline-flex items-center gap-1.5 rounded-lg bg-amber-500 text-white px-3 py-2 text-sm hover:bg-amber-600 disabled:opacity-40">
             <BellRing className="h-4 w-4" /> Relancer ({waiting})
+          </button>
+          {/* Lot 41 — nouvel essai pour les invitations en échec ou non envoyées */}
+          <button onClick={() => setSendOpen("renvoi")} disabled={!(t.failed + t.skipped) || survey.status === "closed"}
+            data-testid="results-resend-failed" title="Renvoyer aux destinataires dont l'envoi a échoué ou n'est pas parti"
+            className="inline-flex items-center gap-1.5 rounded-lg bg-rose-600 text-white px-3 py-2 text-sm hover:bg-rose-700 disabled:opacity-40">
+            <RefreshCw className="h-4 w-4" /> Renvoyer les échecs ({t.failed + t.skipped})
           </button>
           <button onClick={exportCsv} data-testid="results-export"
             className="inline-flex items-center gap-1.5 rounded-lg ring-1 ring-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50">
@@ -337,7 +346,8 @@ export default function SurveyResults() {
       </div>
 
       {sendOpen && (
-        <SurveySendModal survey={survey} reminder={sendOpen === "reminder"} waitingCount={waiting}
+        <SurveySendModal survey={survey} reminder={sendOpen === "reminder" || sendOpen === "renvoi"}
+          renvoiEchecs={sendOpen === "renvoi"} waitingCount={sendOpen === "renvoi" ? t.failed + t.skipped : waiting}
           onClose={() => setSendOpen(null)} onSent={() => { setSendOpen(null); load(); }} />
       )}
     </div>

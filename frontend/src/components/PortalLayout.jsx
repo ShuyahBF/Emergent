@@ -48,11 +48,12 @@ const clientLinks = [
   // la page bascule entre Formulaires et Sondages WhatsApp (FormsSurveysTabs).
   // `alsoActive` : le lien reste en surbrillance sur les pages des sondages.
   // Lot 34 — fonction activable par client (SMART Communications) : grisée si désactivée.
-  { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"], featureGate: "forms_surveys" },
+  { to: "/portal/forms", label: "Formulaires & Sondages", tKey: "nav.forms_surveys", icon: FileText, alsoActive: ["/portal/surveys"], featureGate: "forms_surveys", fsBadges: true },
   // Lot 27 — bilans formulaires & sondages à facturer (admin et Superviseur : choix de la TVA)
   { to: "/portal/portfolio-invoices", label: "Bilans à facturer", icon: Receipt, adminOrSup: true },
   // Lot 34 — activation par client de « Formulaires et Sondages » et « OCR sur Pièces »
-  { to: "/portal/smart-communications", label: "SMART Communications", icon: ShieldCheck, adminOrSup: true },
+  // Lot 41 — renommé « Outils+ » : « SMART Communications » reste le nom de l'onglet de chaque fiche client.
+  { to: "/portal/smart-communications", label: "Outils+", icon: ShieldCheck, adminOrSup: true },
   { to: "/portal/contacts", label: "Centre de Messagerie", tKey: "nav.contacts", icon: MessageCircle, module: "contacts_unread", noMarkSeen: true },
   { to: "/portal/contact-groups", label: "Groupes de contacts", icon: Users },
   // Lot 25 — `errorRegistryOnly` : lien affiché seulement aux rôles système que le
@@ -118,18 +119,20 @@ const clientLinks = [
   { to: "/portal/ocr-pieces", label: "OCR sur Pièces", icon: ScanText, featureGate: "ocr_pieces" },
   // Lot 39 — photo d'ordonnance → disponibilité dans le stock du client (fonction activable).
   { to: "/portal/ordonnances-stock", label: "Ordonnances et stock", icon: Pill, featureGate: "ordonnances_stock" },
+  // Lot 41 — matériel confié pour réparation (fonction activable).
+  { to: "/portal/maintenance", label: "Maintenance des équipements", icon: Wrench, featureGate: "maintenance_equipements" },
 ];
 
 const adminLinks = [
   { to: "/admin", label: "Tableau de bord", icon: LayoutDashboard, end: true },
   { to: "/admin/clients", label: "Clients", icon: Users, module: "admin_clients" },
-  { to: "/admin/smart-communications", label: "SMART Communications", icon: ShieldCheck },   // lot 34
+  { to: "/admin/smart-communications", label: "Outils+", icon: ShieldCheck },   // lot 34 (renommé « Outils+ » au lot 41)
   { to: "/admin/usage", label: "Usage & Facturation", icon: BarChart3 },
   { to: "/admin/appointments", label: "Rendez-vous", icon: Calendar, module: "admin_appointments" },
   { to: "/admin/interventions", label: "Interventions", icon: Wrench, module: "admin_interventions", badgeKey: "tickets_pending" },
   { to: "/admin/documents", label: "Documents", icon: FileText },
   // Lot 27 — une seule entrée, bascule Formulaires / Sondages dans la page
-  { to: "/admin/forms", label: "Formulaires & Sondages", icon: FileEdit, alsoActive: ["/admin/surveys"] },
+  { to: "/admin/forms", label: "Formulaires & Sondages", icon: FileEdit, alsoActive: ["/admin/surveys"], fsBadges: true },   // lot 41 : bulles
   { to: "/admin/portfolio-invoices", label: "Bilans à facturer", icon: Receipt },   // lot 27
   { to: "/admin/messaging", label: "Messagerie WhatsApp", icon: MessageCircle },
   { to: "/admin/whatsapp-carrousel", label: "Carrousel WhatsApp", icon: GalleryHorizontalEnd },   // lot 40
@@ -171,6 +174,7 @@ const adminLinks = [
   // évaluation 1-5 étoiles, tableau de bord par modèle.
   { to: "/admin/ocr-pieces", label: "OCR sur Pièces", icon: ScanText },
   { to: "/admin/ordonnances-stock", label: "Ordonnances et stock", icon: Pill },   // lot 39
+  { to: "/admin/maintenance", label: "Maintenance des équipements", icon: Wrench },   // lot 41
   // Iter43-fix22 — Planning des gardes (admin/superviseur)
   { to: "/admin/garde-planning", label: "Planning des gardes", icon: Calendar, adminOrSup: true },
   // Iter43-fix22 — Interrogations WhatsApp à Liluvine (admin/moderator/superviseur)
@@ -213,6 +217,9 @@ function PortalLayoutInner({ admin = false }) {
   // Iter43-fix24az-aa (2026-07-22) — Live counter for walk-ins waiting TODAY.
   // Shown as a sidebar badge on "Planning consultations" for médecins.
   const [walkInsToday, setWalkInsToday] = useState(0);
+  // Lot 41 — nouvelles données reçues : soumissions de formulaires (bulle verte) et
+  // réponses aux sondages (bulle bleue), depuis la dernière consultation de chacun.
+  const [fsNouveautes, setFsNouveautes] = useState({ formulaires: 0, sondages: 0 });
   // Iter38h — Tenant meta features (loaded from /me/features)
   const [metaEnabled, setMetaEnabled] = useState(false);
   // Iter38r-fix7 — Full features object for per-link gate (visible-but-disabled)
@@ -496,6 +503,11 @@ function PortalLayoutInner({ admin = false }) {
     // Only médecins tracked have "Planning" as their main tab, but we fetch
     // for admins/supervisors too so they see the queue when they open their
     // planning link. Best effort — ignore errors.
+    // Lot 41 — bulles « Formulaires & Sondages » (best effort)
+    try {
+      const r4 = await apiClient.get("/me/formulaires-sondages/nouveautes");
+      setFsNouveautes({ formulaires: r4.data?.formulaires || 0, sondages: r4.data?.sondages || 0 });
+    } catch { /* noop */ }
     try {
       const r3 = await apiClient.get("/me/planning/counts");
       setWalkInsToday(r3.data?.today_walk_ins_open || 0);
@@ -506,6 +518,11 @@ function PortalLayoutInner({ admin = false }) {
   useEffect(() => {
     const t = setInterval(refreshBadges, 90000);
     return () => clearInterval(t);
+  }, [refreshBadges]);
+  // Lot 41 — les pages Données / Résultats signalent une consultation : bulles relues aussitôt
+  useEffect(() => {
+    window.addEventListener("sawali:fs-vu", refreshBadges);
+    return () => window.removeEventListener("sawali:fs-vu", refreshBadges);
   }, [refreshBadges]);
 
   // When user navigates to a page that has a module, mark it as seen.
@@ -624,7 +641,7 @@ function PortalLayoutInner({ admin = false }) {
         <WeatherWidget variant="compact" placement="portal" className="w-full justify-start" />
       </div>
       <nav className="space-y-1">
-        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive }) => {
+        {links.map(({ to, label, tKey, icon: Icon, end, module, soon, badgeKey, featureGate, showBadges, disabled, disabledReason, alsoActive, fsBadges }) => {
           // Lot 27 — actif aussi sur les chemins associés (ex. sondages sous « Formulaires & Sondages »)
           const extraActive = (alsoActive || []).some((p) => location.pathname === p || location.pathname.startsWith(p + "/"));
           // Lot 23 — le badge du Centre de Messagerie affiche le MÊME nombre que la cloche
@@ -735,6 +752,25 @@ function PortalLayoutInner({ admin = false }) {
                   }
                 >
                   {liveCount > 99 ? "99+" : liveCount}
+                </span>
+              )}
+              {/* Lot 41 — nouvelles données : formulaires (vert) et sondages (bleu) */}
+              {fsBadges && !isDisabled && fsNouveautes.formulaires > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-emerald-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] animate-in fade-in slide-in-from-right-1"
+                  data-testid="badge-fs-formulaires"
+                  title={`${fsNouveautes.formulaires} nouvelle(s) soumission(s) de formulaire`}
+                >
+                  {fsNouveautes.formulaires > 99 ? "99+" : fsNouveautes.formulaires}
+                </span>
+              )}
+              {fsBadges && !isDisabled && fsNouveautes.sondages > 0 && (
+                <span
+                  className="inline-flex items-center justify-center min-w-[20px] h-5 px-1.5 rounded-full bg-sky-500 text-white text-[10px] font-bold tabular-nums ring-2 ring-[#0E1F3D] animate-in fade-in slide-in-from-right-1"
+                  data-testid="badge-fs-sondages"
+                  title={`${fsNouveautes.sondages} nouvelle(s) réponse(s) de sondage`}
+                >
+                  {fsNouveautes.sondages > 99 ? "99+" : fsNouveautes.sondages}
                 </span>
               )}
               {showBadges && errorHigh > 0 && (

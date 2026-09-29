@@ -322,6 +322,12 @@ SUPPORTED_AUTOMATION_EVENTS = {
     # Lot 27 — Formulaire WhatsApp (Flow) complété par un client. Context tokens :
     # {wa_from}, {wa_sender_name}, {wa_flow_template}, {wa_flow_summary}.
     "whatsapp.flow_completed",
+    # Lot 41 — nouvelles données des Formulaires & Sondages. Destinataire « cible de
+    # l'événement » = le client propriétaire du formulaire / sondage. Context tokens :
+    # {formulaire}, {formulaire_numero}, {repondant}, {nb_reponses} ;
+    # {sondage}, {repondant}, {nb_reponses}.
+    "form.submitted",
+    "survey.responded",
 }
 
 
@@ -385,6 +391,11 @@ async def admin_automation_events(_: dict = Depends(get_current_admin)):
              "description": "Message WA entrant. Contexte : {wa_from}, {wa_sender_name}, {wa_message}, {wa_reply_code}. L'admin peut répondre en préfixant `#R<code>` — Liluvine relaye au client sans exposer son numéro."},
             {"value": "whatsapp.flow_completed", "label": "Formulaire WhatsApp (Flow) complété",
              "description": "Un client a rempli le formulaire ouvert par un bouton « Flux » d'un modèle. Contexte : {wa_from}, {wa_sender_name}, {wa_flow_template}, {wa_flow_summary}."},
+            # Lot 41
+            {"value": "form.submitted", "label": "Nouvelle soumission de formulaire",
+             "description": "Une réponse arrive sur un formulaire (portail, lien public ou lien crypté « !formulaire »). Envoyé au client propriétaire du formulaire (ou au numéro fixe). Contexte : {formulaire}, {formulaire_numero}, {repondant}, {nb_reponses}."},
+            {"value": "survey.responded", "label": "Nouvelle réponse à un sondage",
+             "description": "Un destinataire répond à un sondage WhatsApp. Envoyé au client propriétaire du sondage (ou au numéro fixe). Contexte : {sondage}, {repondant}, {nb_reponses}."},
         ]
     }
 

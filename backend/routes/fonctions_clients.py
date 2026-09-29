@@ -21,7 +21,9 @@ from pydantic import BaseModel
 
 FONCTIONS_SUPERVISEUR = {"forms_surveys": "Formulaires et Sondages", "ocr_pieces": "OCR sur Pièces",
                          # Lot 39 — photo d'ordonnance → disponibilité dans le stock du client
-                         "ordonnances_stock": "Ordonnances et stock"}
+                         "ordonnances_stock": "Ordonnances et stock",
+                         # Lot 41 — matériel confié pour réparation (fiches de dépôt / restitution)
+                         "maintenance_equipements": "Maintenance des équipements"}
 # Comptes listés : les rôles « métier » (pas l'Admin ni le Superviseur, qui ont tout).
 ROLES_CLIENTS = ["client", "pharmacien", "medecin", "regulateur", "editeur_vidal", "moderateur", "moderator"]
 COMPTE_PLATEFORME = "admin@sawalismartsystems.com"
@@ -31,6 +33,7 @@ class FonctionsClientUpdate(BaseModel):
     forms_surveys: Optional[bool] = None
     ocr_pieces: Optional[bool] = None
     ordonnances_stock: Optional[bool] = None
+    maintenance_equipements: Optional[bool] = None   # lot 41
 
 
 def attach_fonctions_clients_routes(*, api, db, get_current_user, get_admin_or_supervisor,

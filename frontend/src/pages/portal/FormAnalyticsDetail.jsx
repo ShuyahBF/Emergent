@@ -18,6 +18,7 @@ import {
   Legend,
 } from "recharts";
 import { toast } from "sonner";
+import { marquerVu } from "@/lib/nouveautesFormulaires";   // lot 41
 
 const todayIso = () => new Date().toISOString().slice(0, 10);
 const daysAgoIso = (n) => {
@@ -53,6 +54,8 @@ export default function FormAnalyticsDetail() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fid]);
+  // Lot 41 — données consultées : la puce verte et la bulle de la barre latérale s'éteignent
+  useEffect(() => { marquerVu("formulaire", fid); }, [fid]);
 
   const pieData = useMemo(() => {
     if (!data) return [];

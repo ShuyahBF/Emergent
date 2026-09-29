@@ -2,11 +2,15 @@
  * Iter38i — Unified omnichannel inbox.
  * Aggregates WhatsApp + Messenger threads. Two-pane layout: thread list (left)
  * and message view (right). Channel-colored badges and unread counts.
+ * Lot 41 — rafraîchissement silencieux (plus de sablier qui remplace la liste toutes les
+ * 20 s), conversation ouverte relue toutes les 10 s, en-tête du contact fixe en haut du
+ * fil (nom, numéro, code) : seul le fil défile, plus toute la page.
  */
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import EmojiPicker from "@/components/EmojiPicker";
+import CalendrierModal from "@/components/CalendrierModal";   // lot 41
 import { apiClient } from "@/lib/api";
-import { MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign, Trash2 } from "lucide-react";
+import { CalendarDays, MessageCircle, Facebook, Loader2, RefreshCw, Inbox as InboxIcon, Send, Smartphone, ArrowDown, CircleDollarSign, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const channelMeta = {
@@ -28,20 +32,24 @@ export default function UnifiedInbox() {
   const [composer, setComposer] = useState("");
   const composerRef = useRef(null);   // lot 27 : insertion d'emojis au curseur
   const [sending, setSending] = useState(false);
+  const [calendrierOuvert, setCalendrierOuvert] = useState(false);   // lot 41
   // Iter43-fix24d — Badge coût Bird du jour
   const [birdCost, setBirdCost] = useState(null);
   const messagesEndRef = React.useRef(null);
+  const filRef = useRef(null);              // lot 41 : zone qui défile (seulement le fil)
+  const premierChargement = useRef(true);
 
   const load = useCallback(async () => {
-    setLoading(true);
+    // Lot 41 — sablier seulement au premier chargement : ensuite la liste est mise à jour sur place
+    if (premierChargement.current) setLoading(true);
     try {
       const r = await apiClient.get("/me/inbox/unified?limit=60");
       setThreads(r.data?.items || []);
       setTotals(r.data?.totals || {});
       setChannelsEnabled(r.data?.channels_enabled || {});
     } catch (err) {
-      toast.error(err?.response?.data?.detail || "Erreur de chargement");
-    } finally { setLoading(false); }
+      if (premierChargement.current) toast.error(err?.response?.data?.detail || "Erreur de chargement");
+    } finally { setLoading(false); premierChargement.current = false; }
   }, []);
 
   // Iter43-fix24d — Coût Bird quotidien (rafraîchi à chaque load)
@@ -55,10 +63,33 @@ export default function UnifiedInbox() {
   useEffect(() => { load(); loadBirdCost(); }, [load, loadBirdCost]);
 
   // Iter38j — Poll every 20s to refresh threads (cheap call, ~60 threads max)
+  // Lot 41 — sans sablier ; la conversation ouverte est relue toutes les 10 s.
+  const selectedRef = useRef(null);
+  useEffect(() => { selectedRef.current = selected; }, [selected]);
+  const relireFil = useCallback(async () => {
+    const t = selectedRef.current;
+    if (!t) return;
+    try {
+      const q = t.channel === "messenger" && t.page_id ? `?page_id=${encodeURIComponent(t.page_id)}` : "";
+      const r = await apiClient.get(`/me/inbox/unified/${t.channel}/${encodeURIComponent(t.peer_id)}${q}`);
+      const nouveaux = r.data?.messages || [];
+      if (selectedRef.current !== t) return;                  // conversation changée entre-temps
+      setMessages((anciens) => {
+        const dernierA = anciens[anciens.length - 1];
+        const dernierN = nouveaux[nouveaux.length - 1];
+        const local = anciens.some((m) => String(m.id || "").startsWith("local-"));
+        // Même dernier message et même nombre : rien ne change (pas de re-rendu du fil)
+        if (!local && anciens.length === nouveaux.length && dernierA?.id === dernierN?.id
+            && dernierA?.is_recalled === dernierN?.is_recalled) return anciens;
+        return nouveaux;
+      });
+    } catch { /* au mieux : prochain essai dans 10 s */ }
+  }, []);
   useEffect(() => {
-    const id = setInterval(() => { load(); loadBirdCost(); }, 20000);
-    return () => clearInterval(id);
-  }, [load, loadBirdCost]);
+    const id = setInterval(() => { load(); loadBirdCost(); }, 20000);   // liste : 20 s (appel plus lourd)
+    const fil = setInterval(relireFil, 10000);                        // conversation ouverte : 10 s
+    return () => { clearInterval(id); clearInterval(fil); };
+  }, [load, loadBirdCost, relireFil]);
 
   // Iter38j — Update browser tab title with unread count
   useEffect(() => {
@@ -68,11 +99,20 @@ export default function UnifiedInbox() {
   }, [totals.unread]);
 
   // Auto-scroll bottom on new messages
+  // Lot 41 — on fait défiler la zone du fil elle-même (scrollIntoView faisait défiler toute la
+  // page, et l'en-tête du contact disparaissait) ; pas de saut si l'on relit plus haut.
+  const nbMessages = useRef(0);
   useEffect(() => {
-    if (messagesEndRef.current) messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
+    const el = filRef.current;
+    if (!el) return;
+    const premier = nbMessages.current === 0;
+    const presDuBas = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (premier || presDuBas) el.scrollTop = el.scrollHeight;
+    nbMessages.current = messages.length;
   }, [messages]);
 
   const openThread = async (t) => {
+    nbMessages.current = 0;                   // lot 41 : descendre en bas du nouveau fil
     setSelected(t);
     setLoadingMsgs(true);
     setMessages([]);
@@ -201,7 +241,7 @@ export default function UnifiedInbox() {
       {/* Two-pane layout */}
       <div className="grid lg:grid-cols-[360px_1fr] gap-4 h-[70vh]">
         {/* Thread list */}
-        <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto" data-testid="inbox-threads">
+        <div className="bg-white border border-slate-200 rounded-lg overflow-y-auto min-h-0" data-testid="inbox-threads">
           {loading ? (
             <div className="p-8 flex items-center justify-center"><Loader2 className="h-5 w-5 animate-spin text-indigo-500" /></div>
           ) : filtered.length === 0 ? (
@@ -245,15 +285,21 @@ export default function UnifiedInbox() {
         </div>
 
         {/* Messages */}
-        <div className="bg-white border border-slate-200 rounded-lg flex flex-col" data-testid="inbox-messages">
+        <div className="bg-white border border-slate-200 rounded-lg flex flex-col min-h-0 h-full overflow-hidden" data-testid="inbox-messages">
           {!selected ? (
             <div className="flex-1 flex items-center justify-center text-sm text-slate-400">
               Sélectionnez une conversation pour afficher les messages.
             </div>
           ) : (
             <>
-              <div className="px-4 py-3 border-b border-slate-200 flex items-center justify-between">
-                <div className="flex items-center gap-2">
+              {/* Lot 41 — en-tête du contact : reste en haut, seul le fil défile */}
+              <div className="shrink-0 px-4 py-3 border-b border-slate-200 flex items-center justify-between bg-white" data-testid="inbox-contact-header">
+                <div className="flex items-center gap-2 min-w-0">
+                  {selected.peer_photo_url
+                    ? <img src={selected.peer_photo_url} alt="" className="h-9 w-9 rounded-full object-cover shrink-0" />
+                    : <span className="h-9 w-9 rounded-full bg-indigo-100 text-indigo-700 flex items-center justify-center text-sm font-bold shrink-0">
+                        {(selected.peer_name || "?").replace(/[^A-Za-zÀ-ÿ0-9]/g, "").slice(0, 1).toUpperCase() || "?"}
+                      </span>}
                   {(() => {
                     const meta = channelMeta[selected.channel] || channelMeta.whatsapp;
                     const Icon = meta.Icon;
@@ -261,11 +307,22 @@ export default function UnifiedInbox() {
                       <Icon className="h-3 w-3" /> {selected.channel === "whatsapp" ? "WhatsApp" : "Messenger"}
                     </span>;
                   })()}
-                  <h3 className="font-display font-semibold">{selected.peer_name || selected.peer_id}</h3>
+                  <div className="min-w-0">
+                    <h3 className="font-display font-semibold truncate">{selected.peer_name || selected.peer_id}</h3>
+                    <p className="text-[11px] text-slate-500 truncate">
+                      {selected.peer_phone || selected.peer_id}
+                      {selected.peer_code ? ` · ${selected.peer_code}` : ""}
+                      {selected.page_name ? ` · via ${selected.page_name}` : ""}
+                      {` · ${messages.length} message(s) affiché(s)`}
+                    </p>
+                  </div>
                 </div>
-                <ArrowDown className="h-4 w-4 text-slate-400" />
+                <button type="button" title="Aller au dernier message" className="p-1 rounded hover:bg-slate-100"
+                  onClick={() => { if (filRef.current) filRef.current.scrollTop = filRef.current.scrollHeight; }}>
+                  <ArrowDown className="h-4 w-4 text-slate-400" />
+                </button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-slate-50">
+              <div ref={filRef} className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2 bg-slate-50" data-testid="inbox-fil">
                 {loadingMsgs ? (
                   <Loader2 className="h-5 w-5 animate-spin text-indigo-500 mx-auto" />
                 ) : messages.length === 0 ? (
@@ -309,10 +366,19 @@ export default function UnifiedInbox() {
                 })}
                 <div ref={messagesEndRef} />
               </div>
-              <div className="p-3 border-t border-slate-200">
+              <div className="shrink-0 p-3 border-t border-slate-200">
                 <div className="flex items-end gap-2">
                   {/* Lot 27 — emojis */}
                   <EmojiPicker textareaRef={composerRef} value={composer} onChange={setComposer} disabled={sending} testId="inbox-emoji" />
+                  {/* Lot 41 — calendrier et partage des disponibilités */}
+                  <button type="button" onClick={() => setCalendrierOuvert(true)} title="Calendrier : partager mes disponibilités"
+                    className="p-2 rounded-lg border border-indigo-300 bg-indigo-50 text-indigo-700 hover:bg-indigo-100" data-testid="inbox-calendar-btn">
+                    <CalendarDays className="h-4 w-4" />
+                  </button>
+                  {calendrierOuvert && (
+                    <CalendrierModal contactNom={selected.peer_name} onClose={() => setCalendrierOuvert(false)}
+                      onPartager={(t) => setComposer((x) => (x ? `${x}\n${t}` : t))} />
+                  )}
                   <textarea
                     ref={composerRef}
                     value={composer} onChange={(e) => setComposer(e.target.value)}

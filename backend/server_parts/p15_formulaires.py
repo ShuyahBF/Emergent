@@ -337,6 +337,22 @@ async def me_form_upload_file(
     }
 
 
+async def _signaler_soumission(form_id: str, repondant: Optional[str]) -> None:
+    """Lot 41 — automatisation « Nouvelle soumission de formulaire » (au mieux, en tâche de fond :
+    la réponse du répondant n'attend jamais l'envoi WhatsApp)."""
+    async def _go():
+        try:
+            f = await db.forms.find_one({"id": form_id}, {"_id": 0, "client_id": 1, "title": 1, "number": 1,
+                                                        "uses_count": 1})
+            if f and f.get("client_id"):
+                await _emit_event("form.submitted", {"client_id": f["client_id"], "extra_ctx": {
+                    "formulaire": f.get("title") or "", "formulaire_numero": f.get("number") or "",
+                    "repondant": repondant or "Anonyme", "nb_reponses": str(f.get("uses_count") or 0)}})
+        except Exception:  # noqa: BLE001
+            logger.warning("[automations] form.submitted non émis", exc_info=True)
+    asyncio.create_task(_go())
+
+
 @api.post("/me/forms/{form_id}/submission", tags=["Formulaires"])
 async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict = Depends(_utilisateur_formulaires)):
     form = await db.forms.find_one({"id": form_id}, {"_id": 0, "client_id": 1, "uses_count": 1})
@@ -368,6 +384,7 @@ async def me_save_submission(form_id: str, payload: SubmissionSave, user: dict =
     }
     await db.form_submissions.insert_one(doc.copy())
     await db.forms.update_one({"id": form_id}, {"$inc": {"uses_count": 1}})
+    await _signaler_soumission(form_id, doc["user_label"])          # lot 41
     doc.pop("_id", None)
     return doc
 
@@ -428,6 +445,7 @@ async def public_submit_form(form_id: str, payload: PublicSubmissionRequest, req
     }
     await db.form_submissions.insert_one(doc.copy())
     await db.forms.update_one({"id": form_id}, {"$inc": {"uses_count": 1}})
+    await _signaler_soumission(form_id, doc["user_label"])          # lot 41
     return {"ok": True, "id": doc["id"]}
 
 

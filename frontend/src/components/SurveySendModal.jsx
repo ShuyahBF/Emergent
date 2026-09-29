@@ -27,7 +27,8 @@ import { X, Users, Search, Shuffle, Send, CheckSquare, Square, MessageCircle, Lo
 const SMS_PAR_DEFAUT = "Bonjour {{name}}, merci de repondre a notre sondage « {{sondage}} » : {{lien}}";
 import { parseTemplate, buildButtonSpecs } from "@/lib/waTemplate";
 
-export default function SurveySendModal({ survey, reminder = false, waitingCount = 0, onClose, onSent }) {
+export default function SurveySendModal({ survey, reminder = false, renvoiEchecs = false, waitingCount = 0, onClose, onSent }) {
+  // Lot 41 — `renvoiEchecs` : même fenêtre que la relance, mais pour les invitations en échec / non envoyées
   const [step, setStep] = useState(reminder ? 2 : 1);
   // Sources de destinataires
   const [roster, setRoster] = useState([]);
@@ -50,6 +51,9 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
   const [mode, setMode] = useState("auto");
   const [templateName, setTemplateName] = useState("");
   const [bodyVars, setBodyVars] = useState([]);
+  // Lot 41 — valeur de la variable d'en-tête du modèle ({{1}} dans l'en-tête texte).
+  // Sans elle, Meta refusait l'envoi (erreur #132000, « header: number of localizable_params (0) »).
+  const [headerText, setHeaderText] = useState("");
   const [buttonVars, setButtonVars] = useState([]);
   const [textMessage, setTextMessage] = useState(survey.message_text || "");
   const [canal, setCanal] = useState("whatsapp");          // lot 35 : whatsapp | sms
@@ -76,7 +80,8 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
   const parsed = useMemo(() => (template ? parseTemplate(template) : null), [template]);
   // Valeurs proposées : 1re variable = nom, dernière = lien ; bouton lien = jeton
   useEffect(() => {
-    if (!parsed) { setBodyVars([]); setButtonVars([]); return; }
+    if (!parsed) { setBodyVars([]); setButtonVars([]); setHeaderText(""); return; }
+    setHeaderText(parsed.header?.format === "TEXT" && parsed.header.varCount > 0 ? "{{sondage}}" : "");
     const n = parsed.body.varCount || 0;
     setBodyVars(Array.from({ length: n }, (_, i) => (i === n - 1 ? "{{lien}}" : i === 0 ? "{{name}}" : "")));
     setButtonVars((parsed.buttons || []).map((b) => Array.from({ length: b.urlVarCount || 0 }, () => "{{jeton}}")));
@@ -122,11 +127,13 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
     setSending(true);
     try {
       const r = await apiClient.post(`/me/wa-surveys/${survey.id}/send`, canal === "sms" ? {
-        contact_ids: reminder ? [] : selected.map((i) => i.id), reminder, channel: "sms", text_message: smsMessage,
+        contact_ids: reminder ? [] : selected.map((i) => i.id), reminder: reminder && !renvoiEchecs, renvoi_echecs: renvoiEchecs,
+        channel: "sms", text_message: smsMessage,
       } : {
-        contact_ids: reminder ? [] : selected.map((i) => i.id), reminder, mode,
+        contact_ids: reminder ? [] : selected.map((i) => i.id), reminder: reminder && !renvoiEchecs, renvoi_echecs: renvoiEchecs, mode,
         template_name: mode === "text" ? null : templateName || null,
         language_code: template?.language || "fr", variables: mode === "text" ? [] : bodyVars,
+        header_text: mode !== "text" && headerText ? headerText : null,   // lot 41
         button_specs: parsed && mode !== "text" ? buildButtonSpecs(parsed, buttonVars) : null,
         text_message: textMessage,
       });
@@ -146,7 +153,7 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
       <div className="w-full max-w-3xl max-h-[92vh] overflow-auto rounded-2xl bg-white shadow-2xl">
         <div className="sticky top-0 z-10 flex items-center justify-between gap-2 border-b border-slate-200 bg-white px-5 py-3">
           <div className="min-w-0">
-            <p className="text-xs uppercase tracking-wider text-slate-500">{reminder ? "Relance" : `Envoi — étape ${step} / 2`}</p>
+            <p className="text-xs uppercase tracking-wider text-slate-500">{renvoiEchecs ? "Renvoi des échecs" : reminder ? "Relance" : `Envoi — étape ${step} / 2`}</p>
             <h2 className="font-semibold text-slate-900 truncate">{survey.title}</h2>
           </div>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-slate-100" title="Fermer"><X className="h-5 w-5" /></button>
@@ -264,7 +271,9 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
         {step === 2 && (
           <div className="p-5 space-y-4">
             <p className="text-sm text-slate-600">
-              {reminder
+              {renvoiEchecs
+                ? <>Nouvel essai pour <b>{waitingCount}</b> invitation(s) en échec ou non envoyée(s) (même lien personnel). Hors fenêtre de 24 h, choisissez un modèle Meta.</>
+                : reminder
                 ? <>Relance de <b>{waitingCount}</b> invité(s) qui n'ont pas encore répondu (même lien personnel).</>
                 : <><b>{selected.length}</b> destinataire(s), dont <b>{windowOpenSelected}</b> joignable(s) par message libre (ils vous ont écrit dans les 24 h).</>}
             </p>
@@ -310,6 +319,14 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
                 </label>
                 {parsed && (
                   <>
+                    {/* Lot 41 — en-tête texte avec variable : valeur obligatoire pour Meta */}
+                    {parsed.header?.format === "TEXT" && parsed.header.varCount > 0 && (
+                      <label className="flex items-center gap-2 text-xs text-slate-600">
+                        <span className="shrink-0">En-tête « {parsed.header.text} » — {"{{1}}"}</span>
+                        <input value={headerText} onChange={(e) => setHeaderText(e.target.value)} data-testid="send-header"
+                          className="flex-1 rounded border border-slate-300 px-2 py-1 text-sm" />
+                      </label>
+                    )}
                     <p className="rounded-lg bg-emerald-50 p-2 text-xs text-slate-700 whitespace-pre-line">{parsed.body.text}</p>
                     {bodyVars.map((v, i) => (
                       <label key={i} className="flex items-center gap-2 text-xs text-slate-600">
@@ -348,7 +365,7 @@ export default function SurveySendModal({ survey, reminder = false, waitingCount
                 data-testid="send-confirm"
                 className="inline-flex items-center gap-2 rounded-lg bg-emerald-600 text-white px-4 py-2 text-sm font-semibold hover:bg-emerald-700 disabled:opacity-40">
                 {sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-                {reminder ? `Relancer${canal === "sms" ? " par SMS" : ""}` : `Envoyer à ${selected.length}${canal === "sms" ? " par SMS" : ""}`}
+                {renvoiEchecs ? `Renvoyer${canal === "sms" ? " par SMS" : ""}` : reminder ? `Relancer${canal === "sms" ? " par SMS" : ""}` : `Envoyer à ${selected.length}${canal === "sms" ? " par SMS" : ""}`}
               </button>
             </div>
           </div>

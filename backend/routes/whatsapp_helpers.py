@@ -350,6 +350,37 @@ def _wa_add_flow_button_components(components: Optional[list], template_def: Opt
     return (comps, added)
 
 
+def _wa_add_header_params(components: Optional[list], template_def: Optional[dict]) -> tuple:
+    """Lot 41 — en-tête TEXTE avec variable ({{1}}) sans valeur envoyée.
+    Meta refuse alors l'envoi : « (#132000) Number of parameters does not match the
+    expected number of params — header: number of localizable_params (0) does not match
+    the expected number of params (1) ». C'est arrivé sur des sondages envoyés avec un
+    modèle dont l'en-tête contient {{1}}, la fenêtre d'envoi ne le proposant pas.
+    Si le modèle (lu chez Meta) a un en-tête texte à N variables et que le message n'a
+    aucun composant « header », on l'ajoute avec les valeurs d'exemple du modèle
+    (celles saisies à sa création chez Meta).
+    Retourne (composants, True si un en-tête a été ajouté)."""
+    import re as _re
+    if not isinstance(template_def, dict):
+        return (components, False)
+    header = next((c for c in template_def.get("components") or []
+                   if isinstance(c, dict) and (c.get("type") or "").upper() == "HEADER"), None)
+    if not header or (header.get("format") or "TEXT").upper() != "TEXT":
+        return (components, False)
+    n = len(set(_re.findall(r"\{\{\s*(\w+)\s*\}\}", header.get("text") or "")))
+    if not n:
+        return (components, False)
+    if any(isinstance(c, dict) and (c.get("type") or "").lower() == "header" for c in components or []):
+        return (components, False)                       # déjà fourni par l'appelant
+    exemples = (header.get("example") or {}).get("header_text") or []
+    if exemples and isinstance(exemples[0], list):     # certaines réponses Meta : [[...]]
+        exemples = exemples[0]
+    valeurs = [str(exemples[i]) if i < len(exemples) and str(exemples[i]).strip() else "—" for i in range(n)]
+    comps = [{"type": "header", "parameters": [{"type": "text", "text": v} for v in valeurs]}]
+    comps += [c for c in (components or [])]
+    return (comps, True)
+
+
 def _wa_parse_flow_reply(interactive: Optional[dict]) -> Optional[dict]:
     """Lot 27 — réponse d'un formulaire WhatsApp (Flow) reçue par le webhook.
     Meta l'envoie comme message « interactive » de type « nfm_reply » :
@@ -518,6 +549,10 @@ def attach_whatsapp_helpers(
             tpl_def = await _wa_fetch_template_def(creds.get("waba_id") or "", access_token, template_name, language_code)
             components, flow_added = _wa_add_flow_button_components(
                 components, tpl_def, lambda: f"sawali-{uuid_fn()}")
+            # Lot 41 : en-tête texte à variable non renseigné -> valeurs d'exemple du modèle
+            components, entete_ajoute = _wa_add_header_params(components, tpl_def)
+            if entete_ajoute:
+                logger.info("[wa-send] en-tête du modèle %s complété avec ses valeurs d'exemple", template_name)
         except Exception as exc:  # noqa: BLE001
             logger.info("[wa-flow] ajout du bouton Flux ignoré : %s", exc)
         if components:

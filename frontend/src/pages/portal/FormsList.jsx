@@ -6,6 +6,7 @@ import { FileText, FileUp, Plus, Edit, Trash2, Copy, Globe, Lock, PlayCircle, Do
 import ShareFormModal from "@/components/ShareFormModal";
 import FormsSurveysTabs from "@/components/FormsSurveysTabs";
 import ImportDocumentModal from "@/components/ImportDocumentModal";
+import { lireNouveautes, titrePuce } from "@/lib/nouveautesFormulaires";   // lot 41
 
 // Form catalogue : user's forms + public forms from other clients
 export default function FormsList() {
@@ -26,6 +27,8 @@ export default function FormsList() {
   const [catModalOpen, setCatModalOpen] = useState(false);
   // Lot 33 — « Créer depuis un document » (Word, Excel, PDF, photos)
   const [importOpen, setImportOpen] = useState(false);
+  // Lot 41 — formulaires qui ont reçu des données non consultées : {id: nombre}
+  const [nouveaux, setNouveaux] = useState({});
   const navigate = useNavigate();
 
   const load = async () => {
@@ -50,6 +53,7 @@ export default function FormsList() {
     finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { lireNouveautes().then((r) => setNouveaux(r.par_formulaire || {})); }, []);
 
   const openCreate = async () => {
     setNewTitle("");
@@ -252,7 +256,21 @@ export default function FormsList() {
                   {f.is_public ? <><Globe className="h-3 w-3" /> Public</> : <><Lock className="h-3 w-3" /> Privé</>}
                 </span>
               </div>
-              <h3 className="text-sm font-display font-bold mb-1 line-clamp-2">{f.title}</h3>
+              <h3 className="text-sm font-display font-bold mb-1 line-clamp-2">
+                {/* Lot 41 — puce verte : données reçues depuis la dernière consultation */}
+                {nouveaux[f.id] > 0 && (
+                  <span className="inline-block h-2.5 w-2.5 rounded-full bg-emerald-500 ring-2 ring-emerald-100 mr-1.5 align-middle animate-pulse"
+                    title={titrePuce(nouveaux[f.id])} data-testid={`form-new-${f.id}`} />
+                )}
+                {f.title}
+                {/* Lot 41 — formulaire « !formulaire » : mis en ligne automatiquement ou forcé par l'Admin */}
+                {f.liluvine_mode && (
+                  <span className={`ml-1.5 align-middle text-[9px] font-bold uppercase px-1.5 py-0.5 rounded ${
+                    f.liluvine_mode === "force" ? "bg-orange-100 text-orange-700" : "bg-emerald-100 text-emerald-700"}`}>
+                    {f.liluvine_mode === "force" ? "forcé" : "auto"}
+                  </span>
+                )}
+              </h3>
               <p className="text-[11px] text-slate-500 line-clamp-2 mb-2">{f.description || "—"}</p>
               <p className="text-[10px] text-slate-400 mb-3">
                 <span className="inline-flex items-center gap-1 rounded-full bg-sky-50 text-sky-700 px-2 py-0.5 font-semibold tabular-nums mb-1" data-testid={`form-submissions-count-${f.id}`}>

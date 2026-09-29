@@ -308,3 +308,42 @@ def test_admin_creates_survey_for_client(env):
     assert a.get("/api/me/wa-surveys").json()["items"][0]["client_name"] == "PHL"
     # Le client PHL voit le sondage créé pour lui
     assert c.get(f"/api/me/wa-surveys/{s['id']}").status_code == 200
+
+
+def test_lot41_renvoi_des_echecs(env):
+    """Lot 41 — « Renvoyer les échecs » : seules les invitations en échec / non envoyées sans
+    réponse repartent, avec un modèle Meta ; elles passent « sent » si l'envoi réussit."""
+    c = env["client"]
+    sid = c.post("/api/me/wa-surveys", json={"title": "S", "questions": QUESTIONS[:1]}).json()["id"]
+    assert c.post(f"/api/me/wa-surveys/{sid}/send", json={"renvoi_echecs": True, "mode": "template",
+                                                          "template_name": "sondage", "variables": ["{{lien}}"]}
+                  ).status_code == 400                                   # rien à renvoyer
+    c.post(f"/api/me/wa-surveys/{sid}/send", json={"contact_ids": ["c1", "c2"], "mode": "text"})
+    _wait(env, sid)                                                      # c1 : fenêtre fermée -> non envoyé
+    env["sent"].clear()
+    r = c.post(f"/api/me/wa-surveys/{sid}/send", json={"renvoi_echecs": True, "mode": "template",
+                                                      "template_name": "sondage", "variables": ["{{lien}}"]})
+    assert r.status_code == 200 and r.json()["campaign"]["kind"] == "resend" and r.json()["campaign"]["total"] == 1
+    _wait(env, sid)
+    assert [(s[0], "".join(ch for ch in s[1] if ch.isdigit())) for s in env["sent"]] == [("template", "22670000001")]
+    inv = env["run"](env["db"].wa_survey_invites.find_one({"contact_id": "c1"}))
+    assert inv["status"] == "sent" and not inv.get("error")
+
+
+def test_lot41_entete_de_modele_complete():
+    """Lot 41 — erreur Meta #132000 : en-tête texte à variable sans valeur envoyée."""
+    from routes.whatsapp_helpers import _wa_add_header_params
+    tpl = {"components": [{"type": "HEADER", "format": "TEXT", "text": "Sondage {{1}}",
+                           "example": {"header_text": ["Satisfaction"]}},
+                          {"type": "BODY", "text": "Bonjour {{1}}"}]}
+    corps = [{"type": "body", "parameters": [{"type": "text", "text": "Awa"}]}]
+    comps, ajoute = _wa_add_header_params(corps, tpl)
+    assert ajoute and comps[0] == {"type": "header", "parameters": [{"type": "text", "text": "Satisfaction"}]}
+    # En-tête déjà fourni, en-tête sans variable ou image : rien ne change
+    deja = [{"type": "header", "parameters": [{"type": "text", "text": "X"}]}] + corps
+    assert _wa_add_header_params(deja, tpl) == (deja, False)
+    assert _wa_add_header_params(corps, {"components": [{"type": "HEADER", "format": "TEXT", "text": "Merci"}]})[1] is False
+    assert _wa_add_header_params(corps, {"components": [{"type": "HEADER", "format": "IMAGE"}]})[1] is False
+    # Sans exemple chez Meta : valeur neutre plutôt qu'un refus
+    sans = {"components": [{"type": "HEADER", "format": "TEXT", "text": "{{1}}"}]}
+    assert _wa_add_header_params(corps, sans)[0][0]["parameters"][0]["text"] == "—"

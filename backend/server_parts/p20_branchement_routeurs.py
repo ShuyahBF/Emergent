@@ -265,6 +265,21 @@ def _is_preview_environment() -> bool:
 
 
 from routes.wa_surveys import attach_wa_survey_routes as _attach_wa_surveys  # noqa: E402
+
+
+async def _signaler_reponse_sondage(sondage: dict, invitation: dict) -> None:
+    """Lot 41 — automatisation « Nouvelle réponse à un sondage » (en tâche de fond)."""
+    async def _go():
+        try:
+            if not sondage.get("client_id"):
+                return
+            n = await db.wa_survey_responses.count_documents({"survey_id": sondage["id"]})
+            await _emit_event("survey.responded", {"client_id": sondage["client_id"], "extra_ctx": {
+                "sondage": sondage.get("title") or "", "repondant": invitation.get("name") or "Anonyme",
+                "nb_reponses": str(n)}})
+        except Exception:  # noqa: BLE001
+            logger.warning("[automations] survey.responded non émis", exc_info=True)
+    asyncio.create_task(_go())
 # Lot 34 — routes des sondages réservées aux comptes dont « Formulaires et Sondages »
 # est activé (SMART Communications) ; liens publics : même contrôle sur le propriétaire.
 _wa_surveys = _attach_wa_surveys(
@@ -281,6 +296,7 @@ _wa_surveys = _attach_wa_surveys(
     sms_enabled_for=_sms_enabled_for,
     sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
     enforce_sms_quota=lambda user, n: _enforce_demo_quota(user, QUOTA_KEY_SMS, increment=n),
+    on_reponse=_signaler_reponse_sondage,          # lot 41 : automatisation « survey.responded »
 )
 
 
@@ -319,6 +335,15 @@ _attach_import_formulaire(
 # privé, tarif selon le type de client, paiement Mobile Money, puis mise en ligne avec un
 # lien crypté de saisie et un lien crypté des réponses (routes/liluvine_formulaire.py).
 from routes.liluvine_formulaire import attach_liluvine_formulaire_routes as _attach_liluvine_formulaire  # noqa: E402
+
+
+async def _journal_liluvine_formulaire(*, label: str, target_id: str = None):
+    """Lot 41 — entrée du journal d'activité (visible par l'Admin de la plateforme)."""
+    admin = await db.users.find_one({"role": "admin"}, {"_id": 0, "id": 1}) or {}
+    await _log_activity(client_id=admin.get("id"), kind="liluvine", action="blacklisted", label=label,
+                        actor={"id": "liluvine", "full_name": "Liluvine"}, target_id=target_id)
+
+
 _liluvine_formulaire = _attach_liluvine_formulaire(
     api=api, db=db, uuid_fn=_uuid, get_admin_or_supervisor=get_admin_or_supervisor,
     get_current_admin=get_current_admin, wa_send_text=_wa_send_text,
@@ -327,8 +352,30 @@ _liluvine_formulaire = _attach_liluvine_formulaire(
     gen_slug=_gen_slug, mnos=DEFAULT_CLIENT_PAWAPAY_MNOS, secret=LINK_JWT_SECRET,
     # Lot 37 — sondage de satisfaction : repli SMS si WhatsApp refuse (fenêtre de 24 h fermée)
     sms_send=lambda numero, texte: _sms_dispatch("auto", numero, texte, None),
+    # Lot 41 — liste noire : entrée au journal d'activité
+    journal_activite=_journal_liluvine_formulaire,
+    # Lot 41 — automatisation « Nouvelle soumission de formulaire » (lien crypté)
+    on_soumission=_signaler_soumission,
 )
 _HOOKS_APRES_PAIEMENT.append(_liluvine_formulaire["apres_paiement"])
+
+# Lot 41 — Maintenance des équipements confiés (fonction activable) : routes/maintenance_equipements.py
+from routes.maintenance_equipements import attach_maintenance_routes as _attach_maintenance  # noqa: E402
+_attach_maintenance(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
+                    slugify_code=_slugify_code, is_admin_like=_is_admin_or_superviseur)
+
+# Lot 41 — calendrier dans la discussion WhatsApp : moments occupés (RDV, planning, Google
+# Calendar de la plateforme, créneaux bloqués) et lien public de disponibilités.
+from routes.calendrier_partage import attach_calendrier_partage_routes as _attach_calendrier  # noqa: E402
+_attach_calendrier(api=api, db=db, get_current_user=get_current_user,
+                   public_base_url=lambda: _public_base_url() or _PUBLIC_BASE_URL,
+                   google_freebusy=gcal.freebusy, is_admin_like=_is_admin_or_superviseur)
+
+# Lot 41 — nouvelles données reçues (formulaires / sondages) : bulles verte et bleue de
+# la barre latérale et puce verte sur chaque formulaire ou sondage — routes/nouveautes_formulaires.py.
+from routes.nouveautes_formulaires import attach_nouveautes_formulaires_routes as _attach_nouveautes_fs  # noqa: E402
+_attach_nouveautes_fs(api=api, db=db, get_current_user=get_current_user, fonction_active=_fonction_active,
+                      is_admin_like=_is_admin_or_superviseur)
 
 
 @app.on_event("startup")

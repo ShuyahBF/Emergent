@@ -4,7 +4,7 @@ import { apiClient } from "@/lib/api";
 import { formatBytes } from "@/components/R2StorageGauge";
 import PortfolioBillingSection from "@/pages/admin/sections/PortfolioBillingSection";
 import { toast } from "sonner";
-import { ArrowLeft, GalleryHorizontalEnd, Pill, ScanText, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
+import { ArrowLeft, GalleryHorizontalEnd, Pill, Wrench, ScanText, MessageCircle, Smartphone, Sparkles, CreditCard, Save, ShieldCheck, Webhook, Building2, Volume2, MessageSquareText, Facebook, Megaphone, Image as ImageIcon, Film, Gauge, Wallet, Download, FileSpreadsheet, FileText, HardDrive } from "lucide-react";
 
 /*
   Admin → Fiche client → SMART Communications
@@ -271,12 +271,21 @@ const FEATURE_META = [
     color: "text-green-600",
     bg: "bg-green-50",
   },
+  // Lot 41 — activable aussi par le Superviseur (SMART Communications).
+  {
+    key: "maintenance_equipements",
+    label: "Maintenance des équipements",
+    description: "Fiches de dépôt du matériel confié pour réparation : numéro automatique, client, type de matériel (liste extensible), état, motif, diagnostic, pièces à remplacer, dates d'entrée et de sortie, bon imprimable. Désactivé : menu grisé et accès refusé par le serveur. Activable aussi par le Superviseur.",
+    icon: Wrench,
+    color: "text-orange-600",
+    bg: "bg-orange-50",
+  },
 ];
 
 export default function AdminClientFeatures() {
   const { id } = useParams();
   const [data, setData] = useState(null);
-  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false, vidal_enabled: false, vidal_mode: "inherit", forms_surveys: false, ocr_pieces: false, ordonnances_stock: false, whatsapp_carrousel: false });
+  const [features, setFeatures] = useState({ whatsapp: false, sms: false, ai: false, payments: false, webhook_returns: false, anon_name: false, anon_company: false, anon_email: false, anon_phone: false, anon_whatsapp: false, anon_rapports: false, anon_suivis: false, anon_communications: false, wa_sound_alerts: true, internal_chat: false, meta_pages: false, meta_messenger: false, meta_ads: false, ai_image_gen: false, ai_video_gen: false, ai_liluvine_pro: false, ai_voice_gen: false, kb_ocr_enabled: false, tickets_bubble: false, vidal_enabled: false, vidal_mode: "inherit", forms_surveys: false, ocr_pieces: false, ordonnances_stock: false, whatsapp_carrousel: false, maintenance_equipements: false });
   // Iter38r — PawaPay MSISDN policy (true | false | null = global default)
   const [pawapayFixMsisdn, setPawapayFixMsisdn] = useState(null);
   // Iter38r-fix9p — OCR pricing & quota per tenant

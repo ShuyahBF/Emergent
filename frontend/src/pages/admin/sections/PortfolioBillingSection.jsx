@@ -226,14 +226,31 @@ export default function PortfolioBillingSection({ clientId, clientLabel }) {
                       <div key={l} className="rounded-lg bg-slate-50 py-2"><p className="text-lg font-bold text-indigo-700 tabular-nums">{v}</p><p className="text-[10px] text-slate-500">{l}</p></div>
                     ))}
                   </div>
+                  {/* Lot 41 — commandes « !formulaire » de la période, badge AUTO / FORCÉ */}
+                  {(detail.metrics.liluvine?.items || []).length > 0 && (
+                    <div data-testid="pb-liluvine">
+                      <p className="text-xs font-semibold text-slate-700 mb-1">Formulaires « !formulaire » (Liluvine)</p>
+                      <ul className="space-y-0.5 text-xs">
+                        {detail.metrics.liluvine.items.map((it, n) => (
+                          <li key={n} className="flex flex-wrap items-center gap-2">
+                            <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase ${it.mode === "force" ? "bg-orange-100 text-orange-700" : "bg-emerald-100 text-emerald-700"}`}>
+                              {it.mode === "force" ? "forcé" : "auto"}
+                            </span>
+                            <span className="font-mono">{it.reference}</span>
+                            <span className="text-slate-500">{it.publie_le ? new Date(it.publie_le).toLocaleDateString("fr-FR") : ""} · {money(it.prix_xof || 0)}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {detail.ai_error && <p className="text-xs text-amber-700">Analyse IA non disponible : {detail.ai_error}</p>}
                   {detail.analysis && <Analysis text={detail.analysis} />}
                   {detail.lines.length ? (
                     <table className="w-full text-xs">
                       <thead className="text-[10px] uppercase text-slate-500"><tr><th className="text-left">Désignation</th><th className="text-right">Qté</th><th className="text-right">PU HT</th><th className="text-right">Total HT</th></tr></thead>
                       <tbody>
-                        {detail.lines.map((ln) => (
-                          <tr key={ln.key} className="border-t border-slate-100"><td className="py-1">{ln.label}</td><td className="text-right">{ln.quantity}</td>
+                        {detail.lines.map((ln, n) => (
+                          <tr key={`${ln.key}-${n}`} className="border-t border-slate-100"><td className="py-1">{ln.label}</td><td className="text-right">{ln.quantity}</td>
                             <td className="text-right">{money(ln.unit_price_ht)}</td><td className="text-right">{money(ln.total_ht)}</td></tr>
                         ))}
                         <tr className="border-t border-slate-200"><td colSpan={3} className="text-right py-1">Total HT</td><td className="text-right">{money(detail.total_ht)}</td></tr>

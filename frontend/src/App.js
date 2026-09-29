@@ -135,6 +135,7 @@ import Surveys from "@/pages/portal/Surveys";
 import SurveyEditor from "@/pages/portal/SurveyEditor";
 import SurveyResults from "@/pages/portal/SurveyResults";
 import PublicSurvey from "@/pages/public/PublicSurvey";
+import Disponibilites from "@/pages/public/Disponibilites";   // lot 41
 import PortfolioInvoices from "@/pages/portal/PortfolioInvoices";
 import ComingSoon from "@/pages/portal/ComingSoon";
 import Tickets from "@/pages/portal/Tickets";
@@ -162,6 +163,7 @@ import GestionStocks from "@/pages/portal/GestionStocks";
 import OcrPieces from "@/pages/portal/OcrPieces";
 import OrdonnancesStock from "@/pages/portal/OrdonnancesStock";   // lot 39
 import CarrouselWhatsApp from "@/pages/portal/CarrouselWhatsApp";   // lot 40
+import MaintenanceEquipements from "@/pages/portal/MaintenanceEquipements";   // lot 41
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
 import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
 import PortalBrochures from "@/pages/portal/PortalBrochures";
@@ -289,6 +291,8 @@ export default function App() {
           <Route path="/fr-resultats/:jeton" element={<PublicFormResults />} />
           {/* Lot 27 — réponse à un sondage WhatsApp (lien personnel, sans compte) */}
           <Route path="/s/:token" element={<PublicSurvey />} />
+          {/* Lot 41 — disponibilités partagées depuis une discussion WhatsApp */}
+          <Route path="/disponibilites/:jeton" element={<Disponibilites />} />
           <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />
           <Route path="/documentation" element={<ApiDocs />} />
@@ -350,6 +354,8 @@ export default function App() {
             <Route path="whatsapp-bulk" element={<WaBulk />} />
             {/* Lot 40 — carrousel WhatsApp vers les contacts qui ont accepté */}
             <Route path="whatsapp-carrousel" element={<CarrouselWhatsApp />} />
+            {/* Lot 41 — matériel confié pour réparation */}
+            <Route path="maintenance" element={<MaintenanceEquipements />} />
             <Route path="my-account" element={<MyAccount />} />
             {/* Iter36u — Caisse & Facturation module */}
             <Route path="cash" element={<CashBilling defaultTab="receipts" />} />
@@ -444,6 +450,7 @@ export default function App() {
             <Route path="portfolio-invoices" element={<PortfolioInvoices />} />
             <Route path="messaging" element={<AdminMessaging />} />
             <Route path="whatsapp-carrousel" element={<CarrouselWhatsApp admin />} />   {/* lot 40 */}
+            <Route path="maintenance" element={<MaintenanceEquipements />} />   {/* lot 41 */}
             <Route path="automations" element={<AdminAutomations />} />
             <Route path="whatsapp-templates" element={<AdminWaTemplates />} />
             <Route path="policies" element={<AdminPolicies />} />

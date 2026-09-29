@@ -208,3 +208,29 @@ def test_supervisor_chooses_vat_per_invoice(env):
     assert rep["invoiced_with_tva"] is False and rep["invoiced_amount"] == 10000
     assert c.get("/api/admin/portfolio-reports?status=to_invoice").json()["items"] == []
     assert len(c.get("/api/admin/portfolio-reports?status=invoiced").json()["items"]) == 2
+
+
+def test_lot41_formulaires_liluvine_auto_et_force(env):
+    """Lot 41 — commandes « !formulaire » de la période : badge AUTO / FORCÉ dans le bilan,
+    ligne FORCÉ facturée au tarif de la commande, ligne AUTO à 0 FCFA pour mémoire."""
+    c = env["client"]
+    env["loop"].run_until_complete(env["db"].liluvine_formulaires.insert_many([
+        {"id": "l1", "compte_id": "u-phl", "statut": "publie", "reference": "FORM-PHL-0003 · FORM_226_1",
+         "publie_le": "2026-09-12T10:00:00+00:00", "mode_realisation": "force", "prix_xof": 2000, "force_par": "admin"},
+        {"id": "l2", "compte_id": "u-phl", "statut": "publie", "reference": "FORM-PHL-0004 · FORM_226_2",
+         "publie_le": "2026-09-13T10:00:00+00:00", "prix_xof": 2000},                  # ancien : pas de mode → auto
+        {"id": "l3", "compte_id": "u-phl", "statut": "en_attente_paiement", "prix_xof": 2000},
+        {"id": "l4", "compte_id": "u-phl", "statut": "publie", "mode_realisation": "force", "prix_xof": 2000,
+         "publie_le": "2026-08-01T10:00:00+00:00"}]))                                   # hors période
+    rep = c.post("/api/admin/clients/u-phl/portfolio-reports", json={"date_from": D1, "date_to": D2, "with_ai": False}).json()
+    lil = rep["metrics"]["liluvine"]
+    assert (lil["auto"], lil["force"]) == (1, 1) and [x["mode"] for x in lil["items"]] == ["force", "auto"]
+    lignes = {ln["key"]: ln for ln in rep["lines"]}
+    assert "[FORCÉ]" in lignes["liluvine_force"]["label"] and lignes["liluvine_force"]["total_ht"] == 2000
+    assert "[AUTO]" in lignes["liluvine_auto"]["label"] and lignes["liluvine_auto"]["total_ht"] == 0
+    assert rep["total_ht"] == 2000
+    pdf = c.get(f"/api/admin/portfolio-reports/{rep['id']}/pdf")
+    assert pdf.status_code == 200 and pdf.content[:4] == b"%PDF"
+    inv = c.post(f"/api/admin/portfolio-reports/{rep['id']}/invoice", json={"kind": "invoice"}).json()["invoice"]
+    doc = env["loop"].run_until_complete(env["db"].invoices.find_one({"id": inv["id"]}))
+    assert any("[FORCÉ]" in it["label"] for it in doc["items"]) and any("[AUTO]" in it["label"] for it in doc["items"])

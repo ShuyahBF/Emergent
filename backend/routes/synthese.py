@@ -7,6 +7,11 @@ Two entry points :
   2. **WhatsApp command** `!synthese [début] [fin]` — manual on-demand
      synthèse for a date range (default = today).
 
+Lot 41 — la synthèse inclut les FORMULAIRES et SONDAGES : nouvelles soumissions et réponses
+de la période (avec les formulaires / sondages concernés) et les commandes WhatsApp
+« !formulaire » (reçues, mises en ligne AUTO ou FORCÉ, en attente de paiement, en erreur).
+Ce bloc est donné à Liluvine ET ajouté tel quel à la fin du message (chiffres garantis).
+
 Date parsing accepts (case-insensitive) :
   - ISO (`AAAA-MM-JJ`)
   - French (`JJ/MM/AAAA`)
@@ -123,6 +128,7 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
         "invoices": await _count("invoices", full),
         "payments": await _count("payment_transactions", full),
     }
+    kpi["formulaires_sondages"] = await _formulaires_sondages(db, scope_uid, start_iso, end_iso)
     # Last 5 tickets summary (uses opened_at).
     try:
         cursor = db.support_tickets.find(full_tickets, {"_id": 0}).sort("opened_at", -1).limit(5)
@@ -138,6 +144,61 @@ async def _gather_kpis(db, scope_uid: str, start: date, end: date) -> Dict[str, 
     except Exception:  # noqa: BLE001
         kpi["recent_tickets"] = []
     return kpi
+
+
+async def _formulaires_sondages(db, scope_uid: str, start_iso: str, end_iso: str) -> Dict[str, Any]:
+    """Lot 41 — données reçues sur les formulaires et sondages pendant la période
+    (soumission nouvelle ou modifiée), et commandes « !formulaire »."""
+    periode = {"$gte": start_iso, "$lt": end_iso}
+    recu = {"$or": [{"created_at": periode}, {"updated_at": periode}]}
+    res: Dict[str, Any] = {"soumissions": 0, "reponses": 0, "formulaires": [], "sondages": [],
+                           "commandes": {"recues": 0, "auto": 0, "force": 0, "attente_paiement": 0, "erreurs": 0}}
+    try:
+        for coll_items, coll_data, cle, champ_n, champ_l in (
+                ("forms", "form_submissions", "form_id", "soumissions", "formulaires"),
+                ("wa_surveys", "wa_survey_responses", "survey_id", "reponses", "sondages")):
+            q_items = {"client_id": scope_uid} if scope_uid else {}
+            titres = {x["id"]: x.get("title") or x["id"] async for x in db[coll_items].find(
+                q_items, {"_id": 0, "id": 1, "title": 1})}
+            if not titres:
+                continue
+            lignes = []
+            async for g in db[coll_data].aggregate([
+                    {"$match": {cle: {"$in": list(titres)}, **recu}},
+                    {"$group": {"_id": f"${cle}", "n": {"$sum": 1}}}]):
+                lignes.append({"titre": titres.get(g["_id"], g["_id"]), "n": g["n"]})
+            lignes.sort(key=lambda x: -x["n"])
+            res[champ_n] = sum(x["n"] for x in lignes)
+            res[champ_l] = lignes[:10]
+        q_cmd = {"compte_id": scope_uid} if scope_uid else {}
+        c = res["commandes"]
+        c["recues"] = await db.liluvine_formulaires.count_documents({**q_cmd, "cree_le": periode,
+                                                                     "statut": {"$ne": "mode_emploi"}})
+        async for x in db.liluvine_formulaires.find({**q_cmd, "statut": "publie", "publie_le": periode},
+                                                   {"_id": 0, "mode_realisation": 1}):
+            c["force" if x.get("mode_realisation") == "force" else "auto"] += 1
+        c["attente_paiement"] = await db.liluvine_formulaires.count_documents({**q_cmd, "statut": "en_attente_paiement"})
+        c["erreurs"] = await db.liluvine_formulaires.count_documents({**q_cmd, "statut": "erreur", "cree_le": periode})
+    except Exception:  # noqa: BLE001 — la synthèse part même si ce bloc échoue
+        logger.warning("[synthese] bloc formulaires/sondages indisponible", exc_info=True)
+    return res
+
+
+def bloc_formulaires_sondages(kpis: Dict[str, Any]) -> str:
+    """Lot 41 — bloc texte « Formulaires & sondages » (WhatsApp / email), chiffres exacts."""
+    fs = kpis.get("formulaires_sondages") or {}
+    if not fs:
+        return ""
+    c = fs.get("commandes") or {}
+    lignes = ["📋 *Formulaires & sondages*",
+              f"🟢 Formulaires : {fs.get('soumissions', 0)} soumission(s) reçue(s)"]
+    lignes += [f"   • {x['titre']} : {x['n']}" for x in fs.get("formulaires") or []]
+    lignes.append(f"🔵 Sondages : {fs.get('reponses', 0)} réponse(s) reçue(s)")
+    lignes += [f"   • {x['titre']} : {x['n']}" for x in fs.get("sondages") or []]
+    lignes.append(f"🤖 !formulaire : {c.get('recues', 0)} reçue(s), mises en ligne {c.get('auto', 0)} AUTO / "
+                  f"{c.get('force', 0)} FORCÉ, {c.get('attente_paiement', 0)} en attente de paiement, "
+                  f"{c.get('erreurs', 0)} en erreur")
+    return "\n".join(lignes)
 
 
 def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: date) -> str:
@@ -184,8 +245,10 @@ def _build_prompt(custom_prompt: str, kpis: Dict[str, Any], start: date, end: da
         f"{base}\n\n"
         f"[CONTEXTE STRUCTURÉ — {period_label}]\n"
         f"Indicateurs :\n{counts_lines}\n\n"
-        f"5 derniers tickets :\n{tickets_lines}\n"
+        f"5 derniers tickets :\n{tickets_lines}\n\n"
+        f"{bloc_formulaires_sondages(kpis)}\n"
         f"[FIN CONTEXTE]\n\n"
+        f"Consacre une puce aux formulaires et sondages (données reçues, commandes !formulaire AUTO / FORCÉ).\n"
         f"Génère la synthèse en français, en t'appuyant sur les chiffres ci-dessus. "
         f"N'invente PAS de chiffres : utilise ceux fournis. Si une catégorie est à 0, mentionne-le explicitement."
     )
@@ -220,7 +283,9 @@ async def build_synthese(db, *, start: date, end: date, scope_uid: Optional[str]
     s = await db.settings.find_one({"_id": "global"}, {"_id": 0, "synthese_prompt": 1}) or {}
     kpis = await _gather_kpis(db, scope_uid or "", start, end)
     prompt = _build_prompt(s.get("synthese_prompt") or "", kpis, start, end)
-    return await _call_liluvine(db, prompt)
+    texte = await _call_liluvine(db, prompt)
+    bloc = bloc_formulaires_sondages(kpis)                  # lot 41 : chiffres exacts ajoutés tels quels
+    return f"{texte}\n\n{bloc}" if bloc else texte
 
 
 async def detect_and_handle_synthese_command(
@@ -320,6 +385,9 @@ async def run_synthese_test(db) -> Dict[str, Any]:
     kpis = await _gather_kpis(db, "", today, today)
     prompt = _build_prompt(s.get("synthese_prompt") or "", kpis, today, today)
     body = await _call_liluvine(db, prompt)
+    bloc = bloc_formulaires_sondages(kpis)                  # lot 41
+    if bloc:
+        body = f"{body}\n\n{bloc}"
     sent_email = False
     sent_wa = False
     errors: list = []

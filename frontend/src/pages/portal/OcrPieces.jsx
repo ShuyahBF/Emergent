@@ -127,7 +127,7 @@ function PointageReport({ piece, onDownloadJson }) {
   return (
     <div className="space-y-3" data-testid={`ocr-pointage-report-${piece.id}`}>
       <div className="text-sm text-slate-700 whitespace-pre-line bg-white border border-slate-200 rounded p-3">
-        {piece.summary || "Aucun compte rendu disponible."}
+        {piece.compte_rendu || piece.summary || "Aucun compte rendu disponible."}
       </div>
       {piece.json_complete_disponible && (
         <Button size="sm" onClick={() => onDownloadJson(piece)} className="bg-teal-600 hover:bg-teal-700"
@@ -331,7 +331,7 @@ export default function OcrPieces() {
                 data-testid="ocr-pointage-help">
                 <b>Liste de pointage :</b> déposez le scan de la liste remplie à la main (PDF ou photos)
                 et joignez le fichier JSON de l'inventaire exporté par WinDev. Les colonnes INV Mag, INV SV
-                et Pérempt° sont lues et reportées dans le JSON (rapprochement sur le N° d'ordre), à
+                et Pérempt° sont lues et reportées dans le JSON (produits retrouvés par leur intitulé), à
                 télécharger ensuite avec le bouton <FileJson className="w-3.5 h-3.5 inline" />.
               </p>
             )}

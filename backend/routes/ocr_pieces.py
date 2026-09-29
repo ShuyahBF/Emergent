@@ -161,6 +161,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
         try:
             json_complete_path = None
             pointage_rapport = None
+            compte_rendu = None
             if kind == POINTAGE:
                 # Liste de pointage : lecture des colonnes manuscrites et report
                 # dans le JSON de l'inventaire (module ocr_pointage).
@@ -170,6 +171,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
                     model_id or ocr_core.default_model_id(),
                 )
                 pointage_rapport = result.pop("pointage_rapport", None)
+                compte_rendu = result.pop("compte_rendu", None)
                 json_complete = result.pop("json_complete", None)
                 if json_complete:
                     stored = await storage.save_and_log(
@@ -199,6 +201,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
                 "review": None, "created_at": _now(),
                 # Liste de pointage uniquement (None sinon).
                 "json_complete_path": json_complete_path, "pointage_rapport": pointage_rapport,
+                "compte_rendu": compte_rendu,
             }
             await db.ocr_piece_runs.insert_one(run.copy())
             # Synthèse la plus récente recopiée sur la pièce (liste et vue pharmacie).
@@ -211,6 +214,7 @@ def attach_ocr_pieces_routes(*, api, db, get_current_user):
             if kind == POINTAGE:
                 latest["json_complete_path"] = json_complete_path
                 latest["json_complete_disponible"] = bool(json_complete_path)
+                latest["compte_rendu"] = compte_rendu
             latest["status"] = "erreur_analyse" if run["error"] else "analyse"
             await db.ocr_pieces.update_one({"id": piece_id}, {"$set": latest})
         except Exception:

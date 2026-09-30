@@ -55,6 +55,27 @@ Robustesse (v2) :
     suivi, collection `migration_echecs`), exportables en CSV ;
   - « Réessayer les échecs » relance uniquement l'étape Fichiers (reprise :
     les objets déjà présents dans R2 sont sautés, la base n'est pas recopiée).
+
+Gros fichiers (lot 47) :
+  - un objet Emergent est lu EN FLUX (morceaux de 1 Mo) vers un fichier
+    temporaire, puis envoyé à R2 par boto3 (envoi en plusieurs parties) :
+    rien n'est chargé entièrement en mémoire ; le SHA-256 est calculé au fil
+    de l'eau. Les fichiers locaux sont envoyés directement depuis le disque ;
+  - pendant l'étape Fichiers, une tâche publie un signe de vie toutes les
+    BATTEMENT_FICHIER s (fichier en cours, taille, octets reçus / envoyés) :
+    un long fichier ne fait plus déclarer la sauvegarde « Interrompue » ;
+  - durée maximale par fichier (DUREE_MAX_FICHIER, tous essais compris) et
+    délai de lecture (DELAI_LECTURE sans aucun octet reçu) : au-delà, échec
+    « délai dépassé » et passage au fichier suivant ;
+  - le veilleur ne déclare pas interrompue une sauvegarde dont la tâche tourne
+    encore dans ce processus ;
+  - les fichiers locaux (rapides) passent avant les objets Emergent.
+
+Sauvegardes programmées et rétention (lot 47, routes/migration_programmation.py) :
+  - sauvegarde automatique tous les N jours à heure fixe (mode fusion), avec des
+    identifiants R2/Atlas conservés chiffrés par une clé du serveur ;
+  - purge des anciennes sauvegardes dans R2 (jours de rétention + les K dernières
+    réussies toujours gardées) et rapport envoyé à l'admin par Liluvine.
 """
 from __future__ import annotations
 
@@ -70,6 +91,9 @@ import os
 import re
 import secrets
 import tempfile
+import threading
+import time
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -89,15 +113,22 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/admin/migration", tags=["Migration vers Render"])
 
 # Collections jamais copiées (suivi de la migration elle-même)
-EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs"}
+# (et réglage des sauvegardes programmées : le nouveau site ne doit pas hériter de la programmation)
+EXCLUES = {"migration_jobs", "migration_coffre", "migration_echecs", "migration_programmation"}
 LOT = 500  # documents écrits par lot dans la base cible
 JOURNAL_MAX = 300  # lignes de journal conservées dans le suivi
 SILENCE_MAX = 180  # secondes sans signe de vie avant de déclarer la sauvegarde interrompue
 BATTEMENT_MIN = 5  # secondes minimum entre deux mises à jour de l'avancement
+# Silence toléré pour une tâche encore vivante dans ce processus (au-delà, on la croit bloquée)
+SILENCE_MAX_TACHE_VIVANTE = 1800
 
 # Références fortes vers les tâches en arrière-plan : sans elles, Python peut
 # supprimer une tâche en cours d'exécution (asyncio ne garde qu'une référence faible).
 _TACHES: set = set()
+# Tâche de chaque sauvegarde lancée par CE processus (le veilleur ne déclare pas
+# interrompue une sauvegarde dont la tâche tourne encore ici). Un serveur à plusieurs
+# processus ne voit pas les tâches des autres : pour elles, seul le signe de vie compte.
+_TACHES_PAR_JOB: Dict[str, asyncio.Task] = {}
 
 
 class ArretDemande(BaseException):
@@ -155,6 +186,24 @@ ECHECS_SUIVI_MAX = 500  # vraies erreurs détaillées dans le suivi (écran)
 ABSENTS_SUIVI_MAX = 200  # absents à la source détaillés dans le suivi (écran)
 ECHECS_STOCKES_MAX = 20_000  # échecs conservés par sauvegarde dans `migration_echecs` (export CSV)
 
+# Copie des fichiers en flux (lot 47)
+DUREE_MAX_FICHIER = 900  # secondes au maximum par fichier Emergent (15 min, tous essais compris)
+DELAI_LECTURE = 60  # secondes au maximum sans recevoir aucun octet (délai de lecture httpx)
+DELAI_CONNEXION = 30  # secondes au maximum pour se connecter au stockage Emergent
+MORCEAU = 1024 * 1024  # taille des morceaux lus puis écrits dans le fichier temporaire (1 Mo)
+BATTEMENT_FICHIER = 20  # secondes entre deux signes de vie pendant l'étape Fichiers
+GROS_FICHIER = 20 * 1024 * 1024  # au-delà (ou taille inconnue) : ligne de journal avant la copie
+JOURNAL_TOUS_LES = 25  # une ligne « n/total fichiers traités » tous les N fichiers
+
+# Option « Copier les médias (vidéos et sons) » : décochée, ces fichiers ne sont pas copiés.
+# Décision par l'extension, AVANT toute lecture ; sans extension reconnue, le type MIME annoncé
+# par le stockage Emergent (en-tête, avant le contenu) peut encore l'exclure.
+EXTENSIONS_MEDIAS = frozenset({
+    "mp4", "mov", "m4v", "avi", "mkv", "webm", "3gp", "3g2", "mpeg", "mpg", "wmv", "flv", "ogv", "ts",
+    "mp3", "m4a", "aac", "ogg", "oga", "opus", "wav", "flac", "amr", "wma", "weba", "aiff", "aif", "mid", "midi",
+})
+CAUSE_MEDIA = "média ignoré (option)"
+
 # Dossiers locaux copiés vers R2 (les chemins par défaut sont ceux d'Emergent)
 _RACINE = Path(os.environ.get("APP_ROOT") or Path(__file__).resolve().parents[2])  # /app sur Emergent
 DOSSIER_UPLOADS = Path(os.environ.get("UPLOAD_DIR") or _RACINE / "backend" / "uploads")
@@ -194,10 +243,92 @@ def _client_r2(account_id: str, access_key: str, secret_key: str):
                         config=config)
 
 
-def _lire_objet_emergent(chemin: str):
-    """Lit un objet du stockage Emergent -> (octets, type MIME). Lève une exception si absent."""
+@contextmanager
+def _flux_objet_emergent(chemin: str):
+    """Ouvre un objet du stockage Emergent EN FLUX -> (morceaux, type MIME, taille ou None).
+    Même requête que storage.fetch_bytes, mais sans charger tout le contenu en mémoire.
+    Délai de connexion DELAI_CONNEXION, puis DELAI_LECTURE au maximum sans aucun octet reçu.
+    Clé de stockage expirée (403) : une nouvelle clé est demandée et la requête refaite une fois.
+    Lève httpx.HTTPStatusError (404, 429, 5xx...), httpx.TimeoutException, httpx.TransportError,
+    ou RuntimeError si le stockage Emergent n'est pas initialisé (fonction simulée en test)."""
     import storage as stockage_emergent
-    return stockage_emergent.fetch_bytes(chemin)
+    if not stockage_emergent._ensure_ready() or not stockage_emergent._storage_key:
+        raise RuntimeError("Emergent storage non disponible")
+    url = f"{stockage_emergent.STORAGE_URL}/objects/{stockage_emergent._normalize_path(chemin)}"
+    delais = httpx.Timeout(DELAI_LECTURE, connect=DELAI_CONNEXION)
+    for tentative in (1, 2):
+        with httpx.stream("GET", url, headers={"X-Storage-Key": stockage_emergent._storage_key},
+                          timeout=delais) as reponse:
+            if reponse.status_code == 403 and tentative == 1:
+                # Clé de stockage expirée : nouvelle clé puis nouvel essai
+                stockage_emergent._reset_storage_key()
+                if stockage_emergent._try_init() and stockage_emergent._storage_key:
+                    continue
+            reponse.raise_for_status()
+            longueur = reponse.headers.get("Content-Length") or ""
+            yield (reponse.iter_bytes(MORCEAU), reponse.headers.get("Content-Type", "application/octet-stream"),
+                   int(longueur) if longueur.isdigit() else None)
+            return
+
+
+class DureeDepassee(Exception):
+    """Durée maximale par fichier (DUREE_MAX_FICHIER) dépassée pendant la lecture."""
+
+
+class MediaIgnore(Exception):
+    """Objet annoncé vidéo/son (type MIME) alors que l'option « Copier les médias » est décochée."""
+
+
+def _est_media(chemin: str) -> bool:
+    """Vrai si l'extension du fichier est celle d'une vidéo ou d'un son (EXTENSIONS_MEDIAS)."""
+    nom = chemin.rsplit("/", 1)[-1].lower()
+    return "." in nom and nom.rsplit(".", 1)[1] in EXTENSIONS_MEDIAS
+
+
+def _en_mo(octets: Optional[int]) -> str:
+    """Octets -> texte en Mo (journal)."""
+    return f"{(octets or 0) / 1048576:.1f} Mo"
+
+
+def _telecharger(chemin: str, sortie, etat: Dict[str, Any], echeance: float, arret: threading.Event,
+                 annoncer=None, ignorer_medias: bool = False) -> tuple:
+    """Lit un objet Emergent en flux et l'écrit dans `sortie` (fichier temporaire, vidé d'abord).
+    -> (type MIME, octets reçus, SHA-256). Exécuté dans un fil séparé.
+    `etat` reçoit la taille annoncée et les octets reçus (publiés par le signe de vie périodique) ;
+    `annoncer(taille)` est appelé dès que la taille est connue (ligne de journal des gros fichiers).
+    S'arrête entre deux morceaux si l'échéance (time.monotonic) est dépassée ou l'arrêt demandé.
+    ignorer_medias : un type MIME vidéo/son lève MediaIgnore AVANT de lire le contenu."""
+    sortie.seek(0)
+    sortie.truncate()
+    empreinte, recus = hashlib.sha256(), 0
+    etat.update(taille=None, recus=0, envoyes=0, phase="lecture")
+    with _flux_objet_emergent(chemin) as (morceaux, type_mime, taille):
+        if ignorer_medias and (type_mime or "").split(";")[0].strip().lower().startswith(("video/", "audio/")):
+            raise MediaIgnore(type_mime)
+        etat["taille"] = taille
+        if annoncer is not None:
+            annoncer(taille)
+        for morceau in morceaux:
+            sortie.write(morceau)
+            empreinte.update(morceau)
+            recus += len(morceau)
+            etat["recus"] = recus
+            if arret.is_set():
+                raise ArretDemande()
+            if time.monotonic() > echeance:
+                raise DureeDepassee(f"durée maximale de {DUREE_MAX_FICHIER // 60} min dépassée "
+                                    f"({_en_mo(recus)} reçus sur {_en_mo(taille) if taille else '?'})")
+    return type_mime, recus, empreinte.hexdigest()
+
+
+def _sha256_fichier(fichier: Path) -> tuple:
+    """SHA-256 et taille d'un fichier du disque, lus par morceaux (jamais tout en mémoire)."""
+    empreinte, taille = hashlib.sha256(), 0
+    with open(fichier, "rb") as f:
+        for morceau in iter(lambda: f.read(MORCEAU), b""):
+            empreinte.update(morceau)
+            taille += len(morceau)
+    return empreinte.hexdigest(), taille
 
 
 def _sans_references(nom: str) -> bool:
@@ -220,7 +351,7 @@ def _classer_erreur(exc: BaseException) -> tuple:
         if code in (401, 403):
             return code, "accès refusé", False
         return code, "erreur HTTP", False
-    if isinstance(exc, httpx.TimeoutException):
+    if isinstance(exc, (httpx.TimeoutException, DureeDepassee)):
         return None, "délai dépassé", True
     if isinstance(exc, httpx.TransportError):
         return None, "erreur réseau", True
@@ -237,21 +368,30 @@ class EchecLecture(Exception):
         self.code, self.cause, self.essais = code, cause, essais
 
 
-async def _lire_avec_essais(chemin: str) -> tuple:
-    """Lit un objet Emergent -> (octets, type MIME, nombre d'essais).
+async def _lire_avec_essais(chemin: str, sortie, etat: Dict[str, Any], arret: threading.Event,
+                            annoncer=None, ignorer_medias: bool = False) -> tuple:
+    """Lit un objet Emergent en flux dans `sortie` -> (type MIME, octets, SHA-256, nombre d'essais).
     Jusqu'à ESSAIS_MAX essais, avec une attente croissante, pour les erreurs passagères
-    (429, 5xx, délai dépassé, réseau) ; un 404 ou un refus d'accès échoue tout de suite."""
+    (429, 5xx, délai dépassé, réseau) ; un 404 ou un refus d'accès échoue tout de suite.
+    Tous les essais tiennent dans DUREE_MAX_FICHIER : une fois cette durée écoulée, plus d'essai
+    (échec « délai dépassé », qui pourra être repris par « Réessayer les échecs »)."""
+    echeance = time.monotonic() + DUREE_MAX_FICHIER
     essai = 0
     while True:
         essai += 1
         try:
-            donnees, type_mime = await asyncio.to_thread(_lire_objet_emergent, chemin)
-            return donnees, type_mime, essai
+            type_mime, octets, sha = await asyncio.to_thread(_telecharger, chemin, sortie, etat, echeance, arret,
+                                                             annoncer, ignorer_medias)
+            return type_mime, octets, sha, essai
+        except MediaIgnore:
+            raise
         except Exception as exc:  # noqa: BLE001
             code, cause, reessayable = _classer_erreur(exc)
-            if not reessayable or essai >= ESSAIS_MAX:
+            attente = ATTENTES_ESSAIS[min(essai - 1, len(ATTENTES_ESSAIS) - 1)]
+            if not reessayable or essai >= ESSAIS_MAX or isinstance(exc, DureeDepassee) \
+                    or time.monotonic() + attente >= echeance:
                 raise EchecLecture(exc, code, cause, essai) from exc
-            await asyncio.sleep(ATTENTES_ESSAIS[min(essai - 1, len(ATTENTES_ESSAIS) - 1)])
+            await asyncio.sleep(attente)
 
 
 def _chiffrer(donnees: bytes, mot_de_passe: str) -> Dict[str, Any]:
@@ -406,6 +546,8 @@ class Cible(BaseModel):
     copier_base: bool = True
     copier_fichiers: bool = True
     sauver_secrets: bool = True
+    # Lot 47 : décoché, les vidéos et sons ne sont pas copiés (repris tel quel en reprise)
+    copier_medias: bool = True
     mot_de_passe_secrets: Optional[str] = Field(None, max_length=200)
     # Identifiant d'une sauvegarde INTERROMPUE ou en ÉCHEC à reprendre (sinon : nouvelle sauvegarde)
     reprendre: Optional[str] = Field(None, max_length=40)
@@ -419,19 +561,47 @@ def _age_secondes(horodatage: Optional[str]) -> float:
         return float("inf")
 
 
+def _tache_vivante(job_id: str) -> bool:
+    """Vrai si la tâche de cette sauvegarde tourne encore dans CE processus."""
+    tache = _TACHES_PAR_JOB.get(job_id)
+    return tache is not None and not tache.done()
+
+
 async def _marquer_orphelines() -> None:
-    """Sauvegardes « EN_COURS » sans signe de vie récent -> INTERROMPUE (serveur redémarré, tâche perdue)."""
+    """Sauvegardes « EN_COURS » dont la tâche est perdue -> INTERROMPUE (serveur redémarré...).
+      - tâche encore vivante dans ce processus : jamais déclarée interrompue, sauf silence anormal
+        de plus de SILENCE_MAX_TACHE_VIVANTE s (tâche sans doute bloquée) ;
+      - tâche lancée ici mais terminée sans statut final : interrompue tout de suite ;
+      - tâche inconnue ici (serveur redémarré, ou autre processus) : interrompue après SILENCE_MAX s
+        sans signe de vie (le signe de vie périodique de l'étape Fichiers la protège)."""
     async for j in db.migration_jobs.find({"statut": "EN_COURS"}, {"_id": 0, "id": 1, "battement": 1, "debut": 1}):
-        if _age_secondes(j.get("battement") or j.get("debut")) > SILENCE_MAX:
+        silence = _age_secondes(j.get("battement") or j.get("debut"))
+        if _tache_vivante(j["id"]):
+            if silence <= SILENCE_MAX_TACHE_VIVANTE:
+                continue
+            ligne = f"{_maintenant()[11:19]} INTERROMPUE : tâche bloquée, aucun signe de vie depuis {int(silence)} s"
+        elif j["id"] in _TACHES_PAR_JOB:
+            ligne = f"{_maintenant()[11:19]} INTERROMPUE : la tâche s'est arrêtée sans statut final"
+        elif silence > SILENCE_MAX:
             ligne = f"{_maintenant()[11:19]} INTERROMPUE : plus de signe de vie depuis {SILENCE_MAX} s (serveur redémarré ?)"
-            await db.migration_jobs.update_one(
-                {"id": j["id"], "statut": "EN_COURS"},
-                {"$set": {"statut": "INTERROMPUE", "etape": "Interrompue", "fin": _maintenant()},
-                 "$push": {"journal": {"$each": [ligne], "$slice": -JOURNAL_MAX}}})
+        else:
+            continue
+        await db.migration_jobs.update_one(
+            {"id": j["id"], "statut": "EN_COURS"},
+            {"$set": {"statut": "INTERROMPUE", "etape": "Interrompue", "fin": _maintenant()},
+             "$push": {"journal": {"$each": [ligne], "$slice": -JOURNAL_MAX}}})
 
 
 @router.post("/lancer", status_code=202)
 async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
+    return await _demarrer(cible, admin.get("email", ""))
+
+
+async def _demarrer(cible: Cible, lance_par: str, programmee: bool = False) -> Dict[str, Any]:
+    """Contrôle la demande, vérifie les connexions puis lance la sauvegarde en arrière-plan.
+    Commun au bouton « Lancer » et aux sauvegardes programmées (routes/migration_programmation.py).
+    Lève HTTPException (400, 404, 409) quand la sauvegarde ne peut pas démarrer.
+    programmee=True : sauvegarde déclenchée par la programmation (rapport Liluvine et purge ensuite)."""
     await _marquer_orphelines()
     if await db.migration_jobs.find_one({"statut": "EN_COURS"}):
         raise HTTPException(409, "Une sauvegarde de migration est déjà en cours")
@@ -445,6 +615,10 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
             raise HTTPException(400, "Seule une sauvegarde interrompue, en échec ou avec anomalies peut être reprise")
         if cible.remplacer:
             raise HTTPException(400, "La reprise se fait en mode fusion : décochez « Remplacer »")
+        # Le choix « Copier les médias » de la sauvegarde reprise est conservé tel quel
+        medias_precedent = (precedente.get("options") or {}).get("medias")
+        if medias_precedent is not None:
+            cible = cible.model_copy(update={"copier_medias": bool(medias_precedent)})
     if cible.sauver_secrets and len(cible.mot_de_passe_secrets or "") < 12:
         raise HTTPException(400, "Mot de passe des secrets : 12 caractères minimum")
     if not (cible.copier_base or cible.copier_fichiers or cible.sauver_secrets):
@@ -479,15 +653,22 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
                   else (precedente or {}).get("cible", {}).get("mongo_hote", "—"))
     job = {
         "id": job_id, "statut": "EN_COURS", "etape": "Démarrage", "debut": _maintenant(), "fin": None,
-        "lance_par": admin.get("email", ""),
+        "lance_par": lance_par,
+        # Lot 47 : sauvegarde programmée ? (le rapport Liluvine est envoyé une fois terminée)
+        "programmee": programmee, "rapport": None,
+        # Octets envoyés à R2 : archives de la base et fichiers (taille indiquée dans le rapport)
+        "octets_archives": 0, "octets_fichiers": 0,
         # Description de la cible SANS identifiants
         "cible": {"mongo_hote": mongo_hote, "mongo_db": cible.mongo_db, "remplacer": cible.remplacer,
                   "r2_bucket": cible.r2_bucket, "prefixe": prefixe},
-        "options": {"base": cible.copier_base, "fichiers": cible.copier_fichiers, "secrets": cible.sauver_secrets},
+        "options": {"base": cible.copier_base, "fichiers": cible.copier_fichiers, "secrets": cible.sauver_secrets,
+                    "medias": cible.copier_medias},
         "collections_total": 0, "collections_faites": 0, "documents_copies": 0,
         "resultats_collections": [], "fichiers_total": 0, "fichiers_copies": 0, "fichiers_echecs": 0,
         # Lot 46 : absents à la source (404) comptés à part ; échecs regroupés par cause
         "fichiers_absents": 0, "echecs_par_cause": {}, "absents_fichiers": [],
+        # Lot 47 : vidéos et sons non copiés (option décochée), jamais comptés comme erreurs
+        "fichiers_medias_ignores": 0,
         "echecs_fichiers": [], "secrets": None, "secrets_chiffres": None, "journal": [],
         # Suivi en direct : signe de vie + collection en cours ; reprise éventuelle
         "battement": _maintenant(), "en_cours": None, "arret_demande": False,
@@ -503,6 +684,7 @@ async def lancer(cible: Cible, admin: dict = Depends(get_current_admin)):
                                           bool(precedente)))
     _TACHES.add(tache)  # référence forte tant que la tâche tourne
     tache.add_done_callback(_TACHES.discard)
+    _TACHES_PAR_JOB[job_id] = tache
     return {"id": job_id, "prefixe": prefixe}
 
 
@@ -524,7 +706,7 @@ async def arreter_job(job_id: str, _: dict = Depends(get_current_admin)):
         raise HTTPException(404, "Sauvegarde introuvable")
     if job["statut"] != "EN_COURS":
         return {"ok": True, "statut": job["statut"]}
-    if _age_secondes(job.get("battement") or job.get("debut")) > SILENCE_MAX:
+    if not _tache_vivante(job_id) and _age_secondes(job.get("battement") or job.get("debut")) > SILENCE_MAX:
         # Tâche déjà morte : on la déclare interrompue tout de suite
         await _marquer_orphelines()
         return {"ok": True, "statut": "INTERROMPUE"}
@@ -779,7 +961,8 @@ async def _copier_base(job_id, cible, client, r2, prefixe, references, manifeste
                     "archive_octets": taille, "sha256": empreinte.hexdigest()}
         manifeste["collections"].append(resultat)
         await db.migration_jobs.update_one({"id": job_id}, {"$push": {"resultats_collections": resultat},
-                                                            "$inc": {"collections_faites": 1, "documents_copies": copies}})
+                                                            "$inc": {"collections_faites": 1, "documents_copies": copies,
+                                                                     "octets_archives": taille}})
         await _maj(job_id, f"  {'✓' if ok else '✗'} {nom} : {n_source} → {n_cible}")
     await _maj(job_id, f"Base terminée : {total_docs} documents copiés, {anomalies} anomalie(s)")
     return anomalies
@@ -866,33 +1049,90 @@ def _existe_dans_r2(r2, bucket: str, cle: str) -> bool:
         return False
 
 
+def _code_r2(exc: BaseException) -> Optional[int]:
+    """Code HTTP renvoyé par R2 (botocore.ClientError le porte dans exc.response), sinon None."""
+    reponse = getattr(exc, "response", None)
+    return reponse.get("ResponseMetadata", {}).get("HTTPStatusCode") if isinstance(reponse, dict) else None
+
+
 async def _copier_fichiers(job_id, cible, r2, prefixe, references, manifeste, reprise: bool = False) -> int:
-    """Copie des objets Emergent et des fichiers locaux vers R2.
-    Renvoie le nombre de VRAIES erreurs (les absents à la source ne comptent pas)."""
+    """Copie des fichiers locaux puis des objets Emergent vers R2, EN FLUX (jamais tout en mémoire).
+    Renvoie le nombre de VRAIES erreurs (les absents à la source et les médias ignorés ne comptent pas)."""
     chemins, ignores = await _chemins_emergent(references)
     locaux: List[tuple] = []
     for dossier, sous in ((DOSSIER_UPLOADS, "uploads"), (DOSSIER_SNAPSHOTS, "snapshots")):
         if dossier.exists():
             locaux += [(f, f"{sous}/{f.relative_to(dossier).as_posix()}") for f in dossier.rglob("*") if f.is_file()]
     total = len(chemins) + len(locaux)
-    await _maj(job_id, f"Fichiers : {len(chemins)} objet(s) Emergent + {len(locaux)} fichier(s) locaux "
+    ignorer_medias = not cible.copier_medias
+    await _maj(job_id, f"Fichiers : {len(locaux)} fichier(s) locaux + {len(chemins)} objet(s) Emergent "
                        f"(références ignorées : {ignores['disque']} fichier(s) disque, "
                        f"{ignores['inconnu']} identifiant(s) inconnu(s))",
                etape="Fichiers", fichiers_total=total, references_ignorees=ignores)
-    echecs, absents, faits, stockes = 0, 0, 0, 0
+    await _maj(job_id, "Médias (vidéos et sons) : " + ("ignorés (option décochée)" if ignorer_medias else "copiés"))
+    echecs, absents, medias, faits, stockes = 0, 0, 0, 0, 0
+
+    # Fichier en cours, lu par le signe de vie périodique. Les fils de lecture (octets reçus)
+    # et d'envoi boto3 (octets envoyés) le mettent à jour pendant la copie.
+    etat: Dict[str, Any] = {"fichier": None, "taille": None, "recus": 0, "envoyes": 0, "phase": None}
+    # Arrêt demandé (vu par le signe de vie périodique) : transmis aux fils de lecture
+    arret = threading.Event()
+    boucle = asyncio.get_running_loop()
+
+    def en_cours() -> Dict[str, Any]:
+        """Avancement publié dans le suivi (champ `en_cours`)."""
+        return {"fichier": (etat["fichier"] or "")[-80:], "faits": faits, "total": total, "taille": etat["taille"],
+                "recus": etat["recus"], "envoyes": etat["envoyes"], "phase": etat["phase"]}
+
+    async def veiller() -> None:
+        """Signe de vie toutes les BATTEMENT_FICHIER s, même au milieu d'un long fichier."""
+        while True:
+            await asyncio.sleep(BATTEMENT_FICHIER)
+            try:
+                await _battement(job_id, en_cours(), force=True)
+            except ArretDemande:
+                arret.set()
+                return
+            except Exception as exc:  # noqa: BLE001 — une base momentanément injoignable n'arrête pas la copie
+                logger.warning("[migration] signe de vie non publié : %s", exc)
+
+    def debut_fichier(source: str) -> None:
+        etat.update(fichier=source, taille=None, recus=0, envoyes=0, phase="lecture")
+
+    def compter_envoi(octets: int) -> None:
+        """Rappel de boto3 (depuis ses fils d'envoi) : octets envoyés à R2."""
+        etat["phase"] = "envoi"
+        etat["envoyes"] = (etat["envoyes"] or 0) + octets
+
+    def annonceur(numero: int, source: str):
+        """Ligne de journal « Fichier n/total » dès que la taille d'un objet Emergent est connue,
+        s'il est gros ou de taille inconnue. Appelée depuis le fil de lecture."""
+        def annoncer(taille: Optional[int]) -> None:
+            if taille is None or taille > GROS_FICHIER:
+                texte = _en_mo(taille) if taille is not None else "taille inconnue"
+                asyncio.run_coroutine_threadsafe(_maj(job_id, f"Fichier {numero}/{total} : {source} ({texte})"),
+                                                 boucle)
+        return annoncer
 
     async def noter(ok: bool, source: str, cle: str, octets: int = 0, sha: str = "", erreur: str = "",
                     code: Optional[int] = None, cause: str = "", origine: str = "", essais: int = 1):
-        """Enregistre le résultat d'un fichier : manifeste, compteurs, détail des échecs (suivi + base)."""
-        nonlocal echecs, absents, faits, stockes
+        """Enregistre le résultat d'un fichier : manifeste, compteurs, détail des échecs (suivi + base).
+        Un média ignoré (option) est compté à part et n'apparaît ni dans les échecs ni dans leur export."""
+        nonlocal echecs, absents, medias, faits, stockes
         faits += 1
         absent = not ok and cause == CAUSE_ABSENT
+        media = not ok and cause == CAUSE_MEDIA
         manifeste["fichiers"].append({"source": source, "cle": cle, "ok": ok, "octets": octets, "sha256": sha,
                                       "erreur": erreur, "code": code, "cause": cause, "origine": origine,
                                       "essais": essais})
-        compteur = "fichiers_copies" if ok else ("fichiers_absents" if absent else "fichiers_echecs")
+        compteur = ("fichiers_copies" if ok else "fichiers_medias_ignores" if media
+                    else "fichiers_absents" if absent else "fichiers_echecs")
         champs: Dict[str, Any] = {"$inc": {compteur: 1}}
-        if not ok:
+        if ok and octets:
+            champs["$inc"]["octets_fichiers"] = octets
+        if media:
+            medias += 1
+        elif not ok:
             # Regroupement par cause (et code HTTP) pour l'écran
             groupe = f"{cause} (HTTP {code})" if code else cause
             champs["$inc"][f"echecs_par_cause.{groupe}"] = 1
@@ -912,56 +1152,87 @@ async def _copier_fichiers(job_id, cible, r2, prefixe, references, manifeste, re
                                                       "erreur": erreur[:1000], "essais": essais,
                                                       "date": _maintenant()})
         await db.migration_jobs.update_one({"id": job_id}, champs)
-        await _battement(job_id, {"fichier": source[-80:], "faits": faits, "total": total})
-        if faits % 100 == 0:
+        await _battement(job_id, {**en_cours(), "fichier": source[-80:]})
+        if faits % JOURNAL_TOUS_LES == 0:
             await _maj(job_id, f"  {faits}/{total} fichiers traités")
 
-    async def deja_dans_r2(source: str, cle: str, origine: str) -> bool:
-        """En reprise : fichier déjà copié lors de la sauvegarde précédente -> compté comme copié."""
+    async def a_sauter(source: str, cle: str, origine: str) -> bool:
+        """Fichier à ne pas copier : arrêt demandé (lève ArretDemande), média ignoré par option,
+        ou, en reprise, fichier déjà copié lors de la sauvegarde précédente (compté comme copié)."""
+        if arret.is_set():
+            raise ArretDemande()
+        if ignorer_medias and _est_media(source):
+            await noter(False, source, cle, cause=CAUSE_MEDIA, origine=origine)
+            return True
         if reprise and await asyncio.to_thread(_existe_dans_r2, r2, cible.r2_bucket, cle):
             await noter(True, source, cle, erreur="déjà présent (reprise)", origine=origine)
             return True
         return False
 
-    for chemin, origine in chemins.items():
-        cle = f"{prefixe}/objets/{chemin}"
-        if await deja_dans_r2(chemin, cle, origine):
-            continue
-        # Lecture avec nouvelles tentatives, puis écriture dans R2 (boto3 réessaie lui-même)
+    veille = asyncio.create_task(veiller())
+    try:
+        # 1) Fichiers locaux (rapides) : SHA-256 lu par morceaux, envoi direct depuis le disque
+        for fichier, relatif in locaux:
+            cle = f"{prefixe}/{relatif}"
+            origine = f"disque ({relatif.split('/', 1)[0]})"
+            if await a_sauter(str(fichier), cle, origine):
+                continue
+            debut_fichier(str(fichier))
+            try:
+                etat["taille"] = fichier.stat().st_size
+                if etat["taille"] > GROS_FICHIER:
+                    await _maj(job_id, f"Fichier {faits + 1}/{total} : {relatif} ({_en_mo(etat['taille'])})")
+                sha, octets = await asyncio.to_thread(_sha256_fichier, fichier)
+            except Exception as exc:  # noqa: BLE001
+                await noter(False, str(fichier), cle, erreur=str(exc), cause="lecture disque", origine=origine)
+                continue
+            etat["phase"] = "envoi"
+            try:
+                await asyncio.to_thread(r2.upload_file, str(fichier), cible.r2_bucket, cle, Callback=compter_envoi)
+                await noter(True, str(fichier), cle, octets, sha, origine=origine)
+            except Exception as exc:  # noqa: BLE001
+                await noter(False, str(fichier), cle, erreur=str(exc), code=_code_r2(exc), cause="écriture R2",
+                            origine=origine)
+
+        # 2) Objets Emergent : lecture en flux vers un fichier temporaire (supprimé ensuite),
+        #    avec nouvelles tentatives et durée maximale, puis envoi à R2 (plusieurs parties si gros)
+        for chemin, origine in chemins.items():
+            cle = f"{prefixe}/objets/{chemin}"
+            if await a_sauter(chemin, cle, origine):
+                continue
+            debut_fichier(chemin)
+            with tempfile.TemporaryFile() as tmp:
+                try:
+                    type_mime, octets, sha, essais = await _lire_avec_essais(
+                        chemin, tmp, etat, arret, annonceur(faits + 1, chemin), ignorer_medias)
+                except MediaIgnore as exc:
+                    # Sans extension reconnue, mais annoncé vidéo/son par le stockage : rien n'a été téléchargé
+                    await noter(False, chemin, cle, erreur=f"type {exc}", cause=CAUSE_MEDIA, origine=origine)
+                    continue
+                except EchecLecture as exc:
+                    await noter(False, chemin, cle, erreur=str(exc), code=exc.code, cause=exc.cause, origine=origine,
+                                essais=exc.essais)
+                    continue
+                etat["phase"] = "envoi"
+                tmp.seek(0)
+                try:
+                    await asyncio.to_thread(r2.upload_fileobj, tmp, cible.r2_bucket, cle,
+                                            ExtraArgs={"ContentType": type_mime or "application/octet-stream"},
+                                            Callback=compter_envoi)
+                    await noter(True, chemin, cle, octets, sha, origine=origine, essais=essais)
+                except Exception as exc:  # noqa: BLE001
+                    await noter(False, chemin, cle, erreur=str(exc), code=_code_r2(exc), cause="écriture R2",
+                                origine=origine, essais=essais)
+    finally:
+        veille.cancel()
         try:
-            donnees, type_mime, essais = await _lire_avec_essais(chemin)
-        except EchecLecture as exc:
-            await noter(False, chemin, cle, erreur=str(exc), code=exc.code, cause=exc.cause, origine=origine,
-                        essais=exc.essais)
-            continue
-        try:
-            await asyncio.to_thread(r2.put_object, Bucket=cible.r2_bucket, Key=cle, Body=donnees,
-                                    ContentType=type_mime or "application/octet-stream")
-            await noter(True, chemin, cle, len(donnees), hashlib.sha256(donnees).hexdigest(), origine=origine,
-                        essais=essais)
-        except Exception as exc:  # noqa: BLE001
-            # botocore.ClientError porte le code HTTP de R2 dans exc.response
-            reponse = getattr(exc, "response", None)
-            code = reponse.get("ResponseMetadata", {}).get("HTTPStatusCode") if isinstance(reponse, dict) else None
-            await noter(False, chemin, cle, erreur=str(exc), code=code, cause="écriture R2", origine=origine,
-                        essais=essais)
-    for fichier, relatif in locaux:
-        cle = f"{prefixe}/{relatif}"
-        origine = f"disque ({relatif.split('/', 1)[0]})"
-        if await deja_dans_r2(str(fichier), cle, origine):
-            continue
-        try:
-            donnees = await asyncio.to_thread(fichier.read_bytes)
-        except Exception as exc:  # noqa: BLE001
-            await noter(False, str(fichier), cle, erreur=str(exc), cause="lecture disque", origine=origine)
-            continue
-        try:
-            await asyncio.to_thread(r2.put_object, Bucket=cible.r2_bucket, Key=cle, Body=donnees)
-            await noter(True, str(fichier), cle, len(donnees), hashlib.sha256(donnees).hexdigest(), origine=origine)
-        except Exception as exc:  # noqa: BLE001
-            await noter(False, str(fichier), cle, erreur=str(exc), cause="écriture R2", origine=origine)
-    await _maj(job_id, f"Fichiers terminés : {faits - echecs - absents} copié(s), {absents} absent(s) à la source "
-                       f"(ignorés), {echecs} vraie(s) erreur(s)")
+            await veille
+        except (asyncio.CancelledError, Exception):  # noqa: BLE001
+            pass
+    if ignorer_medias:
+        await _maj(job_id, f"Médias : ignorés ({medias})")
+    await _maj(job_id, f"Fichiers terminés : {faits - echecs - absents - medias} copié(s), {absents} absent(s) "
+                       f"à la source (ignorés), {medias} média(s) ignoré(s) (option), {echecs} vraie(s) erreur(s)")
     return echecs
 
 

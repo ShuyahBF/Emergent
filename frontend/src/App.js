@@ -164,6 +164,8 @@ import OcrPieces from "@/pages/portal/OcrPieces";
 import OrdonnancesStock from "@/pages/portal/OrdonnancesStock";   // lot 39
 import CarrouselWhatsApp from "@/pages/portal/CarrouselWhatsApp";   // lot 40
 import MaintenanceEquipements from "@/pages/portal/MaintenanceEquipements";   // lot 41
+import ParcInformatique from "@/pages/portal/ParcInformatique";   // lot 47
+import RapportParc from "@/pages/public/RapportParc";   // lot 47 : rapport d'intervention à signer
 import FonctionsClients from "@/pages/portal/FonctionsClients";   // lot 34
 import PublicFormResults from "@/pages/public/PublicFormResults";   // lot 36
 import PortalBrochures from "@/pages/portal/PortalBrochures";
@@ -296,6 +298,7 @@ export default function App() {
           <Route path="/s/:token" element={<PublicSurvey />} />
           {/* Lot 41 — disponibilités partagées depuis une discussion WhatsApp */}
           <Route path="/disponibilites/:jeton" element={<Disponibilites />} />
+          <Route path="/rapport-parc/:jeton" element={<RapportParc />} />   {/* lot 47 */}
           <Route path="/pay/:slug" element={<PayLink />} />
           <Route path="/remote/support/:token" element={<RemoteSupportConsole />} />
           <Route path="/documentation" element={<ApiDocs />} />
@@ -359,6 +362,7 @@ export default function App() {
             <Route path="whatsapp-carrousel" element={<CarrouselWhatsApp />} />
             {/* Lot 41 — matériel confié pour réparation */}
             <Route path="maintenance" element={<MaintenanceEquipements />} />
+            <Route path="parc" element={<ParcInformatique />} />
             <Route path="my-account" element={<MyAccount />} />
             {/* Iter36u — Caisse & Facturation module */}
             <Route path="cash" element={<CashBilling defaultTab="receipts" />} />
@@ -454,6 +458,7 @@ export default function App() {
             <Route path="messaging" element={<AdminMessaging />} />
             <Route path="whatsapp-carrousel" element={<CarrouselWhatsApp admin />} />   {/* lot 40 */}
             <Route path="maintenance" element={<MaintenanceEquipements />} />   {/* lot 41 */}
+            <Route path="parc" element={<ParcInformatique />} />   {/* lot 47 */}
             <Route path="automations" element={<AdminAutomations />} />
             <Route path="whatsapp-templates" element={<AdminWaTemplates />} />
             <Route path="policies" element={<AdminPolicies />} />
